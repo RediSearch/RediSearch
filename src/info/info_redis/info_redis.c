@@ -280,9 +280,9 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms",
                                    RSGlobalConfig.requestConfigParams.queryTimeoutMS);
   RedisModule_InfoAddFieldCString(ctx, "timeout_policy",
-																	(char *)FailurePolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
+																	(char *)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
   RedisModule_InfoAddFieldCString(ctx, "oom_policy",
-																		(char *)FailurePolicy_ToString(RSGlobalConfig.requestConfigParams.OOMPolicy));
+                                  (char *)OomPolicy_ToString(RSGlobalConfig.requestConfigParams.oomPolicy));
   RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
   RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
 

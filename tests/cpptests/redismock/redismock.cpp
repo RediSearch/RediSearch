@@ -628,6 +628,176 @@ char *RMCK_Strdup(const char *s) {
   return strdup(s);
 }
 
+/** RDB Mock Operations */
+
+void RMCK_SaveUnsigned(RedisModuleIO *io, uint64_t value) {
+  if (!io) return;
+  uint8_t *bytes = reinterpret_cast<uint8_t*>(&value);
+  for (size_t i = 0; i < sizeof(uint64_t); i++) {
+    io->buffer.push_back(bytes[i]);
+  }
+}
+
+uint64_t RMCK_LoadUnsigned(RedisModuleIO *io) {
+  if (!io || io->read_pos + sizeof(uint64_t) > io->buffer.size()) {
+    if (io) io->error_flag = true;
+    return 0;
+  }
+  uint64_t value = 0;
+  uint8_t *bytes = reinterpret_cast<uint8_t*>(&value);
+  for (size_t i = 0; i < sizeof(uint64_t); i++) {
+    bytes[i] = io->buffer[io->read_pos++];
+  }
+  return value;
+}
+
+void RMCK_SaveSigned(RedisModuleIO *io, int64_t value) {
+  if (!io) return;
+  uint8_t *bytes = reinterpret_cast<uint8_t*>(&value);
+  for (size_t i = 0; i < sizeof(int64_t); i++) {
+    io->buffer.push_back(bytes[i]);
+  }
+}
+
+int64_t RMCK_LoadSigned(RedisModuleIO *io) {
+  if (!io || io->read_pos + sizeof(int64_t) > io->buffer.size()) {
+    if (io) io->error_flag = true;
+    return 0;
+  }
+  int64_t value = 0;
+  uint8_t *bytes = reinterpret_cast<uint8_t*>(&value);
+  for (size_t i = 0; i < sizeof(int64_t); i++) {
+    bytes[i] = io->buffer[io->read_pos++];
+  }
+  return value;
+}
+
+void RMCK_SaveDouble(RedisModuleIO *io, double value) {
+  if (!io) return;
+  uint8_t *bytes = reinterpret_cast<uint8_t*>(&value);
+  for (size_t i = 0; i < sizeof(double); i++) {
+    io->buffer.push_back(bytes[i]);
+  }
+}
+
+double RMCK_LoadDouble(RedisModuleIO *io) {
+  if (!io || io->read_pos + sizeof(double) > io->buffer.size()) {
+    if (io) io->error_flag = true;
+    return 0.0;
+  }
+  double value = 0.0;
+  uint8_t *bytes = reinterpret_cast<uint8_t*>(&value);
+  for (size_t i = 0; i < sizeof(double); i++) {
+    bytes[i] = io->buffer[io->read_pos++];
+  }
+  return value;
+}
+
+void RMCK_SaveStringBuffer(RedisModuleIO *io, const char *str, size_t len) {
+  if (!io || !str) return;
+  // Save length first
+  RMCK_SaveUnsigned(io, len);
+  // Save string data
+  for (size_t i = 0; i < len; i++) {
+    io->buffer.push_back(static_cast<uint8_t>(str[i]));
+  }
+}
+
+char *RMCK_LoadStringBuffer(RedisModuleIO *io, size_t *lenptr) {
+  if (!io) {
+    if (lenptr) *lenptr = 0;
+    return nullptr;
+  }
+
+  uint64_t len = RMCK_LoadUnsigned(io);
+  if (io->error_flag || io->read_pos + len > io->buffer.size()) {
+    io->error_flag = true;
+    if (lenptr) *lenptr = 0;
+    return nullptr;
+  }
+
+  char *str = static_cast<char*>(malloc(len + 1));
+  if (!str) {
+    io->error_flag = true;
+    if (lenptr) *lenptr = 0;
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < len; i++) {
+    str[i] = static_cast<char>(io->buffer[io->read_pos++]);
+  }
+  str[len] = '\0';
+
+  if (lenptr) *lenptr = len;
+  return str;
+}
+
+void RMCK_SaveString(RedisModuleIO *io, RedisModuleString *s) {
+  if (!io || !s) return;
+  RMCK_SaveStringBuffer(io, s->c_str(), s->length());
+}
+
+RedisModuleString *RMCK_LoadString(RedisModuleIO *io) {
+  size_t len;
+  char *str = RMCK_LoadStringBuffer(io, &len);
+  if (!str) return nullptr;
+
+  RedisModuleString *rms = new RedisModuleString(std::string(str, len));
+  free(str);
+  return rms;
+}
+
+int RMCK_IsIOError(RedisModuleIO *io) {
+  int result = io ? (io->error_flag ? 1 : 0) : 1;
+  return result;
+}
+
+// Track contexts associated with IO objects
+static std::map<RedisModuleIO*, RedisModuleCtx*> io_contexts;
+static std::mutex io_contexts_mutex;
+
+RedisModuleCtx *RMCK_GetContextFromIO(RedisModuleIO *io) {
+  if (!io) return nullptr;
+
+  std::lock_guard<std::mutex> lock(io_contexts_mutex);
+
+  // Check if we already have a context for this IO
+  auto it = io_contexts.find(io);
+  if (it != io_contexts.end()) {
+    return it->second;
+  }
+
+  // Create new context and associate it with this IO
+  RedisModuleCtx *ctx = new RedisModuleCtx();
+  io_contexts[io] = ctx;
+  return ctx;
+}
+
+RedisModuleIO *RMCK_CreateRdbIO(void) {
+  return new RedisModuleIO();
+}
+
+void RMCK_FreeRdbIO(RedisModuleIO *io) {
+  if (io) {
+    std::lock_guard<std::mutex> lock(io_contexts_mutex);
+    // Clean up associated context
+    auto it = io_contexts.find(io);
+    if (it != io_contexts.end()) {
+      delete it->second;
+      io_contexts.erase(it);
+    }
+  }
+  delete io;
+}
+
+void RMCK_ResetRdbIO(RedisModuleIO *io) {
+  if (io) {
+    io->buffer.clear();
+    io->read_pos = 0;
+    io->error_flag = false;
+  }
+}
+
 #define REPLY_FUNC(basename, ...)                           \
   int RMCK_Reply##basename(RedisModuleCtx *, __VA_ARGS__) { \
     return REDISMODULE_OK;                                  \
@@ -985,6 +1155,13 @@ int RMCK_GetContextFlags(RedisModuleCtx *ctx) {
   return 0;
 }
 
+void RMCK_SelectDb(RedisModuleCtx *ctx, int newid) {
+  ctx->dbid = newid;
+}
+
+static int RMCK_GetSelectedDb(RedisModuleCtx *ctx) {
+  return ctx->dbid;
+}
 
 /** Fork */
 static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
@@ -1219,6 +1396,22 @@ static void registerApis() {
   REGISTER_API(SetCommandACLCategories);
   REGISTER_API(Yield);
   REGISTER_API(GetContextFlags);
+  REGISTER_API(GetSelectedDb);
+  REGISTER_API(SelectDb);
+
+  // RDB operations
+  REGISTER_API(SaveUnsigned);
+  REGISTER_API(LoadUnsigned);
+  REGISTER_API(SaveSigned);
+  REGISTER_API(LoadSigned);
+  REGISTER_API(SaveDouble);
+  REGISTER_API(LoadDouble);
+  REGISTER_API(SaveString);
+  REGISTER_API(SaveStringBuffer);
+  REGISTER_API(LoadString);
+  REGISTER_API(LoadStringBuffer);
+  REGISTER_API(IsIOError);
+  REGISTER_API(GetContextFromIO);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

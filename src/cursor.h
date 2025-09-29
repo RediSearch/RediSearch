@@ -30,6 +30,12 @@ typedef struct Cursor {
    */
   WeakRef spec_ref;
 
+  /**
+   * Hybrid request reference. This is a strong reference to the hybrid request.
+   * If the hybrid request is NULL, this is a regular cursor.
+   */
+  StrongRef hybrid_ref;
+
   /** Execution state. Opaque to the cursor - managed by consumer */
   AREQ *execState;
 

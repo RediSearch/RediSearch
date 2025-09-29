@@ -649,8 +649,8 @@ CONFIG_SETTER(setOnTimeout) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, &len, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  RSFailurePolicy top = FailurePolicy_Parse(policy, len);
-  if (top == FailurePolicy_Invalid) {
+  RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, len);
+  if (top == TimeoutPolicy_Invalid) {
     QueryError_SetError(status, QUERY_EBADVAL, "Invalid ON_TIMEOUT value");
     return REDISMODULE_ERR;
   }
@@ -659,7 +659,7 @@ CONFIG_SETTER(setOnTimeout) {
 }
 
 CONFIG_GETTER(getOnTimeout) {
-  return sdsnew(FailurePolicy_ToString(config->requestConfigParams.timeoutPolicy));
+  return sdsnew(TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
 }
 
 // on-timeout
@@ -667,46 +667,13 @@ int set_on_timeout(const char *name, int val, void *privdata,
                    RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
-  *((RSFailurePolicy *)privdata) = (RSFailurePolicy)val;
+  *((RSTimeoutPolicy *)privdata) = (RSTimeoutPolicy)val;
   return REDISMODULE_OK;
 }
 
 int get_on_timeout(const char *name, void *privdata){
   REDISMODULE_NOT_USED(name);
-  return *((RSFailurePolicy *)privdata);
-}
-
-// ON_OOM
-CONFIG_SETTER(setOnOom) {
-  size_t len;
-  const char *policy;
-  int acrc = AC_GetString(ac, &policy, &len, 0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  RSFailurePolicy oop = FailurePolicy_Parse(policy, len);
-  if (oop == FailurePolicy_Invalid) {
-    QueryError_SetError(status, QUERY_EBADVAL, "Invalid ON_OOM value");
-    return REDISMODULE_ERR;
-  }
-  config->requestConfigParams.OOMPolicy = oop;
-  return REDISMODULE_OK;
-}
-
-CONFIG_GETTER(getOnOom) {
-  return sdsnew(FailurePolicy_ToString(config->requestConfigParams.OOMPolicy));
-}
-
-// on-oom
-int set_on_oom(const char *name, int val, void *privdata,
-               RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
-  *((RSFailurePolicy *)privdata) = (RSFailurePolicy)val;
-  return REDISMODULE_OK;
-}
-
-int get_on_oom(const char *name, void *privdata){
-  REDISMODULE_NOT_USED(name);
-  return *((RSFailurePolicy *)privdata);
+  return *((RSTimeoutPolicy *)privdata);
 }
 
 // GC_SCANSIZE
@@ -1023,6 +990,39 @@ CONFIG_SETTER(setIndexerYieldEveryOps) {
 CONFIG_GETTER(getIndexerYieldEveryOps) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
+}
+
+// ON_OOM
+CONFIG_SETTER(setOnOom) {
+  size_t len;
+  const char *policy;
+  int acrc = AC_GetString(ac, &policy, &len, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  RSOomPolicy oom = OomPolicy_Parse(policy, len);
+  if (oom == OomPolicy_Invalid) {
+    QueryError_SetError(status, QUERY_EBADVAL, "Invalid ON_OOM value");
+    return REDISMODULE_ERR;
+  }
+  config->requestConfigParams.oomPolicy = oom;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getOnOom) {
+  return sdsnew(OomPolicy_ToString(config->requestConfigParams.oomPolicy));
+}
+
+// on-oom
+int set_on_oom(const char *name, int val, void *privdata,
+               RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *((RSOomPolicy *)privdata) = (RSOomPolicy)val;
+  return REDISMODULE_OK;
+}
+
+int get_on_oom(const char *name, void *privdata){
+  REDISMODULE_NOT_USED(name);
+  return *((RSOomPolicy *)privdata);
 }
 
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
@@ -1353,7 +1353,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setIndexerYieldEveryOps,
          .getValue = getIndexerYieldEveryOps},
         {.name = "ON_OOM",
-         .helpText = "Action to perform when search OOM is exceeded (choose RETURN or FAIL)",
+         .helpText = "Action to perform when search OOM is exceeded (choose RETURN, FAIL or IGNORE)",
          .setValue = setOnOom,
          .getValue = getOnOom},
         {.name = NULL}}};
@@ -1457,8 +1457,8 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "min word length to stem: %u, ", config->iteratorsConfigParams.minStemLength);
   ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->iteratorsConfigParams.maxPrefixExpansions);
   ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
-  ss = sdscatprintf(ss, "timeout policy: %s, ", FailurePolicy_ToString(config->requestConfigParams.timeoutPolicy));
-  ss = sdscatprintf(ss, "oom policy: %s, ", FailurePolicy_ToString(config->requestConfigParams.OOMPolicy));
+  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
+  ss = sdscatprintf(ss, "oom policy: %s, ", OomPolicy_ToString(config->requestConfigParams.oomPolicy));
   ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
@@ -1554,26 +1554,40 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
   return rc;
 }
 
-const char *FailurePolicy_ToString(RSFailurePolicy policy) {
-  switch (policy) {
-    case FailurePolicy_Return:
-      return on_failure_vals[FailurePolicy_Return];
-    case FailurePolicy_Fail:
-      return on_failure_vals[FailurePolicy_Fail];
-    default:
-      return "invalid";
+const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
+  // Assert policy is valid
+  RS_ASSERT(policy < TimeoutPolicy_Invalid);
+  return on_timeout_vals[policy];
+}
+
+RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
+  if (STR_EQCASE(s, n, on_timeout_vals[TimeoutPolicy_Return])) {
+    return TimeoutPolicy_Return;
+  } else if (STR_EQCASE(s, n, on_timeout_vals[TimeoutPolicy_Fail])) {
+    return TimeoutPolicy_Fail;
+  } else {
+    return TimeoutPolicy_Invalid;
   }
 }
 
-RSFailurePolicy FailurePolicy_Parse(const char *s, size_t n) {
-  if (STR_EQCASE(s, n, on_failure_vals[FailurePolicy_Return])) {
-    return FailurePolicy_Return;
-  } else if (STR_EQCASE(s, n, on_failure_vals[FailurePolicy_Fail])) {
-    return FailurePolicy_Fail;
+const char *OomPolicy_ToString(RSOomPolicy policy) {
+  // Assert policy is valid
+  RS_ASSERT(policy < OomPolicy_Invalid);
+  return on_oom_vals[policy];
+}
+
+RSOomPolicy OomPolicy_Parse(const char *s, size_t n) {
+  if (STR_EQCASE(s, n, on_oom_vals[OomPolicy_Return])) {
+    return OomPolicy_Return;
+  } else if (STR_EQCASE(s, n, on_oom_vals[OomPolicy_Fail])) {
+    return OomPolicy_Fail;
+  } else if (STR_EQCASE(s, n, on_oom_vals[OomPolicy_Ignore])) {
+    return OomPolicy_Ignore;
   } else {
-    return FailurePolicy_Invalid;
+    return OomPolicy_Invalid;
   }
 }
+
 void iteratorsConfig_init(IteratorsConfig *config) {
   *config = RSGlobalConfig.iteratorsConfigParams;
 }
@@ -1871,9 +1885,9 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   // Enum parameters
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-on-timeout", FailurePolicy_Return,
+      ctx, "search-on-timeout", TimeoutPolicy_Return,
       REDISMODULE_CONFIG_UNPREFIXED,
-      on_failure_vals, on_failure_enums, 2,
+      on_timeout_vals, on_timeout_enums, 2,
       get_on_timeout, set_on_timeout, NULL,
       (void*)&RSGlobalConfig.requestConfigParams.timeoutPolicy
     )
@@ -1881,11 +1895,11 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-on-oom", FailurePolicy_Return,
+      ctx, "search-on-oom", OomPolicy_Ignore,
       REDISMODULE_CONFIG_UNPREFIXED,
-      on_failure_vals, on_failure_enums, 2,
+      on_oom_vals, on_oom_enums, 3,
       get_on_oom, set_on_oom, NULL,
-      (void*)&RSGlobalConfig.requestConfigParams.OOMPolicy
+      (void*)&RSGlobalConfig.requestConfigParams.oomPolicy
     )
   )
 

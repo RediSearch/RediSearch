@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include "types_rs.h"
 #define QINT_API static
 #include "inverted_index.h"
 #include "math.h"
@@ -20,13 +21,19 @@
 #include "rmutil/rm_assert.h"
 #include "geo_index.h"
 
-uint64_t TotalIIBlocks = 0;
+uint64_t TotalBlocks = 0;
+
+// This is a temporary wrapper around `TotalBlocks`. When we switch over to Rust it won't be possible to access `TotalBlocks` directly. So
+// this aligns the usage with the incoming Rust code.
+size_t TotalIIBlocks() {
+  return TotalBlocks;
+}
 
 // The last block of the index
 #define INDEX_LAST_BLOCK(idx) (InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1))
 
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
-  TotalIIBlocks++;
+  TotalBlocks++;
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   IndexBlock *last = idx->blocks + (idx->size - 1);
@@ -202,7 +209,7 @@ void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
 
 void InvertedIndex_Free(InvertedIndex *idx) {
   size_t numBlocks = InvertedIndex_NumBlocks(idx);
-  TotalIIBlocks -= numBlocks;
+  TotalBlocks -= numBlocks;
   for (uint32_t i = 0; i < numBlocks; i++) {
     indexBlock_Free(&idx->blocks[i]);
   }
@@ -544,14 +551,14 @@ IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId) {
 }
 
 IndexDecoderCtx NewIndexDecoderCtx_NumericFilter() {
-  IndexDecoderCtx ctx = {.filter = NULL};
+  IndexDecoderCtx ctx = {.tag = IndexDecoderCtx_None};
 
   return ctx;
 }
 
 // Create a new IndexDecoderCtx with a mask filter. Used only in benchmarks.
 IndexDecoderCtx NewIndexDecoderCtx_MaskFilter(uint32_t mask) {
-  IndexDecoderCtx ctx = {.mask = mask};
+  IndexDecoderCtx ctx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = mask};
 
   return ctx;
 }
@@ -726,7 +733,7 @@ DECODER(readFreqsFlags) {
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &fieldMask);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = fieldMask;
-  return fieldMask & ctx->mask;
+  return fieldMask & ctx->field_mask;
 }
 
 DECODER(readFreqsFlagsWide) {
@@ -734,7 +741,7 @@ DECODER(readFreqsFlagsWide) {
   qint_decode2(&blockReader->buffReader, &delta, &res->freq);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
-  return res->fieldMask & ctx->wideMask;
+  return res->fieldMask & ctx->field_mask;
 }
 
 DECODER(readFreqOffsetsFlags) {
@@ -746,7 +753,7 @@ DECODER(readFreqOffsetsFlags) {
   res->fieldMask = fieldMask;
   RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
   Buffer_Skip(&blockReader->buffReader, offsetsSz);
-  return fieldMask & ctx->mask;
+  return fieldMask & ctx->field_mask;
 }
 
 SKIPPER(seekFreqOffsetsFlags) {
@@ -757,7 +764,7 @@ SKIPPER(seekFreqOffsetsFlags) {
     qint_decode4(&blockReader->buffReader, &did, &freq, &fm, &offsz);
     Buffer_Skip(&blockReader->buffReader, offsz);
     blockReader->curBaseId = (did += blockReader->curBaseId);
-    if (!(ctx->mask & fm)) {
+    if (!(ctx->field_mask & fm)) {
       continue;  // we just ignore it if it does not match the field mask
     }
     if (did >= expid) {
@@ -785,7 +792,7 @@ DECODER(readFreqOffsetsFlagsWide) {
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
   RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
   Buffer_Skip(&blockReader->buffReader, offsetsSz);
-  return res->fieldMask & ctx->wideMask;
+  return res->fieldMask & ctx->field_mask;
 }
 
 // special decoder for decoding numeric results
@@ -837,8 +844,8 @@ DECODER(readNumeric) {
 
   IndexResult_SetNumValue(res, value);
 
-  const NumericFilter *f = ctx->filter;
-  if (f) {
+  const NumericFilter *f = ctx->numeric;
+  if (ctx->tag == IndexDecoderCtx_Numeric && f) {
     if (NumericFilter_IsNumeric(f)) {
       return NumericFilter_Match(f, value);
     } else {
@@ -866,14 +873,14 @@ DECODER(readFlags) {
   qint_decode2(&blockReader->buffReader, &delta, &mask);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = mask;
-  return mask & ctx->mask;
+  return mask & ctx->field_mask;
 }
 
 DECODER(readFlagsWide) {
   blockReader->curBaseId = res->docId = ReadVarint(&blockReader->buffReader) + blockReader->curBaseId;
   res->freq = 1;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
-  return res->fieldMask & ctx->wideMask;
+  return res->fieldMask & ctx->field_mask;
 }
 
 DECODER(readFieldsOffsets) {
@@ -885,7 +892,7 @@ DECODER(readFieldsOffsets) {
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
   Buffer_Skip(&blockReader->buffReader, offsetsSz);
-  return mask & ctx->mask;
+  return mask & ctx->field_mask;
 }
 
 DECODER(readFieldsOffsetsWide) {
@@ -898,7 +905,7 @@ DECODER(readFieldsOffsetsWide) {
   RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
 
   Buffer_Skip(&blockReader->buffReader, offsetsSz);
-  return res->fieldMask & ctx->wideMask;
+  return res->fieldMask & ctx->field_mask;
 }
 
 DECODER(readOffsetsOnly) {
@@ -1118,104 +1125,6 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
       RS_LOG_ASSERT_FMT(0, "Invalid index flags: %d", flags);
       RETURN_DECODERS(NULL, NULL);
   }
-}
-
-/* Repair an index block by removing garbage - records pointing at deleted documents,
- * and write valid entries in their place.
- * Returns the number of docs collected, and puts the number of bytes collected in the given
- * pointer.
- */
-size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
-  static const IndexDecoderCtx empty = {0};
-
-  IndexBlockReader reader = { .buffReader = NewBufferReader(IndexBlock_Buffer(blk)), .curBaseId = IndexBlock_FirstId(blk) };
-  BufferReader *br = &reader.buffReader;
-  Buffer repair = {0};
-  BufferWriter bw = NewBufferWriter(&repair);
-  uint32_t readFlags = flags & INDEX_STORAGE_MASK;
-  RSIndexResult *res = readFlags == Index_StoreNumeric ? NewNumericResult() : NewTokenRecord(NULL, 1);
-  IndexDecoderProcs decoders = InvertedIndex_GetDecoder(readFlags);
-  IndexEncoder encoder = InvertedIndex_GetEncoder(readFlags);
-
-  blk->lastId = blk->firstId = 0;
-  size_t frags = 0;
-  t_docId lastReadId = 0;
-  bool isLastValid = false;
-
-  params->bytesBeforFix = IndexBlock_Cap(blk);
-
-  bool docExists;
-  while (!BufferReader_AtEnd(br)) {
-    const char *bufBegin = BufferReader_Current(br);
-    // read the curr entry of the buffer into res and promote the buffer to the next one.
-    decoders.decoder(&reader, &empty, res);
-    size_t sz = BufferReader_Current(br) - bufBegin;
-
-    // Multi value documents are saved as individual entries that share the same docId.
-    // Increment frags only when moving to the next doc
-    // (do not increment when moving to the next entry in the same doc)
-    unsigned fragsIncr = 0;
-    if (lastReadId != res->docId) {
-      fragsIncr = 1;
-      // Lookup the doc (for the same doc use the previous result)
-      docExists = DocTable_Exists(dt, res->docId);
-      lastReadId = res->docId;
-    }
-
-    // If we found a deleted document, we increment the number of found "frags",
-    // and not write anything, so the reader will advance but the writer won't.
-    // this will close the "hole" in the index
-    if (!docExists) {
-      if (!frags) {
-        // First invalid doc; copy everything prior to this to the repair
-        // buffer
-        Buffer_Write(&bw, IndexBlock_Data(blk), bufBegin - IndexBlock_Data(blk));
-      }
-      frags += fragsIncr;
-      params->bytesCollected += sz;
-      ++params->entriesCollected;
-      isLastValid = false;
-    } else { // the doc exist
-      if (params->RepairCallback) {
-        params->RepairCallback(res, blk, params->arg);
-      }
-      if (IndexBlock_FirstId(blk) == 0) { // this is the first valid doc
-        blk->firstId = res->docId;
-        blk->lastId = res->docId; // first diff should be 0
-      }
-
-      // Valid document, but we're rewriting the block:
-      if (frags) {
-        if (encoder != encodeRawDocIdsOnly) {
-          if (isLastValid) {
-            // if the last was valid, the order of the entries didn't change. We can just copy the entry, as it already contains the correct delta.
-            Buffer_Write(&bw, bufBegin, sz);
-          } else { // we need to calculate the delta
-            encoder(&bw, res->docId - IndexBlock_LastId(blk), res);
-          }
-        } else { // encoder == encodeRawDocIdsOnly
-          t_docId firstId = IndexBlock_FirstId(blk);
-          encoder(&bw, res->docId - firstId, res);
-        }
-      }
-      // Update the last seen valid doc id, even if we didn't write it (yet)
-      blk->lastId = res->docId;
-      isLastValid = true;
-    }
-  }
-  if (frags) {
-    // If we deleted stuff from this block, we need to change the number of entries and the data
-    // pointer
-    blk->numEntries -= params->entriesCollected;
-    Buffer_Free(IndexBlock_Buffer(blk));
-    IndexBlock_SetBuffer(blk, repair);
-    Buffer_ShrinkToSize(IndexBlock_Buffer(blk));
-  }
-
-  params->bytesAfterFix = IndexBlock_Cap(blk);
-
-  IndexResult_Free(res);
-  return frags;
 }
 
 /* Calculate efficiency ratio of the inverted index: numEntries / numBlocks.
@@ -1460,7 +1369,7 @@ IndexFlags IndexReader_Flags(const IndexReader *ir) {
 }
 
 const NumericFilter *IndexReader_NumericFilter(const IndexReader *ir) {
-  return ir->decoderCtx.filter;
+  return ir->decoderCtx.numeric;
 }
 
 void IndexReader_SwapIndex(IndexReader *ir, const InvertedIndex *newIdx) {
@@ -1472,3 +1381,510 @@ void IndexReader_SwapIndex(IndexReader *ir, const InvertedIndex *newIdx) {
 InvertedIndex *IndexReader_II(const IndexReader *ir) {
   return (InvertedIndex *)ir->idx;
 }
+
+// ----- GC related API
+
+size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
+  static const IndexDecoderCtx empty = {0};
+
+  IndexBlockReader reader = { .buffReader = NewBufferReader(IndexBlock_Buffer(blk)), .curBaseId = IndexBlock_FirstId(blk) };
+  BufferReader *br = &reader.buffReader;
+  Buffer repair = {0};
+  BufferWriter bw = NewBufferWriter(&repair);
+  uint32_t readFlags = flags & INDEX_STORAGE_MASK;
+  RSIndexResult *res = readFlags == Index_StoreNumeric ? NewNumericResult() : NewTokenRecord(NULL, 1);
+  IndexDecoderProcs decoders = InvertedIndex_GetDecoder(readFlags);
+  IndexEncoder encoder = InvertedIndex_GetEncoder(readFlags);
+
+  blk->lastId = blk->firstId = 0;
+  size_t frags = 0;
+  t_docId lastReadId = 0;
+  bool isLastValid = false;
+
+  params->bytesBeforFix = IndexBlock_Cap(blk);
+
+  bool docExists;
+  while (!BufferReader_AtEnd(br)) {
+    const char *bufBegin = BufferReader_Current(br);
+    // read the curr entry of the buffer into res and promote the buffer to the next one.
+    decoders.decoder(&reader, &empty, res);
+    size_t sz = BufferReader_Current(br) - bufBegin;
+
+    // Multi value documents are saved as individual entries that share the same docId.
+    // Increment frags only when moving to the next doc
+    // (do not increment when moving to the next entry in the same doc)
+    unsigned fragsIncr = 0;
+    if (lastReadId != res->docId) {
+      fragsIncr = 1;
+      // Lookup the doc (for the same doc use the previous result)
+      docExists = DocTable_Exists(dt, res->docId);
+      lastReadId = res->docId;
+    }
+
+    // If we found a deleted document, we increment the number of found "frags",
+    // and not write anything, so the reader will advance but the writer won't.
+    // this will close the "hole" in the index
+    if (!docExists) {
+      if (!frags) {
+        // First invalid doc; copy everything prior to this to the repair
+        // buffer
+        Buffer_Write(&bw, IndexBlock_Data(blk), bufBegin - IndexBlock_Data(blk));
+      }
+      frags += fragsIncr;
+      params->bytesCollected += sz;
+      ++params->entriesCollected;
+      isLastValid = false;
+    } else { // the doc exist
+      if (params->RepairCallback) {
+        params->RepairCallback(res, blk, params->arg);
+      }
+      if (IndexBlock_FirstId(blk) == 0) { // this is the first valid doc
+        blk->firstId = res->docId;
+        blk->lastId = res->docId; // first diff should be 0
+      }
+
+      // Valid document, but we're rewriting the block:
+      if (frags) {
+        if (encoder != encodeRawDocIdsOnly) {
+          if (isLastValid) {
+            // if the last was valid, the order of the entries didn't change. We can just copy the entry, as it already contains the correct delta.
+            Buffer_Write(&bw, bufBegin, sz);
+          } else { // we need to calculate the delta
+            encoder(&bw, res->docId - IndexBlock_LastId(blk), res);
+          }
+        } else { // encoder == encodeRawDocIdsOnly
+          t_docId firstId = IndexBlock_FirstId(blk);
+          encoder(&bw, res->docId - firstId, res);
+        }
+      }
+      // Update the last seen valid doc id, even if we didn't write it (yet)
+      blk->lastId = res->docId;
+      isLastValid = true;
+    }
+  }
+  if (frags) {
+    // If we deleted stuff from this block, we need to change the number of entries and the data
+    // pointer
+    blk->numEntries -= params->entriesCollected;
+    Buffer_Free(IndexBlock_Buffer(blk));
+    IndexBlock_SetBuffer(blk, repair);
+    Buffer_ShrinkToSize(IndexBlock_Buffer(blk));
+  }
+
+  params->bytesAfterFix = IndexBlock_Cap(blk);
+
+  IndexResult_Free(res);
+  return frags;
+}
+
+struct InvertedIndexGcDelta {
+  IndexBlock *new_blocklist;
+  size_t new_blocklist_size;
+
+  InvertedIndex_DeletedInput *deleted;
+  size_t deleted_len;
+
+  InvertedIndex_RepairedInput *repaired;
+
+  bool last_block_ignored;
+};
+
+static void checkLastBlock(InvertedIndex *idx, InvertedIndexGcDelta *delta,
+                           II_GCScanStats *info) {
+  IndexBlock *lastOld = InvertedIndex_BlockRef(idx, info->nblocksOrig - 1);
+  if (info->lastblkDocsRemoved == 0) {
+    // didn't touch last block in child
+    return;
+  }
+  if (info->lastblkNumEntries == IndexBlock_NumEntries(lastOld)) {
+    // didn't touch last block in parent
+    return;
+  }
+
+  // Otherwise, we added new entries to the last block while the child was running. In this case we discard all
+  // the child garbage collection, assuming they will take place in the next gc iteration.
+
+  if (info->lastblkEntriesRemoved == info->lastblkNumEntries) {
+    // Last block was deleted entirely while updates on the main process.
+    // Remove it from delBlocks list
+    delta->deleted_len--;
+
+    // If all the blocks were deleted, there is no newblocklist. Otherwise, we need to add it to the newBlocklist.
+    if (delta->new_blocklist) {
+      delta->new_blocklist_size++;
+      delta->new_blocklist = rm_realloc(delta->new_blocklist,
+                                        sizeof(*delta->new_blocklist) * delta->new_blocklist_size);
+      delta->new_blocklist[delta->new_blocklist_size - 1] = *lastOld;
+    }
+  } else {
+    // Last block was modified on the child and on the parent. (but not entirely deleted)
+
+    // we need to remove it from changedBlocks
+    InvertedIndex_RepairedInput *rb = delta->repaired + info->nblocksRepaired - 1;
+    indexBlock_Free(&rb->blk);
+    info->nblocksRepaired--;
+
+    // If newBlocklist!=NULL then the last block must be there (it was changed and not deleted),
+    // prefer the parent's block.
+    if (delta->new_blocklist) {
+      delta->new_blocklist[delta->new_blocklist_size - 1] = *lastOld;
+    }
+  }
+
+  info->ndocsCollected -= info->lastblkDocsRemoved;
+  info->nbytesCollected -= info->lastblkBytesCollected;
+  info->nentriesCollected -= info->lastblkEntriesRemoved;
+  delta->last_block_ignored = true;
+
+  // used to be directly on gc, now we do it via info gc stats
+  info->gcBlocksDenied++;
+}
+
+void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
+                                InvertedIndexGcDelta *d,
+                                II_GCScanStats *info) {
+  checkLastBlock(idx, d, info);
+
+  // If the child did not touch the last block, prefer the parent's last block pointer
+  if (d->new_blocklist && !info->lastblkDocsRemoved) {
+      /*
+      * Last block was unmodified-- let's prefer the last block's pointer
+      * over our own (which may be stale).
+      * If the last block was repaired, this is handled above in checkLastBlock()
+      */
+      d->new_blocklist[d->new_blocklist_size - 1] =
+          InvertedIndex_Block(idx, info->nblocksOrig - 1);
+  }
+
+  // Free blocks that will be replaced by repaired versions
+  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
+    const int64_t oldix = d->repaired[i].oldix;
+    IndexBlock *blk = InvertedIndex_BlockRef(idx, (size_t)oldix);
+    indexBlock_Free(blk);
+  }
+
+  // Free raw buffers of fully deleted blocks
+  for (size_t i = 0; i < d->deleted_len; ++i) {
+    rm_free(d->deleted[i].ptr);
+  }
+  TotalBlocks -= d->deleted_len;
+  rm_free(d->deleted);
+  d->deleted = NULL;
+
+  // Ensure the old index is at least as big as the new index' size
+  RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Current index size should be larger or equal to original index size");
+
+  // Reshape the block list if the child produced a new compacted list
+  if (d->new_blocklist) {
+    // Number of blocks added in the parent process since the last scan
+    size_t newAddedLen = InvertedIndex_NumBlocks(idx) - info->nblocksOrig; // TODO: can we just decrease by number of deleted.
+
+    // The final size is the reordered block size, plus the number of blocks
+    // which we haven't scanned yet, because they were added in the parent
+    size_t totalLen = d->new_blocklist_size + newAddedLen;
+
+    if (InvertedIndex_NumBlocks(idx) > info->nblocksOrig) {
+      d->new_blocklist = rm_realloc(
+          d->new_blocklist,
+          totalLen * sizeof(*d->new_blocklist));
+
+      if (newAddedLen > 0) {
+        memcpy(d->new_blocklist + d->new_blocklist_size,
+                InvertedIndex_BlockRef(idx, info->nblocksOrig),
+                newAddedLen * sizeof(*d->new_blocklist));
+      }
+    }
+    InvertedIndex_SetBlocks(idx, d->new_blocklist, totalLen);
+    // ownership of new_blocklist has moved into idx
+    d->new_blocklist = NULL;
+  } else if (d->deleted_len) {
+    // if idxData->newBlocklist == NULL it's either because all the blocks the child has seen are gone or we didn't change the
+    // size of the index (idxData->numDelBlocks == 0).
+    // So if we enter here (idxData->numDelBlocks != 0) it's the first case, all blocks the child has seen need to be deleted.
+    // Note that we might want to keep the last block, although deleted by the child. In this case numDelBlocks will *not include*
+    // the last block.
+    size_t numBlocks = InvertedIndex_BlocksShift(idx, d->deleted_len);
+    if (numBlocks == 0) {
+      InvertedIndex_AddBlock(idx, 0, (size_t *)&info->nbytesAdded);
+    }
+  }
+
+  // Install repaired blocks at their new positions
+  // TODO : can we skip if we have newBlocklist?
+  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
+    const int64_t newix = d->repaired[i].newix;
+    RS_LOG_ASSERT(newix >= 0 && (size_t)newix < InvertedIndex_NumBlocks(idx),
+                  "newix out of bounds in InvertedIndex_ApplyGcDelta");
+    InvertedIndex_SetBlock(idx, (size_t)newix, d->repaired[i].blk);
+    // ownership of repaired[i].blk buffer is now inside idx
+  }
+  rm_free(d->repaired);
+  d->repaired = NULL;
+
+  // Update markers and lastId based on the final last block
+  InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1);
+  RS_LOG_ASSERT(InvertedIndex_NumBlocks(idx) > 0, "index must have at least one block");
+  IndexBlock *last = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
+  InvertedIndex_SetLastId(idx, IndexBlock_LastId(last));
+
+  InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) - info->ndocsCollected);
+}
+
+// ------------------ builders
+
+bool InvertedIndex_GcDelta_GetLastBlockIgnored(InvertedIndexGcDelta *d) {
+    return d->last_block_ignored;
+}
+
+void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d, II_GCScanStats *info) {
+  if (!d) {
+      return;
+  }
+
+  if (d->new_blocklist) {
+    rm_free(d->new_blocklist);
+    d->new_blocklist = NULL;
+    d->new_blocklist_size = 0;
+  }
+  if (d->deleted) {
+    rm_free(d->deleted);
+    d->deleted = NULL;
+    d->deleted_len = 0;
+  }
+  if (d->repaired) {
+    for (size_t ii = 0; ii < info->nblocksRepaired; ++ii) {
+        IndexBlock_DataFree(&d->repaired[ii].blk);
+    }
+    rm_free(d->repaired);
+    d->repaired = NULL;
+  }
+
+  rm_free(d);
+}
+
+// --------------------- II High Level GC API
+
+// ---- Write Utilities (utilities which are ported over from fork_gc.c)
+
+static void II_Gc_WriteFixed(II_GCWriter *wr, const void *buff, size_t len) {
+  wr->write(wr->ctx, buff, len);
+}
+
+#define II_GC_WRITE_VAR(wr, v) II_Gc_WriteFixed(wr, &v, sizeof v)
+
+static void II_Gc_WriteBuffer(II_GCWriter *wr, const void *buff, size_t len) {
+  II_GC_WRITE_VAR(wr, len);
+  if (len > 0) {
+    II_Gc_WriteFixed(wr, buff, len);
+  }
+}
+
+/**
+ * Write instead of a string to indicate that no more buffers are to be read
+ */
+static void II_Gc_WriteTerminator(II_GCWriter *wr) {
+  size_t smax = SIZE_MAX;
+  II_GC_WRITE_VAR(wr, smax);
+}
+
+// ---- Read Utilities (utilities which are ported over from fork_gc.c)
+
+static int II_Gc_ReadFixed(II_GCReader *rd, void *buff, size_t len) {
+  return rd->read(rd->ctx, buff, len);
+}
+
+static void *RECV_BUFFER_EMPTY = (void *)0x0deadbeef;
+
+static int __attribute__((warn_unused_result))
+II_Gc_ReadBuffer(II_GCReader *rd, void **buff, size_t *len) {
+  int result = II_Gc_ReadFixed(rd, len, sizeof *len);
+  if (result != REDISMODULE_OK) {
+      return result;
+  }
+
+  if (*len == SIZE_MAX) {
+    *buff = RECV_BUFFER_EMPTY;
+    return REDISMODULE_OK;
+  }
+  if (*len == 0) {
+    *buff = NULL;
+    return REDISMODULE_OK;
+  }
+
+  *buff = rm_malloc(*len + 1);
+  ((char *)(*buff))[*len] = 0;
+  result = II_Gc_ReadFixed(rd, *buff, *len);
+  if (result != REDISMODULE_OK) {
+    rm_free(*buff);
+    return result;
+  }
+
+  return REDISMODULE_OK;
+}
+
+// ---------------- GC Scan Logic
+
+/* GC Scan blocks to repair and write that info to the II_GCWriter.
+ */
+bool InvertedIndex_GcDelta_Scan(II_GCWriter *wr, RedisSearchCtx *sctx, InvertedIndex *idx,
+                                     II_GCCallback *cb, IndexRepairParams *params) {
+    size_t numBlocks = InvertedIndex_NumBlocks(idx);
+    InvertedIndex_RepairedInput *fixed = array_new(InvertedIndex_RepairedInput, 10);
+    InvertedIndex_DeletedInput *deleted = array_new(InvertedIndex_DeletedInput, 10);
+    IndexBlock *blocklist = array_new(IndexBlock, numBlocks);
+    II_GCScanStats ixmsg = {.nblocksOrig = numBlocks};
+    bool rv = false;
+    IndexRepairParams params_s = {0};
+    if (!params) {
+        params = &params_s;
+    }
+
+    for (size_t i = 0; i < numBlocks; ++i) {
+    params->bytesCollected = 0;
+    params->bytesBeforFix = 0;
+    params->bytesAfterFix = 0;
+    params->entriesCollected = 0;
+    IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
+    t_docId firstId = IndexBlock_FirstId(blk);
+    t_docId lastId = IndexBlock_LastId(blk);
+
+    if (lastId - firstId > UINT32_MAX) {
+        // Skip over blocks which have a wide variation. In the future we might
+        // want to split a block into two (or more) on high-delta boundaries.
+        // todo: is it ok??
+        // The above TODO was written 5 years ago. We currently don't split blocks,
+        // and it is also not clear why we care about high variations.
+        array_append(blocklist, *blk);
+        continue;
+    }
+
+    // Capture the pointer address before the block is cleared; otherwise
+    // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
+    void *bufptr = IndexBlock_Data(blk);
+    size_t nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, InvertedIndex_Flags(idx), params);
+    if (nrepaired == 0) {
+        // unmodified block
+        array_append(blocklist, *blk);
+        continue;
+    }
+
+    uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
+
+    uint16_t numEntries = IndexBlock_NumEntries(blk);
+    if (numEntries == 0) {
+        // this block should be removed
+        InvertedIndex_DeletedInput *delmsg = array_ensure_tail(&deleted, InvertedIndex_DeletedInput);
+        *delmsg = (InvertedIndex_DeletedInput){.ptr = bufptr, .oldix = i};
+        curr_bytesCollected += sizeof(IndexBlock);
+    } else {
+        array_append(blocklist, *blk);
+        InvertedIndex_RepairedInput *fixmsg = array_ensure_tail(&fixed, InvertedIndex_RepairedInput);
+        fixmsg->newix = array_len(blocklist) - 1;
+        fixmsg->oldix = i;
+        fixmsg->blk = *blk; // TODO: consider sending the blocklist even if there weren't any deleted blocks instead of this redundant copy.
+        ixmsg.nblocksRepaired++;
+    }
+    ixmsg.nbytesCollected += curr_bytesCollected;
+    ixmsg.ndocsCollected += nrepaired;
+    ixmsg.nentriesCollected += params->entriesCollected;
+    // Save last block statistics because the main process might want to ignore the changes if
+    // the block was modified while the fork was running.
+    if (i == numBlocks - 1) {
+        ixmsg.lastblkBytesCollected = curr_bytesCollected;
+        ixmsg.lastblkDocsRemoved = nrepaired;
+        ixmsg.lastblkEntriesRemoved = params->entriesCollected;
+        // Save the original number of entries of the last block so we can compare
+        // this value to the number of entries exist in the main process, to conclude if any new entries
+        // were added during the fork process was running. If there were, the main process will discard the last block
+        // fixes. We rely on the assumption that a block is small enough and it will be either handled in the next iteration,
+        // or it will get to its maximum capacity and will no longer be the last block.
+        ixmsg.lastblkNumEntries = IndexBlock_NumEntries(blk) + params->entriesCollected;
+    }
+    }
+
+    if (array_len(fixed) == 0 && array_len(deleted) == 0) {
+        // No blocks were removed or repaired
+        goto done;
+    }
+
+    cb->call(cb->ctx);
+    II_Gc_WriteFixed(wr, &ixmsg, sizeof ixmsg);
+    if (array_len(blocklist) == numBlocks) {
+        // no empty block, there is no need to send the blocks array. Don't send
+        // any new blocks.
+        size_t len = 0;
+        II_GC_WRITE_VAR(wr, len);
+    } else {
+        II_Gc_WriteBuffer(wr, blocklist, array_len(blocklist) * sizeof(*blocklist));
+    }
+    // TODO: can we move it inside the if?
+    II_Gc_WriteBuffer(wr, deleted, array_len(deleted) * sizeof(*deleted));
+
+    for (size_t i = 0; i < array_len(fixed); ++i) {
+        // write fix block
+        const InvertedIndex_RepairedInput *msg = fixed + i;
+        const IndexBlock *blk = blocklist + msg->newix;
+        II_Gc_WriteFixed(wr, msg, sizeof(*msg));
+        // TODO: check why we need to send the data if its part of the blk struct.
+        II_Gc_WriteBuffer(wr, IndexBlock_Data(blk), IndexBlock_Len(blk));
+    }
+    rv = true;
+
+done:
+    array_free(fixed);
+    array_free(blocklist);
+    array_free(deleted);
+    return rv;
+}
+
+ static int __attribute__((warn_unused_result))
+ II_Gc_ReadRepairedBlock(II_GCReader* rd, InvertedIndex_RepairedInput *binfo) {
+   int result = II_Gc_ReadFixed(rd, binfo, sizeof(*binfo));
+   if (result != REDISMODULE_OK) {
+     return result;
+   }
+
+   result = II_Gc_ReadBuffer(rd, (void **)IndexBlock_DataPtr(&binfo->blk), IndexBlock_LenPtr(&binfo->blk));
+   if (result != REDISMODULE_OK) {
+     return result;
+   }
+
+   IndexBlock_SetCap(&binfo->blk, IndexBlock_Len(&binfo->blk));
+   return REDISMODULE_OK;
+ }
+
+InvertedIndexGcDelta *InvertedIndex_GcDelta_Read(II_GCReader *rd, II_GCScanStats *info) {
+    size_t nblocksRecvd = 0;
+    if (II_Gc_ReadFixed(rd, info, sizeof(*info)) != REDISMODULE_OK) {
+      return NULL;
+    }
+
+    InvertedIndexGcDelta *delta = rm_calloc(1, sizeof(InvertedIndexGcDelta));
+
+    if (II_Gc_ReadBuffer(rd, (void **)&delta->new_blocklist, &delta->new_blocklist_size) != REDISMODULE_OK) {
+        goto error;
+    }
+
+    if (delta->new_blocklist_size) {
+      delta->new_blocklist_size /= sizeof(*delta->new_blocklist);
+    }
+    if (II_Gc_ReadBuffer(rd, (void **)&delta->deleted, &delta->deleted_len) != REDISMODULE_OK) {
+      goto error;
+    }
+    delta->deleted_len /= sizeof(*delta->deleted);
+    delta->repaired = rm_malloc(sizeof(*delta->repaired) * info->nblocksRepaired);
+    for (size_t i = 0; i < info->nblocksRepaired; ++i) {
+      if (II_Gc_ReadRepairedBlock(rd, delta->repaired + i) != REDISMODULE_OK) {
+          info->nblocksRepaired = i;
+        goto error;
+      }
+      nblocksRecvd++;
+    }
+    return delta;
+
+  error:
+    InvertedIndex_GcDelta_Free(delta, info);
+    return NULL;
+}
+
+// ---------------------

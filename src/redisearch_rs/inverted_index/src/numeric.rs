@@ -399,11 +399,18 @@ impl DecodedBy for Numeric {
 }
 
 impl Decoder for Numeric {
+    /// Decode a numeric record from the given cursor, using the provided base document ID.
+    /// The result is written into the provided `RSIndexResult` instance.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true to ensure `result` is holding numeric data.
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let mut header = [0; 1];
         cursor.read_exact(&mut header)?;
 
@@ -466,9 +473,18 @@ impl Decoder for Numeric {
         };
 
         let doc_id = base + delta;
-        let record = RSIndexResult::numeric(num).doc_id(doc_id);
 
-        Ok(record)
+        result.doc_id = doc_id;
+        // SAFETY: Caller must ensure `result` is numeric
+        unsafe {
+            *result.as_numeric_unchecked_mut() = num;
+        }
+
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::numeric(0.0)
     }
 }
 

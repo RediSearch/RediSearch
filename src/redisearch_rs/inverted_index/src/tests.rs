@@ -8,17 +8,22 @@
 */
 
 use core::panic;
-use std::io::{Cursor, Read};
+use std::{
+    io::{Cursor, Read},
+    ptr,
+    sync::atomic,
+};
 
 use crate::{
-    Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterMaskReader, IdDelta,
-    IndexBlock, IndexReader, InvertedIndex, RSAggregateResult, RSIndexResult, RSResultData,
-    RSResultKind, RSTermRecord, SkipDuplicatesReader,
+    DecodedBy, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
+    FilterMaskReader, FilterNumericReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
+    NumericFilter, RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
     debug::{BlockSummary, Summary},
 };
+use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreNumeric,
+    IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
 };
 use pretty_assertions::assert_eq;
 
@@ -61,12 +66,12 @@ impl Encoder for Dummy {
 fn memory_usage() {
     let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 40);
+    assert_eq!(ii.memory_usage(), 48);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 40 + mem_growth);
+    assert_eq!(ii.memory_usage(), 48 + mem_growth);
 }
 
 #[test]
@@ -284,13 +289,13 @@ fn adding_big_delta_makes_new_block() {
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 48);
+    assert_eq!(ii.memory_usage(), 56);
     assert_eq!(ii.number_of_entries(), 0);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 48 + mem_growth);
+    assert_eq!(ii.memory_usage(), 56 + mem_growth);
     assert_eq!(ii.number_of_entries(), 1);
 
     let record = RSIndexResult::default().doc_id(10);
@@ -303,7 +308,7 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::new(IndexFlags_Index_StoreFieldFlags, Dummy);
 
-    assert_eq!(ii.memory_usage(), 56);
+    assert_eq!(ii.memory_usage(), 64);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::default().doc_id(10).field_mask(0b101);
@@ -340,14 +345,28 @@ impl Decoder for Dummy {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         prev_doc_id: u64,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let mut buffer = [0; 4];
         cursor.read_exact(&mut buffer)?;
 
         let delta = u32::from_be_bytes(buffer);
         let doc_id = prev_doc_id + (delta as u64);
 
-        Ok(RSIndexResult::virt().doc_id(doc_id))
+        result.doc_id = doc_id;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::default()
+    }
+}
+
+impl DecodedBy for Dummy {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
+        Self
     }
 }
 
@@ -368,33 +387,32 @@ fn reading_records() {
             last_doc_id: 100,
         },
     ];
-    let mut ir = IndexReader::new(&blocks, Dummy);
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(10));
-    drop(record);
-
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(11));
-    drop(record);
-
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(100));
-    drop(record);
-
-    let record = ir
-        .next_record()
+    let found = ir
+        .next_record(&mut result)
         .expect("to be able to read from the buffer");
-    assert_eq!(record, None);
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(11));
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(100));
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(!found);
 }
 
 #[test]
@@ -421,49 +439,77 @@ fn reading_over_empty_blocks() {
             last_doc_id: 30,
         },
     ];
-    let mut ir = IndexReader::new(&blocks, Dummy);
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(10));
-    drop(record);
-
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(30));
-    drop(record);
-
-    let record = ir
-        .next_record()
+    let found = ir
+        .next_record(&mut result)
         .expect("to be able to read from the buffer");
-    assert!(record.is_none(), "should not return any more records");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(30));
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(!found, "should not return any more records");
 }
 
 #[test]
 fn read_using_the_first_block_id_as_the_base() {
     struct FirstBlockIdDummy;
 
+    impl Encoder for FirstBlockIdDummy {
+        type Delta = u32;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            _writer: W,
+            _delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            panic!("This test won't encode anything")
+        }
+    }
+
     impl Decoder for FirstBlockIdDummy {
         fn decode<'index>(
             &self,
             cursor: &mut Cursor<&'index [u8]>,
             prev_doc_id: u64,
-        ) -> std::io::Result<RSIndexResult<'index>> {
+            result: &mut RSIndexResult<'index>,
+        ) -> std::io::Result<()> {
             let mut buffer = [0; 4];
             cursor.read_exact(&mut buffer)?;
 
             let delta = u32::from_be_bytes(buffer);
             let doc_id = prev_doc_id + (delta as u64);
 
-            Ok(RSIndexResult::virt().doc_id(doc_id))
+            result.doc_id = doc_id;
+
+            Ok(())
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            RSIndexResult::default()
         }
 
         fn base_id(block: &IndexBlock, _last_doc_id: ffi::t_docId) -> ffi::t_docId {
             block.first_doc_id
+        }
+    }
+
+    impl DecodedBy for FirstBlockIdDummy {
+        type Decoder = Self;
+
+        fn decoder() -> Self::Decoder {
+            Self
         }
     }
 
@@ -474,56 +520,349 @@ fn read_using_the_first_block_id_as_the_base() {
         first_doc_id: 10,
         last_doc_id: 12,
     }];
-    let mut ir = IndexReader::new(&blocks, FirstBlockIdDummy);
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, FirstBlockIdDummy);
+    let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(10));
-    drop(record);
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(10));
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(11));
-    drop(record);
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(11));
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(12));
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(12));
 }
 
 #[test]
-#[should_panic(expected = "IndexReader should not be created with an empty block list")]
-fn index_reader_construction_with_no_blocks() {
-    let blocks: Vec<IndexBlock> = vec![];
-    let _ir = IndexReader::new(&blocks, Dummy);
-}
-
-#[test]
-fn read_skipping_over_duplicates() {
-    // Make an iterator where the first two entries have the same doc ID and the third one is different
-    let iter = vec![
-        RSIndexResult::virt().doc_id(10).weight(2.0),
-        RSIndexResult::virt().doc_id(10).weight(5.0),
-        RSIndexResult::virt().doc_id(11),
+fn seeking_records() {
+    // Make two blocks - the last one with four records
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            num_entries: 3,
+            first_doc_id: 10,
+            last_doc_id: 12,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 5],
+            num_entries: 4,
+            first_doc_id: 100,
+            last_doc_id: 108,
+        },
     ];
 
-    let reader = SkipDuplicatesReader::new(iter.into_iter());
-    let records = reader.collect::<Vec<_>>();
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
+
+    let found = ir
+        .seek_record(101, &mut result)
+        .expect("to be able to read from the buffer");
+
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(101));
+
+    let found = ir
+        .seek_record(105, &mut result)
+        .expect("to be able to read from the buffer");
+
+    assert!(found);
+    assert_eq!(
+        result,
+        RSIndexResult::virt().doc_id(108),
+        "should seek to the next highest ID"
+    );
+
+    let found = ir
+        .seek_record(200, &mut result)
+        .expect("to be able to read from the buffer");
+    assert!(!found);
+}
+
+#[test]
+#[should_panic(expected = "IndexReader should not be created with an empty inverted index")]
+fn index_reader_construction_with_no_blocks() {
+    let ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let _ir = ii.reader();
+}
+
+#[test]
+fn index_reader_skip_to() {
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 5],
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 15,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            num_entries: 2,
+            first_doc_id: 16,
+            last_doc_id: 17,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 4],
+            num_entries: 2,
+            first_doc_id: 20,
+            last_doc_id: 24,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 40,
+            last_doc_id: 40,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 50,
+            last_doc_id: 50,
+        },
+    ];
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let mut ir = ii.reader();
+
+    assert_eq!(ir.current_block_idx, 0, "should start at the first block");
+    assert_eq!(ir.last_doc_id, 10);
+
+    // Skipping to an ID in the current block should not change anything
+    assert!(ir.skip_to(12));
+    assert_eq!(ir.current_block_idx, 0, "we are still in the first block");
+    assert_eq!(ir.last_doc_id, 10);
+
+    // Skipping to an ID in the next block should move to the next block
+    assert!(ir.skip_to(16));
+    assert_eq!(ir.current_block_idx, 1, "should be in the second block");
+    assert_eq!(ir.last_doc_id, 16);
+
+    // Skipping to an ID in a later block should move to that block
+    assert!(ir.skip_to(30));
+    assert_eq!(ir.current_block_idx, 3, "should be in the fourth block");
+    assert_eq!(ir.last_doc_id, 30);
+
+    // Skipping to an ID between blocks should give the block with the next highest ID
+    assert!(ir.skip_to(45));
+    assert_eq!(ir.current_block_idx, 5, "should be in the sixth block");
+    assert_eq!(ir.last_doc_id, 50);
+
+    // Skipping to an ID beyond the last block should return false and stay at the last block
+    assert!(!ir.skip_to(100), "should not find a block for this ID");
+    assert_eq!(
+        ir.current_block_idx, 5,
+        "should still be in the sixth block"
+    );
+    assert_eq!(ir.last_doc_id, 50);
+
+    // Skipping to an earlier ID should do nothing
+    assert!(ir.skip_to(5));
+    assert_eq!(
+        ir.current_block_idx, 5,
+        "should still be in the sixth block"
+    );
+    assert_eq!(ir.last_doc_id, 50);
+}
+
+#[test]
+fn reader_reset() {
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 100,
+            last_doc_id: 100,
+        },
+    ];
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(11));
+
+    assert_eq!(ir.gc_marker, 0);
+    ii.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
+
+    ir.reset();
+
+    assert_eq!(ir.gc_marker, 1);
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+}
+
+#[test]
+fn reader_needs_revalidation() {
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+
+    let ir = ii.reader();
+
+    assert!(!ir.needs_revalidation(), "index was not modified yet");
+
+    ii.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
+    assert!(ir.needs_revalidation(), "index was modified");
+}
+
+#[test]
+fn reader_unique_docs() {
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 100,
+            last_doc_id: 100,
+        },
+    ];
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let ir = ii.reader();
+
+    assert_eq!(ir.unique_docs(), 3);
+}
+
+#[test]
+fn reader_has_duplicates() {
+    /// Dummy encoder which allows duplicates for testing
+    struct AllowDupsDummy;
+
+    impl Encoder for AllowDupsDummy {
+        type Delta = u32;
+
+        const ALLOW_DUPLICATES: bool = true;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            mut writer: W,
+            _delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&[255])?;
+
+            Ok(1)
+        }
+    }
+
+    impl Decoder for AllowDupsDummy {
+        fn decode<'index>(
+            &self,
+            _cursor: &mut Cursor<&'index [u8]>,
+            _base: ffi::t_docId,
+            _result: &mut RSIndexResult<'index>,
+        ) -> std::io::Result<()> {
+            panic!("This test won't decode anything")
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            RSIndexResult::default()
+        }
+    }
+
+    impl DecodedBy for AllowDupsDummy {
+        type Decoder = Self;
+
+        fn decoder() -> Self::Decoder {
+            Self
+        }
+    }
+
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, AllowDupsDummy);
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+
+    {
+        let ir = ii.reader();
+        assert!(!ir.has_duplicates());
+    }
+
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+    let ir = ii.reader();
+    assert!(ir.has_duplicates(), "should have duplicates");
+}
+
+#[test]
+fn reader_flags() {
+    let mut ii = InvertedIndex::new(
+        IndexFlags_Index_StoreTermOffsets | IndexFlags_Index_WideSchema,
+        Dummy,
+    );
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+    let ir = ii.reader();
 
     assert_eq!(
-        records,
-        vec![
-            RSIndexResult::virt().doc_id(10).weight(2.0),
-            RSIndexResult::virt().doc_id(11),
-        ],
-        "should skip duplicates"
+        ir.flags(),
+        IndexFlags_Index_StoreTermOffsets | IndexFlags_Index_WideSchema,
     );
+}
+
+#[test]
+fn reader_is_index() {
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+    let ir = ii.reader();
+
+    assert!(ir.is_index(&ii));
+
+    let ii2 = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    assert!(!ir.is_index(&ii2));
+}
+
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for I {
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
+        match self.next() {
+            Some(r) => {
+                *result = r;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    fn seek_record(
+        &mut self,
+        _doc_id: ffi::t_docId,
+        _result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        unimplemented!("This tests won't seek anything")
+    }
 }
 
 #[test]
@@ -536,16 +875,112 @@ fn reading_filter_based_on_field_mask() {
         RSIndexResult::default().doc_id(12).field_mask(0b0100),
     ];
 
-    let reader = FilterMaskReader::new(0b0101 as _, iter.into_iter());
-    let records = reader.collect::<Vec<_>>();
+    let mut reader = FilterMaskReader::new(0b0101 as _, iter.into_iter());
+    let mut result = RSIndexResult::default();
 
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
     assert_eq!(
-        records,
-        vec![
-            RSIndexResult::default().doc_id(10).field_mask(0b0001),
-            RSIndexResult::default().doc_id(12).field_mask(0b0100),
-        ]
+        result,
+        RSIndexResult::default().doc_id(10).field_mask(0b0001)
     );
+
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
+    assert_eq!(
+        result,
+        RSIndexResult::default().doc_id(12).field_mask(0b0100)
+    );
+}
+
+#[test]
+fn reading_filter_based_on_numeric_filter() {
+    // Make an iterator with three records having different numeric values. The second record will be
+    // filtered out based on the numeric filter.
+    let iter = vec![
+        RSIndexResult::numeric(5.0).doc_id(10),
+        RSIndexResult::numeric(25.0).doc_id(11),
+        RSIndexResult::numeric(15.0).doc_id(12),
+    ];
+
+    let filter = NumericFilter {
+        min: 0.0,
+        max: 15.0,
+        min_inclusive: true,
+        max_inclusive: true,
+        field_spec: ptr::null(),
+        geo_filter: ptr::null(),
+        ascending: true,
+        limit: 10,
+        offset: 0,
+    };
+
+    let mut reader = FilterNumericReader::new(&filter, iter.into_iter());
+    let mut result = RSIndexResult::numeric(0.0);
+
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
+    assert_eq!(result, RSIndexResult::numeric(5.0).doc_id(10));
+
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
+    assert_eq!(result, RSIndexResult::numeric(15.0).doc_id(12));
+}
+
+#[test]
+fn reading_filter_based_on_geo_filter() {
+    /// Implement this FFI call for this test
+    #[unsafe(no_mangle)]
+    pub extern "C" fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool {
+        if d > unsafe { (*gf).radius } {
+            return false;
+        }
+
+        // Tests changing the distance value
+        unsafe { *distance /= 5.0 };
+
+        true
+    }
+
+    // Make an iterator with three records having different geo distances. The last record will be
+    // filtered out based on the geo distance.
+    let iter = vec![
+        RSIndexResult::numeric(5.0).doc_id(10),
+        RSIndexResult::numeric(15.0).doc_id(11),
+        RSIndexResult::numeric(25.0).doc_id(12),
+    ];
+
+    let geo_filter = GeoFilter {
+        fieldSpec: ptr::null(),
+        lat: 0.0,
+        lon: 0.0,
+        radius: 20.0,
+        unitType: GeoDistance_GEO_DISTANCE_M,
+        numericFilters: ptr::null_mut(),
+    };
+
+    let filter = NumericFilter {
+        min: 0.0,
+        max: 0.0,
+        min_inclusive: false,
+        max_inclusive: false,
+        field_spec: ptr::null(),
+        geo_filter: &geo_filter as *const _ as *const _,
+        ascending: true,
+        limit: 0,
+        offset: 0,
+    };
+
+    let mut reader = FilterGeoReader::new(&filter, iter.into_iter());
+    let mut result = RSIndexResult::numeric(0.0);
+
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
+    assert_eq!(result, RSIndexResult::numeric(1.0).doc_id(10));
+
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
+    assert_eq!(result, RSIndexResult::numeric(3.0).doc_id(11));
 }
 
 #[test]

@@ -188,7 +188,6 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
-
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -205,6 +204,7 @@ extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
 extern bool isTrimming;
+extern bool isFlex;
 
 /**
  * This "ID" type is independent of the field mask, and is used to distinguish
@@ -285,6 +285,7 @@ typedef struct {
 
 // Forward declaration
 typedef struct InvertedIndex InvertedIndex;
+typedef const void* RedisSearchDiskIndexSpec;
 
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
@@ -355,6 +356,8 @@ typedef struct IndexSpec {
   // Contains all the existing documents (for wildcard search)
   InvertedIndex *existingDocs;
 
+  // Disk index handle
+  RedisSearchDiskIndexSpec *diskSpec;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -622,8 +625,8 @@ RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
-int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
-void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
+IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status);
+void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::{Cursor, Seek, Write};
+use std::io::{Cursor, Seek, SeekFrom, Write};
 
 use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
@@ -61,11 +61,45 @@ impl Decoder for FreqsOffsets {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, offsets_sz] = decoded_values;
 
-        let record = decode_term_record_offsets(cursor, base, delta, 0, freq, offsets_sz)?;
-        Ok(record)
+        decode_term_record_offsets(cursor, base, delta, 0, freq, offsets_sz, result)
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
+    }
+
+    fn seek<'index>(
+        &self,
+        cursor: &mut Cursor<&'index [u8]>,
+        mut base: t_docId,
+        target: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let (freq, offsets_sz) = loop {
+            let [delta, freq, offsets_sz] = match qint_decode::<3, _>(cursor) {
+                Ok((decoded_values, _bytes_consumed)) => decoded_values,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error),
+            };
+
+            base += delta as t_docId;
+
+            if base >= target {
+                break (freq, offsets_sz);
+            }
+
+            // Skip offsets
+            cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
+        };
+
+        decode_term_record_offsets(cursor, base, 0, 0, freq, offsets_sz, result)?;
+        Ok(true)
     }
 }

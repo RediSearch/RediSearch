@@ -88,3 +88,4 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   ASSERT_EQ(2, numFreed);
   RLookup_Cleanup(&lk);
 }
+

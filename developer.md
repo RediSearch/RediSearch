@@ -100,7 +100,7 @@ For running specific tests you can use the following commands:
 
 ### Test prerequisites
 To run the python behavioral tests you need to install the following dependencies:
-* python test requirements listed in [requirements.txt](tests/pytests/requirements.txt)
+* python test requirements listed in [pyproject.toml](tests/pytests/pyproject.toml)
 * If you want to execute RediSearch+RedisJSON behavioral tests you need to install [rust](https://www.rust-lang.org/tools/install), which is required to compile the RedisJSON module 
 
 if you don't want to install those manually, you can use the CI installation scripts to install the dependencies.

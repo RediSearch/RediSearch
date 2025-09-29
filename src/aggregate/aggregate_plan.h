@@ -14,6 +14,8 @@
 #include <aggregate/expr/expression.h>
 #include <util/dllist.h>
 #include <obfuscation/hidden.h>
+#include <util/references.h>
+#include <util/arr.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,6 +32,7 @@ typedef enum {
   PLN_T_APPLY,
   PLN_T_ARRANGE,
   PLN_T_LOAD,
+  PLN_T_VECTOR_NORMALIZER,
   PLN_T__MAX
 } PLN_StepType;
 
@@ -110,13 +113,19 @@ typedef struct {
   size_t nkeys;
 } PLN_LoadStep;
 
+/** VECTOR_NORMALIZER normalizes vector distance scores to [0,1] range */
+typedef struct {
+  PLN_BaseStep base;
+  const char *vectorFieldName;     // Vector field name (NOT owned - points to parser tokens)
+  const char *distanceFieldAlias; // Distance field alias (owned)
+} PLN_VectorNormalizerStep;
+
 /* Group step - group by properties and reduce by several reducers */
 typedef struct {
   PLN_BaseStep base;
   RLookup lookup;
 
-  const char **properties;
-  size_t nproperties;
+  StrongRef properties_ref;  // StrongRef to properties array
 
   /* Group step single reducer, a function and its args */
   struct PLN_Reducer {
@@ -128,10 +137,17 @@ typedef struct {
   int idx;
 } PLN_GroupStep;
 
+ /**
+  * Allocates and initializes a new group step.
+  * @param properties_ref StrongRef referencing the properties array (must be cloned by caller)
+  * @return Pointer to the newly created group step
+  */
+PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref);
+
 /**
- * Returns a new group step with the appropriate constructor
+ * Gets the properties array from a group step (via StrongRef)
  */
-PLN_GroupStep *PLNGroupStep_New(const char **props, size_t nprops);
+arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp);
 
 /**
  * Adds a reducer (with its arguments) to the group step
@@ -144,6 +160,16 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
                             QueryError *status);
 
 PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
+
+/**
+ * Clone a LOAD step for use in individual AREQ pipelines.
+ * Handles only unprocessed (has args) LOAD steps.
+ * This is used to clone and propagate the LOAD step to the individual AREQ pipelines (Hybrid)
+ *
+ * @param original The original PLN_LoadStep to clone
+ * @return New cloned PLN_LoadStep or NULL if original is NULL
+ */
+PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original);
 
 #ifdef __cplusplus
 typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
@@ -180,6 +206,12 @@ void AGPLN_Init(AGGPlan *plan);
 
 /* Frees all the steps within the plan */
 void AGPLN_FreeSteps(AGGPlan *pln);
+
+/* Destructor for PLN_LoadStep */
+void loadDtor(PLN_BaseStep *bstp);
+
+/* Constructor for PLN_VectorNormalizerStep */
+PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName, const char *distanceFieldAlias);
 
 void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step);
 void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
@@ -254,6 +286,19 @@ typedef enum {
  *  are ignored (NYI).
  */
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode);
+
+/**
+ * @brief Dumps the contents of an aggregation plan to stdout for debugging.
+ *
+ * This function iterates through all steps in the given AGGPlan and prints
+ * detailed information about each step, including step type, pointers, lookup
+ * keys, expressions, sorting, grouping, and reducer details. It is useful for
+ * inspecting the structure and configuration of an aggregation plan during
+ * development or troubleshooting.
+ *
+ * @param pln Pointer to the AGGPlan to be dumped.
+ */
+void AGPLN_Dump(const AGGPlan *pln);
 
 /**
  * Determines if the plan is a 'reduce' type. A 'reduce' plan is one which

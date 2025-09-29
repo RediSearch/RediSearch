@@ -2437,8 +2437,7 @@ static YYACTIONTYPE yy_reduce(
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy3 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     yylhsminor.yy3->vn.vq->field = yymsp[-1].minor.yy150.fs;
-    int n_written = rm_asprintf(&yylhsminor.yy3->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy150.tok.len, yymsp[-1].minor.yy150.tok.s);
-    RS_ASSERT(n_written != -1);
+    VectorQuery_SetDefaultScoreField(yylhsminor.yy3->vn.vq, yymsp[-1].minor.yy150.tok.s, yymsp[-1].minor.yy150.tok.len);
   } else {
     reportSyntaxError(ctx->status, &yymsp[-3].minor.yy0, "Syntax error: Expecting Vector Similarity command");
     yylhsminor.yy3 = NULL;

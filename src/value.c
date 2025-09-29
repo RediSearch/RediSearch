@@ -19,14 +19,6 @@
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
 ///////////////////////////////////////////////////////////////
-static size_t RSValue_NumToString(double dd, char *buf) {
-  long long ll = dd;
-  if (ll == dd) {
-    return sprintf(buf, "%lld", ll);
-  } else {
-    return sprintf(buf, "%.12g", dd);
-  }
-}
 
 pthread_key_t mempoolKey_g;
 
@@ -240,7 +232,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     }
     case RSValue_Number: {
       char tmpbuf[128];
-      size_t len = RSValue_NumToString(v->numval, tmpbuf);
+      size_t len = RSValue_NumToString(v, tmpbuf);
       char *buf = rm_strdup(tmpbuf);
       RSValue_SetString(dst, buf, len);
       break;
@@ -602,150 +594,6 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   return cmp_strings(s1, s2, l1, l2) == 0;
 }
 
-#if 0
-static int RSValue_SendReply_Collection(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
-  typedef struct {
-    const RSValue *v; // collection: either array or map
-    int k; // position in collection
-  }  Item;
-
-  if (v->t != RSValue_Array && v->t != RSValue_Map) {
-    return RSValue_SendReply(reply, v, flags);
-  }
-
-  arrayof(Item) stack = array_new(Item, 64);
-
-  bool next(const RSValue *w, int k, const RSValue *v) {
-    if (v->t != RSValue_Array && v->t != RSValue_Map) {
-      RSValue_SendReply(reply, v, flags);
-      return false;
-    }
-    array_append(stack, ((Item){.v = w, .k = k + 1}));
-    array_append(stack, ((Item){.v = v, 0}));
-    return true;
-  }
-
-  array_append(stack, ((Item){.v = v, .k = 0}));
-  while (array_len(stack) > 0) {
-    Item item = array_pop(stack);
-    const RSValue *w = item.v;
-    int k = item.k;
-    int n;
-
-    if (w->t == RSValue_Array) {
-      if (!k) {
-        RedisModule_Reply_Array(reply);
-      }
-      n = w->arrval.len;
-      for (; k < n; ++k) {
-        RSValue *v = w->arrval.vals[k];
-        if (next(w, k, v)) {
-          break;
-        }
-      }
-    } else { // map
-      if (!k) {
-        RedisModule_Reply_Map(reply);
-      }
-      n = w->mapval.len;
-      for (; k < n; ++k) {
-        RSValue **pair = &w->mapval.pairs[2 * k];
-        RSValue_SendReply(reply, pair[0], flags);
-        RSValue *v = pair[1];
-        if (next(w, k, v)) {
-          break;
-        }
-      }
-    }
-    if (k == n) {
-      if (w->t == RSValue_Array) {
-        RedisModule_Reply_ArrayEnd(reply);
-      } else {
-        RedisModule_Reply_MapEnd(reply);
-      }
-    }
-  }
-  array_free(stack);
-  return REDISMODULE_OK;
-}
-#endif //0
-
-/* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
-  v = RSValue_Dereference(v);
-
-  switch (v->t) {
-    case RSValue_String:
-      return RedisModule_Reply_StringBuffer(reply, v->strval.str, v->strval.len);
-
-    case RSValue_RedisString:
-    case RSValue_OwnRstring:
-      return RedisModule_Reply_String(reply, v->rstrval);
-
-    case RSValue_Number: {
-      if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-        char buf[128];
-        size_t len = RSValue_NumToString(v->numval, buf);
-
-        if (flags & SENDREPLY_FLAG_TYPED) {
-          if (reply->resp3) {
-            return RedisModule_Reply_Double(reply, v->numval);
-          } else {
-             // In RESP2, RM_ReplyWithDouble() does not tag the response as
-             // double, it's just a plain string. So we send it as simple string
-             // that is converted to double by MRReply_ToValue().
-            return RedisModule_Reply_Error(reply, buf);
-          }
-        } else {
-          return RedisModule_Reply_StringBuffer(reply, buf, len);
-        }
-      } else {
-        long long ll = v->numval;
-        if (ll == v->numval) {
-          return RedisModule_Reply_LongLong(reply, ll);
-        } else {
-          return RedisModule_Reply_Double(reply, v->numval);
-        }
-      }
-    }
-
-    case RSValue_Null:
-      return RedisModule_Reply_Null(reply);
-
-    case RSValue_Duo: {
-      return RSValue_SendReply(reply, RS_DUOVAL_OTHERVAL(*v), flags);
-    }
-
-#if 1
-    case RSValue_Array:
-      RedisModule_Reply_Array(reply);
-        for (uint32_t i = 0; i < v->arrval.len; i++) {
-          RSValue_SendReply(reply, v->arrval.vals[i], flags);
-        }
-      RedisModule_Reply_ArrayEnd(reply);
-      return REDISMODULE_OK;
-
-    case RSValue_Map:
-      // If Map value is used, assume Map api exists (RedisModule_IsRESP3)
-      RedisModule_Reply_Map(reply);
-      for (uint32_t i = 0; i < v->mapval.len; i++) {
-          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], flags);
-          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], flags);
-      }
-      RedisModule_Reply_MapEnd(reply);
-      break;
-#else // non-recursive
-    case RSValue_Array:
-    case RSValue_Map:
-      return RSValue_SendReply_Collection(reply, v, flags);
-#endif
-
-    default:
-      RedisModule_Reply_Null(reply);
-  }
-  return REDISMODULE_OK;
-}
-
 sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
   if (!v) {
     return sdscat(s, "nil");
@@ -782,7 +630,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
         return sdscat(s, Obfuscate_Number(v->numval));
       } else {
         char buf[128];
-        size_t len = RSValue_NumToString(v->numval, buf);
+        size_t len = RSValue_NumToString(v, buf);
         return sdscatlen(s, buf, len);
       }
       break;

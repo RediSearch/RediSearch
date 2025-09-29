@@ -49,16 +49,74 @@ impl Decoder for RawDocIdsOnly {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let mut delta_bytes = [0u8; 4];
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
 
-        let record = RSIndexResult::term().doc_id(base + delta as t_docId);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        Ok(())
     }
 
     fn base_id(block: &IndexBlock, _last_doc_id: t_docId) -> t_docId {
         block.first_doc_id
+    }
+
+    fn seek<'index>(
+        &self,
+        cursor: &mut Cursor<&'index [u8]>,
+        base: t_docId,
+        target: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        // Check if the very next record is the target before starting a binary search
+        let mut delta_bytes = [0u8; 4];
+        std::io::Read::read_exact(cursor, &mut delta_bytes)?;
+        let delta = u32::from_ne_bytes(delta_bytes);
+        let mut doc_id = base + delta as t_docId;
+
+        if doc_id >= target {
+            result.doc_id = doc_id;
+            return Ok(true);
+        }
+
+        // Start binary search
+        let start = cursor.position() / 4;
+        let end = cursor.get_ref().len() as u64 / 4;
+        let mut left = start;
+        let mut right = end;
+
+        while left < right {
+            let mid = left + (right - left) / 2;
+            cursor.set_position(mid * 4);
+            std::io::Read::read_exact(cursor, &mut delta_bytes)?;
+            let delta = u32::from_ne_bytes(delta_bytes);
+            doc_id = base + delta as t_docId;
+
+            if doc_id < target {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        // Make sure we don't go past the end of the encoded input
+        if left >= end {
+            return Ok(false);
+        }
+
+        // Read the final value
+        cursor.set_position(left * 4);
+        std::io::Read::read_exact(cursor, &mut delta_bytes)?;
+        let delta = u32::from_ne_bytes(delta_bytes);
+        doc_id = base + delta as t_docId;
+
+        result.doc_id = doc_id;
+        Ok(true)
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }

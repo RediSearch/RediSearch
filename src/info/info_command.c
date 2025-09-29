@@ -256,7 +256,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
   REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
-  REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks);
+  REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks());
 
   REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
 

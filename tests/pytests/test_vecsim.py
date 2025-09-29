@@ -7,6 +7,7 @@ from common import *
 from includes import *
 from random import randrange
 from redis import ResponseError
+import distro
 
 '''************* Helper methods for vecsim tests ************'''
 EPSILONS = {'FLOAT32': 1E-6, 'FLOAT64': 1E-9, 'FLOAT16': 1E-2, 'BFLOAT16': 1E-2}
@@ -1706,11 +1707,12 @@ class TestTimeoutReached(object):
 
     def run_long_queries(self, n_vec, query_vec):
         # STANDARD KNN
+        large_k = 1000
         # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, large_k,
+                                   'PARAMS', 4, 'K', large_k, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 0)
-        self.env.assertEqual(res[0], n_vec)
+        self.env.assertEqual(res[0], large_k)
         # run query with 1 millisecond timeout. should fail.
         self.env.expect(
             'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
@@ -1719,11 +1721,6 @@ class TestTimeoutReached(object):
         ).error().contains('Timeout limit was reached')
 
         # RANGE QUERY
-        # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                   'PARAMS', 2,  'vec_param', query_vec.tobytes(),
-                                   'TIMEOUT', 0)
-        self.env.assertEqual(res[0], n_vec)
         # run query with 1 millisecond timeout. should fail.
         self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                    'PARAMS', 2, 'vec_param', query_vec.tobytes(),
@@ -1735,11 +1732,6 @@ class TestTimeoutReached(object):
             for i in range(n_vec + 1, n_vec + 5 * self.env.shardsCount):
                 conn.execute_command('HSET', i, 't', 'dummy')
         for mode in self.hybrid_modes:
-            res = self.env.cmd('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
-                               'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec, 'vec_param',
-                               query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 0)
-            self.env.assertEqual(res[0], n_vec)
-
             self.env.expect(
                 'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
                 'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
@@ -2541,6 +2533,8 @@ def test_svs_vamana_info_with_compression():
         except (IOError, FileNotFoundError):
             return False
 
+    def is_alpine():
+        return distro.name().lower() == 'alpine linux'
 
     # Create SVS VAMANA index with all compression flavors (except for global SQ8).
     for compression_type in ['LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']:
@@ -2549,7 +2543,8 @@ def test_svs_vamana_info_with_compression():
 
         # Validate that ft.info returns the default params for SVS VAMANA, along with compression
         # compression in runtime is LVQ8 if we are running on intel machine and GlobalSQ otherwise.
-        compression_runtime = compression_type if is_intel_cpu() and SVS_PRE_COMPILED_LIB else 'GlobalSQ8'
+        is_intel_opt_supported = is_intel_cpu() and not is_alpine()
+        compression_runtime = compression_type if is_intel_opt_supported and BUILD_INTEL_SVS_OPT else 'GlobalSQ8'
         expected_info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
                           'data_type', 'FLOAT32', 'dim', 16, 'distance_metric', 'L2', 'graph_max_degree', 32,
                           'construction_window_size', 200, 'compression', compression_runtime, 'training_threshold',

@@ -11,7 +11,7 @@ use std::io::Cursor;
 
 use ffi::{RSQueryTerm, t_fieldMask};
 use inverted_index::{
-    Decoder, Encoder,
+    Decoder, Encoder, RSIndexResult,
     full::{Full, FullWide},
     test_utils::{TermRecordCompare, TestTermRecord},
 };
@@ -103,7 +103,7 @@ fn test_encode_full() {
         let mut buf = Cursor::new(buf.as_ref());
 
         let record_decoded = Full::default()
-            .decode(&mut buf, prev_doc_id)
+            .decode_new(&mut buf, prev_doc_id)
             .expect("to decode freqs only record");
 
         assert_eq!(
@@ -199,7 +199,7 @@ fn test_encode_full_wide() {
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
         let record_decoded = FullWide::default()
-            .decode(&mut buf, prev_doc_id)
+            .decode_new(&mut buf, prev_doc_id)
             .expect("to decode freqs only record");
 
         assert_eq!(
@@ -244,12 +244,12 @@ fn test_decode_full_input_too_small() {
     let buf = vec![0, 0];
     let mut cursor = Cursor::new(buf.as_ref());
 
-    let res = Full::default().decode(&mut cursor, 100);
+    let res = Full::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FullWide::default().decode(&mut cursor, 100);
+    let res = FullWide::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -261,12 +261,12 @@ fn test_decode_full_empty_input() {
     let buf = vec![];
     let mut cursor = Cursor::new(buf.as_ref());
 
-    let res = Full::default().decode(&mut cursor, 100);
+    let res = Full::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FullWide::default().decode(&mut cursor, 100);
+    let res = FullWide::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -278,13 +278,115 @@ fn test_offsets_too_short() {
     let buf = vec![0, 0, 1, 1, 3, 1, 2];
     let mut cursor = Cursor::new(buf.as_ref());
 
-    let res = Full::default().decode(&mut cursor, 100);
+    let res = Full::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FullWide::default().decode(&mut cursor, 100);
+    let res = FullWide::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
+}
+
+#[test]
+fn test_seek_full() {
+    let buf = vec![
+        0, 0, 1, 10, 3, 1, 2,
+        3, // First record: 0 delta; 1 freqs; 10 field mask; 3 offsets len
+        0, 10, 2, 12, 4, 1, 2, 3,
+        4, // Second record: 10 delta; 2 freqs; 12 field mask; 4 offsets len
+        0, 10, 3, 13, 4, 5, 6, 7,
+        8, // Third record: 10 delta; 3 freqs; 13 field mask; 4 offsets len
+        0, 5, 1, 10, 2, 10,
+        11, // Fourth record: 5 delta; 1 freqs; 10 field mask; 2 offsets len
+        0, 20, 9, 4, 2, 20,
+        21, // Fifth record: 20 delta; 9 freqs; 4 field mask; 2 offsets len
+        0, 5, 1, 4, 2, 20, 21, // Sixth record: 5 delta; 1 freqs; 4 field mask; 2 offsets len
+    ];
+    let mut buf = Cursor::new(buf.as_ref());
+
+    let decoder = Full::default();
+    let mut record_decoded = RSIndexResult::term();
+
+    let found = decoder
+        .seek(&mut buf, 10, 30, &mut record_decoded)
+        .expect("to decode freqs offsets record");
+
+    let record_expected = TestTermRecord::new(30, 13, 3, vec![5i8, 6, 7, 8]);
+
+    assert!(found);
+    assert_eq!(
+        TermRecordCompare(&record_decoded),
+        TermRecordCompare(&record_expected.record)
+    );
+
+    let found = decoder
+        .seek(&mut buf, 30, 40, &mut record_decoded)
+        .expect("to decode freqs offsets record");
+
+    let record_expected = TestTermRecord::new(55, 4, 9, vec![20i8, 21]);
+
+    assert!(found);
+    assert_eq!(
+        TermRecordCompare(&record_decoded),
+        TermRecordCompare(&record_expected.record)
+    );
+
+    let found = decoder
+        .seek(&mut buf, 55, 70, &mut record_decoded)
+        .expect("to decode fields offsets record");
+
+    assert!(!found);
+}
+
+#[test]
+fn test_seek_full_wide() {
+    let buf = vec![
+        0, 0, 1, 3, 10, 1, 2,
+        3, // First record: 0 delta; 1 freqs; 10 field mask; 3 offsets len
+        0, 10, 2, 4, 12, 1, 2, 3,
+        4, // Second record: 10 delta; 2 freqs; 12 field mask; 4 offsets len
+        0, 10, 3, 4, 13, 5, 6, 7,
+        8, // Third record: 10 delta; 3 freqs; 13 field mask; 4 offsets len
+        0, 5, 1, 2, 10, 10,
+        11, // Fourth record: 5 delta; 1 freqs; 10 field mask; 2 offsets len
+        0, 20, 9, 2, 4, 20,
+        21, // Fifth record: 20 delta; 9 freqs; 4 field mask; 2 offsets len
+        0, 5, 1, 2, 4, 20, 21, // Sixth record: 5 delta; 1 freqs; 4 field mask; 2 offsets len
+    ];
+    let mut buf = Cursor::new(buf.as_ref());
+
+    let decoder = FullWide::default();
+    let mut record_decoded = RSIndexResult::term();
+
+    let found = decoder
+        .seek(&mut buf, 10, 30, &mut record_decoded)
+        .expect("to decode full record");
+
+    let record_expected = TestTermRecord::new(30, 13, 3, vec![5i8, 6, 7, 8]);
+
+    assert!(found);
+    assert_eq!(
+        TermRecordCompare(&record_decoded),
+        TermRecordCompare(&record_expected.record)
+    );
+
+    let found = decoder
+        .seek(&mut buf, 30, 40, &mut record_decoded)
+        .expect("to decode full record");
+
+    let record_expected = TestTermRecord::new(55, 4, 9, vec![20i8, 21]);
+
+    assert!(found);
+    assert_eq!(
+        TermRecordCompare(&record_decoded),
+        TermRecordCompare(&record_expected.record)
+    );
+
+    let found = decoder
+        .seek(&mut buf, 55, 70, &mut record_decoded)
+        .expect("to decode fields offsets record");
+
+    assert!(!found);
 }
