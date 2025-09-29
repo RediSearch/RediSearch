@@ -91,7 +91,7 @@ typedef struct QueryError {
   // The error message which we can expose in the logs, does not contain user data
   const char* _message;
   // The formatted error message in its entirety, can be shown only to the user
-  char *detail;
+  char *_detail;
 
   // warnings
   bool reachedMaxPrefixExpansions;

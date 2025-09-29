@@ -343,9 +343,7 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   QueryError status = {0};
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
   if (aCtx == NULL) {
-    if (status.detail) {
-      QueryError_ClearError(&status);
-    }
+    QueryError_ClearError(&status);
     RWLOCK_RELEASE();
     return REDISMODULE_ERR;
   }
