@@ -4,6 +4,7 @@ import psutil
 import numpy as np
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
+OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
 
 def change_oom_policy(env, policy):
     env.expect(config_cmd(), 'SET', 'ON_OOM', policy).ok()
@@ -266,3 +267,42 @@ def test_hybrid_oom_standalone(env):
 
         # Verify hybrid query fails
         env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
+
+# Test verbosity when partial results are returned for PROFILE and RESP3
+# @skip(cluster=False)
+def test_oom_verbosity_cluster_return(env):
+    env  = Env(shardsCount=3, protocol=3)
+
+    # Set OOM policy to fail on all shards
+    allShards_change_oom_policy(env, 'return')
+
+    _ = _common_cluster_test_scenario(env)
+
+    # Change maxmemory on all shards to 1
+    allShards_change_maxmemory_low(env)
+    # Change back coord maxmemory to 0
+    set_unlimited_maxmemory_for_oom(env)
+
+    # Note - only the coordinator shard will return results
+
+    # RESP3
+    # Search Profile
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
+    env.assertEqual(res['Results']['warning'], OOM_WARNING)
+    # Aggregate Profile
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@name')
+    env.assertEqual(res['Results']['warning'][0], OOM_WARNING)
+    # FT.SEARCH
+    res = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(res['warning'], OOM_WARNING)
+    # FT.AGGREGATE
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
+    env.assertEqual(res['warning'][0], OOM_WARNING)
+
+    # RESP2
+    env.cmd('HELLO', 2)
+    # Aggregate Profile
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+    coord_res = res[1][3]
+    warning_idx = coord_res.index('Warning') + 1
+    env.assertEqual(coord_res[warning_idx], OOM_WARNING)

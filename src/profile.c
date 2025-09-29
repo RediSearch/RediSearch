@@ -134,6 +134,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   bool timedout = profileCtx->timedout;
   bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
   bool bgScanOOM = profileCtx->bgScanOOM;
+  bool queryOOM = profileCtx->queryOOM;
   req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
@@ -169,6 +170,9 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print whether a warning was raised throughout command execution
       if (bgScanOOM) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
+      }
+      if (queryOOM) {
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_CLUSTER);
       }
       if (timedout) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));

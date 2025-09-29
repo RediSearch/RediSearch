@@ -467,6 +467,7 @@ done_2:
       .timedout = has_timedout,
       .reachedMaxPrefixExpansions = qctx->err->reachedMaxPrefixExpansions,
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
+      .queryOOM = qctx->err->queryOOM,
     };
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
@@ -610,6 +611,7 @@ done_3:
       .timedout = has_timedout,
       .reachedMaxPrefixExpansions = qctx->err->reachedMaxPrefixExpansions,
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
+      .queryOOM = qctx->err->queryOOM,
     };
 
     if (IsProfile(req)) {
