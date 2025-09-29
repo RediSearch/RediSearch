@@ -695,35 +695,47 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             blocks_ignored: 0,
         };
 
-        // We apply the repairs in reverse order so that the indices of the blocks to be repaired
-        // remain valid as we modify the blocks vector.
-        for delta in deltas.into_iter().rev() {
-            // Skip if the last block has changed since the scan
-            if delta.index == last_block_idx
-                && self.blocks[delta.index].num_entries != last_block_num_entries
-            {
-                info.blocks_ignored += 1;
-                continue;
-            }
+        let mut tmp_blocks = Vec::with_capacity(self.blocks.len());
+        std::mem::swap(&mut self.blocks, &mut tmp_blocks);
 
-            match delta.repair {
-                RepairType::Delete => {
-                    let block = self.blocks.remove(delta.index);
-                    info.entries_removed += block.num_entries;
-                    info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
+        let mut deltas = deltas.into_iter().peekable();
+
+        for (block_index, block) in tmp_blocks.into_iter().enumerate() {
+            match deltas.peek() {
+                Some(delta)
+                    if delta.index == block_index
+                        && delta.index == last_block_idx
+                        && block.num_entries != last_block_num_entries =>
+                {
+                    // The last block has changed since the scan, so we ignore this delta
+                    info.blocks_ignored += 1;
+                    self.blocks.push(block);
                 }
-                RepairType::Replace { mut blocks } => {
-                    let old_block = self.blocks.remove(delta.index);
-                    info.entries_removed += old_block.num_entries;
-                    info.bytes_freed += IndexBlock::SIZE + old_block.buffer.capacity();
+                Some(delta) if delta.index == block_index => {
+                    // This block needs to be repaired
+                    let delta = deltas.next().expect("we just peeked it");
 
-                    blocks.reverse();
+                    match delta.repair {
+                        RepairType::Delete => {
+                            // We are deleting this block, so nothing to do
+                            info.entries_removed += block.num_entries;
+                            info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
+                        }
+                        RepairType::Replace { blocks } => {
+                            info.entries_removed += block.num_entries;
+                            info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
 
-                    for block in blocks {
-                        info.entries_removed -= block.num_entries;
-                        info.bytes_allocated += IndexBlock::SIZE + block.buffer.capacity();
-                        self.blocks.insert(delta.index, block);
+                            for block in blocks {
+                                info.entries_removed -= block.num_entries;
+                                info.bytes_allocated += IndexBlock::SIZE + block.buffer.capacity();
+                                self.blocks.push(block);
+                            }
+                        }
                     }
+                }
+                _ => {
+                    // This block does not need to be repaired, so just put it back
+                    self.blocks.push(block);
                 }
             }
         }
