@@ -17,7 +17,7 @@ use crate::{DecodedBy, Decoder, Encoder, IndexBlock, RSIndexResult};
 ///
 /// The delta is encoded as a raw 4-byte value.
 /// This is different from the regular [`crate::doc_ids_only::DocIdsOnly`] encoder which uses varint encoding.
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct RawDocIdsOnly;
 
 impl Encoder for RawDocIdsOnly {

@@ -27,7 +27,7 @@ use crate::{
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FieldsOffsets;
 
 impl Encoder for FieldsOffsets {
@@ -138,7 +138,7 @@ impl Decoder for FieldsOffsets {
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FieldsOffsetsWide;
 
 impl Encoder for FieldsOffsetsWide {
