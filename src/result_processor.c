@@ -292,7 +292,7 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
       continue;
     }
     if (self->scoreKey) {
-      RLookup_WriteOwnKey(self->scoreKey, &res->rowdata, RS_NumVal(res->score));
+      RLookup_WriteOwnKey(self->scoreKey, &res->rowdata, RSValue_NewNumberAlloc(res->score));
     }
 
     break;
@@ -1028,7 +1028,7 @@ static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
   if (RS_RESULT_OK == rc) {
     RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
     size_t keyLen = sdslen(res->dmd->keyPtr); // keyPtr is an sds
-    RLookup_WriteOwnKey(nl->out, &res->rowdata, RS_NewCopiedString(res->dmd->keyPtr, keyLen));
+    RLookup_WriteOwnKey(nl->out, &res->rowdata, RSValue_NewCopiedStringAlloc(res->dmd->keyPtr, keyLen));
   }
   return rc;
 }
@@ -1262,7 +1262,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
     r->score /= self->maxValue;
   }
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RSValue_NewNumberAlloc(r->score));
   }
   EXPLAIN(r->scoreExplain,
         "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
@@ -1354,7 +1354,7 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
 
   // Update distance field 
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(normalizedScore));
+    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RSValue_NewNumberAlloc(normalizedScore));
   }
   return RS_RESULT_OK;
 }
@@ -1822,7 +1822,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
    // Add score as field if scoreKey is provided
    if (self->scoreKey) {
-     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RSValue_NewNumberAlloc(r->score));
    }
 
    return RS_RESULT_OK;

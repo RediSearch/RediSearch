@@ -118,7 +118,7 @@ static void SetYield(QueryIterator *base, double value) {
   MetricIterator *mr = (MetricIterator *)base;
   IndexResult_SetNumValue(base->current, value);
   ResultMetrics_Reset(base->current);
-  ResultMetrics_Add(base->current, mr->ownKey, RS_NumVal(value));
+  ResultMetrics_Add(base->current, mr->ownKey, RSValue_NewNumberAlloc(value));
 }
 
 static IteratorStatus MR_Read(QueryIterator *base) {

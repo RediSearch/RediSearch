@@ -43,8 +43,8 @@ TEST_F(RLookupTest, testRow) {
   RLookupKey *fook = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *bark = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
-  RSValue *vfoo = RS_Int64Val(42);
-  RSValue *vbar = RS_Int64Val(666);
+  RSValue *vfoo = RSValue_NewNumberFromInt64Alloc(42);
+  RSValue *vbar = RSValue_NewNumberFromInt64Alloc(666);
 
   ASSERT_EQ(1, RSValue_Refcount(vfoo));
   RLookup_WriteKey(fook, &rr, vfoo);
@@ -56,7 +56,7 @@ TEST_F(RLookupTest, testRow) {
   ASSERT_EQ(1, rr.ndyn);
 
   // Write a NULL value
-  RLookup_WriteKey(fook, &rr, RS_NullVal());
+  RLookup_WriteKey(fook, &rr, RSValue_NullStatic());
   ASSERT_EQ(1, RSValue_Refcount(vfoo));
 
   // Get the 'bar' key -- should be NULL
@@ -99,7 +99,7 @@ TestKeySet init_keys(RLookup* lookup, const std::vector<const char*>& fieldNames
 std::vector<RSValue*> create_test_values(const std::vector<int>& values) {
   std::vector<RSValue*> rsValues;
   for (int val : values) {
-    rsValues.push_back(RS_Int64Val(val));
+    rsValues.push_back(RSValue_NewNumberFromInt64Alloc(val));
   }
   return rsValues;
 }

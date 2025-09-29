@@ -260,7 +260,7 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
 
 /**
  * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
- * idioms such as RLookup_WriteKey(..., RS_NumVal(10)); which would otherwise cause
+ * idioms such as RLookup_WriteKey(..., RSValue_NewNumberAlloc(10)); which would otherwise cause
  * a leak.
  */
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
@@ -310,7 +310,7 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
       const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
       if (sv && RSSortingVector_Length(sv) > key->svidx) {
         ret = RSSortingVector_Get(sv, key->svidx);
-        if (ret != NULL && ret == RS_NullVal()) {
+        if (ret != NULL && ret == RSValue_NullStatic()) {
           ret = NULL;
         }
       }

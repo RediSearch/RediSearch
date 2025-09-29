@@ -393,13 +393,13 @@ static RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll;
     RedisModule_StringToLongLong(src, &ll);
-    return RS_Int64Val(ll);
+    return RSValue_NewNumberFromInt64Alloc(ll);
   } else if (type == RLOOKUP_C_DBL) {
     double dd;
     RedisModule_StringToDouble(src, &dd);
-    return RS_NumVal(dd);
+    return RSValue_NewNumberAlloc(dd);
   } else {
-    return RS_OwnRedisStringVal((RedisModuleString *)src);
+    return RSValue_NewOwnedRedisStringAlloc((RedisModuleString *)src);
   }
 }
 
@@ -417,22 +417,22 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType_String:
       japi->getString(json, &constStr, &len);
       str = rm_strndup(constStr, len);
-      return RS_StringVal(str, len);
+      return RSValue_NewStringAlloc(str, len);
     case JSONType_Int:
       japi->getInt(json, &ll);
-      return RS_Int64Val(ll);
+      return RSValue_NewNumberFromInt64Alloc(ll);
     case JSONType_Double:
       japi->getDouble(json, &dd);
-      return RS_NumVal(dd);
+      return RSValue_NewNumberAlloc(dd);
     case JSONType_Bool:
       japi->getBoolean(json, &i);
-      return RS_Int64Val(i);
+      return RSValue_NewNumberFromInt64Alloc(i);
     case JSONType_Array:
     case JSONType_Object:
       japi->getJSON(json, ctx, &rstr);
-      return RS_StealRedisStringVal(rstr);
+      return RSValue_NewStolenRedisStringAlloc(rstr);
     case JSONType_Null:
-      return RS_NullVal();
+      return RSValue_NullStatic();
     case JSONType__EOF:
       break;
   }
@@ -456,17 +456,17 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       size_t i = 0;
       RedisJSON value;
  
-      RSValueMap map = RSValueMap_Create_Uninit(len);
+      RSValueMap map = RSValueMap_Alloc_Uninit(len);
       for (; (value = japi->nextKeyValue(iter, &keyName)); ++i) {
-        RSValueMap_SetEntry(&map, i, RS_StealRedisStringVal(keyName),
+        RSValueMap_SetEntry(&map, i, RSValue_NewStolenRedisStringAlloc(keyName),
           jsonValToValueExpanded(ctx, value));
       }
       japi->freeKeyValuesIter(iter);
       RS_ASSERT(i == len && !value);
 
-      ret = RSValue_NewMap(map);
+      ret = RSValue_NewMapAlloc(map);
     } else {
-      ret = RSValue_NewMap(RSValueMap_Create_Uninit(0));
+      ret = RSValue_NewMapAlloc(RSValueMap_Alloc_Uninit(0));
     }
   } else if (type == JSONType_Array) {
     // Array
@@ -551,9 +551,9 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
     if (json) {
       RSValue *val = jsonValToValue(ctx, json);
-      RSValue *otherval = RS_StealRedisStringVal(serialized);
-      RSValue *expand = japi_ver >= 4 ? jsonIterToValueExpanded(ctx, iter) : RS_NullVal();
-      *rsv = RS_TrioVal(val, otherval, expand);
+      RSValue *otherval = RSValue_NewStolenRedisStringAlloc(serialized);
+      RSValue *expand = japi_ver >= 4 ? jsonIterToValueExpanded(ctx, iter) : RSValue_NullStatic();
+      *rsv = RSValue_NewTrioAlloc(val, otherval, expand);
       res = REDISMODULE_OK;
     } else if (serialized) {
       RedisModule_FreeString(ctx, serialized);
@@ -579,7 +579,7 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
         return RSValue_ParseNumber(s, len);
       }
       // Note, the pointer is within CallReply; we need to copy
-      return RS_NewCopiedString(s, len);
+      return RSValue_NewCopiedStringAlloc(s, len);
     }
 
     case REDISMODULE_REPLY_INTEGER:
@@ -587,14 +587,14 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
       if (otype == RLOOKUP_C_STR || otype == RLOOKUP_C_DBL) {
         goto create_string;
       }
-      return RS_Int64Val(RedisModule_CallReplyInteger(rep));
+      return RSValue_NewNumberFromInt64Alloc(RedisModule_CallReplyInteger(rep));
 
     case REDISMODULE_REPLY_UNKNOWN:
     case REDISMODULE_REPLY_NULL:
     case REDISMODULE_REPLY_ARRAY:
     default:
       // Nothing
-      return RS_NullVal();
+      return RSValue_NullStatic();
   }
 }
 
@@ -698,7 +698,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
     if (!strcmp(kk->path, UNDERSCORE_KEY)) {
-      rsv = RS_StringVal(rm_strdup(keyPtr), strlen(keyPtr));
+      rsv = RSValue_NewStringAlloc(rm_strdup(keyPtr), strlen(keyPtr));
     } else {
       return REDISMODULE_OK;
     }

@@ -31,7 +31,7 @@ NUMERIC_SIMPLE_FUNCTION(log2);
 NUMERIC_SIMPLE_FUNCTION(exp);
 
 #define REGISTER_MATHFUNC(name, f) \
-  RSFunctionRegistry_RegisterFunction(name, mathfunc_##f, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction(name, mathfunc_##f, RSValueType_Number, 1, 1);
 
 void RegisterMathFunctions() {
   REGISTER_MATHFUNC("log", log);

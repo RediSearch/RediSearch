@@ -109,9 +109,9 @@ impl Drop for RSValueFFI {
 
 impl RSValueTrait for RSValueFFI {
     fn create_null() -> Self {
-        // Safety: RS_NullVal returns an immutable global ptr
-        let val = unsafe { ffi::RS_NullVal() };
-        RSValueFFI(NonNull::new(val).expect("RS_NullVal returned a null pointer"))
+        // Safety: RSValue_NullStatic returns an immutable global ptr
+        let val = unsafe { ffi::RSValue_NullStatic() };
+        RSValueFFI(NonNull::new(val).expect("RSValue_NullStatic returned a null pointer"))
     }
 
     fn create_string(_: String) -> Self {
@@ -124,8 +124,8 @@ impl RSValueTrait for RSValueFFI {
 
     fn create_num(num: f64) -> Self {
         // Safety: RSValue_FromDouble expects a valid double value.
-        let num = unsafe { ffi::RS_NumVal(num) };
-        RSValueFFI(NonNull::new(num).expect("RS_NumVal returned a null pointer"))
+        let num = unsafe { ffi::RSValue_NewNumberAlloc(num) };
+        RSValueFFI(NonNull::new(num).expect("RSValue_NewNumberAlloc returned a null pointer"))
     }
 
     fn create_ref(value: Self) -> Self {
@@ -133,14 +133,14 @@ impl RSValueTrait for RSValueFFI {
     }
 
     fn is_null(&self) -> bool {
-        // Safety: RS_NullVal returns an immutable global ptr
-        self.0.as_ptr() == unsafe { ffi::RS_NullVal() }
+        // Safety: RSValue_NullStatic returns an immutable global ptr
+        self.0.as_ptr() == unsafe { ffi::RSValue_NullStatic() }
     }
 
     fn get_ref(&self) -> Option<&Self> {
         // Safety: We assume a valid ptr is given by the C side
         let p = unsafe { self.0.as_ref() };
-        if p._t() == ffi::RSValueType_RSValue_Reference {
+        if p._t() == ffi::RSValueType_RSValueType_Reference {
             // Safety: We tested that the type is a reference, so we access it over the union safely.
             let ref_ptr = unsafe { p.__bindgen_anon_1._ref };
 
@@ -154,7 +154,7 @@ impl RSValueTrait for RSValueFFI {
     fn as_str(&self) -> Option<&str> {
         // Safety: We assume a valid ptr is given by the C side
         let p = unsafe { self.0.as_ref() };
-        if p._t() == ffi::RSValueType_RSValue_String {
+        if p._t() == ffi::RSValueType_RSValueType_String {
             // Safety: We tested that the type is a string, so we access it over the union safely.
             let c_str: *mut c_char = unsafe { p.__bindgen_anon_1._strval }.str_;
 
@@ -168,7 +168,7 @@ impl RSValueTrait for RSValueFFI {
     fn as_num(&self) -> Option<f64> {
         // Safety: We assume a valid ptr is given by the C side
         let p = unsafe { self.0.as_ref() };
-        if p._t() == ffi::RSValueType_RSValue_Number {
+        if p._t() == ffi::RSValueType_RSValueType_Number {
             // Safety: We tested that the type is a number, so we access it over the union safely.
             Some(unsafe { p.__bindgen_anon_1._numval })
         } else {
