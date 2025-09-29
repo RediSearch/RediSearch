@@ -71,8 +71,20 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   }
 
   sreq->query = AC_GetStringNC(ac, NULL);
-  RSSearchOptions *searchOpts = &sreq->searchopts;
 
+  // We allow ARGS keyword not be specified
+  if (AC_AdvanceIfMatch(ac, "ARGS") != AC_OK) {
+    return REDISMODULE_OK;
+  }
+
+  ArgsCursor args;
+  int rc = AC_GetVarArgs(ac, &args);
+  if (rc != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for SEARCH ARGS: %s", AC_Strerror(rc));
+    return REDISMODULE_ERR;
+  }
+  
+  RSSearchOptions *searchOpts = &sreq->searchopts;
   // Currently only SCORER is possible in SEARCH. Maybe will add support for SORTBY and others later
   ACArgSpec querySpecs[] = {
     {.name = "SCORER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scorerName},
@@ -80,27 +92,15 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   };
 
   // Parse all querySpecs until we hit VSIM, unknown argument, or the end
-  while (!AC_IsAtEnd(ac)) {
+  while (!AC_IsAtEnd(&args)) {
     ACArgSpec *errSpec = NULL;
-    int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
+    int rv = AC_ParseArgSpec(&args, querySpecs, &errSpec);
     if (rv == AC_OK) {
       continue;
     }
 
-    if (rv != AC_ERR_ENOENT) {
-      QERR_MKBADARGS_AC(status, errSpec->name, rv);
-      return REDISMODULE_ERR;
-    }
-
-    // AC_ERR_ENOENT - check if it's VSIM or just an unknown argument
-    const char *cur;
-    if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) == AC_OK && !strcasecmp("VSIM", cur)) {
-      // Hit VSIM, we're done with search options
-      return REDISMODULE_OK;
-    }
-
     // Unknown argument that's not VSIM - this is an error
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in SEARCH", cur);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in SEARCH", errSpec->name);
     return REDISMODULE_ERR;
   }
 
