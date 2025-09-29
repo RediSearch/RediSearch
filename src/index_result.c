@@ -28,7 +28,7 @@ void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *chi
 /* Free the metrics */
 void ResultMetrics_Free(RSYieldableMetric *metrics) {
   // array_free_ex is NULL safe
-  array_free_ex(metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
+  array_free_ex(metrics, RSValue_DecrRef(((RSYieldableMetric *)ptr)->value));
 }
 
 RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src) {

@@ -88,10 +88,10 @@ static RSValue *fvFinalize(Reducer *parent, void *ctx) {
 static void fvFreeInstance(Reducer *parent, void *p) {
   fvCtx *fvx = p;
   if (fvx->value) {
-    RSValue_Decref(fvx->value);
+    RSValue_DecrRef(fvx->value);
   };
   if (fvx->sortval) {
-    RSValue_Decref(fvx->sortval);
+    RSValue_DecrRef(fvx->sortval);
   };
 }
 

@@ -200,7 +200,7 @@ void RSValue_Clear(RSValue *v) {
       }
       break;
     case RSValue_Reference:
-      RSValue_Decref(v->_ref);
+      RSValue_DecrRef(v->_ref);
       break;
     case RSValue_OwnRstring:
       RedisModule_FreeString(RSDummyContext, v->_rstrval);
@@ -208,21 +208,21 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
     case RSValue_Trio:
-      RSValue_Decref(RSValue_Trio_GetLeft(v));
-      RSValue_Decref(RSValue_Trio_GetMiddle(v));
-      RSValue_Decref(RSValue_Trio_GetRight(v));
+      RSValue_DecrRef(RSValue_Trio_GetLeft(v));
+      RSValue_DecrRef(RSValue_Trio_GetMiddle(v));
+      RSValue_DecrRef(RSValue_Trio_GetRight(v));
       rm_free(v->_trioval.vals);
       break;
     case RSValue_Array:
       for (uint32_t i = 0; i < v->_arrval.len; i++) {
-        RSValue_Decref(v->_arrval.vals[i]);
+        RSValue_DecrRef(v->_arrval.vals[i]);
       }
       rm_free(v->_arrval.vals);
       break;
     case RSValue_Map:
       for (uint32_t i = 0; i < v->_mapval.len; i++) {
-        RSValue_Decref(v->_mapval.entries[i].key);
-        RSValue_Decref(v->_mapval.entries[i].value);
+        RSValue_DecrRef(v->_mapval.entries[i].key);
+        RSValue_DecrRef(v->_mapval.entries[i].value);
       }
       if (v->_mapval.len > 0) {
         rm_free(v->_mapval.entries);
@@ -242,7 +242,7 @@ RSValue* RSValue_IncrRef(RSValue* v) {
   return v;
 }
 
-void RSValue_Decref(RSValue* v) {
+void RSValue_DecrRef(RSValue* v) {
   if (__atomic_sub_fetch(&(v)->_refcount, 1, __ATOMIC_RELAXED) == 0) {
     RSValue_Free(v);
   }

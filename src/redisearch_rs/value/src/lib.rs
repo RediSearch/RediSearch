@@ -103,7 +103,7 @@ impl Clone for RSValueFFI {
 impl Drop for RSValueFFI {
     fn drop(&mut self) {
         // Safety: We assume a valid ptr is given by the C side, and we are decrementing the reference count.
-        unsafe { ffi::RSValue_Decref(self.0.as_ptr()) };
+        unsafe { ffi::RSValue_DecrRef(self.0.as_ptr()) };
     }
 }
 

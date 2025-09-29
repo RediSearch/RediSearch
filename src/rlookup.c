@@ -308,7 +308,7 @@ void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
   // Find the pointer to write to ...
   RSValue **vptr = array_ensure_at(&row->dyn, key->dstidx, RSValue *);
   if (*vptr) {
-    RSValue_Decref(*vptr);
+    RSValue_DecrRef(*vptr);
     row->ndyn--;
   }
   *vptr = v;
@@ -330,14 +330,14 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
 
 void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
   RLookup_WriteKeyByName(lookup, name, len, row, value);
-  RSValue_Decref(value);
+  RSValue_DecrRef(value);
 }
 
 void RLookupRow_Wipe(RLookupRow *r) {
   for (size_t ii = 0; ii < array_len(r->dyn) && r->ndyn; ++ii) {
     RSValue **vpp = r->dyn + ii;
     if (*vpp) {
-      RSValue_Decref(*vpp);
+      RSValue_DecrRef(*vpp);
       *vpp = NULL;
       r->ndyn--;
     }

@@ -67,8 +67,8 @@ TEST_F(RLookupTest, testRow) {
   vtmp = RLookup_GetItem(fook, &rr);
   ASSERT_TRUE(NULL == RLookup_GetItem(fook, &rr));
 
-  RSValue_Decref(vfoo);
-  RSValue_Decref(vbar);
+  RSValue_DecrRef(vfoo);
+  RSValue_DecrRef(vbar);
   RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
 }
@@ -147,7 +147,7 @@ void verify_fields_empty(RLookup* lookup, RLookupRow* row, const std::vector<con
 // Helper: Cleanup RSValue array
 void cleanup_values(const std::vector<RSValue*>& values) {
   for (RSValue* val : values) {
-    if (val) RSValue_Decref(val);
+    if (val) RSValue_DecrRef(val);
   }
 }
 

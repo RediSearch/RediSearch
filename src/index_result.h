@@ -39,7 +39,7 @@ static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue 
 }
 
 static inline void ResultMetrics_Reset(RSIndexResult *r) {
-  array_foreach(r->metrics, adtnl, RSValue_Decref(adtnl.value));
+  array_foreach(r->metrics, adtnl, RSValue_DecrRef(adtnl.value));
   array_clear(r->metrics);
 }
 
