@@ -65,6 +65,7 @@ def test_mod4745(env):
 
     r.expect('ft.create', 'idx', 'schema', 'name', 'text', 'v', 'VECTOR', 'HNSW', '6', 'distance_metric', 'l2', 'DIM',
              dim, 'type', 'float32').ok()
+    #some comment
     # Make sure we are getting here without having cluster mark itself as fail since the server is not responsive and
     # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')
