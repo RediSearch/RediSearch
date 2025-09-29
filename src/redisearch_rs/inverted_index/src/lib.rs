@@ -227,6 +227,10 @@ pub struct InvertedIndex<E> {
     /// handled.
     flags: IndexFlags,
 
+    /// A marker used by the garbage collector to determine if the index has been modified since
+    /// the last GC pass. This is used to reset a reader if the index has been modified.
+    gc_marker: AtomicUsize,
+
     /// The encoder to use when adding new entries to the index
     encoder: E,
 }
@@ -305,6 +309,7 @@ impl<E: Encoder> InvertedIndex<E> {
             blocks: Vec::new(),
             n_unique_docs: 0,
             flags,
+            gc_marker: AtomicUsize::new(0),
             encoder,
         }
     }
@@ -329,6 +334,7 @@ impl<E: Encoder> InvertedIndex<E> {
             blocks,
             n_unique_docs,
             flags,
+            gc_marker: AtomicUsize::new(0),
             encoder,
         }
     }
@@ -495,6 +501,16 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
         self.blocks.get(index)
     }
+
+    /// Get the current GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker(&self) -> usize {
+        self.gc_marker.load(atomic::Ordering::Relaxed)
+    }
+
+    /// Increment the GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker_inc(&self) {
+        self.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
+    }
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
@@ -584,6 +600,16 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
     pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
         self.index.block_ref(index)
+    }
+
+    /// Get the current GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker(&self) -> usize {
+        self.index.gc_marker()
+    }
+
+    /// Increment the GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker_inc(&self) {
+        self.index.gc_marker_inc();
     }
 
     /// Get a reference to the inner inverted index.
@@ -679,6 +705,16 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.block_ref(index)
     }
 
+    /// Get the current GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker(&self) -> usize {
+        self.index.gc_marker()
+    }
+
+    /// Increment the GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker_inc(&self) {
+        self.index.gc_marker_inc();
+    }
+
     /// Get a reference to the inner inverted index.
     pub fn inner(&self) -> &InvertedIndex<E> {
         &self.index
@@ -712,6 +748,11 @@ pub struct IndexReader<'index, E, D> {
     /// The last document ID that was read from the index. This is used to determine the base
     /// document ID for delta calculations.
     last_doc_id: t_docId,
+
+    /// The marker of the inverted index when this reader last read from it. This is used to
+    /// detect if the index has been modified since the last read, in which case the reader
+    /// should be reset.
+    gc_marker: usize,
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> Iterator for IndexReader<'index, E, D> {
@@ -749,6 +790,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
             current_buffer: Cursor::new(&first_block.buffer),
             current_block_idx: 0,
             last_doc_id: first_block.first_doc_id,
+            gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
         }
     }
 
@@ -831,6 +873,13 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
     /// Reset the reader to the beginning of the index.
     pub fn reset(&mut self) {
         self.set_current_block(0);
+        self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
+    }
+
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.gc_marker != self.ii.gc_marker.load(atomic::Ordering::Relaxed)
     }
 
     /// Return the number of unique documents in the underlying index.
@@ -953,6 +1002,12 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReader
         self.inner.reset();
     }
 
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
+    }
+
     /// Return the number of unique documents in the underlying index.
     pub fn unique_docs(&self) -> usize {
         self.inner.unique_docs()
@@ -1060,6 +1115,12 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
     /// Reset the reader to the beginning of the index.
     pub fn reset(&mut self) {
         self.inner.reset();
+    }
+
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
     }
 
     /// Return the number of unique documents in the underlying index.
@@ -1197,6 +1258,12 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
     /// Reset the reader to the beginning of the index.
     pub fn reset(&mut self) {
         self.inner.reset();
+    }
+
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
     }
 
     /// Return the number of unique documents in the underlying index.
