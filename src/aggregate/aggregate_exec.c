@@ -278,7 +278,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
               v = RS_DUOVAL_OTHER2VAL(*v);
             }
           }
-          RSValue_SendReply(reply, v, flags);
+          RedisModule_Reply_RSValue(reply, v, flags);
         }
       RedisModule_Reply_MapEnd(reply);
     }
