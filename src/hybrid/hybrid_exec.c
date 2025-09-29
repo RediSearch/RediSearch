@@ -517,13 +517,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   QueryError status = {0};
 
-  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
-  if (!sctx) {
-    QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-
   if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
     // OOM guardrail
     if (estimateOOM(ctx)) {
@@ -531,6 +524,13 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       QueryError_SetCode(&status, QUERY_EOOM);
       return QueryError_ReplyAndClear(ctx, &status);
     }
+  }
+
+  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
+  if (!sctx) {
+    QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
+    return QueryError_ReplyAndClear(ctx, &status);
   }
 
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
