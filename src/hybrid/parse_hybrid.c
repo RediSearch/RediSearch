@@ -93,11 +93,17 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
       return REDISMODULE_ERR;
     }
 
-    // AC_ERR_ENOENT - check if it's VSIM or just an unknown argument
+    // AC_ERR_ENOENT - check if it's VSIM or just an unknown argument (special error message for DIALECT)
     const char *cur;
-    if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) == AC_OK && !strcasecmp("VSIM", cur)) {
+    rv = AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE);
+
+    if (rv == AC_OK && !strcasecmp("VSIM", cur)) {
       // Hit VSIM, we're done with search options
       break;
+    }
+    if (rv == AC_OK && !strcasecmp("DIALECT", cur)) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
+      return REDISMODULE_ERR;
     }
 
     // Unknown argument that's not VSIM - this is an error
@@ -373,6 +379,11 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
   }
 
+  if (AC_AdvanceIfMatch(ac, "DIALECT")) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
+    goto error;
+  }
+
 final:
   if (!vreq->query) {  // meaning there is no filter clause
     vreq->query = "*";
@@ -549,6 +560,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Don't expect any flag to be on yet
   RS_ASSERT(*mergeReqflags == 0);
   *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
+
+  // Use default dialect if > 1, otherwise use dialect 2
+  if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
+    parsedCmdCtx->reqConfig->dialectVersion = MIN_HYBRID_DIALECT;
+  }
+  parsedCmdCtx->search->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+  parsedCmdCtx->vector->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+
   RSSearchOptions mergeSearchopts = {0};
   RSSearchOptions_Init(&mergeSearchopts);
   size_t maxHybridResults = RSGlobalConfig.maxSearchResults;
