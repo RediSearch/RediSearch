@@ -18,9 +18,10 @@ use crate::{
     DecodedBy, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
     FilterMaskReader, FilterNumericReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
     NumericFilter, RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
+    RepairType,
     debug::{BlockSummary, Summary},
 };
-use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
+use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, t_docId};
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
@@ -1206,4 +1207,21 @@ fn blocks_summary_store_numeric() {
             }
         ]
     );
+}
+
+#[test]
+fn index_block_repair_delete() {
+    // Make a block with two entries which will be deleted
+    let block = IndexBlock {
+        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+        num_entries: 2,
+        first_doc_id: 10,
+        last_doc_id: 11,
+    };
+
+    fn cb(doc_id: t_docId) -> bool {
+        ![10, 11].contains(&doc_id)
+    }
+
+    assert_eq!(block.repair(cb, Dummy), Some(RepairType::Delete));
 }
