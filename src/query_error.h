@@ -94,7 +94,7 @@ typedef struct QueryError {
   char *_detail;
 
   // warnings
-  bool reachedMaxPrefixExpansions;
+  bool _reachedMaxPrefixExpansions;
 } QueryError;
 
 /**
@@ -209,6 +209,12 @@ static inline bool QueryError_IsOk(const QueryError *status) {
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
+
+/*** Whether the reached max prefix expansions warning is set */
+bool QueryError_HasReachedMaxPrefixExpansionsWarning(const QueryError *status);
+
+/*** Sets the reached max prefix expansions warning */
+void QueryError_SetReachedMaxPrefixExpansionsWarning(QueryError *status);
 
 #ifdef __cplusplus
 }

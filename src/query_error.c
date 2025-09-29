@@ -136,3 +136,11 @@ const char *QueryError_GetDisplayableError(const QueryError *status, bool obfusc
 QueryErrorCode QueryError_GetCode(const QueryError *status) {
   return status->_code;
 }
+
+bool QueryError_HasReachedMaxPrefixExpansionsWarning(const QueryError *status) {
+  return status->_reachedMaxPrefixExpansions;
+}
+
+void QueryError_SetReachedMaxPrefixExpansionsWarning(QueryError *status) {
+  status->_reachedMaxPrefixExpansions = true;
+}

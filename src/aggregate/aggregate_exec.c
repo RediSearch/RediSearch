@@ -474,7 +474,7 @@ done_2:
     ProfilePrinterCtx profileCtx = {
       .req = req,
       .timedout = has_timedout,
-      .reachedMaxPrefixExpansions = qctx->err->reachedMaxPrefixExpansions,
+      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
     };
 
@@ -598,7 +598,7 @@ done_3:
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
-    } else if (qctx->err->reachedMaxPrefixExpansions) {
+    } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
@@ -613,7 +613,7 @@ done_3:
     ProfilePrinterCtx profileCtx = {
       .req = req,
       .timedout = has_timedout,
-      .reachedMaxPrefixExpansions = qctx->err->reachedMaxPrefixExpansions,
+      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
     };
 

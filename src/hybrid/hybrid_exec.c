@@ -61,7 +61,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   } else if (returnCode == RS_RESULT_ERROR) {
     // Non-fatal error
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
-  } else if (err->reachedMaxPrefixExpansions) {
+  } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
   }
 
