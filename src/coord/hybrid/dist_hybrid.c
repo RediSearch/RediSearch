@@ -17,47 +17,7 @@
 #include "rmutil/util.h"
 #include "commands.h"
 #include "rpnet.h"
-#include "hybrid_dispatcher.h"
-
-
-static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  //debug
-  printMRReplyRecursive(rep, 0);
-
-  MRIteratorCallback_AddReply(ctx, rep);
-  MRIteratorCallback_Done(ctx, 0);
-}
-
-static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
-  RPNet *nc = (RPNet *)rp;
-  HybridDispatcher *dispatcher = StrongRef_Get(nc->dispatchCtx->dispatcher_ref);
-
-  if (!HybridDispatcher_Started(dispatcher)) {
-    HybridDispatcher_Dispatch(dispatcher);
-  } else {
-    // Wait for completion - this can be called from multiple threads
-    HybridDispatcher_WaitForMappingsComplete(dispatcher);
-  }
-
-  //todo : fix the race condition here, HybridDispatcher_TakeMapping can be called before the second thread finish HybridDispatcher_WaitForMappingsComplete,
-  //affecting the condition check in HybridDispatcher_WaitForMappingsComplete (and deadlock)
-  nc->dispatchCtx->mappings = HybridDispatcher_TakeMapping(nc->dispatchCtx->dispatcher_ref, nc->dispatchCtx->isSearch);
-  if (!nc->dispatchCtx->mappings) {
-    return REDISMODULE_ERR;
-  }
-
-  // NEW: Take ownership of the appropriate mapping array
-
-  // for hybrid commands, the index name is at position 1
-  const char *idx = MRCommand_ArgStringPtrLen(&dispatcher->cmd, 1, NULL);
-
-  // sleep(60);
-
-  nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx);
-  nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, nc->dispatchCtx->mappings);
-  nc->base.Next = rpnetNext;
-  return rpnetNext(rp, r);
-}
+#include "hybrid_cursor_mappings.h"
 
 
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
@@ -125,8 +85,10 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // Add WITHCURSOR
   MRCommand_Append(xcmd, "WITHCURSOR", strlen("WITHCURSOR"));
+
+  MRCommand_Append(xcmd, "WITHSCORES", strlen("WITHSCORES"));
   // Numeric responses are encoded as simple strings.
-  MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
+  // MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
 \
 }
@@ -135,14 +97,11 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 // NOTE: Caller should clone the dispatcher_ref before calling this function
 static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
                           AREQDIST_UpstreamInfo *us,
-                          int (*nextFunc)(ResultProcessor *, SearchResult *),
-                          StrongRef dispatcher_ref, bool isSearch) {
+                          int (*nextFunc)(ResultProcessor *, SearchResult *)) {
   // Establish our root processor, which is the distributed processor
   MRCommand cmd = MRCommand_Copy(xcmd);
 
-  RPNet *rpRoot = RPNet_New(&cmd, rpnetNext_StartDispatcher);
-
-  RPNet_SetDispatchContext(rpRoot, dispatcher_ref, isSearch);
+  RPNet *rpRoot = RPNet_New(&cmd, nextFunc);
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   rpRoot->base.parent = qctx;
@@ -186,8 +145,6 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   // Create synchronization context for coordinating depleter processors
   // This ensures thread-safe access when multiple depleters read from their pipelines
   StrongRef sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
-  // StrongRef dispatcher_ref = HybridDispatcher_New(xcmd, 4);
-  // HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
 
   // Build individual pipelines for each search request
   for (size_t i = 0; i < req->nrequests; i++) {
@@ -217,7 +174,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
       QITR_PushRP(qctx, depleter);
 
-      // RPNet *rpNet = RPNet_New(xcmd, rpnetNext_StartDispatcher);
+      // RPNet *rpNet = RPNet_New(xcmd, rpnetNext_StartWithMappings);
       // RPNet_SetDispatcher(rpNet, dispatcher);
       // QITR_PushRP(qctx, &rpNet->base);
   }
@@ -286,15 +243,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // xcmd.forProfiling = false;  // No profiling support for hybrid yet
     // xcmd.rootCommand = C_AGG;   // Response is equivalent to a `CURSOR READ` response
 
-    HybridDispatcher *dispatcher = HybridDispatcher_New(&xcmd, 3);
-    StrongRef dispatcher_ref = StrongRef_New(dispatcher, HybridDispatcher_Free);
-
-    // FIXED: Clone references for each RPNet and pass correct parameters
-    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartDispatcher, StrongRef_Clone(dispatcher_ref), true);
-    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartDispatcher, StrongRef_Clone(dispatcher_ref), false);
-
-    // Release the original reference (RPNet contexts now own their references)
-    StrongRef_Release(dispatcher_ref);
+    // UPDATED: Use new start function with mappings (no dispatcher needed)
+    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartWithMappings);
+    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartWithMappings);
 
 
     // Free the command
@@ -304,6 +255,36 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
 static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
                         RedisModule_Reply *reply, QueryError *status) {
+
+    // Get RPNet structures from query context
+    QueryProcessingCtx *searchQctx = AREQ_QueryProcessingCtx(hreq->requests[0]);
+    QueryProcessingCtx *vsimQctx = AREQ_QueryProcessingCtx(hreq->requests[1]);
+    RPNet *searchRPNet = (RPNet *)searchQctx->rootProc;
+    RPNet *vsimRPNet = (RPNet *)vsimQctx->rootProc;
+
+    // NEW: Process cursor mappings synchronously (always needed for hybrid operations)
+    arrayof(CursorMapping *) searchMappings = array_new(CursorMapping*, 3); // TODO: get actual numShards
+    arrayof(CursorMapping *) vsimMappings = array_new(CursorMapping*, 3);   // TODO: get actual numShards
+
+    // Get the command from the RPNet (it was set during prepareForExecution)
+    MRCommand *cmd = &searchRPNet->cmd;
+    int numShards = 3; // TODO: determine from cluster topology
+
+    int result = ProcessHybridCursorMappings(cmd, numShards, searchMappings, vsimMappings);
+    if (result != RS_RESULT_OK) {
+        // Handle error
+        array_free_ex(searchMappings, rm_free);
+        array_free_ex(vsimMappings, rm_free);
+        return REDISMODULE_ERR;
+    }
+
+    // Store mappings in RPNet structures
+    searchRPNet->mappings = searchMappings;
+    vsimRPNet->mappings = vsimMappings;
+
+    RedisModule_Log(NULL, "verbose", "searchMappings length: %d, vsimMappings length: %d", array_len(searchMappings), array_len(vsimMappings));
+
+
     bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     if (isCursor) {
         // // TODO:

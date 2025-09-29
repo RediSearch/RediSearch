@@ -75,7 +75,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     // TIMEOUT timeout - query timeout in milliseconds
     ArgParser_AddLongLongV(parser, "TIMEOUT", "Query timeout in milliseconds",
                       &ctx->reqConfig->queryTimeoutMS,
-                      ARG_OPT_OPTIONAL, 
+                      ARG_OPT_OPTIONAL,
                       ARG_OPT_DEFAULT_INT, RSGlobalConfig.requestConfigParams.queryTimeoutMS,
                       ARG_OPT_CALLBACK, handleTimeout, ctx,
                       ARG_OPT_END);
@@ -106,6 +106,8 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                             ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_SEND_SCORES,
                             ARG_OPT_CALLBACK, handleWithScores, ctx,
                             ARG_OPT_OPTIONAL, ARG_OPT_END);
+
+        //TODO : add NUMSSTRING and INDEX_PREFIXES
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",
@@ -161,7 +163,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     // Parse the arguments
     ArgParseResult parseResult = ArgParser_Parse(parser);
-    
+
     // Check for errors from callbacks
     if (QueryError_HasError(status)) {
         ArgParser_Free(parser);

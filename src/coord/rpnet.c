@@ -8,6 +8,8 @@
 */
 
 #include "rpnet.h"
+#include "rmr/reply.h"
+#include "rmr/rmr.h"
 
 
 #define CURSOR_EOF 0
@@ -149,6 +151,40 @@ static int getNextReply(RPNet *nc) {
 }
 
 
+static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+//debug
+  printMRReplyRecursive(rep, 0);
+
+  MRIteratorCallback_AddReply(ctx, rep);
+  MRIteratorCallback_Done(ctx, 0);
+}
+
+/**
+ * Start function for RPNet with cursor mappings
+ * Replaces rpnetNext_StartDispatcher
+ */
+int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
+    RPNet *nc = (RPNet *)rp;
+
+    // Mappings should already be populated by HybridRequest_executePlan
+    if (!nc->mappings || array_len(nc->mappings) == 0) {
+        RedisModule_Log(NULL, "error", "No cursor mappings available for RPNet");
+        return REDISMODULE_ERR;
+    }
+
+    // Get index name from command
+    const char *idx = MRCommand_ArgStringPtrLen(&nc->cmd, 1, NULL);
+
+    RedisModule_Log(NULL, "warning", "rpnetNext_StartWithMappings: nc.mappings is %p, array_len(nc.mappings) is %zu", nc->mappings, array_len(nc->mappings));
+
+    // Create cursor read command
+    nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx);
+    nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, nc->mappings);
+    nc->base.Next = rpnetNext;
+
+    return rpnetNext(rp, r);
+}
+
 void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
 
@@ -162,9 +198,9 @@ void rpnetFree(ResultProcessor *rp) {
     array_free(nc->shardsProfile);
   }
 
-  // UPDATED: Free dispatch context
-  if (nc->dispatchCtx) {
-    HybridDispatchContext_Free(nc->dispatchCtx);
+  // NEW: Free cursor mappings
+  if (nc->mappings) {
+    array_free_ex(nc->mappings, rm_free);
   }
 
   MRReply_Free(nc->current.root);
@@ -173,41 +209,18 @@ void rpnetFree(ResultProcessor *rp) {
   rm_free(rp);
 }
 
-// NEW: Create dispatch context
-HybridDispatchContext *HybridDispatchContext_New(StrongRef dispatcher_ref, bool isSearch) {
-    HybridDispatchContext *ctx = rm_calloc(1, sizeof(HybridDispatchContext));
-    ctx->dispatcher_ref = StrongRef_Clone(dispatcher_ref);
-    ctx->isSearch = isSearch;
-    ctx->mappings = NULL; // Will be set when taking ownership
-    return ctx;
-}
-
-void HybridDispatchContext_Free(HybridDispatchContext *ctx) {
-    if (ctx) {
-        StrongRef_Release(ctx->dispatcher_ref);
-        array_free_ex(ctx->mappings, free);
-        rm_free(ctx);
-
-    }
-}
-
-void RPNet_SetDispatchContext(RPNet *nc, StrongRef dispatcher_ref, bool isSearch) {
-    nc->dispatchCtx = HybridDispatchContext_New(dispatcher_ref, isSearch);
-}
 
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd; // Take ownership of the command's internal allocations
   nc->areq = NULL;
-  nc->dispatchCtx = NULL;
+  nc->mappings = NULL; // Initialize mappings to NULL
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
   nc->base.Next = nextFunc;
   nc->base.type = RP_NETWORK;
   return nc;
 }
-
-
 
 void RPNet_resetCurrent(RPNet *nc) {
     nc->current.root = NULL;
@@ -221,6 +234,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   const bool resp3 = nc->cmd.protocol == 3;
 
   RedisModule_Log(NULL, "warning", "rpnetNext: beginning");
+  RedisModule_Log(NULL, "warning", "rpnetNext: mappings length: %d", array_len(nc->mappings));
   // root (array) has similar structure for RESP2/3:
   // [0] array of results (rows) described right below
   // [1] cursor (int)

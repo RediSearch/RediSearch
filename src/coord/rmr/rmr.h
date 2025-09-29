@@ -20,21 +20,10 @@
 struct MRCtx;
 struct RedisModuleCtx;
 
-// Data structure for cursor mapping: targetSlot -> cursorId
 typedef struct {
   int16_t targetSlot;
   long long cursorId;
 } CursorMapping;
-
-// Data structure to hold cursor mapping data for iterator
-typedef struct {
-  //pthread lock
-  pthread_mutex_t mutex;
-  const char *indexName;
-  arrayof(CursorMapping *) searchMappings;
-  arrayof(CursorMapping *) vsimMappings;
-  size_t numMappings;
-} CursorMappingData;
 
 void iterStartCb(void *p);
 
