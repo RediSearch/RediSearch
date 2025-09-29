@@ -257,14 +257,13 @@ class testHybridSearch:
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob,self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
         expected = [
-            'format', 'STRING',
+            'total_results', 3,
             'results',
             [
-                ['attributes', ['__key', 'both_01', '__score', '0.5']],
-                ['attributes', ['__key', 'both_05', '__score', '0.5']],
-                ['attributes', ['__key', 'vector_01', '__score', '0.333333333333']]
+                ['__key', 'both_01', '__score', '0.5'],
+                ['__key', 'both_05', '__score', '0.5'],
+                ['__key', 'vector_01', '__score', '0.333333333333']
             ],
-            'total_results', 3,
             'warnings', [],
             'execution_time', ANY
         ]
@@ -281,11 +280,14 @@ class testHybridSearch:
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob,self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
+        results_index = recursive_index(res, 'results')
+        results_index[-1] += 1
+        results = access_nested_list(res, results_index)
         self.env.assertEqual(
-            res[3][0][1],
+            results[0],
             ['my_key', 'text_04'])
         self.env.assertEqual(
-            res[3][1][1],
+            results[1],
             ['my_key', 'both_04'])
 
     # # TODO: Enable this test after fixing MOD-10987
@@ -314,8 +316,13 @@ class testHybridSearch:
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
+
+        results_index = recursive_index(res, 'results')
+        results_index[-1] += 1
+        results = access_nested_list(res, results_index)
+
         self.env.assertEqual(
-            res[3][0][1],
+            results[0],
             [
                 'my_text', 'text four even',
                 'my_number', '4',
@@ -323,7 +330,7 @@ class testHybridSearch:
             ]
         )
         self.env.assertEqual(
-            res[3][1][1],
+            results[1],
             [
                 'my_text', 'both four even',
                 'my_number', '4',
@@ -344,21 +351,18 @@ class testHybridSearch:
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
 
-        res_1 = to_dict(res[3][0][1])
-        self.env.assertEqual(len(res_1), 4)
-        self.env.assertEqual(res_1['__key'].upper(), res_1['upper_key'])
-        self.env.assertAlmostEqual(
-            float(res_1['__score']) * 2,
-            float(res_1['double_score']),
-            delta=0.0000001)
+        results_index = recursive_index(res, 'results')
+        results_index[-1] += 1
+        results = access_nested_list(res, results_index)
 
-        res_2 = to_dict(res[3][1][1])
-        self.env.assertEqual(len(res_2), 4)
-        self.env.assertEqual(res_2['__key'].upper(), res_2['upper_key'])
-        self.env.assertAlmostEqual(
-            float(res_2['__score']) * 2,
-            float(res_2['double_score']),
-            delta=0.0000001)
+        for result in results:
+            result=to_dict(result)
+            self.env.assertEqual(len(result), 4)
+            self.env.assertEqual(result['__key'].upper(), result['upper_key'])
+            self.env.assertAlmostEqual(
+                float(result['__score']) * 2,
+                float(result['double_score']),
+                delta=0.0000001)
 
     def test_knn_apply_on_custom_loaded_fields(self):
         """Test hybrid search using APPLY on custom loaded fields"""
@@ -374,21 +378,18 @@ class testHybridSearch:
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
 
-        res_1 = to_dict(res[3][0][1])
-        self.env.assertEqual(len(res_1), 4)
-        self.env.assertEqual(res_1['my_text'].upper(), res_1['upper_text'])
-        self.env.assertAlmostEqual(
-            float(res_1['my_number']) * 2,
-            float(res_1['double_number']),
-            delta=0.0000001)
+        results_index = recursive_index(res, 'results')
+        results_index[-1] += 1
+        results = access_nested_list(res, results_index)
 
-        res_2 = to_dict(res[3][1][1])
-        self.env.assertEqual(len(res_2), 4)
-        self.env.assertEqual(res_2['my_text'].upper(), res_2['upper_text'])
-        self.env.assertAlmostEqual(
-            float(res_2['my_number']) * 2,
-            float(res_2['double_number']),
-            delta=0.0000001)
+        for result in results:
+            result=to_dict(result)
+            self.env.assertEqual(len(result), 4)
+            self.env.assertEqual(result['my_text'].upper(), result['upper_text'])
+            self.env.assertAlmostEqual(
+                float(result['my_number']) * 2,
+                float(result['double_number']),
+                delta=0.0000001)
 
     def test_knn_groupby(self):
         """Test hybrid search using GROUPBY"""
@@ -405,12 +406,11 @@ class testHybridSearch:
         res = self.env.executeCommand(*hybrid_cmd)
         print(res)
         self.env.assertEqual(res, [
-            'format', 'STRING',
+            'total_results', 1,
             'results',
             [
-                ['attributes', ['tag', 'even', 'count', '2']]
+               ['tag', 'even', 'count', '2']
             ],
-            'total_results', 1,
             'warnings', [],
             'execution_time', ANY
         ])
@@ -429,14 +429,13 @@ class testHybridSearch:
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
         expected = [
-            'format', 'STRING',
+            'total_results', 3,
             'results',
             [
-                ['attributes', ['__key', 'vector_01', '__score', '0.333333333333']],
-                ['attributes', ['__key', 'both_05', '__score', '0.5']],
-                ['attributes', ['__key', 'both_01', '__score', '0.5']],
+                ['__key', 'vector_01', '__score', '0.333333333333'],
+                ['__key', 'both_05', '__score', '0.5'],
+                ['__key', 'both_01', '__score', '0.5'],
             ],
-            'total_results', 3,
             'warnings', [],
             'execution_time', ANY
         ]
@@ -452,14 +451,13 @@ class testHybridSearch:
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
         expected = [
-            'format', 'STRING',
+            'total_results', 3,
             'results',
             [
-                ['attributes', ['__key', 'vector_01', '__score', '0.333333333333']],
-                ['attributes', ['__key', 'both_01', '__score', '0.5']],
-                ['attributes', ['__key', 'both_05', '__score', '0.5']],
+                ['__key', 'vector_01', '__score', '0.333333333333'],
+                ['__key', 'both_01', '__score', '0.5'],
+                ['__key', 'both_05', '__score', '0.5'],
             ],
-            'total_results', 3,
             'warnings', [],
             'execution_time', ANY
         ]
@@ -481,14 +479,13 @@ class testHybridSearch:
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
         expected = [
-            'format', 'STRING',
+            'total_results', 3,
             'results',
             [
-                ['attributes', ['number', '5', '__key', 'both_05', '__score', '0.5', '10_minus_number', '5']],
-                ['attributes', ['number', '1', '__key', 'both_01', '__score', '0.5', '10_minus_number', '9']],
-                ['attributes', ['number', '1', '__key', 'vector_01', '__score', '0.333333333333', '10_minus_number', '9']]
+                ['number', '5', '__key', 'both_05', '__score', '0.5', '10_minus_number', '5'],
+                ['number', '1', '__key', 'both_01', '__score', '0.5', '10_minus_number', '9'],
+                ['number', '1', '__key', 'vector_01', '__score', '0.333333333333', '10_minus_number', '9']
             ],
-            'total_results', 3,
             'warnings', [],
             'execution_time', ANY
         ]
@@ -505,7 +502,7 @@ class testHybridSearch:
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         expected_result = self.env.executeCommand(*hybrid_cmd)
-        expected_result[9] = ANY # Ignore execution time
+        expected_result[7] = ANY # Ignore execution time
 
         # Use parameters in vector value
         hybrid_cmd = (
@@ -582,12 +579,11 @@ class testHybridSearch:
 
         # But only 1 result is returned by the filtered query:
         expected = [
-            'format', 'STRING',
+            'total_results', 3,
             'results',
             [
-                ['attributes', ['__key', 'both_01', '__score', '0.45']]
+                ['__key', 'both_01', '__score', '0.45']
             ],
-            'total_results', 3,
             'warnings', [],
             'execution_time', ANY
         ]

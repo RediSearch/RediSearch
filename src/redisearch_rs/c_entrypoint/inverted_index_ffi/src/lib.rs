@@ -510,6 +510,38 @@ pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> t_doc
     ii_dispatch!(ii, last_doc_id).unwrap_or(0)
 }
 
+/// Get the garbage collector marker of the inverted index. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcMarker(ii: *const InvertedIndex) -> usize {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+
+    ii_dispatch!(ii, gc_marker)
+}
+
+/// Increment the garbage collector marker of the inverted index. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+
+    ii_dispatch!(ii, gc_marker_inc);
+}
+
 /// An opaque inverted index reader structure. The actual implementation is determined at runtime
 /// based on the index type and filter provided when creating the reader. This allows us to have a
 /// single interface for all index reader types while still being able to optimize the storage
@@ -974,4 +1006,22 @@ pub unsafe extern "C" fn IndexReader_SwapIndex(ir: *mut IndexReader, ii: *const 
         }
         _ => {}
     }
+}
+
+/// Revalidate the index reader against its inverted index. This is only needed if the inverted index
+/// has been modified since the last time the reader was used. The function returns true if the
+/// reader needs revalidation, false otherwise.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_Revalidate(ir: *const IndexReader) -> bool {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let ir = unsafe { &*ir };
+
+    ir_dispatch!(ir, needs_revalidation)
 }
