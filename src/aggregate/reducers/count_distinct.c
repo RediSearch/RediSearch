@@ -35,7 +35,7 @@ static void *distinctNewInstance(Reducer *r) {
 static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   distinctCounter *ctr = ctx;
   const RSValue *val = RLookup_GetItem(r->srckey, srcrow);
-  if (!val || val == RS_NullVal()) {
+  if (!val || val == RSValue_NullStatic()) {
     return 1;
   }
 
@@ -52,7 +52,7 @@ static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *distinctFinalize(Reducer *parent, void *ctx) {
   distinctCounter *ctr = ctx;
-  return RS_NumVal(ctr->count);
+  return RSValue_NewNumberAlloc(ctr->count);
 }
 
 static void distinctFreeInstance(Reducer *r, void *p) {
@@ -94,7 +94,7 @@ static void *distinctishNewInstance(Reducer *parent) {
 static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *srcrow) {
   distinctishCounter *ctr = instance;
   const RSValue *val = RLookup_GetItem(ctr->key, srcrow);
-  if (!val || val == RS_NullVal()) {
+  if (!val || val == RSValue_NullStatic()) {
     return 1;
   }
 
@@ -106,7 +106,7 @@ static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *src
 
 static RSValue *distinctishFinalize(Reducer *parent, void *instance) {
   distinctishCounter *ctr = instance;
-  return RS_NumVal((uint64_t)hll_count(&ctr->hll));
+  return RSValue_NewNumberAlloc((uint64_t)hll_count(&ctr->hll));
 }
 
 static void distinctishFreeInstance(Reducer *r, void *p) {
@@ -130,7 +130,7 @@ static RSValue *hllFinalize(Reducer *parent, void *ctx) {
   size_t hdrsize = sizeof(hdr);
   memcpy(str, &hdr, hdrsize);
   memcpy(str + hdrsize, ctr->hll.registers, ctr->hll.size);
-  RSValue *ret = RS_StringVal(str, sizeof(hdr) + ctr->hll.size);
+  RSValue *ret = RSValue_NewStringAlloc(str, sizeof(hdr) + ctr->hll.size);
   return ret;
 }
 
@@ -169,7 +169,7 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   hllSumCtx *ctr = ctx;
   const RSValue *val = RLookup_GetItem(r->srckey, srcrow);
 
-  if (val == NULL || !RSValue_IsStringVariant(val)) {
+  if (val == NULL || !RSValue_IsAnyString(val)) {
     // Not a string!
     return 0;
   }
@@ -217,7 +217,7 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *hllsumFinalize(Reducer *parent, void *ctx) {
   hllSumCtx *ctr = ctx;
-  return RS_NumVal(ctr->bits ? (uint64_t)hll_count(ctr) : 0);
+  return RSValue_NewNumberAlloc(ctr->bits ? (uint64_t)hll_count(ctr) : 0);
 }
 
 static void *hllsumNewInstance(Reducer *r) {

@@ -31,7 +31,7 @@ static int p1_Next(ResultProcessor *rp, SearchResult *res) {
 
   SearchResult_SetDocId(res, ++p->counter);
   SearchResult_SetScore(res, (double)SearchResult_GetDocId(res));
-  RLookup_WriteOwnKey(p->kout, SearchResult_GetRowDataMut(res), RS_NumVal(SearchResult_GetDocId(res)));
+  RLookup_WriteOwnKey(p->kout, SearchResult_GetRowDataMut(res), RSValue_NewNumberAlloc(SearchResult_GetDocId(res)));
   return RS_RESULT_OK;
 }
 
@@ -76,7 +76,7 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
     ASSERT_EQ(count, SearchResult_GetScore(&r));
     RSValue *v = RLookup_GetItem(p->kout, SearchResult_GetRowData(&r));
     ASSERT_TRUE(v != NULL);
-    ASSERT_EQ(RSValue_Number, RSValue_Type(v));
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(v));
     ASSERT_EQ(count, RSValue_Number_Get(v));
     SearchResult_Clear(&r);
   }

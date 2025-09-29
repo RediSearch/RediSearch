@@ -62,7 +62,7 @@ TEST_P(MetricIteratorCommonTest, Read) {
       ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Metric);
       ASSERT_EQ(IndexResult_NumValue(iterator_base->current), sortedScores[i]);
       ASSERT_EQ(iterator_base->current->metrics[0].key, nullptr);
-      ASSERT_EQ(RSValue_Type(iterator_base->current->metrics[0].value), RSValue_Number);
+      ASSERT_EQ(RSValue_Type(iterator_base->current->metrics[0].value), RSValueType_Number);
       ASSERT_EQ(RSValue_Number_Get(iterator_base->current->metrics[0].value), sortedScores[i]);
     }
     i++;

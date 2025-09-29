@@ -245,7 +245,7 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
       continue;
     }
     if (self->scoreKey) {
-      RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(res), RS_NumVal(SearchResult_GetScore(res)));
+      RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(res), RSValue_NewNumberAlloc(SearchResult_GetScore(res)));
     }
 
     break;
@@ -981,7 +981,7 @@ static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
   if (RS_RESULT_OK == rc) {
     RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
     size_t keyLen = sdslen(SearchResult_GetDocumentMetadata(res)->keyPtr); // keyPtr is an sds
-    RLookup_WriteOwnKey(nl->out, SearchResult_GetRowDataMut(res), RS_NewCopiedString(SearchResult_GetDocumentMetadata(res)->keyPtr, keyLen));
+    RLookup_WriteOwnKey(nl->out, SearchResult_GetRowDataMut(res), RSValue_NewCopiedStringAlloc(SearchResult_GetDocumentMetadata(res)->keyPtr, keyLen));
   }
   return rc;
 }
@@ -1215,7 +1215,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
     SearchResult_SetScore(r, SearchResult_GetScore(r) / self->maxValue);
   }
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RS_NumVal(SearchResult_GetScore(r)));
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumberAlloc(SearchResult_GetScore(r)));
   }
   EXPLAIN(SearchResult_GetScoreExplainMut(r),
         "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
@@ -1307,7 +1307,7 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
 
   // Update distance field
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RS_NumVal(normalizedScore));
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumberAlloc(normalizedScore));
   }
   return RS_RESULT_OK;
 }
@@ -1775,7 +1775,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
    // Add score as field if scoreKey is provided
    if (self->scoreKey) {
-     RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RS_NumVal(SearchResult_GetScore(r)));
+     RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumberAlloc(SearchResult_GetScore(r)));
    }
 
    return RS_RESULT_OK;
