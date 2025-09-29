@@ -114,6 +114,8 @@ typedef enum {
   // The query is a Vector Subquery of a Hybrid Request (aggregate equivalent)
   QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY = 0x2000000,
 
+  QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY = 0x4000000,
+
   // The query has an explicit SORT BY 0 step - no sorting at all
   // Currently only used in when QEXEC_F_IS_HYBRID_TAIL is set - i.e this is the tail part
   QEXEC_F_NO_SORT = 0x4000000,
@@ -147,6 +149,7 @@ typedef struct {
 #define IsHybridTail(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_TAIL)
 #define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
 #define IsHybridVectorSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY)
+#define IsHybridCoordinatorSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY)
 #define IsHybrid(r) (IsHybridTail(r) || IsHybridSearchSubquery(r) || IsHybridVectorSubquery(r))
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)

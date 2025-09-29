@@ -19,6 +19,29 @@
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
 
+// This function prepares the HybridRequest for distributed execution.
+// The execution pipeline looks like this:
+//   Merger -> Depleter -> Sorter -> RPNet
+//          |-> Depleter -> Sorter -> RPNet
+//
+// - Depleter is added in HybridRequest_BuildDistributedDepletionPipeline.
+// - RPNet is added in HybridRequest_BuildDistRPChain.
+//
+// As part of this process, we create a blank AREQ that includes an
+// arrangement step (sorting by score) in its aggplan.
+// The function also frees the previous requests, since those are only
+// relevant for shard-level execution.
+static void setDistSubqueriesAREQFlags(HybridRequest *hreq) {
+  array_free_ex(hreq->requests, (void (*)(void *))AREQ_Free);
+  hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
+  hreq->nrequests = array_len(hreq->requests);
+
+  AREQ_AddRequestFlags(hreq->requests[0], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
+  AREQ_AddRequestFlags(hreq->requests[1], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
+
+  AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[0]));
+  AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[1]));
+}
 
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
@@ -215,16 +238,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     AREQDIST_UpstreamInfo us = {NULL};
 
-    array_free_ex(hreq->requests, (void (*)(void *))AREQ_Free);
-    hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
-    hreq->nrequests = array_len(hreq->requests);
-
-    AREQ_AddRequestFlags(hreq->requests[0], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
-    AREQ_AddRequestFlags(hreq->requests[1], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
-
-    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[0]));
-    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[1]));
-
+    setDistSubqueriesAREQFlags(hreq->requests);
 
     // rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, &us, status);
     rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, &hybridParams);
