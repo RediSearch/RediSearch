@@ -343,11 +343,11 @@ impl IndexBlock {
         TOTAL_BLOCKS.load(atomic::Ordering::Relaxed)
     }
 
-    /// Repair a block by removing records which no longer exists according to `doc_exists_cb`. If
+    /// Repair a block by removing records which no longer exists according to `doc_exists`. If
     /// there is nothing to repair in this block then `None` is returned.
     fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'index self,
-        doc_exist_cb: fn(doc_id: t_docId) -> bool,
+        doc_exist: fn(doc_id: t_docId) -> bool,
         encoder: E,
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
@@ -362,7 +362,7 @@ impl IndexBlock {
             decoder.decode(&mut cursor, base, &mut result)?;
             last_doc_id = result.doc_id;
 
-            if doc_exist_cb(result.doc_id) {
+            if doc_exist(result.doc_id) {
                 tmp_inverted_index.add_record(&result)?;
             }
         }
@@ -639,14 +639,14 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     }
 
     /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
-    /// if any of its records point to documents that no longer exist. The `doc_exist_cb`
+    /// if any of its records point to documents that no longer exist. The `doc_exist`
     /// callback is used to check if a document exists. It should return `true` if the document
     /// exists and `false` otherwise.
     ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
     pub fn scan_gc(
         &self,
-        doc_exist_cb: fn(doc_id: t_docId) -> bool,
+        doc_exist: fn(doc_id: t_docId) -> bool,
     ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();
 
@@ -661,7 +661,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
             let encoder = self.encoder.clone();
 
-            let repair = block.repair(doc_exist_cb, encoder)?;
+            let repair = block.repair(doc_exist, encoder)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
