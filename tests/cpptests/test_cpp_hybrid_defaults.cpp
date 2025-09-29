@@ -138,7 +138,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
                       "LIMIT", "0", "25");
 
   parseCommand(args);
-  validateDefaultParams(result, parseCtx, 25, 25);
+  validateDefaultParams(result, parseCtx, 25, HYBRID_DEFAULT_KNN_K);
 }
 
 // LIMIT affects only implicit K, but K gets capped at explicit WINDOW
@@ -149,7 +149,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
 
   parseCommand(args);
   // K should be capped at WINDOW=15 even though LIMIT fallback would set it to 25
-  validateDefaultParams(result, parseCtx, 15, 15);
+  validateDefaultParams(result, parseCtx, 15, HYBRID_DEFAULT_KNN_K);
 }
 
 // LIMIT affects only implicit WINDOW
@@ -179,7 +179,7 @@ TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
                       "LIMIT", "0", "10000");
 
   parseCommand(args);
-  validateDefaultParams(result, parseCtx, 10000, 10000);
+  validateDefaultParams(result, parseCtx, 10000, HYBRID_DEFAULT_KNN_K);
 }
 
 // Flag verification tests
@@ -249,7 +249,7 @@ TEST_F(HybridDefaultsTest, testKCappedAtExplicitWindow) {
   parseCommand(args);
   // Verify K was capped to WINDOW value
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
-  ASSERT_EQ(15, vq->knn.k) << "Expected K to be capped at WINDOW=15, got " << vq->knn.k;
+  ASSERT_EQ(15, vq->knn.k) << "Expected K to be capped at WINDOW=15, because K is explicitly set to 50, got " << vq->knn.k;
   ASSERT_EQ(15, parseCtx.hybridParams->scoringCtx->rrfCtx.window);
 }
 
@@ -262,7 +262,7 @@ TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
   parseCommand(args);
   // K should be capped to WINDOW (12) even though LIMIT fallback would set it to 30
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
-  ASSERT_EQ(12, vq->knn.k) << "Expected K to be capped at WINDOW=12, got " << vq->knn.k;
+  ASSERT_EQ(HYBRID_DEFAULT_KNN_K, vq->knn.k) << "Expected K to be capped at WINDOW=12, got " << vq->knn.k;
   ASSERT_EQ(12, parseCtx.hybridParams->scoringCtx->rrfCtx.window);
 }
 

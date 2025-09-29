@@ -316,7 +316,7 @@ TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
   VectorQuery *vq = vecReq->ast.root->vn.vq;
   ASSERT_TRUE(vq != NULL);
   ASSERT_EQ(vq->type, VECSIM_QT_KNN);
-  ASSERT_EQ(vq->knn.k, 15);  // Should follow LIMIT value, not default
+  ASSERT_EQ(vq->knn.k, HYBRID_DEFAULT_KNN_K);
 }
 
 TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
