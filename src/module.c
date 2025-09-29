@@ -2616,6 +2616,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     RedisModule_Reply_SimpleString(reply, "warning"); // >warning
     if (rCtx->warning) {
       MR_ReplyWithMRReply(reply, rCtx->warning);
+    } else if (req->queryOOM) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -2864,6 +2866,12 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       if (should_return_error(curr_rep)) {
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;
+      } else {
+        // Check if OOM
+        const char *errStr = MRReply_String(replies[i], NULL);
+        if (errStr && !strcmp(errStr, QueryError_Strerror(QUERY_EOOM))) {
+          req->queryOOM = true;
+        }
       }
     }
   }

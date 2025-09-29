@@ -107,6 +107,7 @@ typedef struct {
   int profileLimited;
   rs_wall_clock profileClock;
   void *reducer;
+  bool queryOOM;
 } searchRequestCtx;
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);

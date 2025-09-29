@@ -442,11 +442,17 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     // If an error was returned, propagate it
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
+      const char *strErr = MRReply_String(nc->current.root, NULL);
       if (should_return_error(nc->current.root)) {
-        const char *strErr = MRReply_String(nc->current.root, NULL);
         QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_EGENERIC, strErr);
         return RS_RESULT_ERROR;
-      } else {
+      } else  {
+        // Check if OOM error
+        // Assuming that if we are here, we are under return on OOM policy
+        // Since other policies are already handled before this point
+        if (!strcmp(strErr, QueryError_Strerror(QUERY_EOOM))) {
+          AREQ_QueryProcessingCtx(nc->areq)->err->queryOOM = true;
+        }
         // Free the error reply before we override it and continue
         MRReply_Free(nc->current.root);
         // Set it as NULL avoid another free

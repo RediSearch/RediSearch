@@ -580,9 +580,13 @@ done_3:
     RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     // <error>
+    bool warning_raised = false;
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    }
+    if (qctx->err->queryOOM) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     }
     if (rc == RS_RESULT_TIMEDOUT) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
