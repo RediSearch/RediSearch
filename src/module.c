@@ -2725,6 +2725,10 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
   // On FT.AGGREGATE, `replies` is already the profile part only
   for (int i = 0; i < count; ++i) {
     MRReply *current = replies[i];
+    // Check if reply is error
+    if (MRReply_Type(current) == MR_REPLY_ERROR) {
+      continue;
+    }
     if (isSearch) {
       // On FT.SEARCH, extract the profile information from the reply. (should be the second element)
       current = MRReply_ArrayElement(current, 1);
@@ -2906,6 +2910,12 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   } else {
     for (int i = 0; i < count; ++i) {
       MRReply *mr_reply;
+
+      // Check that the reply is not an error, can be caused if a shard failed to execute the query (i.e OOM).
+      if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
+        continue;
+      }
+
       if (reply->resp3) {
         mr_reply = MRReply_MapElement(replies[i], "Results");
       } else {
