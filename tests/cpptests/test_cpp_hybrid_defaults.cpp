@@ -335,7 +335,7 @@ TEST_F(HybridDefaultsTest, testLinearWindowLimitFallback) {
       << "Expected LINEAR window=" << HYBRID_DEFAULT_WINDOW << " (should use default, not LIMIT fallback), got " << parseCtx.hybridParams->scoringCtx->linearCtx.window;
 }
 
-// Test LINEAR explicit WINDOW overrides LIMIT
+// Test LINEAR WINDOW independent of LIMIT
 TEST_F(HybridDefaultsTest, testLinearExplicitWindowOverridesLimit) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
@@ -346,27 +346,4 @@ TEST_F(HybridDefaultsTest, testLinearExplicitWindowOverridesLimit) {
   ASSERT_EQ(parseCtx.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
   ASSERT_EQ(25, parseCtx.hybridParams->scoringCtx->linearCtx.window)
       << "Expected LINEAR window=25 (explicit should override LIMIT), got " << parseCtx.hybridParams->scoringCtx->linearCtx.window;
-}
-
-// Test LINEAR WINDOW validation (negative values should be rejected)
-TEST_F(HybridDefaultsTest, testLinearWindowValidation) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "-5");
-
-  QueryError status = {QueryErrorCode(0)};
-
-  ParseHybridCommandCtx cmd = {0};
-  cmd.search = result->requests[0];
-  cmd.vector = result->requests[1];
-  cmd.tailPlan = &result->tailPipeline->ap;
-  cmd.hybridParams = &hybridParams;
-  cmd.reqConfig = &result->reqConfig;
-  cmd.cursorConfig = &result->cursorConfig;
-
-  int rc = parseHybridCommand(ctx, args, args.size(), result->sctx, index_name.c_str(), &cmd, &status, true);
-
-  // Should fail with validation error
-  EXPECT_NE(rc, REDISMODULE_OK) << "Expected parsing to fail with negative WINDOW value";
-  EXPECT_NE(status.code, QUERY_OK) << "Expected error status for negative WINDOW value";
 }

@@ -1080,3 +1080,27 @@ TEST_F(ParseHybridTest, testCombineRRFWithOddArgumentCount) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "RRF", "1", "WINDOW");
   testErrorCode(args, QUERY_EPARSEARGS, "RRF expects pairs of key value arguments, argument count must be an even number");
 }
+
+TEST_F(ParseHybridTest, testCombineRRFNegativeWindow) {
+  // Test RRF with negative WINDOW value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "RRF", "2", "WINDOW", "-5");
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}
+
+TEST_F(ParseHybridTest, testCombineRRFZeroWindow) {
+  // Test RRF with zero WINDOW value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "RRF", "2", "WINDOW", "0");
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}
+
+TEST_F(ParseHybridTest, testCombineLinearNegativeWindow) {
+  // Test LINEAR with negative WINDOW value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "-10");
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}
+
+TEST_F(ParseHybridTest, testCombineLinearZeroWindow) {
+  // Test LINEAR with zero WINDOW value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "0");
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}
