@@ -115,7 +115,7 @@ class ParseHybridTest : public ::testing::Test {
 
 };
 
-#define parseCommand(args) int rc = parseCommandInternal(args); ASSERT_EQ(rc, REDISMODULE_OK) << "parseCommandInternal failed";
+#define parseCommand(args) ASSERT_EQ(parseCommandInternal(args), REDISMODULE_OK) << "parseCommandInternal failed";
 
 
 #define assertLinearScoringCtx(Weight0, Weight1) { \
@@ -1067,4 +1067,16 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
   // Test LOAD with insufficient fields for specified count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LOAD", "3", "@title");
   testErrorCode(args, QUERY_EPARSEARGS, "Not enough arguments for LOAD");
+}
+
+TEST_F(ParseHybridTest, testCombineRRFWithoutArgument) {
+  // Test RANGE with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "RRF", "0");
+  testErrorCode(args, QUERY_EPARSEARGS, "Explicitly specifying RRF requires at least one argument, argument count must be positive");
+}
+
+TEST_F(ParseHybridTest, testCombineRRFWithOddArgumentCount) {
+  // Test RANGE with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "RRF", "1", "WINDOW");
+  testErrorCode(args, QUERY_EPARSEARGS, "RRF expects pairs of key value arguments, argument count must be an even number");
 }

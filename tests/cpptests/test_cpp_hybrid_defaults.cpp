@@ -270,7 +270,7 @@ TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
 TEST_F(HybridDefaultsTest, testExplicitKCappedAtWindowFromLimit) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "25", "COMBINE", "RRF", "0", "LIMIT", "0", "18");
+                      "KNN", "2", "K", "25", "LIMIT", "0", "18");
 
   parseCommand(args);
   // K should be capped to WINDOW (18 from LIMIT fallback) even though K was explicitly set to 25
