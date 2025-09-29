@@ -282,10 +282,19 @@ static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
 #[derive(Debug, Eq, PartialEq)]
 enum RepairType {
     /// This block can be deleted completely.
-    Delete,
+    Delete {
+        /// Number of unique records this will remove
+        n_unique_docs_removed: usize,
+    },
 
     /// The block contains GCed entries, and should be replaced with the following blocks.
-    Replace { blocks: SmallVec<[IndexBlock; 3]> },
+    Replace {
+        /// The new blocks to replace this block with
+        blocks: SmallVec<[IndexBlock; 3]>,
+
+        /// The unique documents that were removed from this block
+        n_unique_docs_removed: usize,
+    },
 }
 
 impl IndexBlock {
@@ -351,24 +360,37 @@ impl IndexBlock {
         encoder: E,
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
-        let mut last_doc_id = self.first_doc_id;
+        let mut last_doc_id = None;
         let decoder = E::decoder();
         let mut result = D::base_result();
+        let mut unique_read = 0;
+        let mut unique_write = 0;
 
         let mut tmp_inverted_index = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, encoder);
 
         while !cursor.fill_buf()?.is_empty() {
-            let base = D::base_id(self, last_doc_id);
+            let base = D::base_id(self, last_doc_id.unwrap_or(self.first_doc_id));
             decoder.decode(&mut cursor, base, &mut result)?;
-            last_doc_id = result.doc_id;
 
             if doc_exist(result.doc_id) {
                 tmp_inverted_index.add_record(&result)?;
+
+                if !last_doc_id.is_some_and(|id| id == result.doc_id) {
+                    unique_write += 1;
+                }
             }
+
+            if !last_doc_id.is_some_and(|id| id == result.doc_id) {
+                unique_read += 1;
+            }
+
+            last_doc_id = Some(result.doc_id);
         }
 
         if tmp_inverted_index.blocks.is_empty() {
-            Ok(Some(RepairType::Delete))
+            Ok(Some(RepairType::Delete {
+                n_unique_docs_removed: unique_read,
+            }))
         } else if tmp_inverted_index.blocks.len() == 1
             && tmp_inverted_index.blocks[0].num_entries == self.num_entries
         {
@@ -376,6 +398,7 @@ impl IndexBlock {
         } else {
             Ok(Some(RepairType::Replace {
                 blocks: tmp_inverted_index.blocks.into(),
+                n_unique_docs_removed: unique_read - unique_write,
             }))
         }
     }
@@ -625,7 +648,7 @@ pub struct GcApplyInfo {
     /// The number of bytes that were allocated
     bytes_allocated: usize,
 
-    /// The number of entries that were removed from the index
+    /// The number of entries that were removed from the index including duplicates
     entries_removed: usize,
 
     /// The number of blocks that were ignored because the index changed since the scan was performed
@@ -654,7 +677,9 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             if block.num_entries == 0 {
                 results.push(BlockGcScanResult {
                     index: i,
-                    repair: RepairType::Delete,
+                    repair: RepairType::Delete {
+                        n_unique_docs_removed: 0,
+                    },
                 });
                 continue;
             }
@@ -716,14 +741,20 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                     let delta = deltas.next().expect("we just peeked it");
 
                     match delta.repair {
-                        RepairType::Delete => {
-                            // We are deleting this block, so nothing to do
+                        RepairType::Delete {
+                            n_unique_docs_removed,
+                        } => {
                             info.entries_removed += block.num_entries;
                             info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
+                            self.n_unique_docs -= n_unique_docs_removed;
                         }
-                        RepairType::Replace { blocks } => {
+                        RepairType::Replace {
+                            blocks,
+                            n_unique_docs_removed,
+                        } => {
                             info.entries_removed += block.num_entries;
                             info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
+                            self.n_unique_docs -= n_unique_docs_removed;
 
                             for block in blocks {
                                 info.entries_removed -= block.num_entries;
@@ -739,8 +770,6 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                 }
             }
         }
-
-        self.n_unique_docs -= info.entries_removed;
 
         info
     }
@@ -855,6 +884,29 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     pub fn reader(&self) -> IndexReaderCore<'_, E, E::Decoder> {
         self.index.reader()
     }
+
+    /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
+    /// if any of its records point to documents that no longer exist. The `doc_exist`
+    /// callback is used to check if a document exists. It should return `true` if the document
+    /// exists and `false` otherwise.
+    ///
+    /// This function returns a delta if GC is needed, or `None` if no GC is needed.
+    pub fn scan_gc(
+        &self,
+        doc_exist: impl Fn(t_docId) -> bool,
+    ) -> std::io::Result<Option<GcScanDelta>> {
+        self.index.scan_gc(doc_exist)
+    }
+
+    /// Apply the deltas of a garbage collection scan to the index. This will modify the index
+    /// by deleting or repairing blocks as needed.
+    pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
+        let info = self.index.apply_gc(delta);
+
+        self.number_of_entries -= info.entries_removed;
+
+        info
+    }
 }
 
 /// A wrapper around the inverted index which tracks the fields for all the records in the index
@@ -960,6 +1012,25 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
         mask: t_fieldMask,
     ) -> FilterMaskReader<IndexReaderCore<'_, E, E::Decoder>> {
         FilterMaskReader::new(mask, self.index.reader())
+    }
+
+    /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
+    /// if any of its records point to documents that no longer exist. The `doc_exist`
+    /// callback is used to check if a document exists. It should return `true` if the document
+    /// exists and `false` otherwise.
+    ///
+    /// This function returns a delta if GC is needed, or `None` if no GC is needed.
+    pub fn scan_gc(
+        &self,
+        doc_exist: impl Fn(t_docId) -> bool,
+    ) -> std::io::Result<Option<GcScanDelta>> {
+        self.index.scan_gc(doc_exist)
+    }
+
+    /// Apply the deltas of a garbage collection scan to the index. This will modify the index
+    /// by deleting or repairing blocks as needed.
+    pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
+        self.index.apply_gc(delta)
     }
 }
 

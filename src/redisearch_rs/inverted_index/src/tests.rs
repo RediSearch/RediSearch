@@ -1219,10 +1219,10 @@ fn blocks_summary_store_numeric() {
 
 #[test]
 fn index_block_repair_delete() {
-    // Make a block with two entries which will be deleted
+    // Make a block with three entries (two duplicates) which will be deleted
     let block = IndexBlock {
-        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
-        num_entries: 2,
+        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+        num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 11,
     };
@@ -1233,26 +1233,12 @@ fn index_block_repair_delete() {
 
     let repair_status = block.repair(cb, Dummy).unwrap();
 
-    assert_eq!(repair_status, Some(RepairType::Delete));
-}
-
-#[test]
-fn index_block_repair_with_empty_block() {
-    // Create an empty index block
-    let block = IndexBlock {
-        buffer: vec![],
-        num_entries: 0,
-        first_doc_id: 5,
-        last_doc_id: 5,
-    };
-
-    fn cb(_doc_id: t_docId) -> bool {
-        true
-    }
-
-    let repair_status = block.repair(cb, Dummy).unwrap();
-
-    assert_eq!(repair_status, Some(RepairType::Delete));
+    assert_eq!(
+        repair_status,
+        Some(RepairType::Delete {
+            n_unique_docs_removed: 2
+        })
+    );
 }
 
 #[test]
@@ -1276,7 +1262,7 @@ fn index_block_repair_unchanged() {
 
 #[test]
 fn index_block_repair_some_deletions() {
-    // Create an index block with three entries. The second one will be deleted
+    // Create an index block with three entries. The second one will not be deleted
     let block = IndexBlock {
         buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
         num_entries: 3,
@@ -1298,7 +1284,8 @@ fn index_block_repair_some_deletions() {
                 last_doc_id: 11,
                 num_entries: 1,
                 buffer: vec![0, 0, 0, 0]
-            }]
+            }],
+            n_unique_docs_removed: 2
         })
     );
 }
@@ -1398,7 +1385,8 @@ fn index_block_repair_delta_too_big() {
                     first_doc_id: 42,
                     last_doc_id: 42,
                 }
-            ]
+            ],
+            n_unique_docs_removed: 1
         })
     );
 }
@@ -1459,11 +1447,15 @@ fn ii_scan_gc() {
             deltas: vec![
                 BlockGcScanResult {
                     index: 0,
-                    repair: RepairType::Delete,
+                    repair: RepairType::Delete {
+                        n_unique_docs_removed: 0
+                    },
                 },
                 BlockGcScanResult {
                     index: 1,
-                    repair: RepairType::Delete,
+                    repair: RepairType::Delete {
+                        n_unique_docs_removed: 2
+                    },
                 },
                 BlockGcScanResult {
                     index: 2,
@@ -1473,7 +1465,8 @@ fn ii_scan_gc() {
                             num_entries: 2,
                             first_doc_id: 21,
                             last_doc_id: 22,
-                        }]
+                        }],
+                        n_unique_docs_removed: 1
                     },
                 },
             ]
@@ -1563,11 +1556,15 @@ fn ii_apply_gc() {
     let gc_result = vec![
         BlockGcScanResult {
             index: 0,
-            repair: RepairType::Delete,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 0,
+            },
         },
         BlockGcScanResult {
             index: 1,
-            repair: RepairType::Delete,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 2,
+            },
         },
         BlockGcScanResult {
             index: 2,
@@ -1578,6 +1575,7 @@ fn ii_apply_gc() {
                     first_doc_id: 21,
                     last_doc_id: 21,
                 }],
+                n_unique_docs_removed: 2,
             },
         },
         BlockGcScanResult {
@@ -1597,6 +1595,7 @@ fn ii_apply_gc() {
                         last_doc_id: 72,
                     },
                 ],
+                n_unique_docs_removed: 1,
             },
         },
     ];
@@ -1689,7 +1688,9 @@ fn ii_apply_gc_last_block_updated() {
     let gc_result = vec![
         BlockGcScanResult {
             index: 0,
-            repair: RepairType::Delete,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 2,
+            },
         },
         BlockGcScanResult {
             index: 1,
@@ -1700,6 +1701,7 @@ fn ii_apply_gc_last_block_updated() {
                     first_doc_id: 21,
                     last_doc_id: 21,
                 }],
+                n_unique_docs_removed: 2,
             },
         },
     ];
@@ -1737,6 +1739,114 @@ fn ii_apply_gc_last_block_updated() {
             entries_removed: 2,
             // Ignored the last block
             blocks_ignored: 1
+        }
+    );
+}
+
+#[test]
+fn ii_apply_gc_entries_tracking_index() {
+    // Make a dummy encoder which allows duplicates
+    #[derive(Clone)]
+    struct AllowDupsDummy;
+
+    impl Encoder for AllowDupsDummy {
+        type Delta = u32;
+
+        const ALLOW_DUPLICATES: bool = true;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            mut writer: W,
+            delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&delta.to_be_bytes())?;
+
+            Ok(4)
+        }
+    }
+
+    impl Decoder for AllowDupsDummy {
+        fn decode<'index>(
+            &self,
+            cursor: &mut Cursor<&'index [u8]>,
+            prev_doc_id: u64,
+            result: &mut RSIndexResult<'index>,
+        ) -> std::io::Result<()> {
+            let mut buffer = [0; 4];
+            cursor.read_exact(&mut buffer)?;
+
+            let delta = u32::from_be_bytes(buffer);
+            result.doc_id = prev_doc_id + (delta as u64);
+
+            Ok(())
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            RSIndexResult::default()
+        }
+    }
+
+    impl DecodedBy for AllowDupsDummy {
+        type Decoder = Self;
+
+        fn decoder() -> Self::Decoder {
+            Self
+        }
+    }
+
+    // Create entries tracking index with two duplicate records
+    let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_DocIdsOnly, AllowDupsDummy);
+
+    let _ = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
+    let _ = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
+    let _ = ii.add_record(&RSIndexResult::default().doc_id(15)).unwrap();
+    let _ = ii.add_record(&RSIndexResult::default().doc_id(15)).unwrap();
+
+    assert_eq!(ii.number_of_entries(), 4);
+    assert_eq!(ii.unique_docs(), 2);
+
+    let expected_delta = GcScanDelta {
+        last_block_idx: 0,
+        last_block_num_entries: 4,
+        deltas: vec![BlockGcScanResult {
+            index: 0,
+            repair: RepairType::Replace {
+                blocks: smallvec![IndexBlock {
+                    buffer: vec![0, 0, 0, 0, 0, 0, 0, 0],
+                    num_entries: 2,
+                    first_doc_id: 15,
+                    last_doc_id: 15,
+                }],
+                n_unique_docs_removed: 1,
+            },
+        }],
+    };
+
+    let doc_exist = |id| id == 15;
+
+    assert_eq!(ii.scan_gc(doc_exist).unwrap().unwrap(), expected_delta);
+
+    let apply_info = ii.apply_gc(expected_delta);
+
+    assert_eq!(ii.number_of_entries(), 2);
+    assert_eq!(ii.unique_docs(), 1);
+    assert_eq!(
+        ii.index.blocks,
+        vec![IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            num_entries: 2,
+            first_doc_id: 15,
+            last_doc_id: 15,
+        },]
+    );
+    assert_eq!(
+        apply_info,
+        GcApplyInfo {
+            bytes_freed: 64,
+            bytes_allocated: 56,
+            entries_removed: 2,
+            blocks_ignored: 0
         }
     );
 }
