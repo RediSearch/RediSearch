@@ -243,14 +243,14 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
     }
 
     // Priority 1: Tail pipeline error (affects final result processing)
-    if (QueryError_GetCode(&hreq->tailPipelineError) != QUERY_OK) {
+    if (QueryError_HasError(&hreq->tailPipelineError)) {
         QueryError_CloneFrom(&hreq->tailPipelineError, status);
         return REDISMODULE_ERR;
     }
 
     // Priority 2: Individual AREQ errors (sub-query failures)
     for (size_t i = 0; i < hreq->nrequests; i++) {
-        if (QueryError_GetCode(&hreq->errors[i]) != QUERY_OK) {
+        if (QueryError_HasError(&hreq->errors[i])) {
             QueryError_CloneFrom(&hreq->errors[i], status);
             return REDISMODULE_ERR;
         }
@@ -289,7 +289,7 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
 }
 
 void AddValidationErrorContext(AREQ *req, QueryError *status) {
-  if (QueryError_GetCode(status) == QUERY_OK) {
+  if (QueryError_IsOk(status)) {
     return;
   }
 

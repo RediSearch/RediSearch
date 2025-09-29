@@ -1425,7 +1425,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     Pipeline_BuildQueryPart(&req->pipeline, &params);
-    if (QueryError_GetCode(status) != QUERY_OK) {
+    if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;
     }
   }

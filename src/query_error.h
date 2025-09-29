@@ -197,8 +197,15 @@ void QueryError_ClearError(QueryError *err);
 /**
  * Return true if the object has an error set
  */
-static inline int QueryError_HasError(const QueryError *status) {
-  return status->_code;
+static inline bool QueryError_HasError(const QueryError *status) {
+  return status->_code != QUERY_OK;
+}
+
+/**
+ * Return true if the object has no error set
+ */
+static inline bool QueryError_IsOk(const QueryError *status) {
+  return status->_code == QUERY_OK;
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);

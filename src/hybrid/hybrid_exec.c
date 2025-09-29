@@ -163,7 +163,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
 
   // TODO: take to error using HybridRequest_GetError
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-  if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
+  if (QueryError_IsOk(qctx->err) || hasTimeoutError(qctx->err)) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
   }

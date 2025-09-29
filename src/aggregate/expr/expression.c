@@ -207,7 +207,7 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   res = getPredicateBoolean(eval, &l, &r, pred->cond);
 
 success:
-  if (!eval->err || QueryError_GetCode(eval->err) == QUERY_OK) {
+  if (!eval->err || QueryError_IsOk(eval->err)) {
     result->numval = res;
     result->t = RSValue_Number;
     rc = EXPR_EVAL_OK;

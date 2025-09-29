@@ -24,7 +24,7 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
 }
 
 void QueryError_CloneFrom(const QueryError *src, QueryError *dest) {
-  if (dest->_code != QUERY_OK) {
+  if (QueryError_HasError(dest)) {
     return;
   }
   dest->_code = src->_code;
@@ -47,7 +47,7 @@ const char *QueryError_Strerror(QueryErrorCode code) {
 }
 
 void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *err) {
-  if (status->_code != QUERY_OK) {
+  if (QueryError_HasError(status)) {
     return;
   }
   RS_LOG_ASSERT(!status->detail, "detail of error is missing");
@@ -62,7 +62,7 @@ void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *er
 }
 
 void QueryError_SetCode(QueryError *status, QueryErrorCode code) {
-  if (status->_code == QUERY_OK) {
+  if (QueryError_IsOk(status)) {
     status->_code = code;
   }
 }
@@ -77,7 +77,7 @@ void QueryError_ClearError(QueryError *err) {
 }
 
 void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char *message, const char *fmt, ...) {
-  if (status->_code != QUERY_OK) {
+  if (QueryError_HasError(status)) {
     return;
   }
 
@@ -94,7 +94,7 @@ void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, cons
 }
 
 void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
-  if (status->_code != QUERY_OK) {
+  if (QueryError_HasError(status)) {
     return;
   }
   va_list ap;
@@ -115,7 +115,7 @@ void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {
   if (status->detail == NULL) {
     return;
   }
-  if (status->_code != QUERY_OK) {
+  if (QueryError_HasError(status)) {
     return;
   }
   status->_code = code;

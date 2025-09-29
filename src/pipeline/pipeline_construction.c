@@ -531,7 +531,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         // Process the complete LOAD step
         rp = processLoadStep(lstp, curLookup, params->common.sctx, params->common.reqflags,
                             loadFlags, forceLoad, outStateFlags, status);
-        if (QueryError_GetCode(status) != QUERY_OK) {
+        if (QueryError_HasError(status)) {
           return REDISMODULE_ERR;
         }
         if (rp) {

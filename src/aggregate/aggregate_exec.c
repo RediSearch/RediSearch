@@ -376,7 +376,7 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   }
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
+  if (QueryError_IsOk(qctx->err) || hasTimeoutError(qctx->err)) {
     rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
     TotalGlobalStats_CountQuery(AREQ_RequestFlags(req), duration);
   }

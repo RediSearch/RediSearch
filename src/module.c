@@ -1834,7 +1834,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
 
   // KNN queries are parsed only on dialect versions >=2
   queryNode = RSQuery_ParseRaw_v2(&qpCtx);
-  if (QueryError_GetCode(status) != QUERY_OK || queryNode == NULL) {
+  if (QueryError_HasError(status) || queryNode == NULL) {
     // Query parsing failed.
     goto cleanup;
   }
@@ -1844,7 +1844,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
   }
   if (QueryNode_NumParams(queryNode) > 0) {
       int ret = QueryNode_EvalParamsCommon(params, queryNode, dialectVersion, status);
-      if (ret != REDISMODULE_OK || QueryError_GetCode(status) != QUERY_OK) {
+      if (ret != REDISMODULE_OK || QueryError_HasError(status)) {
         // Params evaluation failed.
         goto cleanup;
       }
