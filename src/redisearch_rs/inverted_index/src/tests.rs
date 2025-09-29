@@ -1231,7 +1231,9 @@ fn index_block_repair_delete() {
         ![10, 11].contains(&doc_id)
     }
 
-    let repair_status = block.repair(cb, Dummy).unwrap();
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let repair_status = block.repair(cb, repair, Dummy).unwrap();
 
     assert_eq!(
         repair_status,
@@ -1255,7 +1257,9 @@ fn index_block_repair_unchanged() {
         true
     }
 
-    let repair_status = block.repair(cb, Dummy).unwrap();
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let repair_status = block.repair(cb, repair, Dummy).unwrap();
 
     assert_eq!(repair_status, None);
 }
@@ -1274,7 +1278,9 @@ fn index_block_repair_some_deletions() {
         [11].contains(&doc_id)
     }
 
-    let repair_status = block.repair(cb, Dummy).unwrap();
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let repair_status = block.repair(cb, repair, Dummy).unwrap();
 
     assert_eq!(
         repair_status,
@@ -1367,7 +1373,9 @@ fn index_block_repair_delta_too_big() {
         ![41].contains(&doc_id)
     }
 
-    let repair_status = block.repair(cb, SmallDeltaDummy).unwrap();
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let repair_status = block.repair(cb, repair, SmallDeltaDummy).unwrap();
 
     assert_eq!(
         repair_status,
@@ -1437,7 +1445,9 @@ fn ii_scan_gc() {
         [21, 22, 30, 40].contains(&doc_id)
     }
 
-    let gc_result = ii.scan_gc(cb).unwrap().unwrap();
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let gc_result = ii.scan_gc(cb, repair).unwrap().unwrap();
 
     assert_eq!(
         gc_result,
@@ -1497,7 +1507,9 @@ fn ii_scan_gc_no_change() {
         true
     }
 
-    let gc_result = ii.scan_gc(cb).unwrap();
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let gc_result = ii.scan_gc(cb, repair).unwrap();
 
     assert_eq!(gc_result, None, "there should be no changes");
 }
@@ -1825,12 +1837,20 @@ fn ii_apply_gc_entries_tracking_index() {
 
     let doc_exist = |id| id == 15;
 
-    assert_eq!(ii.scan_gc(doc_exist).unwrap().unwrap(), expected_delta);
+    let mut repaired = Vec::new();
+
+    let repair = |result: &RSIndexResult, _ib: &IndexBlock| repaired.push(result.doc_id);
+
+    assert_eq!(
+        ii.scan_gc(doc_exist, repair).unwrap().unwrap(),
+        expected_delta
+    );
 
     let apply_info = ii.apply_gc(expected_delta);
 
     assert_eq!(ii.number_of_entries(), 2);
     assert_eq!(ii.unique_docs(), 1);
+    assert_eq!(repaired, vec![15, 15]);
     assert_eq!(
         ii.index.blocks,
         vec![IndexBlock {

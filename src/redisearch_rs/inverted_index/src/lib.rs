@@ -352,11 +352,14 @@ impl IndexBlock {
         TOTAL_BLOCKS.load(atomic::Ordering::Relaxed)
     }
 
-    /// Repair a block by removing records which no longer exists according to `doc_exists`. If
-    /// there is nothing to repair in this block then `None` is returned.
+    /// Repair a block by removing records which no longer exists according to `doc_exists`. If a
+    /// record does exist, then `repair` is called with it.
+    ///
+    /// `None` is returned when there is nothing to repair in this block.
     fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
+        mut repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
         encoder: E,
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
@@ -373,6 +376,8 @@ impl IndexBlock {
             decoder.decode(&mut cursor, base, &mut result)?;
 
             if doc_exist(result.doc_id) {
+                repair(&result, &self);
+
                 tmp_inverted_index.add_record(&result)?;
 
                 if !last_doc_id.is_some_and(|id| id == result.doc_id) {
@@ -666,10 +671,13 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// callback is used to check if a document exists. It should return `true` if the document
     /// exists and `false` otherwise.
     ///
+    /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
+    ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
-    pub fn scan_gc(
-        &self,
+    pub fn scan_gc<'index>(
+        &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
+        mut repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
     ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();
 
@@ -686,7 +694,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
             let encoder = self.encoder.clone();
 
-            let repair = block.repair(&doc_exist, encoder)?;
+            let repair = block.repair(&doc_exist, &mut repair, encoder)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
@@ -890,12 +898,15 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     /// callback is used to check if a document exists. It should return `true` if the document
     /// exists and `false` otherwise.
     ///
+    /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
+    ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
-    pub fn scan_gc(
-        &self,
+    pub fn scan_gc<'index>(
+        &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
+        repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
     ) -> std::io::Result<Option<GcScanDelta>> {
-        self.index.scan_gc(doc_exist)
+        self.index.scan_gc(doc_exist, repair)
     }
 
     /// Apply the deltas of a garbage collection scan to the index. This will modify the index
@@ -1019,12 +1030,15 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// callback is used to check if a document exists. It should return `true` if the document
     /// exists and `false` otherwise.
     ///
+    /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
+    ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
-    pub fn scan_gc(
-        &self,
+    pub fn scan_gc<'index>(
+        &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
+        repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
     ) -> std::io::Result<Option<GcScanDelta>> {
-        self.index.scan_gc(doc_exist)
+        self.index.scan_gc(doc_exist, repair)
     }
 
     /// Apply the deltas of a garbage collection scan to the index. This will modify the index
