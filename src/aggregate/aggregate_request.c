@@ -1435,7 +1435,8 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .sctx = req->sctx,
       .reqflags = req->reqflags,
       .optimizer = req->optimizer,
-      .scoreAlias = req->searchopts.scoreAlias,
+      // Right now score alias is not supposed to be used in the aggregation pipeline
+      .scoreAlias = NULL,
     },
     .outFields = &req->outFields,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
