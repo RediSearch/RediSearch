@@ -87,7 +87,7 @@ jobs:
           platforms = []
 
           if '${{ inputs.architecture }}' in ['all', 'x86_64']:
-            platforms.append('macos-13')
+            platforms.append('macos-15-intel')
           if '${{ inputs.architecture }}' in ['all', 'aarch64']:
             platforms.append('macos-latest-xlarge')
 
