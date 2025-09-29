@@ -177,7 +177,7 @@ class testHybridSearch:
              "search_equivalent": "even",
              "vector_equivalent": "*=>[KNN 10 @vector $BLOB]=>{$YIELD_DISTANCE_AS: vector_distance}"
          }
-         run_test_scenario(self.env, self.index_name, scenario)
+         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_text_vector_prefilter(self):
         """Test hybrid search using KNN + VSIM text prefilter"""
