@@ -66,6 +66,23 @@ def test_hybrid_apply_filter_linear():
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
+def test_hybrid_apply_filter_linear_window():
+    env = Env()
+    setup_basic_index(env)
+    query_vector = test_data['doc:4']['embedding']
+    search_query = "blue | shoes"
+    # LINEAR scoring with WINDOW=5 - should limit consideration to top 5 results from each component
+    # The LINEAR score is: alpha * search_score + beta * vector_score
+    # With ALPHA=0.6, BETA=0.4, the combined score should be weighted accordingly
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', query_vector,\
+        'COMBINE', 'LINEAR', '6', 'ALPHA', '0.6', 'BETA', '0.4', 'WINDOW', '5',
+         'APPLY', '2*@__score', 'AS', 'doubled_score', 'FILTER', '@doubled_score>0.5')
+    results = get_results_from_hybrid_response(response)
+    # Should find doc:4 as it matches both search and vector criteria well
+    env.assertTrue("doc:4" in results.keys())
+
+# TODO: remove once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
 def test_hybrid_apply_filter_rrf():
     env = Env()
     setup_basic_index(env)
