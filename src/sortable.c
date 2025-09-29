@@ -66,7 +66,7 @@ if (idx > vec->len) {\
   return;\
 }\
 if (vec->values[idx]) {\
-  RSValue_Decref(vec->values[idx]);\
+  RSValue_DecrRef(vec->values[idx]);\
 }
 
 void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num) {
@@ -87,7 +87,7 @@ void RSSortingVector_PutRSVal(RSSortingVector* vec, size_t idx, RSValue* val) {
 /* Free a sorting vector */
 void SortingVector_Free(RSSortingVector *v) {
   for (size_t i = 0; i < v->len; i++) {
-    RSValue_Decref(v->values[i]);
+    RSValue_DecrRef(v->values[i]);
   }
   rm_free(v);
 }

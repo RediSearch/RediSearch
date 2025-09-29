@@ -106,18 +106,9 @@ typedef struct RSValue {
     // map value
     RSValueMap _mapval;
 
+    // trio value
     struct {
-      /**
-       * Trio value
-       *
-       * Allows keeping a value, together with two additional values.
-       *
-       * For example, keeping a value and, in addition, a different value for serialization,
-       * such as a JSON String representation, and one for its expansion.
-       */
-
-      // An array of 2 RSValue *'s
-      // The first entry is the value, the second entry is the additional value
+      // An array of 3 RSValue *'s
       struct RSValue **vals;
     } _trioval;
 
@@ -152,7 +143,7 @@ void RSValue_Clear(RSValue *v);
 void RSValue_Free(RSValue *v);
 
 RSValue *RSValue_IncrRef(RSValue *v);
-void RSValue_Decref(RSValue *v);
+void RSValue_DecrRef(RSValue *v);
 
 RSValue *RS_NewValue(RSValueType t);
 
@@ -189,7 +180,7 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
 
 static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
-  RSValue_Decref(src);
+  RSValue_DecrRef(src);
 }
 #endif
 
@@ -556,7 +547,7 @@ RSValue *RS_StringArray(char **strs, uint32_t sz);
 /* Initialize all strings in the array with a given string type */
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
 
-/* Wrap a trio of RSValue into an RSValue Trui */
+/* Wrap a trio of RSValue into an RSValue Trio */
 RSValue *RS_TrioVal(RSValue *val, RSValue *otherval, RSValue *other2val);
 
 /* Compare 2 values for sorting */
@@ -570,7 +561,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *status);
  * refcount of src, and finally assigns src to the variable dst
  */
 static inline void RSValue_Replace(RSValue **destpp, RSValue *src) {
-    RSValue_Decref(*destpp);
+    RSValue_DecrRef(*destpp);
     RSValue_IncrRef(src);
     *(destpp) = src;
 }

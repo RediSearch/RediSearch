@@ -56,7 +56,7 @@ static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
 
 static void sampleFreeInstance(Reducer *rbase, void *p) {
   rsmplCtx *sc = p;
-  RSValue_Decref(sc->samplesArray); // release own reference to the array
+  RSValue_DecrRef(sc->samplesArray); // release own reference to the array
 }
 
 Reducer *RDCRRandomSample_New(const ReducerOptions *options) {

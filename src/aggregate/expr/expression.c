@@ -485,7 +485,7 @@ static int rpevalNext_filter(ResultProcessor *rp, SearchResult *r) {
 static void rpevalFree(ResultProcessor *rp) {
   RPEvaluator *ee = (RPEvaluator *)rp;
   if (ee->val) {
-    RSValue_Decref(ee->val);
+    RSValue_DecrRef(ee->val);
   }
   BlkAlloc_FreeAll(&ee->eval.stralloc, NULL, NULL, 0);
   rm_free(ee);
