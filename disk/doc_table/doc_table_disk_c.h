@@ -21,7 +21,7 @@
 #include <stdint.h>
 #include "redisearch.h"
 #include "disk/database_api.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -128,9 +128,10 @@ typedef struct DocTableIterator DocTableIterator;
  * @brief Creates a new iterator for the document table
  *
  * @param handle Handle to disk index
+ * @param weight Weight for the iterator (used in scoring)
  * @return Iterator for the document table, or NULL on error
  */
-IndexIterator* DocTableDisk_NewIndexIterator(DiskIndex* handle);
+QueryIterator* DocTableDisk_NewQueryIterator(DiskIndex* handle, double weight);
 
 
 #ifdef __cplusplus

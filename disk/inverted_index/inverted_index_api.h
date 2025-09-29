@@ -5,7 +5,7 @@
  */
 #pragma once
 #include "disk/database_api.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -129,7 +129,7 @@ int InvertedIndexIterator_HasNext(DiskIterator *iter);
  */
 void InvertedIndexIterator_Free(DiskIterator *iter);
 
-IndexIterator *NewDiskInvertedIndexIterator(DiskIndex *index, const char *term, t_fieldMask fieldMask);
+QueryIterator *NewDiskInvertedIndexIterator(DiskIndex *index, const char *term, t_fieldMask fieldMask, double weight);
 
 #ifdef __cplusplus
 }

@@ -24,8 +24,8 @@ RedisSearchDiskAPI *SearchDisk_GetAPI() {
         },
         .index = {
             .indexDocument = reinterpret_cast<bool (*)(RedisSearchDiskIndexSpec *, const char *, t_docId, t_fieldMask)>(DiskDatabase_IndexDocument),
-            .newTermIterator = reinterpret_cast<IndexIterator *(*)(RedisSearchDiskIndexSpec *, const char *, t_fieldMask)>(NewDiskInvertedIndexIterator),
-            .newWildcardIterator = reinterpret_cast<IndexIterator *(*)(RedisSearchDiskIndexSpec *)>(DocTableDisk_NewIndexIterator)
+            .newTermIterator = reinterpret_cast<QueryIterator *(*)(RedisSearchDiskIndexSpec *, const char *, t_fieldMask, double)>(NewDiskInvertedIndexIterator),
+            .newWildcardIterator = reinterpret_cast<QueryIterator *(*)(RedisSearchDiskIndexSpec *, double)>(DocTableDisk_NewQueryIterator)
         },
         .docTable = {
             .putDocument = reinterpret_cast<t_docId (*)(RedisSearchDiskIndexSpec *, const char *, double, uint32_t, uint32_t)>(DocTableDisk_Put),

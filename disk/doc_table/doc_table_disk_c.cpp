@@ -153,17 +153,15 @@ void DocTableDisk_FreeString(char* str) {
     free(str);
 }
 
-IndexIterator* DocTableDisk_NewIndexIterator(DiskIndex* handle) {
+QueryIterator* DocTableDisk_NewQueryIterator(DiskIndex* handle, double weight) {
     search::disk::Database::Index* index = reinterpret_cast<search::disk::Database::Index*>(handle);
     if (!index) return nullptr;
-
 
     auto iter = index->GetDocTable().Iterate();
     if (!iter) {
         return nullptr;
     }
 
-    auto adapter = new search::disk::IndexIteratorAdapter<search::disk::DocTableColumn::Iterator>(std::move(iter), RS_FIELDMASK_ALL);
+    auto adapter = new search::disk::QueryIteratorAdapter<search::disk::DocTableColumn::Iterator>(std::move(iter), RS_FIELDMASK_ALL, weight);
     return &adapter->base;
 }
-

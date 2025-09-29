@@ -104,7 +104,7 @@ void InvertedIndexIterator_Free(DiskIterator *iter) {
     }
 }
 
-IndexIterator *NewDiskInvertedIndexIterator(DiskIndex *handle, const char *term, t_fieldMask fieldMask) {
+QueryIterator *NewDiskInvertedIndexIterator(DiskIndex *handle, const char *term, t_fieldMask fieldMask, double weight) {
     if (handle == nullptr || term == nullptr) {
         return nullptr;
     }
@@ -115,7 +115,7 @@ IndexIterator *NewDiskInvertedIndexIterator(DiskIndex *handle, const char *term,
         return nullptr;
     }
 
-    auto adapter = new search::disk::IndexIteratorAdapter<search::disk::InvertedIndexIterator>(std::move(iter), fieldMask);
+    auto adapter = new search::disk::QueryIteratorAdapter<search::disk::InvertedIndexIterator>(std::move(iter), fieldMask, weight);
     return &adapter->base;
 }
 
