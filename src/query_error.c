@@ -30,7 +30,7 @@ void QueryError_CloneFrom(const QueryError *src, QueryError *dest) {
   dest->_code = src->_code;
   const char *error = src->detail ? src->detail : QueryError_Strerror(src->_code);
   dest->detail = rm_strdup(error);
-  dest->message = src->message;
+  dest->_message = src->_message;
 }
 
 const char *QueryError_Strerror(QueryErrorCode code) {
@@ -58,7 +58,7 @@ void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *er
   } else {
     status->detail = rm_strdup(QueryError_Strerror(code));
   }
-  status->message = status->detail;
+  status->_message = status->detail;
 }
 
 void QueryError_SetCode(QueryError *status, QueryErrorCode code) {
@@ -72,7 +72,7 @@ void QueryError_ClearError(QueryError *err) {
     rm_free(err->detail);
     err->detail = NULL;
   }
-  err->message = NULL;
+  err->_message = NULL;
   err->_code = QUERY_OK;
 }
 
@@ -90,7 +90,7 @@ void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, cons
   rm_asprintf(&status->detail, "%s%s", message, formatted);
   rm_free(formatted);
   status->_code = code;
-  status->message = message;
+  status->_message = message;
 }
 
 void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
@@ -102,7 +102,7 @@ void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, c
   rm_vasprintf(&status->detail, fmt, ap);
   va_end(ap);
   status->_code = code;
-  status->message = status->detail;
+  status->_message = status->detail;
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {
@@ -127,7 +127,7 @@ const char *QueryError_GetUserError(const QueryError *status) {
 
 const char *QueryError_GetDisplayableError(const QueryError *status, bool obfuscate) {
   if (status->detail == NULL || obfuscate) {
-    return status->message ? status->message : QueryError_Strerror(status->_code);
+    return status->_message ? status->_message : QueryError_Strerror(status->_code);
   } else {
     return status->detail ? status->detail : QueryError_Strerror(status->_code);
   }

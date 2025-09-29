@@ -89,7 +89,7 @@ typedef enum {
 typedef struct QueryError {
   QueryErrorCode _code;
   // The error message which we can expose in the logs, does not contain user data
-  const char* message;
+  const char* _message;
   // The formatted error message in its entirety, can be shown only to the user
   char *detail;
 
