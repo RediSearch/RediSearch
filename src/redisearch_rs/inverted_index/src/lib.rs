@@ -23,6 +23,7 @@ pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
     RSResultData, RSResultKind, RSResultKindMask, RSTermRecord,
 };
+use smallvec::SmallVec;
 
 pub mod debug;
 pub mod doc_ids_only;
@@ -283,8 +284,8 @@ enum RepairType {
     /// This block can be deleted completely.
     Delete,
 
-    /// The block contains GCed entries, and might need to be split into the following blocks.
-    Split { blocks: Vec<IndexBlock> },
+    /// The block contains GCed entries, and should be replaced with the following blocks.
+    Replace { blocks: SmallVec<[IndexBlock; 3]> },
 }
 
 impl IndexBlock {
@@ -373,8 +374,8 @@ impl IndexBlock {
         {
             Ok(None)
         } else {
-            Ok(Some(RepairType::Split {
-                blocks: tmp_inverted_index.blocks,
+            Ok(Some(RepairType::Replace {
+                blocks: tmp_inverted_index.blocks.into(),
             }))
         }
     }
@@ -711,7 +712,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                     info.entries_removed += block.num_entries;
                     info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
                 }
-                RepairType::Split { mut blocks } => {
+                RepairType::Replace { mut blocks } => {
                     let old_block = self.blocks.remove(delta.index);
                     info.entries_removed += old_block.num_entries;
                     info.bytes_freed += IndexBlock::SIZE + old_block.buffer.capacity();

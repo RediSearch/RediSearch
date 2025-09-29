@@ -27,6 +27,7 @@ use ffi::{
     IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
 };
 use pretty_assertions::assert_eq;
+use smallvec::smallvec;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
@@ -1291,8 +1292,8 @@ fn index_block_repair_some_deletions() {
 
     assert_eq!(
         repair_status,
-        Some(RepairType::Split {
-            blocks: vec![IndexBlock {
+        Some(RepairType::Replace {
+            blocks: smallvec![IndexBlock {
                 first_doc_id: 11,
                 last_doc_id: 11,
                 num_entries: 1,
@@ -1383,8 +1384,8 @@ fn index_block_repair_delta_too_big() {
 
     assert_eq!(
         repair_status,
-        Some(RepairType::Split {
-            blocks: vec![
+        Some(RepairType::Replace {
+            blocks: smallvec![
                 IndexBlock {
                     buffer: vec![0, 0, 0, 0],
                     num_entries: 1,
@@ -1466,8 +1467,8 @@ fn ii_scan_gc() {
                 },
                 BlockGcScanResult {
                     index: 2,
-                    repair: RepairType::Split {
-                        blocks: vec![IndexBlock {
+                    repair: RepairType::Replace {
+                        blocks: smallvec![IndexBlock {
                             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
                             num_entries: 2,
                             first_doc_id: 21,
@@ -1550,14 +1551,14 @@ fn ii_apply_gc() {
     ];
     let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
 
-    // Inverted index is 40 bytes base
+    // Inverted index is 48 bytes base
     // 1st index block is 40 bytes + 8 bytes for the buffer capacity
     // 2nd index block is 40 bytes + 16 bytes for the buffer capacity
     // 3rd index block is 40 bytes + 20 bytes for the buffer capacity
     // 4th index block is 40 bytes + 12 bytes for the buffer capacity
     // 5th index block is 40 bytes + 20 bytes for the buffer capacity
-    // So total memory size is 316 bytes
-    assert_eq!(ii.memory_usage(), 316);
+    // So total memory size is 324 bytes
+    assert_eq!(ii.memory_usage(), 324);
 
     let gc_result = vec![
         BlockGcScanResult {
@@ -1570,8 +1571,8 @@ fn ii_apply_gc() {
         },
         BlockGcScanResult {
             index: 2,
-            repair: RepairType::Split {
-                blocks: vec![IndexBlock {
+            repair: RepairType::Replace {
+                blocks: smallvec![IndexBlock {
                     buffer: vec![0, 0, 0, 0],
                     num_entries: 1,
                     first_doc_id: 21,
@@ -1581,8 +1582,8 @@ fn ii_apply_gc() {
         },
         BlockGcScanResult {
             index: 4,
-            repair: RepairType::Split {
-                blocks: vec![
+            repair: RepairType::Replace {
+                blocks: smallvec![
                     IndexBlock {
                         buffer: vec![0, 0, 0, 0],
                         num_entries: 1,
@@ -1608,13 +1609,13 @@ fn ii_apply_gc() {
 
     let apply_info = ii.apply_gc(delta);
 
-    // Inverted index is 40 bytes base
+    // Inverted index is 48 bytes base
     // 1st index block is 40 bytes + 12 bytes for the buffer capacity
     // 2nd index block is 40 bytes + 12 bytes for the buffer capacity
     // 3rd index block is 40 bytes + 12 bytes for the buffer capacity
     // 4th index block is 40 bytes + 12 bytes for the buffer capacity
-    // So total memory size is 248 bytes
-    assert_eq!(ii.memory_usage(), 248);
+    // So total memory size is 256 bytes
+    assert_eq!(ii.memory_usage(), 256);
 
     assert_eq!(ii.unique_docs(), 4);
     assert_eq!(
@@ -1679,11 +1680,11 @@ fn ii_apply_gc_last_block_updated() {
 
     let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
 
-    // Inverted index is 40 bytes base
+    // Inverted index is 48 bytes base
     // 1st index block is 40 bytes + 16 bytes for the buffer capacity
     // 2nd index block is 40 bytes + 20 bytes for the buffer capacity
-    // So total memory size is 156 bytes
-    assert_eq!(ii.memory_usage(), 156);
+    // So total memory size is 164 bytes
+    assert_eq!(ii.memory_usage(), 164);
 
     let gc_result = vec![
         BlockGcScanResult {
@@ -1692,8 +1693,8 @@ fn ii_apply_gc_last_block_updated() {
         },
         BlockGcScanResult {
             index: 1,
-            repair: RepairType::Split {
-                blocks: vec![IndexBlock {
+            repair: RepairType::Replace {
+                blocks: smallvec![IndexBlock {
                     buffer: vec![0, 0, 0, 0],
                     num_entries: 1,
                     first_doc_id: 21,
@@ -1711,10 +1712,10 @@ fn ii_apply_gc_last_block_updated() {
 
     let apply_info = ii.apply_gc(delta);
 
-    // Inverted index is 40 bytes base
+    // Inverted index is 48 bytes base
     // 1st index block is 40 bytes + 20 bytes for the buffer capacity
-    // So total memory size is 100 bytes
-    assert_eq!(ii.memory_usage(), 100);
+    // So total memory size is 108 bytes
+    assert_eq!(ii.memory_usage(), 108);
 
     assert_eq!(ii.unique_docs(), 3);
     assert_eq!(
