@@ -28,6 +28,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "pipeline/pipeline.h"
 #include "util/units.h"
+#include "module.h"
 
 #include <time.h>
 
