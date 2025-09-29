@@ -10,11 +10,21 @@
 #pragma once
 
 #include "rmr/rmr.h"
+#include "util/references.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+typedef enum  {
+  TYPE_SEARCH,
+  TYPE_VSIM,
+} MappingType;
+
+typedef struct {
+  MappingType type;
+  arrayof(CursorMapping) mappings;
+} CursorMappings;
 
 /**
  * Process hybrid cursor mappings synchronously
@@ -24,12 +34,7 @@ extern "C" {
  * @param vsimMappings Empty array to populate with vector similarity cursor mappings
  * @return RS_RESULT_OK on success, error code otherwise
  */
-int ProcessHybridCursorMappings(
-    const MRCommand *cmd,
-    int numShards,
-    arrayof(CursorMapping *) searchMappings,
-    arrayof(CursorMapping *) vsimMappings
-);
+int ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings);
 
 #ifdef __cplusplus
 }

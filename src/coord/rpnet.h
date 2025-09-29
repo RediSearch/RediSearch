@@ -35,7 +35,7 @@ typedef struct {
   AREQ *areq;
 
   // NEW: Direct cursor mappings (no more dispatcher context)
-  arrayof(CursorMapping *) mappings;  // Single mapping array per RPNet
+  StrongRef mappings;  // Single mapping array per RPNet
 
   // profile vars
   arrayof(MRReply *) shardsProfile;

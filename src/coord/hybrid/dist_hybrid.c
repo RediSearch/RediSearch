@@ -253,6 +253,12 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     return REDISMODULE_OK;
 }
 
+static void FreeCursorMappings(void *mappings) {
+  CursorMappings *vsimOrSearch = (CursorMappings *)mappings; 
+  array_free(vsimOrSearch->mappings);
+  rm_free(mappings);
+}
+
 static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
                         RedisModule_Reply *reply, QueryError *status) {
 
@@ -262,27 +268,34 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     RPNet *searchRPNet = (RPNet *)searchQctx->rootProc;
     RPNet *vsimRPNet = (RPNet *)vsimQctx->rootProc;
 
-    // NEW: Process cursor mappings synchronously (always needed for hybrid operations)
-    arrayof(CursorMapping *) searchMappings = array_new(CursorMapping*, 3); // TODO: get actual numShards
-    arrayof(CursorMapping *) vsimMappings = array_new(CursorMapping*, 3);   // TODO: get actual numShards
+    CursorMappings *search = rm_calloc(1, sizeof(CursorMappings));
+    CursorMappings *vsim = rm_calloc(1, sizeof(CursorMappings));
+    search->type = TYPE_SEARCH;
+    vsim->type = TYPE_VSIM;
+
+    StrongRef searchMappingsRef = StrongRef_New(search, FreeCursorMappings);
+    StrongRef vsimMappingsRef = StrongRef_New(vsim, FreeCursorMappings);
+
 
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
     int numShards = 3; // TODO: determine from cluster topology
 
-    int result = ProcessHybridCursorMappings(cmd, numShards, searchMappings, vsimMappings);
+    int result = ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef);
     if (result != RS_RESULT_OK) {
         // Handle error
-        array_free_ex(searchMappings, rm_free);
-        array_free_ex(vsimMappings, rm_free);
+        StrongRef_Release(searchMappingsRef);
+        StrongRef_Release(vsimMappingsRef);
         return REDISMODULE_ERR;
     }
 
     // Store mappings in RPNet structures
-    searchRPNet->mappings = searchMappings;
-    vsimRPNet->mappings = vsimMappings;
+    searchRPNet->mappings = searchMappingsRef;
+    vsimRPNet->mappings = vsimMappingsRef;
+    CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
+    CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
 
-    RedisModule_Log(NULL, "verbose", "searchMappings length: %d, vsimMappings length: %d", array_len(searchMappings), array_len(vsimMappings));
+    RedisModule_Log(NULL, "verbose", "searchMappings length: %d, vsimMappings length: %d", array_len(searchMappings->mappings), array_len(vsimMappings->mappings));
 
 
     bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;

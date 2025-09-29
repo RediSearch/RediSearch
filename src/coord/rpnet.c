@@ -166,8 +166,9 @@ static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     RPNet *nc = (RPNet *)rp;
 
+    CursorMappings *vsimOrSearch = StrongRef_Get(nc->mappings);
     // Mappings should already be populated by HybridRequest_executePlan
-    if (!nc->mappings || array_len(nc->mappings) == 0) {
+    if (!vsimOrSearch || array_len(vsimOrSearch->mappings) == 0) {
         RedisModule_Log(NULL, "error", "No cursor mappings available for RPNet");
         return REDISMODULE_ERR;
     }
@@ -175,11 +176,11 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     // Get index name from command
     const char *idx = MRCommand_ArgStringPtrLen(&nc->cmd, 1, NULL);
 
-    RedisModule_Log(NULL, "warning", "rpnetNext_StartWithMappings: nc.mappings is %p, array_len(nc.mappings) is %zu", nc->mappings, array_len(nc->mappings));
+    RedisModule_Log(NULL, "warning", "rpnetNext_StartWithMappings: vsimOrSearch is %p, array_len(vsimOrSearch->mappings) is %zu", vsimOrSearch, array_len(vsimOrSearch->mappings));
 
     // Create cursor read command
     nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx);
-    nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, nc->mappings);
+    nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, vsimOrSearch);
     nc->base.Next = rpnetNext;
 
     return rpnetNext(rp, r);
@@ -199,10 +200,9 @@ void rpnetFree(ResultProcessor *rp) {
   }
 
   // NEW: Free cursor mappings
-  if (nc->mappings) {
-    array_free_ex(nc->mappings, rm_free);
+  if (nc->mappings.rm) {
+    StrongRef_Release(nc->mappings);
   }
-
   MRReply_Free(nc->current.root);
   MRCommand_Free(&nc->cmd);
 
@@ -214,7 +214,6 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd; // Take ownership of the command's internal allocations
   nc->areq = NULL;
-  nc->mappings = NULL; // Initialize mappings to NULL
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
   nc->base.Next = nextFunc;
@@ -233,8 +232,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   MRReply *root = nc->current.root, *rows = nc->current.rows;
   const bool resp3 = nc->cmd.protocol == 3;
 
-  RedisModule_Log(NULL, "warning", "rpnetNext: beginning");
-  RedisModule_Log(NULL, "warning", "rpnetNext: mappings length: %d", array_len(nc->mappings));
+  CursorMappings *vsimOrSearch = StrongRef_Get(nc->mappings);
+  RedisModule_Log(NULL, "warning", "rpnetNext: mappings is %p, array_len(mappings) is %u", vsimOrSearch, array_len(vsimOrSearch->mappings));
+
   // root (array) has similar structure for RESP2/3:
   // [0] array of results (rows) described right below
   // [1] cursor (int)

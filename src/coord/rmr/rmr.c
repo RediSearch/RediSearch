@@ -32,6 +32,8 @@
 #include "hiredis/async.h"
 #include "io_runtime_ctx.h"
 
+#include "coord/hybrid/hybrid_cursor_mappings.h"
+
 #define REFCOUNT_INCR_MSG(caller, refcount) \
   RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount);
 #define REFCOUNT_DECR_MSG(caller, refcount) \
@@ -673,8 +675,8 @@ void iterStartCb(void *p) {
 void iterCursorMappingCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
-  arrayof(CursorMapping *) mappings = (arrayof(CursorMapping *))data->privateData;
-  RedisModule_Log(NULL, "warning", "iterCursorMappingCb: mappings is %p, array_len(mappings) is %zu", mappings, array_len(mappings));
+  CursorMappings *vsimOrSearch = (CursorMappings*)data->privateData;
+  RedisModule_Log(NULL, "warning", "iterCursorMappingCb: mappings is %p, array_len(mappings) is %zu", vsimOrSearch, array_len(vsimOrSearch->mappings));
   // RS_ASSERT(mappings && array_len(mappings) > 0);
 
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
@@ -686,9 +688,9 @@ void iterCursorMappingCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  cmd->targetSlot = mappings[0]->targetSlot;
+  cmd->targetSlot = vsimOrSearch->mappings[0].targetSlot;
   char buf[128];
-  sprintf(buf, "%lld", mappings[0]->cursorId);
+  sprintf(buf, "%lld", vsimOrSearch->mappings[0].cursorId);
   MRCommand_Append(cmd, buf, strlen(buf));
 
 
@@ -699,10 +701,10 @@ void iterCursorMappingCb(void *p) {
 
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
 
-    it->cbxs[i].cmd.targetSlot = mappings[i]->targetSlot;
+    it->cbxs[i].cmd.targetSlot = vsimOrSearch->mappings[i].targetSlot;
     it->cbxs[i].cmd.num = 4;
     char buf[128];
-    sprintf(buf, "%lld", mappings[i]->cursorId);
+    sprintf(buf, "%lld", vsimOrSearch->mappings[i].targetSlot);
     MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, strlen(buf));
   }
 
