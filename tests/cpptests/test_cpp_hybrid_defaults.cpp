@@ -85,8 +85,8 @@ protected:
       result = nullptr;
     }
 
-    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-    EXPECT_TRUE(result != nullptr) << "parseHybridCommand returned NULL";
+    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
+    EXPECT_NE(result, nullptr) << "parseHybridCommand returned NULL";
 
     return result;
   }
@@ -135,7 +135,7 @@ TEST_F(HybridDefaultsTest, testDefaultValues) {
 TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "RRF", "LIMIT", "0", "25");
+                      "LIMIT", "0", "25");
 
   parseCommand(args);
   validateDefaultParams(result, parseCtx, 25, HYBRID_DEFAULT_KNN_K);
@@ -156,7 +156,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
 TEST_F(HybridDefaultsTest, testLimitFallbackWindowOnly) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "8", "COMBINE", "RRF", "LIMIT", "0", "25");
+                      "KNN", "2", "K", "8", "LIMIT", "0", "25");
 
   parseCommand(args);
   validateDefaultParams(result, parseCtx, 25, 8);
@@ -176,7 +176,7 @@ TEST_F(HybridDefaultsTest, testExplicitOverridesLimit) {
 TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "RRF", "LIMIT", "0", "10000");
+                      "LIMIT", "0", "10000");
 
   parseCommand(args);
   validateDefaultParams(result, parseCtx, 10000, HYBRID_DEFAULT_KNN_K);
@@ -185,8 +185,7 @@ TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
 // Flag verification tests
 TEST_F(HybridDefaultsTest, testFlagTrackingImplicitBoth) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "RRF");
+                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
 
   parseCommand(args);
   // Both flags should be false
@@ -197,7 +196,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingImplicitBoth) {
 TEST_F(HybridDefaultsTest, testFlagTrackingExplicitK) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "8", "COMBINE", "RRF");
+                      "KNN", "2", "K", "8");
 
   parseCommand(args);
   // K explicit, WINDOW implicit
@@ -271,7 +270,7 @@ TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
 TEST_F(HybridDefaultsTest, testExplicitKCappedAtWindowFromLimit) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "25", "COMBINE", "RRF", "LIMIT", "0", "18");
+                      "KNN", "2", "K", "25", "LIMIT", "0", "18");
 
   parseCommand(args);
   // K should be capped to WINDOW (18 from LIMIT fallback) even though K was explicitly set to 25
