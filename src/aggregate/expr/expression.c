@@ -481,10 +481,7 @@ static int rpevalNext_filter(ResultProcessor *rp, SearchResult *r) {
 
     // Reduce the total number of results
     RS_ASSERT(rp->parent->totalResults > 0);
-    // add bounds checking to not somehow underflow
-    if (rp->parent->totalResults) {
-      rp->parent->totalResults--;
-    }
+    rp->parent->totalResults--;
     // Otherwise, the result must be filtered out.
     SearchResult_Clear(r);
   }
