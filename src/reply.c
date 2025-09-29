@@ -505,16 +505,16 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
   v = RSValue_Dereference(v);
 
   switch (RSValue_Type(v)) {
-    case RSValue_String:;
+    case RSValueType_String:;
       uint32_t len;
       char *str = RSValue_String_Get(v, &len);
       return RedisModule_Reply_StringBuffer(reply, str, len);
 
-    case RSValue_RedisString:
-    case RSValue_OwnRstring:
+    case RSValueType_RedisString:
+    case RSValueType_OwnRstring:
       return RedisModule_Reply_String(reply, RSValue_RedisString_Get(v));
 
-    case RSValue_Number: {
+    case RSValueType_Number: {
       if (!(flags & SENDREPLY_FLAG_EXPAND)) {
         char buf[128];
         size_t len = RSValue_NumToString(v, buf);
@@ -542,14 +542,14 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
       }
     }
 
-    case RSValue_Null:
+    case RSValueType_Null:
       return RedisModule_Reply_Null(reply);
 
-    case RSValue_Trio: {
+    case RSValueType_Trio: {
       return RedisModule_Reply_RSValue(reply, RSValue_Trio_GetMiddle(v), flags);
     }
 
-    case RSValue_Array:
+    case RSValueType_Array:
       RedisModule_Reply_Array(reply);
       for (uint32_t i = 0; i < RSValue_ArrayLen(v); i++) {
         RedisModule_Reply_RSValue(reply, RSValue_ArrayItem(v, i), flags);
@@ -557,12 +557,12 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
       RedisModule_Reply_ArrayEnd(reply);
       return REDISMODULE_OK;
 
-    case RSValue_Map:
+    case RSValueType_Map:
       // If Map value is used, assume Map api exists (RedisModule_IsRESP3)
       RedisModule_Reply_Map(reply);
-      for (uint32_t i = 0; i < RSValue_MapLen(v); i++) {
+      for (uint32_t i = 0; i < RSValue_Map_Len(v); i++) {
         RSValue *key, *val;
-        RSValue_MapGetEntry(v, i, &key, &val);
+        RSValue_Map_GetEntry(v, i, &key, &val);
         RedisModule_Reply_RSValue(reply, key, flags);
         RedisModule_Reply_RSValue(reply, val, flags);
       }

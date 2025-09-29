@@ -180,9 +180,9 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
     extractGroups(g, xarr, xpos + 1, xlen, hval, res);
   } else if (RSValue_ArrayLen(v) == 0) {
     // Empty array - hash as null
-    hval = RSValue_Hash(RS_NullVal(), hval);
+    hval = RSValue_Hash(RSValue_NullStatic(), hval);
     const RSValue *array = xarr[xpos];
-    xarr[xpos] = RS_NullVal();
+    xarr[xpos] = RSValue_NullStatic();
     extractGroups(g, xarr, xpos + 1, xlen, hval, res);
     xarr[xpos] = array;
   } else {
@@ -209,7 +209,7 @@ static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
     const RLookupKey *srckey = g->srckeys[ii];
     RSValue *v = RLookup_GetItem(srckey, srcrow);
     if (v == NULL) {
-      v = RS_NullVal();
+      v = RSValue_NullStatic();
     }
     groupvals[ii] = v;
   }
