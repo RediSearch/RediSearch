@@ -290,13 +290,14 @@ def test_oom_verbosity_cluster_return(env):
     res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
     env.assertEqual(res['Results']['warning'], OOM_WARNING)
     # Aggregate Profile
-    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@name')
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
     env.assertEqual(res['Results']['warning'][0], OOM_WARNING)
+    env.assertEqual(res['Profile']['Coordinator']['Warning'], OOM_WARNING)
     # FT.SEARCH
     res = env.cmd('FT.SEARCH', 'idx', '*')
     env.assertEqual(res['warning'], OOM_WARNING)
     # FT.AGGREGATE
-    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
+    res = env.cmd('FT.AGGREGATE', 'idx', '*')
     env.assertEqual(res['warning'][0], OOM_WARNING)
 
     # RESP2

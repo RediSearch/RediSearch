@@ -168,6 +168,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         }
 
       // Print whether a warning was raised throughout command execution
+      bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
       if (bgScanOOM) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
       }
@@ -178,7 +179,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
       } else if (reachedMaxPrefixExpansions) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
-      } else {
+      } else if (!warningRaised) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
       }
 
