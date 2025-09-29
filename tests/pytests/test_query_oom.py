@@ -34,9 +34,6 @@ def get_all_shards_pid(env):
         conn = env.getConnection(shardId)
         yield pid_cmd(conn)
 
-# Helper to call a function and push its return value into a list
-def _call_and_store(fn, args, out_list):
-    out_list.append(fn(*args))
 
 def _common_test_scenario(env):
     # Create an index
@@ -151,10 +148,6 @@ def test_query_oom_cluster_shards_error_first_reply():
         while shard_p.status() != psutil.STATUS_STOPPED:
             time.sleep(0.1)
 
-    # Helper to call a function and push its return value into a list
-    def _call_and_store(fn, args, out_list):
-        out_list.append(fn(*args))
-
     # We need to call the queries in MT so the paused query won't block the test
     query_result = []
 
@@ -162,7 +155,7 @@ def test_query_oom_cluster_shards_error_first_reply():
     query_args = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t']
 
     t_query = threading.Thread(
-        target=_call_and_store,
+        target=call_and_store,
         args=(run_cmd_expect_oom,
             (env, query_args),
             query_result),
