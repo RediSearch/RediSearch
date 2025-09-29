@@ -13,7 +13,7 @@ on:
         default: '8.2'
       rejson_module_path:
         type: string
-        default: bin/linux-x64-release/RedisJSON/master/rejson.so
+        default: bin/linux-x64-release/RedisJSON/8.2/rejson.so
       profile_env:
         type: number # for default of 0
       benchmark_glob:
