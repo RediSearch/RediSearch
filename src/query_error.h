@@ -87,7 +87,7 @@ typedef enum {
 } QueryErrorCode;
 
 typedef struct QueryError {
-  QueryErrorCode code;
+  QueryErrorCode _code;
   // The error message which we can expose in the logs, does not contain user data
   const char* message;
   // The formatted error message in its entirety, can be shown only to the user
@@ -198,7 +198,7 @@ void QueryError_ClearError(QueryError *err);
  * Return true if the object has an error set
  */
 static inline int QueryError_HasError(const QueryError *status) {
-  return status->code;
+  return status->_code;
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);

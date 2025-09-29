@@ -331,7 +331,7 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
     if (ourErr->s) {
       *ourErr->s = rm_strdup(QueryError_GetUserError(&aCtx->status));
     }
-    ourErr->hasErr = aCtx->status.code;
+    ourErr->hasErr = QueryError_GetCode(&aCtx->status);
   }
 }
 
