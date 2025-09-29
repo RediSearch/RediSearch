@@ -20,8 +20,8 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   double alphaValue = 0.0;
   double betaValue = 0.0;
 
-  
-  unsigned int count = 0; 
+
+  unsigned int count = 0;
   int rc = AC_GetUnsigned(ac, &count, 0);
   if (rc == AC_ERR_NOARG) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Missing LINEAR argument count");
@@ -107,11 +107,11 @@ static int parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *has
 
   double defaultConstant = HYBRID_DEFAULT_RRF_CONSTANT;
   // Define the optional arguments with validation
-  ArgParser_AddDoubleV(parser, "CONSTANT", "RRF constant value (must be positive)", 
+  ArgParser_AddDoubleV(parser, "CONSTANT", "RRF constant value (must be positive)",
                        constant, ARG_OPT_OPTIONAL,
                        ARG_OPT_DEFAULT_DOUBLE, defaultConstant,
                        ARG_OPT_END);
-  ArgParser_AddIntV(parser, "WINDOW", "RRF window size (must be positive)", 
+  ArgParser_AddIntV(parser, "WINDOW", "RRF window size (must be positive)",
                     window, ARG_OPT_OPTIONAL,
                     ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_WINDOW,
                     ARG_OPT_RANGE, 1LL, LLONG_MAX,
@@ -143,7 +143,7 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError 
   if (parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, status) != AC_OK) {
     return;
   }
-  
+
   // Store the parsed values
   rrfCtx->constant = constantValue;
   rrfCtx->window = windowValue;
@@ -177,6 +177,7 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
   if (parsedScoringType == HYBRID_SCORING_LINEAR) {
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
+    combineCtx->linearCtx.window = HYBRID_DEFAULT_WINDOW;
     parseLinearClause(ac, &combineCtx->linearCtx, status);
   } else if (parsedScoringType == HYBRID_SCORING_RRF) {
     parseRRFClause(ac, &combineCtx->rrfCtx, status);

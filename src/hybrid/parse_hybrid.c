@@ -434,11 +434,11 @@ static bool tailHasExplicitLimitInPlan(AGGPlan *plan) {
 }
 
 /**
- * Apply LIMIT argument fallback logic to KNN K and WINDOW arguments.
+ * Apply LIMIT argument fallback logic to KNN K argument.
  *
- * When LIMIT is explicitly provided but KNN K or WINDOW are not explicitly set,
- * this function applies the LIMIT value as a fallback for those arguments instead of their
- * defaults (unless they have been explicitly set).
+ * When LIMIT is explicitly provided but KNN K is not explicitly set,
+ * this function applies the LIMIT value as a fallback for this arguments instead of its
+ * default (unless it has been explicitly set).
  * This ensures consistent behavior where LIMIT acts as a unified size hint
  * for hybrid search operations.
  *
@@ -446,9 +446,9 @@ static bool tailHasExplicitLimitInPlan(AGGPlan *plan) {
  * @param pvd The parsed vector data containing KNN arguments
  * @param hybridParams The hybrid parameters containing WINDOW settings
  */
-static void applyLimitParameterFallbacks(AGGPlan *tailPlan,
-                                       ParsedVectorData *pvd,
-                                       HybridPipelineParams *hybridParams) {
+static void applyLimitKNNFallback(AGGPlan *tailPlan,
+                                  ParsedVectorData *pvd,
+                                  HybridPipelineParams *hybridParams) {
   size_t limitValue = getLimitFromPlan(tailPlan);
   bool hasExplicitLimit = tailHasExplicitLimitInPlan(tailPlan);
 
@@ -457,13 +457,6 @@ static void applyLimitParameterFallbacks(AGGPlan *tailPlan,
       !pvd->hasExplicitK &&
       hasExplicitLimit && limitValue > 0) {
     pvd->query->knn.k = limitValue;
-  }
-
-  // Apply LIMIT → WINDOW fallback ONLY if WINDOW was not explicitly set AND LIMIT was explicitly provided
-  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF &&
-      !hybridParams->scoringCtx->rrfCtx.hasExplicitWindow &&
-      hasExplicitLimit && limitValue > 0) {
-    hybridParams->scoringCtx->rrfCtx.window = limitValue;
   }
 }
 
@@ -646,7 +639,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       goto error;
     }
 
-    applyLimitParameterFallbacks(parsedCmdCtx->tailPlan, vectorRequest->parsedVectorData, hybridParams);
+    applyLimitKNNFallback(parsedCmdCtx->tailPlan, vectorRequest->parsedVectorData, hybridParams);
   }
 
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
