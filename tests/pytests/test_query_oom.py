@@ -1,6 +1,7 @@
 from common import *
 import threading
 import psutil
+import numpy as np
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 
@@ -219,3 +220,49 @@ def test_query_oom_cluster_shards_return():
     env.assertLess(res[0] , n_docs)
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
     env.assertLess(len(res), n_docs + 1)
+
+
+def _common_hybrid_test_scenario(env):
+    """Common setup for hybrid OOM tests"""
+    # Create an index with text and vector fields
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'description', 'TEXT',
+               'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+    # Add test document
+    env.expect('HSET', 'doc:1', 'description', 'red shoes', 'embedding', np.array([0.0, 0.0]).astype(np.float32).tobytes()).equal(2)
+    # Change maxmemory to 1 to trigger OOM
+    env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+# Test ignore policy for FT.HYBRID
+@skip(cluster=True)
+def test_hybrid_oom_ignore(env):
+    _common_hybrid_test_scenario(env)
+
+    # The test should ignore OOM since 'ignore' is the default config
+    # TODO : change/ remove test if default config is changed
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector)
+
+    # Should get results despite OOM condition
+    env.assertEqual(res[1], 1)
+
+# Test fail policy for FT.HYBRID in standalone
+@skip(cluster=True)
+def test_hybrid_oom_standalone(env):
+    # Change oom policy to fail
+    # TODO : Change if default value is changed
+    change_oom_policy(env, 'fail')
+
+    _common_hybrid_test_scenario(env)
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    for config_return in [False, True]:
+        # Since we are in a standalone env, the test should fail also if the config is 'return'
+        if config_return:
+            change_oom_policy(env, 'return')
+
+        # Verify hybrid query fails
+        env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
