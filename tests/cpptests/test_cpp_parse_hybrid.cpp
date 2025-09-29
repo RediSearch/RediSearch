@@ -488,15 +488,15 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   ASSERT_EQ(vn->children[0]->type, QN_WILDCARD);
 }
 
-TEST_F(ParseHybridTest, testVsimKNNWithYieldScoreOnly) {
-  // Parse hybrid request
+TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
+  // YIELD_SCORE_AS should work
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "8", "YIELD_SCORE_AS", "distance_score", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
   AREQ* vecReq = result.vector;
 
-  // Verify AST structure for KNN query with YIELD_SCORE_AS only
+  // Verify AST structure for KNN query with YIELD_SCORE_AS
   ASSERT_TRUE(vecReq->ast.root != NULL);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
@@ -782,7 +782,7 @@ TEST_F(ParseHybridTest, testVsimKNNDuplicateEFRuntime) {
 }
 
 
-TEST_F(ParseHybridTest, testKNNDuplicateYieldScoreAs) {
+TEST_F(ParseHybridTest, testKNNDuplicateYieldDistanceAs) {
   // Test KNN with duplicate YIELD_SCORE_AS arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "6", "K", "10", "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
@@ -837,7 +837,7 @@ TEST_F(ParseHybridTest, testVsimRangeDuplicateEpsilon) {
   testErrorCode(args, QUERY_EDUPPARAM, "Duplicate EPSILON argument");
 }
 
-TEST_F(ParseHybridTest, testRangeDuplicateYieldScoreAs) {
+TEST_F(ParseHybridTest, testRangeDuplicateYieldDistanceAs) {
   // Test RANGE with duplicate YIELD_SCORE_AS arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "6", "RADIUS", "0.5", "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
@@ -962,14 +962,14 @@ TEST_F(ParseHybridTest, testLinearMissingBetaValue) {
   testErrorCode(args, QUERY_ESYNTAX,"Not enough arguments in LINEAR, specified 2 but provided only 1");
 }
 
-TEST_F(ParseHybridTest, testKNNMissingYieldScoreAsValue) {
-  // Test KNN with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
+TEST_F(ParseHybridTest, testKNNMissingYieldDistanceAsValue) {
+  // Test KNN with missing YIELD_SCORE_AS value (early return before CheckEnd)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "4", "K", "10", "YIELD_SCORE_AS");
   testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");
 }
 
-TEST_F(ParseHybridTest, testRangeMissingYieldScoreAsValue) {
-  // Test RANGE with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
+TEST_F(ParseHybridTest, testRangeMissingYieldDistanceAsValue) {
+  // Test RANGE with missing YIELD_SCORE_AS value (early return before CheckEnd)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS");
   testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");
 }
