@@ -252,7 +252,7 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return RedisModule_WrongArity(ctx);
   }
 
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
 
   // Get index name and create search context (same pattern as regular hybridCommandHandler)
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);

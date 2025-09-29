@@ -134,7 +134,7 @@ TEST_F(ExtTest, testQueryExpander_v1) {
   opts.scorerName = SCORER_NAME;
   QueryAST qast = {0};
 
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
   int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), 1, &err);
   ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&err);
 
@@ -176,7 +176,7 @@ TEST_F(ExtTest, testQueryExpander_v2) {
   opts.scorerName = SCORER_NAME;
   QueryAST qast = {0};
 
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
   int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), 2, &err);
   ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&err);
 

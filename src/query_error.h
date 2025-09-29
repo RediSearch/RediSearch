@@ -101,11 +101,7 @@ typedef struct QueryError {
  * Create a Query error with default fields: QUERY_OK error code, no messages,
  * no detail, and no warning flags set.
  */
-#ifdef __cplusplus
-  #define QUERY_ERROR_DEFAULT QueryError{}
-#else
-  #define QUERY_ERROR_DEFAULT ((QueryError){0})
-#endif
+QueryError QueryError_Default();
 
 /** Return the constant string of an error code */
 const char *QueryError_Strerror(QueryErrorCode code);

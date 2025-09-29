@@ -70,7 +70,7 @@ RefManager *createSpec(RedisModuleCtx *ctx) {
     args.prefixes = &pref;
     args.nprefixes = 1;
 
-    QueryError status = QUERY_ERROR_DEFAULT;
+    QueryError status = QueryError_Default();
 
     get_spec(ism)->rule = SchemaRule_Create(&args, {ism}, &status);
     Spec_AddToDict(ism);

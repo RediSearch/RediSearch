@@ -23,7 +23,7 @@ protected:
     index_name = "testidx" + std::to_string(++test_counter);
 
     // Create index with vector field using IndexSpec_CreateNew like other tests
-    QueryError qerr = QUERY_ERROR_DEFAULT;
+    QueryError qerr = QueryError_Default();
     RMCK::ArgvList createArgs(ctx, "FT.CREATE", index_name.c_str(), "ON", "HASH",
                               "SCHEMA", "title", "TEXT", "content", "TEXT",
                               "vector", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
@@ -67,7 +67,7 @@ protected:
    * @return Pointer to the parsed HybridRequest (also stored in member variable)
    */
   HybridRequest *parseCommand(RMCK::ArgvList& args) {
-    QueryError status = QUERY_ERROR_DEFAULT;
+    QueryError status = QueryError_Default();
 
     EXPECT_TRUE(result->sctx != NULL) << "Failed to create search context";
 

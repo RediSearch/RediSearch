@@ -340,7 +340,7 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   IndexSpec* sp = __RefManager_Get_Object(rm);
 
   RSError err = {.s = errs};
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
   if (aCtx == NULL) {
     QueryError_ClearError(&status);
@@ -594,7 +594,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   dictPauseRehashing(sp->keysDict);
 
   RSSearchOptions options = {0};
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
   RSSearchOptions_Init(&options);
   if(sp->rule != NULL && sp->rule->lang_default != DEFAULT_LANGUAGE) {
     options.language = sp->rule->lang_default;

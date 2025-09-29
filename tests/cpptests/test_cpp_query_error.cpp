@@ -28,7 +28,7 @@ TEST_F(QueryErrorTest, testQueryErrorStrerror) {
 }
 
 TEST_F(QueryErrorTest, testQueryErrorSetError) {
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
 
   // Test setting error with custom message
   QueryError_SetError(&err, QUERY_ESYNTAX, "Custom syntax error message");
@@ -48,7 +48,7 @@ TEST_F(QueryErrorTest, testQueryErrorSetError) {
 }
 
 TEST_F(QueryErrorTest, testQueryErrorSetCode) {
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
 
   // Test setting error code only
   QueryError_SetCode(&err, QUERY_EPARSEARGS);
@@ -60,7 +60,7 @@ TEST_F(QueryErrorTest, testQueryErrorSetCode) {
 }
 
 TEST_F(QueryErrorTest, testQueryErrorNoOverwrite) {
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
 
   // Set first error
   QueryError_SetError(&err, QUERY_ESYNTAX, "First error");
@@ -80,7 +80,7 @@ TEST_F(QueryErrorTest, testQueryErrorNoOverwrite) {
 }
 
 TEST_F(QueryErrorTest, testQueryErrorClear) {
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
 
   // Set an error
   QueryError_SetError(&err, QUERY_ESYNTAX, "Test error");
@@ -95,7 +95,7 @@ TEST_F(QueryErrorTest, testQueryErrorClear) {
 }
 
 TEST_F(QueryErrorTest, testQueryErrorGetCode) {
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
 
   ASSERT_EQ(QueryError_GetCode(&err), QUERY_OK);
 
@@ -106,7 +106,7 @@ TEST_F(QueryErrorTest, testQueryErrorGetCode) {
 }
 
 TEST_F(QueryErrorTest, testQueryErrorWithUserDataFmt) {
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
 
   // Test formatted error with user data
   QueryError_SetWithUserDataFmt(&err, QUERY_ESYNTAX, "Syntax error", " at offset %d near %s", 10, "hello");
@@ -118,7 +118,7 @@ TEST_F(QueryErrorTest, testQueryErrorWithUserDataFmt) {
 }
 
 TEST_F(QueryErrorTest, testQueryErrorWithoutUserDataFmt) {
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
 
   // Test formatted error without user data
   QueryError_SetWithoutUserDataFmt(&err, QUERY_EGENERIC, "Generic error with code %d", 42);
@@ -130,8 +130,8 @@ TEST_F(QueryErrorTest, testQueryErrorWithoutUserDataFmt) {
 }
 
 TEST_F(QueryErrorTest, testQueryErrorCloneFrom) {
-  QueryError src = QUERY_ERROR_DEFAULT;
-  QueryError dest = QUERY_ERROR_DEFAULT;
+  QueryError src = QueryError_Default();
+  QueryError dest = QueryError_Default();
 
   // Set error in source
   QueryError_SetError(&src, QUERY_ESYNTAX, "Source error message");
@@ -142,7 +142,7 @@ TEST_F(QueryErrorTest, testQueryErrorCloneFrom) {
   ASSERT_STREQ(QueryError_GetUserError(&dest), "Source error message");
 
   // Test that destination already has error - should not overwrite
-  QueryError src2 = QUERY_ERROR_DEFAULT;
+  QueryError src2 = QueryError_Default();
   QueryError_SetError(&src2, QUERY_EGENERIC, "Second error");
 
   QueryError_CloneFrom(&src2, &dest);  // Should not overwrite
@@ -155,7 +155,7 @@ TEST_F(QueryErrorTest, testQueryErrorCloneFrom) {
 }
 
 TEST_F(QueryErrorTest, testQueryErrorGetDisplayableError) {
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
 
   // Test with user data formatting
   QueryError_SetWithUserDataFmt(&err, QUERY_ESYNTAX, "Syntax error", " at position %d", 42);
@@ -180,7 +180,7 @@ TEST_F(QueryErrorTest, testQueryErrorGetDisplayableError) {
 }
 
 TEST_F(QueryErrorTest, testQueryErrorMaybeSetCode) {
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
 
   // Test with no detail set - should not set code
   QueryError_MaybeSetCode(&err, QUERY_ESYNTAX);
@@ -222,7 +222,7 @@ TEST_F(QueryErrorTest, testQueryErrorAllErrorCodes) {
     ASSERT_TRUE(strlen(str) > 0);
 
     // Test that we can set and retrieve each error code
-    QueryError err = QUERY_ERROR_DEFAULT;
+    QueryError err = QueryError_Default();
     QueryError_SetCode(&err, codes[i]);
     ASSERT_EQ(QueryError_GetCode(&err), codes[i]);
     QueryError_ClearError(&err);
@@ -230,7 +230,7 @@ TEST_F(QueryErrorTest, testQueryErrorAllErrorCodes) {
 }
 
 TEST_F(QueryErrorTest, testQueryErrorEdgeCases) {
-  QueryError err = QUERY_ERROR_DEFAULT;
+  QueryError err = QueryError_Default();
 
   // Test empty string message
   QueryError_SetError(&err, QUERY_ESYNTAX, "");

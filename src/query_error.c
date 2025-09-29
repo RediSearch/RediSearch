@@ -10,6 +10,14 @@
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 
+QueryError QueryError_Default() {
+  #ifdef __cplusplus
+    return QueryError{};
+  #else
+    return ((QueryError){0});
+  #endif
+}
+
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name) {
   RS_LOG_ASSERT(!AC_IsAtEnd(ac), "cursor should not be at the end");
   const char *s;

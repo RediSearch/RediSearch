@@ -953,7 +953,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
 
   // load
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = spec };
-  struct QueryError status = QUERY_ERROR_DEFAULT; // TODO: report errors
+  struct QueryError status = QueryError_Default(); // TODO: report errors
   RLookupLoadOptions opt = {.keys = (const RLookupKey **)keys,
                             .nkeys = nkeys,
                             .sctx = &sctx,

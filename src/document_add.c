@@ -238,7 +238,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   ArgsCursor ac;
   AddDocumentOptions opts = {.keyStr = argv[2], .scoreStr = argv[3], .donecb = replyCallback};
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
 
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
 

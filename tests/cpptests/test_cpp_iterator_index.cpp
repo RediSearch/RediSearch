@@ -610,7 +610,7 @@ private:
     void SetupNumericIndex(bool useQuery) {
         // Create IndexSpec for NUMERIC field
         const char *args[] = {"SCHEMA", "num_field", "NUMERIC"};
-        QueryError err = QUERY_ERROR_DEFAULT;
+        QueryError err = QueryError_Default();
         StrongRef ref = IndexSpec_ParseC("numeric_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -688,7 +688,7 @@ private:
     void SetupTermIndex(bool useQuery) {
         // Create IndexSpec for TEXT field
         const char *args[] = {"SCHEMA", "text_field", "TEXT"};
-        QueryError err = QUERY_ERROR_DEFAULT;
+        QueryError err = QueryError_Default();
         StrongRef ref = IndexSpec_ParseC("term_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -738,7 +738,7 @@ private:
     void SetupTagIndex(bool useQuery) {
         // Create IndexSpec for TAG field
         const char *args[] = {"SCHEMA", "tag_field", "TAG"};
-        QueryError err = QUERY_ERROR_DEFAULT;
+        QueryError err = QueryError_Default();
         StrongRef ref = IndexSpec_ParseC("tag_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -786,7 +786,7 @@ private:
     void SetupWildcardIndex() {
         // Create IndexSpec for TEXT field (wildcard uses existingDocs index)
         const char *args[] = {"SCHEMA", "text_field", "TEXT"};
-        QueryError err = QUERY_ERROR_DEFAULT;
+        QueryError err = QueryError_Default();
         StrongRef ref = IndexSpec_ParseC("wildcard_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -816,7 +816,7 @@ private:
     void SetupMissingIndex() {
         // Create IndexSpec for TEXT field (missing uses any field type)
         const char *args[] = {"SCHEMA", "text_field", "TEXT"};
-        QueryError err = QUERY_ERROR_DEFAULT;
+        QueryError err = QueryError_Default();
         StrongRef ref = IndexSpec_ParseC("missing_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);

@@ -384,7 +384,7 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
 
 static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
   int rv;
 
   // Checking if the loaded parameters fits the current server limits.

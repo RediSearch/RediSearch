@@ -113,7 +113,7 @@ void IndexSpec_ClearAliases(StrongRef spec_ref) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
   for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
     HiddenString **pp = sp->aliases + ii;
-    QueryError e = QUERY_ERROR_DEFAULT;
+    QueryError e = QueryError_Default();
     int rc = IndexAlias_Del(*pp, spec_ref, INDEXALIAS_NO_BACKREF, &e);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
     HiddenString_Free(*pp, true);

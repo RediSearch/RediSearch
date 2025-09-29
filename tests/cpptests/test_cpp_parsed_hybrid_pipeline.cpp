@@ -33,12 +33,12 @@ protected:
   }
 
   RedisModuleCtx *ctx = nullptr;
-  QueryError qerr = QUERY_ERROR_DEFAULT;
+  QueryError qerr = QueryError_Default();
 };
 
 // Helper function to get error message from HybridRequest for test assertions
 std::string HREQ_GetUserError(HybridRequest* req) {
-  QueryError error = QUERY_ERROR_DEFAULT;
+  QueryError error = QueryError_Default();
 
   HybridRequest_GetError(req, &error);
   HybridRequest_ClearErrors(req);
@@ -178,7 +178,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
  * Usage: HYBRID_TEST_SETUP("index_name", args_list);
  */
 #define HYBRID_TEST_SETUP(indexName, argsList) \
-  QueryError status = QUERY_ERROR_DEFAULT; \
+  QueryError status = QueryError_Default(); \
   IndexSpec *spec = nullptr; \
   HybridRequest* hybridReq = ParseAndBuildHybridRequest(ctx, indexName, argsList, &status, &spec); \
   ASSERT_TRUE(hybridReq != nullptr) << "Failed to parse and build hybrid request: " << QueryError_GetUserError(&status); \

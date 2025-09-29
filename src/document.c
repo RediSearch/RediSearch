@@ -251,7 +251,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    * fields must be reindexed.
    */
   int rv = REDISMODULE_ERR;
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
   Document_Clear(aCtx->doc);
 
   // Path is not covered and is not relevant

@@ -17,7 +17,7 @@ class ConfigTest : public ::testing::Test {};
 
 TEST_F(ConfigTest, testconfigMultiTextOffsetDeltaSlopNeg) {
     ArgsCursor ac;
-    QueryError status = QUERY_ERROR_DEFAULT;
+    QueryError status = QueryError_Default();
     const char *args[] = {"-1"};
     ArgsCursor_InitCString(&ac, &args[0], 1);
     int res = setMultiTextOffsetDelta(&RSGlobalConfig, &ac, -1, &status);

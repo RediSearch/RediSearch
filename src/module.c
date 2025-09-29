@@ -261,7 +261,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     dialectArgIndex++;
     ArgsCursor ac;
     ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
-    QueryError status = QUERY_ERROR_DEFAULT;
+    QueryError status = QueryError_Default();
     if(parseDialect(&dialect, &ac, &status) != REDISMODULE_OK) {
       RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
       QueryError_ClearError(&status);
@@ -274,7 +274,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
   size_t len;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
   const char **includeDict = NULL, **excludeDict = NULL;
@@ -364,7 +364,7 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   VERIFY_ACL(ctx, argv[1])
 
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
   char *explainRoot = RS_GetExplainOutput(ctx, argv, argc, &status);
   if (!explainRoot) {
     return QueryError_ReplyAndClear(ctx, &status);
@@ -526,7 +526,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (RedisModule_GetSelectedDb(ctx) != 0) {
     return RedisModule_ReplyWithError(ctx, "Cannot create index on db != 0");
   }
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
@@ -791,7 +791,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
 
   const char *ixname = AC_GetStringNC(&ac, NULL);
   StrongRef ref = IndexSpec_LoadUnsafe(ixname);
@@ -912,7 +912,7 @@ static int AliasAddCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, 
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
-  QueryError e = QUERY_ERROR_DEFAULT;
+  QueryError e = QueryError_Default();
   if (aliasAddCommon(ctx, argv, argc, &e, ifNx) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &e);
   } else {
@@ -952,7 +952,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   size_t length = 0;
   const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
   HiddenString *alias = NewHiddenString(rawAlias, length, false);
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
   const int rc = IndexAlias_Del(alias, ref, 0, &status);
   HiddenString_Free(alias, false);
   if (rc != REDISMODULE_OK) {
@@ -983,7 +983,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_WrongArity(ctx);
   }
 
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(&lOpts);
@@ -1009,7 +1009,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
     // Add back the previous index. this shouldn't fail
     if (spOrig) {
-      QueryError e2 = QUERY_ERROR_DEFAULT;
+      QueryError e2 = QueryError_Default();
       IndexAlias_Add(alias, Orig_ref, 0, &e2);
       QueryError_ClearError(&e2);
     }
@@ -1024,7 +1024,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Not bound to a specific index, so...
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
 
   // CONFIG <GET|SET> <NAME> [value]
   if (argc < 3) {
@@ -3421,7 +3421,7 @@ static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModu
 
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   RedisModuleString **argv, int argc, WeakRef spec_ref) {
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
 
   searchRequestCtx *req = createReq(argv, argc, bc, &status);
 
@@ -3886,7 +3886,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
 
 static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   RedisModuleString **argv, int argc, WeakRef spec_ref) {
-  QueryError status = QUERY_ERROR_DEFAULT;
+  QueryError status = QueryError_Default();
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
 
   if (debug_params.debug_params_count == 0) {
