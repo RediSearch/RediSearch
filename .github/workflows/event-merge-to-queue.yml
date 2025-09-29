@@ -55,12 +55,12 @@ jobs:
       container: ${{ matrix.container }}
       pre-steps-script: ${{ matrix.pre-steps-script }}
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson: ${{ matrix.rejson || true }}                    # Default: true
+      rejson: ${{ matrix.rejson != null && matrix.rejson || matrix.rejson == null && true }}                    # Default: true
       rejson-branch: master
       test-config: ${{ matrix.test-config || '' }}            # Default: empty string
-      coordinator: ${{ matrix.coordinator || true }}          # Default: true
-      standalone: ${{ matrix.standalone || true }}            # Default: true
-      coverage: ${{ matrix.coverage || false }}               # Default: false
+      coordinator: ${{ matrix.coordinator != null && matrix.coordinator || matrix.coordinator == null && true }}          # Default: true
+      standalone: ${{ matrix.standalone != null && matrix.standalone || matrix.standalone == null && true }}            # Default: true
+      coverage: ${{ matrix.coverage != null && matrix.coverage || matrix.coverage == null && false }}               # Default: false
       san: ${{ matrix.san }}
 
   run-on-intel:
