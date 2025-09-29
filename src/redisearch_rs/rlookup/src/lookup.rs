@@ -271,11 +271,12 @@ impl<'a> RLookupKey<'a> {
     /// If the [`RLookupKeyFlag::NameAlloc`] is given, then the provided `CStr` will be cloned into
     /// a new allocation that is owned by this key. If the flag is *not* provided the key
     /// will simply borrow the provided string.
-    pub fn new(name: &'a CStr, flags: RLookupKeyFlags) -> Self {
-        let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
-            Cow::Owned(name.to_owned())
-        } else {
-            Cow::Borrowed(name)
+    pub fn new(name: impl Into<Cow<'a, CStr>>, flags: RLookupKeyFlags) -> Self {
+        let name = match name.into() {
+            Cow::Borrowed(name) if flags.contains(RLookupKeyFlag::NameAlloc) => {
+                Cow::Owned(name.to_owned())
+            }
+            name => name,
         };
 
         Self {

@@ -20,7 +20,7 @@ use ffi::{
 
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
-    FilterNumericReader, IndexBlock, NumericFilter, RSIndexResult, ReadFilter,
+    FilterNumericReader, IndexBlock, IndexReader as _, NumericFilter, RSIndexResult, ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -546,34 +546,64 @@ pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
 /// based on the index type and filter provided when creating the reader. This allows us to have a
 /// single interface for all index reader types while still being able to optimize the storage
 /// and performance for each index reader type.
-pub enum IndexReader<'index, 'filter> {
-    Full(FilterMaskReader<inverted_index::IndexReader<'index, Full, Full>>),
-    FullWide(FilterMaskReader<inverted_index::IndexReader<'index, FullWide, FullWide>>),
-    FreqsFields(FilterMaskReader<inverted_index::IndexReader<'index, FreqsFields, FreqsFields>>),
-    FreqsFieldsWide(
-        FilterMaskReader<inverted_index::IndexReader<'index, FreqsFieldsWide, FreqsFieldsWide>>,
+pub enum IndexReader<'index_and_filter> {
+    Full(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, Full, Full>>),
+    FullWide(
+        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FullWide, FullWide>>,
     ),
-    FreqsOnly(inverted_index::IndexReader<'index, FreqsOnly, FreqsOnly>),
-    FieldsOnly(FilterMaskReader<inverted_index::IndexReader<'index, FieldsOnly, FieldsOnly>>),
+    FreqsFields(
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<'index_and_filter, FreqsFields, FreqsFields>,
+        >,
+    ),
+    FreqsFieldsWide(
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<'index_and_filter, FreqsFieldsWide, FreqsFieldsWide>,
+        >,
+    ),
+    FreqsOnly(inverted_index::IndexReaderCore<'index_and_filter, FreqsOnly, FreqsOnly>),
+    FieldsOnly(
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<'index_and_filter, FieldsOnly, FieldsOnly>,
+        >,
+    ),
     FieldsOnlyWide(
-        FilterMaskReader<inverted_index::IndexReader<'index, FieldsOnlyWide, FieldsOnlyWide>>,
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<'index_and_filter, FieldsOnlyWide, FieldsOnlyWide>,
+        >,
     ),
     FieldsOffsets(
-        FilterMaskReader<inverted_index::IndexReader<'index, FieldsOffsets, FieldsOffsets>>,
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<'index_and_filter, FieldsOffsets, FieldsOffsets>,
+        >,
     ),
     FieldsOffsetsWide(
-        FilterMaskReader<inverted_index::IndexReader<'index, FieldsOffsetsWide, FieldsOffsetsWide>>,
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<
+                'index_and_filter,
+                FieldsOffsetsWide,
+                FieldsOffsetsWide,
+            >,
+        >,
     ),
-    OffsetsOnly(inverted_index::IndexReader<'index, OffsetsOnly, OffsetsOnly>),
-    FreqsOffsets(inverted_index::IndexReader<'index, FreqsOffsets, FreqsOffsets>),
-    DocumentIdOnly(inverted_index::IndexReader<'index, DocIdsOnly, DocIdsOnly>),
-    RawDocumentIdOnly(inverted_index::IndexReader<'index, RawDocIdsOnly, RawDocIdsOnly>),
-    Numeric(inverted_index::IndexReader<'index, Numeric, Numeric>),
+    OffsetsOnly(inverted_index::IndexReaderCore<'index_and_filter, OffsetsOnly, OffsetsOnly>),
+    FreqsOffsets(inverted_index::IndexReaderCore<'index_and_filter, FreqsOffsets, FreqsOffsets>),
+    DocumentIdOnly(inverted_index::IndexReaderCore<'index_and_filter, DocIdsOnly, DocIdsOnly>),
+    RawDocumentIdOnly(
+        inverted_index::IndexReaderCore<'index_and_filter, RawDocIdsOnly, RawDocIdsOnly>,
+    ),
+    Numeric(inverted_index::IndexReaderCore<'index_and_filter, Numeric, Numeric>),
     NumericFiltered(
-        FilterNumericReader<'filter, inverted_index::IndexReader<'index, Numeric, Numeric>>,
+        FilterNumericReader<
+            'index_and_filter,
+            inverted_index::IndexReaderCore<'index_and_filter, Numeric, Numeric>,
+        >,
     ),
     NumericGeoFiltered(
-        FilterGeoReader<'filter, inverted_index::IndexReader<'index, Numeric, Numeric>>,
+        FilterGeoReader<
+            'index_and_filter,
+            inverted_index::IndexReaderCore<'index_and_filter, Numeric, Numeric>,
+        >,
     ),
 }
 
@@ -793,9 +823,9 @@ pub unsafe extern "C" fn IndexReader_HasSeeker(_ir: *const IndexReader) -> bool 
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 /// - `res` must be a valid pointer to an `RSIndexResult` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Next<'index, 'filter>(
-    ir: *mut IndexReader<'index, 'filter>,
-    res: *mut RSIndexResult<'index>,
+pub unsafe extern "C" fn IndexReader_Next<'index_and_filter>(
+    ir: *mut IndexReader<'index_and_filter>,
+    res: *mut RSIndexResult<'index_and_filter>,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
     debug_assert!(!res.is_null(), "res must not be null");
@@ -803,17 +833,10 @@ pub unsafe extern "C" fn IndexReader_Next<'index, 'filter>(
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let ir = unsafe { &mut *ir };
 
-    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    // SAFETY: The caller must ensure that `res` is a valid pointer to a `RSIndexResult`
     let res = unsafe { &mut *res };
 
-    match ir_dispatch!(ir, next) {
-        Some(new_res) => {
-            *res = new_res;
-
-            true
-        }
-        None => false,
-    }
+    ir_dispatch!(ir, next_record, res).unwrap_or_default()
 }
 
 /// Skip the internal block of the inverted index reader to the block that may contain the given
@@ -846,10 +869,10 @@ pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: t_docI
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 /// - `res` must be a valid pointer to an `RSIndexResult` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Seek<'index, 'filter>(
-    ir: *mut IndexReader<'index, 'filter>,
+pub unsafe extern "C" fn IndexReader_Seek<'index_and_filter>(
+    ir: *mut IndexReader<'index_and_filter>,
     doc_id: t_docId,
-    res: *mut RSIndexResult<'index>,
+    res: *mut RSIndexResult<'index_and_filter>,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
     debug_assert!(!res.is_null(), "res must not be null");
@@ -857,18 +880,10 @@ pub unsafe extern "C" fn IndexReader_Seek<'index, 'filter>(
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let ir = unsafe { &mut *ir };
 
-    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    // SAFETY: The caller must ensure that `res` is a valid pointer to a `RSIndexResult`
     let res = unsafe { &mut *res };
 
-    match ir_dispatch!(ir, seek_record, doc_id) {
-        Ok(Some(new_res)) => {
-            *res = new_res;
-
-            true
-        }
-        Ok(None) => false,
-        Err(_) => false,
-    }
+    ir_dispatch!(ir, seek_record, doc_id, res).unwrap_or_default()
 }
 
 /// Check if the index reader can return multiple entries for the same document ID.

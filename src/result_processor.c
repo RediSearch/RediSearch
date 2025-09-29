@@ -1329,7 +1329,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
 typedef struct {
   ResultProcessor base;
   VectorNormFunction normFunc;
-  const RLookupKey *scoreKey;      // Score field to normalize
+  const RLookupKey *scoreKey;   // score field
 } RPVectorNormalizer;
 
 static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
@@ -1343,20 +1343,19 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
 
   // Apply normalization to the score
   double normalizedScore = 0.0;
-  RSValue *scoreValue = RLookup_GetItem(self->scoreKey, &r->rowdata);
-  if (scoreValue) {
+  RSValue *distanceValue = RLookup_GetItem(self->scoreKey, &r->rowdata);
+  if (distanceValue) {
     double originalScore = 0.0;
-    if (RSValue_ToNumber(scoreValue, &originalScore)) {
+    if (RSValue_ToNumber(distanceValue, &originalScore)) {
       normalizedScore = self->normFunc(originalScore);
     }
   }
   r->score = normalizedScore;
 
-  // Update score field if scoreKey is provided
+  // Update distance field 
   if (self->scoreKey) {
     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(normalizedScore));
   }
-
   return RS_RESULT_OK;
 }
 
