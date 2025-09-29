@@ -23,7 +23,7 @@ TEST_F(ConfigTest, testconfigMultiTextOffsetDeltaSlopNeg) {
     int res = setMultiTextOffsetDelta(&RSGlobalConfig, &ac, -1, &status);
     // Setter should fail with a negative value
     ASSERT_EQ(res, REDISMODULE_ERR);
-    ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+    ASSERT_EQ(QueryError_GetCode(&status), QUERY_EPARSEARGS);
     QueryError_ClearError(&status);
 
     const char *args2[] = {"50"};

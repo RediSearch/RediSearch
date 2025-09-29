@@ -30,7 +30,7 @@ protected:
     IndexSpec *spec = IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), &qerr);
     if (!spec) {
       printf("Failed to create index '%s': code=%d, detail='%s'\n",
-             index_name.c_str(), qerr.code, qerr.detail ? qerr.detail : "NULL");
+             index_name.c_str(), QueryError_GetCode(&qerr), QueryError_GetUserError(&qerr));
       QueryError_ClearError(&qerr);
     }
     ASSERT_TRUE(spec);
@@ -85,7 +85,7 @@ protected:
       result = nullptr;
     }
 
-    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
+    EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     EXPECT_NE(result, nullptr) << "parseHybridCommand returned NULL";
 
     return result;

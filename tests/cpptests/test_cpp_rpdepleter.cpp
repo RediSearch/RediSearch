@@ -41,7 +41,7 @@ protected:
       mockSpec = IndexSpec_CreateNew(ctx, argv, argv.size(), &err);
       if (!mockSpec) {
         printf("Failed to create index spec. Error code: %d, Error message: %s\n",
-               err.code, QueryError_GetUserError(&err));
+               QueryError_GetCode(&err), QueryError_GetUserError(&err));
       }
       ASSERT_NE(mockSpec, nullptr) << "Failed to create index spec. Error: " << QueryError_GetUserError(&err);
       for (size_t i = 0; i < NumberOfContexts; ++i) {

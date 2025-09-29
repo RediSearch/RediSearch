@@ -57,7 +57,7 @@ class ParseHybridTest : public ::testing::Test {
     spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
     if (!spec) {
       printf("Failed to create index '%s': code=%d, detail='%s'\n",
-             index_name.c_str(), qerr.code, qerr.detail ? qerr.detail : "NULL");
+             index_name.c_str(), QueryError_GetCode(&qerr), QueryError_GetUserError(&qerr));
       QueryError_ClearError(&qerr);
     }
     ASSERT_TRUE(spec);
@@ -107,7 +107,7 @@ class ParseHybridTest : public ::testing::Test {
     QueryError status = QueryError_Default();
 
     int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
-    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
+    EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
 
@@ -653,8 +653,8 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   // Create a fresh sctx for this test
   int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
-  ASSERT_EQ(status.code, expected_code) << "parsing error: " << QueryError_GetUserError(&status);
-  ASSERT_STREQ(status.detail, expected_detail) << "parsing error: " << QueryError_GetUserError(&status);
+  ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
+  ASSERT_STREQ(QueryError_GetUserError(&status), expected_detail) << "parsing error: " << QueryError_GetUserError(&status);
 
   // Clean up
   QueryError_ClearError(&status);
