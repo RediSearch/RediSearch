@@ -312,7 +312,7 @@ class testHybridSearch:
         hybrid_query = (
             "SEARCH '@text:(even four)' "
             "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
-            "LOAD 9 @text AS my_text @number AS my_number @tag AS my_tag"
+            "LOAD 10 @text AS my_text @number AS my_number @tag AS my_tag __key"
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
@@ -326,7 +326,8 @@ class testHybridSearch:
             [
                 'my_text', 'text four even',
                 'my_number', '4',
-                'my_tag', 'even'
+                'my_tag', 'even',
+                '__key', 'text_04'
             ]
         )
         self.env.assertEqual(
@@ -334,7 +335,8 @@ class testHybridSearch:
             [
                 'my_text', 'both four even',
                 'my_number', '4',
-                'my_tag', 'even'
+                'my_tag', 'even',
+                '__key', 'both_04'
             ]
         )
 
@@ -371,7 +373,7 @@ class testHybridSearch:
         hybrid_query = (
             "SEARCH '@text:(even four)' "
             "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
-            "LOAD 6 @text AS my_text @number AS my_number "
+            "LOAD 7 @text AS my_text @number AS my_number @__key "
             "APPLY upper(@my_text) AS upper_text "
             "APPLY @my_number*2 AS double_number "
         )
@@ -384,7 +386,7 @@ class testHybridSearch:
 
         for result in results:
             result=to_dict(result)
-            self.env.assertEqual(len(result), 4)
+            self.env.assertEqual(len(result), 5)
             self.env.assertEqual(result['my_text'].upper(), result['upper_text'])
             self.env.assertAlmostEqual(
                 float(result['my_number']) * 2,
@@ -398,7 +400,7 @@ class testHybridSearch:
         hybrid_query = (
             "SEARCH '@text:(even four)' "
             "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
-            "LOAD 1 @tag "
+            "LOAD 2 @tag @__key "
             "GROUPBY 1 @tag "
             "REDUCE COUNT 0 AS count "
         )
