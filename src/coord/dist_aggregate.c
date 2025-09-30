@@ -423,7 +423,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   bool new_reply = !root;
 
   // get the next reply from the channel
-  while (!root) {
+  while (!root || !rows) {
     if (TimedOut(&nc->areq->sctx->time.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
@@ -442,12 +442,22 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     // If an error was returned, propagate it
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      const char *strErr = MRReply_String(nc->current.root, NULL);
-      if (!strErr
-          || strcmp(strErr, "Timeout limit was reached")
-          || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_EGENERIC, strErr);
+      QueryErrorCode errCode = extractQueryErrorFromReply(nc->current.root);
+      if (should_return_error(errCode)) {
+        // We need to pass the reply string as the error message, since the error code might be generic
+        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, errCode,  MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
+      } else  {
+        // Check if OOM error
+        // Assuming that if we are here, we are under return on OOM policy
+        // Since other policies are already handled before this point
+        if (errCode == QUERY_EOOM) {
+          AREQ_QueryProcessingCtx(nc->areq)->err->queryOOM = true;
+        }
+        // Free the error reply before we override it and continue
+        MRReply_Free(nc->current.root);
+        // Set it as NULL avoid another free
+        nc->current.root = NULL;
       }
     }
 
