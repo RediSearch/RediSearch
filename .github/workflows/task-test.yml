@@ -130,7 +130,7 @@ jobs:
           if command -v lscpu >/dev/null 2>&1; then
             echo "--- lscpu output ---"
             lscpu
-          elif [[ "$RUNNER_OS" == "macOS" ]] || command -v sysctl >/dev/null 2>&1; then
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
             echo "--- macOS CPU info ---"
             echo "CPU brand: $(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "N/A")"
             echo "Core count: $(sysctl -n machdep.cpu.core_count 2>/dev/null || echo "N/A")"
