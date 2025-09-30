@@ -37,6 +37,7 @@ impl Fnv32 {
 ///
 /// [32-bit FNV-1 offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
 impl Default for Fnv32 {
+    #[inline]
     fn default() -> Fnv32 {
         Fnv32(Self::OFFSET_BASIS)
     }
@@ -46,16 +47,20 @@ impl Fnv32 {
     /// Creates an `Fnv32` with a given [offset basis].
     ///
     /// [offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
+    #[inline]
+    #[must_use]
     pub fn with_offset_basis(offset_basis: u32) -> Fnv32 {
         Fnv32(offset_basis)
     }
 }
 
 impl Hasher for Fnv32 {
+    #[inline]
     fn finish(&self) -> u64 {
         self.0 as u64
     }
 
+    #[inline]
     fn write(&mut self, bytes: &[u8]) {
         let Fnv32(mut hash) = *self;
 
@@ -87,6 +92,7 @@ impl Fnv64 {
 ///
 /// [64-bit FNV-1 offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
 impl Default for Fnv64 {
+    #[inline]
     fn default() -> Fnv64 {
         Fnv64(Self::OFFSET_BASIS)
     }
@@ -96,16 +102,20 @@ impl Fnv64 {
     /// Creates an `Fnv64` with a given [offset basis].
     ///
     /// [offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
+    #[inline]
+    #[must_use]
     pub fn with_offset_basis(offset_basis: u64) -> Fnv64 {
         Fnv64(offset_basis)
     }
 }
 
 impl Hasher for Fnv64 {
+    #[inline]
     fn finish(&self) -> u64 {
         self.0
     }
 
+    #[inline]
     fn write(&mut self, bytes: &[u8]) {
         let Fnv64(mut hash) = *self;
 
