@@ -11,6 +11,7 @@
 #include "result_processor.h"
 #include "query.h"
 #include "gtest/gtest.h"
+#include "search_result.h"
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -27,9 +28,9 @@ static int p1_Next(ResultProcessor *rp, SearchResult *res) {
   processor1Ctx *p = static_cast<processor1Ctx *>(rp);
   if (p->counter >= NUM_RESULTS) return RS_RESULT_EOF;
 
-  res->docId = ++p->counter;
-  res->score = (double)res->docId;
-  RLookup_WriteOwnKey(p->kout, &res->rowdata, RS_NumVal(res->docId));
+  SearchResult_SetDocId(res, ++p->counter);
+  SearchResult_SetScore(res, (double)SearchResult_GetDocId(res));
+  RLookup_WriteOwnKey(p->kout, SearchResult_GetRowDataMut(res), RS_NumVal(SearchResult_GetDocId(res)));
   return RS_RESULT_OK;
 }
 
@@ -70,9 +71,9 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   ResultProcessor *rpTail = qitr.endProc;
   while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
     count++;
-    ASSERT_EQ(count, r.docId);
-    ASSERT_EQ(count, r.score);
-    RSValue *v = RLookup_GetItem(p->kout, &r.rowdata);
+    ASSERT_EQ(count, SearchResult_GetDocId(&r));
+    ASSERT_EQ(count, SearchResult_GetScore(&r));
+    RSValue *v = RLookup_GetItem(p->kout, SearchResult_GetRowData(&r));
     ASSERT_TRUE(v != NULL);
     ASSERT_EQ(RSValue_Number, v->t);
     ASSERT_EQ(count, v->numval);
@@ -89,3 +90,27 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   RLookup_Cleanup(&lk);
 }
 
+/*
+ * Test SearchResult_mergeFlags function with no flags set
+ */
+TEST_F(ResultProcessorTest, testmergeFlags_NoFlags) {
+  SearchResult a = {0};
+  SearchResult b = {0};
+
+  // Test merging no flags
+  SearchResult_MergeFlags(&a, &b);
+  EXPECT_EQ(SearchResult_GetFlags(&a), 0);
+}
+
+/*
+ * Test SearchResult_mergeFlags function with Result_ExpiredDoc flag
+ */
+TEST_F(ResultProcessorTest, testmergeFlags_ExpiredDoc) {
+  SearchResult a = {0};
+  SearchResult b = {0};
+  SearchResult_SetFlags(&b, Result_ExpiredDoc); // Source has expired flag
+
+  // Test merging expired flag
+  SearchResult_MergeFlags(&a, &b);
+  EXPECT_TRUE(SearchResult_GetFlags(&a) & Result_ExpiredDoc);
+}

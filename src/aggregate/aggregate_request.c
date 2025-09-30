@@ -1204,7 +1204,7 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     // Update AST's numParams since we used a local QueryParseCtx
     ast->numParams += q.numParams;
   }
-  // Handle non-vector-specific attributes (like YIELD_DISTANCE_AS)
+  // Handle non-vector-specific attributes (like YIELD_SCORE_AS)
   if (pvd->attributes) {
     QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
   }
@@ -1417,12 +1417,14 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
         .sctx = req->sctx,
         .reqflags = req->reqflags,
         .optimizer = req->optimizer,
+        .scoreAlias = req->searchopts.scoreAlias,
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
     };
+    req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     Pipeline_BuildQueryPart(&req->pipeline, &params);
     if (status->code != QUERY_OK) {
       return REDISMODULE_ERR;
@@ -1433,6 +1435,8 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .sctx = req->sctx,
       .reqflags = req->reqflags,
       .optimizer = req->optimizer,
+      // Right now score alias is not supposed to be used in the aggregation pipeline
+      .scoreAlias = NULL,
     },
     .outFields = &req->outFields,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,

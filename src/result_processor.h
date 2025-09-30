@@ -24,6 +24,8 @@
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"
 #include "vector_normalization.h"
+#include "result_processor_rs.h"
+#include "search_result.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -79,6 +81,7 @@ struct ResultProcessor;
 struct RLookup;
 
 // Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
+/// <div rustbindgen hide></div>
 typedef struct QueryProcessingCtx {
   // First processor
   struct ResultProcessor *rootProc;
@@ -114,34 +117,6 @@ typedef struct QueryProcessingCtx {
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
-
-/*
- * SearchResult - the object all the processing chain is working on.
- * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
- * and a list of fields loaded by the chain
- */
-typedef struct {
-  t_docId docId;
-
-  // not all results have score - TBD
-  double score;
-  RSScoreExplain *scoreExplain;
-
-  RSDocumentMetadata *dmd;
-
-  // index result should cover what you need for highlighting,
-  // but we will add a method to duplicate index results to make
-  // them thread safe
-  RSIndexResult *indexResult;
-
-  // Row data. Use RLookup_* functions to access
-  RLookupRow rowdata;
-
-  uint8_t flags;
-} SearchResult;
-
-/* SearchResult flags */
-static const uint8_t Result_ExpiredDoc = 1 << 0;
 
 /* Result processor return codes */
 
@@ -196,25 +171,6 @@ typedef struct ResultProcessor {
   /** Frees the processor and any internal data related to it. */
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
-
-
-/**
- * This function allocates a new SearchResult, copies the data from `src` to it,
- * and returns it.
-*/
-SearchResult *SearchResult_Copy(SearchResult *r);
-
-/**
- * This function resets the search result, so that it may be reused again.
- * Internal caches are reset but not freed
- */
-void SearchResult_Clear(SearchResult *r);
-
-/**
- * This function clears the search result, also freeing its internals. Internal
- * caches are freed. Use this function if `r` will not be used again.
- */
-void SearchResult_Destroy(SearchResult *r);
 
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr, RedisSearchCtx *sctx);
 
@@ -275,17 +231,9 @@ ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
  *******************************************************************************************************************/
 ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
 
-
-/*******************************************************************************************************************
- *  Counter Processor
- *
- * This processor counts the search results.
- *
- *******************************************************************************************************************/
-ResultProcessor *RPCounter_New();
-
 rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
+void RPProfile_IncrementCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryProcessingCtx *qctx);
 

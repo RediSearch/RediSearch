@@ -76,7 +76,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
   const uint32_t options = HREQ_RequestFlags(hreq);
-  const RSDocumentMetadata *dmd = r->dmd;
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
   RedisModule_Reply_Map(reply); // >result
 
@@ -86,11 +86,11 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     RedisModule_Reply_SimpleString(reply, "score");
     if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
       // This will become a string in RESP2
-      RedisModule_Reply_Double(reply, r->score);
+      RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
     } else {
       RedisModule_Reply_Array(reply);
-      RedisModule_Reply_Double(reply, r->score);
-      SEReply(reply, r->scoreExplain);
+      RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
+      SEReply(reply, SearchResult_GetScoreExplain(r));
       RedisModule_Reply_ArrayEnd(reply);
     }
   }
@@ -98,7 +98,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLookup;
 
-    if (r->flags & Result_ExpiredDoc) {
+    if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
       RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
@@ -109,14 +109,14 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       int requiredFlags = RLOOKUP_F_NOFLAGS;  //Hybrid does not use RETURN fields; it uses LOAD fields instead
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
+      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
 
       int i = 0;
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
         if (!kk->name || !skipFieldIndex[i++]) {
           continue;
         }
-        const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+        const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
         RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
         RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
@@ -141,7 +141,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
             v = RS_DUOVAL_OTHER2VAL(*v);
           }
         }
-        RSValue_SendReply(reply, v, flags);
+        RedisModule_Reply_RSValue(reply, v, flags);
       }
     }
   }
@@ -538,11 +538,16 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
+
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
+
+  // Update dialect statistics only after successful execution
+  SET_DIALECT(sctx->spec->used_dialects, hybridRequest->reqConfig.dialectVersion);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, hybridRequest->reqConfig.dialectVersion);
 
   DefaultCleanup(hybrid_ref);
   return REDISMODULE_OK;
