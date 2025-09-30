@@ -461,7 +461,7 @@ static bool tailHasExplicitLimitInPlan(AGGPlan *plan) {
  */
 static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
                                  HybridPipelineParams *hybridParams) {
-  // Apply K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation
+  // Apply K = min(K, WINDOW)  prevents wasteful computation
   if (pvd && pvd->query->type == VECSIM_QT_KNN) {
     size_t windowValue;
     if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
