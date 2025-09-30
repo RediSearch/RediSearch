@@ -292,7 +292,7 @@ enum RepairType {
         /// The new blocks to replace this block with
         blocks: SmallVec<[IndexBlock; 3]>,
 
-        /// The unique documents that were removed from this block
+        /// How many unique documents were removed from the block being replaced.
         n_unique_docs_removed: usize,
     },
 }
