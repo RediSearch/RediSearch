@@ -76,6 +76,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   // Currently only SCORER is possible in SEARCH. Maybe will add support for SORTBY and others later
   ACArgSpec querySpecs[] = {
     {.name = "SCORER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scorerName},
+    {.name = "YIELD_SCORE_AS", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scoreAlias},
     {NULL}
   };
 
@@ -92,16 +93,25 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
       return REDISMODULE_ERR;
     }
 
-    // AC_ERR_ENOENT - check if it's VSIM or just an unknown argument
+    // AC_ERR_ENOENT - check if it's VSIM or just an unknown argument (special error message for DIALECT)
     const char *cur;
-    if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) == AC_OK && !strcasecmp("VSIM", cur)) {
+    rv = AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE);
+
+    if (rv == AC_OK && !strcasecmp("VSIM", cur)) {
       // Hit VSIM, we're done with search options
-      return REDISMODULE_OK;
+      break;
+    }
+    if (rv == AC_OK && !strcasecmp("DIALECT", cur)) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
+      return REDISMODULE_ERR;
     }
 
     // Unknown argument that's not VSIM - this is an error
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in SEARCH", cur);
     return REDISMODULE_ERR;
+  }
+  if (searchOpts->scoreAlias) {
+    AREQ_AddRequestFlags(sreq, QEXEC_F_SEND_SCORES_AS_FIELD);
   }
 
   return REDISMODULE_OK;
@@ -170,7 +180,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EBADVAL, "Invalid vector score field name");
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_SCORE_AS value");
         return REDISMODULE_ERR;
       }
       // Add as QueryAttribute (for query node processing, not vector-specific)
@@ -260,7 +270,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EBADVAL, "Invalid vector score field name");
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_SCORE_AS value");
         return REDISMODULE_ERR;
       }
       // Add as QueryAttribute (for query node processing, not vector-specific)
@@ -369,6 +379,11 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
   }
 
+  if (AC_AdvanceIfMatch(ac, "DIALECT")) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
+    goto error;
+  }
+
 final:
   if (!vreq->query) {  // meaning there is no filter clause
     vreq->query = "*";
@@ -431,33 +446,6 @@ static bool tailHasExplicitLimitInPlan(AGGPlan *plan) {
 
   PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(plan);
   return (arrangeStep && arrangeStep->isLimited);
-}
-
-/**
- * Apply LIMIT argument fallback logic to KNN K argument.
- *
- * When LIMIT is explicitly provided but KNN K is not explicitly set,
- * this function applies the LIMIT value as a fallback for this arguments instead of its
- * default (unless it has been explicitly set).
- * This ensures consistent behavior where LIMIT acts as a unified size hint
- * for hybrid search operations.
- *
- * @param tailPipeline The pipeline to extract LIMIT from
- * @param pvd The parsed vector data containing KNN arguments
- * @param hybridParams The hybrid parameters containing WINDOW settings
- */
-static void applyLimitKNNFallback(AGGPlan *tailPlan,
-                                  ParsedVectorData *pvd,
-                                  HybridPipelineParams *hybridParams) {
-  size_t limitValue = getLimitFromPlan(tailPlan);
-  bool hasExplicitLimit = tailHasExplicitLimitInPlan(tailPlan);
-
-  // Apply LIMIT → KNN K fallback ONLY if K was not explicitly set AND LIMIT was explicitly provided
-  if (pvd && pvd->query->type == VECSIM_QT_KNN &&
-      !pvd->hasExplicitK &&
-      hasExplicitLimit && limitValue > 0) {
-    pvd->query->knn.k = limitValue;
-  }
 }
 
 /**
@@ -538,6 +526,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Don't expect any flag to be on yet
   RS_ASSERT(*mergeReqflags == 0);
   *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
+
+  // Use default dialect if > 1, otherwise use dialect 2
+  if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
+    parsedCmdCtx->reqConfig->dialectVersion = MIN_HYBRID_DIALECT;
+  }
+  parsedCmdCtx->search->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+  parsedCmdCtx->vector->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+
   RSSearchOptions mergeSearchopts = {0};
   RSSearchOptions_Init(&mergeSearchopts);
   size_t maxHybridResults = RSGlobalConfig.maxSearchResults;
@@ -638,8 +634,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
     }
-
-    applyLimitKNNFallback(parsedCmdCtx->tailPlan, vectorRequest->parsedVectorData, hybridParams);
   }
 
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
@@ -685,6 +679,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
               .sctx = sctx,  // should be a separate context?
               .reqflags = *mergeReqflags | QEXEC_F_IS_HYBRID_TAIL,
               .optimizer = NULL,  // is it?
+              .scoreAlias = mergeSearchopts.scoreAlias,
           },
       .outFields = NULL,
       .maxResultsLimit = maxHybridResults,

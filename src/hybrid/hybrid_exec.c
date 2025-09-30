@@ -538,11 +538,16 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
+
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
+
+  // Update dialect statistics only after successful execution
+  SET_DIALECT(sctx->spec->used_dialects, hybridRequest->reqConfig.dialectVersion);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, hybridRequest->reqConfig.dialectVersion);
 
   DefaultCleanup(hybrid_ref);
   return REDISMODULE_OK;
