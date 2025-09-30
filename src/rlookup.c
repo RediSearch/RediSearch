@@ -477,10 +477,10 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
         RedisJSON value = japi->getAt(json, i);
         arr[i] = jsonValToValueExpanded(ctx, value);
       }
-      ret = RSValue_NewArray(arr, len);
+      ret = RSValue_NewArrayAlloc(arr, len);
     } else {
       // Empty array
-      ret = RSValue_NewArray(NULL, 0);
+      ret = RSValue_NewArrayAlloc(NULL, 0);
     }
   } else {
     // Scalar
@@ -503,10 +503,10 @@ RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) 
     for (size_t i = 0; (json = japi->next(iter)); ++i) {
       arr[i] = jsonValToValueExpanded(ctx, json);
     }
-    ret = RSValue_NewArray(arr, len);
+    ret = RSValue_NewArrayAlloc(arr, len);
   } else {
     // Empty array
-    ret = RSValue_NewArray(NULL, 0);
+    ret = RSValue_NewArrayAlloc(NULL, 0);
   }
   return ret;
 }
@@ -576,7 +576,7 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
       const char *s = RedisModule_CallReplyStringPtr(rep, &len);
       if (otype == RLOOKUP_C_DBL) {
         // Convert to double -- calling code should check if NULL
-        return RSValue_ParseNumber(s, len);
+        return RSValue_ParseNumberAlloc(s, len);
       }
       // Note, the pointer is within CallReply; we need to copy
       return RSValue_NewCopiedStringAlloc(s, len);

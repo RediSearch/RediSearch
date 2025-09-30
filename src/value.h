@@ -136,16 +136,29 @@ typedef struct RSValue {
 // Constructors
 ///////////////////////////////////////////////////////////////
 
+/**
+ * Creates a heap-allocated RSValue of the specified type.
+ * The returned value must be freed when no longer needed.
+ * @param t The type of RSValue to create
+ * @return A pointer to a heap-allocated RSValue
+ */
 RSValue *RSValue_NewAlloc(RSValueType t);
 
 /**
- * Creates a static undefined RSValue.
+ * Creates a stack-allocated undefined RSValue.
  * The returned value is not allocated on the heap and should not be freed.
- * @return An undefined RSValue with static storage
+ * @return A stack-allocated RSValue of type RSValueType_Undef
  */
 RSValue RSValue_NewUndefined();
 
 #ifndef __cplusplus
+/**
+ * Creates a stack-allocated RSValue of the specified type.
+ * The returned value is not heap-allocated and should not be freed.
+ * This is a generic constructor for stack-allocated RSValues.
+ * @param t The type of RSValue to create
+ * @return A stack-allocated RSValue
+ */
 static RSValue RSValue_New(RSValueType t) {
   RSValue v = (RSValue){
       ._t = t,
@@ -173,15 +186,28 @@ RSValue RSValue_NewNumber(double n);
  */
 RSValue RSValue_NewMallocString(char *str, uint32_t len);
 
-/* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
- * the value needs to be detached */
+/**
+ * Creates a heap-allocated RSValue wrapping a string.
+ * Doesn't duplicate the string. Use strdup if the value needs to be detached.
+ * @param str The string to wrap (ownership is transferred)
+ * @param len The length of the string
+ * @return A pointer to a heap-allocated RSValue
+ */
 RSValue *RSValue_NewStringAlloc(char *str, uint32_t len);
 
-/* Same as RS_StringVal but with explicit string type */
+/**
+ * Creates a heap-allocated RSValue wrapping a string with explicit string type.
+ * @param str The string to wrap (ownership is transferred based on type)
+ * @param len The length of the string
+ * @param t The RSStringType specifying ownership/allocation strategy
+ * @return A pointer to a heap-allocated RSValue
+ */
 RSValue *RSValue_NewStringWithTypeAlloc(char *str, uint32_t len, RSStringType t);
 
-/* Wrap a string with length into a value object, assuming the string is a null terminated C
- * string
+/**
+ * Creates a heap-allocated RSValue wrapping a null-terminated C string.
+ * @param s The null-terminated string to wrap (ownership is transferred)
+ * @return A pointer to a heap-allocated RSValue
  */
 static inline RSValue *RSValue_NewCStringAlloc(char *s) {
   return RSValue_NewStringAlloc(s, strlen(s));
@@ -193,68 +219,130 @@ static inline RSValue *RSValue_NewConstCStringAlloc(char *s) {
   return RSValue_NewConstStringAlloc(s, strlen(s));
 }
 
-/* Wrap a redis string value */
+/**
+ * Creates a heap-allocated RSValue wrapping a RedisModuleString.
+ * Does not increment the refcount of the Redis string.
+ * @param str The RedisModuleString to wrap
+ * @return A pointer to a heap-allocated RSValue
+ */
 RSValue *RSValue_NewRedisStringAlloc(RedisModuleString *str);
 
 /**
- *  Create a new value object which increments and owns a reference to the string
+ * Creates a heap-allocated RSValue which increments and owns a reference to the Redis string.
+ * The RSValue will decrement the refcount when freed.
+ * @param str The RedisModuleString to wrap (refcount is incremented)
+ * @return A pointer to a heap-allocated RSValue
  */
 RSValue *RSValue_NewOwnedRedisStringAlloc(RedisModuleString *str);
 
 /**
- * Create a new value object which steals a reference to the string
+ * Creates a heap-allocated RSValue which steals a reference to the Redis string.
+ * The caller's reference is transferred to the RSValue.
+ * @param s The RedisModuleString to wrap (ownership is transferred)
+ * @return A pointer to a heap-allocated RSValue
  */
 RSValue *RSValue_NewStolenRedisStringAlloc(RedisModuleString *s);
 
-/* Create a new NULL RSValue */
+/**
+ * Returns a pointer to a statically allocated NULL RSValue.
+ * This is a singleton - the same pointer is always returned.
+ * DO NOT free or modify this value.
+ * @return A pointer to a static RSValue of type RSValueType_Null
+ */
 RSValue *RSValue_NullStatic();
 
 /**
- * Copies a string using the default mechanism. Returns the copied value.
+ * Creates a heap-allocated RSValue with a copied string.
+ * The string is duplicated using rm_malloc.
+ * @param s The string to copy
+ * @param dst The length of the string to copy
+ * @return A pointer to a heap-allocated RSValue owning the copied string
  */
 RSValue *RSValue_NewCopiedStringAlloc(const char *s, size_t dst);
 
-/* New value from string, trying to parse it as a number */
-RSValue *RSValue_ParseNumber(const char *p, size_t l);
+/**
+ * Creates a heap-allocated RSValue by parsing a string as a number.
+ * Returns NULL if the string cannot be parsed as a valid number.
+ * @param p The string to parse
+ * @param l The length of the string
+ * @return A pointer to a heap-allocated RSValue or NULL on parse failure
+ */
+RSValue *RSValue_ParseNumberAlloc(const char *p, size_t l);
 
-/* Wrap a number into a value object */
+/**
+ * Creates a heap-allocated RSValue containing a number.
+ * @param n The numeric value to wrap
+ * @return A pointer to a heap-allocated RSValue of type RSValueType_Number
+ */
 RSValue *RSValue_NewNumberAlloc(double n);
 
+/**
+ * Creates a heap-allocated RSValue containing a number from an int64.
+ * @param ii The int64 value to convert and wrap
+ * @return A pointer to a heap-allocated RSValue of type RSValueType_Number
+ */
 RSValue *RSValue_NewNumberFromInt64Alloc(int64_t ii);
 
 /**
- * Create a new array from existing values
- * Take ownership of the values (values would be freed when array is freed)
- * @param vals the values array to use for the array
- * @param len number of values
+ * Creates a heap-allocated RSValue array from existing values.
+ * Takes ownership of the values (values will be freed when array is freed).
+ * @param vals The values array to use for the array (ownership is transferred)
+ * @param len Number of values
+ * @return A pointer to a heap-allocated RSValue of type RSValueType_Array
  */
-RSValue *RSValue_NewArray(RSValue **vals, uint32_t len);
+RSValue *RSValue_NewArrayAlloc(RSValue **vals, uint32_t len);
 
 /**
- * Create a new RSValueMap with space for the specified number of entries.
+ * Creates an RSValueMap structure with heap-allocated space for entries.
  * The map entries are uninitialized and must be set using RSValueMap_SetEntry.
+ * Note: This returns a struct by value, not a pointer, but the struct
+ * points to the heap allocation.
  * @param len The number of entries to allocate space for
- * @return A new RSValueMap with allocated but uninitialized entries
+ * @return An RSValueMap struct with heap-allocated but uninitialized entries
  */
 RSValueMap RSValueMap_Alloc_Uninit(uint32_t len);
 
 /**
- * Create a new RSValue of type RSValue_Map from an RSValueMap.
+ * Creates a heap-allocated RSValue of type RSValue_Map from an RSValueMap.
  * Takes ownership of the map structure and all its entries.
  * @param map The RSValueMap to wrap (ownership is transferred)
- * @return A new RSValue of type RSValue_Map
+ * @return A pointer to a heap-allocated RSValue of type RSValueType_Map
  */
 RSValue *RSValue_NewMapAlloc(RSValueMap map);
 
-RSValue *RS_VStringArray(uint32_t sz, ...);
+/**
+ * Creates a heap-allocated RSValue array from variadic string arguments.
+ * @param sz Number of strings to expect
+ * @param ... Variadic list of char* strings
+ * @return A pointer to a heap-allocated RSValue array
+ */
+RSValue *RSValue_NewVStringArrayAlloc(uint32_t sz, ...);
 
-/* Wrap an array of NULL terminated C strings into an RSValue array */
-RSValue *RS_StringArray(char **strs, uint32_t sz);
+/**
+ * Creates a heap-allocated RSValue array from NULL terminated C strings.
+ * @param strs Array of string pointers
+ * @param sz Number of strings in the array
+ * @return A pointer to a heap-allocated RSValue array
+ */
+RSValue *RSValue_NewStringArrayAlloc(char **strs, uint32_t sz);
 
-/* Initialize all strings in the array with a given string type */
-RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
+/**
+ * Creates a heap-allocated RSValue array with strings of a specific type.
+ * @param strs Array of string pointers
+ * @param sz Number of strings in the array
+ * @param st The RSStringType to use for all strings
+ * @return A pointer to a heap-allocated RSValue array
+ */
+RSValue *RSValue_NewStringArrayTAlloc(char **strs, uint32_t sz, RSStringType st);
 
-/* Wrap a trio of RSValue into an RSValue Trio */
+/**
+ * Creates a heap-allocated RSValue Trio from three RSValues.
+ * Takes ownership of all three values.
+ * @param val The left value (ownership is transferred)
+ * @param otherval The middle value (ownership is transferred)
+ * @param other2val The right value (ownership is transferred)
+ * @return A pointer to a heap-allocated RSValue of type RSValueType_Trio
+ */
 RSValue *RSValue_NewTrioAlloc(RSValue *val, RSValue *otherval, RSValue *other2val);
 
 ///////////////////////////////////////////////////////////////

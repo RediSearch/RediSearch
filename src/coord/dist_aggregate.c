@@ -233,7 +233,7 @@ RSValue *MRReply_ToValue(MRReply *r) {
       for (size_t i = 0; i < n; ++i) {
         arr[i] = MRReply_ToValue(MRReply_ArrayElement(r, i));
       }
-      v = RSValue_NewArray(arr, n);
+      v = RSValue_NewArrayAlloc(arr, n);
       break;
     }
     case MR_REPLY_NIL:
