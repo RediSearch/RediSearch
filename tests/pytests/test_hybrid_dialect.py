@@ -30,11 +30,12 @@ def setup_basic_index(env):
 def exec_and_validate_query(env, hybrid_cmd):
     """Execute query and validate results"""
     response = env.cmd(*hybrid_cmd)
-    results = get_results_from_hybrid_response(response)
+    results, count = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:1", "doc:2"})
+    env.assertEqual(count, 2)
 
 
-# TODO: remove once FT.HYBRID for cluster is implemented
+# TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_dialects():
     env = Env()
