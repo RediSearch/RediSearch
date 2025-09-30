@@ -575,7 +575,7 @@ pub struct IndexRepairParams {
 /// - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` instance.
 /// - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
 /// - `cb` must be a valid, non NULL, pointer to an `InvertedIndexGCCallback` instance.
-/// - `params` must be a valid, non NULL, pointer to an `IndexRepairParams` instance.
+/// - `params` must be a valid, NULLable, pointer to an `IndexRepairParams` instance.
 /// - The `spec` field of the `RedisSearchCtx` must be a valid, non NULL, pointer to an
 ///   `IndexSpec` instance.
 #[unsafe(no_mangle)]
@@ -597,11 +597,16 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
     // SAFETY: We know `doc_table` is a valid `DocTable` because it just got it off the spec
     let doc_exists = |id| unsafe { DocTable_Exists(&doc_table, id) };
 
-    // SAFETY: The caller must ensure `params` is a valid pointer to a `IndexRepairParams`
-    let params = unsafe { &*params };
-    let repair = params
-        .repair_callback
-        .map(|cb| move |res: &RSIndexResult, ib: &IndexBlock| cb(res, ib, params.repair_arg));
+    let repair = if params.is_null() {
+        None
+    } else {
+        // SAFETY: The caller must ensure `params` is a valid pointer to a `IndexRepairParams` and
+        // we just checked it is not NULL
+        let params = unsafe { &*params };
+        params
+            .repair_callback
+            .map(|cb| move |res: &RSIndexResult, ib: &IndexBlock| cb(res, ib, params.repair_arg))
+    };
 
     // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*idx };

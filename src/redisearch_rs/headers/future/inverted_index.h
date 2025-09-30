@@ -333,7 +333,7 @@ void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
  * - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` instance.
  * - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
  * - `cb` must be a valid, non NULL, pointer to an `InvertedIndexGCCallback` instance.
- * - `params` must be a valid, non NULL, pointer to an `IndexRepairParams` instance.
+ * - `params` must be a valid, NULLable, pointer to an `IndexRepairParams` instance.
  * - The `spec` field of the `RedisSearchCtx` must be a valid, non NULL, pointer to an
  *   `IndexSpec` instance.
  */
