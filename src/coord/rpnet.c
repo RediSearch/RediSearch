@@ -11,91 +11,10 @@
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
 #include "hiredis/sds.h"
+#include "../hybrid/dist_utils.h"
 
 
 #define CURSOR_EOF 0
-
-
-// Get cursor command using a cursor id and an existing aggregate command
-// Returns true if the cursor is not done (i.e., not depleted)
-static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
-  if (cursorId == CURSOR_EOF) {
-    // Cursor was set to 0, end of reply chain. cmd->depleted will be set in `MRIteratorCallback_Done`.
-    return false;
-  }
-
-  RS_LOG_ASSERT(cmd->num >= 2, "Invalid command?!");
-
-  // Check if the coordinator experienced a timeout or not
-  bool timedout = MRIteratorCallback_GetTimedOut(ctx);
-  // The previous command was a _FT.CURSOR READ command, so we may not need to change anything.
-  RS_LOG_ASSERT(cmd->rootCommand == C_READ, "calling `getCursorCommand` after a DEL command");
-  RS_ASSERT(cmd->num == 4);
-  RS_ASSERT(STR_EQ(cmd->strs[0], cmd->lens[0], "_FT.CURSOR"));
-  RS_ASSERT(STR_EQ(cmd->strs[1], cmd->lens[1], "READ"));
-  RS_ASSERT(atoll(cmd->strs[3]) == cursorId);
-
-  // If we timed out and not in cursor mode, we want to send the shard a DEL
-  // command instead of a READ command (here we know it has more results)
-  if (timedout && !cmd->forCursor) {
-    MRCommand_ReplaceArg(cmd, 1, "DEL", 3);
-    cmd->rootCommand = C_DEL;
-  }
-
-  if (timedout && cmd->forCursor) {
-    // Reset the `timedOut` value in case it was set (for next iterations, as
-    // we're in cursor mode)
-    MRIteratorCallback_ResetTimedOut(ctx);
-  }
-
-  return true;
-}
-
-
-static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
-
-  // If the root command of this reply is a DEL command, we don't want to
-  // propagate it up the chain to the client
-  if (cmd->rootCommand == C_DEL) {
-    // Discard the response, and return REDIS_OK
-    MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
-    MRReply_Free(rep);
-    return;
-  }
-
-  // Check if an error returned from the shard
-  if (MRReply_Type(rep) == MR_REPLY_ERROR) {
-    const char* error = MRReply_String(rep, NULL);
-    // RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
-    // RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
-    MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
-    MRIteratorCallback_Done(ctx, 1);
-    return;
-  }
-
-  // Normal reply from the shard.
-  // In any case, the cursor id is the second element in the reply
-  RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
-  long long cursorId = MRReply_Integer(MRReply_ArrayElement(rep, 1));
-  RedisModule_Log(NULL, "warning", "netCursorCallback: cmd is %s", MRCommand_SafeToString(cmd));
-  RedisModule_Log(NULL, "warning", "netCursorCallback: cursorId is %lld", cursorId);
-  RedisModule_Log(NULL, "warning", "netCursorCallback: printMRReplyRecursive: ");
-  printMRReplyRecursive(rep, 0);
-
-  // Push the reply down the chain, to be picked up by getNextReply
-  MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
-
-  // rewrite and resend the cursor command if needed
-  // should only be determined based on the cursor and not on the set of results we get
-  if (!getCursorCommand(cursorId, cmd, MRIteratorCallback_GetCtx(ctx))) {
-    MRIteratorCallback_Done(ctx, 0);
-  } else if (cmd->forCursor) {
-    MRIteratorCallback_ProcessDone(ctx);
-  } else if (MRIteratorCallback_ResendCommand(ctx) == REDIS_ERR) {
-    MRIteratorCallback_Done(ctx, 1);
-  }
-}
 
 
 static RSValue *MRReply_ToValue(MRReply *r) {
@@ -235,15 +154,6 @@ static int getNextReply(RPNet *nc) {
   nc->current.rows = rows;
   nc->current.meta = meta;
   return 1;
-}
-
-
-static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-//debug
-  printMRReplyRecursive(rep, 0);
-
-  MRIteratorCallback_AddReply(ctx, rep);
-  MRIteratorCallback_Done(ctx, 0);
 }
 
 /**
