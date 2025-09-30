@@ -46,12 +46,8 @@ MRClusterShard *_MRCluster_FindShard(MRClusterTopology *topo, unsigned slot) {
 MRClusterNode *_MRClusterShard_SelectNode(MRClusterShard *sh, bool mastersOnly) {
   // if we only want masters - find the master of this shard
   if (mastersOnly) {
-    for (int i = 0; i < sh->numNodes; i++) {
-      if (sh->nodes[i].flags & MRNode_Master) {
-        return &sh->nodes[i];
-      }
-    }
-    return NULL;
+    RS_ASSERT(sh->nodes[0].flags & MRNode_Master); // Master should always be first
+    return &sh->nodes[0];
   }
   // if we don't care - select a random node
   return &sh->nodes[rand() % sh->numNodes];

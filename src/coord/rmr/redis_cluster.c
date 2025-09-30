@@ -142,6 +142,17 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
         topo->shards[i].nodes[n].flags |= MRNode_Self;
       }
     }
+    // Make sure the first node is the master
+    if (!(topo->shards[i].nodes[0].flags & MRNode_Master)) {
+      for (size_t n = 1; n < topo->shards[i].numNodes; n++) {
+        if (topo->shards[i].nodes[n].flags & MRNode_Master) {
+          MRClusterNode tmp = topo->shards[i].nodes[n];
+          topo->shards[i].nodes[n] = topo->shards[i].nodes[0];
+          topo->shards[i].nodes[0] = tmp;
+          break;
+        }
+      }
+    }
   }
 
   return topo;
