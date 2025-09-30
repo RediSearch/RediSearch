@@ -42,19 +42,103 @@ static inline mempool_t *getPool() {
   return tp;
 }
 
-RSValue RSValue_NewUndefined() {
-  RSValue v;
-  v._t = RSValueType_Undef;
-  v._allocated = 0;
-  v._refcount = 1;
-  return v;
+///////////////////////////////////////////////////////////////
+// Helper functions used throughout (no RSValue dependencies)
+///////////////////////////////////////////////////////////////
+
+static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
+  int cmp = strncmp(s1, s2, MIN(l1, l2));
+  if (l1 == l2) {
+    // if the strings are the same length, just return the result of strcmp
+    return cmp;
+  } else {  // if the lengths aren't identical
+    // if the strings are identical but the lengths aren't, return the longer string
+    if (cmp == 0) {
+      return l1 > l2 ? 1 : -1;
+    } else {  // the strings are lexically different, just return that
+      return cmp;
+    }
+  }
 }
+
+static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
+  return v1->_numval > v2->_numval ? 1 : (v1->_numval < v2->_numval ? -1 : 0);
+}
+
+// Trio getters (needed by RSValue_Clear)
+RSValue *RSValue_Trio_GetLeft(const RSValue *v) {
+  RS_ASSERT(v && v->_t == RSValueType_Trio);
+  return v->_trioval.vals[0];
+}
+
+RSValue *RSValue_Trio_GetMiddle(const RSValue *v) {
+  RS_ASSERT(v && v->_t == RSValueType_Trio);
+  return v->_trioval.vals[1];
+}
+
+RSValue *RSValue_Trio_GetRight(const RSValue *v) {
+  RS_ASSERT(v && v->_t == RSValueType_Trio);
+  return v->_trioval.vals[2];
+}
+
+///////////////////////////////////////////////////////////////
+// Setters (needed by some constructors)
+///////////////////////////////////////////////////////////////
+
+// Forward declarations needed for RSValue_Clear and other functions
+void RSValue_Free(RSValue *v);
+void RSValue_DecrRef(RSValue* v);
+RSValue* RSValue_IncrRef(RSValue* v);
+
+inline void RSValue_SetNumber(RSValue *v, double n) {
+  v->_t = RSValueType_Number;
+  v->_numval = n;
+}
+
+inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
+  v->_t = RSValueType_String;
+  v->_strval.len = len;
+  v->_strval.str = str;
+  v->_strval.stype = RSStringType_Malloc;
+}
+
+inline void RSValue_SetSDS(RSValue *v, sds s) {
+  v->_t = RSValueType_String;
+  v->_strval.len = sdslen(s);
+  v->_strval.str = s;
+  v->_strval.stype = RSStringType_SDS;
+}
+
+inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
+  v->_t = RSValueType_String;
+  v->_strval.len = len;
+  v->_strval.str = (char *)str;
+  v->_strval.stype = RSStringType_Const;
+}
+
+void RSValue_MakeRStringOwner(RSValue *v) {
+  RS_LOG_ASSERT(v->_t == RSValue_RedisString, "RSvalue type should be string");
+  v->_t = RSValueType_OwnRstring;
+  RedisModule_RetainString(RSDummyContext, v->_rstrval);
+}
+
+///////////////////////////////////////////////////////////////
+// Constructors
+///////////////////////////////////////////////////////////////
 
 RSValue *RSValue_NewAlloc(RSValueType t) {
   RSValue *v = mempool_get(getPool());
   v->_t = t;
   v->_refcount = 1;
   v->_allocated = 1;
+  return v;
+}
+
+RSValue RSValue_NewUndefined() {
+  RSValue v;
+  v._t = RSValueType_Undef;
+  v._allocated = 0;
+  v._refcount = 1;
   return v;
 }
 
@@ -80,25 +164,155 @@ RSValue RSValue_NewMallocString(char *str, uint32_t len) {
   return v;
 }
 
-bool RSValue_IsTrio(const RSValue *v) {
-  return (v && v->_t == RSValueType_Trio);
+/* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
+ * the value needs to be detached */
+inline RSValue *RSValue_NewStringAlloc(char *str, uint32_t len) {
+  RS_LOG_ASSERT(len <= (UINT32_MAX >> 4), "string length exceeds limit");
+  RSValue *v = RSValue_NewAlloc(RSValueType_String);
+  v->_strval.str = str;
+  v->_strval.len = len;
+  v->_strval.stype = RSStringType_Malloc;
+  return v;
 }
 
-RSValue *RSValue_Trio_GetLeft(const RSValue *v) {
-  RS_ASSERT(v && v->_t == RSValueType_Trio);
-  return v->_trioval.vals[0];
+/* Same as RSValue_NewStringAlloc but with explicit string type */
+inline RSValue *RSValue_NewStringWithTypeAlloc(char *str, uint32_t len, RSStringType t) {
+  RSValue *v = RSValue_NewAlloc(RSValueType_String);
+  v->_strval.str = str;
+  v->_strval.len = len;
+  v->_strval.stype = t;
+  return v;
 }
 
-RSValue *RSValue_Trio_GetMiddle(const RSValue *v) {
-  RS_ASSERT(v && v->_t == RSValueType_Trio);
-  return v->_trioval.vals[1];
+/* Wrap a redis string value */
+RSValue *RSValue_NewRedisStringAlloc(RedisModuleString *str) {
+  RSValue *v = RSValue_NewAlloc(RSValueType_RedisString);
+  v->_rstrval = str;
+  return v;
 }
 
-RSValue *RSValue_Trio_GetRight(const RSValue *v) {
-  RS_ASSERT(v && v->_t == RSValueType_Trio);
-  return v->_trioval.vals[2];
+RSValue *RSValue_NewOwnedRedisStringAlloc(RedisModuleString *str) {
+  RSValue *r = RSValue_NewRedisStringAlloc(str);
+  RSValue_MakeRStringOwner(r);
+  return r;
 }
 
+// TODO : NORMALLY
+RSValue *RSValue_NewStolenRedisStringAlloc(RedisModuleString *str) {
+  RSValue *ret = RSValue_NewRedisStringAlloc(str);
+  ret->_t = RSValueType_OwnRstring;
+  return ret;
+}
+
+RSValue RS_NULL = {._t = RSValueType_Null, ._refcount = 1, ._allocated = 0};
+/* Returns a pointer to the NULL RSValue */
+RSValue *RSValue_NullStatic() {
+  return &RS_NULL;
+}
+
+RSValue *RSValue_NewCopiedStringAlloc(const char *s, size_t n) {
+  RSValue *v = RSValue_NewAlloc(RSValueType_String);
+  char *cp = rm_malloc(n + 1);
+  cp[n] = 0;
+  memcpy(cp, s, n);
+  RSValue_SetString(v, cp, n);
+  return v;
+}
+
+RSValue *RSValue_ParseNumber(const char *p, size_t l) {
+
+  char *e;
+  errno = 0;
+  double d = fast_float_strtod(p, &e);
+  if ((errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL)) || (errno != 0 && d == 0) ||
+      *e != '\0') {
+    return NULL;
+  }
+  return RSValue_NewNumberAlloc(d);
+}
+
+/* Wrap a number into a value object */
+RSValue *RSValue_NewNumberAlloc(double n) {
+  RSValue *v = RSValue_NewAlloc(RSValueType_Number);
+  v->_numval = n;
+  return v;
+}
+
+RSValue *RSValue_NewNumberFromInt64Alloc(int64_t dd) {
+  RSValue *v = RSValue_NewAlloc(RSValueType_Number);
+  v->_numval = dd;
+  return v;
+}
+
+RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
+  RSValue *arr = RSValue_NewAlloc(RSValueType_Array);
+  arr->_arrval.vals = vals;
+  arr->_arrval.len = len;
+  return arr;
+}
+
+RSValueMap RSValueMap_Alloc_Uninit(uint32_t len) {
+  RSValueMapEntry *entries =
+    (len > 0) ? (RSValueMapEntry*) rm_malloc(len * sizeof(RSValueMapEntry)) : NULL;
+  RSValueMap map = {
+    .len = len,
+    .entries = entries,
+  };
+
+  return map;
+}
+
+RSValue *RSValue_NewMapAlloc(RSValueMap map) {
+  RSValue *v = RSValue_NewAlloc(RSValueType_Map);
+  v->_mapval = map;
+  return v;
+}
+
+RSValue *RS_VStringArray(uint32_t sz, ...) {
+  RSValue **arr = RSValue_AllocateArray(sz);
+  va_list ap;
+  va_start(ap, sz);
+  for (uint32_t i = 0; i < sz; i++) {
+    char *p = va_arg(ap, char *);
+    arr[i] = RSValue_NewCStringAlloc(p);
+  }
+  va_end(ap);
+  return RSValue_NewArray(arr, sz);
+}
+
+/* Wrap an array of NULL terminated C strings into an RSValue array */
+RSValue *RS_StringArray(char **strs, uint32_t sz) {
+  RSValue **arr = RSValue_AllocateArray(sz);
+
+  for (uint32_t i = 0; i < sz; i++) {
+    arr[i] = RSValue_NewCStringAlloc(strs[i]);
+  }
+  return RSValue_NewArray(arr, sz);
+}
+
+RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
+  RSValue **arr = RSValue_AllocateArray(sz);
+
+  for (uint32_t i = 0; i < sz; i++) {
+    arr[i] = RSValue_NewStringWithTypeAlloc(strs[i], strlen(strs[i]), st);
+  }
+  return RSValue_NewArray(arr, sz);
+}
+
+RSValue *RSValue_NewTrioAlloc(RSValue *val, RSValue *otherval, RSValue *other2val) {
+  RSValue *trio = RSValue_NewAlloc(RSValueType_Trio);
+  trio->_trioval.vals = rm_calloc(3, sizeof(*trio->_trioval.vals));
+  trio->_trioval.vals[0] = val;
+  trio->_trioval.vals[1] = otherval;
+  trio->_trioval.vals[2] = other2val;
+  return trio;
+}
+
+///////////////////////////////////////////////////////////////
+// Getters and Setters (grouped by field)
+///////////////////////////////////////////////////////////////
+
+// Type getters
 RSValueType RSValue_Type(const RSValue *v) {
   RS_ASSERT(v);
   return v->_t;
@@ -128,11 +342,29 @@ bool RSValue_IsOwnRString(const RSValue *v) {
   return (v && v->_t == RSValueType_OwnRstring);
 }
 
+bool RSValue_IsTrio(const RSValue *v) {
+  return (v && v->_t == RSValueType_Trio);
+}
+
+int RSValue_IsNull(const RSValue *value) {
+  if (!value || value == RSValue_NullStatic()) return 1;
+  if (value->_t == RSValueType_Reference) return RSValue_IsNull(value->_ref);
+  return 0;
+}
+
+// Number getters/setters
 double RSValue_Number_Get(const RSValue *v) {
   RS_ASSERT(v && v->_t == RSValueType_Number);
   return v->_numval;
 }
 
+void RSValue_IntoNumber(RSValue *v, double n) {
+  RS_ASSERT(v);
+  v->_t = RSValueType_Number;
+  v->_numval = n;
+}
+
+// String getters/setters
 char *RSValue_String_Get(const RSValue *v, uint32_t *lenp) {
   RS_ASSERT(v && v->_t == RSValueType_String);
   if(lenp) {
@@ -150,6 +382,27 @@ RedisModuleString *RSValue_RedisString_Get(const RSValue *v) {
   return v->_rstrval;
 }
 
+// Gets the string pointer and length from the value
+const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
+  value = RSValue_Dereference(value);
+
+  switch (value->_t) {
+    case RSValueType_String:
+      if (lenp) {
+        *lenp = value->_strval.len;
+      }
+      return value->_strval.str;
+    case RSValueType_RedisString:
+    case RSValueType_OwnRstring:
+      return RedisModule_StringPtrLen(value->_rstrval, lenp);
+    case RSValueType_Trio:
+      return RSValue_StringPtrLen(RSValue_Trio_GetLeft(value), lenp);
+    default:
+      return NULL;
+  }
+}
+
+// Map getters/setters
 uint32_t RSValue_Map_Len(const RSValue *v) {
   RS_ASSERT(v && v->_t == RSValueType_Map);
   return v->_mapval.len;
@@ -162,28 +415,13 @@ void RSValue_Map_GetEntry(const RSValue *map, uint32_t i, RSValue **key, RSValue
   *val = map->_mapval.entries[i].value;
 }
 
-void RSValue_IntoUndefined(RSValue *v) {
-  RS_ASSERT(v);
-  v->_t = RSValueType_Undef;
+void RSValueMap_SetEntry(RSValueMap *map, size_t i, RSValue *key, RSValue *value) {
+  RS_ASSERT(i < map->len);
+  map->entries[i].key = key;
+  map->entries[i].value = value;
 }
 
-void RSValue_IntoNumber(RSValue *v, double n) {
-  RS_ASSERT(v);
-  v->_t = RSValueType_Number;
-  v->_numval = n;
-}
-
-void RSValue_IntoNull(RSValue *v) {
-  RS_ASSERT(v);
-  RSValue_Clear(v);
-  v->_t = RSValueType_Null;
-}
-
-uint16_t RSValue_Refcount(const RSValue *v) {
-  RS_ASSERT(v);
-  return v->_refcount;
-}
-
+// Reference getters/setters
 void RSValue_Clear(RSValue *v) {
   switch (v->_t) {
     case RSValueType_String:
@@ -237,7 +475,6 @@ void RSValue_Clear(RSValue *v) {
   v->_t = RSValueType_Undef;
 }
 
-
 RSValue* RSValue_IncrRef(RSValue* v) {
   __atomic_fetch_add(&v->_refcount, 1, __ATOMIC_RELAXED);
   return v;
@@ -249,11 +486,26 @@ void RSValue_DecrRef(RSValue* v) {
   }
 }
 
-int RSValue_IsNull(const RSValue *value) {
-  if (!value || value == RSValue_NullStatic()) return 1;
-  if (value->_t == RSValueType_Reference) return RSValue_IsNull(value->_ref);
-  return 0;
+// Type conversion setters
+void RSValue_IntoUndefined(RSValue *v) {
+  RS_ASSERT(v);
+  v->_t = RSValueType_Undef;
 }
+
+void RSValue_IntoNull(RSValue *v) {
+  RS_ASSERT(v);
+  v->_t = RSValueType_Null;
+}
+
+// Refcount getter
+uint16_t RSValue_Refcount(const RSValue *v) {
+  RS_ASSERT(v);
+  return v->_refcount;
+}
+
+///////////////////////////////////////////////////////////////
+// Other Functions (utility, comparison, conversion, etc.)
+///////////////////////////////////////////////////////////////
 
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
  * the actual value object */
@@ -262,95 +514,6 @@ void RSValue_Free(RSValue *v) {
   if (v->_allocated) {
     mempool_release(getPool(), v);
   }
-}
-
-RSValue RS_Value(RSValueType t) {
-  RSValue v = (RSValue){
-      ._t = t,
-      ._refcount = 1,
-      ._allocated = 0,
-  };
-  return v;
-}
-
-inline void RSValue_SetNumber(RSValue *v, double n) {
-  v->_t = RSValueType_Number;
-  v->_numval = n;
-}
-
-inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
-  v->_t = RSValueType_String;
-  v->_strval.len = len;
-  v->_strval.str = str;
-  v->_strval.stype = RSStringType_Malloc;
-}
-
-RSValue *RSValue_NewCopiedStringAlloc(const char *s, size_t n) {
-  RSValue *v = RSValue_NewAlloc(RSValueType_String);
-  char *cp = rm_malloc(n + 1);
-  cp[n] = 0;
-  memcpy(cp, s, n);
-  RSValue_SetString(v, cp, n);
-  return v;
-}
-
-inline void RSValue_SetSDS(RSValue *v, sds s) {
-  v->_t = RSValueType_String;
-  v->_strval.len = sdslen(s);
-  v->_strval.str = s;
-  v->_strval.stype = RSStringType_SDS;
-}
-inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
-  v->_t = RSValueType_String;
-  v->_strval.len = len;
-  v->_strval.str = (char *)str;
-  v->_strval.stype = RSStringType_Const;
-}
-
-/* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
- * the value needs to be detached */
-inline RSValue *RSValue_NewStringAlloc(char *str, uint32_t len) {
-  RS_LOG_ASSERT(len <= (UINT32_MAX >> 4), "string length exceeds limit");
-  RSValue *v = RSValue_NewAlloc(RSValueType_String);
-  v->_strval.str = str;
-  v->_strval.len = len;
-  v->_strval.stype = RSStringType_Malloc;
-  return v;
-}
-
-/* Same as RSValue_NewStringAlloc but with explicit string type */
-inline RSValue *RSValue_NewStringWithTypeAlloc(char *str, uint32_t len, RSStringType t) {
-  RSValue *v = RSValue_NewAlloc(RSValueType_String);
-  v->_strval.str = str;
-  v->_strval.len = len;
-  v->_strval.stype = t;
-  return v;
-}
-
-/* Wrap a redis string value */
-RSValue *RSValue_NewRedisStringAlloc(RedisModuleString *str) {
-  RSValue *v = RSValue_NewAlloc(RSValueType_RedisString);
-  v->_rstrval = str;
-  return v;
-}
-
-RSValue *RSValue_NewOwnedRedisStringAlloc(RedisModuleString *str) {
-  RSValue *r = RSValue_NewRedisStringAlloc(str);
-  RSValue_MakeRStringOwner(r);
-  return r;
-}
-
-// TODO : NORMALLY
-RSValue *RSValue_NewStolenRedisStringAlloc(RedisModuleString *str) {
-  RSValue *ret = RSValue_NewRedisStringAlloc(str);
-  ret->_t = RSValueType_OwnRstring;
-  return ret;
-}
-
-void RSValue_MakeRStringOwner(RSValue *v) {
-  RS_LOG_ASSERT(v->_t == RSValue_RedisString, "RSvalue type should be string");
-  v->_t = RSValueType_OwnRstring;
-  RedisModule_RetainString(RSDummyContext, v->_rstrval);
 }
 
 /* Convert a value to a string value. If the value is already a string value it gets
@@ -384,18 +547,6 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     default:
       return RSValue_SetConstString(dst, "", 0);
   }
-}
-
-RSValue *RSValue_ParseNumber(const char *p, size_t l) {
-
-  char *e;
-  errno = 0;
-  double d = fast_float_strtod(p, &e);
-  if ((errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL)) || (errno != 0 && d == 0) ||
-      *e != '\0') {
-    return NULL;
-  }
-  return RSValue_NewNumberAlloc(d);
 }
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
@@ -450,26 +601,6 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
   return 0;
 }
 
-// Gets the string pointer and length from the value
-const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
-  value = RSValue_Dereference(value);
-
-  switch (value->_t) {
-    case RSValueType_String:
-      if (lenp) {
-        *lenp = value->_strval.len;
-      }
-      return value->_strval.str;
-    case RSValueType_RedisString:
-    case RSValueType_OwnRstring:
-      return RedisModule_StringPtrLen(value->_rstrval, lenp);
-    case RSValueType_Trio:
-      return RSValue_StringPtrLen(RSValue_Trio_GetLeft(value), lenp);
-    default:
-      return NULL;
-  }
-}
-
 // Combines PtrLen with ToString to convert any RSValue into a string buffer.
 // Returns NULL if buf is required, but is too small
 const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char *buf,
@@ -493,109 +624,22 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
   }
 }
 
-/* Wrap a number into a value object */
-RSValue *RSValue_NewNumberAlloc(double n) {
-  RSValue *v = RSValue_NewAlloc(RSValueType_Number);
-  v->_numval = n;
-  return v;
-}
+static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *qerr) {
+  double d;
+  if (!RSValue_ToNumber(v, &d)) {
+    if (!qerr) return 0;
 
-RSValue *RSValue_NewNumberFromInt64Alloc(int64_t dd) {
-  RSValue *v = RSValue_NewAlloc(RSValueType_Number);
-  v->_numval = dd;
-  return v;
-}
-
-RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
-  RSValue *arr = RSValue_NewAlloc(RSValueType_Array);
-  arr->_arrval.vals = vals;
-  arr->_arrval.len = len;
-  return arr;
-}
-
-RSValueMap RSValueMap_Alloc_Uninit(uint32_t len) {
-  RSValueMapEntry *entries =
-    (len > 0) ? (RSValueMapEntry*) rm_malloc(len * sizeof(RSValueMapEntry)) : NULL;
-  RSValueMap map = {
-    .len = len,
-    .entries = entries,
-  };
-
-  return map;
-}
-
-void RSValueMap_SetEntry(RSValueMap *map, size_t i, RSValue *key, RSValue *value) {
-  RS_ASSERT(i < map->len);
-  map->entries[i].key = key;
-  map->entries[i].value = value;
-}
-
-RSValue *RSValue_NewMapAlloc(RSValueMap map) {
-  RSValue *v = RSValue_NewAlloc(RSValueType_Map);
-  v->_mapval = map;
-  return v;
-}
-
-RSValue *RS_VStringArray(uint32_t sz, ...) {
-  RSValue **arr = RSValue_AllocateArray(sz);
-  va_list ap;
-  va_start(ap, sz);
-  for (uint32_t i = 0; i < sz; i++) {
-    char *p = va_arg(ap, char *);
-    arr[i] = RSValue_NewCStringAlloc(p);
+    const char *s = RSValue_StringPtrLen(v, NULL);
+    QueryError_SetWithUserDataFmt(qerr, QUERY_ENOTNUMERIC, "Error converting string", " '%s' to number", s);
+    return 0;
   }
-  va_end(ap);
-  return RSValue_NewArray(arr, sz);
+
+  RSValue_SetNumber(vn, d);
+  return 1;
 }
 
-/* Wrap an array of NULL terminated C strings into an RSValue array */
-RSValue *RS_StringArray(char **strs, uint32_t sz) {
-  RSValue **arr = RSValue_AllocateArray(sz);
-
-  for (uint32_t i = 0; i < sz; i++) {
-    arr[i] = RSValue_NewCStringAlloc(strs[i]);
-  }
-  return RSValue_NewArray(arr, sz);
-}
-
-RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
-  RSValue **arr = RSValue_AllocateArray(sz);
-
-  for (uint32_t i = 0; i < sz; i++) {
-    arr[i] = RSValue_NewStringWithTypeAlloc(strs[i], strlen(strs[i]), st);
-  }
-  return RSValue_NewArray(arr, sz);
-}
-
-RSValue RS_NULL = {._t = RSValueType_Null, ._refcount = 1, ._allocated = 0};
-/* Returns a pointer to the NULL RSValue */
-RSValue *RSValue_NullStatic() {
-  return &RS_NULL;
-}
-
-RSValue *RSValue_NewTrioAlloc(RSValue *val, RSValue *otherval, RSValue *other2val) {
-  RSValue *trio = RSValue_NewAlloc(RSValueType_Trio);
-  trio->_trioval.vals = rm_calloc(3, sizeof(*trio->_trioval.vals));
-  trio->_trioval.vals[0] = val;
-  trio->_trioval.vals[1] = otherval;
-  trio->_trioval.vals[2] = other2val;
-  return trio;
-}
-
-static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
-  int cmp = strncmp(s1, s2, MIN(l1, l2));
-  if (l1 == l2) {
-    // if the strings are the same length, just return the result of strcmp
-    return cmp;
-  } else {  // if the lengths aren't identical
-    // if the strings are identical but the lengths aren't, return the longer string
-    if (cmp == 0) {
-      return l1 > l2 ? 1 : -1;
-    } else {  // the strings are lexically different, just return that
-      return cmp;
-    }
-  }
-}
+// Forward declaration for recursive call
+int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr);
 
 static inline int compare_arrays_first(const RSValue *arr1, const RSValue *arr2, QueryError *qerr) {
   uint32_t len1 = arr1->_arrval.len;
@@ -624,26 +668,6 @@ static inline int compare_arrays(const RSValue *arr1, const RSValue *arr2, Query
   return len1 - len2;
 }
 
-
-
-static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
-  return v1->_numval > v2->_numval ? 1 : (v1->_numval < v2->_numval ? -1 : 0);
-}
-
-static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *qerr) {
-  double d;
-  if (!RSValue_ToNumber(v, &d)) {
-    if (!qerr) return 0;
-
-    const char *s = RSValue_StringPtrLen(v, NULL);
-    QueryError_SetWithUserDataFmt(qerr, QUERY_ENOTNUMERIC, "Error converting string", " '%s' to number", s);
-    return 0;
-  }
-
-  RSValue_SetNumber(vn, d);
-  return 1;
-}
-
 static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   switch (v1->_t) {
     case RSValueType_Number:
@@ -670,6 +694,7 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr)
   }
 }
 
+/* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
   if (v1->_t == v2->_t) {
@@ -717,6 +742,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   return cmp_strings(s1, s2, l1, l2);
 }
 
+/* Return 1 if the two values are equal */
 int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
 
@@ -821,4 +847,17 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       return RSValue_DumpSds(RSValue_Trio_GetLeft(v), s, obfuscate);
       break;
   }
+}
+
+///////////////////////////////////////////////////////////////
+// Extra functions not in header
+///////////////////////////////////////////////////////////////
+
+RSValue RS_Value(RSValueType t) {
+  RSValue v = (RSValue){
+      ._t = t,
+      ._refcount = 1,
+      ._allocated = 0,
+  };
+  return v;
 }
