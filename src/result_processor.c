@@ -1714,7 +1714,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   * @param numUpstreams - the number of upstreams
   * @param score - used to override the result's score
  */
- static void hybridMergerStoreUpstreamResult(SearchResult *r, dict *hybridResults, const RLookupKey *docKey, int upstreamIndex, size_t numUpstreams, double score) {
+ static bool hybridMergerStoreUpstreamResult(SearchResult *r, dict *hybridResults, const RLookupKey *docKey, int upstreamIndex, size_t numUpstreams, double score) {
   // Single shard case - use dmd->keyPtr
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
@@ -1724,6 +1724,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
     if (docKeyValue != NULL) {
       keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
     }
+  }
+  if (!keyPtr) {
+    return false;
   }
 
   // Check if we've seen this document before
@@ -1737,6 +1740,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
    SearchResult_SetScore(r, score);
    HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
+   return true;
  }
 
  /* Helper function to consume results from a single upstream */
@@ -1750,8 +1754,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
        if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
          score = consumed;
        }
-       hybridMergerStoreUpstreamResult(r, self->hybridResults, self->docKey, upstreamIndex, self->numUpstreams, score);
-       r = rm_calloc(1, sizeof(*r));
+       if (hybridMergerStoreUpstreamResult(r, self->hybridResults, self->docKey, upstreamIndex, self->numUpstreams, score)) {
+         r = rm_calloc(1, sizeof(*r));
+       }
    }
    rm_free(r);
    return rc;
