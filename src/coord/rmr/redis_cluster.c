@@ -74,28 +74,40 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   /*
 1) 1# "slots" =>
       1) (integer) 0
-      2) (integer) 5460
+      2) (integer) 4095
+      3) (integer) 8192
+      4) (integer) 12287
    2# "nodes" =>
       1)  1# "id" => "e10b7051d6bf2d5febd39a2be297bbaea6084111"
           2# "port" => (integer) 30001
-          3# "ip" => "127.0.0.1"
-          4# "role" => "master"
+          3# "tls-port" => (integer) 40001
+          4# "ip" => "127.0.0.1"
+          5# "endpoint" => "localhost"
+          6# "role" => "master"
       2)  1# "id" => "821d8ca00d7ccf931ed3ffc7e3db0599d2271abf"
           2# "port" => (integer) 30004
-          3# "ip" => "127.0.0.1"
-          4# "role" => "replica"
+          3# "tls-port" => (integer) 40004
+          4# "ip" => "127.0.0.1"
+          5# "endpoint" => "localhost"
+          6# "role" => "replica"
 2) 1# "slots" =>
-      1) (integer) 10923
-      2) (integer) 16383
+      1) (integer) 4096
+      2) (integer) 8191
+      3) (integer) 12288
+      4) (integer) 16383
    2# "nodes" =>
       1)  1# "id" => "fd20502fe1b32fc32c15b69b0a9537551f162f1f"
           2# "port" => (integer) 30003
-          3# "ip" => "127.0.0.1"
-          4# "role" => "master"
+          3# "tls-port" => (integer) 40003
+          4# "ip" => "127.0.0.1"
+          5# "endpoint" => "localhost"
+          6# "role" => "master"
       2)  1# "id" => "6daa25c08025a0c7e4cc0d1ab255949ce6cee902"
           2# "port" => (integer) 30005
-          3# "ip" => "127.0.0.1"
-          4# "role" => "replica"
+          3# "tls-port" => (integer) 40005
+          4# "ip" => "127.0.0.1"
+          5# "endpoint" => "localhost"
+          6# "role" => "replica"
   */
 
   size_t numShards = RedisModule_CallReplyLength(cluster_shards);
