@@ -266,17 +266,16 @@ TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
   ASSERT_EQ(12, parseCtx.hybridParams->scoringCtx->rrfCtx.window);
 }
 
-// Test that Linear scoring is unaffected by K ≤ WINDOW constraint
-TEST_F(HybridDefaultsTest, testLinearScoringUnaffectedByKWindowConstraint) {
+// Test that Linear scoring is affected by K ≤ WINDOW constraint
+TEST_F(HybridDefaultsTest, testLinearScoringKWindowConstraint) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "50", "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3");
+                      "KNN", "2", "K", "50", "COMBINE", "LINEAR", "6", "ALPHA", "0.7", "BETA", "0.3", "WINDOW", "12");
 
   parseCommand(args);
-  // Linear scoring should not apply K ≤ WINDOW constraint, K should remain 50
   ASSERT_EQ(parseCtx.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
-  ASSERT_EQ(50, vq->knn.k) << "Expected K to remain 50 for Linear scoring, got " << vq->knn.k;
+  ASSERT_EQ(12, vq->knn.k) << "Expected K to be capped by WINDOW=12, got " << vq->knn.k;
 }
 
 // Test that K ≤ WINDOW constraint doesn't affect cases where K is already ≤ WINDOW
@@ -321,7 +320,7 @@ TEST_F(HybridDefaultsTest, testLinearWindowDefaults) {
       << "Expected LINEAR window=" << HYBRID_DEFAULT_WINDOW << ", got " << parseCtx.hybridParams->scoringCtx->linearCtx.window;
 }
 
-// Test LINEAR WINDOW with LIMIT fallback (WINDOW should use LIMIT if not explicit)
+// Test LINEAR WINDOW with LIMIT fallback (WINDOW should ignore LIMIT fallback)
 TEST_F(HybridDefaultsTest, testLinearWindowLimitFallback) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
@@ -330,7 +329,6 @@ TEST_F(HybridDefaultsTest, testLinearWindowLimitFallback) {
 
   parseCommand(args);
   ASSERT_EQ(parseCtx.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
-  // For LINEAR, WINDOW should use LIMIT fallback when not explicitly set
   ASSERT_EQ(HYBRID_DEFAULT_WINDOW, parseCtx.hybridParams->scoringCtx->linearCtx.window)
       << "Expected LINEAR window=" << HYBRID_DEFAULT_WINDOW << " (should use default, not LIMIT fallback), got " << parseCtx.hybridParams->scoringCtx->linearCtx.window;
 }

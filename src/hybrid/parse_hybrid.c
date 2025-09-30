@@ -462,9 +462,13 @@ static bool tailHasExplicitLimitInPlan(AGGPlan *plan) {
 static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
                                  HybridPipelineParams *hybridParams) {
   // Apply K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation
-  if (pvd && pvd->query->type == VECSIM_QT_KNN &&
-      hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
-    size_t windowValue = hybridParams->scoringCtx->rrfCtx.window;
+  if (pvd && pvd->query->type == VECSIM_QT_KNN) {
+    size_t windowValue;
+    if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+      windowValue = hybridParams->scoringCtx->rrfCtx.window;
+    } else { // (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
+      windowValue = hybridParams->scoringCtx->linearCtx.window;
+    }
     if (pvd->query->knn.k > windowValue) {
       pvd->query->knn.k = windowValue;
     }
