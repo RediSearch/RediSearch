@@ -435,20 +435,23 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
     RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
 
     if (!topo) {
-      RedisModule_ReplyKV_Null(reply, "slots");
+      RedisModule_ReplyKV_Null(reply, "shards");
     } else {
-      RedisModule_ReplyKV_Array(reply, "slots"); // >slots
+      RedisModule_ReplyKV_Array(reply, "shards"); // >shards
       for (int i = 0; i < topo->numShards; i++) {
         MRClusterShard *sh = &topo->shards[i];
+        RedisModule_Reply_Map(reply); // >>(shard)
 
-        RedisModule_Reply_Map(reply); // >>(shards)
-        long long start = -1, end = -1;
-        if (sh->numRanges > 0) {
-          start = sh->ranges[0].start;
-          end = sh->ranges[0].end;
+        RedisModule_ReplyKV_Array(reply, "slots"); // >>>slots
+        for (int r = 0; r < sh->numRanges; r++) {
+          long long start = sh->ranges[r].start;
+          long long end = sh->ranges[r].end;
+          RedisModule_Reply_Map(reply); // >>>>(slot range)
+          RedisModule_ReplyKV_LongLong(reply, "start", start);
+          RedisModule_ReplyKV_LongLong(reply, "end", end);
+          RedisModule_Reply_MapEnd(reply); // >>>>(slot range)
         }
-        RedisModule_ReplyKV_LongLong(reply, "start", start);
-        RedisModule_ReplyKV_LongLong(reply, "end", end);
+        RedisModule_Reply_ArrayEnd(reply); // >>>slots
 
         RedisModule_ReplyKV_Array(reply, "nodes"); // >>>nodes
         for (int j = 0; j < sh->numNodes; j++) {
@@ -458,17 +461,17 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
           REPLY_KVSTR_SAFE("id", node->id);
           REPLY_KVSTR_SAFE("host", node->endpoint.host);
           RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
-          RedisModule_ReplyKV_SimpleStringf(reply, "role", "%s%s",                        // TODO: move the space to "self"
-                                      node->flags & MRNode_Master ? "master " : "slave ", // "master" : "slave",
-                                      node->flags & MRNode_Self ? "self" : "");           // " self" : ""
+          RedisModule_ReplyKV_SimpleStringf(reply, "role", "%s%s",
+                                      node->flags & MRNode_Master ? "master" : "slave",
+                                      node->flags & MRNode_Self ? " self" : "");
 
           RedisModule_Reply_MapEnd(reply); // >>>>(node)
         }
         RedisModule_Reply_ArrayEnd(reply); // >>>nodes
 
-        RedisModule_Reply_MapEnd(reply); // >>(shards)
+        RedisModule_Reply_MapEnd(reply); // >>(shard)
       }
-      RedisModule_Reply_ArrayEnd(reply); // >slots
+      RedisModule_Reply_ArrayEnd(reply); // >shards
     }
 
     RedisModule_Reply_MapEnd(reply); // root
@@ -486,7 +489,7 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
     // Report topology
     RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
 
-    RedisModule_Reply_SimpleString(reply, "slots");
+    RedisModule_Reply_SimpleString(reply, "shards");
 
     if (!topo) {
       RedisModule_Reply_Null(reply);
@@ -495,22 +498,24 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
         MRClusterShard *sh = &topo->shards[i];
         RedisModule_Reply_Array(reply); // >shards
 
-        long long start = -1, end = -1;
-        if (sh->numRanges > 0) {
-          start = sh->ranges[0].start;
-          end = sh->ranges[0].end;
+        RedisModule_Reply_Array(reply); // >>>slots
+        for (int r = 0; r < sh->numRanges; r++) {
+          long long start = sh->ranges[r].start;
+          long long end = sh->ranges[r].end;
+          RedisModule_Reply_LongLong(reply, start);
+          RedisModule_Reply_LongLong(reply, end);
         }
-        RedisModule_Reply_LongLong(reply, start);
-        RedisModule_Reply_LongLong(reply, end);
+        RedisModule_Reply_ArrayEnd(reply); // >>>slots
+
         for (int j = 0; j < sh->numNodes; j++) {
           MRClusterNode *node = &sh->nodes[j];
           RedisModule_Reply_Array(reply); // >>node
             REPLY_SIMPLE_SAFE(node->id);
             REPLY_SIMPLE_SAFE(node->endpoint.host);
             RedisModule_Reply_LongLong(reply, node->endpoint.port);
-            RedisModule_Reply_SimpleStringf(reply, "%s%s",                                // TODO: move the space to "self"
-                                      node->flags & MRNode_Master ? "master " : "slave ", // "master" : "slave",
-                                      node->flags & MRNode_Self ? "self" : "");           // " self" : ""
+            RedisModule_Reply_SimpleStringf(reply, "%s%s",
+                                      node->flags & MRNode_Master ? "master" : "slave",
+                                      node->flags & MRNode_Self ? " self" : "");
           RedisModule_Reply_ArrayEnd(reply); // >>node
         }
 
