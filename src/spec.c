@@ -45,6 +45,7 @@
 #include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
 #include "util/redis_mem_info.h"
+#include "search_disk.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -67,6 +68,7 @@ Version redisVersion;
 Version rlecVersion;
 bool isCrdt;
 bool isTrimming = false;
+bool isFlex = false;
 
 // Default values make no limits.
 size_t memoryLimit = -1;
@@ -1379,6 +1381,30 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       goto reset;
     }
 
+    if (sp->diskSpec)
+    {
+      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support non-TEXT fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_NotIndexable) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support NOINDEX fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_Sortable) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support SORTABLE fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_IndexMissing) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support INDEXMISSING fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_IndexEmpty) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support INDEXEMPTY fields");
+        goto reset;
+      }
+    }
+
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {
       int textId = IndexSpec_CreateTextId(sp, fs->index);
       if (textId < 0) {
@@ -1497,6 +1523,10 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   return rc;
 }
 
+inline static bool isSpecOnDisk(const IndexSpec *sp) {
+  return isFlex;
+}
+
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
@@ -1587,6 +1617,13 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
   if (spec->rule->filter_exp) {
     SchemaRule_FilterFields(spec);
+  }
+
+  // Store on disk if we're on Flex and we don't force RAM
+  if (isSpecOnDisk(spec)) {
+    RS_ASSERT(disk_db);
+    spec->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(spec->specName, NULL), spec->rule->type);
+    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
   }
 
   return spec_ref;
@@ -1779,6 +1816,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 
   // Destroy the spec's lock
   pthread_rwlock_destroy(&spec->rwlock);
+
+  if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
 
   // Free spec struct
   rm_free(spec);
@@ -2935,7 +2974,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
-  
+
 
   // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
   IndexFlags flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
@@ -3004,6 +3043,13 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
     }
+  }
+
+  if (isFlex) {
+    // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
+    // we add the `Index_StoreInRAM` flag to the rdb file.
+    RS_ASSERT(disk_db);
+    sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
   }
 
   return sp;
@@ -3085,7 +3131,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     initializeFieldSpec(fs, i);
-    FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);    
+    FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
     }
@@ -3144,6 +3190,13 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
+
+  if (isFlex) {
+    // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
+    // we add the `Index_StoreInRAM` flag to the rdb file.
+    RS_ASSERT(disk_db);
+    sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
+  }
 
   dictDelete(legacySpecRules, sp->specName);
   SchemaRuleArgs_Free(rule_args);

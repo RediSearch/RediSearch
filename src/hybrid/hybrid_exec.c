@@ -98,8 +98,6 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLookup;
 
-    RedisModule_ReplyKV_Map(reply, "attributes"); // >attributes
-
     if (r->flags & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
@@ -143,10 +141,9 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
             v = RS_DUOVAL_OTHER2VAL(*v);
           }
         }
-        RSValue_SendReply(reply, v, flags);
+        RedisModule_Reply_RSValue(reply, v, flags);
       }
     }
-    RedisModule_Reply_MapEnd(reply); // >attributes
   }
   RedisModule_Reply_MapEnd(reply); // >result
 }
@@ -227,13 +224,8 @@ static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size
 
     RedisModule_Reply_Map(reply);
 
-    // <format>
-    QEFlags reqFlags = HREQ_RequestFlags(hreq);
-    if (reqFlags & QEXEC_FORMAT_EXPAND) {
-      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
-    } else {
-      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
-    }
+    // <total_results>
+    RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
@@ -259,9 +251,6 @@ static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size
 
 done:
     RedisModule_Reply_ArrayEnd(reply); // >results
-
-    // <total_results>
-    RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     // warnings
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
@@ -549,11 +538,16 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
+
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
+
+  // Update dialect statistics only after successful execution
+  SET_DIALECT(sctx->spec->used_dialects, hybridRequest->reqConfig.dialectVersion);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, hybridRequest->reqConfig.dialectVersion);
 
   DefaultCleanup(hybrid_ref);
   return REDISMODULE_OK;
