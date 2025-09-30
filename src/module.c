@@ -2815,19 +2815,33 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
   return REDISMODULE_OK;
 }
 
-bool should_return_error(MRReply *reply) {
+// Extracts the query error from the reply
+// Returns the error code
+// Only checks for timeout and OOM errors
+QueryErrorCode extractQueryErrorFromReply(MRReply *reply) {
   const char *errStr = MRReply_String(reply, NULL);
   if (!errStr) {
-    return true;  // No error string means we should return error
+    return QUERY_EGENERIC;
   }
 
-  // Check if this is a timeout error with non-fail policy
   if (!strcmp(errStr, QueryError_Strerror(QUERY_ETIMEDOUT))) {
+    return QUERY_ETIMEDOUT;
+  }
+
+  if (!strcmp(errStr, QueryError_Strerror(QUERY_EOOM))) {
+    return QUERY_EOOM;
+  }
+
+  return QUERY_EGENERIC;
+}
+
+bool should_return_error(QueryErrorCode errCode) {
+  // Check if this is a timeout error with non-fail policy
+  if (errCode == QUERY_ETIMEDOUT) {
     return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
   }
-
   // Check if this is an OOM error with non-fail policy
-  if (!strcmp(errStr, QueryError_Strerror(QUERY_EOOM))) {
+  if (errCode == QUERY_EOOM) {
     return RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail;
   }
 
@@ -2863,13 +2877,13 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
       rCtx.errorOccurred = true;
       rCtx.lastError = curr_rep;
-      if (should_return_error(curr_rep)) {
+      QueryErrorCode errCode = extractQueryErrorFromReply(curr_rep);
+      if (should_return_error(errCode)) {
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;
       } else {
         // Check if OOM
-        const char *errStr = MRReply_String(replies[i], NULL);
-        if (errStr && !strcmp(errStr, QueryError_Strerror(QUERY_EOOM))) {
+        if (errCode == QUERY_EOOM) {
           req->queryOOM = true;
         }
       }

@@ -124,7 +124,9 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
 
-bool should_return_error(MRReply *reply);
+QueryErrorCode extractQueryErrorFromReply(MRReply *reply);
+
+bool should_return_error(QueryErrorCode errCode);
 
 bool estimateOOM(RedisModuleCtx *ctx);
 
