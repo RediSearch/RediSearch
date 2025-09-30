@@ -1352,7 +1352,7 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
   }
   r->score = normalizedScore;
 
-  // Update distance field 
+  // Update distance field
   if (self->scoreKey) {
     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(normalizedScore));
   }
@@ -1856,7 +1856,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
       // Store the final return code for this upstream
       self->upstreamReturnCodes[i] = rc;
-
+      RLookup_AddKeysFrom(self->lookupCtx->sourceLookups[i], self->lookupCtx->tailLookup, RLOOKUP_F_NOFLAGS);
       // Currently continues processing other upstreams.
       // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error : MOD-11004
       // Note: This processor might have rp_depleter as an upstream, which currently lacks a mechanism to stop its spawned thread before completion.
