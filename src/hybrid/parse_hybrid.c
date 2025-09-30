@@ -643,7 +643,15 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
   // This is because the sorter limits the number of results and can reduce the amount of work the loader needs to do
   // So it is important this is done before we add the load step to the subqueries plan
-  AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
+  PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
+  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    arrangeStep->limit = hybridParams->scoringCtx->rrfCtx.window;
+  } else if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
+    arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
+  } else {
+    RS_ABORT("Invalid scoring type");
+  }
+
 
   // We need a load step, implicit or an explicit one
   PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
