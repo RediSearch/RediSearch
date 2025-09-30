@@ -4044,7 +4044,7 @@ def cluster_set_test(env: Env):
     def verify_address(addr):
         try:
             with TimeLimit(10, f'Failed waiting cluster set command to be updated with the new IP address `{addr}`'):
-                while env.cmd('SEARCH.CLUSTERINFO')[9][2][1] != addr:
+                while env.cmd('SEARCH.CLUSTERINFO')[9][1][1] != addr:
                     pass
         except Exception as e:
             env.assertTrue(False, message=str(e))
