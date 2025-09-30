@@ -42,7 +42,7 @@ TEST_F(ValueTest, testBasic) {
 }
 
 TEST_F(ValueTest, testArray) {
-  RSValue *arr = RS_VStringArray(3, strdup("foo"), strdup("bar"), strdup("baz"));
+  RSValue *arr = RSValue_NewVStringArrayAlloc(3, strdup("foo"), strdup("bar"), strdup("baz"));
   ASSERT_EQ(3, RSValue_ArrayLen(arr));
   ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 0)));
   ASSERT_STREQ("foo", RSValue_String_Get(RSValue_ArrayItem(arr, 0), NULL));
@@ -55,7 +55,7 @@ TEST_F(ValueTest, testArray) {
   RSValue_DecrRef(arr);
 
   char *strs[] = {strdup("foo"), strdup("bar"), strdup("baz")};
-  arr = RS_StringArray(strs, 3);
+  arr = RSValue_NewStringArrayAlloc(strs, 3);
   ASSERT_EQ(3, RSValue_ArrayLen(arr));
   ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 0)));
   ASSERT_STREQ("foo", RSValue_String_Get(RSValue_ArrayItem(arr, 0), NULL));

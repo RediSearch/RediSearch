@@ -64,7 +64,7 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
     arr[i] = RSValue_IncrRef(dictGetKey(de));
   }
   dictReleaseIterator(it);
-  RSValue *ret = RSValue_NewArray(arr, len);
+  RSValue *ret = RSValue_NewArrayAlloc(arr, len);
   return ret;
 }
 

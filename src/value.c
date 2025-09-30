@@ -219,7 +219,7 @@ RSValue *RSValue_NewCopiedStringAlloc(const char *s, size_t n) {
   return v;
 }
 
-RSValue *RSValue_ParseNumber(const char *p, size_t l) {
+RSValue *RSValue_ParseNumberAlloc(const char *p, size_t l) {
 
   char *e;
   errno = 0;
@@ -244,7 +244,7 @@ RSValue *RSValue_NewNumberFromInt64Alloc(int64_t dd) {
   return v;
 }
 
-RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
+RSValue *RSValue_NewArrayAlloc(RSValue **vals, uint32_t len) {
   RSValue *arr = RSValue_NewAlloc(RSValueType_Array);
   arr->_arrval.vals = vals;
   arr->_arrval.len = len;
@@ -268,7 +268,7 @@ RSValue *RSValue_NewMapAlloc(RSValueMap map) {
   return v;
 }
 
-RSValue *RS_VStringArray(uint32_t sz, ...) {
+RSValue *RSValue_NewVStringArrayAlloc(uint32_t sz, ...) {
   RSValue **arr = RSValue_AllocateArray(sz);
   va_list ap;
   va_start(ap, sz);
@@ -277,26 +277,26 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
     arr[i] = RSValue_NewCStringAlloc(p);
   }
   va_end(ap);
-  return RSValue_NewArray(arr, sz);
+  return RSValue_NewArrayAlloc(arr, sz);
 }
 
 /* Wrap an array of NULL terminated C strings into an RSValue array */
-RSValue *RS_StringArray(char **strs, uint32_t sz) {
+RSValue *RSValue_NewStringArrayAlloc(char **strs, uint32_t sz) {
   RSValue **arr = RSValue_AllocateArray(sz);
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RSValue_NewCStringAlloc(strs[i]);
   }
-  return RSValue_NewArray(arr, sz);
+  return RSValue_NewArrayAlloc(arr, sz);
 }
 
-RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
+RSValue *RSValue_NewStringArrayTAlloc(char **strs, uint32_t sz, RSStringType st) {
   RSValue **arr = RSValue_AllocateArray(sz);
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RSValue_NewStringWithTypeAlloc(strs[i], strlen(strs[i]), st);
   }
-  return RSValue_NewArray(arr, sz);
+  return RSValue_NewArrayAlloc(arr, sz);
 }
 
 RSValue *RSValue_NewTrioAlloc(RSValue *val, RSValue *otherval, RSValue *other2val) {
