@@ -1715,17 +1715,15 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   * @param score - used to override the result's score
  */
  static void hybridMergerStoreUpstreamResult(SearchResult *r, dict *hybridResults, const RLookupKey *docKey, int upstreamIndex, size_t numUpstreams, double score) {
-  const char *keyPtr = NULL;
-  if (docKey) {
+  // Single shard case - use dmd->keyPtr
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
+  const char *keyPtr = dmd ? dmd->keyPtr : NULL;
+  // Coordinator casee - no dmd - use docKey in rlookup
+  if (!keyPtr && docKey) {
     RSValue *docKeyValue = RLookup_GetItem(docKey, &r->rowdata);
     if (docKeyValue != NULL) {
       keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
     }
-  }
-   
-  if (!keyPtr && r->dmd->keyPtr != NULL) {
-    // support c++ tests that don't have rlookup keys to provide
-    keyPtr = SearchResult_GetDocumentMetadata(r)->keyPtr;;
   }
 
   // Check if we've seen this document before
