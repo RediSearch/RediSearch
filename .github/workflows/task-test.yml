@@ -132,11 +132,11 @@ jobs:
             lscpu
           elif [[ "$RUNNER_OS" == "macOS" ]] || command -v sysctl >/dev/null 2>&1; then
             echo "--- macOS CPU info ---"
-            sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "CPU brand: N/A"
-            sysctl -n machdep.cpu.core_count 2>/dev/null || echo "Core count: N/A"
-            sysctl -n machdep.cpu.thread_count 2>/dev/null || echo "Thread count: N/A"
-            sysctl -n machdep.cpu.vendor 2>/dev/null || echo "CPU vendor: N/A"
-            sysctl -n machdep.cpu.features 2>/dev/null || echo "CPU features: N/A"
+            echo "CPU brand: $(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "N/A")"
+            echo "Core count: $(sysctl -n machdep.cpu.core_count 2>/dev/null || echo "N/A")"
+            echo "Thread count: $(sysctl -n machdep.cpu.thread_count 2>/dev/null || echo "N/A")"
+            echo "CPU vendor: $(sysctl -n machdep.cpu.vendor 2>/dev/null || echo "N/A")"
+            echo "CPU features: $(sysctl -n machdep.cpu.features 2>/dev/null || echo "N/A")"
           else
             echo "--- Fallback CPU info ---"
             cat /proc/cpuinfo 2>/dev/null || echo "CPU info not available"
