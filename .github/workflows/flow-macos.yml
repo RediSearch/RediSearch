@@ -68,6 +68,8 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     with:
       env: ${{ matrix.env }}
+      container: ${{ matrix.container }}
+      pre-steps-script: ${{ matrix.pre-steps-script }}
       test-config: ${{ inputs.test-config }}
       coordinator: ${{ inputs.coordinator }}
       standalone:  ${{ inputs.standalone }}

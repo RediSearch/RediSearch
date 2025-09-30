@@ -181,22 +181,22 @@ jobs:
           # macOS configurations
           if 'macos' in requested_platforms:
               matrix_include.extend([
-                  {'platform': 'macos', 'name': 'macOS Intel', 'env': 'macos-13'},
-                  {'platform': 'macos', 'name': 'macOS M1', 'env': 'macos-latest-xlarge'}
+                  {'platform': 'macos', 'name': 'macOS Intel', 'env': 'macos-13', 'container': '', 'pre-steps-script': ''},
+                  {'platform': 'macos', 'name': 'macOS M1', 'env': 'macos-latest-xlarge', 'container': '', 'pre-steps-script': ''}
               ])
 
           # Sanitizer configuration
           if 'sanitizer' in requested_platforms and include_sanitizer:
               matrix_include.append({
                   'platform': 'sanitizer', 'name': 'Address Sanitizer',
-                  'env': 'ubuntu-latest', 'san': 'address'
+                  'env': 'ubuntu-latest', 'san': 'address', 'container': '', 'pre-steps-script': ''
               })
 
           # Coverage configuration
           if 'coverage' in requested_platforms and include_coverage:
               matrix_include.append({
                   'platform': 'coverage', 'name': 'Coverage',
-                  'env': 'ubuntu-latest', 'coverage': True
+                  'env': 'ubuntu-latest', 'coverage': True, 'container': '', 'pre-steps-script': ''
               })
 
           # Linux x86_64 configurations
