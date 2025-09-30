@@ -108,7 +108,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
 
     // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly)
     const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes, lookupCtx, req->sctx);
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 

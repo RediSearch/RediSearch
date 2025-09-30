@@ -75,6 +75,7 @@ typedef enum {
 
 struct ResultProcessor;
 struct RLookup;
+typedef struct RPDepleter RPDepleter;
 
 // Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
 typedef struct QueryProcessingCtx {
@@ -346,6 +347,14 @@ void PipelineAddCrash(struct AREQ *r);
 ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
 
 /**
+ * Clear the results array in an RPDepleter without deallocating it.
+ * This cleans up individual SearchResult objects and resets the array length to 0,
+ * but keeps the allocated array memory for reuse.
+ * @param self The RPDepleter processor to clear
+ */
+void RPDepleter_ClearResults(RPDepleter *self);
+
+/**
  * Starts the depletion for all the depleters in the array, waits until all finished depleting, and returns.
  * @param depleters Array of depleter processors
  * @param count Number of depleter processors in the array
@@ -378,8 +387,7 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
                                      size_t numUpstreams,
                                      const RLookupKey *scoreKey,
                                      RPStatus *subqueriesReturnCodes,
-                                     HybridLookupContext *lookupCtx,
-                                     RedisSearchCtx *sctx);
+                                     HybridLookupContext *lookupCtx);
 
  /*
   * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.

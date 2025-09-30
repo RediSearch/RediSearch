@@ -343,6 +343,30 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
   depleter->Free(depleter);
 }
 
+// Note: This test verifies that RPDepleter_ClearResults compiles and links correctly.
+// A more comprehensive test would require access to RPDepleter's internal fields,
+// which are intentionally opaque. The function is tested indirectly through
+// the destructor and other integration tests.
+TEST_P(RPDepleterTest, TestClearResults) {
+  bool take_index_lock = GetParam();
+
+  // Create depleter processor with new sync reference
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
+
+  // Cast to RPDepleter to call the clear function
+  RPDepleter *rp_depleter = (RPDepleter *)depleter;
+
+  // Call the clear function - this should not crash
+  // The function clears internal results and resets the index
+  RPDepleter_ClearResults(rp_depleter);
+
+  // Clean up
+  depleter->Free(depleter);
+
+  // If we got here without crashing, the test passed
+  SUCCEED();
+}
+
 // Instantiate the parameterized test with both true and false values
 INSTANTIATE_TEST_SUITE_P(
     LockingVariants,
