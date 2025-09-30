@@ -1856,7 +1856,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
       // Store the final return code for this upstream
       self->upstreamReturnCodes[i] = rc;
-      RLookup_AddKeysFrom(self->lookupCtx->sourceLookups[i], self->lookupCtx->tailLookup, RLOOKUP_F_NOFLAGS);
       // Currently continues processing other upstreams.
       // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error : MOD-11004
       // Note: This processor might have rp_depleter as an upstream, which currently lacks a mechanism to stop its spawned thread before completion.
@@ -1872,6 +1871,10 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
     return RS_RESULT_ERROR;
   } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
     return RS_RESULT_TIMEDOUT;
+  }
+
+  for (size_t i = 0; i < self->numUpstreams; i++) {
+    RLookup_AddKeysFrom(self->lookupCtx->sourceLookups[i], self->lookupCtx->tailLookup, RLOOKUP_F_NOFLAGS);
   }
 
   // Initialize iterator for yield phase
