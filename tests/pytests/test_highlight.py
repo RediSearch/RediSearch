@@ -18,8 +18,8 @@ def verify_highlighted_words(env, result, expected_highlighted_words):
         if '<b>' in word:
             highlighted.add(word)
     env.assertEqual(highlighted, expected_highlighted_words)
-    
-        
+
+
 # simply highlight check
 def test_highlight_simple(env):
     """Minimal test case for highlighting bug fix"""
@@ -49,7 +49,7 @@ def test_highlight_empty_id(env):
     # Create minimal index
     env.expect('FT.CREATE', 'empty_id_index', 'ON', 'HASH', 'STOPWORDS', '0', 'SCHEMA',
                'title', 'TEXT', 'NOSTEM', 'content', 'TEXT', 'NOSTEM').ok()
-    waitForIndex(env, 'missing_id_index')
+    waitForIndex(env, 'empty_id_index')
     # Add document
     conn.hset('doc:1', mapping={
         'id': "",
@@ -59,4 +59,3 @@ def test_highlight_empty_id(env):
     # Search with highlighting
     result = env.cmd('FT.SEARCH', 'empty_id_index', 'Product', 'HIGHLIGHT')
     verify_highlighted_words(env, result, {'<b>Product</b>'})
-    
