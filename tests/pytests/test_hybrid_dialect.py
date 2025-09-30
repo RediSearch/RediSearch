@@ -35,7 +35,7 @@ def exec_and_validate_query(env, hybrid_cmd):
     env.assertEqual(count, 2)
 
 
-# TODO: remove once FT.HYBRID for cluster is implemented
+# TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_dialects():
     env = Env()

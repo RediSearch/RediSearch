@@ -572,7 +572,7 @@ class testHybridSearch:
         filtered_res = self.env.executeCommand(*hybrid_cmd)
         filtered_dict = to_dict(filtered_res)
 
-        # total_results should be the number of results before filtering.
+        # total_results should be the correct number of results we got
         self.env.assertEqual(unfiltered_dict['total_results'], 3)
         self.env.assertEqual(filtered_dict['total_results'], 1)
 

@@ -73,7 +73,7 @@ def calculate_l2_distance_normalized(vec1_bytes, vec2_bytes):
     return VectorNorm_L2(np.linalg.norm(vec1 - vec2)**2)
 
 
-# TODO: remove once FT.HYBRID for cluster is implemented
+# TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vector_knn_with_score():
     env = Env()
@@ -96,7 +96,7 @@ def test_hybrid_vector_knn_with_score():
         # Validate that the returned score matches the calculated L2 normalized distance
         env.assertAlmostEqual(returned_score, expected_score, delta=1e-6)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
+# TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vector_range_with_score():
     env = Env()
