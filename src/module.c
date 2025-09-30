@@ -841,6 +841,41 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+// Helper function to register commands that write arbitrary keys
+// Attempt to use an additional flag `touches-arbitrary-keys` and if this fails, falls back to the original flags.
+static int RMCreateArbitraryWriteSearchCommand(RedisModuleCtx *ctx, const char *name,
+                                             RedisModuleCmdFunc callback,
+                                             const char *flags,
+                                             int firstkey, int lastkey, int keystep
+                                             ) {
+  // Build flag combinations
+  char flagCombinations[2][256];
+  int flagCount = 0;
+
+  // Primary flags with touches-arbitrary-keys
+  snprintf(flagCombinations[flagCount], sizeof(flagCombinations[flagCount]), "%s touches-arbitrary-keys", flags);
+  flagCount++;
+
+  // Fallback flags (original flags only)
+  snprintf(flagCombinations[flagCount], sizeof(flagCombinations[flagCount]), "%s", flags);
+  flagCount++;
+
+  // Try each flag combination
+  for (int i = 0; i < flagCount; i++) {
+    int rc = RedisModule_CreateCommand(ctx, name, callback, flagCombinations[i],
+                                 firstkey, lastkey, keystep);
+    if (rc == REDISMODULE_OK) {
+      if (i > 0) {
+        RedisModule_Log(ctx, "notice", "Registered command %s with flags: %s",
+                       name, flagCombinations[i]);
+      }
+      return REDISMODULE_OK;
+    }
+  }
+
+  return REDISMODULE_ERR;
+}
+
 #define RM_TRY(f, ...)                                                         \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -1037,17 +1072,22 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
          "write deny-oom", INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
+  // Special cases: Register drop commands which write to arbitrary keys
+  RM_TRY(RMCreateArbitraryWriteSearchCommand, ctx, RS_DROP_CMD, DropIndexCommand,
+         "write", INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
+  RM_TRY(RMCreateArbitraryWriteSearchCommand, ctx, RS_DROP_INDEX_CMD, DropIndexCommand,
+         "write", INDEX_ONLY_CMD_ARGS);
+
+  RM_TRY(RMCreateArbitraryWriteSearchCommand, ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand,
+         "write", INDEX_ONLY_CMD_ARGS);
+
+  RM_TRY(RMCreateArbitraryWriteSearchCommand, ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand,
+         "write", INDEX_ONLY_CMD_ARGS);
+
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand,
+         "readonly", INDEX_ONLY_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
