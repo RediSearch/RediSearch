@@ -16,7 +16,16 @@ void MRClusterShard_AddNode(MRClusterShard *sh, MRClusterNode *n) {
     sh->capNodes += 1;
     sh->nodes = rm_realloc(sh->nodes, sh->capNodes * sizeof(MRClusterNode));
   }
-  sh->nodes[sh->numNodes++] = *n;
+  sh->nodes[sh->numNodes] = *n;
+  if (n->flags & MRNode_Master) {
+    // Ensure that master nodes are always at the front of the list
+    if (sh->numNodes) {
+      MRClusterNode tmp = sh->nodes[sh->numNodes];
+      sh->nodes[sh->numNodes] = sh->nodes[0];
+      sh->nodes[0] = tmp;
+    }
+  }
+  sh->numNodes++;
 }
 
 
