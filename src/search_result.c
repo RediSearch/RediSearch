@@ -54,7 +54,7 @@ void SearchResult_Destroy(SearchResult *r) {
 
 void SearchResult_Override(SearchResult *dst, SearchResult *src) {
   if (!src) return;
-  RLookupRow* oldrow = SearchResult_GetRowDataMut(dst);
+  RLookupRow oldrow = dst->rowdata;
   *dst = *src;
-  RLookupRow_Reset(oldrow);
+  RLookupRow_Reset(&oldrow);
 }
