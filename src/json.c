@@ -28,7 +28,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
   // If RedisJSON module is loaded after RediSearch need to get the API exported by RedisJSON
 
   if (!GetJSONAPIs(ctx, 0)) {
-    RedisModule_Log(ctx, "warning", "Detected RedisJSON: failed to acquire ReJSON API");
+    RedisModule_Log(ctx, "warning", "Detected RedisJSON: failed to acquire ReJSON API. Minimum required version is %d", RedisJSONAPI_MIN_API_VER);
   }
 }
 
@@ -37,7 +37,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
     char ver[128];
     // Obtain the newest version of JSON API
-    for (int i = RedisJSONAPI_LATEST_API_VER; i >= 1; --i) {
+    for (int i = RedisJSONAPI_LATEST_API_VER; i >= RedisJSONAPI_MIN_API_VER; --i) {
       sprintf(ver, "RedisJSON_V%d", i);
       japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {
@@ -56,41 +56,7 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 JSONPath pathParse(const HiddenString* path, RedisModuleString **err_msg) {
-  if (japi_ver >= 2) {
-    return japi->pathParse(HiddenString_GetUnsafe(path, NULL), RSDummyContext, err_msg);
-  } else {
-    *err_msg = NULL;
-    return NULL;
-  }
-}
-
-void pathFree(JSONPath jsonpath) {
-  if (japi_ver >= 2) {
-    japi->pathFree(jsonpath);
-  } else {
-    // Should not attempt to free none-null path when the required API to parse is not available
-    RS_ASSERT(jsonpath != NULL);
-  }
-}
-
-int pathIsSingle(JSONPath jsonpath) {
-  if (japi_ver >= 2) {
-    return japi->pathIsSingle(jsonpath);
-  } else {
-    // Should not use none-null path when the required API to parse is not available
-    RS_ASSERT(jsonpath != NULL);
-  }
-  return false;
-}
-
-int pathHasDefinedOrder(JSONPath jsonpath) {
-  if (japi_ver >= 2) {
-    return japi->pathHasDefinedOrder(jsonpath);
-  } else {
-    // Should not use none-null path when the required API to parse is not available
-    RS_ASSERT(jsonpath != NULL);
-  }
-  return false;
+  return japi->pathParse(HiddenString_GetUnsafe(path, NULL), RSDummyContext, err_msg);
 }
 
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *status) {
@@ -672,7 +638,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   // If all is successful up til here,
   // we check whether a multi value is needed to be calculated for SORTABLE (avoiding re-opening the key and re-parsing the path)
   // (requires some API V2 functions to be available)
-  if (rv == REDISMODULE_OK && FieldSpec_IsSortable(fs) && df->unionType == FLD_VAR_T_ARRAY && japi_ver >= 3) {
+  if (rv == REDISMODULE_OK && FieldSpec_IsSortable(fs) && df->unionType == FLD_VAR_T_ARRAY) {
     RSValue *rsv = NULL;
     japi->resetIter(jsonIter);
     // There is no api version (DIALECT) specified during ingestion,
