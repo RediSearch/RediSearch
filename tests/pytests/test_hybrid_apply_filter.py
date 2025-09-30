@@ -102,5 +102,5 @@ def test_hybrid_apply_filter_rrf_no_results():
         'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'WINDOW', '10',
          'APPLY', '2*@__score', 'AS', 'doubled_score', 'FILTER', f'@doubled_score<0')
     results, count = get_results_from_hybrid_response(response)
-    env.assertTrue(set(results.keys()) == {})
+    env.assertEqual(len(results.keys()), 0)
     env.assertEqual(count, 0)

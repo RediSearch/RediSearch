@@ -404,7 +404,6 @@ class testHybridSearch:
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
-        print(res)
         self.env.assertEqual(res, [
             'total_results', 1,
             'results',
@@ -579,11 +578,11 @@ class testHybridSearch:
 
         # But only 1 result is returned by the filtered query:
         expected = [
+            'total_results', 1,
             'results',
             [
                 ['__key', 'both_01', '__score', '0.45']
             ],
-            'total_results', 1,
             'warnings', [],
             'execution_time', ANY
         ]
