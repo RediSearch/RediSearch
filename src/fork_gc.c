@@ -568,6 +568,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
 
   InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
+  bool shouldFreeDeltas = true;
 
   if (delta == NULL) {
     rm_free(term);
@@ -594,6 +595,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   }
 
   InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
   if (InvertedIndex_NumDocs(idx) == 0) {
 
@@ -631,7 +633,10 @@ cleanup:
     IndexSpecRef_Release(spec_ref);
   }
   rm_free(term);
-  InvertedIndex_GcDelta_Free(delta);
+
+  if (shouldFreeDeltas) {
+    InvertedIndex_GcDelta_Free(delta);
+  }
   return status;
 }
 
@@ -655,6 +660,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   while (status == FGC_COLLECTED) {
     // Read from GC process
     FGCError status2 = recvNumIdx(gc, &ninfo);
+    bool shouldFreeDeltas = true;
     if (status2 == FGC_DONE) {
       break;
     } else if (status2 != FGC_COLLECTED) {
@@ -691,6 +697,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
 
     applyNumIdx(gc, sctx, &ninfo);
+    shouldFreeDeltas = false; // ownership passed to applyNumIdx
     rt->numEntries -= ninfo.info.entries_removed;
     rt->invertedIndexesSize -= ninfo.info.bytes_freed;
     rt->invertedIndexesSize += ninfo.info.bytes_allocated;
@@ -700,7 +707,9 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
 
   loop_cleanup:
-    InvertedIndex_GcDelta_Free(ninfo.delta);
+    if (shouldFreeDeltas) {
+      InvertedIndex_GcDelta_Free(ninfo.delta);
+    }
     if (sp) {
       RedisSearchCtx_UnlockSpec(sctx);
       IndexSpecRef_Release(spec_ref);
@@ -772,6 +781,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
     II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
     delta = InvertedIndex_GcDelta_Read(&rd);
+    bool shouldFreeDeltas = true;
 
     if (delta == NULL) {
       status = FGC_CHILD_ERROR;
@@ -796,6 +806,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     }
 
     InvertedIndex_ApplyGcDelta(idx, delta, &info);
+    shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
     // if tag value is empty, let's remove it.
     if (InvertedIndex_NumDocs(idx) == 0) {
@@ -813,7 +824,10 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
-    InvertedIndex_GcDelta_Free(delta);
+
+    if (shouldFreeDeltas) {
+      InvertedIndex_GcDelta_Free(delta);
+    }
 
     if (tagVal) {
       rm_free(tagVal);
@@ -840,6 +854,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   II_GCScanStats info = {0};
   II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
   InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
+  bool shouldFreeDeltas = true;
 
   if (delta == NULL) {
     rm_free(rawFieldName);
@@ -866,6 +881,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   }
 
   InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
   if (InvertedIndex_NumDocs(idx) == 0) {
     // inverted index was cleaned entirely lets free it
@@ -882,7 +898,10 @@ cleanup:
   }
   HiddenString_Free(fieldName, false);
   rm_free(rawFieldName);
-  InvertedIndex_GcDelta_Free(delta);
+
+  if (shouldFreeDeltas) {
+    InvertedIndex_GcDelta_Free(delta);
+  }
 
   return status;
 }
@@ -904,6 +923,7 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   II_GCScanStats info = {0};
   II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
   InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
+  bool shouldFreeDeltas = true;
 
   if (delta == NULL) {
     rm_free(empty_indicator);
@@ -925,6 +945,7 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   InvertedIndex *idx = sp->existingDocs;
 
   InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
   // We don't count the records that we removed, because we also don't count
   // their addition (they are duplications so we have no such desire).
@@ -944,7 +965,10 @@ cleanup:
     IndexSpecRef_Release(spec_ref);
   }
 
-  InvertedIndex_GcDelta_Free(delta);
+  if (shouldFreeDeltas) {
+    InvertedIndex_GcDelta_Free(delta);
+  }
+
   return status;
 }
 
