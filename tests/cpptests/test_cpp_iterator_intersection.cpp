@@ -12,7 +12,7 @@
 
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/inverted_index_iterator.h"
-#include "src/inverted_index/inverted_index.h"
+#include "inverted_index.h"
 #include "src/iterators/empty_iterator.h"
 #include "src/iterators/wildcard_iterator.h"
 #include "src/forward_index.h"
@@ -194,7 +194,7 @@ public:
     for (auto &term : terms) {
       if (invertedIndexes.find(term) == invertedIndexes.end()) {
         // Create a new inverted index for the term if it doesn't exist
-        invertedIndexes[term] = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &dummy);
+        invertedIndexes[term] = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS | Index_WideSchema), &dummy);
       }
     }
     t_docId docId = ++num_docs;

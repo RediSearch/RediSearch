@@ -81,10 +81,14 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                       ARG_OPT_END);
 
     // DIALECT dialect - query dialect version
+    unsigned int defaultDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
+    if (defaultDialect < MIN_HYBRID_DIALECT) {
+        defaultDialect = MIN_HYBRID_DIALECT;
+    }
     ArgParser_AddIntV(parser, "DIALECT", "Query dialect version",
                       &ctx->reqConfig->dialectVersion, 1, 1,
                       ARG_OPT_RANGE, (long long)MIN_DIALECT_VERSION, (long long)MAX_DIALECT_VERSION,
-                      ARG_OPT_DEFAULT_INT, RSGlobalConfig.requestConfigParams.dialectVersion,
+                      ARG_OPT_DEFAULT_INT, defaultDialect,
                       ARG_OPT_CALLBACK, handleDialect, ctx,
                       ARG_OPT_OPTIONAL,
                       ARG_OPT_END);
@@ -177,10 +181,8 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     ArgParser_Free(parser);
 
-    // Handle dialect-specific validation (replicated from original)
-    if (ctx->specifiedArgs & SPECIFIED_ARG_DIALECT && ctx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST &&
-        (*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "EXPLAINSCORE is not supported in this dialect version");
+    if ((*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
         return REDISMODULE_ERR;
     }
 

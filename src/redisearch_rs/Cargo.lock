@@ -768,7 +768,6 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "qint",
- "redis-module",
  "varint",
 ]
 
@@ -1376,6 +1375,7 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "redis-module",
+ "result_processor_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",

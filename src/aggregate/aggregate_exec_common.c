@@ -54,7 +54,7 @@
      // Decrement the result limit, now that we got a valid result.
      rp->parent->resultLimit--;
 
-     array_append(results, SearchResult_Copy(&r));
+     array_append(results, SearchResult_AllocateMove(&r));
 
      // clean the search result
      r = (SearchResult){0};
@@ -69,7 +69,6 @@
 
  void startPipelineCommon(RSTimeoutPolicy timeoutPolicy, struct timespec *timeout,
                                 ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-
    if (timeoutPolicy == TimeoutPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, rc);

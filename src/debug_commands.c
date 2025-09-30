@@ -1213,7 +1213,7 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
       }
 
       RedisModule_Reply_CString(reply, "value");
-      RSValue_SendReply(reply, sv->values[ii], 0);
+      RedisModule_Reply_RSValue(reply, sv->values[ii], 0);
     RedisModule_Reply_ArrayEnd(reply);
   }
   RedisModule_Reply_ArrayEnd(reply);

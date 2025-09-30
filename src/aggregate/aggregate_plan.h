@@ -117,7 +117,7 @@ typedef struct {
 typedef struct {
   PLN_BaseStep base;
   const char *vectorFieldName;     // Vector field name (NOT owned - points to parser tokens)
-  const char *distanceFieldAlias; // Distance field alias (owned)
+  const char *distanceFieldAlias;  // Distance field alias (owned)
 } PLN_VectorNormalizerStep;
 
 /* Group step - group by properties and reduce by several reducers */

@@ -84,9 +84,7 @@ static int getNextReply(RPNet *nc) {
     }
   }
   MRReply *root = MRIterator_Next(nc->it);
-  RedisModule_Log(NULL, "warning", "getNextReply: root is %p", root);
-  RedisModule_Log(NULL, "warning", "getNextReply: printMRReplyRecursive: ");
-  printMRReplyRecursive(root, 0);
+
   if (root == NULL) {
     // No more replies
     RPNet_resetCurrent(nc);
@@ -173,7 +171,7 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     // Get index name from command
     const char *idx = MRCommand_ArgStringPtrLen(&nc->cmd, 1, NULL);
 
-    RedisModule_Log(NULL, "warning", "rpnetNext_StartWithMappings: vsimOrSearch is %p, array_len(vsimOrSearch->mappings) is %zu", vsimOrSearch, array_len(vsimOrSearch->mappings));
+    // RedisModule_Log(NULL, "warning", "rpnetNext_StartWithMappings: vsimOrSearch is %p, array_len(vsimOrSearch->mappings) is %zu", vsimOrSearch, array_len(vsimOrSearch->mappings));
 
     // Create cursor read command
     nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx);
@@ -226,7 +224,6 @@ void RPNet_resetCurrent(RPNet *nc) {
 }
 
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
-  RedisModule_Log(NULL, "warning", "rpnetNext: beginning", self);
   RPNet *nc = (RPNet *)self;
   MRReply *root = nc->current.root, *rows = nc->current.rows;
   const bool resp3 = nc->cmd.protocol == 3;
@@ -281,17 +278,16 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    // if (TimedOut(&nc->areq->sctx->time.timeout)) {
-    //   // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
-    //   // callback so that a `CURSOR DEL` command will be dispatched instead of
-    //   // a `CURSOR READ` command.
-    //   MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
-
-    //   return RS_RESULT_TIMEDOUT;
-    // } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
-    //   // if timeout was set in previous reads, reset it
-    //   MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
-    // }
+    if (TimedOut(&nc->areq->sctx->time.timeout)) {
+      // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
+      // callback so that a `CURSOR DEL` command will be dispatched instead of
+      // a `CURSOR READ` command.
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_TIMEDOUT;
+    } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+      // if timeout was set in previous reads, reset it
+      MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
+    }
 
     if (!getNextReply(nc)) {
       return RS_RESULT_EOF;
@@ -325,8 +321,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
   }
 
-  RedisModule_Log(NULL, "warning", "rpnetNext: rows is %s", MRReply_String(rows, NULL));
-
   MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
   if (resp3) {
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
@@ -346,7 +340,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
     MRReply *val = MRReply_ArrayElement(fields, i + 1);
     RSValue *v = MRReply_ToValue(val);
-    RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
+    RLookup_WriteOwnKeyByName(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
   }
   return RS_RESULT_OK;
 }
