@@ -165,6 +165,7 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
         }
       }
     }
+    RS_ASSERT(topo->shards[i].nodes[0].flags & MRNode_Master);
   }
 
   return topo;
