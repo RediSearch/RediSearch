@@ -359,10 +359,10 @@ static void hlpFree(ResultProcessor *p) {
   rm_free(p);
 }
 
-ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
+ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
                                    const RLookup *lookup) {
   HlpProcessor *hlp = rm_calloc(1, sizeof(*hlp));
-  if (searchopts->language == RS_LANG_CHINESE) {
+  if (language == RS_LANG_CHINESE) {
     hlp->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }
   hlp->base.Next = hlpNext;

@@ -782,6 +782,7 @@ dependencies = [
  "ffi",
  "inverted_index",
  "itertools 0.14.0",
+ "redis-module",
  "redis_mock",
  "types_ffi",
  "varint_ffi",
@@ -1374,6 +1375,7 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "redis-module",
+ "result_processor_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
@@ -1462,6 +1464,7 @@ dependencies = [
  "build_utils",
  "cbindgen",
  "ffi",
+ "libc",
  "rlookup",
  "value",
 ]
@@ -1482,6 +1485,7 @@ version = "0.0.1"
 dependencies = [
  "bindgen 0.72.0",
  "build_utils",
+ "cc",
  "criterion",
  "ffi",
  "inverted_index",

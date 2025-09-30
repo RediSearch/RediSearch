@@ -31,8 +31,18 @@ extern "C" {
 typedef struct MetricRequest{
   const char *metric_name;
   RLookupKey **key_ptr;
+  bool isInternal; // Indicates if this metric should be excluded from the response
 } MetricRequest;
 
+// Flags indicating which syntax features are enabled for this query
+typedef enum {
+  // All syntax features are enabled
+  QAST_SYNTAX_DEFAULT = 0,
+  // weight attribute is not allowed
+  QAST_NO_WEIGHT = 0x01,
+  // vector queries are not allowed
+  QAST_NO_VECTOR = 0x02,
+} QAST_ValidationFlags;
 
 /**
  * Query AST structure.
@@ -61,6 +71,9 @@ typedef struct QueryAST {
   // Copy of RSGlobalConfig parameters required for query execution,
   // to ensure that they won't change during query execution.
   IteratorsConfig config;
+
+  // Flags indicating which syntax features are enabled for this query
+  QAST_ValidationFlags validationFlags;
 } QueryAST;
 
 /**
@@ -98,6 +111,9 @@ typedef struct {
 /** Set global filters on the AST */
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options);
 
+/** Set a filter node on the AST, handling different node types appropriately */
+void SetFilterNode(QueryAST *q, QueryNode *filterNode);
+
 /**
  * Open the result iterator on the filters. Returns the iterator for the root node.
  *
@@ -105,7 +121,6 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
  * @param opts options
  * @param sctx the search context. Note that this may be retained by the iterators
  *  for the remainder of the query.
- * @param conc Used to save state on the query
  * @param reqflags Request (AGG/SEARCH) flags
  * @param status error detail
  * @return an iterator.
@@ -129,7 +144,6 @@ int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVers
 int QueryNode_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
-
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */
 char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec);

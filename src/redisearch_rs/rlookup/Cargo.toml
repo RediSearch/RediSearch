@@ -16,6 +16,7 @@ strum.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = ["std"] }
+value = { workspace = true, features = ["test_utils"] }
 
 [lints]
 workspace = true

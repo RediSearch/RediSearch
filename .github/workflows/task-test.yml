@@ -48,6 +48,7 @@ env:
   COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
+  BUILD_INTEL_SVS_OPT: "yes"
 
 jobs:
   common-flow:
@@ -182,7 +183,6 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
-          SVS_PRE_COMPILED_LIB: 1
         run: make build TESTS=1
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}

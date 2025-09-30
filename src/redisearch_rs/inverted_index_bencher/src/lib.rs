@@ -7,12 +7,28 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::c_void;
+use std::ffi::{c_char, c_void};
 
 pub mod benchers;
 pub mod ffi;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
+
+#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
+pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
+
+#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
+pub static mut RSDummyContext: *const c_void = std::ptr::null();
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RedisModule_Log(
+    _ctx: *mut redis_module::RedisModuleCtx,
+    _level: *const c_char,
+    _fmt: *const c_char,
+) {
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
@@ -29,4 +45,18 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
 #[unsafe(no_mangle)]
 pub extern "C" fn Term_Free(_t: *mut ::ffi::RSQueryTerm) {
     // RSQueryTerm used by the benchers are created on the stack so we don't need to free them.
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn isWithinRadius(
+    _gf: *const ::ffi::GeoFilter,
+    _d: f64,
+    _distance: *mut f64,
+) -> bool {
+    panic!("isWithinRadius should not be called by any of the benchmarks");
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn DocTable_Exists(_dt: *const ::ffi::DocTable, _d: ::ffi::t_docId) -> bool {
+    panic!("DocTable_Exists should not be called by any of the benchmarks");
 }

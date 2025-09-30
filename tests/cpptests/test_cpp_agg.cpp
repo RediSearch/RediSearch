@@ -71,7 +71,7 @@ TEST_F(AggTest, testBasic) {
   ASSERT_FALSE(rp == NULL);
 
   SearchResult res = {0};
-  RLookup *lk = AGPLN_GetLookup(&rr->ap, NULL, AGPLN_GETLOOKUP_LAST);
+  RLookup *lk = AGPLN_GetLookup(AREQ_AGGPlan(rr), NULL, AGPLN_GETLOOKUP_LAST);
   size_t count = 0;
   while ((rv = rp->Next(rp, &res)) == RS_RESULT_OK) {
     count++;
@@ -295,7 +295,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
   auto scenario = [&](QEFlags flags, auto... args) -> bool {
     QueryError qerr = {QueryErrorCode(0)};
     AREQ *rr = AREQ_New();
-    rr->reqflags = flags;
+    AREQ_AddRequestFlags(rr, flags);
     RMCK::ArgvList aggArgs(ctx, "*", args...);
     int rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
     EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);

@@ -10,7 +10,7 @@ trailer = """
 // will be returned in it
 //
 // The inverted index should be freed using [`InvertedIndex_Free`] when no longer needed.
-InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *memsize) {
+inline static InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *memsize) {
   return NewInvertedIndex_Ex(flags, RSGlobalConfig.invertedIndexRawDocidEncoding, RSGlobalConfig.numericCompress, memsize);
 }
 """
@@ -20,4 +20,9 @@ parse_deps = true
 include = ["inverted_index"]
 
 [export]
-exclude = ["RSIndexResult"]
+exclude = ["RSIndexResult", "BlockSummary", "Summary", "ReadFilter", "NumericFilter"]
+
+[export.rename]
+"BlockSummary" = "IIBlockSummary"
+"Summary" = "IISummary"
+"ReadFilter" = "IndexDecoderCtx"

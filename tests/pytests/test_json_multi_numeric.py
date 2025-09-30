@@ -86,8 +86,8 @@ doc_non_numeric_content = r'''{
     "attr5": null,
     "attr6": [1, 2, null, 131.42, null, "yikes" ],
     "attr7": [1, 2, null, 131.42, null, false ],
-    "attr8": [1, 2, null, 131.42, null, {"obj": "ect"} ],
-    "attr9": [1, 2, null, 131.42, null, ["no", "noo"] ],
+    "attr8": [1, 2, null, 131.42, null, {"obj": "etc"} ],
+    "attr9": [1, 2, null, 131.42, null, ["no", "none"] ],
     "attr10": [1, 2, null, 131.42, null, [7007] ]
 }
 '''
@@ -269,7 +269,7 @@ def testDebugDump(env):
 
 @skip(cluster=True, no_json=True)
 def testInvertedIndexMultipleBlocks(env):
-    """ Test internal addition of new inverted index blocks (beyond INDEX_BLOCK_SIZE entries)"""
+    """ Test internal addition of new inverted index blocks (beyond the size of a block)"""
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'arr', 'NUMERIC', '$.arr2', 'AS', 'arr2', 'NUMERIC').ok()
     overlap = 10

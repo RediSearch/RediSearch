@@ -8,69 +8,15 @@
 */
 
 
-#include "src/query.h"
 #include "src/query_parser/tokenizer.h"
-#include "src/stopwords.h"
-#include "src/extension.h"
-#include "src/ext/default.h"
 #include "src/util/references.h"
+#include "query_test_utils.h"
 
 #include "gtest/gtest.h"
 
 #include <stdio.h>
 
 #define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
-
-struct SearchOptionsCXX : RSSearchOptions {
-  SearchOptionsCXX() {
-    memset(this, 0, sizeof(*this));
-    flags = RS_DEFAULT_QUERY_FLAGS;
-    fieldmask = RS_FIELDMASK_ALL;
-    language = DEFAULT_LANGUAGE;
-    stopwords = DefaultStopWordList();
-  }
-};
-
-class QASTCXX : public QueryAST {
-  SearchOptionsCXX m_opts;
-  QueryError m_status = {QueryErrorCode(0)};
-  RedisSearchCtx *sctx = NULL;
-
- public:
-  QASTCXX() {
-    memset(static_cast<QueryAST *>(this), 0, sizeof(QueryAST));
-  }
-  QASTCXX(RedisSearchCtx &sctx) : QASTCXX() {
-    setContext(&sctx);
-  }
-  void setContext(RedisSearchCtx *sctx) {
-    this->sctx = sctx;
-  }
-
-  bool parse(const char *s) {
-    return parse(s, 1);
-  }
-  bool parse(const char *s, int ver) {
-    QueryError_ClearError(&m_status);
-    QAST_Destroy(this);
-
-    int rc = QAST_Parse(this, sctx, &m_opts, s, strlen(s), ver, &m_status);
-    return rc == REDISMODULE_OK && !QueryError_HasError(&m_status) && root != NULL;
-  }
-
-  void print() const {
-    QAST_Print(this, sctx->spec);
-  }
-
-  const char *getError() const {
-    return QueryError_GetUserError(&m_status);
-  }
-
-  ~QASTCXX() {
-    QueryError_ClearError(&m_status);
-    QAST_Destroy(this);
-  }
-};
 
 bool isValidQuery(const char *qt, int ver, RedisSearchCtx &ctx) {
   QASTCXX ast;

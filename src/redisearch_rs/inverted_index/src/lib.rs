@@ -10,6 +10,7 @@
 use std::{
     ffi::c_void,
     io::{BufRead, Cursor, Seek, Write},
+    sync::atomic::{self, AtomicUsize},
 };
 
 use debug::{BlockSummary, Summary};
@@ -75,6 +76,7 @@ impl IdDelta for u32 {
 
 /// Filter details to apply to numeric values
 /// cbindgen:rename-all=CamelCase
+#[derive(Debug)]
 #[repr(C)]
 pub struct NumericFilter {
     /// The field specification which this filter is acting on
@@ -171,7 +173,24 @@ pub trait Decoder {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>>;
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()>;
+
+    /// Creates a new instance of [`RSIndexResult`] which this decoder can decode into.
+    fn base_result<'index>() -> RSIndexResult<'index>;
+
+    /// Like `[Decoder::decode]`, but it returns a new instance of the result instead of filling
+    /// an existing one.
+    fn decode_new<'index>(
+        &self,
+        cursor: &mut Cursor<&'index [u8]>,
+        base: t_docId,
+    ) -> std::io::Result<RSIndexResult<'index>> {
+        let mut result = Self::base_result();
+        self.decode(cursor, base, &mut result)?;
+
+        Ok(result)
+    }
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
@@ -179,23 +198,25 @@ pub trait Decoder {
     /// document ID first and skipping ahead if the ID does not match the target, saving decoding
     /// the rest of the record.
     ///
-    /// Returns `None` if no record has a document ID greater than or equal to `target`.
+    /// Returns `false` if end of the cursor was reached before finding a document equal, or bigger,
+    /// than the target.
     fn seek<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
         loop {
-            match self.decode(cursor, base) {
-                Ok(record) if record.doc_id >= target => {
-                    return Ok(Some(record));
+            match self.decode(cursor, base, result) {
+                Ok(_) if result.doc_id >= target => {
+                    return Ok(true);
                 }
-                Ok(record) => {
-                    base = record.doc_id;
+                Ok(_) => {
+                    base = result.doc_id;
                     continue;
                 }
-                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(false),
                 Err(err) => return Err(err),
             }
         }
@@ -224,6 +245,10 @@ pub struct InvertedIndex<E> {
     /// handled.
     flags: IndexFlags,
 
+    /// A marker used by the garbage collector to determine if the index has been modified since
+    /// the last GC pass. This is used to reset a reader if the index has been modified.
+    gc_marker: AtomicUsize,
+
     /// The encoder to use when adding new entries to the index
     encoder: E,
 }
@@ -250,6 +275,8 @@ pub struct IndexBlock {
     buffer: Vec<u8>,
 }
 
+static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
+
 impl IndexBlock {
     const SIZE: usize = std::mem::size_of::<Self>();
 
@@ -257,7 +284,7 @@ impl IndexBlock {
     /// the block should be for this doc ID else the block will contain incoherent data.
     ///
     /// This returns the block and how much memory grew by.
-    pub fn new(doc_id: t_docId) -> (Self, usize) {
+    fn new(doc_id: t_docId) -> (Self, usize) {
         let this = Self {
             first_doc_id: doc_id,
             last_doc_id: doc_id,
@@ -266,7 +293,29 @@ impl IndexBlock {
         };
         let buf_cap = this.buffer.capacity();
 
+        TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
+
         (this, Self::SIZE + buf_cap)
+    }
+
+    /// Get the first document ID in this block. This is only needed for some C tests.
+    pub fn first_block_id(&self) -> t_docId {
+        self.first_doc_id
+    }
+
+    /// Get the last document ID in the block. This is only needed for some C tests.
+    pub fn last_block_id(&self) -> t_docId {
+        self.last_doc_id
+    }
+
+    /// Get the number of entries in this block. This is only needed for some C tests.
+    pub fn num_entries(&self) -> usize {
+        self.num_entries
+    }
+
+    /// Get a reference to the encoded data in this block. This is only needed for some C tests.
+    pub fn data(&self) -> &[u8] {
+        &self.buffer
     }
 
     fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
@@ -276,6 +325,17 @@ impl IndexBlock {
         buffer.set_position(pos as u64);
 
         buffer
+    }
+
+    /// Returns the total number of index blocks in existence.
+    pub fn total_blocks() -> usize {
+        TOTAL_BLOCKS.load(atomic::Ordering::Relaxed)
+    }
+}
+
+impl Drop for IndexBlock {
+    fn drop(&mut self) {
+        TOTAL_BLOCKS.fetch_sub(1, atomic::Ordering::Relaxed);
     }
 }
 
@@ -287,6 +347,7 @@ impl<E: Encoder> InvertedIndex<E> {
             blocks: Vec::new(),
             n_unique_docs: 0,
             flags,
+            gc_marker: AtomicUsize::new(0),
             encoder,
         }
     }
@@ -311,6 +372,7 @@ impl<E: Encoder> InvertedIndex<E> {
             blocks,
             n_unique_docs,
             flags,
+            gc_marker: AtomicUsize::new(0),
             encoder,
         }
     }
@@ -397,7 +459,8 @@ impl<E: Encoder> InvertedIndex<E> {
         Ok(buf_growth + mem_growth)
     }
 
-    fn last_doc_id(&self) -> Option<t_docId> {
+    /// Returns the last document ID in the index, if any.
+    pub fn last_doc_id(&self) -> Option<t_docId> {
         self.blocks.last().map(|b| b.last_doc_id)
     }
 
@@ -466,12 +529,32 @@ impl<E: Encoder> InvertedIndex<E> {
             })
             .collect()
     }
+
+    /// Returns the number of blocks in this index.
+    pub fn number_of_blocks(&self) -> usize {
+        self.blocks.len()
+    }
+
+    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
+    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
+        self.blocks.get(index)
+    }
+
+    /// Get the current GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker(&self) -> usize {
+        self.gc_marker.load(atomic::Ordering::Relaxed)
+    }
+
+    /// Increment the GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker_inc(&self) {
+        self.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
+    }
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReader<'_, E, E::Decoder> {
-        IndexReader::new(self)
+    pub fn reader(&self) -> IndexReaderCore<'_, E, E::Decoder> {
+        IndexReaderCore::new(self)
     }
 }
 
@@ -518,6 +601,21 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
         self.number_of_entries
     }
 
+    /// Returns the last document ID in the index, if any.
+    pub fn last_doc_id(&self) -> Option<t_docId> {
+        self.index.last_doc_id()
+    }
+
+    /// Returns the number of unique documents in the index.
+    pub fn unique_docs(&self) -> usize {
+        self.index.unique_docs()
+    }
+
+    /// Returns the flags of this index.
+    pub fn flags(&self) -> IndexFlags {
+        self.index.flags()
+    }
+
     /// Return the debug summary for this inverted index.
     pub fn summary(&self) -> Summary {
         let mut summary = self.index.summary();
@@ -531,11 +629,36 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     pub fn blocks_summary(&self) -> Vec<BlockSummary> {
         self.index.blocks_summary()
     }
+
+    /// Returns the number of blocks in this index.
+    pub fn number_of_blocks(&self) -> usize {
+        self.index.number_of_blocks()
+    }
+
+    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
+    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
+        self.index.block_ref(index)
+    }
+
+    /// Get the current GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker(&self) -> usize {
+        self.index.gc_marker()
+    }
+
+    /// Increment the GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker_inc(&self) {
+        self.index.gc_marker_inc();
+    }
+
+    /// Get a reference to the inner inverted index.
+    pub fn inner(&self) -> &InvertedIndex<E> {
+        &self.index
+    }
 }
 
 impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReader<'_, E, E::Decoder> {
+    pub fn reader(&self) -> IndexReaderCore<'_, E, E::Decoder> {
         self.index.reader()
     }
 }
@@ -580,21 +703,74 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.memory_usage() + std::mem::size_of::<t_fieldMask>()
     }
 
+    /// Returns the last document ID in the index, if any.
+    pub fn last_doc_id(&self) -> Option<t_docId> {
+        self.index.last_doc_id()
+    }
+
+    /// Returns the number of unique documents in the index.
+    pub fn unique_docs(&self) -> usize {
+        self.index.unique_docs()
+    }
+
+    /// Returns the flags of this index.
+    pub fn flags(&self) -> IndexFlags {
+        self.index.flags()
+    }
+
     /// Get the combined field mask of all records in the index.
     pub fn field_mask(&self) -> t_fieldMask {
         self.field_mask
+    }
+
+    /// Return the debug summary for this inverted index.
+    pub fn summary(&self) -> Summary {
+        self.index.summary()
+    }
+
+    /// Return basic information about the blocks in this inverted index.
+    pub fn blocks_summary(&self) -> Vec<BlockSummary> {
+        self.index.blocks_summary()
+    }
+
+    /// Returns the number of blocks in this index.
+    pub fn number_of_blocks(&self) -> usize {
+        self.index.number_of_blocks()
+    }
+
+    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
+    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
+        self.index.block_ref(index)
+    }
+
+    /// Get the current GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker(&self) -> usize {
+        self.index.gc_marker()
+    }
+
+    /// Increment the GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker_inc(&self) {
+        self.index.gc_marker_inc();
+    }
+
+    /// Get a reference to the inner inverted index.
+    pub fn inner(&self) -> &InvertedIndex<E> {
+        &self.index
     }
 }
 
 impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReader<'_, E, E::Decoder> {
-        self.index.reader()
+    pub fn reader(
+        &self,
+        mask: t_fieldMask,
+    ) -> FilterMaskReader<IndexReaderCore<'_, E, E::Decoder>> {
+        FilterMaskReader::new(mask, self.index.reader())
     }
 }
 
 /// Reader that is able to read the records from an [`InvertedIndex`]
-pub struct IndexReader<'index, E, D> {
+pub struct IndexReaderCore<'index, E, D> {
     /// The block of the inverted index that is being read from. This might be used to determine the
     /// base document ID for delta calculations.
     ii: &'index InvertedIndex<E>,
@@ -613,9 +789,76 @@ pub struct IndexReader<'index, E, D> {
     /// The last document ID that was read from the index. This is used to determine the base
     /// document ID for delta calculations.
     last_doc_id: t_docId,
+
+    /// The marker of the inverted index when this reader last read from it. This is used to
+    /// detect if the index has been modified since the last read, in which case the reader
+    /// should be reset.
+    gc_marker: usize,
 }
 
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
+/// A reader is something which knows how to read / decode the records from an `[InvertedIndex]`.
+pub trait IndexReader<'index> {
+    /// Read the next record from the index into `result`. If there are no more records to read,
+    /// then `false` is returned.
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool>;
+
+    /// Seek to the first record whose ID is higher or equal to the given document ID and put it
+    /// on `recult`. If the end of the index is reached before finding the document ID, then `false`
+    /// is returned.
+    fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool>;
+}
+
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
+    for IndexReaderCore<'index, E, D>
+{
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
+        // Check if the current buffer is empty. The GC might clean out a block so we have to
+        // continue checking until we find a block with data.
+        while self.current_buffer.fill_buf()?.is_empty() {
+            if self.current_block_idx + 1 >= self.ii.blocks.len() {
+                // No more blocks to read from
+                return Ok(false);
+            };
+
+            self.set_current_block(self.current_block_idx + 1);
+        }
+
+        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
+        self.decoder
+            .decode(&mut self.current_buffer, base, result)?;
+
+        self.last_doc_id = result.doc_id;
+
+        Ok(true)
+    }
+
+    fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        if !self.skip_to(doc_id) {
+            return Ok(false);
+        }
+
+        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
+        let success = self
+            .decoder
+            .seek(&mut self.current_buffer, base, doc_id, result)?;
+
+        if success {
+            self.last_doc_id = result.doc_id;
+        }
+
+        Ok(success)
+    }
+}
+
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D> {
     /// Create a new index reader that reads from the given [`InvertedIndex`].
     ///
     /// # Panic
@@ -634,48 +877,8 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
             current_buffer: Cursor::new(&first_block.buffer),
             current_block_idx: 0,
             last_doc_id: first_block.first_doc_id,
+            gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
         }
-    }
-
-    /// Read the next record from the index. If there are no more records to read, then `None` is returned.
-    pub fn next_record(&mut self) -> std::io::Result<Option<RSIndexResult<'index>>> {
-        // Check if the current buffer is empty. The GC might clean out a block so we have to
-        // continue checking until we find a block with data.
-        while self.current_buffer.fill_buf()?.is_empty() {
-            if self.current_block_idx + 1 >= self.ii.blocks.len() {
-                // No more blocks to read from
-                return Ok(None);
-            };
-
-            self.set_current_block(self.current_block_idx + 1);
-        }
-
-        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
-        let result = self.decoder.decode(&mut self.current_buffer, base)?;
-
-        self.last_doc_id = result.doc_id;
-
-        Ok(Some(result))
-    }
-
-    /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
-    /// of the index is reached before finding the document ID, then `None` is returned.
-    pub fn seek_record(
-        &mut self,
-        doc_id: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
-        if !self.skip_to(doc_id) {
-            return Ok(None);
-        }
-
-        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
-        let result = self.decoder.seek(&mut self.current_buffer, base, doc_id)?;
-
-        if let Some(ref record) = result {
-            self.last_doc_id = record.doc_id;
-        }
-
-        Ok(result)
     }
 
     /// Skip forward to the block containing the given document ID. Returns false if the end of the
@@ -716,6 +919,13 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
     /// Reset the reader to the beginning of the index.
     pub fn reset(&mut self) {
         self.set_current_block(0);
+        self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
+    }
+
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.gc_marker != self.ii.gc_marker.load(atomic::Ordering::Relaxed)
     }
 
     /// Return the number of unique documents in the underlying index.
@@ -767,6 +977,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
 /// returned by the reader.
 /// cbindgen:prefix-with-name=true
 #[repr(u8)]
+#[derive(Debug)]
 pub enum ReadFilter<'numeric_filter> {
     /// No filter, all entries are accepted
     None,
@@ -778,76 +989,107 @@ pub enum ReadFilter<'numeric_filter> {
     Numeric(&'numeric_filter NumericFilter),
 }
 
-/// A reader that skips duplicate records in the index. It is used to ensure that the same document
-/// ID is not returned multiple times in the results. This is useful when the index contains
-/// multiple entries for the same document ID, such as when the document has multiple values for a
-/// field or when the document is indexed multiple times.
-pub struct SkipDuplicatesReader<I> {
-    /// The last document ID that was read from the index. This is used to determine if the next
-    /// record is a duplicate of the last one.
-    last_doc_id: t_docId,
-
-    /// The inner reader that is used to read the records from the index.
-    inner: I,
-}
-
-impl<'index, I: Iterator<Item = RSIndexResult<'index>>> SkipDuplicatesReader<I> {
-    /// Create a new skip duplicates reader over the given inner iterator.
-    pub fn new(inner: I) -> Self {
-        Self {
-            last_doc_id: 0,
-            inner,
-        }
-    }
-}
-
-impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for SkipDuplicatesReader<I> {
-    type Item = RSIndexResult<'index>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let next = self.inner.next()?;
-
-            if next.doc_id == self.last_doc_id {
-                continue;
-            }
-
-            self.last_doc_id = next.doc_id;
-
-            return Some(next);
-        }
-    }
-}
-
 /// A reader that filters out records that do not match a given field mask. It is used to
 /// filter records in an index based on their field mask, allowing only those that match the
 /// specified mask to be returned.
-pub struct FilterMaskReader<I> {
+pub struct FilterMaskReader<IR> {
     /// Mask which a record needs to match to be valid
     mask: t_fieldMask,
 
     /// The inner reader that will be used to read the records from the index.
-    inner: I,
+    inner: IR,
 }
 
-impl<'index, I: Iterator<Item = RSIndexResult<'index>>> FilterMaskReader<I> {
+impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
     /// Create a new filter mask reader with the given mask and inner iterator
-    pub fn new(mask: t_fieldMask, inner: I) -> Self {
+    pub fn new(mask: t_fieldMask, inner: IR) -> Self {
         Self { mask, inner }
     }
 }
 
-impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterMaskReader<I> {
-    type Item = RSIndexResult<'index>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<IR> {
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
-            let next = self.inner.next()?;
+            let success = self.inner.next_record(result)?;
 
-            if next.field_mask & self.mask > 0 {
-                return Some(next);
+            if !success {
+                return Ok(false);
+            }
+
+            if result.field_mask & self.mask > 0 {
+                return Ok(true);
             }
         }
+    }
+
+    fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let success = self.inner.seek_record(doc_id, result)?;
+
+        if !success {
+            return Ok(false);
+        }
+
+        if result.field_mask & self.mask > 0 {
+            Ok(true)
+        } else {
+            self.next_record(result)
+        }
+    }
+}
+
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterMaskReader<IndexReaderCore<'index, E, D>>
+{
+    /// Skip forward to the block containing the given document ID. Returns false if the end of the
+    /// index was reached and true otherwise.
+    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        self.inner.skip_to(doc_id)
+    }
+
+    /// Reset the reader to the beginning of the index.
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
+    }
+
+    /// Return the number of unique documents in the underlying index.
+    pub fn unique_docs(&self) -> usize {
+        self.inner.unique_docs()
+    }
+
+    /// Returns true if the underlying index has duplicate document IDs.
+    pub fn has_duplicates(&self) -> bool {
+        self.inner.has_duplicates()
+    }
+
+    /// Get the flags of the underlying index
+    pub fn flags(&self) -> IndexFlags {
+        self.inner.flags()
+    }
+
+    /// Check if this reader is reading from the given index
+    pub fn is_index(&self, index: &InvertedIndex<E>) -> bool {
+        self.inner.is_index(index)
+    }
+
+    /// Swap the inverted index of the reader with the supplied index. This is only used by the C
+    /// tests to trigger a revalidation.
+    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+        self.inner.swap_index(index);
+    }
+
+    /// Get the internal index of the reader. This is only used by some C tests.
+    pub fn internal_index(&self) -> &InvertedIndex<E> {
+        self.inner.internal_index()
     }
 }
 
@@ -856,33 +1098,129 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterMaskR
 /// specified filter to be returned.
 ///
 /// This should only be wrapped around readers that return numeric records.
-pub struct FilterNumericReader<I> {
+pub struct FilterNumericReader<'filter, IR> {
     /// The numeric filter that is used to filter the records.
-    filter: NumericFilter,
+    filter: &'filter NumericFilter,
 
     /// The inner reader that will be used to read the records from the index.
-    inner: I,
+    inner: IR,
 }
 
-impl<'index, I: Iterator<Item = RSIndexResult<'index>>> FilterNumericReader<I> {
+impl<'filter, 'index, IR: IndexReader<'index>> FilterNumericReader<'filter, IR> {
     /// Create a new filter numeric reader with the given filter and inner iterator.
-    pub fn new(filter: NumericFilter, inner: I) -> Self {
+    pub fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
         Self { filter, inner }
     }
 }
 
-impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterNumericReader<I> {
-    type Item = RSIndexResult<'index>;
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterNumericReader<'filter, IndexReaderCore<'index, E, D>>
+{
+    /// Get the numeric filter used by this reader.
+    pub fn filter(&self) -> &NumericFilter {
+        self.filter
+    }
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReader<'index, IR> {
+    /// Get the next record from the inner reader that matches the numeric filter.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true when this function is called.
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
-            let next = self.inner.next()?;
-            let value = next.as_numeric()?;
+            let success = self.inner.next_record(result)?;
+
+            if !success {
+                return Ok(false);
+            }
+
+            // SAFETY: the caller must ensure the result is numeric
+            let value = unsafe { result.as_numeric_unchecked() };
 
             if self.filter.value_in_range(value) {
-                return Some(next);
+                return Ok(true);
             }
         }
+    }
+
+    /// Seek to the record with the given document ID in the inner reader that matches the numeric filter.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true when this function is called.
+    fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let success = self.inner.seek_record(doc_id, result)?;
+
+        if !success {
+            return Ok(false);
+        }
+
+        // SAFETY: the caller must ensure the result is numeric
+        let value = unsafe { result.as_numeric_unchecked() };
+
+        if self.filter.value_in_range(value) {
+            Ok(true)
+        } else {
+            self.next_record(result)
+        }
+    }
+}
+
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterNumericReader<'filter, IndexReaderCore<'index, E, D>>
+{
+    /// Skip forward to the block containing the given document ID. Returns false if the end of the
+    /// index was reached and true otherwise.
+    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        self.inner.skip_to(doc_id)
+    }
+
+    /// Reset the reader to the beginning of the index.
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
+    }
+
+    /// Return the number of unique documents in the underlying index.
+    pub fn unique_docs(&self) -> usize {
+        self.inner.unique_docs()
+    }
+
+    /// Returns true if the underlying index has duplicate document IDs.
+    pub fn has_duplicates(&self) -> bool {
+        self.inner.has_duplicates()
+    }
+
+    /// Get the flags of the underlying index
+    pub fn flags(&self) -> IndexFlags {
+        self.inner.flags()
+    }
+
+    /// Check if this reader is reading from the given index
+    pub fn is_index(&self, index: &InvertedIndex<E>) -> bool {
+        self.inner.is_index(index)
+    }
+
+    /// Swap the inverted index of the reader with the supplied index. This is only used by the C
+    /// tests to trigger a revalidation.
+    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+        self.inner.swap_index(index);
+    }
+
+    /// Get the internal index of the reader. This is only used by some C tests.
+    pub fn internal_index(&self) -> &InvertedIndex<E> {
+        self.inner.internal_index()
     }
 }
 
@@ -891,38 +1229,157 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterNumer
 /// specified geo filter to be returned.
 ///
 /// This should only be wrapped around readers that return numeric records.
-pub struct FilterGeoReader<'filter, I> {
+pub struct FilterGeoReader<'filter, IR> {
+    /// Numeric filter with a geo filter set to which a record needs to match to be valid.
+    /// This is only needed because the reader needs to be able to return the original numeric
+    /// filter.
+    filter: &'filter NumericFilter,
+
     /// Geo filter which a record needs to match to be valid
-    filter: &'filter GeoFilter,
+    geo_filter: &'filter GeoFilter,
 
     /// The inner reader that will be used to read the records from the index.
-    inner: I,
+    inner: IR,
 }
 
-impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterGeoReader<'filter, I> {
-    /// Create a new filter geo reader with the given geo filter and inner iterator
-    pub fn new(filter: &'filter GeoFilter, inner: I) -> Self {
-        Self { filter, inner }
+impl<'filter, 'index, IR: IndexReader<'index>> FilterGeoReader<'filter, IR> {
+    /// Create a new filter geo reader with the given numeric filter and inner iterator
+    ///
+    /// # Safety
+    /// The caller should ensure the `geo_filter` pointer in the numeric filter is set and a valid
+    /// pointer to a `GeoFilter` struct for the lifetime of this reader.
+    pub fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
+        debug_assert!(
+            !filter.geo_filter.is_null(),
+            "FilterGeoReader needs the geo filter to be set on the numeric filter"
+        );
+
+        // SAFETY: we just asserted the filter is set and the caller is to ensure it is a valid
+        // `GeoFilter` instance
+        let geo_filter = unsafe { &*(filter.geo_filter as *const GeoFilter) };
+
+        Self {
+            filter,
+            geo_filter,
+            inner,
+        }
     }
 }
 
-impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator
-    for FilterGeoReader<'filter, I>
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterGeoReader<'filter, IndexReaderCore<'index, E, D>>
 {
-    type Item = RSIndexResult<'index>;
+    /// Get the numeric filter used by this reader.
+    pub fn filter(&self) -> &NumericFilter {
+        self.filter
+    }
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'index, IR> {
+    /// Get the next record from the inner reader that matches the geo filter.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true when this function is called.
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
-            let mut next = self.inner.next()?;
-            let value = next.as_numeric_mut()?;
+            let success = self.inner.next_record(result)?;
+
+            if !success {
+                return Ok(false);
+            }
+
+            // SAFETY: the caller must ensure the result is numeric
+            let value = unsafe { result.as_numeric_unchecked_mut() };
 
             // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-            let in_radius = unsafe { isWithinRadius(self.filter, *value, value) };
+            let in_radius = unsafe { isWithinRadius(self.geo_filter, *value, value) };
 
             if in_radius {
-                return Some(next);
+                return Ok(true);
             }
         }
+    }
+
+    /// Seek to the record with the given document ID in the inner reader that matches the geo filter.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true when this function is called.
+    fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let success = self.inner.seek_record(doc_id, result)?;
+
+        if !success {
+            return Ok(false);
+        }
+
+        // SAFETY: the caller must ensure the result is numeric
+        let value = unsafe { result.as_numeric_unchecked_mut() };
+
+        // SAFETY: we know the filter is not a null pointer since we hold a reference to it
+        let in_radius = unsafe { isWithinRadius(self.geo_filter, *value, value) };
+
+        if in_radius {
+            Ok(true)
+        } else {
+            self.next_record(result)
+        }
+    }
+}
+
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterGeoReader<'filter, IndexReaderCore<'index, E, D>>
+{
+    /// Skip forward to the block containing the given document ID. Returns false if the end of the
+    /// index was reached and true otherwise.
+    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        self.inner.skip_to(doc_id)
+    }
+
+    /// Reset the reader to the beginning of the index.
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
+    }
+
+    /// Return the number of unique documents in the underlying index.
+    pub fn unique_docs(&self) -> usize {
+        self.inner.unique_docs()
+    }
+
+    /// Returns true if the underlying index has duplicate document IDs.
+    pub fn has_duplicates(&self) -> bool {
+        self.inner.has_duplicates()
+    }
+
+    /// Get the flags of the underlying index
+    pub fn flags(&self) -> IndexFlags {
+        self.inner.flags()
+    }
+
+    /// Check if this reader is reading from the given index
+    pub fn is_index(&self, index: &InvertedIndex<E>) -> bool {
+        self.inner.is_index(index)
+    }
+
+    /// Swap the inverted index of the reader with the supplied index. This is only used by the C
+    /// tests to trigger a revalidation.
+    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+        self.inner.swap_index(index);
+    }
+
+    /// Get the internal index of the reader. This is only used by some C tests.
+    pub fn internal_index(&self) -> &InvertedIndex<E> {
+        self.inner.internal_index()
     }
 }
 

@@ -9,3 +9,4 @@
 
 pub mod empty;
 pub mod id_list;
+pub mod wildcard;
