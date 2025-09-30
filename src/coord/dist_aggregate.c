@@ -444,7 +444,8 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
       QueryErrorCode errCode = extractQueryErrorFromReply(nc->current.root);
       if (should_return_error(errCode)) {
-        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, errCode, QueryError_Strerror(errCode));
+        // We need to pass the reply string as the error message, since the error code might be generic
+        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, errCode,  MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
       } else  {
         // Check if OOM error
