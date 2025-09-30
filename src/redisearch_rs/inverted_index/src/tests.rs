@@ -1217,11 +1217,31 @@ fn blocks_summary_store_numeric() {
     );
 }
 
+/// Helper macro to encode a series of doc IDs using the provided encoder. The first ID is encoded
+/// as a delta from 0, and each subsequent ID is encoded as a delta from the previous ID.
+macro_rules! encode_ids {
+    ($encoder:expr, $first_id:expr $(, $doc_id:expr)* ) => {
+        {
+            let mut writer = Cursor::new(Vec::new());
+            $encoder.encode(&mut writer, 0, &RSIndexResult::default().doc_id($first_id)).unwrap();
+
+            let mut _last_id = $first_id;
+            $(
+                let delta = $doc_id - _last_id;
+                $encoder.encode(&mut writer, delta, &RSIndexResult::default().doc_id($doc_id)).unwrap();
+                _last_id = $doc_id;
+            )*
+            writer.into_inner()
+        }
+    };
+}
+
 #[test]
 fn index_block_repair_delete() {
     // Make a block with three entries (two duplicates) which will be deleted
+    let encoder = Dummy;
     let block = IndexBlock {
-        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+        buffer: encode_ids!(encoder, 10, 11, 11),
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 11,
@@ -1233,7 +1253,7 @@ fn index_block_repair_delete() {
 
     fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
 
-    let repair_status = block.repair(cb, repair, Dummy).unwrap();
+    let repair_status = block.repair(cb, repair, encoder).unwrap();
 
     assert_eq!(
         repair_status,
@@ -1246,8 +1266,9 @@ fn index_block_repair_delete() {
 #[test]
 fn index_block_repair_unchanged() {
     // Create an index block with two entries. None of which were deleted
+    let encoder = Dummy;
     let block = IndexBlock {
-        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+        buffer: encode_ids!(encoder, 10, 11),
         num_entries: 2,
         first_doc_id: 10,
         last_doc_id: 11,
@@ -1259,7 +1280,7 @@ fn index_block_repair_unchanged() {
 
     fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
 
-    let repair_status = block.repair(cb, repair, Dummy).unwrap();
+    let repair_status = block.repair(cb, repair, encoder).unwrap();
 
     assert_eq!(repair_status, None);
 }
@@ -1267,8 +1288,9 @@ fn index_block_repair_unchanged() {
 #[test]
 fn index_block_repair_some_deletions() {
     // Create an index block with three entries. The second one will not be deleted
+    let encoder = Dummy;
     let block = IndexBlock {
-        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+        buffer: encode_ids!(encoder, 10, 11, 12),
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 12,
@@ -1280,7 +1302,7 @@ fn index_block_repair_some_deletions() {
 
     fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
 
-    let repair_status = block.repair(cb, repair, Dummy).unwrap();
+    let repair_status = block.repair(cb, repair, encoder).unwrap();
 
     assert_eq!(
         repair_status,
@@ -1289,7 +1311,7 @@ fn index_block_repair_some_deletions() {
                 first_doc_id: 11,
                 last_doc_id: 11,
                 num_entries: 1,
-                buffer: vec![0, 0, 0, 0]
+                buffer: encode_ids!(Dummy, 11),
             }],
             n_unique_docs_removed: 2
         })
@@ -1362,8 +1384,32 @@ fn index_block_repair_delta_too_big() {
     }
 
     // Create an index block with three entries - the middle entry will be deleted creating a delta that is too big
+    let mut writer = Cursor::new(Vec::new());
+    let encoder = SmallDeltaDummy;
+    encoder
+        .encode(
+            &mut writer,
+            U5Delta(0),
+            &RSIndexResult::default().doc_id(10),
+        )
+        .unwrap();
+    encoder
+        .encode(
+            &mut writer,
+            U5Delta(31),
+            &RSIndexResult::default().doc_id(41),
+        )
+        .unwrap();
+    encoder
+        .encode(
+            &mut writer,
+            U5Delta(1),
+            &RSIndexResult::default().doc_id(42),
+        )
+        .unwrap();
+
     let block = IndexBlock {
-        buffer: vec![0, 0, 0, 0, 0, 0, 0, 31, 0, 0, 0, 1],
+        buffer: writer.into_inner(),
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 42,
@@ -1375,20 +1421,44 @@ fn index_block_repair_delta_too_big() {
 
     fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
 
-    let repair_status = block.repair(cb, repair, SmallDeltaDummy).unwrap();
+    let repair_status = block.repair(cb, repair, encoder).unwrap();
 
     assert_eq!(
         repair_status,
         Some(RepairType::Replace {
             blocks: smallvec![
                 IndexBlock {
-                    buffer: vec![0, 0, 0, 0],
+                    buffer: {
+                        let mut writer = Cursor::new(Vec::new());
+                        let encoder = SmallDeltaDummy;
+                        encoder
+                            .encode(
+                                &mut writer,
+                                U5Delta(0),
+                                &RSIndexResult::default().doc_id(10),
+                            )
+                            .unwrap();
+
+                        writer.into_inner()
+                    },
                     num_entries: 1,
                     first_doc_id: 10,
                     last_doc_id: 10,
                 },
                 IndexBlock {
-                    buffer: vec![0, 0, 0, 0],
+                    buffer: {
+                        let mut writer = Cursor::new(Vec::new());
+                        let encoder = SmallDeltaDummy;
+                        encoder
+                            .encode(
+                                &mut writer,
+                                U5Delta(0),
+                                &RSIndexResult::default().doc_id(42),
+                            )
+                            .unwrap();
+
+                        writer.into_inner()
+                    },
                     num_entries: 1,
                     first_doc_id: 42,
                     last_doc_id: 42,
@@ -1406,6 +1476,7 @@ fn ii_scan_gc() {
     // - One which will be completely deleted
     // - One which will be partially deleted
     // - Two which will be unchanged
+    let encoder = Dummy;
     let blocks = vec![
         IndexBlock {
             buffer: vec![],
@@ -1414,32 +1485,32 @@ fn ii_scan_gc() {
             last_doc_id: 5,
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            buffer: encode_ids!(encoder, 10, 11),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            buffer: encode_ids!(encoder, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: encode_ids!(encoder, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: encode_ids!(encoder, 40),
             num_entries: 1,
             first_doc_id: 40,
             last_doc_id: 40,
         },
     ];
 
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
 
     fn cb(doc_id: t_docId) -> bool {
         [21, 22, 30, 40].contains(&doc_id)
@@ -1471,7 +1542,7 @@ fn ii_scan_gc() {
                     index: 2,
                     repair: RepairType::Replace {
                         blocks: smallvec![IndexBlock {
-                            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+                            buffer: encode_ids!(Dummy, 21, 22),
                             num_entries: 2,
                             first_doc_id: 21,
                             last_doc_id: 22,
@@ -1487,21 +1558,22 @@ fn ii_scan_gc() {
 #[test]
 fn ii_scan_gc_no_change() {
     // Create 2 blocks which will be unchanged
+    let encoder = Dummy;
     let blocks = vec![
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            buffer: encode_ids!(encoder, 10, 11),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: encode_ids!(encoder, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
         },
     ];
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
 
     fn cb(_doc_id: t_docId) -> bool {
         true
@@ -1522,6 +1594,7 @@ fn ii_apply_gc() {
     // - One which will be partially deleted
     // - One which will be unchanged
     // - One which will be split into multiple blocks
+    let encoder = Dummy;
     let blocks = vec![
         IndexBlock {
             buffer: vec![],
@@ -1530,40 +1603,40 @@ fn ii_apply_gc() {
             last_doc_id: 5,
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            buffer: encode_ids!(encoder, 10, 11),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            buffer: encode_ids!(encoder, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: encode_ids!(encoder, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 31, 0, 0, 0, 1],
+            buffer: encode_ids!(encoder, 40, 71, 72),
             num_entries: 3,
             first_doc_id: 40,
             last_doc_id: 72,
         },
     ];
-    let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
 
     // Inverted index is 48 bytes base
     // 1st index block is 40 bytes + 8 bytes for the buffer capacity
     // 2nd index block is 40 bytes + 16 bytes for the buffer capacity
-    // 3rd index block is 40 bytes + 20 bytes for the buffer capacity
-    // 4th index block is 40 bytes + 12 bytes for the buffer capacity
-    // 5th index block is 40 bytes + 20 bytes for the buffer capacity
-    // So total memory size is 324 bytes
-    assert_eq!(ii.memory_usage(), 324);
+    // 3rd index block is 40 bytes + 24 bytes for the buffer capacity
+    // 4th index block is 40 bytes + 16 bytes for the buffer capacity
+    // 5th index block is 40 bytes + 24 bytes for the buffer capacity
+    // So total memory size is 336 bytes
+    assert_eq!(ii.memory_usage(), 336);
 
     let gc_result = vec![
         BlockGcScanResult {
@@ -1582,7 +1655,7 @@ fn ii_apply_gc() {
             index: 2,
             repair: RepairType::Replace {
                 blocks: smallvec![IndexBlock {
-                    buffer: vec![0, 0, 0, 0],
+                    buffer: encode_ids!(Dummy, 21),
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
@@ -1595,13 +1668,13 @@ fn ii_apply_gc() {
             repair: RepairType::Replace {
                 blocks: smallvec![
                     IndexBlock {
-                        buffer: vec![0, 0, 0, 0],
+                        buffer: encode_ids!(Dummy, 40),
                         num_entries: 1,
                         first_doc_id: 40,
                         last_doc_id: 40,
                     },
                     IndexBlock {
-                        buffer: vec![0, 0, 0, 0],
+                        buffer: encode_ids!(Dummy, 72),
                         num_entries: 1,
                         first_doc_id: 72,
                         last_doc_id: 72,
@@ -1625,37 +1698,37 @@ fn ii_apply_gc() {
     assert_eq!(ii.gc_marker(), 1);
 
     // Inverted index is 48 bytes base
-    // 1st index block is 40 bytes + 12 bytes for the buffer capacity
-    // 2nd index block is 40 bytes + 12 bytes for the buffer capacity
-    // 3rd index block is 40 bytes + 12 bytes for the buffer capacity
-    // 4th index block is 40 bytes + 12 bytes for the buffer capacity
-    // So total memory size is 256 bytes
-    assert_eq!(ii.memory_usage(), 256);
+    // 1st index block is 40 bytes + 16 bytes for the buffer capacity
+    // 2nd index block is 40 bytes + 16 bytes for the buffer capacity
+    // 3rd index block is 40 bytes + 16 bytes for the buffer capacity
+    // 4th index block is 40 bytes + 16 bytes for the buffer capacity
+    // So total memory size is 272 bytes
+    assert_eq!(ii.memory_usage(), 272);
 
     assert_eq!(ii.unique_docs(), 4);
     assert_eq!(
         ii.blocks,
         vec![
             IndexBlock {
-                buffer: vec![0, 0, 0, 0],
+                buffer: encode_ids!(Dummy, 21),
                 num_entries: 1,
                 first_doc_id: 21,
                 last_doc_id: 21,
             },
             IndexBlock {
-                buffer: vec![0, 0, 0, 0],
+                buffer: encode_ids!(Dummy, 30),
                 num_entries: 1,
                 first_doc_id: 30,
                 last_doc_id: 30,
             },
             IndexBlock {
-                buffer: vec![0, 0, 0, 0],
+                buffer: encode_ids!(Dummy, 40),
                 num_entries: 1,
                 first_doc_id: 40,
                 last_doc_id: 40,
             },
             IndexBlock {
-                buffer: vec![0, 0, 0, 0],
+                buffer: encode_ids!(Dummy, 72),
                 num_entries: 1,
                 first_doc_id: 72,
                 last_doc_id: 72,
@@ -1665,10 +1738,10 @@ fn ii_apply_gc() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // The first, second, third and fifth block was removed totaling 224 bytes
-            bytes_freed: 224,
-            // The third and fifth block was split making 156 new bytes
-            bytes_allocated: 156,
+            // The first, second, third and fifth block was removed totaling 232 bytes
+            bytes_freed: 232,
+            // The third and fifth block was split making 168 new bytes
+            bytes_allocated: 168,
             entries_removed: 5,
             blocks_ignored: 0
         }
@@ -1678,28 +1751,29 @@ fn ii_apply_gc() {
 #[test]
 fn ii_apply_gc_last_block_updated() {
     // Create 2 blocks where the last block will have new entries since the GC scan
+    let encoder = Dummy;
     let blocks = vec![
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            buffer: encode_ids!(encoder, 10, 11),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            buffer: encode_ids!(encoder, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
         },
     ];
 
-    let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
 
     // Inverted index is 48 bytes base
     // 1st index block is 40 bytes + 16 bytes for the buffer capacity
-    // 2nd index block is 40 bytes + 20 bytes for the buffer capacity
-    // So total memory size is 164 bytes
-    assert_eq!(ii.memory_usage(), 164);
+    // 2nd index block is 40 bytes + 24 bytes for the buffer capacity
+    // So total memory size is 168 bytes
+    assert_eq!(ii.memory_usage(), 168);
 
     let gc_result = vec![
         BlockGcScanResult {
@@ -1712,7 +1786,7 @@ fn ii_apply_gc_last_block_updated() {
             index: 1,
             repair: RepairType::Replace {
                 blocks: smallvec![IndexBlock {
-                    buffer: vec![0, 0, 0, 0],
+                    buffer: encode_ids!(Dummy, 21),
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
@@ -1735,15 +1809,15 @@ fn ii_apply_gc_last_block_updated() {
     assert_eq!(ii.gc_marker(), 1);
 
     // Inverted index is 48 bytes base
-    // 1st index block is 40 bytes + 20 bytes for the buffer capacity
-    // So total memory size is 108 bytes
-    assert_eq!(ii.memory_usage(), 108);
+    // 1st index block is 40 bytes + 24 bytes for the buffer capacity
+    // So total memory size is 112 bytes
+    assert_eq!(ii.memory_usage(), 112);
 
     assert_eq!(ii.unique_docs(), 3);
     assert_eq!(
         ii.blocks,
         vec![IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
@@ -1833,7 +1907,7 @@ fn ii_apply_gc_entries_tracking_index() {
             index: 0,
             repair: RepairType::Replace {
                 blocks: smallvec![IndexBlock {
-                    buffer: vec![0, 0, 0, 0, 0, 0, 0, 0],
+                    buffer: encode_ids!(AllowDupsDummy, 15, 15),
                     num_entries: 2,
                     first_doc_id: 15,
                     last_doc_id: 15,
@@ -1865,7 +1939,7 @@ fn ii_apply_gc_entries_tracking_index() {
     assert_eq!(
         ii.index.blocks,
         vec![IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            buffer: encode_ids!(AllowDupsDummy, 15, 15),
             num_entries: 2,
             first_doc_id: 15,
             last_doc_id: 15,
