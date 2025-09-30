@@ -266,7 +266,7 @@ TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
   ASSERT_EQ(12, parseCtx.hybridParams->scoringCtx->rrfCtx.window);
 }
 
-// Test that Linear scoring is affected by K ≤ WINDOW constraint
+// Test K = min{ K, WINDOW} optimization is used in LINEAR
 TEST_F(HybridDefaultsTest, testLinearScoringKWindowConstraint) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
