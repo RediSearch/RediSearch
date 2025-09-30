@@ -269,7 +269,7 @@ def test_hybrid_oom_standalone(env):
         env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
 
 # Test verbosity when partial results are returned for PROFILE and RESP3
-# @skip(cluster=False)
+@skip(cluster=False)
 def test_oom_verbosity_cluster_return(env):
     env  = Env(shardsCount=3, protocol=3)
 
