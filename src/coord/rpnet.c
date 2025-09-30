@@ -371,17 +371,17 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    // if (TimedOut(&nc->areq->sctx->time.timeout)) {
-    //   // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
-    //   // callback so that a `CURSOR DEL` command will be dispatched instead of
-    //   // a `CURSOR READ` command.
-    //   MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+    if (TimedOut(&nc->areq->sctx->time.timeout)) {
+      // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
+      // callback so that a `CURSOR DEL` command will be dispatched instead of
+      // a `CURSOR READ` command.
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
 
-    //   return RS_RESULT_TIMEDOUT;
-    // } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
-    //   // if timeout was set in previous reads, reset it
-    //   MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
-    // }
+      return RS_RESULT_TIMEDOUT;
+    } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+      // if timeout was set in previous reads, reset it
+      MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
+    }
 
     if (!getNextReply(nc)) {
       return RS_RESULT_EOF;

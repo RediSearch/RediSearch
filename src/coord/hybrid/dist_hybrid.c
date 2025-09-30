@@ -247,6 +247,12 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartWithMappings);
     HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartWithMappings);
 
+    // Add timeout initialization for each subquery after building RPNet chains
+    for (int i = 0; i < hreq->nrequests; i++) {
+        AREQ *subquery = hreq->requests[i];
+        RedisSearchCtx *sctx = AREQ_SearchCtx(subquery);
+        SearchCtx_UpdateTime(sctx, subquery->reqConfig.queryTimeoutMS);
+    }
 
     // Free the command
     // MRCommand_Free(&xcmd);
