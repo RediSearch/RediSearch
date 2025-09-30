@@ -83,6 +83,16 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
+    // Check if an error returned from the shard
+    if (MRReply_Type(rep) == MR_REPLY_ERROR) {
+        const char* error = MRReply_String(rep, NULL);
+        // RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
+        // RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
+        MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
+        MRIteratorCallback_Done(ctx, 1);
+        return;
+    }
+
     // Detect protocol version based on reply type
     bool isResp3 = MRReply_Type(rep) == MR_REPLY_MAP;
 
