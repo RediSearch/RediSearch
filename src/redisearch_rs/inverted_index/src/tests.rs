@@ -1618,7 +1618,11 @@ fn ii_apply_gc() {
         deltas: gc_result,
     };
 
+    assert_eq!(ii.gc_marker(), 0);
+
     let apply_info = ii.apply_gc(delta);
+
+    assert_eq!(ii.gc_marker(), 1);
 
     // Inverted index is 48 bytes base
     // 1st index block is 40 bytes + 12 bytes for the buffer capacity
@@ -1724,7 +1728,11 @@ fn ii_apply_gc_last_block_updated() {
         deltas: gc_result,
     };
 
+    assert_eq!(ii.gc_marker(), 0);
+
     let apply_info = ii.apply_gc(delta);
+
+    assert_eq!(ii.gc_marker(), 1);
 
     // Inverted index is 48 bytes base
     // 1st index block is 40 bytes + 20 bytes for the buffer capacity
@@ -1846,8 +1854,11 @@ fn ii_apply_gc_entries_tracking_index() {
         expected_delta
     );
 
+    assert_eq!(ii.gc_marker(), 0);
+
     let apply_info = ii.apply_gc(expected_delta);
 
+    assert_eq!(ii.gc_marker(), 1);
     assert_eq!(ii.number_of_entries(), 2);
     assert_eq!(ii.unique_docs(), 1);
     assert_eq!(repaired, vec![15, 15]);

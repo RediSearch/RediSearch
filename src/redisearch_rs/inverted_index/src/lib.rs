@@ -779,6 +779,8 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
+        self.gc_marker_inc();
+
         info
     }
 }
