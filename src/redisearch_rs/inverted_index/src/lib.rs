@@ -376,16 +376,16 @@ impl IndexBlock {
             decoder.decode(&mut cursor, base, &mut result)?;
 
             if doc_exist(result.doc_id) {
-                repair(&result, &self);
+                repair(&result, self);
 
                 tmp_inverted_index.add_record(&result)?;
 
-                if !last_doc_id.is_some_and(|id| id == result.doc_id) {
+                if last_doc_id.is_none_or(|id| id != result.doc_id) {
                     unique_write += 1;
                 }
             }
 
-            if !last_doc_id.is_some_and(|id| id == result.doc_id) {
+            if last_doc_id.is_none_or(|id| id != result.doc_id) {
                 unique_read += 1;
             }
 
