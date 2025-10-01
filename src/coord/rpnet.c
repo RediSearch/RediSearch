@@ -420,10 +420,11 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
   if (resp3) {
+    RS_LOG_ASSERT(fields && MRReply_Type(MRReply_MapElement(fields, "score")) == MR_REPLY_DOUBLE, "invalid score");
+    score = MRReply_Double(MRReply_MapElement(fields, "score"));
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
     fields = MRReply_MapElement(fields, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
-    score = MRReply_Double(MRReply_MapElement(fields, "score"));
   } else {
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_ARRAY, "invalid result record");
     RS_LOG_ASSERT(MRReply_Length(fields) % 2 == 0, "invalid fields record");

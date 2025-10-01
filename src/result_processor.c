@@ -1770,6 +1770,8 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
      return RS_RESULT_ERROR;
    }
 
+   RedisModule_Log(NULL, "warning", "RPHybridMerger_Yield: key: %s, score: %f", key, mergedResult->score);
+
    // Override the output result with merged data
    SearchResult_Override(r, mergedResult);
    rm_free(mergedResult);
