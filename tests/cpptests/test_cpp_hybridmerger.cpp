@@ -16,6 +16,7 @@
 #include "hybrid/hybrid_lookup_context.h"  // For HybridLookupContext
 #include "search_result.h"
 #include "hiredis/sds.h"
+#include "doc_table.h"
 
 #include <vector>
 #include <string>
@@ -128,7 +129,11 @@ struct MockUpstream : public ResultProcessor {
     SearchResult_SetFlags(res, p->flags);
 
     // Use pre-created document metadata
-    SearchResult_SetDocumentMetadata(res, &p->documentMetadata[p->counter]);
+    // MockUpstream acts as the "DocTable" and this as the "DocTable_Borrow".
+    // Which means we must bump the reference count here by one for the metadata to be correctly
+    // initialized
+    DMD_Incref(p->documentMetadata[p->counter]);
+    SearchResult_SetDocumentMetadata(res, p->documentMetadata[p->counter]);
 
     p->counter++;
     return RS_RESULT_OK;
