@@ -82,7 +82,7 @@ def test_hybrid_vsim_knn_yield_score_as():
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                         'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_score')
-    results = get_results_from_hybrid_response(response)
+    results, _ = get_results_from_hybrid_response(response)
 
     # Validate the score field for all returned results
     env.assertGreater(len(results.keys()), 0)  # Should return docs with "shoes" in description
@@ -105,7 +105,7 @@ def test_hybrid_vsim_range_yield_score_as():
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                         'RANGE', '4', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_score')
-    results = get_results_from_hybrid_response(response)
+    results, _ = get_results_from_hybrid_response(response)
 
     # Validate the vector_score field for all returned results
     env.assertGreater(len(results.keys()), 0)
@@ -127,7 +127,7 @@ def test_hybrid_search_yield_score_as():
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'YIELD_SCORE_AS', 'search_score',
                         'VSIM', '@embedding', np.array([0.0, 0.0]).astype(np.float32).tobytes())
-    results = get_results_from_hybrid_response(response)
+    results, _ = get_results_from_hybrid_response(response)
 
     # Validate the search_score field for all returned results
     env.assertGreater(len(results.keys()), 0)
@@ -150,7 +150,7 @@ def test_hybrid_search_and_vsim_yield_parameters():
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'YIELD_SCORE_AS', 'search_score',
                         'VSIM', '@embedding', query_vector,
                         'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_distance')
-    results = get_results_from_hybrid_response(response)
+    results, _ = get_results_from_hybrid_response(response)
 
     # Validate both search_score and vector_distance fields
     env.assertGreater(len(results.keys()), 0)
@@ -212,7 +212,7 @@ def test_hybrid_search_yield_score_as_after_combine():
     # YIELD_SCORE_AS after COMBINE should now work
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                         'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score')
-    results = get_results_from_hybrid_response(response)
+    results, _ = get_results_from_hybrid_response(response)
 
     # Validate the search_score field
     env.assertGreater(len(results.keys()), 0)

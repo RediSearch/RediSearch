@@ -10,7 +10,7 @@
 //! This module contains the inverted index implementation for the RediSearch module.
 #![allow(non_upper_case_globals)]
 
-use std::fmt::Debug;
+use std::{ffi::c_char, fmt::Debug};
 
 use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
@@ -226,6 +226,10 @@ pub extern "C" fn NewInvertedIndex_Ex(
             flags,
             Numeric::new().with_float_compression(),
         )),
+        // We generally don't panic in Rust code and would have a match were we cover all the cases.
+        // However, the `flags` value stores more than just the storage flags and it is not clear
+        // that the C code won't call this function without any of the storage flags set.
+        //
         _ => panic!("Unsupported index flags: {flags:?}"),
     };
 
@@ -540,6 +544,70 @@ pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
     let ii = unsafe { &*ii };
 
     ii_dispatch!(ii, gc_marker_inc);
+}
+
+/// Get ID of the first document in the index block. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_FirstId(ib: *const IndexBlock) -> t_docId {
+    debug_assert!(!ib.is_null(), "ib must not be null");
+
+    // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
+    let ib = unsafe { &*ib };
+
+    ib.first_block_id()
+}
+
+/// Get ID of the last document in the index block. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_LastId(ib: *const IndexBlock) -> t_docId {
+    debug_assert!(!ib.is_null(), "ib must not be null");
+
+    // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
+    let ib = unsafe { &*ib };
+
+    ib.last_block_id()
+}
+
+/// Get the number of entries in the index block. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_NumEntries(ib: *const IndexBlock) -> usize {
+    debug_assert!(!ib.is_null(), "ib must not be null");
+
+    // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
+    let ib = unsafe { &*ib };
+
+    ib.num_entries()
+}
+
+/// Get a pointer to the raw data of the index block. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_Data(ib: *const IndexBlock) -> *const c_char {
+    debug_assert!(!ib.is_null(), "ib must not be null");
+
+    // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
+    let ib = unsafe { &*ib };
+
+    ib.data().as_ptr() as *const _
 }
 
 /// An opaque inverted index reader structure. The actual implementation is determined at runtime

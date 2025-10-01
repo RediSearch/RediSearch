@@ -32,6 +32,17 @@ size_t TotalIIBlocks() {
 // The last block of the index
 #define INDEX_LAST_BLOCK(idx) (InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1))
 
+static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
+  bool useFieldMask = flags & Index_StoreFieldFlags;
+  bool useNumEntries = flags & Index_StoreNumeric;
+  RS_ASSERT(!(useFieldMask && useNumEntries));
+  // Avoid some of the allocation if not needed
+  const size_t base = sizeof(InvertedIndex) - sizeof(t_fieldMask); // Size without the union
+  if (useFieldMask) return base + sizeof(t_fieldMask);
+  if (useNumEntries) return base + sizeof(uint64_t);
+  return base;
+}
+
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
   TotalBlocks++;
   idx->size++;
@@ -1229,14 +1240,14 @@ static __attribute__((always_inline)) inline bool NotAtEnd(IndexReader *ir) {
   return false;
 }
 
-IndexReader *NewIndexReader(const InvertedIndex *idx, IndexDecoderCtx *ctx) {
+IndexReader *NewIndexReader(const InvertedIndex *idx, IndexDecoderCtx ctx) {
   IndexReader *ir = rm_calloc(1, sizeof(IndexReader));
 
   ir->idx = idx;
   ir->currentBlock = 0;
   ir->gcMarker = InvertedIndex_GcMarker(idx);
   ir->decoders = InvertedIndex_GetDecoder(InvertedIndex_Flags(idx));
-  ir->decoderCtx = *ctx;
+  ir->decoderCtx = ctx;
 
   SetCurrentBlockReader(ir);
 
