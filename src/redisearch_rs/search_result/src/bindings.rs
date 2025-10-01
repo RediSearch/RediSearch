@@ -22,7 +22,7 @@ pub struct DocumentMetadata(
     ///
     /// The caller needs to promise - when constructing this type - that the pointer
     /// is a [valid] pointer to a [`ffi::RSDocumentMetadata`] that **stays** valid for the
-    /// enture lifetime of this struct.
+    /// entire lifetime of this struct.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     NonNull<ffi::RSDocumentMetadata>,
