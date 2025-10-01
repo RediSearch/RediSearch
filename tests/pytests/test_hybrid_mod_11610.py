@@ -103,40 +103,7 @@ def setup_bikes_index(env):
                            'description', doc_data['description'],
                            'description_embeddings', doc_data['embedding'])
 
-def get_results_count(response):
-    """Extract the number of results from a search response"""
-    if isinstance(response, list) and len(response) >= 2:
-        if response[0] == 'total_results':
-            return int(response[1]) if response[1] is not None else 0
-        # For hybrid responses, look for total_results in the structure
-        for i, item in enumerate(response):
-            if item == 'total_results' and i + 1 < len(response):
-                return int(response[i + 1]) if response[i + 1] is not None else 0
-        # For regular FT.SEARCH responses, the first element is the count
-        if isinstance(response[0], (int, str)) and str(response[0]).isdigit():
-            return int(response[0])
-    return 0
 
-def extract_doc_ids(response):
-    """Extract document IDs from search response"""
-    doc_ids = []
-    if isinstance(response, list):
-        # Look for results section
-        results_idx = None
-        for i, item in enumerate(response):
-            if item == 'results' and i + 1 < len(response):
-                results_idx = i + 1
-                break
-
-        if results_idx is not None and isinstance(response[results_idx], list):
-            for result in response[results_idx]:
-                if isinstance(result, list) and len(result) >= 2:
-                    # Look for __key field
-                    for j in range(0, len(result) - 1, 2):
-                        if result[j] == '__key':
-                            doc_ids.append(result[j + 1])
-                            break
-    return doc_ids
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -150,7 +117,8 @@ def test_hybrid_mod_11610():
 
     # First, test regular FT.SEARCH to establish baseline (avoid returning vector data)
     regular_search_response = env.cmd('FT.SEARCH', 'idx:bikes_vss', 'light*', 'DIALECT', '2', 'RETURN', '0')
-    regular_count = get_results_count(regular_search_response)
+    # FT.SEARCH in RESP2 returns [count, doc1, doc2, ...] format
+    regular_count = regular_search_response[0]
     env.assertEqual(regular_count, 15)
 
     # Test FT.HYBRID with increasing K, WINDOW, and LIMIT parameters
@@ -162,7 +130,9 @@ def test_hybrid_mod_11610():
                              'LIMIT', '0', '100',
                              'PARAMS', '2', 'BLOB', query_vector)
 
-    hybrid_count = get_results_count(hybrid_response)
+    # FT.HYBRID returns a structured response with key-value pairs
+    hybrid_dict = to_dict(hybrid_response)
+    hybrid_count = hybrid_dict['total_results']
     env.assertEqual(hybrid_count, 20)
 
     # Test FT.HYBRID with increasing K, WINDOW, and LIMIT parameters at end
@@ -173,5 +143,7 @@ def test_hybrid_mod_11610():
                              'COMBINE', 'RRF', '2', 'WINDOW', '100',
                              'PARAMS', '2', 'BLOB', query_vector, 'LIMIT', '0', '100')
 
-    hybrid_count = get_results_count(hybrid_response)
+    # FT.HYBRID returns a structured response with key-value pairs
+    hybrid_dict = to_dict(hybrid_response)
+    hybrid_count = hybrid_dict['total_results']
     env.assertEqual(hybrid_count, 20)
