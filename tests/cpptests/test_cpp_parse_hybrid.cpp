@@ -110,6 +110,13 @@ class ParseHybridTest : public ::testing::Test {
     return rc;
   }
 
+  int parseCommandExternal(RMCK::ArgvList& args) {
+    QueryError status = {QueryErrorCode(0)};
+    int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, false);
+    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
+    return rc;
+  }
+
   // Helper function to test error cases with less boilerplate
   void testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail);
 
@@ -604,6 +611,21 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
     }
   }
   ASSERT_TRUE(foundEpsilon);
+}
+
+TEST_F(ParseHybridTest, testBasicValidInputWith_NUM_SSTR) {
+  extern size_t NumShards;
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTR");
+  if (NumShards <= 1) {
+    // Should fail with an error, since _NUM_SSTR is only supported as internal command
+    QueryError status = {QueryErrorCode(0)};
+    int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, false);
+    EXPECT_EQ(status.code, QUERY_EPARSEARGS) << "Did not fail as expected";
+  } else {
+    ASSERT_EQ(parseCommandInternal(args), REDISMODULE_OK) << "parseCommandInternal failed";
+  }
+
 }
 
 TEST_F(ParseHybridTest, testDirectVectorSyntax) {

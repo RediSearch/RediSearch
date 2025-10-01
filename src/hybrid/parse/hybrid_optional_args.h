@@ -35,7 +35,8 @@ typedef enum {
     SPECIFIED_ARG_COMBINE = 1 << 9,
     SPECIFIED_ARG_APPLY = 1 << 10,
     SPECIFIED_ARG_LOAD = 1 << 11,
-    SPECIFIED_ARG_FILTER = 1 << 12
+    SPECIFIED_ARG_FILTER = 1 << 12,
+	SPECIFIED_ARG_NUM_SSTRING = 1 << 13,
 } SpecifiedArg;
 
 /**
