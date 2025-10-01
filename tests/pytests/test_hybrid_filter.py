@@ -103,3 +103,14 @@ def test_hybrid_filter_behavior():
     results = get_results_from_hybrid_response(response)
     # # This should filter as before, just an extra combine
     assert set(results.keys()) == {"doc:3"}
+
+    # post-query FILTER immediately after VSIM FILTER
+    response = env.cmd(
+        'FT.HYBRID', 'filter_idx',
+        'SEARCH', '@text:(green)',
+        'VSIM', '@vector', query_vector,
+        'FILTER', '@category:{"vegetable"}', "FILTER", "@__key==\"doc:3\"",
+    )
+    results = get_results_from_hybrid_response(response)
+    # This should filter as before, just an extra combine
+    assert set(results.keys()) == {"doc:3"}
