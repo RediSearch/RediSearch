@@ -62,7 +62,7 @@ def test_hybrid_filter_behavior():
     )
     results, _ = get_results_from_hybrid_response(response)
     # This should return all with fruit from vector subquery (doc:1, doc:2) and all with green text (doc:3)
-    assert set(results.keys()) == {"doc:1", "doc:2", "doc:3"}
+    env.assertEqual(set(results.keys()), {"doc:1", "doc:2", "doc:3"})
 
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
@@ -72,7 +72,7 @@ def test_hybrid_filter_behavior():
     )
     results, _ = get_results_from_hybrid_response(response)
     # This should filter as before, just an extra combine
-    assert set(results.keys()) == {"doc:1", "doc:2", "doc:3"}
+    env.assertEqual(set(results.keys()), {"doc:1", "doc:2", "doc:3"})
 
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
@@ -82,7 +82,7 @@ def test_hybrid_filter_behavior():
     )
     results, _ = get_results_from_hybrid_response(response)
     # This should filter as post processing.
-    assert set(results.keys()) == {"doc:1", "doc:2"}
+    env.assertEqual(set(results.keys()), {"doc:1", "doc:2"})
 
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
@@ -92,7 +92,7 @@ def test_hybrid_filter_behavior():
     )
     results, _ = get_results_from_hybrid_response(response)
     # This should filter as before, just an extra combine
-    assert results == {}
+    env.assertEqual(results, {})
 
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
@@ -102,7 +102,7 @@ def test_hybrid_filter_behavior():
     )
     results, _ = get_results_from_hybrid_response(response)
     # This should filter as before, just an extra combine
-    assert set(results.keys()) == {"doc:3"}
+    env.assertEqual(set(results.keys()), {"doc:3"})
 
     # post-query FILTER immediately after VSIM FILTER
     response = env.cmd(
@@ -113,4 +113,4 @@ def test_hybrid_filter_behavior():
     )
     results, _ = get_results_from_hybrid_response(response)
     # This should filter as before, just an extra combine
-    assert set(results.keys()) == {"doc:3"}
+    env.assertEqual(set(results.keys()), {"doc:3"})
