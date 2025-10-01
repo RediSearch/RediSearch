@@ -153,7 +153,7 @@ RSValue RSValue_Number(double n) {
   return v;
 }
 
-RSValue RSValue_MallocString(char *str, uint32_t len) {
+RSValue RSValue_String(char *str, uint32_t len) {
   RSValue v = {0};
   v._allocated = 0;
   v._refcount = 1;
@@ -185,21 +185,21 @@ inline RSValue *RSValue_NewStringWithType(char *str, uint32_t len, RSStringType 
 }
 
 /* Wrap a redis string value */
-RSValue *RSValue_NewRedisString(RedisModuleString *str) {
+RSValue *RSValue_NewBorrowedRedisString(RedisModuleString *str) {
   RSValue *v = RSValue_NewWithType(RSValueType_RedisString);
   v->_rstrval = str;
   return v;
 }
 
 RSValue *RSValue_NewOwnedRedisString(RedisModuleString *str) {
-  RSValue *r = RSValue_NewRedisString(str);
+  RSValue *r = RSValue_NewBorrowedRedisString(str);
   RSValue_MakeRStringOwner(r);
   return r;
 }
 
 // TODO : NORMALLY
 RSValue *RSValue_NewStolenRedisString(RedisModuleString *str) {
-  RSValue *ret = RSValue_NewRedisString(str);
+  RSValue *ret = RSValue_NewBorrowedRedisString(str);
   ret->_t = RSValueType_OwnRstring;
   return ret;
 }
@@ -624,18 +624,18 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
   }
 }
 
-static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *qerr) {
+static inline bool convert_to_number(const RSValue *v, RSValue *vn, QueryError *qerr) {
   double d;
   if (!RSValue_ToNumber(v, &d)) {
-    if (!qerr) return 0;
+    if (!qerr) return false;
 
     const char *s = RSValue_StringPtrLen(v, NULL);
     QueryError_SetWithUserDataFmt(qerr, QUERY_ENOTNUMERIC, "Error converting string", " '%s' to number", s);
-    return 0;
+    return false;
   }
 
   RSValue_SetNumber(vn, d);
-  return 1;
+  return true;
 }
 
 // Forward declaration for recursive call

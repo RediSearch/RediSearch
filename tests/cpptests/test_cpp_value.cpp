@@ -36,7 +36,7 @@ TEST_F(ValueTest, testBasic) {
   RSValue_DecrRef(v);
 
   // cannot use redis strings in tests...
-  v = RSValue_NewRedisString(NULL);
+  v = RSValue_NewBorrowedRedisString(NULL);
   ASSERT_EQ(RSValueType_RedisString, RSValue_Type(v));
   RSValue_DecrRef(v);
 }

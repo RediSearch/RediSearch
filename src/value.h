@@ -184,7 +184,7 @@ RSValue RSValue_Number(double n);
  * @param len The length of the string
  * @return A stack-allocated RSValue of type RSValue_String with RSString_Malloc subtype
  */
-RSValue RSValue_MallocString(char *str, uint32_t len);
+RSValue RSValue_String(char *str, uint32_t len);
 
 /**
  * Creates a heap-allocated RSValue wrapping a string.
@@ -212,20 +212,31 @@ RSValue *RSValue_NewStringWithType(char *str, uint32_t len, RSStringType t);
 static inline RSValue *RSValue_NewCString(char *s) {
   return RSValue_NewString(s, strlen(s));
 }
+/**
+ * Creates a heap-allocated RSValue wrapping a const null-terminated C string.
+ * @param s The null-terminated string to wrap (ownership is transferred)
+ * @return A pointer to a heap-allocated RSValue wrapping a constant C string
+ */
 static inline RSValue *RSValue_NewConstString(const char *s, size_t n) {
   return RSValue_NewStringWithType((char *)s, n, RSStringType_Const);
 }
-static inline RSValue *RSValue_NewConstCString(char *s) {
+/**
+ * Like RSValue_NewConstString, but uses strlen to determine
+ * the length of the passed null-terminated C string.
+ */
+static inline RSValue *RSValue_NewConstCString(const char *s) {
   return RSValue_NewConstString(s, strlen(s));
 }
 
 /**
  * Creates a heap-allocated RSValue wrapping a RedisModuleString.
  * Does not increment the refcount of the Redis string.
+ * The passed Redis string's refcount does not get decremented
+ * upon freeing the returned RSValue.
  * @param str The RedisModuleString to wrap
  * @return A pointer to a heap-allocated RSValue
  */
-RSValue *RSValue_NewRedisString(RedisModuleString *str);
+RSValue *RSValue_NewBorrowedRedisString(RedisModuleString *str);
 
 /**
  * Creates a heap-allocated RSValue which increments and owns a reference to the Redis string.
