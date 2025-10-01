@@ -8,6 +8,7 @@
 */
 
 #include "rlookup.h"
+#include "value.h"
 #include "gtest/gtest.h"
 
 class RLookupTest : public ::testing::Test {};
@@ -45,18 +46,18 @@ TEST_F(RLookupTest, testRow) {
   RSValue *vfoo = RS_Int64Val(42);
   RSValue *vbar = RS_Int64Val(666);
 
-  ASSERT_EQ(1, vfoo->refcount);
+  ASSERT_EQ(1, RSValue_Refcount(vfoo));
   RLookup_WriteKey(fook, &rr, vfoo);
-  ASSERT_EQ(2, vfoo->refcount);
+  ASSERT_EQ(2, RSValue_Refcount(vfoo));
 
   RSValue *vtmp = RLookup_GetItem(fook, &rr);
   ASSERT_EQ(vfoo, vtmp);
-  ASSERT_EQ(2, vfoo->refcount);
+  ASSERT_EQ(2, RSValue_Refcount(vfoo));
   ASSERT_EQ(1, rr.ndyn);
 
   // Write a NULL value
   RLookup_WriteKey(fook, &rr, RS_NullVal());
-  ASSERT_EQ(1, vfoo->refcount);
+  ASSERT_EQ(1, RSValue_Refcount(vfoo));
 
   // Get the 'bar' key -- should be NULL
   ASSERT_TRUE(NULL == RLookup_GetItem(bark, &rr));
@@ -66,8 +67,8 @@ TEST_F(RLookupTest, testRow) {
   vtmp = RLookup_GetItem(fook, &rr);
   ASSERT_TRUE(NULL == RLookup_GetItem(fook, &rr));
 
-  RSValue_Decref(vfoo);
-  RSValue_Decref(vbar);
+  RSValue_DecrRef(vfoo);
+  RSValue_DecrRef(vbar);
   RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
 }
@@ -146,7 +147,7 @@ void verify_fields_empty(RLookup* lookup, RLookupRow* row, const std::vector<con
 // Helper: Cleanup RSValue array
 void cleanup_values(const std::vector<RSValue*>& values) {
   for (RSValue* val : values) {
-    if (val) RSValue_Decref(val);
+    if (val) RSValue_DecrRef(val);
   }
 }
 
@@ -352,8 +353,8 @@ TEST_F(RLookupTest, testWriteFieldsBasic) {
   ASSERT_EQ(original_ptr2, RLookup_GetItem(srcKeys.keys[1], &srcRow));
 
   // Verify refcounts increased due to sharing (now referenced by both rows)
-  ASSERT_EQ(3, original_ptr1->refcount);  // 1 original + 1 source row + 1 dest row
-  ASSERT_EQ(3, original_ptr2->refcount);  // 1 original + 1 source row + 1 dest row
+  ASSERT_EQ(3, RSValue_Refcount(original_ptr1));  // 1 original + 1 source row + 1 dest row
+  ASSERT_EQ(3, RSValue_Refcount(original_ptr2));  // 1 original + 1 source row + 1 dest row
 
   // Cleanup
   cleanup_values(values);
@@ -517,8 +518,8 @@ TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
 
   // Initially all values have refcount = 1 (just created, no rows reference them yet)
   for (int i = 0; i < 3; i++) {
-    ASSERT_EQ(1, s1_vals[i]->refcount) << "s1_vals[" << i << "] initial refcount";
-    ASSERT_EQ(1, s2_vals[i]->refcount) << "s2_vals[" << i << "] initial refcount";
+    ASSERT_EQ(1, RSValue_Refcount(s1_vals[i])) << "s1_vals[" << i << "] initial refcount";
+    ASSERT_EQ(1, RSValue_Refcount(s2_vals[i])) << "s2_vals[" << i << "] initial refcount";
   }
 
   // Write values to rows - refcount should increase by 1 for each row that references the value
@@ -532,22 +533,22 @@ TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
 
   // Verify refcounts after writing to rows - all should be 2 (original + row)
   for (int i = 0; i < 3; i++) {
-    ASSERT_EQ(2, s1_vals[i]->refcount) << "s1_vals[" << i << "] refcount after writing to src1Row";
-    ASSERT_EQ(2, s2_vals[i]->refcount) << "s2_vals[" << i << "] refcount after writing to src2Row";
+    ASSERT_EQ(2, RSValue_Refcount(s1_vals[i])) << "s1_vals[" << i << "] refcount after writing to src1Row";
+    ASSERT_EQ(2, RSValue_Refcount(s2_vals[i])) << "s2_vals[" << i << "] refcount after writing to src2Row";
   }
 
   // Write src1 first, then src2
   RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest);
 
   // After first write, s1_val2 should have refcount 3 (original + src1Row + destRow)
-  ASSERT_EQ(3, s1_val2->refcount);  // Shared between source and destination
-  ASSERT_EQ(2, s2_val2->refcount);  // s2_val2 unchanged yet
+  ASSERT_EQ(3, RSValue_Refcount(s1_val2));  // Shared between source and destination
+  ASSERT_EQ(2, RSValue_Refcount(s2_val2));  // s2_val2 unchanged yet
 
   RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest);
 
   // After second write, s1_val2 should be decremented (overwritten in dest), s2_val2 should be shared
-  ASSERT_EQ(2, s1_val2->refcount);  // Back to original + src1Row (removed from destRow)
-  ASSERT_EQ(3, s2_val2->refcount);  // Now shared: original + src2Row + destRow
+  ASSERT_EQ(2, RSValue_Refcount(s1_val2));  // Back to original + src1Row (removed from destRow)
+  ASSERT_EQ(3, RSValue_Refcount(s2_val2));  // Now shared: original + src2Row + destRow
 
   // Verify field2 contains src2 data (last write wins)
   RLookupKey *dest_field2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
@@ -611,8 +612,8 @@ TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
 
   // Verify initial refcounts before any writes - all should be 2 (original + row)
   for (int i = 0; i < 3; i++) {
-    ASSERT_EQ(2, s1_vals[i]->refcount) << "s1_vals[" << i << "] refcount after writing to src1Row";
-    ASSERT_EQ(2, s2_vals[i]->refcount) << "s2_vals[" << i << "] refcount after writing to src2Row";
+    ASSERT_EQ(2, RSValue_Refcount(s1_vals[i])) << "s1_vals[" << i << "] refcount after writing to src1Row";
+    ASSERT_EQ(2, RSValue_Refcount(s2_vals[i])) << "s2_vals[" << i << "] refcount after writing to src2Row";
   }
 
   // Write src1 first
@@ -620,8 +621,8 @@ TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
 
   // After first write, src1 values should have refcount 3 (shared: original + src1Row + destRow)
   for (int i = 0; i < 3; i++) {
-    ASSERT_EQ(3, s1_vals[i]->refcount) << "s1_vals[" << i << "] should be shared between src1Row and destRow";
-    ASSERT_EQ(2, s2_vals[i]->refcount) << "s2_vals[" << i << "] should be unchanged";
+    ASSERT_EQ(3, RSValue_Refcount(s1_vals[i])) << "s1_vals[" << i << "] should be shared between src1Row and destRow";
+    ASSERT_EQ(2, RSValue_Refcount(s2_vals[i])) << "s2_vals[" << i << "] should be unchanged";
   }
 
   // Write src2 - this will overwrite all src1 values
@@ -630,8 +631,8 @@ TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
   // After second write, all src1 values should be decremented (overwritten in destRow)
   // and all src2 values should have refcount 3 (shared: original + src2Row + destRow)
   for (int i = 0; i < 3; i++) {
-    ASSERT_EQ(2, s1_vals[i]->refcount) << "s1_vals[" << i << "] back to original + src1Row (removed from destRow)";
-    ASSERT_EQ(3, s2_vals[i]->refcount) << "s2_vals[" << i << "] shared between src2Row and destRow";
+    ASSERT_EQ(2, RSValue_Refcount(s1_vals[i])) << "s1_vals[" << i << "] back to original + src1Row (removed from destRow)";
+    ASSERT_EQ(3, RSValue_Refcount(s2_vals[i])) << "s2_vals[" << i << "] shared between src2Row and destRow";
   }
 
   // NOTE: Since both sources have identical field names, src2 overwrites src1 data in destination
