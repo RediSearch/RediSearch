@@ -10,5 +10,5 @@
 use build_utils::run_cbinden;
 
 fn main() {
-    run_cbinden("../../headers/future/inverted_index.h").unwrap();
+    run_cbinden("../../headers/inverted_index.h").unwrap();
 }
