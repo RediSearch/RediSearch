@@ -214,6 +214,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     AREQDIST_UpstreamInfo us = {NULL};
+    size_t originalK = hreq->requests[1]->parsedVectorData->query->knn.k;
 
     array_free_ex(hreq->requests, (void (*)(void *))AREQ_Free);
     hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
@@ -222,9 +223,19 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     AREQ_AddRequestFlags(hreq->requests[0], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
     AREQ_AddRequestFlags(hreq->requests[1], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
 
-    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[0]));
-    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[1]));
+    PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[0]));
+    if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+      searchArrangeStep->limit = hybridParams.scoringCtx->rrfCtx.window;
+    } else if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
+      searchArrangeStep->limit = hybridParams.scoringCtx->linearCtx.window;
+    }
 
+    PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[1]));
+    if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+      vectorArrangeStep->limit = MIN(hybridParams.scoringCtx->rrfCtx.window, originalK);
+    } else if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
+      vectorArrangeStep->limit = MIN(hybridParams.scoringCtx->linearCtx.window, originalK);
+    }
 
     // rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, &us, status);
     rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, &hybridParams);
