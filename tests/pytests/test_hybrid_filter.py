@@ -60,7 +60,7 @@ def test_hybrid_filter_behavior():
         'VSIM', '@vector', query_vector,
         'FILTER', '@category:{"fruit"}'
     )
-    results = get_results_from_hybrid_response(response)
+    results, _ = get_results_from_hybrid_response(response)
     # This should return all with fruit from vector subquery (doc:1, doc:2) and all with green text (doc:3)
     assert set(results.keys()) == {"doc:1", "doc:2", "doc:3"}
 
@@ -70,7 +70,7 @@ def test_hybrid_filter_behavior():
         'VSIM', '@vector', query_vector,
         'FILTER', '@category:{"fruit"}', "COMBINE", "RRF", "2", "CONSTANT", "30",
     )
-    results = get_results_from_hybrid_response(response)
+    results, _ = get_results_from_hybrid_response(response)
     # This should filter as before, just an extra combine
     assert set(results.keys()) == {"doc:1", "doc:2", "doc:3"}
 
@@ -80,7 +80,7 @@ def test_hybrid_filter_behavior():
         'VSIM', '@vector', query_vector,
         "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "__key", "category", "FILTER", "@category==\"fruit\"",
     )
-    results = get_results_from_hybrid_response(response)
+    results, _ = get_results_from_hybrid_response(response)
     # This should filter as post processing.
     assert set(results.keys()) == {"doc:1", "doc:2"}
 
@@ -90,7 +90,7 @@ def test_hybrid_filter_behavior():
         'VSIM', '@vector', query_vector,
         'FILTER', '@category:{"vegetable"}', "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "__key", "category", "FILTER", "@category==\"fruit\"",
     )
-    results = get_results_from_hybrid_response(response)
+    results, _ = get_results_from_hybrid_response(response)
     # This should filter as before, just an extra combine
     assert results == {}
 
@@ -100,7 +100,7 @@ def test_hybrid_filter_behavior():
         'VSIM', '@vector', query_vector,
         'FILTER', '@category:{"vegetable"}', "LOAD", 2, "__key", "category", "FILTER", "@category==\"clothing\"",
     )
-    results = get_results_from_hybrid_response(response)
+    results, _ = get_results_from_hybrid_response(response)
     # This should filter as before, just an extra combine
     assert set(results.keys()) == {"doc:3"}
 
@@ -111,6 +111,6 @@ def test_hybrid_filter_behavior():
         'VSIM', '@vector', query_vector,
         'FILTER', '@category:{"vegetable"}', "FILTER", "@__key==\"doc:3\"",
     )
-    results = get_results_from_hybrid_response(response)
+    results, _ = get_results_from_hybrid_response(response)
     # This should filter as before, just an extra combine
     assert set(results.keys()) == {"doc:3"}
