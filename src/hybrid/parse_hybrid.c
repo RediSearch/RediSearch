@@ -646,10 +646,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
   if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
     arrangeStep->limit = hybridParams->scoringCtx->rrfCtx.window;
-  } else if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
   } else {
-    RS_ABORT("Invalid scoring type");
+    // hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR
+    arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
   }
 
 
