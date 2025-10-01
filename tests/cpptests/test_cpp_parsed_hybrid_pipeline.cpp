@@ -419,7 +419,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestRRFWindowArrangeStep) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_rrf_window_arrange",
                       "SEARCH", "machine",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "RRF", "2", "CONSTANT", "60.0", "WINDOW", "5");
+                      "COMBINE", "RRF", "4", "CONSTANT", "60.0", "WINDOW", "5");
 
   HYBRID_TEST_SETUP("test_rrf_window_arrange", args);
   VERIFY_TWO_SUBQUERIES(hybridReq);
@@ -444,7 +444,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestLinearWindowArrangeStep) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_linear_window_arrange",
                       "SEARCH", "artificial",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3", "WINDOW", "5");
+                      "COMBINE", "LINEAR", "6", "ALPHA", "0.7", "BETA", "0.3", "WINDOW", "5");
 
   HYBRID_TEST_SETUP("test_linear_window_arrange", args);
 
