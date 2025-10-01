@@ -33,10 +33,12 @@ def verify_word_is_highlighted(env, result, word_to_check):
             highlighted.add(word)
     # Check that the expected word is in the highlighted set
     env.assertIn(word_to_check, highlighted)
+    assert len(highlighted) == 1, f"We only expect the given word to be highlighted, but found also others: {highlighted}" # it is the only one highlighted
+
 
 
 # Test highlighting with complex real-world schema
-def test_highlight_complex_schema_mod_11233whe(env):
+def test_highlight_complex_schema_mod_11233(env):
     """Test highlighting with complex schema similar to production use case"""
     conn = getConnectionByEnv(env)
         # Create index with many fields (anonymized with city names)
@@ -50,13 +52,14 @@ def test_highlight_complex_schema_mod_11233whe(env):
 
     # Add document with city field names
     conn.hset('doc:4153814', mapping={
-        'vienna': '',
-        'lisbon': '1756447303000',
-        'tokyo': '4153814',
+        'vienna': 'word here Alert',
+        'lisbon': 'other sentence',
+        'tokyo': '',
         'seattle': 'This Alert triggered for potential activity and will be included in the automated review process.',
     })
 
-    # Search with highlighting - should highlight "Alert" in madrid and seattle fields
+    # Search with highlighting - should highlight "Alert" in seattle and vienna fields
     result = env.cmd('FT.SEARCH', 'large_index', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
-    # Verify that "Alert" is highlighted (it appears in both madrid and seattle fields)
+    print(result)
+    # Verify that "Alert" is highlighted (it appears in seattle and vienna fields)
     verify_word_is_highlighted(env, result, '<b>Alert</b>')
