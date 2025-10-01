@@ -622,10 +622,10 @@ TEST_F(ParseHybridTest, testBasicValidInputWith_NUM_SSTRING) {
     QueryError status = {QueryErrorCode(0)};
     int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, false);
     EXPECT_EQ(status.code, QUERY_EPARSEARGS) << "Did not fail as expected";
+    QueryError_ClearError(&status);
   } else {
     ASSERT_EQ(parseCommandInternal(args), REDISMODULE_OK) << "parseCommandInternal failed";
   }
-
 }
 
 TEST_F(ParseHybridTest, testDirectVectorSyntax) {
