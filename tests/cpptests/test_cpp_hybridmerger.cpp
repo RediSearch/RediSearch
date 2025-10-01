@@ -15,6 +15,7 @@
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"  // For HybridLookupContext
 #include "search_result.h"
+#include "hiredis/sds.h"
 
 #include <vector>
 #include <string>
@@ -47,7 +48,7 @@ struct MockUpstream : public ResultProcessor {
   uint8_t flags = 0;  // Single flags value for all results
   int depletionCount = 0;
   int counter = 0;
-  std::vector<RSDocumentMetadata> documentMetadata;
+  std::vector<RSDocumentMetadata*> documentMetadata;
   std::vector<std::string> keyStrings;
 
   // Simplified constructor with just the essentials
@@ -60,8 +61,6 @@ struct MockUpstream : public ResultProcessor {
     : timeoutAfterCount(timeoutAfterCount), errorAfterCount(errorAfterCount), scores(Scores), docIds(DocIds), flags(Flags), depletionCount(depletionCount) {
 
     this->Next = NextFn;
-    documentMetadata.reserve(50);
-    keyStrings.reserve(50);
 
     // If no custom docIds provided, generate sequential ones
     if (docIds.empty() && !scores.empty()) {
@@ -76,13 +75,15 @@ struct MockUpstream : public ResultProcessor {
     size_t maxEntries = depletionCount + scores.size();
     if (maxEntries > 0) {
       documentMetadata.resize(maxEntries);
-      keyStrings.resize(maxEntries);
 
       // Pre-create key strings for actual documents (not depletion entries)
       for (size_t i = 0; i < docIds.size(); i++) {
         size_t entryIndex = depletionCount + i;
-        keyStrings[entryIndex] = "doc" + std::to_string(docIds[i]);
-        documentMetadata[entryIndex].keyPtr = const_cast<char*>(keyStrings[entryIndex].c_str());
+
+        documentMetadata[entryIndex] = static_cast<RSDocumentMetadata*>(rm_calloc(1, sizeof(RSDocumentMetadata)));
+
+        std::string str = "doc" + std::to_string(docIds[i]);
+        documentMetadata[entryIndex]->keyPtr = sdsnewlen(str.data(), str.length());
       }
     }
   }
