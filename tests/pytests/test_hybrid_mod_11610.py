@@ -151,7 +151,7 @@ def test_hybrid_mod_11610():
     # First, test regular FT.SEARCH to establish baseline (avoid returning vector data)
     regular_search_response = env.cmd('FT.SEARCH', 'idx:bikes_vss', 'light*', 'DIALECT', '2', 'RETURN', '0')
     regular_count = get_results_count(regular_search_response)
-    assert regular_count == 15
+    env.assertEqual(regular_count, 15)
 
     # Test FT.HYBRID with increasing K, WINDOW, and LIMIT parameters
     hybrid_response = env.cmd('FT.HYBRID', 'idx:bikes_vss',
@@ -163,7 +163,7 @@ def test_hybrid_mod_11610():
                              'PARAMS', '2', 'BLOB', query_vector)
 
     hybrid_count = get_results_count(hybrid_response)
-    assert hybrid_count == 20
+    env.assertEqual(hybrid_count, 20)
 
     # Test FT.HYBRID with increasing K, WINDOW, and LIMIT parameters at end
     hybrid_response = env.cmd('FT.HYBRID', 'idx:bikes_vss',
@@ -174,4 +174,4 @@ def test_hybrid_mod_11610():
                              'PARAMS', '2', 'BLOB', query_vector, 'LIMIT', '0', '100')
 
     hybrid_count = get_results_count(hybrid_response)
-    assert hybrid_count == 20
+    env.assertEqual(hybrid_count, 20)
