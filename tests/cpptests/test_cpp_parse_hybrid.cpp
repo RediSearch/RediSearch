@@ -613,12 +613,12 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_TRUE(foundEpsilon);
 }
 
-TEST_F(ParseHybridTest, testBasicValidInputWith_NUM_SSTR) {
+TEST_F(ParseHybridTest, testBasicValidInputWith_NUM_SSTRING) {
   extern size_t NumShards;
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTR");
+        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
   if (NumShards <= 1) {
-    // Should fail with an error, since _NUM_SSTR is only supported as internal command
+    // Should fail with an error, since _NUM_SSTRING is only supported as internal command
     QueryError status = {QueryErrorCode(0)};
     int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, false);
     EXPECT_EQ(status.code, QUERY_EPARSEARGS) << "Did not fail as expected";
