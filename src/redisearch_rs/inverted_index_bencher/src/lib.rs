@@ -16,7 +16,6 @@
 use std::ffi::{c_char, c_void};
 
 pub mod benchers;
-pub mod ffi;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 

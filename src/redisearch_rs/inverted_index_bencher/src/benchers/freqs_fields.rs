@@ -7,9 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, ptr::NonNull, time::Duration, vec};
+use std::{io::Cursor, time::Duration, vec};
 
-use buffer::Buffer;
 use criterion::{
     BatchSize, BenchmarkGroup, Criterion, black_box,
     measurement::{Measurement, WallTime},
@@ -20,8 +19,6 @@ use inverted_index::{
     freqs_fields::{FreqsFields, FreqsFieldsWide},
 };
 use itertools::Itertools;
-
-use crate::ffi::{TestBuffer, encode_freqs_fields, read_freqs_flags};
 
 // The encode C implementation relies on this symbol. Re-export it to ensure it is not discarded by the linker.
 #[allow(unused_imports)]
@@ -114,41 +111,14 @@ impl Bencher {
 
     pub fn encoding(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Encode - FreqsFields");
-        self.c_encode(&mut group);
         self.rust_encode(&mut group);
         group.finish();
     }
 
     pub fn decoding(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Decode - FreqsFields");
-        self.c_decode(&mut group);
         self.rust_decode(&mut group);
         group.finish();
-    }
-
-    fn c_encode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        // Use a single buffer big enough to hold all encoded values
-        let buffer_size = self.test_values.iter().map(|test| test.encoded.len()).sum();
-
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || TestBuffer::with_capacity(buffer_size),
-                |buffer| {
-                    for test in &self.test_values {
-                        let mut record = RSIndexResult::term()
-                            .doc_id(100)
-                            .field_mask(test.field_mask)
-                            .frequency(test.freq);
-
-                        let grew_size =
-                            encode_freqs_fields(buffer, &mut record, test.delta as u64, self.wide);
-
-                        black_box(grew_size);
-                    }
-                },
-                BatchSize::SmallInput,
-            );
-        });
     }
 
     fn rust_encode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
@@ -180,25 +150,6 @@ impl Bencher {
                 },
                 BatchSize::SmallInput,
             );
-        });
-    }
-
-    fn c_decode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            for test in &self.test_values {
-                b.iter_batched_ref(
-                    || {
-                        let buffer_ptr = NonNull::new(test.encoded.as_ptr() as *mut _).unwrap();
-                        unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
-                    },
-                    |buffer| {
-                        let (_filtered, result) = read_freqs_flags(buffer, 100, self.wide);
-
-                        black_box(result);
-                    },
-                    BatchSize::SmallInput,
-                );
-            }
         });
     }
 
