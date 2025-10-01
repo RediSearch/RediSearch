@@ -7,10 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::{RLookup, RLookupKey, RLookupKeyFlag};
 use sorting_vector::RSSortingVector;
 use value::RSValueTrait;
-
-use crate::{RLookupKey, RLookupKeyFlag};
 
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
 /// or from dynamic values stored in the row during processing.
@@ -143,5 +142,36 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     pub fn reset_dyn_values(&mut self) {
         self.num_dyn_values = 0;
         self.dyn_values = vec![];
+    }
+
+    // /**
+    //  * Write field data from source row to destination row with different schemas.
+    //  * Iterate through source lookup keys, find corresponding keys in destination by name,
+    //  * and write it to destination row using RLookup_WriteOwnKey().
+    //  * Assumes all source keys exist in destination (enforce with ASSERT).
+    //  */
+    // void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
+    //                                RLookupRow *destRow, const RLookup *destLookup);
+    pub fn copy_fields_from(
+        dst_row: &mut Self,
+        dst_lookup: &RLookup,
+        src_row: &Self,
+        src_lookup: &RLookup,
+    ) {
+        // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
+        for src_key in src_lookup.cursor() {
+            // Get value from source row
+            if let Some(value) = src_row.get(src_key) {
+                // Find corresponding key in destination lookup
+                let dst_key = dst_lookup
+                    .find_key_by_name(src_key.name())
+                    .expect("we expect all source keys exist in destination")
+                    .into_current()
+                    .unwrap();
+
+                // Write fields to destination
+                dst_row.write_key(dst_key, value.to_owned());
+            }
+        }
     }
 }
