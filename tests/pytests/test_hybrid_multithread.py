@@ -47,7 +47,7 @@ def setup_basic_index(env):
         )
 
 
-# TODO: remove once FT.HYBRID for cluster is implemented
+# TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_multithread():
     env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)

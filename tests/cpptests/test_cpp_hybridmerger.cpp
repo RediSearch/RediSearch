@@ -185,7 +185,7 @@ void CleanupDummyLookupContext(HybridLookupContext *lookupCtx) {
 // Helper function to create hybrid merger with linear scoring
 ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double *weights, HybridLookupContext *lookupCtx) {
   // Create HybridScoringContext using constructor
-  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, numUpstreams);
+  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, numUpstreams, HYBRID_DEFAULT_WINDOW);
 
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
@@ -1419,7 +1419,7 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   double weights[] = {0.33, 0.33, 0.34};
 
   // Create HybridScoringContext using constructor
-  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, 3);
+  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, 3, HYBRID_DEFAULT_WINDOW);
 
   // Create dummy lookup context
   HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);

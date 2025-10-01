@@ -1116,3 +1116,32 @@ TEST_F(ParseHybridTest, testDialectInTail) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "DIALECT", "2");
   testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.");
 }
+
+
+// ============================================================================
+// WINDOW ERROR TESTS
+// ============================================================================
+
+TEST_F(ParseHybridTest, testCombineRRFNegativeWindow) {
+  // Test RRF with negative WINDOW value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "RRF", "2", "WINDOW", "-5");
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}
+
+TEST_F(ParseHybridTest, testCombineRRFZeroWindow) {
+  // Test RRF with zero WINDOW value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "RRF", "2", "WINDOW", "0");
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}
+
+TEST_F(ParseHybridTest, testCombineLinearNegativeWindow) {
+  // Test LINEAR with negative WINDOW value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "-10");
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}
+
+TEST_F(ParseHybridTest, testCombineLinearZeroWindow) {
+  // Test LINEAR with zero WINDOW value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "0");
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}

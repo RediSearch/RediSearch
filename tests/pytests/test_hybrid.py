@@ -404,7 +404,6 @@ class testHybridSearch:
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
-        print(res)
         self.env.assertEqual(res, [
             'total_results', 1,
             'results',
@@ -573,13 +572,13 @@ class testHybridSearch:
         filtered_res = self.env.executeCommand(*hybrid_cmd)
         filtered_dict = to_dict(filtered_res)
 
-        # total_results should be the number of results before filtering.
+        # total_results should be the correct number of results we got
         self.env.assertEqual(unfiltered_dict['total_results'], 3)
-        self.env.assertEqual(filtered_dict['total_results'], 3)
+        self.env.assertEqual(filtered_dict['total_results'], 1)
 
         # But only 1 result is returned by the filtered query:
         expected = [
-            'total_results', 3,
+            'total_results', 1,
             'results',
             [
                 ['__key', 'both_01', '__score', '0.45']
