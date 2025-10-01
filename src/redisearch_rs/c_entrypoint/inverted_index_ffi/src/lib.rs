@@ -586,8 +586,15 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
     cb: *mut InvertedIndexGCCallback,
     params: *mut IndexRepairParams,
 ) -> bool {
+    debug_assert!(!sctx.is_null(), "sctx must not be null");
+    debug_assert!(!idx.is_null(), "idx must not be null");
+    debug_assert!(!cb.is_null(), "cb must not be null");
+    debug_assert!(!wr.is_null(), "wr must not be null");
+
     // SAFETY: The caller must ensure `sctx` is a valid pointer to a `RedisSearchCtx`
     let sctx = unsafe { &*sctx };
+
+    debug_assert!(!sctx.spec.is_null(), "sctx.spec must not be null");
 
     // SAFETY: The caller must ensure the `spec` field of the `RedisSearchCtx` is a valid
     // pointer to an `IndexSpec`
@@ -641,6 +648,8 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
 pub unsafe extern "C" fn InvertedIndex_GcDelta_Read(
     rd: *mut InvertedIndexGCReader,
 ) -> *mut GcScanDelta {
+    debug_assert!(!rd.is_null(), "rd must not be null");
+
     // SAFETY: The caller must ensure `rd` is a valid pointer to a `InvertedIndexGCReader`
     let rt = unsafe { &mut *rd };
 
@@ -660,6 +669,8 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Read(
 ///   [`InvertedIndex_GcDelta_Read`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_GcDelta_Free(deltas: *mut GcScanDelta) {
+    debug_assert!(!deltas.is_null(), "deltas must not be null");
+
     // SAFETY: The caller must ensure that `deltas` is a valid pointer to a `GcScanDelta`
     let _deltas = unsafe { Box::from_raw(deltas) };
 }
@@ -683,6 +694,10 @@ pub unsafe extern "C" fn InvertedIndex_ApplyGcDelta(
     deltas: *mut GcScanDelta,
     apply_info: *mut GcApplyInfo,
 ) {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+    debug_assert!(!deltas.is_null(), "deltas must not be null");
+    debug_assert!(!apply_info.is_null(), "apply_info must not be null");
+
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &mut *ii };
 
@@ -704,6 +719,8 @@ pub unsafe extern "C" fn InvertedIndex_ApplyGcDelta(
 /// - `gc_scan_delta` must be a valid, non NULL, pointer to a `GcScanDelta` instance.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn GcScanDelta_LastBlockIdx(gc_scan_delta: *const GcScanDelta) -> usize {
+    debug_assert!(!gc_scan_delta.is_null(), "gc_scan_delta must not be null");
+
     // SAFETY: The caller must ensure `gc_scan_delta` is a valid pointer to a `GcScanDelta`
     let gc_scan_delta = unsafe { &*gc_scan_delta };
 
