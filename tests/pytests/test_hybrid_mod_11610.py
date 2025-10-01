@@ -147,3 +147,16 @@ def test_hybrid_mod_11610():
     hybrid_dict = to_dict(hybrid_response)
     hybrid_count = hybrid_dict['total_results']
     env.assertEqual(hybrid_count, 20)
+
+        # Test FT.HYBRID with increasing K, WINDOW, and LIMIT parameters at end
+    hybrid_response = env.cmd('FT.HYBRID', 'idx:bikes_vss',
+                             'SEARCH', 'light*',
+                             'VSIM', '@description_embeddings', '$BLOB',
+                             'KNN', '2', 'K', '50',
+                             'COMBINE', 'RRF', '2', 'WINDOW', '100',
+                             'PARAMS', '2', 'BLOB', query_vector, 'LIMIT', '0', '5')
+
+    # FT.HYBRID returns a structured response with key-value pairs
+    hybrid_dict = to_dict(hybrid_response)
+    hybrid_count = hybrid_dict['total_results']
+    env.assertEqual(hybrid_count, 5)
