@@ -238,13 +238,13 @@ struct KeyList<'a> {
     rowlen: u32,
 }
 
-/// A cursor over a [`KeyList`].
+/// A cursor over an [`RLookup`]s key list.
 pub struct Cursor<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
-/// A cursor over a [`KeyList`] with editing operations.
+/// A cursor over a an [`RLookup`]s key list with editing operations.
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
@@ -748,7 +748,7 @@ impl Drop for KeyList<'_> {
 // ===== impl Cursor =====
 
 impl<'list, 'a> Cursor<'list, 'a> {
-    /// Move the cursor to the next [`RLookupKey`] in the [`KeyList`].
+    /// Move the cursor to the next [`RLookupKey`] in the key list.
     ///
     /// Note that contrary to [`Self::next`] this **does not** skip over hidden keys.
     pub fn move_next(&mut self) {
@@ -788,7 +788,7 @@ impl<'list, 'a> Cursor<'list, 'a> {
 impl<'list, 'a> Iterator for Cursor<'list, 'a> {
     type Item = &'list RLookupKey<'a>;
 
-    /// Advances the [`Cursor`] to the next [`RLookupKey`] in the [`KeyList`] and returns it.
+    /// Advances the [`Cursor`] to the next [`RLookupKey`] in the key list and returns it.
     ///
     /// This will automatically skip over any keys with the [`RLookupKeyFlag::Hidden`] flag.
     fn next(&mut self) -> Option<Self::Item> {
@@ -912,7 +912,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
 impl<'list, 'a> Iterator for CursorMut<'list, 'a> {
     type Item = Pin<&'list mut RLookupKey<'a>>;
 
-    /// Advances the [`CursorMut`] to the next [`RLookupKey`] in the [`KeyList`] and returns it.
+    /// Advances the [`CursorMut`] to the next [`RLookupKey`] in the key list and returns it.
     ///
     /// This will automatically skip over any keys with the [`RLookupKeyFlag::Hidden`] flag.
     fn next(&mut self) -> Option<Self::Item> {
@@ -976,6 +976,20 @@ impl<'a> RLookup<'a> {
     #[cfg(debug_assertions)]
     pub(crate) const fn id(&self) -> RLookupId {
         self.id
+    }
+
+    /// Returns a [`Cursor`] starting at the first key.
+    ///
+    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
+    pub fn cursor(&self) -> Cursor<'_, 'a> {
+        self.keys.cursor_front()
+    }
+
+    /// Returns a [`Cursor`] starting at the first key.
+    ///
+    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
+    pub fn cursor_mut(&mut self) -> CursorMut<'_, 'a> {
+        self.keys.cursor_front_mut()
     }
 
     // ===== Get key for reading (create only if in schema and sortable) =====
