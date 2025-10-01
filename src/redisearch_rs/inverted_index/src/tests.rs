@@ -1090,7 +1090,7 @@ fn summary_store_numeric() {
             last_doc_id: 10,
             flags: IndexFlags_Index_StoreNumeric as _,
             number_of_blocks: 1,
-            block_efficiency: 1.0,
+            block_efficiency: 2.0,
             has_efficiency: true,
         }
     );

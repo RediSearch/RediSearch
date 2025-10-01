@@ -16,7 +16,7 @@ use std::{
 use debug::{BlockSummary, Summary};
 use ffi::{
     FieldSpec, GeoFilter, IndexFlags, IndexFlags_Index_HasMultiValue,
-    IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreNumeric,
+    IndexFlags_Index_StoreFieldFlags,
 };
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
@@ -499,22 +499,14 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Return the debug summary for this inverted index.
     pub fn summary(&self) -> Summary {
-        let has_efficiency = (self.flags & IndexFlags_Index_StoreNumeric) > 0;
-
-        let block_efficiency = if has_efficiency && !self.blocks.is_empty() {
-            self.n_unique_docs as f64 / self.blocks.len() as f64
-        } else {
-            0.0
-        };
-
         Summary {
             number_of_docs: self.n_unique_docs,
             number_of_entries: self.n_unique_docs,
             last_doc_id: self.last_doc_id().unwrap_or(0),
             flags: self.flags as _,
             number_of_blocks: self.blocks.len(),
-            block_efficiency,
-            has_efficiency,
+            block_efficiency: 0.0,
+            has_efficiency: false,
         }
     }
 
@@ -621,6 +613,12 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
         let mut summary = self.index.summary();
 
         summary.number_of_entries = self.number_of_entries;
+        summary.has_efficiency = true;
+
+        if summary.number_of_blocks > 0 {
+            summary.block_efficiency =
+                summary.number_of_entries as f64 / summary.number_of_blocks as f64
+        }
 
         summary
     }
