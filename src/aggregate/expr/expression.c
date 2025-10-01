@@ -439,7 +439,7 @@ static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
   }
 
   pc->eval.res = r;
-  pc->eval.srcrow = &r->rowdata;
+  pc->eval.srcrow = SearchResult_GetRowData(r);
 
   // TODO: Set this once only
   pc->eval.err = pc->base.parent->err;
@@ -462,7 +462,7 @@ static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
   if (rc != RS_RESULT_OK) {
     return rc;
   }
-  RLookup_WriteOwnKey(pc->outkey, &r->rowdata, pc->val);
+  RLookup_WriteOwnKey(pc->outkey, SearchResult_GetRowDataMut(r), pc->val);
   pc->val = NULL;
   return RS_RESULT_OK;
 }
@@ -479,6 +479,9 @@ static int rpevalNext_filter(ResultProcessor *rp, SearchResult *r) {
       return RS_RESULT_OK;
     }
 
+    // Reduce the total number of results
+    RS_ASSERT(rp->parent->totalResults > 0);
+    rp->parent->totalResults--;
     // Otherwise, the result must be filtered out.
     SearchResult_Clear(r);
   }
