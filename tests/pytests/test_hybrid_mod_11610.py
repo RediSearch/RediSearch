@@ -134,6 +134,7 @@ def test_hybrid_mod_11610():
     hybrid_dict = to_dict(hybrid_response)
     hybrid_count = hybrid_dict['total_results']
     env.assertEqual(hybrid_count, 20)
+    env.assertEqual(len(hybrid_dict['results']), 20)
 
     # Test FT.HYBRID with increasing K, WINDOW, and LIMIT parameters at end
     hybrid_response = env.cmd('FT.HYBRID', 'idx:bikes_vss',
@@ -147,8 +148,9 @@ def test_hybrid_mod_11610():
     hybrid_dict = to_dict(hybrid_response)
     hybrid_count = hybrid_dict['total_results']
     env.assertEqual(hybrid_count, 20)
+    env.assertEqual(len(hybrid_dict['results']), 20)
 
-        # Test FT.HYBRID with increasing K, WINDOW, and LIMIT parameters at end
+    # Test FT.HYBRID with LIMIT smaller than available results
     hybrid_response = env.cmd('FT.HYBRID', 'idx:bikes_vss',
                              'SEARCH', 'light*',
                              'VSIM', '@description_embeddings', '$BLOB',
@@ -159,4 +161,23 @@ def test_hybrid_mod_11610():
     # FT.HYBRID returns a structured response with key-value pairs
     hybrid_dict = to_dict(hybrid_response)
     hybrid_count = hybrid_dict['total_results']
+    # Should return 5 results (limit is smaller than available 20)
+    # Verify actual number of results matches total_results
+    env.assertEqual(len(hybrid_dict['results']), 5)
     env.assertEqual(hybrid_count, 5)
+
+    # Test FT.HYBRID with LIMIT larger than available results
+    hybrid_response = env.cmd('FT.HYBRID', 'idx:bikes_vss',
+                             'SEARCH', 'light*',
+                             'VSIM', '@description_embeddings', '$BLOB',
+                             'KNN', '2', 'K', '50',
+                             'COMBINE', 'RRF', '2', 'WINDOW', '100',
+                             'PARAMS', '2', 'BLOB', query_vector, 'LIMIT', '0', '1000')
+
+    # FT.HYBRID returns a structured response with key-value pairs
+    hybrid_dict = to_dict(hybrid_response)
+    hybrid_count = hybrid_dict['total_results']
+    # Should return 20 results (all available, even though limit is 1000)
+    env.assertEqual(hybrid_count, 20)
+    # Verify actual number of results matches total_results
+    env.assertEqual(len(hybrid_dict['results']), 20)
