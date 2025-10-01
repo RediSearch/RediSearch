@@ -214,7 +214,11 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     AREQDIST_UpstreamInfo us = {NULL};
-    size_t originalK = hreq->requests[1]->parsedVectorData->query->knn.k;
+    size_t originalK = 0;
+
+    if (hreq->requests[1]->parsedVectorData->hasExplicitK) {
+      originalK = hreq->requests[1]->ast.root->vn.vq->knn.k;
+    } else originalK = 10000000000;
 
     array_free_ex(hreq->requests, (void (*)(void *))AREQ_Free);
     hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
