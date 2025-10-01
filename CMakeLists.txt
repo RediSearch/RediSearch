@@ -215,7 +215,6 @@ include_directories(
     ${root}/src/buffer
     ${root}/src/coord
     ${root}/src/redisearch_rs/headers
-    ${root}/src/redisearch_rs/headers/future
     ${root}/deps/libuv/include
     ${root}/deps
     ${root}/deps/RedisModulesSDK
