@@ -50,6 +50,8 @@ struct MockUpstream : public ResultProcessor {
   std::vector<RSDocumentMetadata> documentMetadata;
   std::vector<std::string> keyStrings;
 
+  // just a comment so the commit isn't empty
+
   // Simplified constructor with just the essentials
   MockUpstream(int timeoutAfterCount = 0,
                const std::vector<double>& Scores = {},
