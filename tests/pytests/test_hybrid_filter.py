@@ -61,7 +61,7 @@ def test_hybrid_filter_behavior():
         'FILTER', '@category:{"fruit"}'
     )
     results = get_results_from_hybrid_response(response)
-    # # This should return all with fruit from vector subquery (doc:1, doc:2) and all with green text (doc:3)
+    # This should return all with fruit from vector subquery (doc:1, doc:2) and all with green text (doc:3)
     assert set(results.keys()) == {"doc:1", "doc:2", "doc:3"}
 
     response = env.cmd(
@@ -71,7 +71,7 @@ def test_hybrid_filter_behavior():
         'FILTER', '@category:{"fruit"}', "COMBINE", "RRF", "2", "CONSTANT", "30",
     )
     results = get_results_from_hybrid_response(response)
-    # # This should filter as before, just an extra combine
+    # This should filter as before, just an extra combine
     assert set(results.keys()) == {"doc:1", "doc:2", "doc:3"}
 
     response = env.cmd(
@@ -81,7 +81,7 @@ def test_hybrid_filter_behavior():
         "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "__key", "category", "FILTER", "@category==\"fruit\"",
     )
     results = get_results_from_hybrid_response(response)
-    # # This should filter as post processing.
+    # This should filter as post processing.
     assert set(results.keys()) == {"doc:1", "doc:2"}
 
     response = env.cmd(
@@ -91,7 +91,7 @@ def test_hybrid_filter_behavior():
         'FILTER', '@category:{"vegetable"}', "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "__key", "category", "FILTER", "@category==\"fruit\"",
     )
     results = get_results_from_hybrid_response(response)
-    # # This should filter as before, just an extra combine
+    # This should filter as before, just an extra combine
     assert results == {}
 
     response = env.cmd(
@@ -101,7 +101,7 @@ def test_hybrid_filter_behavior():
         'FILTER', '@category:{"vegetable"}', "LOAD", 2, "__key", "category", "FILTER", "@category==\"clothing\"",
     )
     results = get_results_from_hybrid_response(response)
-    # # This should filter as before, just an extra combine
+    # This should filter as before, just an extra combine
     assert set(results.keys()) == {"doc:3"}
 
     # post-query FILTER immediately after VSIM FILTER
