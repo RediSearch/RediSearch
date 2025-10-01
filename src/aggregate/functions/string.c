@@ -37,9 +37,9 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
     if (n) {
       RSValue **arr = RSValue_AllocateArray(n);
       for (size_t i = 0; i < n; i++) {
-        arr[i] = RSValue_NewConstStringAlloc(terms[i]->str, terms[i]->len);
+        arr[i] = RSValue_NewConstString(terms[i]->str, terms[i]->len);
       }
-      RSValue *v = RSValue_NewArrayAlloc(arr, n);
+      RSValue *v = RSValue_NewArray(arr, n);
       RSValue_MakeOwnReference(result, v);
       return EXPR_EVAL_OK;
     }
@@ -169,7 +169,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
         continue;
       } else if (!RSValue_IsAnyString(arg)) {
 
-        RSValue strval = RSValue_NewUndefined();
+        RSValue strval = RSValue_Undefined();
         RSValue_ToString(&strval, arg);
         size_t sz;
         const char *str = RSValue_StringPtrLen(&strval, &sz);
@@ -246,7 +246,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *
       // trim the strip set
       char *s = str_trim(tok, sl, strp, &outlen);
       if (outlen) {
-        tmp[l++] = RSValue_NewCopiedStringAlloc(s, outlen);
+        tmp[l++] = RSValue_NewCopiedString(s, outlen);
       }
     }
 
@@ -259,7 +259,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *
   RSValue **vals = RSValue_AllocateArray(l);
   memcpy(vals, tmp, l * sizeof(*vals));
 
-  RSValue *ret = RSValue_NewArrayAlloc(vals, l);
+  RSValue *ret = RSValue_NewArray(vals, l);
   RSValue_MakeOwnReference(result, ret);
   return EXPR_EVAL_OK;
 }

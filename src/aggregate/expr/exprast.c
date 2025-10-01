@@ -55,7 +55,7 @@ RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Literal);
   uint32_t newLen;
   char* cleaned_str = unescapeStringDup(str,len, &newLen);
-  e->literal = RSValue_NewMallocString(cleaned_str, newLen);
+  e->literal = RSValue_MallocString(cleaned_str, newLen);
   return e;
 }
 
@@ -68,7 +68,7 @@ RSExpr *RS_NewNullLiteral() {
 RSExpr *RS_NewNumberLiteral(double n) {
   RSExpr *e = newExpr(RSExpr_Literal);
 
-  e->literal = RSValue_NewNumber(n);
+  e->literal = RSValue_Number(n);
   return e;
 }
 

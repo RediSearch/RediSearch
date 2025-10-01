@@ -71,12 +71,12 @@ if (vec->values[idx]) {\
 
 void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num) {
   RSPUT_SANITY_CHECK
-  vec->values[idx] = RSValue_NewNumberAlloc(num);
+  vec->values[idx] = RSValue_NewNumber(num);
 }
 
 void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str) {
   RSPUT_SANITY_CHECK
-  vec->values[idx] = RSValue_NewStringWithTypeAlloc(str, strlen(str), RSStringType_RMAlloc);
+  vec->values[idx] = RSValue_NewStringWithType(str, strlen(str), RSStringType_RMAlloc);
 }
 
 void RSSortingVector_PutRSVal(RSSortingVector* vec, size_t idx, RSValue* val) {
@@ -109,13 +109,13 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb) {
         // strings include an extra character for null terminator. we set it to zero just in case
         char *s = RedisModule_LoadStringBuffer(rdb, &len);
         s[len - 1] = '\0';
-        vec->values[i] = RSValue_NewStringWithTypeAlloc(rm_strdup(s), len - 1, RSStringType_RMAlloc);
+        vec->values[i] = RSValue_NewStringWithType(rm_strdup(s), len - 1, RSStringType_RMAlloc);
         RedisModule_Free(s);
         break;
       }
       case RS_SORTABLE_NUM:
         // load numeric value
-        vec->values[i] = RSValue_NewNumberAlloc(RedisModule_LoadDouble(rdb));
+        vec->values[i] = RSValue_NewNumber(RedisModule_LoadDouble(rdb));
         break;
       // for nil we read nothing
       case RS_SORTABLE_NIL:

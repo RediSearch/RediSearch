@@ -49,7 +49,7 @@ static RSValue *sumFinalize(Reducer *baseparent, void *instance) {
       v = ctr->total;
     }
   }
-  return RSValue_NewNumberAlloc(v);
+  return RSValue_NewNumber(v);
 }
 
 static Reducer *newReducerCommon(const ReducerOptions *options, bool isAvg) {

@@ -314,8 +314,8 @@ TEST_F(ExprTest, testPredicate) {
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumberAlloc(1));
-  RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumberAlloc(2));
+  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(1));
+  RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(2));
   QueryError status = {QueryErrorCode(0)};
 #define TEST_EVAL(e, expected)                          \
   {                                                     \
@@ -396,8 +396,8 @@ TEST_F(ExprTest, testPropertyFetch) {
   RLookupRow rr = {0};
   RLookupKey *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumberAlloc(10));
-  RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumberAlloc(10));
+  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(10));
+  RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(10));
 
   ctx.lookup = &lk;
   ctx.srcrow = &rr;
@@ -453,8 +453,8 @@ TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumberAlloc(5));
-  RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumberAlloc(10));
+  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(5));
+  RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(10));
 
   TEvalCtx ctx("case(@foo < @bar, 1, 0)");  // 5 < 10 is true
   ASSERT_TRUE(ctx) << ctx.error();
@@ -473,7 +473,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithExists) {
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumberAlloc(42));
+  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(42));
 
   TEvalCtx ctx("case(exists(@foo), 1, 0)");  // @foo exists
   ASSERT_TRUE(ctx) << ctx.error();
@@ -572,7 +572,7 @@ TEST_F(ExprTest, testEvalFuncCaseShortCircuitEvaluation) {
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumberAlloc(5));
+  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(5));
 
   TEvalCtx ctx("case(1, @foo + 10, @foo / 0)");
   ASSERT_TRUE(ctx) << ctx.error();

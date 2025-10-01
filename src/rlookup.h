@@ -260,7 +260,7 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
 
 /**
  * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
- * idioms such as RLookup_WriteKey(..., RSValue_NewNumberAlloc(10)); which would otherwise cause
+ * idioms such as RLookup_WriteKey(..., RSValue_NewNumber(10)); which would otherwise cause
  * a leak.
  */
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);

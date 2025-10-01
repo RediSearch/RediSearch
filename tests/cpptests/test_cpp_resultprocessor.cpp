@@ -31,7 +31,7 @@ static int p1_Next(ResultProcessor *rp, SearchResult *res) {
 
   SearchResult_SetDocId(res, ++p->counter);
   SearchResult_SetScore(res, (double)SearchResult_GetDocId(res));
-  RLookup_WriteOwnKey(p->kout, SearchResult_GetRowDataMut(res), RSValue_NewNumberAlloc(SearchResult_GetDocId(res)));
+  RLookup_WriteOwnKey(p->kout, SearchResult_GetRowDataMut(res), RSValue_NewNumber(SearchResult_GetDocId(res)));
   return RS_RESULT_OK;
 }
 

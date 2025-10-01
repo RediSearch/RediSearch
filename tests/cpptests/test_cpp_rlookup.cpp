@@ -43,8 +43,8 @@ TEST_F(RLookupTest, testRow) {
   RLookupKey *fook = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *bark = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
-  RSValue *vfoo = RSValue_NewNumberFromInt64Alloc(42);
-  RSValue *vbar = RSValue_NewNumberFromInt64Alloc(666);
+  RSValue *vfoo = RSValue_NewNumberFromInt64(42);
+  RSValue *vbar = RSValue_NewNumberFromInt64(666);
 
   ASSERT_EQ(1, RSValue_Refcount(vfoo));
   RLookup_WriteKey(fook, &rr, vfoo);
@@ -99,7 +99,7 @@ TestKeySet init_keys(RLookup* lookup, const std::vector<const char*>& fieldNames
 std::vector<RSValue*> create_test_values(const std::vector<int>& values) {
   std::vector<RSValue*> rsValues;
   for (int val : values) {
-    rsValues.push_back(RSValue_NewNumberFromInt64Alloc(val));
+    rsValues.push_back(RSValue_NewNumberFromInt64(val));
   }
   return rsValues;
 }

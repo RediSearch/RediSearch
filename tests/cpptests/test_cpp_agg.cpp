@@ -152,8 +152,8 @@ TEST_F(AggTest, testGroupBy) {
     }
     SearchResult_SetDocId(res, ++p->counter);
 
-    RSValue *sval = RSValue_NewConstCStringAlloc((char *)p->values[p->counter % p->numvals]);
-    RSValue *scoreval = RSValue_NewNumberAlloc(p->counter);
+    RSValue *sval = RSValue_NewConstCString((char *)p->values[p->counter % p->numvals]);
+    RSValue *scoreval = RSValue_NewNumber(p->counter);
     RLookup_WriteOwnKey(p->rkvalue, SearchResult_GetRowDataMut(res), sval);
     RLookup_WriteOwnKey(p->rkscore, SearchResult_GetRowDataMut(res), scoreval);
     //* res = * p->res;
@@ -227,7 +227,7 @@ TEST_F(AggTest, testGroupSplit) {
     if (p->counter >= NUM_RESULTS) return RS_RESULT_EOF;
     SearchResult_SetDocId(res, ++p->counter);
     RLookup_WriteOwnKey(p->kvalue, SearchResult_GetRowDataMut(res),
-                        RSValue_NewStringArrayTAlloc((char **)&p->values[0], p->values.size(), RSStringType_Const));
+                        RSValue_NewStringArrayT((char **)&p->values[0], p->values.size(), RSStringType_Const));
     //* res = * p->res;
     return RS_RESULT_OK;
   };

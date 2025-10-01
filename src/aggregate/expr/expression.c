@@ -24,7 +24,7 @@ extern int func_case(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result)
 
 static int evalFuncCase(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   // Evaluate the condition
-  RSValue condVal = RSValue_NewUndefined();
+  RSValue condVal = RSValue_Undefined();
   int rc = evalInternal(eval, f->args->args[0], &condVal);
   if (rc != EXPR_EVAL_OK) {
     RSValue_Clear(&condVal);
@@ -58,7 +58,7 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
 
   // Normal function evaluation
   for (size_t ii = 0; ii < nargs; ii++) {
-    args[ii] = RSValue_NewUndefined();
+    args[ii] = RSValue_Undefined();
     int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
 
     // Handle NULL values:
@@ -81,7 +81,7 @@ cleanup:
 }
 
 static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
-  RSValue l = RSValue_NewUndefined(), r = RSValue_NewUndefined();
+  RSValue l = RSValue_Undefined(), r = RSValue_Undefined();
   int rc = EXPR_EVAL_ERR;
 
   if (evalInternal(eval, op->left, &l) != EXPR_EVAL_OK) {
@@ -175,7 +175,7 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
 }
 
 static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
-  RSValue tmpval = RSValue_NewUndefined();
+  RSValue tmpval = RSValue_Undefined();
   if (evalInternal(eval, vv->child, &tmpval) != EXPR_EVAL_OK) {
     return EXPR_EVAL_ERR;
   }
@@ -188,7 +188,7 @@ static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
 
 static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
   int res;
-  RSValue l = RSValue_NewUndefined(), r = RSValue_NewUndefined();
+  RSValue l = RSValue_Undefined(), r = RSValue_Undefined();
   int rc = EXPR_EVAL_ERR;
   if (evalInternal(eval, pred->left, &l) != EXPR_EVAL_OK) {
     goto cleanup;
@@ -442,7 +442,7 @@ static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
   pc->eval.err = pc->base.parent->err;
 
   if (!pc->val) {
-    pc->val = RSValue_NewAlloc(RSValueType_Undef);
+    pc->val = RSValue_NewWithType(RSValueType_Undef);
   }
 
   rc = ExprEval_Eval(&pc->eval, pc->val);

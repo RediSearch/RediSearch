@@ -14,7 +14,7 @@ use std::{
     ptr::NonNull,
 };
 
-use ffi::RSValue_NewStringAlloc;
+use ffi::RSValue_NewString;
 use value::{RSValueFFI, RSValueTrait as _};
 
 pub const RS_SORTABLES_MAX: usize = 1024;
@@ -155,12 +155,12 @@ unsafe extern "C" fn RSSortingVector_PutStr(
     // Safety: Caller must ensure 2. --> strlen gets a valid C string pointer
     let len = unsafe { libc::strlen(str) };
 
-    // Safety: RSValue_NewStringAlloc receives a valid C string pointer (1) and length
-    let value = unsafe { RSValue_NewStringAlloc(str.cast_mut(), len as u32) };
+    // Safety: RSValue_NewString receives a valid C string pointer (1) and length
+    let value = unsafe { RSValue_NewString(str.cast_mut(), len as u32) };
 
-    // Safety: We assume RSValue_NewStringAlloc always returns valid pointers
+    // Safety: We assume RSValue_NewString always returns valid pointers
     let value = unsafe {
-        RSValueFFI::from_raw(NonNull::new(value).expect("RSValue_NewStringAlloc returned nullptr"))
+        RSValueFFI::from_raw(NonNull::new(value).expect("RSValue_NewString returned nullptr"))
     };
 
     vec.try_insert_val(idx, value).unwrap_or_else(|_| {

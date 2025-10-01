@@ -28,7 +28,7 @@ static int counterAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *counterFinalize(Reducer *r, void *instance) {
   counterData *dd = instance;
-  return RSValue_NewNumberAlloc(dd->count);
+  return RSValue_NewNumber(dd->count);
 }
 
 Reducer *RDCRCount_New(const ReducerOptions *options) {

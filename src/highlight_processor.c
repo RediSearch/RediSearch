@@ -189,7 +189,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
       char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
-      return RSValue_NewStringAlloc(summarized, docLen);
+      return RSValue_NewString(summarized, docLen);
     } else {
       // Otherwise, just return the whole field, but without highlighting
     }
@@ -203,7 +203,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
     // highlighted.
     char *hlDoc = FragmentList_HighlightWholeDocS(&frags, &tags);
     FragmentList_Free(&frags);
-    return RSValue_NewCStringAlloc(hlDoc);
+    return RSValue_NewCString(hlDoc);
   }
 
   size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, FragmentList_GetNumFrags(&frags));
@@ -243,7 +243,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
   char *hlText = Array_Steal(&bufTmp, &hlLen);
   Array_Free(&bufTmp);
   FragmentList_Free(&frags);
-  return RSValue_NewStringAlloc(hlText, hlLen);
+  return RSValue_NewString(hlText, hlLen);
 }
 
 static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {

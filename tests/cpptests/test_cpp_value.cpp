@@ -14,7 +14,7 @@
 class ValueTest : public ::testing::Test {};
 
 TEST_F(ValueTest, testBasic) {
-  RSValue *v = RSValue_NewNumberAlloc(3);
+  RSValue *v = RSValue_NewNumber(3);
   ASSERT_EQ(3, RSValue_Number_Get(v));
   ASSERT_EQ(RSValueType_Number, RSValue_Type(v));
   ASSERT_EQ(1, RSValue_Refcount(v));
@@ -27,7 +27,7 @@ TEST_F(ValueTest, testBasic) {
   RSValue_DecrRef(v2);
 
   const char *str = "hello world";
-  v = RSValue_NewCStringAlloc(strdup(str));
+  v = RSValue_NewCString(strdup(str));
   ASSERT_EQ(RSValueType_String, RSValue_Type(v));
   uint32_t v_str_len;
   char *v_str = RSValue_String_Get(v, &v_str_len);
@@ -36,13 +36,13 @@ TEST_F(ValueTest, testBasic) {
   RSValue_DecrRef(v);
 
   // cannot use redis strings in tests...
-  v = RSValue_NewRedisStringAlloc(NULL);
+  v = RSValue_NewRedisString(NULL);
   ASSERT_EQ(RSValueType_RedisString, RSValue_Type(v));
   RSValue_DecrRef(v);
 }
 
 TEST_F(ValueTest, testArray) {
-  RSValue *arr = RSValue_NewVStringArrayAlloc(3, strdup("foo"), strdup("bar"), strdup("baz"));
+  RSValue *arr = RSValue_NewVStringArray(3, strdup("foo"), strdup("bar"), strdup("baz"));
   ASSERT_EQ(3, RSValue_ArrayLen(arr));
   ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 0)));
   ASSERT_STREQ("foo", RSValue_String_Get(RSValue_ArrayItem(arr, 0), NULL));
@@ -55,7 +55,7 @@ TEST_F(ValueTest, testArray) {
   RSValue_DecrRef(arr);
 
   char *strs[] = {strdup("foo"), strdup("bar"), strdup("baz")};
-  arr = RSValue_NewStringArrayAlloc(strs, 3);
+  arr = RSValue_NewStringArray(strs, 3);
   ASSERT_EQ(3, RSValue_ArrayLen(arr));
   ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 0)));
   ASSERT_STREQ("foo", RSValue_String_Get(RSValue_ArrayItem(arr, 0), NULL));
@@ -70,7 +70,7 @@ TEST_F(ValueTest, testArray) {
 }
 
 static std::string toString(RSValue *v) {
-  RSValue *tmp = RSValue_NewAlloc(RSValueType_Undef);
+  RSValue *tmp = RSValue_NewWithType(RSValueType_Undef);
   RSValue_ToString(tmp, v);
   size_t n = 0;
   const char *s = RSValue_StringPtrLen(tmp, &n);
@@ -80,7 +80,7 @@ static std::string toString(RSValue *v) {
 }
 
 TEST_F(ValueTest, testNumericFormat) {
-  RSValue *v = RSValue_NewNumberAlloc(0.01);
+  RSValue *v = RSValue_NewNumber(0.01);
   ASSERT_STREQ("0.01", toString(v).c_str());
   RSValue_SetNumber(v, 0.001);
 

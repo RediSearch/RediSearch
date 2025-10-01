@@ -52,7 +52,7 @@ static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *distinctFinalize(Reducer *parent, void *ctx) {
   distinctCounter *ctr = ctx;
-  return RSValue_NewNumberAlloc(ctr->count);
+  return RSValue_NewNumber(ctr->count);
 }
 
 static void distinctFreeInstance(Reducer *r, void *p) {
@@ -106,7 +106,7 @@ static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *src
 
 static RSValue *distinctishFinalize(Reducer *parent, void *instance) {
   distinctishCounter *ctr = instance;
-  return RSValue_NewNumberAlloc((uint64_t)hll_count(&ctr->hll));
+  return RSValue_NewNumber((uint64_t)hll_count(&ctr->hll));
 }
 
 static void distinctishFreeInstance(Reducer *r, void *p) {
@@ -130,7 +130,7 @@ static RSValue *hllFinalize(Reducer *parent, void *ctx) {
   size_t hdrsize = sizeof(hdr);
   memcpy(str, &hdr, hdrsize);
   memcpy(str + hdrsize, ctr->hll.registers, ctr->hll.size);
-  RSValue *ret = RSValue_NewStringAlloc(str, sizeof(hdr) + ctr->hll.size);
+  RSValue *ret = RSValue_NewString(str, sizeof(hdr) + ctr->hll.size);
   return ret;
 }
 
@@ -217,7 +217,7 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *hllsumFinalize(Reducer *parent, void *ctx) {
   hllSumCtx *ctr = ctx;
-  return RSValue_NewNumberAlloc(ctr->bits ? (uint64_t)hll_count(ctr) : 0);
+  return RSValue_NewNumber(ctr->bits ? (uint64_t)hll_count(ctr) : 0);
 }
 
 static void *hllsumNewInstance(Reducer *r) {
