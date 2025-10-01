@@ -23,14 +23,14 @@ protected:
     index_name = "testidx" + std::to_string(++test_counter);
 
     // Create index with vector field using IndexSpec_CreateNew like other tests
-    QueryError qerr = {QueryErrorCode(0)};
+    QueryError qerr = QueryError_Default();
     RMCK::ArgvList createArgs(ctx, "FT.CREATE", index_name.c_str(), "ON", "HASH",
                               "SCHEMA", "title", "TEXT", "content", "TEXT",
                               "vector", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
     IndexSpec *spec = IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), &qerr);
     if (!spec) {
       printf("Failed to create index '%s': code=%d, detail='%s'\n",
-             index_name.c_str(), qerr.code, qerr.detail ? qerr.detail : "NULL");
+             index_name.c_str(), QueryError_GetCode(&qerr), QueryError_GetUserError(&qerr));
       QueryError_ClearError(&qerr);
     }
     ASSERT_TRUE(spec);
@@ -67,7 +67,7 @@ protected:
    * @return Pointer to the parsed HybridRequest (also stored in member variable)
    */
   HybridRequest *parseCommand(RMCK::ArgvList& args) {
-    QueryError status = {QueryErrorCode(0)};
+    QueryError status = QueryError_Default();
 
     EXPECT_TRUE(result->sctx != NULL) << "Failed to create search context";
 
@@ -85,7 +85,7 @@ protected:
       result = nullptr;
     }
 
-    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
+    EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     EXPECT_NE(result, nullptr) << "parseHybridCommand returned NULL";
 
     return result;

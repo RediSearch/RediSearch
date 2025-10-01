@@ -86,18 +86,21 @@ typedef enum {
 } QueryErrorCode;
 
 typedef struct QueryError {
-  QueryErrorCode code;
+  QueryErrorCode _code;
   // The error message which we can expose in the logs, does not contain user data
-  const char* message;
+  const char* _message;
   // The formatted error message in its entirety, can be shown only to the user
-  char *detail;
+  char *_detail;
 
   // warnings
-  bool reachedMaxPrefixExpansions;
+  bool _reachedMaxPrefixExpansions;
 } QueryError;
 
-/** Initialize QueryError object */
-void QueryError_Init(QueryError *qerr);
+/**
+ * Create a Query error with default fields: QUERY_OK error code, no messages,
+ * no detail, and no warning flags set.
+ */
+QueryError QueryError_Default();
 
 /** Return the constant string of an error code */
 const char *QueryError_Strerror(QueryErrorCode code);
@@ -189,11 +192,24 @@ void QueryError_ClearError(QueryError *err);
 /**
  * Return true if the object has an error set
  */
-static inline int QueryError_HasError(const QueryError *status) {
-  return status->code;
+static inline bool QueryError_HasError(const QueryError *status) {
+  return status->_code != QUERY_OK;
+}
+
+/**
+ * Return true if the object has no error set
+ */
+static inline bool QueryError_IsOk(const QueryError *status) {
+  return status->_code == QUERY_OK;
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
+
+/*** Whether the reached max prefix expansions warning is set */
+bool QueryError_HasReachedMaxPrefixExpansionsWarning(const QueryError *status);
+
+/*** Sets the reached max prefix expansions warning */
+void QueryError_SetReachedMaxPrefixExpansionsWarning(QueryError *status);
 
 #ifdef __cplusplus
 }

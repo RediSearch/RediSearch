@@ -193,8 +193,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   // Assign the document:
   aCtx->doc = doc;
   if (AddDocumentCtx_SetDocument(aCtx, sp) != 0) {
-    *status = aCtx->status;
-    aCtx->status.detail = NULL;
+    QueryError_CloneFrom(&aCtx->status, status);
+    QueryError_ClearError(&aCtx->status);
     mempool_release(actxPool_g, aCtx);
     return NULL;
   }
@@ -252,7 +252,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    * fields must be reindexed.
    */
   int rv = REDISMODULE_ERR;
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   Document_Clear(aCtx->doc);
 
   // Path is not covered and is not relevant
