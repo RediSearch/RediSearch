@@ -862,19 +862,21 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
     /// # Panic
     /// This function will panic if the inverted index is empty.
     fn new(ii: &'index InvertedIndex<E>) -> Self {
-        debug_assert!(
-            !ii.blocks.is_empty(),
-            "IndexReader should not be created with an empty inverted index"
-        );
-
-        let first_block = ii.blocks.first().expect("to have at least one block");
+        let (current_buffer, last_doc_id) = if let Some(first_block) = ii.blocks.first() {
+            (
+                Cursor::new(first_block.buffer.as_ref()),
+                first_block.first_doc_id,
+            )
+        } else {
+            (Cursor::new(&[] as &[u8]), 0)
+        };
 
         Self {
             ii,
             decoder: E::decoder(),
-            current_buffer: Cursor::new(&first_block.buffer),
+            current_buffer,
             current_block_idx: 0,
-            last_doc_id: first_block.first_doc_id,
+            last_doc_id,
             gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
         }
     }
@@ -882,6 +884,10 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
     /// Skip forward to the block containing the given document ID. Returns false if the end of the
     /// index was reached and true otherwise.
     pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        if self.ii.blocks.is_empty() {
+            return false;
+        }
+
         if self.ii.blocks[self.current_block_idx].last_doc_id >= doc_id {
             // We are already in the correct block
             return true;
@@ -916,7 +922,10 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
 
     /// Reset the reader to the beginning of the index.
     pub fn reset(&mut self) {
-        self.set_current_block(0);
+        if !self.ii.blocks.is_empty() {
+            self.set_current_block(0);
+        }
+
         self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
     }
 

@@ -590,10 +590,14 @@ fn seeking_records() {
 }
 
 #[test]
-#[should_panic(expected = "IndexReader should not be created with an empty inverted index")]
 fn index_reader_construction_with_no_blocks() {
     let ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
-    let _ir = ii.reader();
+    let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
+
+    assert_eq!(ir.next_record(&mut result).unwrap(), false);
+    ir.reset();
+    assert_eq!(ir.seek_record(5, &mut result).unwrap(), false);
 }
 
 #[test]
