@@ -924,6 +924,9 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
     pub fn reset(&mut self) {
         if !self.ii.blocks.is_empty() {
             self.set_current_block(0);
+        } else {
+            self.current_buffer = Cursor::new(&[]);
+            self.last_doc_id = 0;
         }
 
         self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
