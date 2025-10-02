@@ -433,12 +433,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
       Token tok = {0};
       while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok)) {
-        /*if (!indexesEmpty && tok.tokLen == 0) {
-          // Skip empty values if the field should not index them
-          // Empty tokens are returned only if the original value was empty
-          continue;
-        }*/
-        forwardIndexTokenFunc(&tokCtx, &tok);
+        // Decide wether tokenization needs to add empty tokens to forward index or they only need to handle the byte offsets needed for highlighting
+        bool handle_only_highlighting_offsets = (tok.tokLen == 0 && !indexesEmpty);
+        forwardIndexTokenFunc(&tokCtx, &tok, handle_only_highlighting_offsets);
         if (tok.allocatedTok) {
           rm_free(tok.allocatedTok);
           tok.allocatedTok = NULL;
