@@ -108,16 +108,16 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     char *normalized = DefaultNormalize(tok, normBuf, &normLen, &allocated);
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
-    if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
-      if (allocated) {
+    if (normalized == NULL || normLen == 0) {
+      if (!ctx->empty_input && allocated) {
         rm_free(normalized);
       }
       continue;
     }
 
     // skip stopwords
-    if (!ctx->empty_input && StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
-      if (allocated) {
+    if (StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
+      if (!ctx->empty_input && allocated) {
         rm_free(normalized);
       }
       continue;
