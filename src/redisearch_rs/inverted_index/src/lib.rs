@@ -16,7 +16,7 @@ use std::{
 use debug::{BlockSummary, Summary};
 use ffi::{
     FieldSpec, GeoFilter, IndexFlags, IndexFlags_Index_HasMultiValue,
-    IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreNumeric,
+    IndexFlags_Index_StoreFieldFlags,
 };
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
@@ -499,22 +499,14 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Return the debug summary for this inverted index.
     pub fn summary(&self) -> Summary {
-        let has_efficiency = (self.flags & IndexFlags_Index_StoreNumeric) > 0;
-
-        let block_efficiency = if has_efficiency && !self.blocks.is_empty() {
-            self.n_unique_docs as f64 / self.blocks.len() as f64
-        } else {
-            0.0
-        };
-
         Summary {
             number_of_docs: self.n_unique_docs,
             number_of_entries: self.n_unique_docs,
             last_doc_id: self.last_doc_id().unwrap_or(0),
             flags: self.flags as _,
             number_of_blocks: self.blocks.len(),
-            block_efficiency,
-            has_efficiency,
+            block_efficiency: 0.0,
+            has_efficiency: false,
         }
     }
 
@@ -621,6 +613,12 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
         let mut summary = self.index.summary();
 
         summary.number_of_entries = self.number_of_entries;
+        summary.has_efficiency = true;
+
+        if summary.number_of_blocks > 0 {
+            summary.block_efficiency =
+                summary.number_of_entries as f64 / summary.number_of_blocks as f64
+        }
 
         summary
     }
@@ -864,19 +862,21 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
     /// # Panic
     /// This function will panic if the inverted index is empty.
     fn new(ii: &'index InvertedIndex<E>) -> Self {
-        debug_assert!(
-            !ii.blocks.is_empty(),
-            "IndexReader should not be created with an empty inverted index"
-        );
-
-        let first_block = ii.blocks.first().expect("to have at least one block");
+        let (current_buffer, last_doc_id) = if let Some(first_block) = ii.blocks.first() {
+            (
+                Cursor::new(first_block.buffer.as_ref()),
+                first_block.first_doc_id,
+            )
+        } else {
+            (Cursor::new(&[] as &[u8]), 0)
+        };
 
         Self {
             ii,
             decoder: E::decoder(),
-            current_buffer: Cursor::new(&first_block.buffer),
+            current_buffer,
             current_block_idx: 0,
-            last_doc_id: first_block.first_doc_id,
+            last_doc_id,
             gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
         }
     }
@@ -884,6 +884,10 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
     /// Skip forward to the block containing the given document ID. Returns false if the end of the
     /// index was reached and true otherwise.
     pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        if self.ii.blocks.is_empty() {
+            return false;
+        }
+
         if self.ii.blocks[self.current_block_idx].last_doc_id >= doc_id {
             // We are already in the correct block
             return true;
@@ -918,7 +922,13 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
 
     /// Reset the reader to the beginning of the index.
     pub fn reset(&mut self) {
-        self.set_current_block(0);
+        if !self.ii.blocks.is_empty() {
+            self.set_current_block(0);
+        } else {
+            self.current_buffer = Cursor::new(&[]);
+            self.last_doc_id = 0;
+        }
+
         self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
     }
 
