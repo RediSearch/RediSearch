@@ -449,30 +449,6 @@ static bool tailHasExplicitLimitInPlan(AGGPlan *plan) {
 }
 
 /**
- * Apply LIMIT argument fallback logic to WINDOW argument.
- *
- * When LIMIT is explicitly provided but WINDOW is not explicitly set,
- * this function applies the LIMIT value as a fallback for this argument instead of this
- * default (unless it has been explicitly set).
- * This ensures consistent behavior where LIMIT acts as a unified size hint
- * for hybrid search operations.
- *
- * @param tailPipeline The pipeline to extract LIMIT from
- * @param hybridParams The hybrid parameters containing WINDOW settings
- */
-static void applyLimitParameterFallbacks(AGGPlan *tailPlan, HybridPipelineParams *hybridParams) {
-  size_t limitValue = getLimitFromPlan(tailPlan);
-  bool hasExplicitLimit = tailHasExplicitLimitInPlan(tailPlan);
-
-  // Apply LIMIT → WINDOW fallback ONLY if WINDOW was not explicitly set AND LIMIT was explicitly provided
-  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF &&
-      !hybridParams->scoringCtx->rrfCtx.hasExplicitWindow &&
-      hasExplicitLimit && limitValue > 0) {
-    hybridParams->scoringCtx->rrfCtx.window = limitValue;
-  }
-}
-
-/**
  * Apply KNN K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation.
  *
  * The RRF merger only considers the top WINDOW results from each component,
@@ -485,10 +461,14 @@ static void applyLimitParameterFallbacks(AGGPlan *tailPlan, HybridPipelineParams
  */
 static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
                                  HybridPipelineParams *hybridParams) {
-  // Apply K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation
-  if (pvd && pvd->query->type == VECSIM_QT_KNN &&
-      hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
-    size_t windowValue = hybridParams->scoringCtx->rrfCtx.window;
+  // Apply K = min(K, WINDOW)  prevents wasteful computation
+  if (pvd && pvd->query->type == VECSIM_QT_KNN) {
+    size_t windowValue;
+    if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+      windowValue = hybridParams->scoringCtx->rrfCtx.window;
+    } else { // (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
+      windowValue = hybridParams->scoringCtx->linearCtx.window;
+    }
     if (pvd->query->knn.k > windowValue) {
       pvd->query->knn.k = windowValue;
     }
@@ -658,14 +638,19 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
     }
-
-    applyLimitParameterFallbacks(parsedCmdCtx->tailPlan, hybridParams);
   }
 
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
   // This is because the sorter limits the number of results and can reduce the amount of work the loader needs to do
   // So it is important this is done before we add the load step to the subqueries plan
-  AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
+  PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
+  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    arrangeStep->limit = hybridParams->scoringCtx->rrfCtx.window;
+  } else {
+    // hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR
+    arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
+  }
+
 
   // We need a load step, implicit or an explicit one
   PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);

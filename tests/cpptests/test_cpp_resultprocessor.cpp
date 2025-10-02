@@ -10,6 +10,7 @@
 
 #include "result_processor.h"
 #include "query.h"
+#include "value.h"
 #include "gtest/gtest.h"
 #include "search_result.h"
 
@@ -75,8 +76,8 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
     ASSERT_EQ(count, SearchResult_GetScore(&r));
     RSValue *v = RLookup_GetItem(p->kout, SearchResult_GetRowData(&r));
     ASSERT_TRUE(v != NULL);
-    ASSERT_EQ(RSValue_Number, v->t);
-    ASSERT_EQ(count, v->numval);
+    ASSERT_EQ(RSValue_Number, RSValue_Type(v));
+    ASSERT_EQ(count, RSValue_Number_Get(v));
     SearchResult_Clear(&r);
   }
 

@@ -1798,8 +1798,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
       if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
         window = self->hybridScoringCtx->rrfCtx.window;
       } else {
-        // For LINEAR scoring, consume all results from each upstream
-        window = SIZE_MAX;
+        window = self->hybridScoringCtx->linearCtx.window;
       }
       int rc = ConsumeFromUpstream(self, window, self->upstreams[i], i);
 
@@ -1810,7 +1809,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
       // Store the final return code for this upstream
       self->upstreamReturnCodes[i] = rc;
-
       // Currently continues processing other upstreams.
       // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error : MOD-11004
       // Note: This processor might have rp_depleter as an upstream, which currently lacks a mechanism to stop its spawned thread before completion.
@@ -1826,6 +1824,10 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
     return RS_RESULT_ERROR;
   } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
     return RS_RESULT_TIMEDOUT;
+  }
+
+  for (size_t i = 0; i < self->numUpstreams; i++) {
+    RLookup_AddKeysFrom(self->lookupCtx->sourceLookups[i], self->lookupCtx->tailLookup, RLOOKUP_F_NOFLAGS);
   }
 
   // Initialize iterator for yield phase
@@ -1909,8 +1911,7 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
    if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
      maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
    } else {
-     // For LINEAR scoring, use a reasonable default for dictionary pre-sizing
-     maximalSize = 1000; // Conservative estimate for dictionary sizing
+     maximalSize = hybridScoringCtx->linearCtx.window * numUpstreams;
    }
    // Pre-size the dictionary to avoid multiple resizes during accumulation
    dictExpand(ret->hybridResults, maximalSize);
