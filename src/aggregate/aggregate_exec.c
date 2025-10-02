@@ -30,6 +30,7 @@
 #include "util/redis_mem_info.h"
 #include "module.h"
 #include "result_processor.h"
+#include "search_result_rs.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -394,7 +395,7 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
 */
 static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
-    SearchResult r = {0};
+    SearchResult r = SearchResult_New();
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
     ResultProcessor *rp = qctx->endProc;
@@ -513,7 +514,7 @@ done_2_err:
 **/
 static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
-    SearchResult r = {0};
+    SearchResult r = SearchResult_New();
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
