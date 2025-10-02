@@ -73,6 +73,7 @@ typedef struct {
   StopWordList *stopwords;
   uint32_t lastOffset;
   uint16_t options;
+  bool empty_input;
 } TokenizerCtx;
 
 typedef struct RSTokenizer {

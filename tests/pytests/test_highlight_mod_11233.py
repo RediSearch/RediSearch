@@ -59,7 +59,7 @@ def test_highlight_complex_schema_mod_11233(env):
     verify_word_is_highlighted(env, result, '<b>Alert</b>')
 
 
-def test_highlight_complex_schema_mod_11233_different_order(env):
+def test_highlight_one_space(env):
     """Test highlighting with complex schema similar to production use case"""
     conn = getConnectionByEnv(env)
 
@@ -77,6 +77,9 @@ def test_highlight_complex_schema_mod_11233_different_order(env):
     result = env.cmd('FT.SEARCH', 'working_index', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
     verify_word_is_highlighted(env, result, '<b>Alert</b>')
 
+def test_highlight_skip_field(env):
+    conn = getConnectionByEnv(env)
+
     env.expect('FT.CREATE', 'lisbon_seattle_skip', 'ON', 'HASH', 'MAXTEXTFIELDS', 'STOPWORDS', '0', 'SCHEMA',
             'lisbon', 'TEXT',
             'seattle', 'TEXT').ok()
@@ -88,7 +91,10 @@ def test_highlight_complex_schema_mod_11233_different_order(env):
     })
 
     result = env.cmd('FT.SEARCH', 'lisbon_seattle_skip', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
+    verify_word_is_highlighted(env, result, '<b>Alert</b>')
 
+def test_highlight_empty_field(env):
+    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'lisbon_seattle', 'ON', 'HASH', 'MAXTEXTFIELDS', 'STOPWORDS', '0', 'SCHEMA',
                'lisbon', 'TEXT',
                'seattle', 'TEXT').ok()
@@ -96,16 +102,18 @@ def test_highlight_complex_schema_mod_11233_different_order(env):
     waitForIndex(env, 'lisbon_seattle')
 
     conn.hset('doc:4153814', mapping={
-        'lisbon': '', # blank space
+        'lisbon': '',
         'seattle': 'This Alert triggered',
     })
 
     result = env.cmd('FT.SEARCH', 'lisbon_seattle', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
     verify_word_is_highlighted(env, result, '<b>Alert</b>')
 
+def test_highlight_empty_field_reverse_order_fields(env):
+    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'seattle_lisbon', 'ON', 'HASH', 'MAXTEXTFIELDS', 'STOPWORDS', '0', 'SCHEMA',
-               'seattle', 'TEXT', 'NOSTEM',
-               'lisbon', 'TEXT', 'NOSTEM').ok()
+               'seattle', 'TEXT',
+               'lisbon', 'TEXT').ok()
 
     waitForIndex(env, 'seattle_lisbon')
 
@@ -115,4 +123,21 @@ def test_highlight_complex_schema_mod_11233_different_order(env):
     })
 
     result = env.cmd('FT.SEARCH', 'seattle_lisbon', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
+    verify_word_is_highlighted(env, result, '<b>Alert</b>')
+
+
+def test_highlight_empty_field_index_empty(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'seattle_lisbon_index_empty', 'ON', 'HASH', 'MAXTEXTFIELDS', 'STOPWORDS', '0', 'SCHEMA',
+              'seattle', 'TEXT', 'INDEXEMPTY',
+              'lisbon', 'TEXT').ok()
+
+    waitForIndex(env, 'seattle_lisbon_index_empty')
+
+    conn.hset('doc:4153814', mapping={
+        'seattle': '',
+        'lisbon': 'This Alert triggered',
+    })
+
+    result = env.cmd('FT.SEARCH', 'seattle_lisbon_index_empty', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
     verify_word_is_highlighted(env, result, '<b>Alert</b>')

@@ -29,6 +29,7 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
   ctx->text = text;
   ctx->options = options;
   ctx->len = len;
+  ctx->empty_input = len == 0;
   self->pos = ctx->text;
 }
 
@@ -106,8 +107,8 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     int allocated = 0;
     char *normalized = DefaultNormalize(tok, normBuf, &normLen, &allocated);
 
-    // ignore tokens that turn into nothing
-    if (normalized == NULL || normLen == 0) {
+    // ignore tokens that turn into nothing, unless the whole string is empty.
+    if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
       if (allocated) {
         rm_free(normalized);
       }
@@ -115,7 +116,7 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     }
 
     // skip stopwords
-    if (StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
+    if (!ctx->empty_input && StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
       if (allocated) {
         rm_free(normalized);
       }
