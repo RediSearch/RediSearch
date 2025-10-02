@@ -226,8 +226,7 @@ static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size
     RedisModule_Reply_Map(reply);
 
     // <total_results>
-    size_t totalResults = limit > 0 ? MIN(qctx->totalResults, limit) : qctx->totalResults;
-    RedisModule_ReplyKV_LongLong(reply, "total_results", totalResults);
+    RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
@@ -309,14 +308,8 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearch
         .lastAstp = AGPLN_GetArrangeStep(plan)
     };
 
-    // Get the limit from the arrange step if it was explicitly set
-    size_t limit = UINT64_MAX;
-    if (cv.lastAstp && cv.lastAstp->isLimited) {
-        limit = cv.lastAstp->limit;
-    }
-
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    sendChunk_hybrid(hreq, reply, limit, cv);
+    sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
     RedisModule_EndReply(reply);
 }
 

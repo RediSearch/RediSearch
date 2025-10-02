@@ -126,7 +126,6 @@ def setup_bikes_index(env):
                            'description_embeddings', doc_data['embedding'])
 
 
-
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_mod_11610():
@@ -139,7 +138,6 @@ def test_hybrid_mod_11610():
 
     # First, test regular FT.SEARCH to establish baseline (avoid returning vector data)
     regular_search_response = env.cmd('FT.SEARCH', 'idx:bikes_vss', 'light*', 'DIALECT', '2', 'RETURN', '0')
-    # FT.SEARCH in RESP2 returns [count, doc1, doc2, ...] format
     regular_count = regular_search_response[0]
     env.assertEqual(regular_count, 15)
 
@@ -152,7 +150,6 @@ def test_hybrid_mod_11610():
                              'LIMIT', '0', '100',
                              'PARAMS', '2', 'BLOB', query_vector)
 
-    # FT.HYBRID returns a structured response with key-value pairs
     hybrid_dict = to_dict(hybrid_response)
     hybrid_count = hybrid_dict['total_results']
     env.assertEqual(hybrid_count, 20)
@@ -166,7 +163,6 @@ def test_hybrid_mod_11610():
                              'COMBINE', 'RRF', '2', 'WINDOW', '100',
                              'PARAMS', '2', 'BLOB', query_vector, 'LIMIT', '0', '100')
 
-    # FT.HYBRID returns a structured response with key-value pairs
     hybrid_dict = to_dict(hybrid_response)
     hybrid_count = hybrid_dict['total_results']
     env.assertEqual(hybrid_count, 20)
@@ -180,13 +176,11 @@ def test_hybrid_mod_11610():
                              'COMBINE', 'RRF', '2', 'WINDOW', '100',
                              'PARAMS', '2', 'BLOB', query_vector, 'LIMIT', '0', '5')
 
-    # FT.HYBRID returns a structured response with key-value pairs
     hybrid_dict = to_dict(hybrid_response)
     hybrid_count = hybrid_dict['total_results']
     # Should return 5 results (limit is smaller than available 20)
-    # Verify actual number of results matches total_results
     env.assertEqual(len(hybrid_dict['results']), 5)
-    env.assertEqual(hybrid_count, 5)
+    env.assertEqual(hybrid_count, 20)
 
     # Test FT.HYBRID with LIMIT larger than available results
     hybrid_response = env.cmd('FT.HYBRID', 'idx:bikes_vss',
@@ -201,7 +195,6 @@ def test_hybrid_mod_11610():
     hybrid_count = hybrid_dict['total_results']
     # Should return 20 results (all available, even though limit is 1000)
     env.assertEqual(hybrid_count, 20)
-    # Verify actual number of results matches total_results
     env.assertEqual(len(hybrid_dict['results']), 20)
 
 
@@ -228,24 +221,19 @@ def test_hybrid_limit_with_filter():
                              'LIMIT', '0', '5',
                              'PARAMS', '2', 'BLOB', query_vector)
 
-    # FT.HYBRID returns a structured response with key-value pairs
     hybrid_dict = to_dict(hybrid_response)
     hybrid_count = hybrid_dict['total_results']
 
-    # Should return 2 results (bike:1 and bike:13 match both light* and category:road)
     env.assertEqual(len(hybrid_dict['results']), 3)
     env.assertEqual(hybrid_count, 3)
 
     # Verify all returned results have category "road"
-    # When using LOAD, the result structure is a list: [field1, value1, field2, value2, ...]
     for result in hybrid_dict['results']:
-        # Result is a list like ['__key', 'bike:1', 'category', 'road']
         result_dict = dict(zip(result[::2], result[1::2]))
         env.assertEqual(result_dict['category'], 'road')
 
     # Test FT.HYBRID with FILTER for "mountain" category
     # Should have 2 docs: bike:2 (light mountain) and bike:17 (robust mountain)
-    # But only bike:2 has "light*" in description
     hybrid_response = env.cmd('FT.HYBRID', 'idx:bikes_vss',
                              'SEARCH', 'light*',
                              'VSIM', '@description_embeddings', '$BLOB',
@@ -256,7 +244,6 @@ def test_hybrid_limit_with_filter():
                              'LIMIT', '0', '10',
                              'PARAMS', '2', 'BLOB', query_vector)
 
-    # FT.HYBRID returns a structured response with key-value pairs
     hybrid_dict = to_dict(hybrid_response)
     hybrid_count = hybrid_dict['total_results']
 
@@ -268,7 +255,7 @@ def test_hybrid_limit_with_filter():
     env.assertEqual(result_dict['category'], 'mountain')
 
     # Test FT.HYBRID with FILTER for "accessory" category
-    # Should have 4 docs: bike:3, bike:7, bike:11, bike:15 (all have "light*")
+    # Should have 4 docs: bike:3, bike:7, bike:11, bike:15
     hybrid_response = env.cmd('FT.HYBRID', 'idx:bikes_vss',
                              'SEARCH', 'light*',
                              'VSIM', '@description_embeddings', '$BLOB',
@@ -279,13 +266,11 @@ def test_hybrid_limit_with_filter():
                              'LIMIT', '0', '3',
                              'PARAMS', '2', 'BLOB', query_vector)
 
-    # FT.HYBRID returns a structured response with key-value pairs
     hybrid_dict = to_dict(hybrid_response)
     hybrid_count = hybrid_dict['total_results']
-
     # Should return 3 results (limited by LIMIT, even though 4 match)
     env.assertEqual(len(hybrid_dict['results']), 3)
-    env.assertEqual(hybrid_count, 3)
+    env.assertEqual(hybrid_count, 4)
 
     # Verify all returned results have category "accessory"
     for result in hybrid_dict['results']:
