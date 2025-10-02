@@ -216,15 +216,15 @@ RSValue *MRReply_ToValue(MRReply *r) {
     case MR_REPLY_MAP: {
       size_t n = MRReply_Length(r);
       RS_LOG_ASSERT(n % 2 == 0, "map of odd length");
-      RSValue **map = rm_malloc(n * sizeof(*map));
-      for (size_t i = 0; i < n; ++i) {
-        MRReply *e = MRReply_ArrayElement(r, i);
-        if (i % 2 == 0) {
-          RS_LOG_ASSERT(MRReply_Type(e) == MR_REPLY_STRING, "non-string map key");
-        }
-        map[i] = MRReply_ToValue(e);
+      size_t map_len = n / 2;
+      RSValueMap map = RSValueMap_Create_Uninit(map_len);
+      for (size_t i = 0; i < map_len; i++) {
+        MRReply *e_k = MRReply_ArrayElement(r, i * 2);
+        RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
+        MRReply *e_v = MRReply_ArrayElement(r, (i * 2) + 1);
+        RSValueMap_SetEntry(&map, i,  MRReply_ToValue(e_k), MRReply_ToValue(e_v));
       }
-      v = RSValue_NewMap(map, n / 2);
+      v = RSValue_NewMap(map);
       break;
     }
     case MR_REPLY_ARRAY: {
@@ -483,7 +483,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
     MRReply *val = MRReply_ArrayElement(fields, i + 1);
     RSValue *v = MRReply_ToValue(val);
-    RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
+    RLookup_WriteOwnKeyByName(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
   }
   return RS_RESULT_OK;
 }

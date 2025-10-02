@@ -13,9 +13,9 @@
 #include "gtest/gtest.h"
 #include "config.h"
 #include "hybrid/hybrid_scoring.h"
-#include "hybrid/hybrid_search_result.h"  // For mergeFlags function
 #include "hybrid/hybrid_lookup_context.h"  // For HybridLookupContext
-#include "redisearch.h"  // For Result_ExpiredDoc flag
+#include "search_result.h"
+
 #include <vector>
 #include <string>
 #include <set>
@@ -118,16 +118,16 @@ struct MockUpstream : public ResultProcessor {
     }
 
     // Use docId from array
-    res->docId = p->docIds[docIndex];
+    SearchResult_SetDocId(res, p->docIds[docIndex]);
 
     // Use score from array
-    res->score = p->scores[docIndex];
+    SearchResult_SetScore(res, p->scores[docIndex]);
 
     // Set flags from upstream
-    res->flags = p->flags;
+    SearchResult_SetFlags(res, p->flags);
 
     // Use pre-created document metadata
-    res->dmd = &p->documentMetadata[p->counter];
+    SearchResult_SetDocumentMetadata(res, &p->documentMetadata[p->counter]);
 
     p->counter++;
     return RS_RESULT_OK;
@@ -185,7 +185,7 @@ void CleanupDummyLookupContext(HybridLookupContext *lookupCtx) {
 // Helper function to create hybrid merger with linear scoring
 ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double *weights, HybridLookupContext *lookupCtx) {
   // Create HybridScoringContext using constructor
-  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, numUpstreams);
+  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, numUpstreams, HYBRID_DEFAULT_WINDOW);
 
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
@@ -248,11 +248,11 @@ TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
     count++;
 
     // Basic verification
-    EXPECT_TRUE(r.dmd != nullptr);
-    EXPECT_TRUE(r.dmd->keyPtr != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Verify hybrid score is applied (should be 3.4 = 0.3*2.0 + 0.7*4.0)
-    EXPECT_NEAR(3.4, r.score, 0.0001);
+    EXPECT_NEAR(3.4, SearchResult_GetScore(&r), 0.0001);
 
     SearchResult_Clear(&r);
   }
@@ -304,14 +304,14 @@ TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
     count++;
 
     // Basic verification
-    EXPECT_TRUE(r.dmd != nullptr);
-    EXPECT_TRUE(r.dmd->keyPtr != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Verify scores: docs 1-3 (only upstream1) should have score 0.4*1.0=0.4, docs 11-13 (only upstream2) should have score 0.6*3.0=1.8
-    if (r.docId <= 3) {
-      EXPECT_NEAR(0.4, r.score, 0.0001);  // 0.4 * 1.0 (only upstream1 contributes)
+    if (SearchResult_GetDocId(&r) <= 3) {
+      EXPECT_NEAR(0.4, SearchResult_GetScore(&r), 0.0001);  // 0.4 * 1.0 (only upstream1 contributes)
     } else {
-      EXPECT_NEAR(1.8, r.score, 0.0001);  // 0.6 * 3.0 (only upstream2 contributes)
+      EXPECT_NEAR(1.8, SearchResult_GetScore(&r), 0.0001);  // 0.6 * 3.0 (only upstream2 contributes)
     }
 
     SearchResult_Clear(&r);
@@ -365,11 +365,11 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
     count++;
 
     // Basic verification
-    EXPECT_TRUE(r.dmd != nullptr);
-    EXPECT_TRUE(r.dmd->keyPtr != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Should only get results from upstream2 with score 0.5*5.0=2.5 (only upstream2 contributes)
-    EXPECT_EQ(2.5, r.score);
+    EXPECT_EQ(2.5, SearchResult_GetScore(&r));
 
     SearchResult_Clear(&r);
   }
@@ -422,11 +422,11 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
     count++;
 
     // Basic verification
-    EXPECT_TRUE(r.dmd != nullptr);
-    EXPECT_TRUE(r.dmd->keyPtr != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Should only get results from upstream1 with score 0.5*7.0=3.5 (only upstream1 contributes)
-    EXPECT_EQ(3.5, r.score);
+    EXPECT_EQ(3.5, SearchResult_GetScore(&r));
 
     SearchResult_Clear(&r);
   }
@@ -531,8 +531,8 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
     count++;
 
     // Basic verification
-    EXPECT_TRUE(r.dmd != nullptr);
-    EXPECT_TRUE(r.dmd->keyPtr != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Verify RRF scores - each document gets score based on its rank
     // With window=2, only top 2 from each upstream are considered
@@ -542,10 +542,10 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
     // doc11: 1/(60+1) = 1/61 ≈ 0.0164 (rank 1 in upstream2)
     // doc12: 1/(60+2) = 1/62 ≈ 0.0161 (rank 2 in upstream2)
 
-    if (r.docId == 1 || r.docId == 11) {
-      EXPECT_NEAR(1.0/61.0, r.score, 0.0001);  // Rank 1 in respective upstream
-    } else if (r.docId == 2 || r.docId == 12) {
-      EXPECT_NEAR(1.0/62.0, r.score, 0.0001);  // Rank 2 in respective upstream
+    if (SearchResult_GetDocId(&r) == 1 || SearchResult_GetDocId(&r) == 11) {
+      EXPECT_NEAR(1.0/61.0, SearchResult_GetScore(&r), 0.0001);  // Rank 1 in respective upstream
+    } else if (SearchResult_GetDocId(&r) == 2 || SearchResult_GetDocId(&r) == 12) {
+      EXPECT_NEAR(1.0/62.0, SearchResult_GetScore(&r), 0.0001);  // Rank 2 in respective upstream
     }
 
     SearchResult_Clear(&r);
@@ -604,8 +604,8 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
     count++;
 
     // Verify document metadata and key are set
-    ASSERT_TRUE(r.dmd != nullptr);
-    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Verify RRF scores - each document gets combined score from both upstreams
     // Expected RRF scores (constant=60):
@@ -616,12 +616,12 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
     // doc2: 1/(60+2) + 1/(60+3) = 1/62 + 1/63 ≈ 0.0318 (rank2 in upstream1, rank3 in upstream2)
     // doc3: 1/(60+3) + 1/(60+1) = 1/63 + 1/61 ≈ 0.0323 (rank3 in upstream1, rank1 in upstream2)
 
-    if (r.docId == 1) {
-      ASSERT_NEAR(1.0/61.0 + 1.0/62.0, r.score, 0.0001);  // doc1: rank1 + rank2
-    } else if (r.docId == 2) {
-      ASSERT_NEAR(1.0/62.0 + 1.0/63.0, r.score, 0.0001);  // doc2: rank2 + rank3
-    } else if (r.docId == 3) {
-      ASSERT_NEAR(1.0/63.0 + 1.0/61.0, r.score, 0.0001);  // doc3: rank3 + rank1
+    if (SearchResult_GetDocId(&r) == 1) {
+      ASSERT_NEAR(1.0/61.0 + 1.0/62.0, SearchResult_GetScore(&r), 0.0001);  // doc1: rank1 + rank2
+    } else if (SearchResult_GetDocId(&r) == 2) {
+      ASSERT_NEAR(1.0/62.0 + 1.0/63.0, SearchResult_GetScore(&r), 0.0001);  // doc2: rank2 + rank3
+    } else if (SearchResult_GetDocId(&r) == 3) {
+      ASSERT_NEAR(1.0/63.0 + 1.0/61.0, SearchResult_GetScore(&r), 0.0001);  // doc3: rank3 + rank1
     }
 
     SearchResult_Clear(&r);
@@ -676,14 +676,14 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
     count++;
 
     // Basic verification
-    EXPECT_TRUE(r.dmd != nullptr);
-    EXPECT_TRUE(r.dmd->keyPtr != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Count results from each upstream - only contributing upstream's weighted score
-    if (r.docId >= 1 && r.docId <= 3) {
-      EXPECT_EQ(0.5, r.score);  // 0.5 * 1.0 (only upstream1 contributes)
-    } else if (r.docId >= 21 && r.docId <= 23) {
-      EXPECT_EQ(1.0, r.score);  // 0.5 * 2.0 (only upstream2 contributes)
+    if (SearchResult_GetDocId(&r) >= 1 && SearchResult_GetDocId(&r) <= 3) {
+      EXPECT_EQ(0.5, SearchResult_GetScore(&r));  // 0.5 * 1.0 (only upstream1 contributes)
+    } else if (SearchResult_GetDocId(&r) >= 21 && SearchResult_GetDocId(&r) <= 23) {
+      EXPECT_EQ(1.0, SearchResult_GetScore(&r));  // 0.5 * 2.0 (only upstream2 contributes)
     }
 
     SearchResult_Clear(&r);
@@ -737,14 +737,14 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
     count++;
 
     // Basic verification
-    EXPECT_TRUE(r.dmd != nullptr);
-    EXPECT_TRUE(r.dmd->keyPtr != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Count results from each upstream - only contributing upstream's weighted score
-    if (r.docId >= 1 && r.docId <= 3) {
-      EXPECT_EQ(0.5, r.score);  // 0.5 * 1.0 (only upstream1 contributes)
-    } else if (r.docId >= 21 && r.docId <= 23) {
-      EXPECT_EQ(1.0, r.score);  // 0.5 * 2.0 (only upstream2 contributes)
+    if (SearchResult_GetDocId(&r) >= 1 && SearchResult_GetDocId(&r) <= 3) {
+      EXPECT_EQ(0.5, SearchResult_GetScore(&r));  // 0.5 * 1.0 (only upstream1 contributes)
+    } else if (SearchResult_GetDocId(&r) >= 21 && SearchResult_GetDocId(&r) <= 23) {
+      EXPECT_EQ(1.0, SearchResult_GetScore(&r));  // 0.5 * 2.0 (only upstream2 contributes)
     }
 
     SearchResult_Clear(&r);
@@ -807,11 +807,11 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
   // Collect all available results from both upstreams
   while ((rc = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
     // Verify document metadata and key are set
-    EXPECT_TRUE(r.dmd != nullptr);
-    EXPECT_TRUE(r.dmd->keyPtr != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Store the document ID for verification
-    receivedDocIds.push_back(r.docId);
+    receivedDocIds.push_back(SearchResult_GetDocId(&r));
     SearchResult_Clear(&r);
   }
 
@@ -932,8 +932,8 @@ TEST_F(HybridMergerTest, testRRFScoring) {
     count++;
 
     // Basic verification
-    EXPECT_TRUE(r.dmd != nullptr);
-    EXPECT_TRUE(r.dmd->keyPtr != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    EXPECT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Verify RRF scores - each document gets combined score from both upstreams
     // Expected RRF scores (constant=60):
@@ -944,12 +944,12 @@ TEST_F(HybridMergerTest, testRRFScoring) {
     // doc2: 1/(60+2) + 1/(60+1) = 1/62 + 1/61 ≈ 0.0325 (rank2 in upstream1, rank1 in upstream2)
     // doc3: 1/(60+3) + 1/(60+3) = 1/63 + 1/63 ≈ 0.0317 (rank3 in both upstreams)
 
-    if (r.docId == 1) {
-      EXPECT_NEAR(1.0/61.0 + 1.0/62.0, r.score, 0.0001);  // doc1: rank1 + rank2
-    } else if (r.docId == 2) {
-      EXPECT_NEAR(1.0/62.0 + 1.0/61.0, r.score, 0.0001);  // doc2: rank2 + rank1
-    } else if (r.docId == 3) {
-      EXPECT_NEAR(1.0/63.0 + 1.0/63.0, r.score, 0.0001);  // doc3: rank3 + rank3
+    if (SearchResult_GetDocId(&r) == 1) {
+      EXPECT_NEAR(1.0/61.0 + 1.0/62.0, SearchResult_GetScore(&r), 0.0001);  // doc1: rank1 + rank2
+    } else if (SearchResult_GetDocId(&r) == 2) {
+      EXPECT_NEAR(1.0/62.0 + 1.0/61.0, SearchResult_GetScore(&r), 0.0001);  // doc2: rank2 + rank1
+    } else if (SearchResult_GetDocId(&r) == 3) {
+      EXPECT_NEAR(1.0/63.0 + 1.0/63.0, SearchResult_GetScore(&r), 0.0001);  // doc3: rank3 + rank3
     }
 
     SearchResult_Clear(&r);
@@ -1005,16 +1005,16 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
     count++;
 
     // Verify document metadata and key are set
-    ASSERT_TRUE(r.dmd != nullptr);
-    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Verify scores based on docId - only contributing upstream's weighted score
-    if (r.docId >= 1 && r.docId <= 3) {
-      ASSERT_NEAR(0.2, r.score, 0.0001);  // 0.2 * 1.0 (only upstream1 contributes)
-    } else if (r.docId >= 11 && r.docId <= 13) {
-      ASSERT_NEAR(0.6, r.score, 0.0001);  // 0.3 * 2.0 (only upstream2 contributes)
-    } else if (r.docId >= 21 && r.docId <= 23) {
-      ASSERT_NEAR(1.5, r.score, 0.0001);  // 0.5 * 3.0 (only upstream3 contributes)
+    if (SearchResult_GetDocId(&r) >= 1 && SearchResult_GetDocId(&r) <= 3) {
+      ASSERT_NEAR(0.2, SearchResult_GetScore(&r), 0.0001);  // 0.2 * 1.0 (only upstream1 contributes)
+    } else if (SearchResult_GetDocId(&r) >= 11 && SearchResult_GetDocId(&r) <= 13) {
+      ASSERT_NEAR(0.6, SearchResult_GetScore(&r), 0.0001);  // 0.3 * 2.0 (only upstream2 contributes)
+    } else if (SearchResult_GetDocId(&r) >= 21 && SearchResult_GetDocId(&r) <= 23) {
+      ASSERT_NEAR(1.5, SearchResult_GetScore(&r), 0.0001);  // 0.5 * 3.0 (only upstream3 contributes)
     }
 
     SearchResult_Clear(&r);
@@ -1064,10 +1064,10 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
   int lastResult;
 
   while ((lastResult = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
-    if (r.docId == 1 || r.docId == 4 || r.docId == 5) {
-      ASSERT_EQ(0.5, r.score); // Single upstream: 0.5 * 1.0 = 0.5
-    } else if (r.docId == 2 || r.docId == 3) {
-      ASSERT_EQ(1.0, r.score); // Both upstreams: 0.5 * 1.0 + 0.5 * 1.0 = 1.0
+    if (SearchResult_GetDocId(&r) == 1 || SearchResult_GetDocId(&r) == 4 || SearchResult_GetDocId(&r) == 5) {
+      ASSERT_EQ(0.5, SearchResult_GetScore(&r)); // Single upstream: 0.5 * 1.0 = 0.5
+    } else if (SearchResult_GetDocId(&r) == 2 || SearchResult_GetDocId(&r) == 3) {
+      ASSERT_EQ(1.0, SearchResult_GetScore(&r)); // Both upstreams: 0.5 * 1.0 + 0.5 * 1.0 = 1.0
     }
     SearchResult_Clear(&r);
   }
@@ -1114,21 +1114,21 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersectionRRF) {
   int lastResult;
 
   while ((lastResult = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
-    if (r.docId == 1) {
+    if (SearchResult_GetDocId(&r) == 1) {
       // Only in upstream1 at rank 1: RRF = 1/(60+1) = 1/61 ≈ 0.0164
-      ASSERT_NEAR(1.0/61.0, r.score, 0.001);
-    } else if (r.docId == 2) {
+      ASSERT_NEAR(1.0/61.0, SearchResult_GetScore(&r), 0.001);
+    } else if (SearchResult_GetDocId(&r) == 2) {
       // In upstream1 at rank 2, upstream2 at rank 1: RRF = 1/(60+2) + 1/(60+1) = 1/62 + 1/61 ≈ 0.0325
-      ASSERT_NEAR(1.0/62.0 + 1.0/61.0, r.score, 0.001);
-    } else if (r.docId == 3) {
+      ASSERT_NEAR(1.0/62.0 + 1.0/61.0, SearchResult_GetScore(&r), 0.001);
+    } else if (SearchResult_GetDocId(&r) == 3) {
       // In upstream1 at rank 3, upstream2 at rank 2: RRF = 1/(60+3) + 1/(60+2) = 1/63 + 1/62 ≈ 0.0320
-      ASSERT_NEAR(1.0/63.0 + 1.0/62.0, r.score, 0.001);
-    } else if (r.docId == 4) {
+      ASSERT_NEAR(1.0/63.0 + 1.0/62.0, SearchResult_GetScore(&r), 0.001);
+    } else if (SearchResult_GetDocId(&r) == 4) {
       // Only in upstream2 at rank 3: RRF = 1/(60+3) = 1/63 ≈ 0.0159
-      ASSERT_NEAR(1.0/63.0, r.score, 0.001);
-    } else if (r.docId == 5) {
+      ASSERT_NEAR(1.0/63.0, SearchResult_GetScore(&r), 0.001);
+    } else if (SearchResult_GetDocId(&r) == 5) {
       // Only in upstream2 at rank 4: RRF = 1/(60+4) = 1/64 ≈ 0.0156
-      ASSERT_NEAR(1.0/64.0, r.score, 0.001);
+      ASSERT_NEAR(1.0/64.0, SearchResult_GetScore(&r), 0.001);
     }
     SearchResult_Clear(&r);
   }
@@ -1203,12 +1203,12 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
   size_t count = 0;
   while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
     // Verify document metadata and key are set
-    ASSERT_TRUE(r.dmd != nullptr);
-    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     // Verify RRF score calculation
-    int docIndex = r.docId - 1;
-    ASSERT_NEAR(expectedScores[docIndex], r.score, 0.0001);
+    int docIndex = SearchResult_GetDocId(&r) - 1;
+    ASSERT_NEAR(expectedScores[docIndex], SearchResult_GetScore(&r), 0.0001);
 
     count++;
     SearchResult_Clear(&r);
@@ -1308,11 +1308,11 @@ TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
     count++;
 
     // Basic verification
-    ASSERT_TRUE(r.dmd != nullptr);
-    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     //Verify flag merging - should have Result_ExpiredDoc from upstream1
-    ASSERT_TRUE(r.flags & Result_ExpiredDoc);
+    ASSERT_TRUE(SearchResult_GetFlags(&r) & Result_ExpiredDoc);
 
     SearchResult_Clear(&r);
   }
@@ -1360,11 +1360,11 @@ TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
     count++;
 
     // Basic verification
-    ASSERT_TRUE(r.dmd != nullptr);
-    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
 
     //Verify flag merging - should have Result_ExpiredDoc from upstream2
-    ASSERT_TRUE(r.flags & Result_ExpiredDoc);
+    ASSERT_TRUE(SearchResult_GetFlags(&r) & Result_ExpiredDoc);
 
     SearchResult_Clear(&r);
   }
@@ -1384,13 +1384,13 @@ static SearchResult* createTestSearchResult(uint8_t flags) {
   SearchResult* result = (SearchResult*)rm_calloc(1, sizeof(SearchResult));
   if (!result) return NULL;
 
-  result->docId = 1;  // Use a dummy docId
-  result->score = 1.0;  // Use a dummy score
-  result->flags = flags;
-  result->scoreExplain = NULL;
-  result->dmd = NULL;
-  result->indexResult = NULL;
-  memset(&result->rowdata, 0, sizeof(RLookupRow));
+  SearchResult_SetDocId(result, 1);  // Use a dummy docId
+  SearchResult_SetScore(result, 1.0);  // Use a dummy score
+  SearchResult_SetFlags(result, flags);
+  SearchResult_SetScoreExplain(result, NULL);
+  SearchResult_SetDocumentMetadata(result, NULL);
+  SearchResult_SetIndexResult(result, NULL);
+  memset(SearchResult_GetRowDataMut(result), 0, sizeof(RLookupRow));
 
   return result;
 }
@@ -1419,7 +1419,7 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   double weights[] = {0.33, 0.33, 0.34};
 
   // Create HybridScoringContext using constructor
-  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, 3);
+  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, 3, HYBRID_DEFAULT_WINDOW);
 
   // Create dummy lookup context
   HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);
@@ -1442,28 +1442,4 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   SearchResult_Destroy(&r);
   CleanupDummyLookupContext(lookupCtx);
   hybridMerger->Free(hybridMerger);
-}
-
-/*
- * Test mergeFlags function with no flags set
- */
-TEST_F(HybridMergerTest, testmergeFlags_NoFlags) {
-  uint8_t target_flags = 0;
-  uint8_t source_flags = 0;
-
-  // Test merging no flags
-  mergeFlags(&target_flags, &source_flags);
-  EXPECT_EQ(target_flags, 0);
-}
-
-/*
- * Test mergeFlags function with Result_ExpiredDoc flag
- */
-TEST_F(HybridMergerTest, testmergeFlags_ExpiredDoc) {
-  uint8_t target_flags = 0;  // No flags initially
-  uint8_t source_flags = Result_ExpiredDoc;  // Source has expired flag
-
-  // Test merging expired flag
-  mergeFlags(&target_flags, &source_flags);
-  EXPECT_TRUE(target_flags & Result_ExpiredDoc);
 }

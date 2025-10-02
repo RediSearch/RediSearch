@@ -263,7 +263,7 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
   const char *fName = spec->name;
   const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
 
-  if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
+  if (fieldValue == NULL || !RSValue_IsStringVariant(fieldValue)) {
     return;
   }
   RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
@@ -304,7 +304,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   // Get the index result for the current document from the root iterator.
   // The current result should not contain an index result
-  const RSIndexResult *ir = r->indexResult ? r->indexResult : getIndexResult(rbase, r->docId);
+  const RSIndexResult *ir = SearchResult_HasIndexResult(r) ? SearchResult_GetIndexResult(r) : getIndexResult(rbase, SearchResult_GetDocId(r));
 
   // we can't work without the index result, just return QUEUED
   if (!ir) {
@@ -313,7 +313,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   size_t numIovsArr = 0;
   const FieldList *fields = hlp->fields;
-  const RSDocumentMetadata *dmd = r->dmd;
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   if (!dmd) {
     return RS_RESULT_OK;
   }
@@ -321,7 +321,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
   hlpDocContext docParams = {.byteOffsets = dmd->byteOffsets,  // nl
                              .iovsArr = NULL,
                              .indexResult = ir,
-                             .row = &r->rowdata};
+                             .row = SearchResult_GetRowDataMut(r)};
 
   if (fields->numFields) {
     for (size_t ii = 0; ii < fields->numFields; ++ii) {
