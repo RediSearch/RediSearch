@@ -406,3 +406,10 @@ void handleExplainScore(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ctx->specifiedArgs |= SPECIFIED_ARG_EXPLAINSCORE;
 }
+
+// _NUM_SSTRING callback - implements EXACT original logic from handleNumSString
+void handleNumSString(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ctx->specifiedArgs |= SPECIFIED_ARG_NUM_SSTRING;
+}
+

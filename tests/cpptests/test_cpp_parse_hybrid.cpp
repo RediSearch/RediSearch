@@ -606,6 +606,37 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_TRUE(foundEpsilon);
 }
 
+TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
+
+  QueryError status = {QueryErrorCode(0)};
+  parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, false);
+  EXPECT_EQ(status.code, QUERY_EPARSEARGS) << "Should fail as external command";
+  QueryError_ClearError(&status);
+
+  // Clean up any partial allocations from the failed parse
+  if (result.vector && result.vector->ast.root) {
+    QAST_Destroy(&result.vector->ast);
+    result.vector->ast.root = NULL;
+  }
+}
+
+TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
+
+  QueryError status = {QueryErrorCode(0)};
+
+  ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
+  parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
+  EXPECT_EQ(status.code, QUERY_OK) << "Should succeed as internal command";
+  QueryError_ClearError(&status);
+
+  // Verify _NUM_SSTRING flag is set after parsing
+  ASSERT_TRUE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
+}
+
 TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   // Test with direct vector data (not argument)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "2", "K", "5");
