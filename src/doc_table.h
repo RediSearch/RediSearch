@@ -8,6 +8,7 @@
 */
 #ifndef __DOC_TABLE_H__
 #define __DOC_TABLE_H__
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
@@ -205,7 +206,14 @@ void DMD_Free(const RSDocumentMetadata *);
 /* Decrement the refcount of the DMD object, freeing it if we're the last reference */
 static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;
-  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELAXED)) {
+
+  if (!dmd) {
+      return;
+  }
+
+  uint16_t prev = __atomic_fetch_sub(&dmd->ref_count, 1, __ATOMIC_RELAXED);
+  RS_ASSERT(prev != 0);
+  if (prev == 1) {
     DMD_Free(dmd);
   }
 }
