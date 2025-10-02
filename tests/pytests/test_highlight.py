@@ -33,7 +33,7 @@ def verify_word_is_highlighted(env, result, word_to_check):
             highlighted.add(word)
     # Check that the expected word is in the highlighted set
     env.assertIn(word_to_check, highlighted)
-    assert len(highlighted) == 1, f"We only expect the given word to be highlighted, but found also others: {highlighted}" # it is the only one highlighted
+    env.assertEqual(len(highlighted), 1, message=f"We only expect the given word to be highlighted, but found also others: {highlighted}") # it is the only one highlighted
 
 
 

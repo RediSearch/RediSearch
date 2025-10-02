@@ -103,41 +103,25 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
   iter->buf.data = (char *) offsets_data;
   iter->buf.offset = offsets_len;
   iter->rdr = NewBufferReader(&iter->buf);
+  iter->curPos = 1;
   iter->endPos = offField->lastTokPos;
 
-  for (iter->curPos = 0; iter->curPos < offField->firstTokPos && !BufferReader_AtEnd(&iter->rdr); ++iter->curPos) {
-    // simply override, we only care about the initial offset for this field
-    iter->lastValue = ReadVarint(&iter->rdr);
-    RedisModule_Log(NULL, "notice", "lastValue: %u, curPos: %u, firstTokPos: %u, lastTokPos: %u", iter->lastValue, iter->curPos, offField->firstTokPos, offField->lastTokPos);
+  iter->lastValue = 0;
+
+  while (iter->curPos < offField->firstTokPos && !BufferReader_AtEnd(&iter->rdr)) {
+    iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
+    iter->curPos++;
   }
 
-  // If we reached the end of the stream before we reached the first token position, return an error
-  if (iter->curPos < offField->firstTokPos) {
-    return REDISMODULE_ERR;
-  }
-
-  // curPos == firstTokPos
-  // if range is [1, 1] we want curPos to be 0 so RSByteOffsetIterator_Next will return the lastValue
-  --iter->curPos;
+  iter->curPos--;
   return REDISMODULE_OK;
 }
 
 uint32_t RSByteOffsetIterator_Next(RSByteOffsetIterator *iter) {
-  // If we're at the end of the stream, or we've reached the end of the field, return EOF
-  if (iter->curPos >= iter->endPos) {
+  if (BufferReader_AtEnd(&iter->rdr) || ++iter->curPos > iter->endPos) {
     return RSBYTEOFFSET_EOF;
   }
 
-  // it is possible we are at end of buffer but still need to return the last result
-  const uint32_t result = iter->lastValue;
-  ++iter->curPos;
-
-  // If we're not at the end of the stream, read the next value for the future Next calls
-  if (BufferReader_AtEnd(&iter->rdr)) {
-    iter->curPos = iter->endPos;
-  } else {
-    iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;  
-  }
-  return result;
+  iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
+  return iter->lastValue;
 }
-

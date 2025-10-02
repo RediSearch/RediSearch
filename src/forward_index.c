@@ -219,7 +219,6 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
   }
   if (h->vw) {
     VVW_Write(h->vw, pos);
-    RedisModule_Log(NULL, "notice", "Writing pos: %u, tok: %.*s", pos, (int)tokLen, tok);
   }
 
 }
@@ -236,9 +235,7 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
                            tokCtx->fieldScore, tokCtx->fieldId, options);
 
   if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
-    uint32_t offset = tokInfo->raw - tokCtx->doc;
-    RedisModule_Log(NULL, "notice", "Writing offset: %u, tok: %.*s, doc: %s", offset, tokInfo->tokLen, tokInfo->tok, tokCtx->doc);
-    VVW_Write(tokCtx->allOffsets->vw, offset);
+    VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
   }
 
   if (tokInfo->stem) {
