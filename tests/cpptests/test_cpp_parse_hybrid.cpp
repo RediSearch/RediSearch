@@ -627,9 +627,14 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
         "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
 
   QueryError status = {QueryErrorCode(0)};
+
+  ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
   parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
   EXPECT_EQ(status.code, QUERY_OK) << "Should succeed as internal command";
   QueryError_ClearError(&status);
+
+  // Verify _NUM_SSTRING flag is set after parsing
+  ASSERT_TRUE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
 }
 
 TEST_F(ParseHybridTest, testDirectVectorSyntax) {
