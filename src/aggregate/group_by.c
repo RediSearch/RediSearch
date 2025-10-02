@@ -175,7 +175,7 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
   // get the value
   const RSValue *v = RSValue_Dereference(xarr[xpos]);
   // regular value - just move one step -- increment XPOS
-  if (v->t != RSValue_Array) {
+  if (!RSValue_IsArray(v)) {
     hval = RSValue_Hash(v, hval);
     extractGroups(g, xarr, xpos + 1, xlen, hval, res);
   } else if (RSValue_ArrayLen(v) == 0) {

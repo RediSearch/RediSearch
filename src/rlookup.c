@@ -308,7 +308,7 @@ void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
   // Find the pointer to write to ...
   RSValue **vptr = array_ensure_at(&row->dyn, key->dstidx, RSValue *);
   if (*vptr) {
-    RSValue_Decref(*vptr);
+    RSValue_DecrRef(*vptr);
     row->ndyn--;
   }
   *vptr = v;
@@ -330,14 +330,14 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
 
 void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
   RLookup_WriteKeyByName(lookup, name, len, row, value);
-  RSValue_Decref(value);
+  RSValue_DecrRef(value);
 }
 
 void RLookupRow_Wipe(RLookupRow *r) {
   for (size_t ii = 0; ii < array_len(r->dyn) && r->ndyn; ++ii) {
     RSValue **vpp = r->dyn + ii;
     if (*vpp) {
-      RSValue_Decref(*vpp);
+      RSValue_DecrRef(*vpp);
       *vpp = NULL;
       r->ndyn--;
     }
@@ -455,16 +455,19 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisModuleString *keyName;
       size_t i = 0;
       RedisJSON value;
-      pairs = rm_malloc(sizeof(RSValue*) * len * 2);
+ 
+      RSValueMap map = RSValueMap_Create_Uninit(len);
       for (; (value = japi->nextKeyValue(iter, &keyName)); ++i) {
-        RS_ASSERT(i < len);
-        pairs[RSVALUE_MAP_KEYPOS(i)] = RS_StealRedisStringVal(keyName);
-        pairs[RSVALUE_MAP_VALUEPOS(i)] = jsonValToValueExpanded(ctx, value);
+        RSValueMap_SetEntry(&map, i, RS_StealRedisStringVal(keyName),
+          jsonValToValueExpanded(ctx, value));
       }
       japi->freeKeyValuesIter(iter);
       RS_ASSERT(i == len && !value);
+
+      ret = RSValue_NewMap(map);
+    } else {
+      ret = RSValue_NewMap(RSValueMap_Create_Uninit(0));
     }
-    ret = RSValue_NewMap(pairs, len);
   } else if (type == JSONType_Array) {
     // Array
     japi->getLen(json, &len);
@@ -550,7 +553,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
       RSValue *val = jsonValToValue(ctx, json);
       RSValue *otherval = RS_StealRedisStringVal(serialized);
       RSValue *expand = japi_ver >= 4 ? jsonIterToValueExpanded(ctx, iter) : RS_NullVal();
-      *rsv = RS_DuoVal(val, otherval, expand);
+      *rsv = RS_TrioVal(val, otherval, expand);
       res = REDISMODULE_OK;
     } else if (serialized) {
       RedisModule_FreeString(ctx, serialized);
