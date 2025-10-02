@@ -11,10 +11,7 @@ use build_utils::{generate_c_bindings, git_root, link_static_libraries};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Always link the static libraries, independent of bindgen
-    link_static_libraries(&[
-        ("src/inverted_index", "inverted_index"),
-        ("src/iterators", "iterators"),
-    ]);
+    link_static_libraries(&[("src/iterators", "iterators")]);
 
     // Compile the wildcard iterator benchmark C file
     let root = git_root().expect("Could not find git root");
