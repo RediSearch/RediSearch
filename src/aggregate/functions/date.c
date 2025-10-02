@@ -21,7 +21,7 @@
 static int timeFormat(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   const char *fmt = ISOFMT;
   if (argc == 2) {
-    VALIDATE_ARG_TYPE("time", argv, 1, RSValue_String);
+    VALIDATE_ARG_TYPE("time", argv, 1, RSValueType_String);
     fmt = RSValue_StringPtrLen(&argv[1], NULL);
   }
   // Get the format
@@ -54,7 +54,7 @@ static int timeFormat(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
 
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
@@ -95,7 +95,7 @@ static int func_hour(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result)
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
 
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
@@ -110,7 +110,7 @@ static int func_minute(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *resul
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
 
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
@@ -134,7 +134,7 @@ static int func_day(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) 
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
 
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
@@ -153,7 +153,7 @@ static int func_dayofmonth(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *r
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
 
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
@@ -172,7 +172,7 @@ static int func_dayofweek(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *re
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
 
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
@@ -191,7 +191,7 @@ static int func_dayofyear(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *re
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
 
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
@@ -209,7 +209,7 @@ static int func_year(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result)
   return EXPR_EVAL_OK;
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
@@ -233,7 +233,7 @@ static int func_month(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
 
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
@@ -251,7 +251,7 @@ static int func_monthofyear(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
 
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
@@ -272,21 +272,21 @@ static int parseTime(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result)
   return EXPR_EVAL_OK;
 
 err:
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
 void RegisterDateFunctions() {
-  RSFunctionRegistry_RegisterFunction("timefmt", timeFormat, RSValue_String, 1, 2);
-  RSFunctionRegistry_RegisterFunction("parsetime", parseTime, RSValue_Number, 2, 2);
-  RSFunctionRegistry_RegisterFunction("hour", func_hour, RSValue_Number, 1, 1);
-  RSFunctionRegistry_RegisterFunction("minute", func_minute, RSValue_Number, 1, 1);
-  RSFunctionRegistry_RegisterFunction("day", func_day, RSValue_Number, 1, 1);
-  RSFunctionRegistry_RegisterFunction("month", func_month, RSValue_Number, 1, 1);
-  RSFunctionRegistry_RegisterFunction("monthofyear", func_monthofyear, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("timefmt", timeFormat, RSValueType_String, 1, 2);
+  RSFunctionRegistry_RegisterFunction("parsetime", parseTime, RSValueType_Number, 2, 2);
+  RSFunctionRegistry_RegisterFunction("hour", func_hour, RSValueType_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("minute", func_minute, RSValueType_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("day", func_day, RSValueType_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("month", func_month, RSValueType_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("monthofyear", func_monthofyear, RSValueType_Number, 1, 1);
 
-  RSFunctionRegistry_RegisterFunction("year", func_year, RSValue_Number, 1, 1);
-  RSFunctionRegistry_RegisterFunction("dayofmonth", func_dayofmonth, RSValue_Number, 1, 1);
-  RSFunctionRegistry_RegisterFunction("dayofweek", func_dayofweek, RSValue_Number, 1, 1);
-  RSFunctionRegistry_RegisterFunction("dayofyear", func_dayofyear, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("year", func_year, RSValueType_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("dayofmonth", func_dayofmonth, RSValueType_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("dayofweek", func_dayofweek, RSValueType_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("dayofyear", func_dayofyear, RSValueType_Number, 1, 1);
 }

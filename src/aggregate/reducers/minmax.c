@@ -41,7 +41,7 @@ static void *minmaxNewInstance(Reducer *r) {
 
 static RSValue *minmaxFinalize(Reducer *parent, void *instance) {
   minmaxCtx *ctx = instance;
-  return RS_NumVal(ctx->val);
+  return RSValue_NewNumber(ctx->val);
 }
 
 typedef int (*ReducerAddFunc)(Reducer *, void *, const RLookupRow *);

@@ -55,20 +55,20 @@ RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Literal);
   uint32_t newLen;
   char* cleaned_str = unescapeStringDup(str,len, &newLen);
-  e->literal = RSValue_NewStatic_String_Malloc(cleaned_str, newLen);
+  e->literal = RSValue_String(cleaned_str, newLen);
   return e;
 }
 
 RSExpr *RS_NewNullLiteral() {
   RSExpr *e = newExpr(RSExpr_Literal);
-  RSValue_MakeReference(&e->literal, RS_NullVal());
+  RSValue_MakeReference(&e->literal, RSValue_NullStatic());
   return e;
 }
 
 RSExpr *RS_NewNumberLiteral(double n) {
   RSExpr *e = newExpr(RSExpr_Literal);
 
-  e->literal = RSValue_NewStatic_Number(n);
+  e->literal = RSValue_Number(n);
   return e;
 }
 

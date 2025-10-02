@@ -63,7 +63,7 @@ static RSValue *stddevFinalize(Reducer *parent, void *instance) {
   devCtx *dctx = instance;
   double variance = ((dctx->n > 1) ? dctx->S / (dctx->n - 1) : 0.0);
   double stddev = sqrt(variance);
-  return RS_NumVal(stddev);
+  return RSValue_NewNumber(stddev);
 }
 
 Reducer *RDCRStdDev_New(const ReducerOptions *options) {
