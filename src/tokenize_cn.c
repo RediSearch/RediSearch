@@ -59,7 +59,6 @@ static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint16_
   base->ctx.text = text;
   base->ctx.len = len;
   base->ctx.options = options;
-  base->ctx.empty_input = len == 0;
   friso_set_text(self->fTask, text);
   self->nescapebuf = 0;
 }
