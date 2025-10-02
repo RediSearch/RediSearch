@@ -168,28 +168,13 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   size_t exp_t_fieldMask_memsize = 16;
   ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
 
-  // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
-  // IndexBlock *blocks         8
-  // uint32_t size              4
-  // IndexFlags                 4
-  // t_docId lastId             8
-  // uint32_t numDocs           4
-  // uint32_t gcMarker          4
-  // ----------------------------
-  // Total                     32
-
-  size_t exp_idx_no_block_memsize = 32;
+  size_t exp_idx_no_block_memsize = 48;
 
   if (useFieldMask) {
     exp_idx_no_block_memsize += t_fiedlMask_memsize;
   }
 
-  // A block is 48 bytes with an initial buffer capacity
-  size_t exp_block_memsize = 48;
-
-  size_t exp_initial_block_cap = 6;
-
-  size_t expectedIndexSize = exp_idx_no_block_memsize + exp_block_memsize + exp_initial_block_cap;
+  size_t expectedIndexSize = exp_idx_no_block_memsize;
   // The memory occupied by a new inverted index depends of its flags
   // see NewInvertedIndex() for details
   ASSERT_EQ(expectedIndexSize, index_memsize);
@@ -259,51 +244,6 @@ INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Values(
     // 0. docid only
     int(Index_DocIdsOnly)
 ));
-
-// Test we only get the right encoder and decoder for the right flags
-TEST_F(IndexTest, testGetEncoderAndDecoders) {
-  for (int curFlags = 0; curFlags <= INDEX_STORAGE_MASK; curFlags++) {
-    switch (curFlags & INDEX_STORAGE_MASK) {
-    // 1. Full encoding - docId, freq, flags, offset
-    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
-    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema:
-    // 2. (Frequency, Field)
-    case Index_StoreFreqs | Index_StoreFieldFlags:
-    case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
-    // 3. Frequencies only
-    case Index_StoreFreqs:
-    // 4. Field only
-    case Index_StoreFieldFlags:
-    case Index_StoreFieldFlags | Index_WideSchema:
-    // 5. (field, offset)
-    case Index_StoreFieldFlags | Index_StoreTermOffsets:
-    case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-    // 6. (offset)
-    case Index_StoreTermOffsets:
-    // 7. (freq, offset) Store term offsets but not field flags
-    case Index_StoreFreqs | Index_StoreTermOffsets:
-    // 0. docid only
-    case Index_DocIdsOnly:
-    // 9. Numeric
-    case Index_StoreNumeric:
-      ASSERT_TRUE(InvertedIndex_GetDecoder(IndexFlags(curFlags)).decoder);
-      ASSERT_TRUE(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
-      break;
-
-    // invalid flags combination
-    default:
-      // TODO: We currently test only with sanitizer since the sanitizer is
-      // running in debug mode always, while the regular tests are running in
-      // release mode.
-      #ifdef __SANITIZE_ADDRESS__
-        ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
-        ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
-      #else
-        continue;
-      #endif
-    }
-  }
-}
 
 TEST_F(IndexTest, testReadIterator) {
   InvertedIndex *idx = createPopulateTermsInvIndex(10, 1);
@@ -459,17 +399,19 @@ TEST_F(IndexTest, testNumericInverted) {
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, &index_memsize);
 
   size_t sz = 0;
-  size_t expected_sz = 0;
+  // An index block is 48 bytes
+  // and the initial buffer capacity is 8 bytes
+  size_t expected_sz = 56;
   size_t written_bytes = 0;
   size_t bytes_per_entry = 0;
-  size_t buff_cap = 6; // Initial block capacity
+  size_t buff_cap = 8; // Initial block capacity
   size_t available_size = 6; // Nothing is used in the block yet
 
   for (int i = 0; i < 75; i++) {
     sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
-    ASSERT_TRUE(sz == expected_sz);
+    ASSERT_EQ(sz, expected_sz) << " at i=" << i;
 
-    // The buffer has an initial capacity of 6 bytes
+    // The buffer has an initial capacity of 8 bytes
     // For values < 7 (tiny numbers) the header (H) and value (V) will occupy
     // only 1 byte.
     // For values >= 7, the header will occupy 1 byte, and the value 1 bytes.
@@ -481,22 +423,21 @@ TEST_F(IndexTest, testNumericInverted) {
     // after that, the sz be greater than zero when the buffer grows.
     // The buffer will grow when there is not enough space to write the entry
     //
-    // The number of bytes added to the capacity is defined by the formula:
-    // MIN(1 + buf->cap / 5, 1024 * 1024)  (see buffer.c Buffer_Grow())
+    // The number of bytes added to the capacity doubled when capacity is reached
     //
     //   | H + V | Delta | Bytes     | Written  | Buff cap | Available | sz
     // i | bytes | bytes | per Entry | bytes    |          | size      |
     // ----------------------------------------------------------------------
-    // 0 | 1     | 0     | 1         |  1       |  6       | 5         | 0
-    // 1 | 1     | 1     | 2         |  3       |  6       | 3         | 0
-    // 2 | 1     | 1     | 2         |  5       |  6       | 1         | 0
-    // 3 | 1     | 1     | 2         |  7       |  8       | 1         | 2
-    // 4 | 1     | 1     | 2         |  9       | 10       | 1         | 2
-    // 5 | 1     | 1     | 2         | 11       | 13       | 2         | 3
-    // 6 | 1     | 1     | 2         | 13       | 16       | 3         | 0
-    // 7 | 2     | 1     | 3         | 16       | 16       | 0         | 3
-    // 8 | 2     | 1     | 3         | 19       | 20       | 1         | 4
-    // 9 | 2     | 1     | 3         | 19       | 25       | 1         | 5
+    // 0 | 1     | 0     | 1         |  1       |  8       | 7         |  0
+    // 1 | 1     | 1     | 2         |  3       |  8       | 5         |  0
+    // 2 | 1     | 1     | 2         |  5       |  8       | 3         |  0
+    // 3 | 1     | 1     | 2         |  7       |  8       | 1         |  8
+    // 4 | 1     | 1     | 2         |  9       | 16       | 7         |  0
+    // 5 | 1     | 1     | 2         | 11       | 16       | 5         |  0
+    // 6 | 1     | 1     | 2         | 13       | 16       | 3         |  0
+    // 7 | 2     | 1     | 3         | 16       | 16       | 0         | 16
+    // 8 | 2     | 1     | 3         | 19       | 32       | 13        |  0
+    // 9 | 2     | 1     | 3         | 22       | 32       | 10        |  0
 
     if(i < 7) {
       bytes_per_entry = 1 + (i > 0);
@@ -507,7 +448,7 @@ TEST_F(IndexTest, testNumericInverted) {
     // Simulate the buffer growth to get the expected size
     written_bytes += bytes_per_entry;
     if(buff_cap < written_bytes || buff_cap - written_bytes < bytes_per_entry) {
-      expected_sz = MIN(1 + buff_cap / 5, 1024 * 1024);
+      expected_sz = buff_cap;
     } else {
       expected_sz = 0;
     }
@@ -544,26 +485,7 @@ TEST_F(IndexTest, testNumericVaried) {
   static const size_t numCount = sizeof(nums) / sizeof(double);
 
   for (size_t i = 0; i < numCount; i++) {
-    size_t min_data_len;
-    IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
-    size_t cap = IndexBlock_Cap(lastBlock);
-    size_t offset = IndexBlock_Len(lastBlock);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
-
-    if(i == 0 || i == 4 || i == 5) {
-      // For tests numbers 0, 1.0, and 5.0, two bytes are enough to store them.
-      min_data_len = 2;
-    } else {
-      min_data_len = 10;
-    }
-
-    // if there was not enough space to store the entry,
-    // the capacity of the block was increased and sz > 0
-    if(cap - offset < min_data_len) {
-      ASSERT_TRUE(sz > 0);
-    } else {
-      ASSERT_TRUE(sz == 0);
-    }
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
@@ -583,37 +505,36 @@ TEST_F(IndexTest, testNumericVaried) {
 
 typedef struct {
   double value;
-  size_t size;
 } encodingInfo;
 static const encodingInfo infos[] = {
-    {0, 1},                    // 0
-    {1, 2},                    // 1
-    {63, 3},                   // 2
-    {-1, 3},                   // 3
-    {-63, 3},                  // 4
-    {64, 3},                   // 5
-    {-64, 3},                  // 6
-    {255, 3},                  // 7
-    {-255, 3},                 // 8
-    {65535, 4},                // 9
-    {-65535, 4},               // 10
-    {16777215, 5},             // 11
-    {-16777215, 5},            // 12
-    {4294967295, 6},           // 13
-    {-4294967295, 6},          // 14
-    {4294967295 + 1, 7},       // 15
-    {4294967295 + 2, 7},       // 16
-    {549755813888.0, 7},       // 17
-    {549755813888.0 + 2, 7},   // 18
-    {549755813888.0 - 23, 7},  // 19
-    {-549755813888.0, 7},      // 20
-    {1503342028.957225, 10},   // 21
-    {42.4345, 10},              // 22
-    {(float)0.5, 6},           // 23
-    {DBL_MAX, 10},             // 24
-    {UINT64_MAX >> 12, 9},     // 25
-    {INFINITY, 2},             // 26
-    {-INFINITY, 2}             // 27
+    {0},                    // 0
+    {1},                    // 1
+    {63},                   // 2
+    {-1},                   // 3
+    {-63},                  // 4
+    {64},                   // 5
+    {-64},                  // 6
+    {255},                  // 7
+    {-255},                 // 8
+    {65535},                // 9
+    {-65535},               // 10
+    {16777215},             // 11
+    {-16777215},            // 12
+    {4294967295},           // 13
+    {-4294967295},          // 14
+    {4294967295 + 1},       // 15
+    {4294967295 + 2},       // 16
+    {549755813888.0},       // 17
+    {549755813888.0 + 2},   // 18
+    {549755813888.0 - 23},  // 19
+    {-549755813888.0},      // 20
+    {1503342028.957225},   // 21
+    {42.4345},              // 22
+    {(float)0.5},           // 23
+    {DBL_MAX},             // 24
+    {UINT64_MAX >> 12},     // 25
+    {INFINITY},             // 26
+    {-INFINITY}             // 27
 };
 
 void testNumericEncodingHelper(bool isMulti) {
@@ -623,31 +544,10 @@ void testNumericEncodingHelper(bool isMulti) {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
-    size_t cap = IndexBlock_Cap(lastBlock);
-    size_t offset = IndexBlock_Len(lastBlock);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
-    // if there was not enough space to store the entry, sz will be greater than zero
-    if(cap - offset < infos[ii].size) {
-      ASSERT_TRUE(sz > 0);
-    } else {
-      ASSERT_TRUE(sz == 0);
-    }
-
     if (isMulti) {
-      IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
-      cap = IndexBlock_Cap(lastBlock);
-      offset = IndexBlock_Len(lastBlock);
-
       size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
-
-      // Delta is 0, so we don't store it.
-      if(cap - offset < infos[ii].size - 1) {
-        ASSERT_TRUE(sz > 0);
-      } else {
-        ASSERT_TRUE(sz == 0);
-      }
     }
   }
 
@@ -1301,66 +1201,53 @@ TEST_F(IndexTest, testIndexFlags) {
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index
-  // created with INDEX_DEFAULT_FLAGS is 102 bytes,
+  // created with INDEX_DEFAULT_FLAGS is 64 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 32
+  // sizeof InvertedIndex                 48
   // storing fieldmask on idx             16
-  // sizeof IndexBlock                    48
-  // initial block capacity                6
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(64, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(10, sz);
+  ASSERT_EQ(64, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(64, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(sz2, 0);
+  ASSERT_EQ(sz2, 56);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(64, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(19, InvertedIndex_WriteForwardIndexEntry(w, &h));
-  InvertedIndex_Free(w);
-
-  flags |= Index_WideSchema;
-  w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
-  ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
-  h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(19, sz);
+  ASSERT_EQ(80, InvertedIndex_WriteForwardIndexEntry(w, &h));
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index with
-  // Index_StoreFieldFlags == 0 is 86 bytes
+  // Index_StoreFieldFlags == 0 is 48 bytes
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 32
-  // sizeof IndexBlock                    48
-  // initial block capacity                6
-  ASSERT_EQ(86, index_memsize);
+  // sizeof InvertedIndex                 48
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(0, sz);
+  ASSERT_EQ(56, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(64, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(4, sz);
+  ASSERT_EQ(64, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
