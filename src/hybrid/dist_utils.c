@@ -9,6 +9,7 @@
 
 #include "dist_utils.h"
 #include "util/misc.h"
+#include "util/strconv.h"
 
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
