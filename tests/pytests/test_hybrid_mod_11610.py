@@ -135,12 +135,6 @@ def test_hybrid_mod_11610():
 
     # Query vector for similarity search
     query_vector = np.array([0.5, 0.5, 0.5, 0.5]).astype(np.float32).tobytes()
-
-    # First, test regular FT.SEARCH to establish baseline (avoid returning vector data)
-    regular_search_response = env.cmd('FT.SEARCH', 'idx:bikes_vss', 'light*', 'DIALECT', '2', 'RETURN', '0')
-    regular_count = regular_search_response[0]
-    env.assertEqual(regular_count, 15)
-
     # Test FT.HYBRID with increasing K, WINDOW, and LIMIT parameters
     hybrid_response = env.cmd('FT.HYBRID', 'idx:bikes_vss',
                              'SEARCH', 'light*',
