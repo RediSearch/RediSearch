@@ -337,6 +337,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
     if (strcmp(field, "__key") == 0) {
       r->dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
+      r->dmd->ref_count = 1;
       r->dmd->keyPtr = sdsnewlen(MRReply_String(MRReply_ArrayElement(fields, i + 1), &fieldLen),fieldLen);
     }
     MRReply *val = MRReply_ArrayElement(fields, i + 1);
