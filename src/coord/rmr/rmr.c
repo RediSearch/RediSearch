@@ -660,7 +660,7 @@ void iterStartCb(void *p) {
 
   // This implies that every connection to each shard will work inside a single IO thread
   for (size_t i = 0; i < it->len; i++) {
-    RedisModule_Log(NULL, "warning", "iterStartCb: sending command %s to shard %d", MRCommand_SafeToString(&it->cbxs[i].cmd), it->cbxs[i].cmd.targetSlot);
+    // RedisModule_Log(NULL, "warning", "iterStartCb: sending command %s to shard %d", MRCommand_SafeToString(&it->cbxs[i].cmd), it->cbxs[i].cmd.targetSlot);
     if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
@@ -676,7 +676,7 @@ void iterCursorMappingCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
   CursorMappings *vsimOrSearch = (CursorMappings*)data->privateData;
-  RedisModule_Log(NULL, "warning", "iterCursorMappingCb: mappings is %p, array_len(mappings) is %zu", vsimOrSearch, array_len(vsimOrSearch->mappings));
+  // RedisModule_Log(NULL, "warning", "iterCursorMappingCb: mappings is %p, array_len(mappings) is %zu", vsimOrSearch, array_len(vsimOrSearch->mappings));
   // RS_ASSERT(mappings && array_len(mappings) > 0);
 
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
@@ -710,7 +710,7 @@ void iterCursorMappingCb(void *p) {
 
   // Send commands to all shards
   for (size_t i = 0; i < it->len; i++) {
-    RedisModule_Log(NULL, "warning", "iterCursorMappingCb: sending command %s to shard %d", MRCommand_SafeToString(&it->cbxs[i].cmd), it->cbxs[i].cmd.targetSlot);
+    // RedisModule_Log(NULL, "warning", "iterCursorMappingCb: sending command %s to shard %d", MRCommand_SafeToString(&it->cbxs[i].cmd), it->cbxs[i].cmd.targetSlot);
     if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);

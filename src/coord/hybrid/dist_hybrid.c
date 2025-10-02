@@ -220,7 +220,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     hreq->nrequests = array_len(hreq->requests);
 
     AREQ_AddRequestFlags(hreq->requests[0], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
-    AREQ_AddRequestFlags(hreq->requests[1], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
+    AREQ_AddRequestFlags(hreq->requests[1], QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY);
 
     AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[0]));
     AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[1]));
