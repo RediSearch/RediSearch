@@ -88,7 +88,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   MRCommand_Append(xcmd, "WITHSCORES", strlen("WITHSCORES"));
   // Numeric responses are encoded as simple strings.
-  // MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
+  MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
 \
 }

@@ -37,14 +37,14 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
     if (n) {
       RSValue **arr = RSValue_AllocateArray(n);
       for (size_t i = 0; i < n; i++) {
-        arr[i] = RS_ConstStringVal(terms[i]->str, terms[i]->len);
+        arr[i] = RSValue_NewConstString(terms[i]->str, terms[i]->len);
       }
       RSValue *v = RSValue_NewArray(arr, n);
       RSValue_MakeOwnReference(result, v);
       return EXPR_EVAL_OK;
     }
   }
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_OK;
 }
 
@@ -52,7 +52,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   size_t sz;                                                                                  \
   const char *p;                                                                              \
   if (!(p = RSValue_StringPtrLen(&argv[0], &sz))) {                                           \
-    RSValue_MakeReference(result, RS_NullVal());                                              \
+    RSValue_MakeReference(result, RSValue_NullStatic());                                              \
     return EXPR_EVAL_OK;                                                                      \
   }                                                                                           \
   char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);                                            \
@@ -75,8 +75,8 @@ static int stringfunc_toupper(ExprEval *ctx, RSValue *argv, size_t argc, RSValue
 
 /* substr(str, offset, len) */
 static int stringfunc_substr(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
-  VALIDATE_ARG_TYPE("substr", argv, 1, RSValue_Number);
-  VALIDATE_ARG_TYPE("substr", argv, 2, RSValue_Number);
+  VALIDATE_ARG_TYPE("substr", argv, 1, RSValueType_Number);
+  VALIDATE_ARG_TYPE("substr", argv, 2, RSValueType_Number);
 
   size_t sz;
   const char *str = RSValue_StringPtrLen(&argv[0], &sz);
@@ -163,13 +163,13 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
 
     RSValue *arg = RSValue_Dereference(&argv[argix++]);
     if (type == 's') {
-      if (arg == RS_NullVal()) {
+      if (arg == RSValue_NullStatic()) {
         // write null value
         out = sdscat(out, "(null)");
         continue;
-      } else if (!RSValue_IsStringVariant(arg)) {
+      } else if (!RSValue_IsAnyString(arg)) {
 
-        RSValue strval = RSValue_Undefined_Static();
+        RSValue strval = RSValue_Undefined();
         RSValue_ToString(&strval, arg);
         size_t sz;
         const char *str = RSValue_StringPtrLen(&strval, &sz);
@@ -200,7 +200,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
 error:
   RS_ASSERT(QueryError_HasError(ctx->err));
   sdsfree(out);
-  RSValue_MakeReference(result, RS_NullVal());
+  RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_ERR;
 }
 
@@ -246,7 +246,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *
       // trim the strip set
       char *s = str_trim(tok, sl, strp, &outlen);
       if (outlen) {
-        tmp[l++] = RS_NewCopiedString(s, outlen);
+        tmp[l++] = RSValue_NewCopiedString(s, outlen);
       }
     }
 
@@ -265,7 +265,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *
 }
 
 int func_exists(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
-  if (RSValue_Type(&argv[0]) != RSValue_Null) {
+  if (RSValue_Type(&argv[0]) != RSValueType_Null) {
     RSValue_IntoNumber(result, 1);
   } else {
     QueryError_ClearError(ctx->err);
@@ -334,17 +334,17 @@ static int stringfunc_strlen(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
 }
 
 void RegisterStringFunctions() {
-  RSFunctionRegistry_RegisterFunction("lower", stringfunc_tolower, RSValue_String, 1, 1);
-  RSFunctionRegistry_RegisterFunction("upper", stringfunc_toupper, RSValue_String, 1, 1);
-  RSFunctionRegistry_RegisterFunction("substr", stringfunc_substr, RSValue_String, 3, 3);
-  RSFunctionRegistry_RegisterFunction("format", stringfunc_format, RSValue_String, 1, -1);
-  RSFunctionRegistry_RegisterFunction("split", stringfunc_split, RSValue_Array, 1, 3);
-  RSFunctionRegistry_RegisterFunction("matched_terms", func_matchedTerms, RSValue_Array, 0, 1);
-  RSFunctionRegistry_RegisterFunction("to_number", func_to_number, RSValue_Number, 1, 1);
-  RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValue_String, 1, 1);
-  RSFunctionRegistry_RegisterFunction("exists", func_exists, RSValue_Number, 1, 1);
-  RSFunctionRegistry_RegisterFunction("case", func_case, RSValue_Undef, 3, 3);
-  RSFunctionRegistry_RegisterFunction("startswith", stringfunc_startswith, RSValue_Number, 2, 2);
-  RSFunctionRegistry_RegisterFunction("contains", stringfunc_contains, RSValue_Number, 2, 2);
-  RSFunctionRegistry_RegisterFunction("strlen", stringfunc_strlen, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("lower", stringfunc_tolower, RSValueType_String, 1, 1);
+  RSFunctionRegistry_RegisterFunction("upper", stringfunc_toupper, RSValueType_String, 1, 1);
+  RSFunctionRegistry_RegisterFunction("substr", stringfunc_substr, RSValueType_String, 3, 3);
+  RSFunctionRegistry_RegisterFunction("format", stringfunc_format, RSValueType_String, 1, -1);
+  RSFunctionRegistry_RegisterFunction("split", stringfunc_split, RSValueType_Array, 1, 3);
+  RSFunctionRegistry_RegisterFunction("matched_terms", func_matchedTerms, RSValueType_Array, 0, 1);
+  RSFunctionRegistry_RegisterFunction("to_number", func_to_number, RSValueType_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValueType_String, 1, 1);
+  RSFunctionRegistry_RegisterFunction("exists", func_exists, RSValueType_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("case", func_case, RSValueType_Undef, 3, 3);
+  RSFunctionRegistry_RegisterFunction("startswith", stringfunc_startswith, RSValueType_Number, 2, 2);
+  RSFunctionRegistry_RegisterFunction("contains", stringfunc_contains, RSValueType_Number, 2, 2);
+  RSFunctionRegistry_RegisterFunction("strlen", stringfunc_strlen, RSValueType_Number, 1, 1);
 }

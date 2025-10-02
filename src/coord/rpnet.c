@@ -18,33 +18,33 @@
 
 
 static RSValue *MRReply_ToValue(MRReply *r) {
-  if (!r) return RS_NullVal();
+  if (!r) return RSValue_NullStatic();
   RSValue *v = NULL;
   switch (MRReply_Type(r)) {
     case MR_REPLY_STATUS:
     case MR_REPLY_STRING: {
       size_t l;
       const char *s = MRReply_String(r, &l);
-      v = RS_NewCopiedString(s, l);
+      v = RSValue_NewCopiedString(s, l);
       break;
     }
     case MR_REPLY_ERROR: {
       double d = 42;
       MRReply_ToDouble(r, &d);
-      v = RS_NumVal(d);
+      v = RSValue_NewNumber(d);
       break;
     }
     case MR_REPLY_INTEGER:
-      v = RS_NumVal((double)MRReply_Integer(r));
+      v = RSValue_NewNumber((double)MRReply_Integer(r));
       break;
     case MR_REPLY_DOUBLE:
-      v = RS_NumVal(MRReply_Double(r));
+      v = RSValue_NewNumber(MRReply_Double(r));
       break;
     case MR_REPLY_MAP: {
       size_t n = MRReply_Length(r);
       RS_LOG_ASSERT(n % 2 == 0, "map of odd length");
       size_t map_len = n / 2;
-      RSValueMap map = RSValueMap_Create_Uninit(map_len);
+      RSValueMap map = RSValueMap_AllocUninit(map_len);
       for (size_t i = 0; i < map_len; i++) {
         MRReply *e_k = MRReply_ArrayElement(r, i * 2);
         RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
@@ -64,10 +64,10 @@ static RSValue *MRReply_ToValue(MRReply *r) {
       break;
     }
     case MR_REPLY_NIL:
-      v = RS_NullVal();
+      v = RSValue_NullStatic();
       break;
     default:
-      v = RS_NullVal();
+      v = RSValue_NullStatic();
       break;
   }
   return v;

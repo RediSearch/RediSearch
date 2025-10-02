@@ -34,7 +34,7 @@ extern "C" {
 #define VALIDATE_ARG_TYPE(fname, args, idx, t) \
   VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__TYPE, t)
 
-#define VALIDATE_ARG__STRING(arg, unused) RSValue_IsStringVariant(arg)
+#define VALIDATE_ARG__STRING(arg, unused) RSValue_IsAnyString(arg)
 #define VALIDATE_ARG_ISSTRING(fname, args, idx) \
   VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__STRING, 0)
 

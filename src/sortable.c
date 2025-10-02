@@ -25,7 +25,7 @@ RSSortingVector *NewSortingVector(size_t len) {
   ret->len = len;
   // set all values to NIL
   for (int i = 0; i < len; i++) {
-    ret->values[i] = RS_NullVal();
+    ret->values[i] = RSValue_NullStatic();
   }
   return ret;
 }
@@ -71,12 +71,12 @@ if (vec->values[idx]) {\
 
 void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num) {
   RSPUT_SANITY_CHECK
-  vec->values[idx] = RS_NumVal(num);
+  vec->values[idx] = RSValue_NewNumber(num);
 }
 
 void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str) {
   RSPUT_SANITY_CHECK
-  vec->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
+  vec->values[idx] = RSValue_NewStringWithType(str, strlen(str), RSStringType_RMAlloc);
 }
 
 void RSSortingVector_PutRSVal(RSSortingVector* vec, size_t idx, RSValue* val) {
@@ -104,23 +104,23 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb) {
     RSValueType t = RedisModule_LoadUnsigned(rdb);
 
     switch (t) {
-      case RSValue_String: {
+      case RSValueType_String: {
         size_t len;
         // strings include an extra character for null terminator. we set it to zero just in case
         char *s = RedisModule_LoadStringBuffer(rdb, &len);
         s[len - 1] = '\0';
-        vec->values[i] = RS_StringValT(rm_strdup(s), len - 1, RSString_RMAlloc);
+        vec->values[i] = RSValue_NewStringWithType(rm_strdup(s), len - 1, RSStringType_RMAlloc);
         RedisModule_Free(s);
         break;
       }
       case RS_SORTABLE_NUM:
         // load numeric value
-        vec->values[i] = RS_NumVal(RedisModule_LoadDouble(rdb));
+        vec->values[i] = RSValue_NewNumber(RedisModule_LoadDouble(rdb));
         break;
       // for nil we read nothing
       case RS_SORTABLE_NIL:
       default:
-        vec->values[i] = RS_NullVal();
+        vec->values[i] = RSValue_NullStatic();
         break;
     }
   }
@@ -132,11 +132,11 @@ size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
 
   size_t sum = v->len * sizeof(RSValue *);
   for (int i = 0; i < v->len; i++) {
-    if (!v->values[i] || v->values[i] == RS_NullVal()) continue;
+    if (!v->values[i] || v->values[i] == RSValue_NullStatic()) continue;
     sum += sizeof(RSValue);
 
     RSValue *val = RSValue_Dereference(v->values[i]);
-    if (RSValue_IsStringVariant(val)) {
+    if (RSValue_IsAnyString(val)) {
       size_t sz;
       RSValue_StringPtrLen(val, &sz);
       sum += sz;

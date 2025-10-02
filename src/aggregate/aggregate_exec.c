@@ -89,26 +89,26 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
     }
 
     switch (RSValue_Type(key)) {
-      case RSValue_Number:
+      case RSValueType_Number:
         // Serialize double - by prepending "#" to the number, so the coordinator/client can
         // tell it's a double and not just a numeric string value
         rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", RSValue_Number_Get(key));
         break;
-      case RSValue_String:
+      case RSValueType_String:
         // Serialize string - by prepending "$" to it
         rskey = RedisModule_CreateStringPrintf(outctx, "$%s", RSValue_String_Get(key, NULL));
         break;
-      case RSValue_RedisString:
-      case RSValue_OwnRstring:
+      case RSValueType_RedisString:
+      case RSValueType_OwnRstring:
         rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
           RedisModule_StringPtrLen(RSValue_RedisString_Get(key), NULL));
         break;
-      case RSValue_Null:
-      case RSValue_Undef:
-      case RSValue_Array:
-      case RSValue_Map:
-      case RSValue_Reference:
-      case RSValue_Trio:
+      case RSValueType_Null:
+      case RSValueType_Undef:
+      case RSValueType_Array:
+      case RSValueType_Map:
+      case RSValueType_Reference:
+      case RSValueType_Trio:
         break;
     }
 

@@ -73,7 +73,8 @@ protected:
         }
 
         // Verify WITHCURSOR and _NUM_SSTRING are added at the end
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "WITHCURSOR") << "WITHCURSOR should be second to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "WITHCURSOR") << "WITHCURSOR should be third to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "WITHSCORES") << "WITHSCORES should be second to last";
         EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "_NUM_SSTRING") << "_NUM_SSTRING should be last";
 
         printArgvList(args, args.size());

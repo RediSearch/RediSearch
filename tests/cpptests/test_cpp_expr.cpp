@@ -23,7 +23,7 @@ class ExprTest : public ::testing::Test {
 
 struct TEvalCtx : ExprEval {
   QueryError status_s = {QueryErrorCode(0)};
-  RSValue res_s = {RSValue_Null};
+  RSValue res_s = {RSValueType_Null};
 
   TEvalCtx() {
     root = NULL;
@@ -115,7 +115,7 @@ TEST_F(ExprTest, testExpr) {
   int rc = eval.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   RSValue result = eval.result();
-  ASSERT_EQ(RSValue_Number, RSValue_Type(&result));
+  ASSERT_EQ(RSValueType_Number, RSValue_Type(&result));
   ASSERT_EQ(6, RSValue_Number_Get(&result));
 }
 
@@ -154,7 +154,7 @@ TEST_F(ExprTest, testArithmetics) {
     ASSERT_TRUE(ctx) << ctx.error();                \
     ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());            \
     auto res = RSValue_Dereference(&ctx.result());  \
-    ASSERT_EQ(RSValue_Number, RSValue_Type(res));   \
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));   \
     auto numval = RSValue_Number_Get(res);          \
     if (std::isnan(expected)) {                     \
       EXPECT_TRUE(std::isnan(numval));              \
@@ -231,7 +231,7 @@ TEST_F(ExprTest, testParser) {
   TEvalCtx eval(root);
   int rc = eval.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
-  ASSERT_EQ(RSValue_Number, RSValue_Type(&eval.result()));
+  ASSERT_EQ(RSValueType_Number, RSValue_Type(&eval.result()));
 }
 
 TEST_F(ExprTest, testGetFields) {
@@ -258,7 +258,7 @@ TEST_F(ExprTest, testFunction) {
   TEvalCtx ctx(e);
 
   EXPECT_EQ(ctx.eval(), EXPR_EVAL_OK) << "Could not parse " << e << " " << ctx.error();
-  EXPECT_EQ(RSValue_Number, RSValue_Type(&ctx.result()));
+  EXPECT_EQ(RSValueType_Number, RSValue_Type(&ctx.result()));
 
   ctx.assign("banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
@@ -314,8 +314,8 @@ TEST_F(ExprTest, testPredicate) {
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(1));
-  RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(2));
+  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(1));
+  RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(2));
   QueryError status = {QueryErrorCode(0)};
 #define TEST_EVAL(e, expected)                          \
   {                                                     \
@@ -396,8 +396,8 @@ TEST_F(ExprTest, testPropertyFetch) {
   RLookupRow rr = {0};
   RLookupKey *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(10));
-  RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(10));
+  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(10));
+  RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(10));
 
   ctx.lookup = &lk;
   ctx.srcrow = &rr;
@@ -406,7 +406,7 @@ TEST_F(ExprTest, testPropertyFetch) {
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
-  ASSERT_EQ(RSValue_Number, RSValue_Type(&ctx.result()));
+  ASSERT_EQ(RSValueType_Number, RSValue_Type(&ctx.result()));
   ASSERT_FLOAT_EQ(log(10) + 2 * sqrt(10), RSValue_Number_Get(&ctx.result()));
   RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
@@ -418,7 +418,7 @@ TEST_F(ExprTest, testPropertyFetch) {
     ASSERT_TRUE(ctx_var) << ctx_var.error();                \
     ASSERT_EQ(EXPR_EVAL_OK, ctx_var.eval());                \
     auto res = RSValue_Dereference(&ctx_var.result());      \
-    ASSERT_EQ(RSValue_Number, RSValue_Type(res));           \
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));           \
     ASSERT_EQ(expected_value, RSValue_Number_Get(res));     \
   }
 
@@ -453,8 +453,8 @@ TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(5));
-  RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(10));
+  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(5));
+  RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(10));
 
   TEvalCtx ctx("case(@foo < @bar, 1, 0)");  // 5 < 10 is true
   ASSERT_TRUE(ctx) << ctx.error();
@@ -473,7 +473,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithExists) {
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(42));
+  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(42));
 
   TEvalCtx ctx("case(exists(@foo), 1, 0)");  // @foo exists
   ASSERT_TRUE(ctx) << ctx.error();
@@ -504,21 +504,21 @@ TEST_F(ExprTest, testEvalFuncCaseNested) {
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   auto res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_String, RSValue_Type(res));
+  ASSERT_EQ(RSValueType_String, RSValue_Type(res));
   ASSERT_STREQ("inner_true", RSValue_String_Get(res, NULL));
 
   ctx.assign("case(0, 'outer_true', case(1, 'nested_true', 'nested_false'))");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_String, RSValue_Type(res));
+  ASSERT_EQ(RSValueType_String, RSValue_Type(res));
   ASSERT_STREQ("nested_true", RSValue_String_Get(res, NULL));
 
   ctx.assign("case(0, 'outer_true', case(0, 'nested_true', 'nested_false'))");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_String, RSValue_Type(res));
+  ASSERT_EQ(RSValueType_String, RSValue_Type(res));
   ASSERT_STREQ("nested_false", RSValue_String_Get(res, NULL));
 }
 
@@ -530,7 +530,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithNullValues) {
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   auto res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_String, RSValue_Type(res));
+  ASSERT_EQ(RSValueType_String, RSValue_Type(res));
   ASSERT_STREQ("false_branch", RSValue_String_Get(res, NULL));
 
   ctx.assign("case(1, NULL, 'false_branch')");
@@ -572,7 +572,7 @@ TEST_F(ExprTest, testEvalFuncCaseShortCircuitEvaluation) {
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(5));
+  RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(5));
 
   TEvalCtx ctx("case(1, @foo + 10, @foo / 0)");
   ASSERT_TRUE(ctx) << ctx.error();
@@ -596,14 +596,14 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypes) {
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   auto res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_Number, RSValue_Type(res));
+  ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
   ASSERT_EQ(42, RSValue_Number_Get(res));
 
   ctx.assign("case(0, 42, 'string_result')");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_String, RSValue_Type(res));
+  ASSERT_EQ(RSValueType_String, RSValue_Type(res));
   ASSERT_STREQ("string_result", RSValue_String_Get(res, NULL));
 
   // Test with complex expressions returning different types
@@ -615,7 +615,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypes) {
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_Number, RSValue_Type(res));
+  ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
   ASSERT_EQ(1, RSValue_Number_Get(res));
 
   ctx.assign("case(0, 1==1, 2!=2)");

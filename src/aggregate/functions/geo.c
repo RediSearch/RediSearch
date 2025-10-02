@@ -16,7 +16,7 @@ static int parseField(RSValue *argv, double *geo, QueryError *status) {
   int rv = REDISMODULE_OK;
   RSValue *val = RSValue_Dereference(argv);
 
-  if (RSValue_IsStringVariant(val)) {
+  if (RSValue_IsAnyString(val)) {
     size_t len;
     const char *p = RSValue_StringPtrLen(val, &len);
     rv = parseGeo(p, len, &geo[0], &geo[1], status);
@@ -89,5 +89,5 @@ error:
 }
 
 void RegisterGeoFunctions() {
-  RSFunctionRegistry_RegisterFunction("geodistance", geofunc_distance, RSValue_String, 2, 4);
+  RSFunctionRegistry_RegisterFunction("geodistance", geofunc_distance, RSValueType_String, 2, 4);
 }

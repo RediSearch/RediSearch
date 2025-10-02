@@ -111,7 +111,14 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                             ARG_OPT_CALLBACK, handleWithScores, ctx,
                             ARG_OPT_OPTIONAL, ARG_OPT_END);
 
-        //TODO : add NUMSSTRING and INDEX_PREFIXES
+        // _NUM_SSTRING flag - sets QEXEC_F_TYPED
+        ArgParser_AddBitflagV(parser, "_NUM_SSTRING",
+                          "Do not stringify result values. Send them in their proper types",
+                          ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_TYPED,
+                          ARG_OPT_CALLBACK, handleNumSString, ctx,
+                          ARG_OPT_OPTIONAL, ARG_OPT_END);
+
+        //TODO : add INDEX_PREFIXES
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",
