@@ -61,7 +61,7 @@ void _ovi_free(void *ctx) {
 void *newOffsetIterator() {
   return rm_malloc(sizeof(_RSOffsetVectorIterator));
 }
-/* Create an offset iterator interface  from a raw offset vector */
+/* Create an offset iterator interface from a raw offset vector */
 RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t) {
   mempool_t *pool = pthread_getspecific(__offsetIters);
   if (!pool) {
@@ -77,6 +77,11 @@ RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t)
   it->br = NewBufferReader(&it->buf);
   it->lastValue = 0;
   it->term = t;
+  printf("RSOffsetVector_Iterate: with offsets_len=%u, raw bytes: ", offsets_len);
+  for (uint32_t i = 0; i < offsets_len; i++) {
+    printf("%u ", (uint32_t)*(it->br.buf->data + i));
+  }
+  printf("\n");
 
   return (RSOffsetIterator){.Next = _ovi_Next, .Rewind = _ovi_Rewind, .Free = _ovi_free, .ctx = it};
 }

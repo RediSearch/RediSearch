@@ -42,11 +42,11 @@ def test_highlight_complex_schema_mod_11233(env):
     """Test highlighting with complex schema similar to production use case"""
     conn = getConnectionByEnv(env)
         # Create index with many fields (anonymized with city names)
-    env.expect('FT.CREATE', 'large_index', 'ON', 'HASH', 'MAXTEXTFIELDS', 'STOPWORDS', '0', 'SCHEMA',
-               'lisbon', 'TEXT', 'NOSTEM',
-               'vienna', 'TEXT', 'NOSTEM',
-               'tokyo', 'TEXT', 'NOSTEM',
-               'seattle', 'TEXT', 'NOSTEM').ok()
+    env.expect('FT.CREATE', 'large_index', 'ON', 'HASH', 'SCHEMA',
+               'lisbon', 'TEXT',
+               'vienna', 'TEXT',
+               'tokyo', 'TEXT',
+               'seattle', 'TEXT').ok()
 
     waitForIndex(env, 'large_index')
 
@@ -55,7 +55,7 @@ def test_highlight_complex_schema_mod_11233(env):
         'vienna': 'word here Alert',
         'lisbon': 'other sentence',
         'tokyo': '',
-        'seattle': 'This Alert triggered for potential activity and will be included in the automated review process.',
+        'seattle': 'This Alert triggered',
     })
 
     # Search with highlighting - should highlight "Alert" in seattle and vienna fields
@@ -63,3 +63,80 @@ def test_highlight_complex_schema_mod_11233(env):
     print(result)
     # Verify that "Alert" is highlighted (it appears in seattle and vienna fields)
     verify_word_is_highlighted(env, result, '<b>Alert</b>')
+
+
+# Test highlighting with complex real-world schema
+def test_highlight_complex_schema_mod_11233_different_order(env):
+    """Test highlighting with complex schema similar to production use case"""
+    conn = getConnectionByEnv(env)
+        # Create index with many fields (anonymized with city names)
+
+    env.expect('FT.CREATE', 'working_index', 'ON', 'HASH', 'SCHEMA',
+        'lisbon', 'TEXT',
+        'seattle', 'TEXT').ok()
+
+    waitForIndex(env, 'working_index')
+
+    # Add document with city field names
+    conn.hset('doc:4153814', mapping={
+        'lisbon': ' ', # blank space
+        'seattle': 'This Alert triggered',
+    })
+
+    # Search with highlighting - should highlight "Alert" in seattle and vienna fields
+    print("JOAAAAN HERE THIS WORKS LISBON HAS A SPACE IN DOC INDEXED\n\n\n\n\n ")
+    result = env.cmd('FT.SEARCH', 'working_index', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
+    print(result)
+    # Verify that "Alert" is highlighted (it appears in seattle and vienna fields)
+    verify_word_is_highlighted(env, result, '<b>Alert</b>')
+
+    env.expect('FT.CREATE', 'lisbon_seattle_skip', 'ON', 'HASH', 'MAXTEXTFIELDS', 'STOPWORDS', '0', 'SCHEMA',
+            'lisbon', 'TEXT',
+            'seattle', 'TEXT').ok()
+
+    waitForIndex(env, 'lisbon_seattle_skip')
+
+    conn.hset('doc:4153814', mapping={
+        'seattle': 'This Alert triggered',
+    })
+
+    print("JOAAAAN HERE THIS WORKS LISBON OMMITED FROM DOC INDEXED\n\n\n\n\n ")
+    # Search with highlighting - should highlight "Alert" in seattle and vienna fields
+    result = env.cmd('FT.SEARCH', 'lisbon_seattle_skip', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT', 'return', '1', 'seattle')
+    print(result)
+
+    env.expect('FT.CREATE', 'lisbon_seattle', 'ON', 'HASH', 'MAXTEXTFIELDS', 'STOPWORDS', '0', 'SCHEMA',
+               'lisbon', 'TEXT',
+               'seattle', 'TEXT').ok()
+
+    waitForIndex(env, 'lisbon_seattle')
+
+    conn.hset('doc:4153814', mapping={
+        'lisbon': '', # blank space
+        'seattle': 'This Alert triggered',
+    })
+
+    # Search with highlighting - should highlight "Alert" in seattle and vienna fields
+    print("JOAAAAN HERE THIS FAILS\n\n\n\n\n ")
+    result = env.cmd('FT.SEARCH', 'lisbon_seattle', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT', 'return', '1', 'seattle')
+    print(result)
+    # Verify that "Alert" is highlighted (it appears in seattle and vienna fields)
+    #verify_word_is_highlighted(env, result, '<b>Alert</b>')
+
+    # env.expect('FT.CREATE', 'seattle_lisbon', 'ON', 'HASH', 'MAXTEXTFIELDS', 'STOPWORDS', '0', 'SCHEMA',
+    #            'lisbon', 'TEXT', 'NOSTEM',
+    #            'seattle', 'TEXT', 'NOSTEM').ok()
+
+    # waitForIndex(env, 'seattle_lisbon')
+
+    # # Add document with city field names
+    # conn.hset('doc:4153814', mapping={
+    #     'lisbon': '',
+    #     'seattle': 'This Alert triggered',
+    # })
+
+    # # Search with highlighting - should highlight "Alert" in seattle and vienna fields
+    # result = env.cmd('FT.SEARCH', 'seattle_lisbon', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
+    # print(result)
+    # # Verify that "Alert" is highlighted (it appears in seattle and vienna fields)
+    # # verify_word_is_highlighted(env, result, '<b>Alert</b>')

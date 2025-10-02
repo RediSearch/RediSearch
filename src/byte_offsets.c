@@ -107,6 +107,14 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
   iter->endPos = offField->lastTokPos;
 
   iter->lastValue = 0;
+  printf("RSByteOffset_Iterate => offField: fieldId=%u, firstTokPos=%u, lastTokPos=%u\n",
+    offField->fieldId, offField->firstTokPos, offField->lastTokPos);
+
+  printf("RSByteOffset_Iterate => with offsets_len=%u, raw offsets_data: ", offsets_len);
+  for (uint32_t i = 0; i < offsets_len; i++) {
+    printf("%u ", (uint32_t)*(iter->buf.data + i));
+  }
+  printf("\n");
 
   while (iter->curPos < offField->firstTokPos && !BufferReader_AtEnd(&iter->rdr)) {
     iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;

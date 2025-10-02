@@ -452,10 +452,14 @@ void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_
     if (options & FRAGMENTIZE_TOKLEN_EXACT) {
       len = curTerm->len;
     } else {
+      printf("curTerm->bytePos: %u, fragList->docLen: %u\n", curTerm->bytePos, fragList->docLen);
       len = 0;
       for (size_t ii = curTerm->bytePos; ii < fragList->docLen && !istoksep(doc[ii]); ++ii, ++len) {
       }
     }
+
+    printf("FragmentList_AddMatchingTerm: curTerm->termId: %u, curTerm->tokPos: %u, len: %u\n",
+      curTerm->termId, curTerm->tokPos, len);
 
     FragmentList_AddMatchingTerm(fragList, curTerm->termId, curTerm->tokPos, doc + curTerm->bytePos,
                                  len, curTerm->score);
@@ -475,6 +479,7 @@ void FragmentTermIterator_InitOffsets(FragmentTermIterator *iter, RSByteOffsetIt
   do {
     iter->curTokPos = iter->offsetIter->Next(iter->offsetIter->ctx, &iter->curMatchRec);
   } while (iter->byteIter->curPos > iter->curTokPos);
+  printf("FragmentTermIterator_InitOffsets: iter->curTokPos: %u\n", iter->curTokPos);
 }
 
 int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInfo) {
@@ -504,5 +509,8 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
     iter->curByteOffset = RSByteOffsetIterator_Next(iter->byteIter);
   }
   iter->curTokPos = nextPos;
+  printf("FragmentTermIterator_Next: iter->curTokPos: %u\n", iter->curTokPos);
+  printf("FragmentTermIterator_Next: termInfo->curTokPos: %u\n", (*termInfo)->tokPos);
+  printf("FragmentTermIterator_Next: termInfo->curByteOffset: %u\n", (*termInfo)->bytePos);
   return 1;
 }
