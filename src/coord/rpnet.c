@@ -325,14 +325,25 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
   }
 
+  MRReply *score = NULL;
   MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
   if (resp3) {
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
+    // extract score if it exists, WITHSCORES was specified
+    score = MRReply_MapElement(fields, "score");
     fields = MRReply_MapElement(fields, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
   } else {
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_ARRAY, "invalid result record");
     RS_LOG_ASSERT(MRReply_Length(fields) % 2 == 0, "invalid fields record");
+  }
+
+  // The score is optional, in hybrid we need the score for the sorter and hybrid merger
+  // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3 
+  // when opening shard connections
+  if (score) {
+    RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
+    SearchResult_SetScore(r, MRReply_Double(score));
   }
 
   for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
