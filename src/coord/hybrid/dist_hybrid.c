@@ -214,17 +214,32 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     AREQDIST_UpstreamInfo us = {NULL};
+    size_t originalK = 0;
 
-    array_free_ex(hreq->requests, (void (*)(void *))AREQ_Free);
+    if (hreq->requests[1]->parsedVectorData->hasExplicitK) {
+      originalK = hreq->requests[1]->ast.root->vn.vq->knn.k;
+    } else originalK = 10000000000;
+
+    array_free_ex(hreq->requests, AREQ_Free(*(AREQ**)ptr));
     hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
     hreq->nrequests = array_len(hreq->requests);
 
     AREQ_AddRequestFlags(hreq->requests[0], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
     AREQ_AddRequestFlags(hreq->requests[1], QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY);
 
-    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[0]));
-    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[1]));
+    PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[0]));
+    if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+      searchArrangeStep->limit = hybridParams.scoringCtx->rrfCtx.window;
+    } else if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
+      searchArrangeStep->limit = hybridParams.scoringCtx->linearCtx.window;
+    }
 
+    PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[1]));
+    if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+      vectorArrangeStep->limit = MIN(hybridParams.scoringCtx->rrfCtx.window, originalK);
+    } else if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
+      vectorArrangeStep->limit = MIN(hybridParams.scoringCtx->linearCtx.window, originalK);
+    }
 
     // rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, &us, status);
     rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, &hybridParams);
@@ -329,6 +344,8 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
             .lastAstp = AGPLN_GetArrangeStep(plan)
         };
         sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+        StrongRef_Release(searchMappingsRef);
+        StrongRef_Release(vsimMappingsRef);
         HybridRequest_Free(hreq);
     }
     return REDISMODULE_OK;
