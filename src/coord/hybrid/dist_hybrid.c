@@ -185,25 +185,33 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
 }
 
 static void hybridRequestSetupCoordinatorSubqueriesRequests(HybridRequest *hreq, const HybridPipelineParams *hybridParams) {
-    array_free_ex(hreq->requests, AREQ_Free(*(AREQ**)ptr));
-    hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
-    hreq->nrequests = array_len(hreq->requests);
+  bool isKNN = hreq->requests[VECTOR_INDEX]->ast.root->type == QN_VECTOR;
+  size_t K = isKNN ? hreq->requests[VECTOR_INDEX]->ast.root->vn.vq->knn.k : 0;
 
-    AREQ_AddRequestFlags(hreq->requests[SEARCH_INDEX], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
-    AREQ_AddRequestFlags(hreq->requests[VECTOR_INDEX], QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY);
 
-    PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[SEARCH_INDEX]));
-    PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[VECTOR_INDEX]));
+  array_free_ex(hreq->requests, AREQ_Free(*(AREQ**)ptr));
+  hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
+  hreq->nrequests = array_len(hreq->requests);
 
-    RS_ASSERT(hybridParams->scoringCtx);
-    RS_ASSERT(hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF || hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR);
-    size_t limit = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
-    if (hreq->requests[VECTOR_INDEX]->ast.root->type == QN_VECTOR) {
-      // Vector subquery is a KNN query
-      // Heapsize should be min(window, KNN K)
-      // ast structure is: root = vector node <- filter node <- ... rest
-      vectorArrangeStep->limit = MIN(limit, hreq->requests[VECTOR_INDEX]->ast.root->vn.vq->knn.k);
-    } // else its range, limit = window
+  AREQ_AddRequestFlags(hreq->requests[SEARCH_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
+  AREQ_AddRequestFlags(hreq->requests[VECTOR_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
+
+  PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[SEARCH_INDEX]));
+  PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[VECTOR_INDEX]));
+
+  RS_ASSERT(hybridParams->scoringCtx);
+  RS_ASSERT(hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF || hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR);
+  size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+  if (isKNN) {
+    // Vector subquery is a KNN query
+    // Heapsize should be min(window, KNN K)
+    // ast structure is: root = vector node <- filter node <- ... rest
+    vectorArrangeStep->limit = MIN(window, K);
+  } else {
+    // its range, limit = window
+    vectorArrangeStep->limit = window;
+  }
+  searchArrangeStep->limit = window;
 }
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
