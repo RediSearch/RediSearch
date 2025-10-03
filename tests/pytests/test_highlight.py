@@ -48,15 +48,15 @@ def test_highlight_complex_schema_mod_11233(env):
     waitForIndex(env, 'large_index')
 
     conn.hset('doc:4153814', mapping={
-        'vienna': 'word here Alert',
+        'vienna': 'word here Dog',
         'lisbon': 'other sentence',
         'tokyo': '',
-        'seattle': 'This Alert triggered',
+        'seattle': 'my Dog sleeps',
     })
 
-    result = env.cmd('FT.SEARCH', 'large_index', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
+    result = env.cmd('FT.SEARCH', 'large_index', 'Dog', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
     print(result)
-    verify_word_is_highlighted(env, result, '<b>Alert</b>')
+    verify_word_is_highlighted(env, result, '<b>Dog</b>')
 
 
 def test_highlight_one_space(env):
@@ -71,11 +71,11 @@ def test_highlight_one_space(env):
 
     conn.hset('doc:4153814', mapping={
         'lisbon': ' ', # one space
-        'seattle': 'This Alert triggered',
+        'seattle': 'my Dog sleeps',
     })
 
-    result = env.cmd('FT.SEARCH', 'working_index', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
-    verify_word_is_highlighted(env, result, '<b>Alert</b>')
+    result = env.cmd('FT.SEARCH', 'working_index', 'Dog', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
+    verify_word_is_highlighted(env, result, '<b>Dog</b>')
 
 def test_highlight_skip_field(env):
     conn = getConnectionByEnv(env)
@@ -87,11 +87,11 @@ def test_highlight_skip_field(env):
     waitForIndex(env, 'lisbon_seattle_skip')
 
     conn.hset('doc:4153814', mapping={
-        'seattle': 'This Alert triggered',
+        'seattle': 'my Dog sleeps',
     })
 
-    result = env.cmd('FT.SEARCH', 'lisbon_seattle_skip', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
-    verify_word_is_highlighted(env, result, '<b>Alert</b>')
+    result = env.cmd('FT.SEARCH', 'lisbon_seattle_skip', 'Dog', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
+    verify_word_is_highlighted(env, result, '<b>Dog</b>')
 
 def test_highlight_empty_field(env):
     conn = getConnectionByEnv(env)
@@ -103,11 +103,11 @@ def test_highlight_empty_field(env):
 
     conn.hset('doc:4153814', mapping={
         'lisbon': '',
-        'seattle': 'This Alert triggered',
+        'seattle': 'my Dog sleeps',
     })
 
-    result = env.cmd('FT.SEARCH', 'lisbon_seattle', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
-    verify_word_is_highlighted(env, result, '<b>Alert</b>')
+    result = env.cmd('FT.SEARCH', 'lisbon_seattle', 'Dog', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
+    verify_word_is_highlighted(env, result, '<b>Dog</b>')
 
 def test_highlight_empty_field_reverse_order_fields(env):
     conn = getConnectionByEnv(env)
@@ -119,11 +119,11 @@ def test_highlight_empty_field_reverse_order_fields(env):
 
     conn.hset('doc:4153814', mapping={
         'seattle': '',
-        'lisbon': 'This Alert triggered',
+        'lisbon': 'my Dog sleeps',
     })
 
-    result = env.cmd('FT.SEARCH', 'seattle_lisbon', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
-    verify_word_is_highlighted(env, result, '<b>Alert</b>')
+    result = env.cmd('FT.SEARCH', 'seattle_lisbon', 'Dog', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
+    verify_word_is_highlighted(env, result, '<b>Dog</b>')
 
 
 def test_highlight_empty_field_index_empty(env):
@@ -136,8 +136,8 @@ def test_highlight_empty_field_index_empty(env):
 
     conn.hset('doc:4153814', mapping={
         'seattle': '',
-        'lisbon': 'This Alert triggered',
+        'lisbon': 'My Dog sleeps',
     })
 
-    result = env.cmd('FT.SEARCH', 'seattle_lisbon_index_empty', 'Alert', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
-    verify_word_is_highlighted(env, result, '<b>Alert</b>')
+    result = env.cmd('FT.SEARCH', 'seattle_lisbon_index_empty', 'Dog', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
+    verify_word_is_highlighted(env, result, '<b>Dog</b>')
