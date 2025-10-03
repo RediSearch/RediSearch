@@ -339,7 +339,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
-  // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3 when opening shard
+  // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3 
+  // when opening shard connections
   if (score) {
     RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
     SearchResult_SetScore(r, MRReply_Double(score));
