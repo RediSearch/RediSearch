@@ -472,8 +472,9 @@ static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
     } else { // (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
       windowValue = hybridParams->scoringCtx->linearCtx.window;
     }
-    if (pvd->query->knn.k > windowValue) {
+    if (pvd->kValue > windowValue) {
       pvd->query->knn.k = windowValue;
+      pvd->kValue = windowValue;
     }
   }
 }
