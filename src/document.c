@@ -351,6 +351,12 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   mempool_release(actxPool_g, aCtx);
 }
 
+static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo) {
+  if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
+    VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
+  }
+}
+
 #define FIELD_HANDLER(name)                                                                \
   static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, DocumentField *field, const FieldSpec *fs, \
                   FieldIndexerData *fdata, QueryError *status)
@@ -434,8 +440,13 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       Token tok = {0};
       while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok)) {
         // Decide whether tokenization needs to add empty tokens to forward index or they only need to handle the byte offsets needed for highlighting
-        bool handleOnlyOffsets = (tok.tokLen == 0 && !indexesEmpty);
-        forwardIndexTokenFunc(&tokCtx, &tok, handleOnlyOffsets);
+        writeByteOffsets(&tokCtx, &tok);
+        if (!indexesEmpty && tok.tokLen == 0) {
+          // Skip empty values if the field should not index them
+          // Empty tokens are returned only if the original value was empty
+          continue;
+        }
+        forwardIndexTokenFunc(&tokCtx, &tok);
         if (tok.allocatedTok) {
           rm_free(tok.allocatedTok);
           tok.allocatedTok = NULL;

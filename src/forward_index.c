@@ -223,15 +223,8 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 
 }
 
-int forwardIndexTokenFunc(void *ctx, const Token *tokInfo, bool handleOnlyOffsets) {
+int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
-  const ForwardIndexTokenizerCtx *tokCtx = ctx;
-  if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
-    VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
-  }
-  if (handleOnlyOffsets) {
-    return 0;
-  }
   int options = TOKOPT_F_RAW;  // this is the actual word given in the query
   if (tokInfo->flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
