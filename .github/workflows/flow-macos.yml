@@ -13,6 +13,15 @@ on:
         description: 'Run standalone tests'
         type: boolean
         default: true
+      architecture:
+        description: 'Architecture filter (all, x86_64, aarch64)'
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+        default: all
+
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         type: string
@@ -40,6 +49,10 @@ on:
         default: true
       redis-ref:
         type: string
+      architecture:
+        type: string
+        default: all
+        description: 'Architecture filter for macOS runners (all, x86_64, aarch64)'
       rejson:
         type: boolean
         default: true
@@ -55,6 +68,7 @@ jobs:
     uses: ./.github/workflows/task-generate-test-matrix.yml
     with:
       platforms: 'macos'
+      architecture: ${{ inputs.architecture }}
       include-coverage: false
       include-sanitizer: false
 

@@ -178,12 +178,12 @@ jobs:
               else:
                   ARM_IMAGES = []
 
-          # macOS configurations
+          # macOS configurations (respect architecture filter)
           if 'macos' in requested_platforms:
-              matrix_include.extend([
-                  {'platform': 'macos', 'name': 'macOS Intel', 'env': 'macos-13', 'container': '', 'pre-steps-script': ''},
-                  {'platform': 'macos', 'name': 'macOS M1', 'env': 'macos-latest-xlarge', 'container': '', 'pre-steps-script': ''}
-              ])
+              if requested_arch in ['all', 'x86_64']:
+                  matrix_include.append({'platform': 'macos', 'name': 'macOS Intel', 'env': 'macos-15-intel', 'container': '', 'pre-steps-script': ''})
+              if requested_arch in ['all', 'aarch64']:
+                  matrix_include.append({'platform': 'macos', 'name': 'macOS M1', 'env': 'macos-latest', 'container': '', 'pre-steps-script': ''})
 
           # Sanitizer configuration
           if 'sanitizer' in requested_platforms and include_sanitizer:
