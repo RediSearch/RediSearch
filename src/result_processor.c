@@ -1676,13 +1676,15 @@ dictType dictTypeHybridSearchResult = {
  typedef struct {
  ResultProcessor base;
  HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
- ResultProcessor **upstreams;  // Dynamic array of upstream processors
- size_t numUpstreams;         // Number of upstream processors
- dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
- dictIterator *iterator; // Iterator for yielding results
- const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
- RPStatus* upstreamReturnCodes;  // Final return codes from each upstream
+ ResultProcessor **upstreams;     // Dynamic array of upstream processors
+ size_t numUpstreams;             // Number of upstream processors
+ dict *hybridResults;             // keyPtr -> HybridSearchResult mapping
+ dictIterator *iterator;          // Iterator for yielding results
+ const RLookupKey *scoreKey;      // Key for writing score as field when YIELD_SCORE_AS is specified
+ const RLookupKey *docKey;        // Key for reading document key when dmd is not available
+ RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
+
 } RPHybridMerger;
 
 /* Generic helper function to check if any upstream has a specific return code */
@@ -1712,24 +1714,38 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   * @param numUpstreams - the number of upstreams
   * @param score - used to override the result's score
  */
- static void StoreUpstreamResult(SearchResult *r, dict *hybridResults, int upstreamIndex, size_t numUpstreams, double score) {
-   const char *keyPtr = SearchResult_GetDocumentMetadata(r)->keyPtr;
+ static bool hybridMergerStoreUpstreamResult(SearchResult *r, dict *hybridResults, const RLookupKey *docKey, int upstreamIndex, size_t numUpstreams, double score) {
+  // Single shard case - use dmd->keyPtr
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
+  const char *keyPtr = dmd ? dmd->keyPtr : NULL;
+  // Coordinator case - no dmd - use docKey in rlookup
+  const bool fallbackToLookup = !keyPtr && docKey;
+  if (fallbackToLookup) {
+    RSValue *docKeyValue = RLookup_GetItem(docKey, &r->rowdata);
+    if (docKeyValue != NULL) {
+      keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
+    }
+  }
+  if (!keyPtr) {
+    return false;
+  }
 
-   // Check if we've seen this document before
-   HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(hybridResults, keyPtr);
+  // Check if we've seen this document before
+  HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(hybridResults, keyPtr);
 
-   if (!hybridResult) {
-     // First time seeing this document - create new hybrid result
-     hybridResult = HybridSearchResult_New(numUpstreams);
-     dictAdd(hybridResults, (void*)keyPtr, hybridResult);
-   }
+  if (!hybridResult) {
+    // First time seeing this document - create new hybrid result
+    hybridResult = HybridSearchResult_New(numUpstreams);
+    dictAdd(hybridResults, (void*)keyPtr, hybridResult);
+  }
 
    SearchResult_SetScore(r, score);
    HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
+   return true;
  }
 
  /* Helper function to consume results from a single upstream */
- static int ConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, ResultProcessor *upstream, int upstreamIndex) {
+ static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, ResultProcessor *upstream, int upstreamIndex) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
@@ -1739,8 +1755,12 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
        if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
          score = consumed;
        }
-       StoreUpstreamResult(r, self->hybridResults, upstreamIndex, self->numUpstreams, score);
-       r = rm_calloc(1, sizeof(*r));
+       if (hybridMergerStoreUpstreamResult(r, self->hybridResults, self->docKey, upstreamIndex, self->numUpstreams, score)) {
+         r = rm_calloc(1, sizeof(*r));
+       } else {
+         SearchResult_Clear(r);
+         --consumed; // avoid wrong rank in RRF
+       }
    }
    rm_free(r);
    return rc;
@@ -1799,7 +1819,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
       } else {
         window = self->hybridScoringCtx->linearCtx.window;
       }
-      int rc = ConsumeFromUpstream(self, window, self->upstreams[i], i);
+      int rc = hybridMergerConsumeFromUpstream(self, window, self->upstreams[i], i);
 
       if (rc == RS_RESULT_DEPLETING) {
         // Upstream is still active but not ready to provide results. Skip to the next.
@@ -1879,6 +1899,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
+                                    const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
                                     HybridLookupContext *lookupCtx) {
@@ -1891,7 +1912,9 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
   RS_ASSERT(hybridScoringCtx);
   ret->hybridScoringCtx = hybridScoringCtx;
 
-  // Store the scoreKey for writing scores as fields when QEXEC_F_SEND_SCORES_AS_FIELD is set
+  // Store the scoreKey for reading document keys from rlookup
+  ret->docKey = docKey;
+  // Store the scoreKey for writing scores as fields when YIELD_SCORE_AS is specified
   ret->scoreKey = scoreKey;
 
   // Store reference to the hybrid request's subqueries return codes array
