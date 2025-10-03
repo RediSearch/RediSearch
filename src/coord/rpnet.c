@@ -329,8 +329,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
   if (resp3) {
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
-    fields = MRReply_MapElement(fields, "extra_attributes");
+    // extract score if it exists, WITHSCORES was specified
     score = MRReply_MapElement(fields, "score");
+    fields = MRReply_MapElement(fields, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
   } else {
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_ARRAY, "invalid result record");
