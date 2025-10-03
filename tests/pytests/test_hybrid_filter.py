@@ -16,28 +16,28 @@ def setup_filter_test_index(env):
 
     # Create test documents with different categories for filtering
     conn.execute_command(
-        'HSET', 'doc:1',
+        'HSET', 'doc:1{hash_tag}',
         'text', 'yellow apples',
         'vector', np.array([0.0, 1.0]).astype(np.float32).tobytes(),
         'tag', '57-300',
         'category', 'fruit'
     )
     conn.execute_command(
-        'HSET', 'doc:2',
+        'HSET', 'doc:2{hash_tag}',
         'text', 'red apples',
         'vector', np.array([0.0, 2.0]).astype(np.float32).tobytes(),
         'tag', '57-300',
         'category', 'fruit'
     )
     conn.execute_command(
-        'HSET', 'doc:3',
+        'HSET', 'doc:3{hash_tag}',
         'text', 'green shoes',
         'vector', np.array([1.0, 1.0]).astype(np.float32).tobytes(),
         'tag', '57-300',
         'category', 'clothing'
     )
     conn.execute_command(
-        'HSET', 'doc:4',
+        'HSET', 'doc:4{hash_tag}',
         'text', 'red vegetables',
         'vector', np.array([2.0, 1.0]).astype(np.float32).tobytes(),
         'tag', '57-300',

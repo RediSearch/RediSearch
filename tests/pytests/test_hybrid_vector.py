@@ -26,19 +26,19 @@ The test data creates a 2D vector space with 4 documents positioned as follows:
 
 # Test data with deterministic vectors
 test_data = {
-    'doc:1': {
+    'doc:1{hash_tag}': {
         'description': "red shoes",
         'embedding': np.array([0.0, 0.0]).astype(np.float32).tobytes()
     },
-    'doc:2': {
+    'doc:2{hash_tag}': {
         'description': "red running shoes",
         'embedding': np.array([1.0, 0.0]).astype(np.float32).tobytes()
     },
-    'doc:3': {
+    'doc:3{hash_tag}': {
         'description': "running gear",
         'embedding': np.array([0.0, 1.0]).astype(np.float32).tobytes()
     },
-    'doc:4': {
+    'doc:4{hash_tag}': {
         'description': "blue shoes",
         'embedding': np.array([1.0, 1.0]).astype(np.float32).tobytes()
     }

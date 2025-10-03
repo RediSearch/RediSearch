@@ -14,13 +14,13 @@ def setup_basic_index(env):
 
     # Create 2 documents:
     conn.execute_command(
-        'HSET', 'doc:1',
+        'HSET', 'doc:1{hash_tag}',
         'text', 'green apples',
         'vector', np.array([0.0, 1.0]).astype(np.float32).tobytes(),
         'tag', '57-300'
     )
     conn.execute_command(
-        'HSET', 'doc:2',
+        'HSET', 'doc:2{hash_tag}',
         'text', 'red apples',
         'vector', np.array([0.0, 2.0]).astype(np.float32).tobytes(),
         'tag', '57-300'
@@ -31,7 +31,7 @@ def exec_and_validate_query(env, hybrid_cmd):
     """Execute query and validate results"""
     response = env.cmd(*hybrid_cmd)
     results, count = get_results_from_hybrid_response(response)
-    env.assertTrue(set(results.keys()) == {"doc:1", "doc:2"})
+    env.assertTrue(set(results.keys()) == {"doc:1{hash_tag}", "doc:2{hash_tag}"})
     env.assertEqual(count, 2)
 
 
@@ -102,7 +102,7 @@ def test_hybrid_dialects():
             'SEARCH', '@text:(apples)',
             'VSIM', '@vector', query_vector,
             'COMBINE', 'RRF', '2', 'CONSTANT', '30',
-            'FILTER', '@__key == "doc:1" || @__key == "doc:2"',
+            'FILTER', '@__key == "doc:1{hash_tag}" || @__key == "doc:2{hash_tag}"',
         ]
         exec_and_validate_query(env, hybrid_cmd)
 
