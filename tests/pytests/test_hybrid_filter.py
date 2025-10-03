@@ -61,7 +61,8 @@ def test_hybrid_filter_behavior():
         'FILTER', '@category:{"fruit"}'
     )
     results, _ = get_results_from_hybrid_response(response)
-    env.assertEqual(set(results.keys()), {"doc:1", "doc:2", "doc:3"})
+    # This should return all with fruit from vector subquery (doc:1, doc:2) and all with green text (doc:3)
+    env.assertEqual(set(results.keys()), {"doc:1{hash_tag}", "doc:2{hash_tag}", "doc:3{hash_tag}"})
 
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
@@ -70,7 +71,8 @@ def test_hybrid_filter_behavior():
         'FILTER', '@category:{"fruit"}', "COMBINE", "RRF", "2", "CONSTANT", "30",
     )
     results, _ = get_results_from_hybrid_response(response)
-    env.assertEqual(set(results.keys()), {"doc:1", "doc:2", "doc:3"})
+    # This should filter as before, just an extra combine
+    env.assertEqual(set(results.keys()), {"doc:1{hash_tag}", "doc:2{hash_tag}", "doc:3{hash_tag}"})
 
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
@@ -79,7 +81,8 @@ def test_hybrid_filter_behavior():
         "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "__key", "category", "FILTER", "@category==\"fruit\"",
     )
     results, _ = get_results_from_hybrid_response(response)
-    env.assertEqual(set(results.keys()), {"doc:1", "doc:2"})
+    # This should filter as post processing.
+    env.assertEqual(set(results.keys()), {"doc:1{hash_tag}", "doc:2{hash_tag}"})
 
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
@@ -97,7 +100,8 @@ def test_hybrid_filter_behavior():
         'FILTER', '@category:{"vegetable"}', "LOAD", 2, "__key", "category", "FILTER", "@category==\"clothing\"",
     )
     results, _ = get_results_from_hybrid_response(response)
-    env.assertEqual(set(results.keys()), {"doc:3"})
+    # This should filter as before, just an extra combine
+    env.assertEqual(set(results.keys()), {"doc:3{hash_tag}"})
 
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
@@ -121,7 +125,8 @@ def test_hybrid_filter_behavior():
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', query_vector,
-        'FILTER', '@category:{"vegetable"}', "FILTER", "@__key==\"doc:3\"",
+        'FILTER', '@category:{"vegetable"}', "FILTER", "@__key==\"doc:3{hash_tag}\"",
     )
     results, _ = get_results_from_hybrid_response(response)
-    env.assertEqual(set(results.keys()), {"doc:3"})
+    # This should filter as before, just an extra combine
+    env.assertEqual(set(results.keys()), {"doc:3{hash_tag}"})

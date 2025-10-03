@@ -64,7 +64,7 @@ def test_hybrid_vector_direct_blob_knn():
                         'KNN', '2', 'K', '1')
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
-    env.assertTrue(set(results.keys()) == {"doc:2"})
+    env.assertTrue(set(results.keys()) == {"doc:2{hash_tag}"})
 
 # TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -76,7 +76,7 @@ def test_hybrid_vector_direct_blob_knn_with_filter():
                         'KNN', '2', 'K', '2', 'FILTER', '@description:blue')
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
-    env.assertTrue(set(results.keys()) == {"doc:4"})
+    env.assertTrue(set(results.keys()) == {"doc:4{hash_tag}"})
 
 # TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -88,7 +88,7 @@ def test_hybrid_vector_direct_blob_range():
                         'RANGE', '2', 'RADIUS', '1')
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
-    env.assertTrue(set(results.keys()) == {"doc:2", "doc:4"})
+    env.assertTrue(set(results.keys()) == {"doc:2{hash_tag}", "doc:4{hash_tag}"})
 
 # TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -99,7 +99,7 @@ def test_hybrid_vector_direct_blob_range_with_filter():
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
                         'RANGE', '2', 'RADIUS', '1', 'FILTER', '@description:blue')
     results, count = get_results_from_hybrid_response(response)
-    env.assertTrue(set(results.keys()) == {"doc:4"})
+    env.assertTrue(set(results.keys()) == {"doc:4{hash_tag}"})
     env.assertEqual(count, len(results.keys()))
 
 # TODO: remove skip once FT.HYBRID for cluster is implemented
