@@ -495,6 +495,36 @@ static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
   }
 }
 
+// Field names for implicit LOAD step
+#define HYBRID_IMPLICIT_KEY_FIELDS UNDERSCORE_KEY, UNDERSCORE_SCORE
+#define HYBRID_IMPLICIT_KEY_FIELD_COUNT 2
+
+/**
+ * Create implicit LOAD step for document key when no explicit LOAD is specified.
+ * Returns a PLN_LoadStep that loads only the HYBRID_IMPLICIT_KEY_FIELD.
+ */
+static PLN_LoadStep *createImplicitLoadStep(void) {
+    // Use a static array for the field name - no memory management needed
+    static const char *implicitArgv[] = {HYBRID_IMPLICIT_KEY_FIELDS};
+
+    PLN_LoadStep *implicitLoadStep = rm_calloc(1, sizeof(PLN_LoadStep));
+
+    // Set up base step properties - use standard loadDtor
+    implicitLoadStep->base.type = PLN_T_LOAD;
+    implicitLoadStep->base.alias = NULL;
+    implicitLoadStep->base.flags = 0;
+    implicitLoadStep->base.dtor = loadDtor; // Use standard destructor
+
+    // Create ArgsCursor with static array - no memory management needed
+    ArgsCursor_InitCString(&implicitLoadStep->args, implicitArgv, HYBRID_IMPLICIT_KEY_FIELD_COUNT);
+
+    // Pre-allocate keys array for the number of fields to load
+    implicitLoadStep->nkeys = 0;
+    implicitLoadStep->keys = rm_calloc(implicitLoadStep->args.argc, sizeof(RLookupKey*));
+
+    return implicitLoadStep;
+}
+
 /**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
@@ -639,14 +669,20 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   // We need a load step, implicit or an explicit one
   PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
-  if (loadStep) {
+  if (!loadStep) {
+    // TBH don't think we need this implicit step, added to somehow affect the resulting response format
+    // We wanted that by default the key and score would be returned to the user
+    // This shoulbe probably be done in the hybrid send chunk where we decide on the response format.
+    // For now keeping it as is - due to time constraints
+    loadStep = createImplicitLoadStep();
+  } else {
     AGPLN_PopStep(&loadStep->base);
-    AGPLN_AddStep(&searchRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
-    AGPLN_AddStep(&vectorRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
-    // Free the source load step
-    loadStep->base.dtor(&loadStep->base);
-    loadStep = NULL;
   }
+  AGPLN_AddStep(&searchRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
+  AGPLN_AddStep(&vectorRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
+  // Free the source load step
+  loadStep->base.dtor(&loadStep->base);
+  loadStep = NULL;
 
   if (!(*mergeReqflags & QEXEC_F_NO_SORT)) {
     // No SORTBY 0 - add implicit sort-by-score

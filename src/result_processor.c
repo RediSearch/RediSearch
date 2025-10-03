@@ -1718,8 +1718,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   // Single shard case - use dmd->keyPtr
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
-  // Coordinator casee - no dmd - use docKey in rlookup
-  if (!keyPtr && docKey) {
+  // Coordinator case - no dmd - use docKey in rlookup
+  const bool fallbackToLookup = !keyPtr && docKey;
+  if (fallbackToLookup) {
     RSValue *docKeyValue = RLookup_GetItem(docKey, &r->rowdata);
     if (docKeyValue != NULL) {
       keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
@@ -1756,6 +1757,8 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
        }
        if (hybridMergerStoreUpstreamResult(r, self->hybridResults, self->docKey, upstreamIndex, self->numUpstreams, score)) {
          r = rm_calloc(1, sizeof(*r));
+       } else {
+         SearchResult_Clear(r);
        }
    }
    rm_free(r);
