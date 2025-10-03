@@ -31,7 +31,7 @@ typedef struct {
   double score;
   RSScoreExplain *scoreExplain;
 
-  RSDocumentMetadata *dmd;
+  const RSDocumentMetadata *dmd;
 
   // index result should cover what you need for highlighting,
   // but we will add a method to duplicate index results to make
@@ -134,7 +134,7 @@ static inline const RSDocumentMetadata* SearchResult_GetDocumentMetadata(const S
  * Sets the `RSDocumentMetadata` associated with `res`.
  */
 static inline void SearchResult_SetDocumentMetadata(SearchResult* res,
-                                                    RSDocumentMetadata* dmd) {
+                                                    const RSDocumentMetadata* dmd) {
   res->dmd = dmd;
 }
 

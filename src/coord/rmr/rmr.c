@@ -660,7 +660,6 @@ void iterStartCb(void *p) {
 
   // This implies that every connection to each shard will work inside a single IO thread
   for (size_t i = 0; i < it->len; i++) {
-    // RedisModule_Log(NULL, "warning", "iterStartCb: sending command %s to shard %d", MRCommand_SafeToString(&it->cbxs[i].cmd), it->cbxs[i].cmd.targetSlot);
     if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
@@ -710,7 +709,6 @@ void iterCursorMappingCb(void *p) {
 
   // Send commands to all shards
   for (size_t i = 0; i < it->len; i++) {
-    // RedisModule_Log(NULL, "warning", "iterCursorMappingCb: sending command %s to shard %d", MRCommand_SafeToString(&it->cbxs[i].cmd), it->cbxs[i].cmd.targetSlot);
     if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
@@ -718,7 +716,7 @@ void iterCursorMappingCb(void *p) {
   }
 
   // Clean up the data structure
-  // rm_free(data);
+  rm_free(data);
 }
 
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx

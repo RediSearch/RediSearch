@@ -286,6 +286,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+
       return RS_RESULT_TIMEDOUT;
     } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
       // if timeout was set in previous reads, reset it
@@ -335,13 +336,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
 
   for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
-    size_t len, fieldLen;
+    size_t len;
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
-    if (strcmp(field, "__key") == 0) {
-      r->dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
-      r->dmd->ref_count = 1;
-      r->dmd->keyPtr = sdsnewlen(MRReply_String(MRReply_ArrayElement(fields, i + 1), &fieldLen),fieldLen);
-    }
     MRReply *val = MRReply_ArrayElement(fields, i + 1);
     RSValue *v = MRReply_ToValue(val);
     RLookup_WriteOwnKeyByName(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);

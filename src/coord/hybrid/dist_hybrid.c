@@ -214,38 +214,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     AREQDIST_UpstreamInfo us = {NULL};
-    size_t originalK = 0;
-
-    if (hreq->requests[1]->parsedVectorData->hasExplicitK) {
-      originalK = hreq->requests[1]->ast.root->vn.vq->knn.k;
-    } else originalK = 10000000000;
-
-    // Ensure query ASTs are properly destroyed before freeing AREQs
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-        if (hreq->requests[i]) {
-            QAST_Destroy(&hreq->requests[i]->ast);
-
-            // Clean up detached thread-safe context if present
-            AREQ *areq = hreq->requests[i];
-            if (areq && areq->sctx && areq->sctx->redisCtx) {
-                RedisModuleCtx *thctx = areq->sctx->redisCtx;
-                RedisSearchCtx *sctx = areq->sctx;
-
-                // Check if we're running in background thread
-                if (RunInThread()) {
-                    // Background thread: schedule cleanup on main thread
-                    ScheduleContextCleanup(thctx, sctx);
-                } else {
-                    // Main thread: safe to free directly
-                    SearchCtx_Free(sctx);
-                    if (thctx) {
-                        RedisModule_FreeThreadSafeContext(thctx);
-                    }
-                }
-                areq->sctx = NULL;
-            }
-        }
-    }
 
     array_free_ex(hreq->requests, AREQ_Free(*(AREQ**)ptr));
     hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
@@ -254,19 +222,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     AREQ_AddRequestFlags(hreq->requests[0], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
     AREQ_AddRequestFlags(hreq->requests[1], QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY);
 
-    PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[0]));
-    if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_RRF) {
-      searchArrangeStep->limit = hybridParams.scoringCtx->rrfCtx.window;
-    } else if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
-      searchArrangeStep->limit = hybridParams.scoringCtx->linearCtx.window;
-    }
+    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[0]));
+    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[1]));
 
-    PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[1]));
-    if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_RRF) {
-      vectorArrangeStep->limit = MIN(hybridParams.scoringCtx->rrfCtx.window, originalK);
-    } else if (hybridParams.scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
-      vectorArrangeStep->limit = MIN(hybridParams.scoringCtx->linearCtx.window, originalK);
-    }
 
     // rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, &us, status);
     rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, &hybridParams);
@@ -390,12 +348,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
         IndexSpecRef_Release(*strong_ref);
     }
     if (hreq) {
-        // Ensure all AREQ structures properly free their QueryAST
-        for (size_t i = 0; i < hreq->nrequests; i++) {
-            if (hreq->requests[i]) {
-                QAST_Destroy(&hreq->requests[i]->ast);
-            }
-        }
         HybridRequest_Free(hreq);
     }
     RedisModule_EndReply(reply);
