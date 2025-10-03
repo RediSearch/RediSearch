@@ -169,14 +169,16 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
         return REDISMODULE_ERR;
     }
 
-    // Get index name from command
-    const char *idx = MRCommand_ArgStringPtrLen(&nc->cmd, 1, NULL);
+    size_t idx_len;
+    const char *idx = MRCommand_ArgStringPtrLen(&nc->cmd, 1, &idx_len);
+    char *idx_copy = rm_strndup(idx, idx_len);
+    MRCommand_Free(&nc->cmd);
 
-    // RedisModule_Log(NULL, "warning", "rpnetNext_StartWithMappings: vsimOrSearch is %p, array_len(vsimOrSearch->mappings) is %zu", vsimOrSearch, array_len(vsimOrSearch->mappings));
-
-    // Create cursor read command
-    nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx);
+    // Create cursor read command using the copied index name
+    nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx_copy);
     nc->cmd.protocol = 3;
+    rm_free(idx_copy);
+
     nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, iterCursorMappingCb, vsimOrSearch);
     nc->base.Next = rpnetNext;
 

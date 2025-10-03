@@ -220,6 +220,33 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
       originalK = hreq->requests[1]->ast.root->vn.vq->knn.k;
     } else originalK = 10000000000;
 
+    // Ensure query ASTs are properly destroyed before freeing AREQs
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+        if (hreq->requests[i]) {
+            QAST_Destroy(&hreq->requests[i]->ast);
+
+            // Clean up detached thread-safe context if present
+            AREQ *areq = hreq->requests[i];
+            if (areq && areq->sctx && areq->sctx->redisCtx) {
+                RedisModuleCtx *thctx = areq->sctx->redisCtx;
+                RedisSearchCtx *sctx = areq->sctx;
+
+                // Check if we're running in background thread
+                if (RunInThread()) {
+                    // Background thread: schedule cleanup on main thread
+                    ScheduleContextCleanup(thctx, sctx);
+                } else {
+                    // Main thread: safe to free directly
+                    SearchCtx_Free(sctx);
+                    if (thctx) {
+                        RedisModule_FreeThreadSafeContext(thctx);
+                    }
+                }
+                areq->sctx = NULL;
+            }
+        }
+    }
+
     array_free_ex(hreq->requests, AREQ_Free(*(AREQ**)ptr));
     hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
     hreq->nrequests = array_len(hreq->requests);
@@ -270,7 +297,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     }
 
     // Free the command
-    // MRCommand_Free(&xcmd);
+    MRCommand_Free(&xcmd);
     return REDISMODULE_OK;
 }
 
@@ -363,6 +390,12 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
         IndexSpecRef_Release(*strong_ref);
     }
     if (hreq) {
+        // Ensure all AREQ structures properly free their QueryAST
+        for (size_t i = 0; i < hreq->nrequests; i++) {
+            if (hreq->requests[i]) {
+                QAST_Destroy(&hreq->requests[i]->ast);
+            }
+        }
         HybridRequest_Free(hreq);
     }
     RedisModule_EndReply(reply);
