@@ -466,7 +466,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
             // Find the next unparsed positional argument
             ArgDefinition *pos_def = NULL;
             for (uint16_t pos = 1; pos <= MAX_POSITIONAL_ARGS; pos++) { // reasonable limit
-                ArgDefinition *candidate = find_positional_definition(parser, pos, NULL);
+                ArgDefinition *candidate = find_positional_definition(parser, pos, arg_name);
                 if (!candidate) break;
 
                 if (!candidate->parsed) {

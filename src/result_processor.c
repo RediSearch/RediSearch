@@ -28,54 +28,7 @@
 #include "module.h"
 #include "search_disk.h"
 #include "debug_commands.h"
-
-/*******************************************************************************************************************
- *  General Result Processor Helper functions
- *******************************************************************************************************************/
-
-// Allocates a new SearchResult, and populates it with `r`'s data (takes
-// ownership as well)
-SearchResult *SearchResult_Copy(SearchResult *r) {
-  SearchResult *ret = rm_malloc(sizeof(*ret));
-  *ret = *r;
-  return ret;
-}
-
-void SearchResult_Clear(SearchResult *r) {
-  // This won't affect anything if the result is null
-  r->score = 0;
-  if (r->scoreExplain) {
-    SEDestroy(r->scoreExplain);
-    r->scoreExplain = NULL;
-  }
-  if (r->indexResult) {
-    // IndexResult_Free(r->indexResult);
-    r->indexResult = NULL;
-  }
-
-  r->flags = 0;
-  RLookupRow_Wipe(&r->rowdata);
-  if (r->dmd) {
-    DMD_Return(r->dmd);
-    r->dmd = NULL;
-  }
-}
-
-/* Free the search result object including the object itself */
-void SearchResult_Destroy(SearchResult *r) {
-  SearchResult_Clear(r);
-  RLookupRow_Reset(&r->rowdata);
-}
-
-// Overwrites the contents of 'dst' with those from 'src'.
-// Ensures proper cleanup of any existing data in 'dst'.
-static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
-  if (!src) return;
-  RLookupRow oldrow = dst->rowdata;
-  *dst = *src;
-  RLookupRow_Reset(&oldrow);
-}
-
+#include "search_result.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -197,11 +150,11 @@ validate_current:
   }
 
   // set the result data
-  res->docId = it->lastDocId;
-  res->indexResult = it->current;
-  res->score = 0;
-  res->dmd = dmd;
-  RLookupRow_SetSortingVector(&res->rowdata, dmd->sortVector);
+  SearchResult_SetDocId(res, it->lastDocId);
+  SearchResult_SetIndexResult(res, it->current);
+  SearchResult_SetScore(res, 0);
+  SearchResult_SetDocumentMetadata(res, dmd);
+  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), dmd->sortVector);
   return RS_RESULT_OK;
 }
 
@@ -277,14 +230,14 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
     }
 
     // Apply the scoring function
-    res->score = self->scorer(&self->scorerCtx, res->indexResult, res->dmd, base->parent->minScore);
+    SearchResult_SetScore(res, self->scorer(&self->scorerCtx, SearchResult_GetIndexResult(res), SearchResult_GetDocumentMetadata(res), base->parent->minScore));
     if (self->scorerCtx.scrExp) {
-      res->scoreExplain = (RSScoreExplain *)self->scorerCtx.scrExp;
+      SearchResult_SetScoreExplain(res, (RSScoreExplain *)self->scorerCtx.scrExp);
       self->scorerCtx.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
     }
     // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
     // number of results (it's been increased by the upstream processor)
-    if (res->score == RS_SCORE_FILTEROUT) {
+    if (SearchResult_GetScore(res) == RS_SCORE_FILTEROUT) {
       base->parent->totalResults--;
       SearchResult_Clear(res);
       // continue and loop to the next result, since this is excluded by the
@@ -292,7 +245,7 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
       continue;
     }
     if (self->scoreKey) {
-      RLookup_WriteOwnKey(self->scoreKey, &res->rowdata, RS_NumVal(res->score));
+      RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(res), RSValue_NewNumber(SearchResult_GetScore(res)));
     }
 
     break;
@@ -347,9 +300,9 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
     return rc;
   }
 
-  arrayof(RSYieldableMetric) arr = res->indexResult->metrics;
+  arrayof(RSYieldableMetric) arr = SearchResult_GetIndexResult(res)->metrics;
   for (size_t i = 0; i < array_len(arr); i++) {
-    RLookup_WriteKey(arr[i].key, &(res->rowdata), arr[i].value);
+    RLookup_WriteKey(arr[i].key, SearchResult_GetRowDataMut(res), arr[i].value);
   }
 
   return rc;
@@ -468,10 +421,10 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   if (self->pq->count < self->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
-    self->pooledResult->indexResult = NULL;
+    SearchResult_SetIndexResult(self->pooledResult, NULL);
     mmh_insert(self->pq, self->pooledResult);
-    if (self->pooledResult->score < rp->parent->minScore) {
-      rp->parent->minScore = self->pooledResult->score;
+    if (SearchResult_GetScore(self->pooledResult) < rp->parent->minScore) {
+      rp->parent->minScore = SearchResult_GetScore(self->pooledResult);
     }
     // we need to allocate a new result for the next iteration
     self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
@@ -480,13 +433,13 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     SearchResult *minh = mmh_peek_min(self->pq);
 
     // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
-    if (minh->score > rp->parent->minScore) {
-      rp->parent->minScore = minh->score;
+    if (SearchResult_GetScore(minh) > rp->parent->minScore) {
+      rp->parent->minScore = SearchResult_GetScore(minh);
     }
 
     // if needed - pop it and insert a new result
     if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
-      self->pooledResult->indexResult = NULL;
+      SearchResult_SetIndexResult(self->pooledResult, NULL);
       self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
     }
     // clear the result in preparation for the next iteration
@@ -510,12 +463,12 @@ static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
 static inline int cmpByScore(const void *e1, const void *e2, const void *udata) {
   const SearchResult *h1 = e1, *h2 = e2;
 
-  if (h1->score < h2->score) {
+  if (SearchResult_GetScore(h1) < SearchResult_GetScore(h2)) {
     return -1;
-  } else if (h1->score > h2->score) {
+  } else if (SearchResult_GetScore(h1) > SearchResult_GetScore(h2)) {
     return 1;
   }
-  return h1->docId > h2->docId ? -1 : 1;
+  return SearchResult_GetDocId(h1) > SearchResult_GetDocId(h2) ? -1 : 1;
 }
 
 /* Compare results for the heap by sorting key */
@@ -530,8 +483,8 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   }
 
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], &h1->rowdata);
-    const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], &h2->rowdata);
+    const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], SearchResult_GetRowData(h1));
+    const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], SearchResult_GetRowData(h2));
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
@@ -550,7 +503,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     if (rc != 0) return ascending ? -rc : rc;
   }
 
-  int rc = h1->docId < h2->docId ? -1 : 1;
+  int rc = SearchResult_GetDocId(h1) < SearchResult_GetDocId(h2) ? -1 : 1;
   return ascending ? -rc : rc;
 }
 
@@ -682,13 +635,13 @@ typedef struct {
 static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
   if (self->loadopts.sctx->spec->diskSpec) {
     // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
-    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskSpec, r->dmd->id)) {
-      r->flags |= Result_ExpiredDoc;
+    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
+      SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }
   } else {
-    if ((r->dmd->flags & Document_FailedToOpen) || (r->dmd->flags & Document_Deleted)) {
-      r->flags |= Result_ExpiredDoc;
+    if ((SearchResult_GetDocumentMetadata(r)->flags & Document_FailedToOpen) || (SearchResult_GetDocumentMetadata(r)->flags & Document_Deleted)) {
+        SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }
   }
@@ -702,14 +655,14 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
     return;
   }
 
-  self->loadopts.dmd = r->dmd;
+  self->loadopts.dmd = SearchResult_GetDocumentMetadata(r);
   // if loading the document has failed, we keep the row as it was.
   // Error code and message are ignored.
-  if (RLookup_LoadDocument(self->lk, &r->rowdata, &self->loadopts) != REDISMODULE_OK) {
+  if (RLookup_LoadDocument(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts) != REDISMODULE_OK) {
     // mark the document as "failed to open" for later loaders or other threads (optimization)
-    ((RSDocumentMetadata *)(r->dmd))->flags |= Document_FailedToOpen;
+    ((RSDocumentMetadata *)(SearchResult_GetDocumentMetadata(r)))->flags |= Document_FailedToOpen;
     // The result contains an expired document.
-    r->flags |= Result_ExpiredDoc;
+    SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
     QueryError_ClearError(&self->status);
   }
 }
@@ -808,7 +761,7 @@ typedef struct RPSafeLoader {
 
 static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
   // Free the RLookup row before overriding it.
-  RLookupRow_Reset(&result_output->rowdata);
+  RLookupRow_Reset(SearchResult_GetRowDataMut(result_output));
   *result_output = *buffered_result;
 }
 
@@ -1027,8 +980,8 @@ static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
   int rc = base->upstream->Next(base->upstream, res);
   if (RS_RESULT_OK == rc) {
     RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
-    size_t keyLen = sdslen(res->dmd->keyPtr); // keyPtr is an sds
-    RLookup_WriteOwnKey(nl->out, &res->rowdata, RS_NewCopiedString(res->dmd->keyPtr, keyLen));
+    size_t keyLen = sdslen(SearchResult_GetDocumentMetadata(res)->keyPtr); // keyPtr is an sds
+    RLookup_WriteOwnKey(nl->out, SearchResult_GetRowDataMut(res), RSValue_NewCopiedString(SearchResult_GetDocumentMetadata(res)->keyPtr, keyLen));
   }
   return rc;
 }
@@ -1257,16 +1210,16 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
   SearchResult *poppedResult = array_pop(self->pool);
   SearchResult_Override(r, poppedResult);
   rm_free(poppedResult);
-  double oldScore = r->score;
+  double oldScore = SearchResult_GetScore(r);
   if (self->maxValue != 0) {
-    r->score /= self->maxValue;
+    SearchResult_SetScore(r, SearchResult_GetScore(r) / self->maxValue);
   }
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
   }
-  EXPLAIN(r->scoreExplain,
+  EXPLAIN(SearchResult_GetScoreExplainMut(r),
         "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
-        r->score, oldScore, self->maxValue);
+        SearchResult_GetScore(r), oldScore, self->maxValue);
   return RS_RESULT_OK;
  }
 
@@ -1286,9 +1239,9 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
     return rc;
   }
 
-  self->maxValue = MAX(self->maxValue, self->pooledResult->score);
+  self->maxValue = MAX(self->maxValue, SearchResult_GetScore(self->pooledResult));
   // copy the index result to make it thread safe - but only if it is pushed to the heap
-  self->pooledResult->indexResult = NULL;
+  SearchResult_SetIndexResult(self->pooledResult, NULL);
   array_ensure_append_1(self->pool, self->pooledResult);
 
   // we need to allocate a new result for the next iteration
@@ -1329,7 +1282,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
 typedef struct {
   ResultProcessor base;
   VectorNormFunction normFunc;
-  const RLookupKey *scoreKey;      // Score field to normalize
+  const RLookupKey *scoreKey;   // score field
 } RPVectorNormalizer;
 
 static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
@@ -1343,20 +1296,19 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
 
   // Apply normalization to the score
   double normalizedScore = 0.0;
-  RSValue *scoreValue = RLookup_GetItem(self->scoreKey, &r->rowdata);
-  if (scoreValue) {
+  RSValue *distanceValue = RLookup_GetItem(self->scoreKey, SearchResult_GetRowData(r));
+  if (distanceValue) {
     double originalScore = 0.0;
-    if (RSValue_ToNumber(scoreValue, &originalScore)) {
+    if (RSValue_ToNumber(distanceValue, &originalScore)) {
       normalizedScore = self->normFunc(originalScore);
     }
   }
-  r->score = normalizedScore;
+  SearchResult_SetScore(r, normalizedScore);
 
-  // Update score field if scoreKey is provided
+  // Update distance field
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(normalizedScore));
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(normalizedScore));
   }
-
   return RS_RESULT_OK;
 }
 
@@ -1724,13 +1676,15 @@ dictType dictTypeHybridSearchResult = {
  typedef struct {
  ResultProcessor base;
  HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
- ResultProcessor **upstreams;  // Dynamic array of upstream processors
- size_t numUpstreams;         // Number of upstream processors
- dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
- dictIterator *iterator; // Iterator for yielding results
- const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
- RPStatus* upstreamReturnCodes;  // Final return codes from each upstream
+ ResultProcessor **upstreams;     // Dynamic array of upstream processors
+ size_t numUpstreams;             // Number of upstream processors
+ dict *hybridResults;             // keyPtr -> HybridSearchResult mapping
+ dictIterator *iterator;          // Iterator for yielding results
+ const RLookupKey *scoreKey;      // Key for writing score as field when YIELD_SCORE_AS is specified
+ const RLookupKey *docKey;        // Key for reading document key when dmd is not available
+ RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
+
 } RPHybridMerger;
 
 /* Generic helper function to check if any upstream has a specific return code */
@@ -1760,35 +1714,53 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   * @param numUpstreams - the number of upstreams
   * @param score - used to override the result's score
  */
- static void StoreUpstreamResult(SearchResult *r, dict *hybridResults, int upstreamIndex, size_t numUpstreams, double score) {
-   const char *keyPtr = r->dmd->keyPtr;
+ static bool hybridMergerStoreUpstreamResult(SearchResult *r, dict *hybridResults, const RLookupKey *docKey, int upstreamIndex, size_t numUpstreams, double score) {
+  // Single shard case - use dmd->keyPtr
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
+  const char *keyPtr = dmd ? dmd->keyPtr : NULL;
+  // Coordinator case - no dmd - use docKey in rlookup
+  const bool fallbackToLookup = !keyPtr && docKey;
+  if (fallbackToLookup) {
+    RSValue *docKeyValue = RLookup_GetItem(docKey, &r->rowdata);
+    if (docKeyValue != NULL) {
+      keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
+    }
+  }
+  if (!keyPtr) {
+    return false;
+  }
 
-   // Check if we've seen this document before
-   HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(hybridResults, keyPtr);
+  // Check if we've seen this document before
+  HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(hybridResults, keyPtr);
 
-   if (!hybridResult) {
-     // First time seeing this document - create new hybrid result
-     hybridResult = HybridSearchResult_New(numUpstreams);
-     dictAdd(hybridResults, (void*)keyPtr, hybridResult);
-   }
+  if (!hybridResult) {
+    // First time seeing this document - create new hybrid result
+    hybridResult = HybridSearchResult_New(numUpstreams);
+    dictAdd(hybridResults, (void*)keyPtr, hybridResult);
+  }
 
-   r->score = score;
+   SearchResult_SetScore(r, score);
    HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
+   return true;
  }
 
  /* Helper function to consume results from a single upstream */
- static int ConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, ResultProcessor *upstream, int upstreamIndex) {
+ static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, ResultProcessor *upstream, int upstreamIndex) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
-       double score = r->score;
+       double score = SearchResult_GetScore(r);
        consumed++;
        if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
          score = consumed;
        }
-       StoreUpstreamResult(r, self->hybridResults, upstreamIndex, self->numUpstreams, score);
-       r = rm_calloc(1, sizeof(*r));
+       if (hybridMergerStoreUpstreamResult(r, self->hybridResults, self->docKey, upstreamIndex, self->numUpstreams, score)) {
+         r = rm_calloc(1, sizeof(*r));
+       } else {
+         SearchResult_Clear(r);
+         --consumed; // avoid wrong rank in RRF
+       }
    }
    rm_free(r);
    return rc;
@@ -1823,7 +1795,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
    // Add score as field if scoreKey is provided
    if (self->scoreKey) {
-     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+     RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
    }
 
    return RS_RESULT_OK;
@@ -1845,10 +1817,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
       if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
         window = self->hybridScoringCtx->rrfCtx.window;
       } else {
-        // For LINEAR scoring, consume all results from each upstream
-        window = SIZE_MAX;
+        window = self->hybridScoringCtx->linearCtx.window;
       }
-      int rc = ConsumeFromUpstream(self, window, self->upstreams[i], i);
+      int rc = hybridMergerConsumeFromUpstream(self, window, self->upstreams[i], i);
 
       if (rc == RS_RESULT_DEPLETING) {
         // Upstream is still active but not ready to provide results. Skip to the next.
@@ -1857,7 +1828,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
       // Store the final return code for this upstream
       self->upstreamReturnCodes[i] = rc;
-
       // Currently continues processing other upstreams.
       // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error : MOD-11004
       // Note: This processor might have rp_depleter as an upstream, which currently lacks a mechanism to stop its spawned thread before completion.
@@ -1873,6 +1843,10 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
     return RS_RESULT_ERROR;
   } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
     return RS_RESULT_TIMEDOUT;
+  }
+
+  for (size_t i = 0; i < self->numUpstreams; i++) {
+    RLookup_AddKeysFrom(self->lookupCtx->sourceLookups[i], self->lookupCtx->tailLookup, RLOOKUP_F_NOFLAGS);
   }
 
   // Initialize iterator for yield phase
@@ -1925,6 +1899,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
+                                    const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
                                     HybridLookupContext *lookupCtx) {
@@ -1937,7 +1912,9 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
   RS_ASSERT(hybridScoringCtx);
   ret->hybridScoringCtx = hybridScoringCtx;
 
-  // Store the scoreKey for writing scores as fields when QEXEC_F_SEND_SCORES_AS_FIELD is set
+  // Store the scoreKey for reading document keys from rlookup
+  ret->docKey = docKey;
+  // Store the scoreKey for writing scores as fields when YIELD_SCORE_AS is specified
   ret->scoreKey = scoreKey;
 
   // Store reference to the hybrid request's subqueries return codes array
@@ -1956,8 +1933,7 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
    if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
      maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
    } else {
-     // For LINEAR scoring, use a reasonable default for dictionary pre-sizing
-     maximalSize = 1000; // Conservative estimate for dictionary sizing
+     maximalSize = hybridScoringCtx->linearCtx.window * numUpstreams;
    }
    // Pre-size the dictionary to avoid multiple resizes during accumulation
    dictExpand(ret->hybridResults, maximalSize);

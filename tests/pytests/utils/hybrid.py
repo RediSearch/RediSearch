@@ -38,12 +38,20 @@ def _validate_results(env, actual_results: List[Result], expected_results: List[
     # We assume the number of actual result is correct
     env.assertLessEqual(len(actual_results), len(expected_results), message=comparison_table)
     for i in range(len(actual_results)):
-        env.assertEqual(
-            actual_results[i].key, expected_results[i].key,
-            message=f'key mismatch at index {i}: actual: {actual_results[i].key}, expected: {expected_results[i].key}')
-        env.assertAlmostEqual(
-            actual_results[i].score, expected_results[i].score, delta=1e-10,
-            message=f'score mismatch at index {i}: actual: {actual_results[i].score}, expected: {expected_results[i].score}')
+        if actual_results[i].score == actual_results[-1].score:
+            # in this case, we cannot know which subset of the results is included in the response, so we just validate inclusion
+            expected_results_with_last_score = [result.key for result in expected_results if abs(result.score - actual_results[i].score) < 1e-10]
+            actual_results_with_last_score = [result.key for result in actual_results if abs(result.score - actual_results[i].score) < 1e-10]
+            env.assertTrue(set(actual_results_with_last_score).issubset(set(expected_results_with_last_score)),
+                message=f'Keys in actual results with last score ({actual_results[i].score}) not found in expected results with same score: {set(actual_results_with_last_score) - set(expected_results_with_last_score)}. {comparison_table}')
+            break
+        else:
+            env.assertEqual(
+                actual_results[i].key, expected_results[i].key,
+                message=f'key mismatch at index {i}: actual: {actual_results[i].key}, expected: {expected_results[i].key}')
+            env.assertAlmostEqual(
+                actual_results[i].score, expected_results[i].score, delta=1e-10,
+                message=f'score mismatch at index {i}: actual: {actual_results[i].score}, expected: {expected_results[i].score}')
 
 def _process_search_response(search_results):
     """
@@ -310,7 +318,7 @@ def translate_search_query(search_query, index_name):
     # Split into command parts
     command_parts = [
         'FT.SEARCH', index_name, search_query, 'WITHSCORES', 'NOCONTENT',
-        'DIALECT', '2'
+        'DIALECT', '2', 'LIMIT', '0', '20'
     ]
     return command_parts
 

@@ -29,6 +29,7 @@
 #include "hybrid/hybrid_request.h"
 #include "util/redis_mem_info.h"
 #include "module.h"
+#include "result_processor.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -64,11 +65,11 @@ static bool isClusterEnv_TempOOM_DoNotUse() {
  * RLookup registry. Returns NULL if there is no sorting key
  */
 static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
-  const RSSortingVector* sv = RLookupRow_GetSortingVector(&r->rowdata);
+  const RSSortingVector* sv = RLookupRow_GetSortingVector(SearchResult_GetRowData(r));
   if ((kk->flags & RLOOKUP_F_SVSRC) && (sv && RSSortingVector_Length(sv) > kk->svidx)) {
     return RSSortingVector_Get(sv, kk->svidx);
   } else {
-    return RLookup_GetItem(kk, &r->rowdata);
+    return RLookup_GetItem(kk, SearchResult_GetRowData(r));
   }
 }
 
@@ -81,34 +82,36 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
     RedisModule_Reply_Null(reply);
   }
   else {
-    if (key->t == RSValue_Reference) {
+    if (RSValue_IsReference(key)) {
       key = RSValue_Dereference(key);
-    } else if (key->t == RSValue_Duo) {
-      key = RS_DUOVAL_VAL(*key);
+    } else if (RSValue_IsTrio(key)) {
+      key = RSValue_Trio_GetLeft(key);
     }
-    switch (key->t) {
-      case RSValue_Number:
+
+    switch (RSValue_Type(key)) {
+      case RSValueType_Number:
         // Serialize double - by prepending "#" to the number, so the coordinator/client can
         // tell it's a double and not just a numeric string value
-        rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", key->numval);
+        rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", RSValue_Number_Get(key));
         break;
-      case RSValue_String:
+      case RSValueType_String:
         // Serialize string - by prepending "$" to it
-        rskey = RedisModule_CreateStringPrintf(outctx, "$%s", key->strval.str);
+        rskey = RedisModule_CreateStringPrintf(outctx, "$%s", RSValue_String_Get(key, NULL));
         break;
-      case RSValue_RedisString:
-      case RSValue_OwnRstring:
+      case RSValueType_RedisString:
+      case RSValueType_OwnRstring:
         rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
-                                               RedisModule_StringPtrLen(key->rstrval, NULL));
+          RedisModule_StringPtrLen(RSValue_RedisString_Get(key), NULL));
         break;
-      case RSValue_Null:
-      case RSValue_Undef:
-      case RSValue_Array:
-      case RSValue_Map:
-      case RSValue_Reference:
-      case RSValue_Duo:
+      case RSValueType_Null:
+      case RSValueType_Undef:
+      case RSValueType_Array:
+      case RSValueType_Map:
+      case RSValueType_Reference:
+      case RSValueType_Trio:
         break;
     }
+
     if (rskey) {
       RedisModule_Reply_String(reply, rskey);
       RedisModule_FreeString(outctx, rskey);
@@ -121,7 +124,7 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
 static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
   const uint32_t options = AREQ_RequestFlags(req);
-  const RSDocumentMetadata *dmd = r->dmd;
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   size_t count0 = RedisModule_Reply_LocalCount(reply);
   bool has_map = RedisModule_IsRESP3(reply);
 
@@ -151,20 +154,20 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_SimpleString(reply, "score");
     }
     if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
-      RedisModule_Reply_Double(reply, r->score);
+      RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
     } else {
       RedisModule_Reply_Array(reply);
-      RedisModule_Reply_Double(reply, r->score);
-      SEReply(reply, r->scoreExplain);
+      RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
+      SEReply(reply, SearchResult_GetScoreExplain(r));
       RedisModule_Reply_ArrayEnd(reply);
     }
   }
 
   if (options & QEXEC_F_SENDRAWIDS) {
     if (has_map) {
-      RedisModule_ReplyKV_LongLong(reply, "id", r->docId);
+      RedisModule_ReplyKV_LongLong(reply, "id", SearchResult_GetDocId(r));
     } else {
-      RedisModule_Reply_LongLong(reply, r->docId);
+      RedisModule_Reply_LongLong(reply, SearchResult_GetDocId(r));
     }
   }
 
@@ -206,12 +209,12 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     for(; currentField < requiredFieldsCount; currentField++) {
       const RLookupKey *rlk = RLookup_GetKey_Read(cv->lastLookup, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
       const RSValue *v = rlk ? getReplyKey(rlk, r) : NULL;
-      if (v && v->t == RSValue_Duo) {
-        // For duo value, we use the value here (not the other value)
-        v = RS_DUOVAL_VAL(*v);
+      if (RSValue_IsTrio(v)) {
+        // For duo value, we use the left value here (not the right value)
+        v = RSValue_Trio_GetLeft(v);
       }
       RSValue rsv;
-      if (rlk && (rlk->flags & RLOOKUP_T_NUMERIC) && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
+      if (rlk && (rlk->flags & RLOOKUP_T_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
         double d;
         RSValue_ToNumber(v, &d);
         RSValue_SetNumber(&rsv, d);
@@ -233,7 +236,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_SimpleString(reply, "extra_attributes");
     }
 
-    if (r->flags & Result_ExpiredDoc) {
+    if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
       // Get the number of fields in the reply.
@@ -244,7 +247,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
+      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
 
       RedisModule_Reply_Map(reply);
         int i = 0;
@@ -252,7 +255,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
           if (!kk->name || !skipFieldIndex[i++]) {
             continue;
           }
-          const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+          const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
           RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
           RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
@@ -262,20 +265,20 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
           flags |= (reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
           unsigned int apiVersion = sctx->apiVersion;
-          if (v && v->t == RSValue_Duo) {
+          if (RSValue_IsTrio(v)) {
             // Which value to use for duo value
             if (!(flags & SENDREPLY_FLAG_EXPAND)) {
               // STRING
               if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
                 // Multi
-                v = RS_DUOVAL_OTHERVAL(*v);
+                v = RSValue_Trio_GetMiddle(v);
               } else {
                 // Single
-                v = RS_DUOVAL_VAL(*v);
+                v = RSValue_Trio_GetLeft(v);
               }
             } else {
               // EXPAND
-              v = RS_DUOVAL_OTHER2VAL(*v);
+              v = RSValue_Trio_GetRight(v);
             }
           }
           RedisModule_Reply_RSValue(reply, v, flags);

@@ -36,9 +36,9 @@ fn test_insert() -> Result<(), IndexOutOfBounds> {
     let vector: &mut RSSortingVector<RSValueMock> = &mut build_vector()?;
 
     assert_eq!(vector[0].as_num(), Some(42.0));
-    assert_eq!(vector[0].get_type(), ffi::RSValueType_RSValue_Number);
+    assert_eq!(vector[0].get_type(), ffi::RSValueType_RSValueType_Number);
     assert_eq!(vector[1].as_str(), Some("abcdefg"));
-    assert_eq!(vector[1].get_type(), ffi::RSValueType_RSValue_String);
+    assert_eq!(vector[1].get_type(), ffi::RSValueType_RSValueType_String);
     assert_eq!(vector[2].get_ref().unwrap().as_num(), Some(3.0));
     assert_eq!(vector[3].as_str(), Some("hello world")); // we normalize --> lowercase
     assert!(vector[4].is_null());

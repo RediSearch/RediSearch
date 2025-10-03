@@ -58,16 +58,6 @@ pub struct RSSortingVector<T: RSValueTrait> {
     values: Box<[T]>,
 }
 
-// Consuming iterator: yields owned T by consuming the vector.
-impl<T: RSValueTrait> IntoIterator for RSSortingVector<T> {
-    type Item = T;
-    type IntoIter = std::vec::IntoIter<T>;
-    fn into_iter(self) -> Self::IntoIter {
-        // this does not use a new allocation
-        Vec::from(self.values).into_iter()
-    }
-}
-
 impl<T: RSValueTrait> RSSortingVector<T> {
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
@@ -76,19 +66,10 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         }
     }
 
-    /// Returns `Ok(())` if the index is in bounds, [`Error::OutOfBounds`] otherwise.
-    fn in_bounds(&self, idx: usize) -> Result<(), IndexOutOfBounds> {
-        if idx < self.values.len() {
-            Ok(())
-        } else {
-            #[cfg(debug_assertions)]
-            return Err(IndexOutOfBounds {
-                index: idx,
-                len: self.values.len(),
-            });
-            #[cfg(not(debug_assertions))]
-            return Err(IndexOutOfBounds {});
-        }
+    /// Returns an immutable reference to the value at index `index`,
+    /// or `None` if the index is out-of-bounds for this sorting vector.
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.values.get(index)
     }
 
     /// Returns an iterator over the values in the sorting vector.
@@ -190,11 +171,44 @@ impl<T: RSValueTrait> RSSortingVector<T> {
             // fixup in: MOD-10347
             let value = walk_down_rsvalue_ref_chain(&self.values[idx]);
 
-            if value.get_type() == ffi::RSValueType_RSValue_String {
+            if value.get_type() == ffi::RSValueType_RSValueType_String {
                 sz += value.as_str().unwrap().len();
             }
         }
         sz
+    }
+
+    /// Returns `Ok(())` if the index is in bounds, [`Error::OutOfBounds`] otherwise.
+    fn in_bounds(&self, idx: usize) -> Result<(), IndexOutOfBounds> {
+        if idx < self.values.len() {
+            Ok(())
+        } else {
+            #[cfg(debug_assertions)]
+            return Err(IndexOutOfBounds {
+                index: idx,
+                len: self.values.len(),
+            });
+            #[cfg(not(debug_assertions))]
+            return Err(IndexOutOfBounds {});
+        }
+    }
+}
+
+impl<A: RSValueTrait> FromIterator<A> for RSSortingVector<A> {
+    fn from_iter<T: IntoIterator<Item = A>>(iter: T) -> Self {
+        Self {
+            values: iter.into_iter().collect(),
+        }
+    }
+}
+
+// Consuming iterator: yields owned T by consuming the vector.
+impl<T: RSValueTrait> IntoIterator for RSSortingVector<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+    fn into_iter(self) -> Self::IntoIter {
+        // this does not use a new allocation
+        Vec::from(self.values).into_iter()
     }
 }
 

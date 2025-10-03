@@ -175,29 +175,23 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   // t_docId lastId             8
   // uint32_t numDocs           4
   // uint32_t gcMarker          4
-  // union {
-  //   t_fieldMask fieldMask;
-  //   uint64_t numEntries;
-  // };                        16
   // ----------------------------
-  // Total                     48
-  size_t ividx_memsize = sizeof(InvertedIndex);
-  size_t exp_ividx_memsize = 48;
-  ASSERT_EQ(exp_ividx_memsize, ividx_memsize);
+  // Total                     32
 
-  size_t idx_no_block_memsize = sizeof_InvertedIndex(indexFlags);
-  size_t exp_idx_no_block_memsize = useFieldMask ?
-                                    exp_ividx_memsize :
-                                    exp_ividx_memsize - exp_t_fieldMask_memsize;
-  ASSERT_EQ(exp_idx_no_block_memsize, idx_no_block_memsize);
+  size_t exp_idx_no_block_memsize = 32;
 
-  size_t block_memsize = sizeof(IndexBlock);
+  if (useFieldMask) {
+    exp_idx_no_block_memsize += t_fiedlMask_memsize;
+  }
+
+  // A block is 48 bytes with an initial buffer capacity
   size_t exp_block_memsize = 48;
-  ASSERT_EQ(exp_block_memsize, block_memsize);
 
-  size_t expectedIndexSize = exp_idx_no_block_memsize + exp_block_memsize + INDEX_BLOCK_INITIAL_CAP;
+  size_t exp_initial_block_cap = 6;
+
+  size_t expectedIndexSize = exp_idx_no_block_memsize + exp_block_memsize + exp_initial_block_cap;
   // The memory occupied by a new inverted index depends of its flags
-  // see NewInvertedIndex() and sizeof_InvertedIndex() for details
+  // see NewInvertedIndex() for details
   ASSERT_EQ(expectedIndexSize, index_memsize);
 
   for (size_t i = 0; i < 200; i++) {
@@ -468,14 +462,14 @@ TEST_F(IndexTest, testNumericInverted) {
   size_t expected_sz = 0;
   size_t written_bytes = 0;
   size_t bytes_per_entry = 0;
-  size_t buff_cap = INDEX_BLOCK_INITIAL_CAP;
-  size_t available_size = INDEX_BLOCK_INITIAL_CAP;
+  size_t buff_cap = 6; // Initial block capacity
+  size_t available_size = 6; // Nothing is used in the block yet
 
   for (int i = 0; i < 75; i++) {
     sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
     ASSERT_TRUE(sz == expected_sz);
 
-    // The buffer has an initial capacity: INDEX_BLOCK_INITIAL_CAP = 6
+    // The buffer has an initial capacity of 6 bytes
     // For values < 7 (tiny numbers) the header (H) and value (V) will occupy
     // only 1 byte.
     // For values >= 7, the header will occupy 1 byte, and the value 1 bytes.
@@ -984,7 +978,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
     ASSERT_EQ(IndexResult_NumValue(h), exp_dist);
-    ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
+    ASSERT_EQ(RSValue_Number_Get(h->metrics[0].value), exp_dist);
     count++;
   }
   ASSERT_EQ(count, n_expected_res);
@@ -1003,13 +997,13 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(vecIt->lastDocId, lowest_id + 10);
   double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
-  ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
+  ASSERT_EQ(RSValue_Number_Get(vecIt->current->metrics[0].value), exp_dist);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt, n-1), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, n-1);
   exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
-  ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
+  ASSERT_EQ(RSValue_Number_Get(vecIt->current->metrics[0].value), exp_dist);
 
   // Invalid SkipTo
   ASSERT_EQ(vecIt->SkipTo(vecIt, n+1), ITERATOR_EOF);
@@ -1309,9 +1303,10 @@ TEST_F(IndexTest, testIndexFlags) {
   // The memory occupied by a empty inverted index
   // created with INDEX_DEFAULT_FLAGS is 102 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof_InvertedIndex(index->flags)   48
-  // sizeof(IndexBlock)                   48
-  // INDEX_BLOCK_INITIAL_CAP               6
+  // sizeof InvertedIndex                 32
+  // storing fieldmask on idx             16
+  // sizeof IndexBlock                    48
+  // initial block capacity                6
   ASSERT_EQ(102, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
@@ -1348,9 +1343,9 @@ TEST_F(IndexTest, testIndexFlags) {
   // The memory occupied by a empty inverted index with
   // Index_StoreFieldFlags == 0 is 86 bytes
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof_InvertedIndex(index->flags)   32
-  // sizeof(IndexBlock)                   48
-  // INDEX_BLOCK_INITIAL_CAP               6
+  // sizeof InvertedIndex                 32
+  // sizeof IndexBlock                    48
+  // initial block capacity                6
   ASSERT_EQ(86, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
@@ -1466,7 +1461,7 @@ TEST_F(IndexTest, testVarintFieldMask) {
 
 TEST_F(IndexTest, testDeltaSplits) {
   size_t index_memsize = 0;
-  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &index_memsize);
+  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS | Index_WideSchema), &index_memsize);
   ForwardIndexEntry ent = {0};
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;
@@ -1511,21 +1506,21 @@ TEST_F(IndexTest, testRawDocId) {
   InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, &index_memsize);
 
   // Add a few entries, all with an odd docId
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
+  for (t_docId id = 1; id < 100; id += 2) {
     RSIndexResult rec = {.docId = id, .data = {.tag = RSResultData_Virtual}};
     InvertedIndex_WriteEntryGeneric(idx, &rec);
   }
 
   // Test that we can read them back
   QueryIterator *ir = NewInvIndIterator_TermFull(idx);
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
+  for (t_docId id = 1; id < 100; id += 2) {
     ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
     ASSERT_EQ(id, ir->lastDocId);
   }
   ASSERT_EQ(ITERATOR_EOF, ir->Read(ir));
 
   // Test that we can skip to all the ids
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id++) {
+  for (t_docId id = 1; id < 100; id++) {
     ir->Rewind(ir);
     IteratorStatus rc = ir->SkipTo(ir, id);
     RSIndexResult *cur = ir->current;

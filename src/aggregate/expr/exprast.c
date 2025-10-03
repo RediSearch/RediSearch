@@ -53,25 +53,22 @@ char *unescapeStringDup(const char *s, size_t sz, uint32_t *newSz) {
 
 RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Literal);
-  e->literal = RS_StaticValue(RSValue_String);
   uint32_t newLen;
-  e->literal.strval.str = unescapeStringDup(str, len, &newLen);
-  e->literal.strval.len = newLen;
-  e->literal.strval.stype = RSString_Malloc;
+  char* cleaned_str = unescapeStringDup(str,len, &newLen);
+  e->literal = RSValue_String(cleaned_str, newLen);
   return e;
 }
 
 RSExpr *RS_NewNullLiteral() {
   RSExpr *e = newExpr(RSExpr_Literal);
-  RSValue_MakeReference(&e->literal, RS_NullVal());
+  RSValue_MakeReference(&e->literal, RSValue_NullStatic());
   return e;
 }
 
 RSExpr *RS_NewNumberLiteral(double n) {
   RSExpr *e = newExpr(RSExpr_Literal);
 
-  e->literal = RS_StaticValue(RSValue_Number);
-  e->literal.numval = n;
+  e->literal = RSValue_Number(n);
   return e;
 }
 

@@ -106,9 +106,10 @@ HybridScoringContext* HybridScoringContext_NewRRF(double constant, size_t window
  *
  * @param weights Array of weight values to copy
  * @param numWeights Number of weights in the array
+ * @param window Window size for result processing
  * @return Allocated HybridScoringContext or NULL on failure
  */
-HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size_t numWeights) {
+HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size_t numWeights, size_t window) {
     if (!weights || numWeights == 0) return NULL;
 
     HybridScoringContext *ctx = rm_calloc(1, sizeof(HybridScoringContext));
@@ -122,6 +123,7 @@ HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size
     ctx->scoringType = HYBRID_SCORING_LINEAR;
     memcpy(ctx->linearCtx.linearWeights, weights, numWeights * sizeof(double));
     ctx->linearCtx.numWeights = numWeights;
+    ctx->linearCtx.window = window;
 
     return ctx;
 }

@@ -29,7 +29,7 @@ static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
     return 1;
   }
 
-  if (v->t != RSValue_Array) {
+  if (!RSValue_IsArray(v)) {
     if (RSValue_ToNumber(v, &d)) {
       QS_Insert(qs, d);
     }
@@ -48,7 +48,7 @@ static RSValue *quantileFinalize(Reducer *r, void *ctx) {
   QuantStream *qs = ctx;
   QTLReducer *qt = (QTLReducer *)r;
   double value = QS_Query(qs, qt->pct);
-  return RS_NumVal(value);
+  return RSValue_NewNumber(value);
 }
 
 static void quantileFreeInstance(Reducer *unused, void *p) {

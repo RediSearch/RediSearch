@@ -7,8 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
-use std::ops::{Deref, DerefMut};
+use rlookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow};
+use sorting_vector::RSSortingVector;
+use std::{
+    ffi::CString,
+    ops::{Deref, DerefMut},
+};
 use value::{RSValueMock, RSValueTrait};
 
 #[test]
@@ -222,4 +226,174 @@ fn test_reset() {
     assert_eq!(row.len(), 10);
     assert_eq!(row.num_dyn_values(), 10);
     assert_eq!(row.num_resize, 20);
+}
+
+#[test]
+fn test_rlookup_get_item_dynamic_values_success() {
+    // Test case 1: Successfully retrieve item from dynamic values
+    let mut row = RLookupRow::new();
+
+    let key1 = create_test_key(0, 0, RLookupKeyFlags::empty());
+    let key2 = create_test_key(1, 0, RLookupKeyFlags::empty());
+    row.write_key(
+        &key1,
+        RSValueMock::create_string("dynamic_value_1".to_string()),
+    );
+    row.write_key(
+        &key2,
+        RSValueMock::create_string("dynamic_value_2".to_string()),
+    );
+
+    let result = row.get(&key2);
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().as_str(), Some("dynamic_value_2"));
+
+    let result = row.get(&key1);
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().as_str(), Some("dynamic_value_1"));
+}
+
+#[test]
+fn test_rlookup_get_item_static_values_success() {
+    // Test case 2: Successfully retrieve item from sorting vector
+    let sv_value1 = RSValueMock::create_string("static_value_1".to_string());
+    let sv_value2 = RSValueMock::create_string("static_value_2".to_string());
+    let sv = RSSortingVector::from_iter([sv_value1, sv_value2]);
+
+    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new();
+    row.set_sorting_vector(&sv);
+
+    let mut flags = RLookupKeyFlags::empty();
+    flags.insert(RLookupKeyFlag::SvSrc);
+    let key = create_test_key(0, 1, flags);
+
+    let result = row.get(&key);
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().as_str(), Some("static_value_2"));
+}
+
+#[test]
+fn test_rlookup_get_item_missing_svsrc_flag() {
+    // Test case 3: SvSrc flag missing, should return None
+    let sv_value = RSValueMock::create_string("static_value".to_string());
+    let sv = RSSortingVector::from_iter([sv_value]);
+
+    let mut row = RLookupRow::new();
+    row.set_sorting_vector(&sv);
+
+    let key = create_test_key(0, 0, RLookupKeyFlags::empty()); // No SvSrc flag
+
+    let result = row.get(&key);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_rlookup_get_item_dynamic_out_of_bounds() {
+    // Test case 4: Dynamic values index out of bounds
+    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new();
+    let k1 = create_test_key(0, 0, RLookupKeyFlags::empty());
+    row.write_key(&k1, RSValueMock::create_string("dynamic_value".to_string()));
+
+    let key_out_of_bounds = create_test_key(5, 0, RLookupKeyFlags::empty()); // Out of bounds
+
+    let result = row.get(&key_out_of_bounds);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_rlookup_get_item_static_out_of_bounds() {
+    // Test case 5: Sorting vector index out of bounds
+    let sv_value = RSValueMock::create_string("static_value".to_string());
+    let sv = RSSortingVector::from_iter([sv_value]);
+
+    let mut row = RLookupRow::new();
+    row.set_sorting_vector(&sv);
+
+    let mut flags = RLookupKeyFlags::empty();
+    flags.insert(RLookupKeyFlag::SvSrc);
+    let key = create_test_key(0, 5, flags); // Out of bounds for sorting vector
+
+    let result = row.get(&key);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_rlookup_get_item_no_sorting_vector() {
+    // Test case 6: No sorting vector available
+    let row: RLookupRow<'_, RSValueMock> = RLookupRow::new(); // No sorting vector set
+
+    let mut flags = RLookupKeyFlags::empty();
+    flags.insert(RLookupKeyFlag::SvSrc);
+    let key = create_test_key(0, 0, flags);
+
+    let result = row.get(&key);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_rlookup_get_item_empty_dynamic_valid_static() {
+    // Test case 7: Empty dynamic values but valid sorting vector access
+    let sv_value = RSValueMock::create_string("static_value".to_string());
+    let sv = RSSortingVector::from_iter([sv_value]);
+
+    let mut row = RLookupRow::new();
+    // No dynamic values added
+    row.set_sorting_vector(&sv);
+
+    let mut flags = RLookupKeyFlags::empty();
+    flags.insert(RLookupKeyFlag::SvSrc);
+    let key = create_test_key(0, 0, flags); //
+
+    let result = row.get(&key);
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().as_str(), Some("static_value"));
+}
+
+#[test]
+fn test_rlookup_get_item_dynamic_none_value() {
+    // Test case 8: Dynamic value slot contains None
+    let mut row = RLookupRow::new();
+
+    let k1 = create_test_key(0, 0, RLookupKeyFlags::empty());
+    //row.write_key(&k1,); don't write any value, so it remains None
+
+    let k2 = create_test_key(1, 0, RLookupKeyFlags::empty());
+    row.write_key(&k2, RSValueMock::create_string("valid_value".to_string()));
+
+    let result = row.get(&k1);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_rlookup_get_item_priority_dynamic_over_static() {
+    // Test case 9: Dynamic values take priority over sorting vector
+    let sv = RSSortingVector::from_iter([RSValueMock::create_string("static_value".to_string())]);
+    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new();
+    let key = create_test_key(0, 0, RLookupKeyFlags::empty());
+    // Index 0 created for both
+    row.write_key(
+        &key,
+        RSValueMock::create_string("dynamic_value".to_string()),
+    );
+    row.set_sorting_vector(&sv);
+
+    let mut flags = RLookupKeyFlags::empty();
+    flags.insert(RLookupKeyFlag::SvSrc);
+
+    let key = create_test_key(0, 0, flags);
+    // asked for static, but dynamic should take priority
+    let result = row.get(&key);
+    assert!(result.is_some());
+    // Should return dynamic value, not static
+    assert_eq!(result.unwrap().as_str(), Some("dynamic_value"));
+}
+
+fn create_test_key(dstidx: u16, svidx: u16, flags: RLookupKeyFlags) -> RLookupKey<'static> {
+    let str = format!("mock_key_{}_{}", dstidx, svidx);
+    let cstring = CString::new(str).unwrap();
+    let mut key = RLookupKey::new(cstring, flags);
+    key.dstidx = dstidx;
+    key.svidx = svidx;
+
+    key
 }
