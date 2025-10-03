@@ -141,3 +141,49 @@ def test_highlight_empty_field_index_empty(env):
 
     result = env.cmd('FT.SEARCH', 'seattle_lisbon_index_empty', 'Dog', 'LIMIT', '0', '1', 'SORTBY', 'lisbon', 'DESC', 'HIGHLIGHT')
     verify_word_is_highlighted(env, result, '<b>Dog</b>')
+
+
+def test_highlight_empty_string_on_index_empty():
+    env = DialectEnv()
+    MAX_DIALECT = set_max_dialect(env)
+
+    # Test with dialect 2 (which should support empty string queries)
+    env.set_dialect(2)
+
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 't_idx', 'ON', 'HASH', 'MAXTEXTFIELDS', 'STOPWORDS', '0', 'SCHEMA',
+              't', 'TEXT', 'INDEXEMPTY').ok()
+
+    waitForIndex(env, 't_idx')
+
+    conn.hset('doc:4153814', mapping={
+        't': '',
+    })
+
+    result = env.cmd('FT.SEARCH', 't_idx', '@t:("")', 'HIGHLIGHT', 'FIELDS', '1', 't')
+    verify_word_is_highlighted(env, result, '<b></b>')
+
+
+def test_highlight_empty_string_not_index_empty():
+    env = DialectEnv()
+    MAX_DIALECT = set_max_dialect(env)
+
+    # Test with dialect 2 (which should support empty string queries)
+    env.set_dialect(2)
+
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 't_idx', 'ON', 'HASH', 'MAXTEXTFIELDS', 'STOPWORDS', '0', 'SCHEMA',
+              't', 'TEXT').ok()
+
+    waitForIndex(env, 't_idx')
+
+    conn.hset('doc:4153814', mapping={
+        't': '',
+    })
+
+    try:
+        _ = env.cmd('FT.SEARCH', 't_idx', '@t:("")', 'HIGHLIGHT', 'FIELDS', '1', 't')
+        env.assertTrue(False, "Expected query to fail but it succeeded")
+    except Exception as e:
+        expected_error = "Use `INDEXEMPTY` in field creation in order to index and query for empty strings"
+        env.assertIn(expected_error, str(e))
