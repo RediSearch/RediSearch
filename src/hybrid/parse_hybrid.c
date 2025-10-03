@@ -156,6 +156,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       }
       vq->knn.k = (size_t)kValue;
       pvd->hasExplicitK = true;
+      pvd->kValue = (size_t)kValue;
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
       if (hasEF) {
