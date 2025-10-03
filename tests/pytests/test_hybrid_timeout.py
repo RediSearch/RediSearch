@@ -4,19 +4,19 @@ from common import *
 
 # Test data with deterministic vectors
 test_data = {
-    'doc:1': {
+    'doc:1{hash_tag}': {
         'description': "red shoes",
         'embedding': np.array([0.0, 0.0]).astype(np.float32).tobytes()
     },
-    'doc:2': {
+    'doc:2{hash_tag}': {
         'description': "red running shoes",
         'embedding': np.array([1.0, 0.0]).astype(np.float32).tobytes()
     },
-    'doc:3': {
+    'doc:3{hash_tag}': {
         'description': "running gear",
         'embedding': np.array([0.0, 1.0]).astype(np.float32).tobytes()
     },
-    'doc:4': {
+    'doc:4{hash_tag}': {
         'description': "blue shoes",
         'embedding': np.array([1.0, 1.0]).astype(np.float32).tobytes()
     }
@@ -115,9 +115,9 @@ def test_debug_timeout_return_with_results():
                        'TIMEOUT_AFTER_N_SEARCH', '1', 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '4')
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
-    env.assertTrue('doc:3' in results.keys())
+    env.assertTrue('doc:3{hash_tag}' in results.keys())
     # Expect exactly one document from VSIM since the timeout occurred after processing one result - should be either doc:2 or doc:4
-    env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
+    env.assertTrue(('doc:2{hash_tag}' in results.keys()) ^ ('doc:4{hash_tag}' in results.keys()))
 
 # Warning and error tests
 #TODO: remove skip once FT.HYBRID for cluster is implemented
@@ -127,7 +127,7 @@ def test_maxprefixexpansions_warning_search_only():
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
     conn = env.getClusterConnectionIfNeeded()
-    conn.execute_command('HSET', 'doc:5', 'description', 'runo')
+    conn.execute_command('HSET', 'doc:5{hash_tag}', 'description', 'runo')
     conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
 
     # Only SEARCH returns results, VSIM returns empty
@@ -142,7 +142,7 @@ def test_maxprefixexpansions_warning_vsim_only():
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
     conn = env.getClusterConnectionIfNeeded()
-    conn.execute_command('HSET', 'doc:5', 'description', 'runo')
+    conn.execute_command('HSET', 'doc:5{hash_tag}', 'description', 'runo')
     conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
 
     # Only VSIM returns results, SEARCH returns empty
@@ -157,7 +157,7 @@ def test_maxprefixexpansions_warning_both_components():
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
     conn = env.getClusterConnectionIfNeeded()
-    conn.execute_command('HSET', 'doc:5', 'description', 'runo')
+    conn.execute_command('HSET', 'doc:5{hash_tag}', 'description', 'runo')
     conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
 
     # Both SEARCH and VSIM return results

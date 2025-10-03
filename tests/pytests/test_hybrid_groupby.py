@@ -35,19 +35,19 @@ def setup_hybrid_groupby_index(env):
     # Place documents at specific L2 distances from query vector [0,0]
     test_docs = {
         # Distance 1 (3 docs)
-        'doc:1': {'description': 'red sports car', 'category': 'automotive', 'embedding': np.array([1.0, 0.0]).astype(np.float32).tobytes()},
-        'doc:2': {'description': 'red racing vehicle', 'category': 'automotive', 'embedding': np.array([0.0, 1.0]).astype(np.float32).tobytes()},
-        'doc:3': {'description': 'red dress shirt', 'category': 'clothing', 'embedding': np.array([-1.0, 0.0]).astype(np.float32).tobytes()},
+        'doc:1{hash_tag}': {'description': 'red sports car', 'category': 'automotive', 'embedding': np.array([1.0, 0.0]).astype(np.float32).tobytes()},
+        'doc:2{hash_tag}': {'description': 'red racing vehicle', 'category': 'automotive', 'embedding': np.array([0.0, 1.0]).astype(np.float32).tobytes()},
+        'doc:3{hash_tag}': {'description': 'red dress shirt', 'category': 'clothing', 'embedding': np.array([-1.0, 0.0]).astype(np.float32).tobytes()},
 
         # Distance 2 (3 docs)
-        'doc:4': {'description': 'red winter jacket', 'category': 'clothing', 'embedding': np.array([2.0, 0.0]).astype(np.float32).tobytes()},
-        'doc:5': {'description': 'red leather shoes', 'category': 'footwear', 'embedding': np.array([0.0, 2.0]).astype(np.float32).tobytes()},
-        'doc:6': {'description': 'red running sneakers', 'category': 'footwear', 'embedding': np.array([-2.0, 0.0]).astype(np.float32).tobytes()},
+        'doc:4{hash_tag}': {'description': 'red winter jacket', 'category': 'clothing', 'embedding': np.array([2.0, 0.0]).astype(np.float32).tobytes()},
+        'doc:5{hash_tag}': {'description': 'red leather shoes', 'category': 'footwear', 'embedding': np.array([0.0, 2.0]).astype(np.float32).tobytes()},
+        'doc:6{hash_tag}': {'description': 'red running sneakers', 'category': 'footwear', 'embedding': np.array([-2.0, 0.0]).astype(np.float32).tobytes()},
 
         # Distance 3 (3 docs)
-        'doc:7': {'description': 'red apple fruit', 'category': 'food', 'embedding': np.array([3.0, 0.0]).astype(np.float32).tobytes()},
-        'doc:8': {'description': 'red cherry tomato', 'category': 'food', 'embedding': np.array([0.0, 3.0]).astype(np.float32).tobytes()},
-        'doc:9': {'description': 'red exercise equipment', 'category': 'fitness', 'embedding': np.array([-3.0, 0.0]).astype(np.float32).tobytes()},
+        'doc:7{hash_tag}': {'description': 'red apple fruit', 'category': 'food', 'embedding': np.array([3.0, 0.0]).astype(np.float32).tobytes()},
+        'doc:8{hash_tag}': {'description': 'red cherry tomato', 'category': 'food', 'embedding': np.array([0.0, 3.0]).astype(np.float32).tobytes()},
+        'doc:9{hash_tag}': {'description': 'red exercise equipment', 'category': 'fitness', 'embedding': np.array([-3.0, 0.0]).astype(np.float32).tobytes()},
     }
 
     for doc_id, doc_data in test_docs.items():

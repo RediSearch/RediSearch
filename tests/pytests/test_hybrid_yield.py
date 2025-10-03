@@ -30,19 +30,19 @@ The test data creates a 2D vector space with 4 documents positioned as follows:
 
 # Test data with deterministic vectors
 test_data = {
-    'doc:1': {
+    'doc:1{hash_tag}': {
         'description': "red shoes",
         'embedding': np.array([0.0, 0.0]).astype(np.float32).tobytes()
     },
-    'doc:2': {
+    'doc:2{hash_tag}': {
         'description': "red running shoes",
         'embedding': np.array([1.0, 0.0]).astype(np.float32).tobytes()
     },
-    'doc:3': {
+    'doc:3{hash_tag}': {
         'description': "running gear",
         'embedding': np.array([0.0, 1.0]).astype(np.float32).tobytes()
     },
-    'doc:4': {
+    'doc:4{hash_tag}': {
         'description': "blue shoes",
         'embedding': np.array([1.0, 1.0]).astype(np.float32).tobytes()
     }
@@ -116,7 +116,7 @@ def test_hybrid_vsim_range_yield_score_as():
         returned_distance = float(doc_result['vector_score'])
         expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
-        
+
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -186,7 +186,7 @@ def test_hybrid_vsim_range_both_yield_distance_and_score():
     # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                'RANGE', '6', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
-    
+
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)

@@ -5,103 +5,103 @@ from common import *
 
 # Test data simulating bikes dataset with "light" related terms
 bikes_test_data = {
-    'bike:1': {
+    'bike:1{hash_tag}': {
         'description': "lightweight carbon fiber road bike",
         'category': 'road',
         'embedding': np.array([0.1, 0.2, 0.3, 0.4]).astype(np.float32).tobytes()
     },
-    'bike:2': {
+    'bike:2{hash_tag}': {
         'description': "light mountain bike for trails",
         'category': 'mountain',
         'embedding': np.array([0.2, 0.3, 0.4, 0.5]).astype(np.float32).tobytes()
     },
-    'bike:3': {
+    'bike:3{hash_tag}': {
         'description': "lighting system for night cycling",
         'category': 'accessory',
         'embedding': np.array([0.3, 0.4, 0.5, 0.6]).astype(np.float32).tobytes()
     },
-    'bike:4': {
+    'bike:4{hash_tag}': {
         'description': "light touring bike with panniers",
         'category': 'touring',
         'embedding': np.array([0.4, 0.5, 0.6, 0.7]).astype(np.float32).tobytes()
     },
-    'bike:5': {
+    'bike:5{hash_tag}': {
         'description': "lightweight electric bike",
         'category': 'electric',
         'embedding': np.array([0.5, 0.6, 0.7, 0.8]).astype(np.float32).tobytes()
     },
-    'bike:6': {
+    'bike:6{hash_tag}': {
         'description': "light hybrid bike for commuting",
         'category': 'hybrid',
         'embedding': np.array([0.6, 0.7, 0.8, 0.9]).astype(np.float32).tobytes()
     },
-    'bike:7': {
+    'bike:7{hash_tag}': {
         'description': "lighting accessories and reflectors",
         'category': 'accessory',
         'embedding': np.array([0.7, 0.8, 0.9, 1.0]).astype(np.float32).tobytes()
     },
-    'bike:8': {
+    'bike:8{hash_tag}': {
         'description': "light gravel bike for adventure",
         'category': 'gravel',
         'embedding': np.array([0.8, 0.9, 1.0, 0.1]).astype(np.float32).tobytes()
     },
-    'bike:9': {
+    'bike:9{hash_tag}': {
         'description': "lightweight folding bike",
         'category': 'folding',
         'embedding': np.array([0.9, 1.0, 0.1, 0.2]).astype(np.float32).tobytes()
     },
-    'bike:10': {
+    'bike:10{hash_tag}': {
         'description': "light city bike with basket",
         'category': 'city',
         'embedding': np.array([1.0, 0.1, 0.2, 0.3]).astype(np.float32).tobytes()
     },
-    'bike:11': {
+    'bike:11{hash_tag}': {
         'description': "lighting kit for bike safety",
         'category': 'accessory',
         'embedding': np.array([0.1, 0.3, 0.5, 0.7]).astype(np.float32).tobytes()
     },
-    'bike:12': {
+    'bike:12{hash_tag}': {
         'description': "light BMX bike for tricks",
         'category': 'bmx',
         'embedding': np.array([0.2, 0.4, 0.6, 0.8]).astype(np.float32).tobytes()
     },
-    'bike:13': {
+    'bike:13{hash_tag}': {
         'description': "lightweight racing bike",
         'category': 'road',
         'embedding': np.array([0.3, 0.5, 0.7, 0.9]).astype(np.float32).tobytes()
     },
-    'bike:14': {
+    'bike:14{hash_tag}': {
         'description': "light cruiser bike for beach",
         'category': 'cruiser',
         'embedding': np.array([0.4, 0.6, 0.8, 1.0]).astype(np.float32).tobytes()
     },
-    'bike:15': {
+    'bike:15{hash_tag}': {
         'description': "lighting solutions for cyclists",
         'category': 'accessory',
         'embedding': np.array([0.5, 0.7, 0.9, 0.1]).astype(np.float32).tobytes()
     },
     # Add some non-matching documents
-    'bike:16': {
+    'bike:16{hash_tag}': {
         'description': "heavy duty cargo bike",
         'category': 'cargo',
         'embedding': np.array([0.6, 0.8, 1.0, 0.2]).astype(np.float32).tobytes()
     },
-    'bike:17': {
+    'bike:17{hash_tag}': {
         'description': "robust mountain bike frame",
         'category': 'mountain',
         'embedding': np.array([0.7, 0.9, 0.1, 0.3]).astype(np.float32).tobytes()
     },
-    'bike:18': {
+    'bike:18{hash_tag}': {
         'description': "durable commuter bike",
         'category': 'city',
         'embedding': np.array([0.8, 1.0, 0.2, 0.4]).astype(np.float32).tobytes()
     },
-    'bike:19': {
+    'bike:19{hash_tag}': {
         'description': "sturdy touring bicycle",
         'category': 'touring',
         'embedding': np.array([0.9, 0.1, 0.3, 0.5]).astype(np.float32).tobytes()
     },
-    'bike:20': {
+    'bike:20{hash_tag}': {
         'description': "solid steel frame bike",
         'category': 'road',
         'embedding': np.array([1.0, 0.2, 0.4, 0.6]).astype(np.float32).tobytes()
