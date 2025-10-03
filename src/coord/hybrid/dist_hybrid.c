@@ -184,6 +184,36 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   return REDISMODULE_OK;
 }
 
+static void hybridRequestSetupCoordinatorSubqueriesRequests(HybridRequest *hreq, const HybridPipelineParams *hybridParams) {
+  RS_ASSERT(hybridParams->scoringCtx);
+  size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+
+  bool isKNN = hreq->requests[VECTOR_INDEX]->ast.root->type == QN_VECTOR;
+  size_t K = isKNN ? hreq->requests[VECTOR_INDEX]->ast.root->vn.vq->knn.k : 0;
+
+  array_free_ex(hreq->requests, AREQ_Free(*(AREQ**)ptr));
+  hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
+  hreq->nrequests = array_len(hreq->requests);
+
+  AREQ_AddRequestFlags(hreq->requests[SEARCH_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
+  AREQ_AddRequestFlags(hreq->requests[VECTOR_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
+
+  PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[SEARCH_INDEX]));
+  searchArrangeStep->limit = window;
+
+  PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[VECTOR_INDEX]));
+  if (isKNN) {
+    // Vector subquery is a KNN query
+    // Heapsize should be min(window, KNN K)
+    // ast structure is: root = vector node <- filter node <- ... rest
+    vectorArrangeStep->limit = MIN(window, K);
+  } else {
+    // its range, limit = window
+    vectorArrangeStep->limit = window;
+  }
+
+}
+
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
         RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
 
@@ -215,18 +245,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     AREQDIST_UpstreamInfo us = {NULL};
 
-    array_free_ex(hreq->requests, AREQ_Free(*(AREQ**)ptr));
-    hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
-    hreq->nrequests = array_len(hreq->requests);
+    hybridRequestSetupCoordinatorSubqueriesRequests(hreq, &hybridParams);
 
-    AREQ_AddRequestFlags(hreq->requests[0], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
-    AREQ_AddRequestFlags(hreq->requests[1], QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY);
-
-    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[0]));
-    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[1]));
-
-
-    // rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, &us, status);
     rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, &hybridParams);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
