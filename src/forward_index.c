@@ -223,13 +223,13 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 
 }
 
-int forwardIndexTokenFunc(void *ctx, const Token *tokInfo, bool handle_only_highlighting_offsets) {
+int forwardIndexTokenFunc(void *ctx, const Token *tokInfo, bool handleOnlyOffsets) {
 #define SYNONYM_BUFF_LEN 100
   const ForwardIndexTokenizerCtx *tokCtx = ctx;
   if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
     VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
   }
-  if (handle_only_highlighting_offsets) {
+  if (handleOnlyOffsets) {
     return 0;
   }
   int options = TOKOPT_F_RAW;  // this is the actual word given in the query

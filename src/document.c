@@ -434,8 +434,8 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       Token tok = {0};
       while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok)) {
         // Decide whether tokenization needs to add empty tokens to forward index or they only need to handle the byte offsets needed for highlighting
-        bool handle_only_highlighting_offsets = (tok.tokLen == 0 && !indexesEmpty);
-        forwardIndexTokenFunc(&tokCtx, &tok, handle_only_highlighting_offsets);
+        bool handleOnlyOffsets = (tok.tokLen == 0 && !indexesEmpty);
+        forwardIndexTokenFunc(&tokCtx, &tok, handleOnlyOffsets);
         if (tok.allocatedTok) {
           rm_free(tok.allocatedTok);
           tok.allocatedTok = NULL;

@@ -75,7 +75,7 @@ typedef struct {
   uint32_t curBucketIdx;
 } ForwardIndexIterator;
 
-int forwardIndexTokenFunc(void *ctx, const Token *tokInfo, bool handle_only_highlighting_offsets);
+int forwardIndexTokenFunc(void *ctx, const Token *tokInfo, bool handleOnlyOffsets);
 void ForwardIndexFree(ForwardIndex *idx);
 
 void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags);
