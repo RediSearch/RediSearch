@@ -1759,6 +1759,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
          r = rm_calloc(1, sizeof(*r));
        } else {
          SearchResult_Clear(r);
+         --consumed; // avoid wrong rank in RRF
        }
    }
    rm_free(r);
