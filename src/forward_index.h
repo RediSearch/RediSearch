@@ -68,7 +68,7 @@ typedef struct {
   uint32_t curBucketIdx;
 } ForwardIndexIterator;
 
-int forwardIndexTokenFunc(void *ctx, const Token *tokInfo);
+int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo);
 void ForwardIndexFree(ForwardIndex *idx);
 
 void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags);
