@@ -223,9 +223,25 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 
 }
 
-int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
+/**
+ * Token processing function for forward index construction.
+ *
+ * This function is called for each token during the tokenization process
+ * when building or updating a forward index. It processes individual tokens
+ * and integrates them into the forward index data structure.
+ *
+ * @param tokCtx    Pointer to the forward index tokenizer context containing
+ *                  state information and configuration for the tokenization process
+ * @param tokInfo   Pointer to the token information structure containing
+ *                  the token text, position, attributes, and other metadata
+ *
+ * @return int      Status code indicating success (0) or error condition:
+ *                  - 0: Token processed successfully
+ *                  - Non-zero: Error occurred during token processing
+ *
+ */
+int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
-  const ForwardIndexTokenizerCtx *tokCtx = ctx;
   int options = TOKOPT_F_RAW;  // this is the actual word given in the query
   if (tokInfo->flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
@@ -233,10 +249,6 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   }
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, options);
-
-  if (tokCtx->allOffsets) {
-    VVW_Write(tokCtx->allOffsets, tokInfo->raw - tokCtx->doc);
-  }
 
   if (tokInfo->stem) {
     int stemopts = TOKOPT_F_STEM;
