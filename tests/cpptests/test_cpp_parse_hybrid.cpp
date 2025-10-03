@@ -360,7 +360,53 @@ TEST_F(ParseHybridTest, testNoSortByWillHaveImplicitSort) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 }
 
-// Tests for parseVectorSubquery functionality (VSIM tests)
+TEST_F(ParseHybridTest, testParsedVectorDataImplicitKNN) {
+  // Test with no KNN/RANGE specified - should default to KNN type with default K
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  AREQ* vecReq = result.vector;
+  ParsedVectorData* pvd = vecReq->parsedVectorData;
+
+  // Validate defaults: KNN type with default K value
+  ASSERT_EQ(pvd->queryType, VECSIM_QT_KNN) << "Query type should default to KNN";
+  ASSERT_EQ(pvd->kValue, HYBRID_DEFAULT_KNN_K) << "K value should be default";
+  ASSERT_FALSE(pvd->hasExplicitK) << "hasExplicitK should be false for implicit";
+}
+
+TEST_F(ParseHybridTest, testParsedVectorDataExplicitKNN) {
+  // Test explicit KNN with K value - should validate type and explicit K
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "15", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  AREQ* vecReq = result.vector;
+  ParsedVectorData* pvd = vecReq->parsedVectorData;
+
+  // Validate explicit KNN with specific K value
+  ASSERT_EQ(pvd->queryType, VECSIM_QT_KNN) << "Query type should be KNN";
+  ASSERT_EQ(pvd->kValue, 15) << "K value should be explicitly set to 15";
+  ASSERT_TRUE(pvd->hasExplicitK) << "hasExplicitK should be true for explicit K";
+}
+
+TEST_F(ParseHybridTest, testParsedVectorDataRange) {
+  // Test RANGE query - should validate RANGE type
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "RANGE", "2", "RADIUS", "0.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  AREQ* vecReq = result.vector;
+  ParsedVectorData* pvd = vecReq->parsedVectorData;
+
+  // Validate RANGE query type
+  ASSERT_EQ(pvd->queryType, VECSIM_QT_RANGE) << "Query type should be RANGE";
+}
 
 TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   // Parse hybrid request

@@ -354,6 +354,8 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   vq->knn.k = HYBRID_DEFAULT_KNN_K;
   vq->knn.order = BY_SCORE;
   pvd->hasExplicitK = false;
+  pvd->kValue = HYBRID_DEFAULT_KNN_K;
+  pvd->queryType = VECSIM_QT_KNN;
 
   if (AC_IsAtEnd(ac)) goto final;
 
@@ -370,6 +372,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
     vq->type = VECSIM_QT_RANGE;
     vq->range.order = BY_SCORE;
+    pvd->queryType = VECSIM_QT_RANGE;
   }
 
   // Check for optional FILTER clause - argument may not be in our scope
