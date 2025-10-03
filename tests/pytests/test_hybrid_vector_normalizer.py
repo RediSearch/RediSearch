@@ -61,19 +61,19 @@ def create_test_data(data_type):
     """Create test data with the specified data type"""
     epsilon = 1e-2
     return {
-        'doc:1': {
+        'doc:1{hash_tag}': {
             'description': "red shoes",
             'embedding': np.array([0.0 + epsilon, 0.0 + epsilon], dtype=data_type.lower()).tobytes()
         },
-        'doc:2': {
+        'doc:2{hash_tag}': {
             'description': "red running shoes",
             'embedding': np.array([10.0 + epsilon, 0.0 + epsilon], dtype=data_type.lower()).tobytes()
         },
-        'doc:3': {
+        'doc:3{hash_tag}': {
             'description': "running gear",
             'embedding': np.array([0.0 + epsilon, 10.0 + epsilon], dtype=data_type.lower()).tobytes()
         },
-        'doc:4': {
+        'doc:4{hash_tag}': {
             'description': "blue shoes",
             'embedding': np.array([10.0 + epsilon, 10.0 + epsilon], dtype=data_type.lower()).tobytes()
         }

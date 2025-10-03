@@ -65,21 +65,21 @@ class testHybridSearch:
             text_value = f"{words[i % len(words)]} {tag_value}"
 
             # Create documents with only text
-            p.execute_command('HSET', f'text_{i:02d}',
+            p.execute_command('HSET', f'text_{i:02d}{{hash_tag}}',
                               'text', f'text {text_value}',
                               'number', i,
                               'tag', tag_value)
 
             # Create documents with only vector
             vector_value_1 = np.random.rand(dim).astype(np.float32).tobytes()
-            p.execute_command('HSET', f'vector_{i:02d}',
+            p.execute_command('HSET', f'vector_{i:02d}{{hash_tag}}',
                               'vector', vector_value_1,
                               'vector_hnsw', vector_value_1,
                               'number', i, 'tag', tag_value)
 
             # Create documents with both vector and text data
             vector_value_2 = np.random.rand(dim).astype(np.float32).tobytes()
-            p.execute_command('HSET', f'both_{i:02d}',
+            p.execute_command('HSET', f'both_{i:02d}{{hash_tag}}',
                               'vector', vector_value_2,
                               'vector', vector_value_2,
                               'text', f'both {text_value}',
@@ -260,9 +260,9 @@ class testHybridSearch:
             'total_results', 3,
             'results',
             [
-                ['__key', 'both_01', '__score', '0.5'],
-                ['__key', 'both_05', '__score', '0.5'],
-                ['__key', 'vector_01', '__score', '0.333333333333']
+                ['__key', 'both_01{hash_tag}', '__score', '0.5'],
+                ['__key', 'both_05{hash_tag}', '__score', '0.5'],
+                ['__key', 'vector_01{hash_tag}', '__score', '0.333333333333']
             ],
             'warnings', [],
             'execution_time', ANY
@@ -285,10 +285,10 @@ class testHybridSearch:
         results = access_nested_list(res, results_index)
         self.env.assertEqual(
             results[0],
-            ['my_key', 'text_04'])
+            ['my_key', 'text_04{hash_tag}'])
         self.env.assertEqual(
             results[1],
-            ['my_key', 'both_04'])
+            ['my_key', 'both_04{hash_tag}'])
 
     # # TODO: Enable this test after fixing MOD-10987
     # def test_knn_load_score(self):
@@ -431,9 +431,9 @@ class testHybridSearch:
             'total_results', 3,
             'results',
             [
-                ['__key', 'vector_01', '__score', '0.333333333333'],
-                ['__key', 'both_05', '__score', '0.5'],
-                ['__key', 'both_01', '__score', '0.5'],
+                ['__key', 'vector_01{hash_tag}', '__score', '0.333333333333'],
+                ['__key', 'both_05{hash_tag}', '__score', '0.5'],
+                ['__key', 'both_01{hash_tag}', '__score', '0.5'],
             ],
             'warnings', [],
             'execution_time', ANY
@@ -453,9 +453,9 @@ class testHybridSearch:
             'total_results', 3,
             'results',
             [
-                ['__key', 'vector_01', '__score', '0.333333333333'],
-                ['__key', 'both_01', '__score', '0.5'],
-                ['__key', 'both_05', '__score', '0.5'],
+                ['__key', 'vector_01{hash_tag}', '__score', '0.333333333333'],
+                ['__key', 'both_01{hash_tag}', '__score', '0.5'],
+                ['__key', 'both_05{hash_tag}', '__score', '0.5'],
             ],
             'warnings', [],
             'execution_time', ANY
@@ -481,9 +481,9 @@ class testHybridSearch:
             'total_results', 3,
             'results',
             [
-                ['number', '5', '__key', 'both_05', '__score', '0.5', '10_minus_number', '5'],
-                ['number', '1', '__key', 'both_01', '__score', '0.5', '10_minus_number', '9'],
-                ['number', '1', '__key', 'vector_01', '__score', '0.333333333333', '10_minus_number', '9']
+                ['number', '5', '__key', 'both_05{hash_tag}', '__score', '0.5', '10_minus_number', '5'],
+                ['number', '1', '__key', 'both_01{hash_tag}', '__score', '0.5', '10_minus_number', '9'],
+                ['number', '1', '__key', 'vector_01{hash_tag}', '__score', '0.333333333333', '10_minus_number', '9']
             ],
             'warnings', [],
             'execution_time', ANY
@@ -568,7 +568,7 @@ class testHybridSearch:
 
         # Add post-filter and re-run
         hybrid_cmd.append('FILTER')
-        hybrid_cmd.append('@__key == "both_01"')
+        hybrid_cmd.append('@__key == "both_01{hash_tag}"')
         filtered_res = self.env.executeCommand(*hybrid_cmd)
         filtered_dict = to_dict(filtered_res)
 
@@ -581,7 +581,7 @@ class testHybridSearch:
             'total_results', 1,
             'results',
             [
-                ['__key', 'both_01', '__score', '0.45']
+                ['__key', 'both_01{hash_tag}', '__score', '0.45']
             ],
             'warnings', [],
             'execution_time', ANY
