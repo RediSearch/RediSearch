@@ -369,8 +369,8 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
  * Write the byte offset of the token to the byte offset writer. This is used for highlighting.
  */
 static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo) {
-  if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
-    VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
+  if (tokCtx->allOffsets) {
+    VVW_Write(tokCtx->allOffsets, tokInfo->raw - tokCtx->doc);
   }
 }
 
