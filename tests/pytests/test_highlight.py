@@ -181,9 +181,4 @@ def test_highlight_empty_string_not_index_empty():
         't': '',
     })
 
-    try:
-        _ = env.cmd('FT.SEARCH', 't_idx', '@t:("")', 'HIGHLIGHT', 'FIELDS', '1', 't')
-        env.assertTrue(False, "Expected query to fail but it succeeded")
-    except Exception as e:
-        expected_error = "Use `INDEXEMPTY` in field creation in order to index and query for empty strings"
-        env.assertIn(expected_error, str(e))
+    env.expect('FT.SEARCH', 't_idx', '@t:("")', 'HIGHLIGHT', 'FIELDS', '1', 't').error().contains("Use `INDEXEMPTY` in field creation in order to index and query for empty strings")
