@@ -655,6 +655,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // We need a load step, implicit or an explicit one
   PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
   if (!loadStep) {
+    // TBH don't think we need this implicit step, added to somehow affect the resulting response format
+    // We wanted that by default the key and score would be returned to the user
+    // This should probably be done in the hybrid send chunk where we decide on the response format.
+    // For now keeping it as is - due to time constraints
     loadStep = createImplicitLoadStep();
   } else {
     AGPLN_PopStep(&loadStep->base);
