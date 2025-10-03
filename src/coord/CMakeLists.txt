@@ -38,7 +38,7 @@ include_directories(
 
 add_subdirectory(rmr)
 
-file(GLOB COORDINATOR_SRC *.c *.cpp)
+file(GLOB_RECURSE COORDINATOR_SRC *.c *.cpp)
 add_library(coordinator-core OBJECT ${COORDINATOR_SRC})
 
 

@@ -117,6 +117,8 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                           ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_TYPED,
                           ARG_OPT_CALLBACK, handleNumSString, ctx,
                           ARG_OPT_OPTIONAL, ARG_OPT_END);
+
+        //TODO : add INDEX_PREFIXES
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",
@@ -172,6 +174,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     // Parse the arguments
     ArgParseResult parseResult = ArgParser_Parse(parser);
+
     // Check for errors from callbacks
     if (QueryError_HasError(status)) {
         ArgParser_Free(parser);

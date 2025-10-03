@@ -106,6 +106,8 @@ void HybridRequest_ClearErrors(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
+AREQ **MakeDefaultHybridUpstreams(RedisSearchCtx *sctx);
+
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
 
 /**
@@ -115,6 +117,10 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
  * @param status The query error status to potentially modify with additional context
  */
 void AddValidationErrorContext(AREQ *req, QueryError *status);
+
+inline AGGPlan *HybridRequest_TailAGGPlan(HybridRequest *hreq) {
+  return &hreq->tailPipeline->ap;
+}
 
 #ifdef __cplusplus
 }

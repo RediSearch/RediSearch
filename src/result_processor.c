@@ -1762,6 +1762,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
          --consumed; // avoid wrong rank in RRF
        }
    }
+   RLookup_AddKeysFrom(self->lookupCtx->sourceLookups[upstreamIndex], self->lookupCtx->tailLookup, RLOOKUP_F_NOFLAGS);
    rm_free(r);
    return rc;
  }

@@ -7,6 +7,7 @@ include_directories("${gtest_SOURCE_DIR}/include")
 include_directories(${root}/src)
 include_directories(${root}/deps)
 include_directories(${root}/src/coord/rmr)
+include_directories(${root}/src/coord/hybrid)
 include_directories(..)
 include_directories(.)
 
