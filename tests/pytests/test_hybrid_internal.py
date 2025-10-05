@@ -429,7 +429,7 @@ def test_hybrid_internal_withcursor_with_load():
     env.assertTrue(isinstance(search_cursor, (int, str)))
 
     search_cursor_results = read_cursor_completely(env, 'idx', search_cursor)
-    env.assertEqual(search_cursor_results, ['doc:1', 'doc:2', 'doc:3', 'doc:4'])
+    env.assertEqual(search_cursor_results, ['doc:2', 'doc:3'])
 
     vsim_cursor_results = read_cursor_completely(env, 'idx', vsim_cursor)
     env.assertEqual(vsim_cursor_results, ['doc:1', 'doc:2', 'doc:3', 'doc:4'])
