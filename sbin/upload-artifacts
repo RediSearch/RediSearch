@@ -176,9 +176,13 @@ s3_upload() {
 
         for file in "${files[@]}"; do
             local base_name=$(basename "$file")
-            # Remove .master. from filename and add BETA_VERSION
+            # Remove .master. from beta version filename and add BETA_VERSION
             local new_name="${base_name/.master./.${BETA_VERSION}.}"
-            $OP aws s3 cp "$file" "${upload_dir}/${new_name}" --acl public-read --no-progress
+            # Create temp file with new name
+            local temp_file="./${new_name}"
+            cp "$file" "$temp_file"
+            s3_upload_file "$temp_file" "$upload_dir"
+            rm -f "$temp_file"
         done
         echo "Beta upload complete to $upload_dir"
     fi
