@@ -18,7 +18,7 @@ extern "C" {
 
 extern RedisJSONAPI *japi;
 extern int japi_ver;
-// extern RedisModuleCtx *RSDummyContext;
+#define RedisJSONAPI_MIN_API_VER 6
 
 #define JSON_ROOT "$"
 
@@ -37,11 +37,13 @@ typedef struct {
     struct {
       RedisJSON arr;
       size_t index;
+      RedisJSON value;
     } array;
   };
 } JSONIterable;
 
 RedisJSON JSONIterable_Next(JSONIterable *iterable);
+void JSONIterable_Clean(JSONIterable *iterable); // Like free, but does not free the `iterable` pointer itself
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange);
 
