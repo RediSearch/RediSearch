@@ -9,6 +9,7 @@ GET_PLATFORM="$ROOT/sbin/get-platform"
 
 eprint() { >&2 echo "$@"; }
 
+
 print_help() {
     cat <<-END
 Usage: upload-artifacts [OPTIONS] [artifacts...]
@@ -139,11 +140,11 @@ s3_upload() {
 
     if [[ -z "$file_prefix" || -z "$product_name" ]]; then
         eprint "Error: Missing required parameters"
-        eprint "Usage: s3_upload <file_prefix> <product_name>"
+        eprint "Usage: s3_upload <product_name> <file_prefix>"
         return 1
     fi
 
-    local upload_dir="${S3_URL}/${product_name}/snapshots"
+
     local files file
 
     # print the current folder name
@@ -156,10 +157,31 @@ s3_upload() {
         return 0
     fi
 
+    # Always upload to snapshots with original filename
+    local subdir="snapshots"
+    local upload_dir="${S3_URL}/${product_name}/${subdir}"
+    echo "Uploading to snapshots directory: $upload_dir"
+
     for file in "${files[@]}"; do
         s3_upload_file "$file" "$upload_dir"
     done
-    echo "All uploads complete to $upload_dir"
+    echo "Snapshots upload complete to $upload_dir"
+
+    # For beta versions, also upload to beta directory with BETA_VERSION suffix
+    if [[ -n "$BETA_VERSION" ]]; then
+        echo "Beta version detected: $BETA_VERSION"
+        subdir="beta"
+        upload_dir="${S3_URL}/${product_name}/${subdir}"
+        echo "Also uploading to beta directory: $upload_dir"
+
+        for file in "${files[@]}"; do
+            local base_name=$(basename "$file")
+            # Remove .master. from filename and add BETA_VERSION
+            local new_name="${base_name/.master./.${BETA_VERSION}.}"
+            $OP aws s3 cp "$file" "${upload_dir}/${new_name}" --acl public-read --no-progress
+        done
+        echo "Beta upload complete to $upload_dir"
+    fi
 }
 upload_product() {
     local target="$1"

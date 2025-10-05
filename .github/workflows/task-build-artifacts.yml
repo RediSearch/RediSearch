@@ -208,5 +208,26 @@ jobs:
           aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
           aws configure set region "$AWS_REGION"
+      - name: Generate Beta Version unique identifier
+        id: beta-version
+        run: |
+          # Check if this is a beta version (99.99.99)
+          MAJOR=$(grep '#define REDISEARCH_VERSION_MAJOR' src/version.h | awk '{print $3}')
+          MINOR=$(grep '#define REDISEARCH_VERSION_MINOR' src/version.h | awk '{print $3}')
+          PATCH=$(grep '#define REDISEARCH_VERSION_PATCH' src/version.h | awk '{print $3}')
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          if [[ "$VERSION" == "99.99.99" ]]; then
+            # Generate timestamp at workflow start for consistent beta versioning
+            TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
+            # Add workflow number to ensure the version is unique (if multiple workflows started at the same time)
+            WORKFLOW_NUM=${{ github.run_number }}
+            BETA_VERSION="99.99.99.${TIMESTAMP}.${WORKFLOW_NUM}"
+            echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
+            echo "Beta version detected, using: $BETA_VERSION"
+          else
+            echo "Regular version detected: $VERSION"
+          fi
       - name: Upload Artifacts
+        env:
+          BETA_VERSION: ${{ steps.beta-version.outputs.BETA_VERSION }}
         run: make upload-artifacts
