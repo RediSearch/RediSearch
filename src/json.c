@@ -118,6 +118,22 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
   return rv;
 }
 
+static JSONIterable JSONIterable_FromArr(RedisJSON arr) {
+  return (JSONIterable) {
+    .type = ITERABLE_ARRAY,
+    .array.arr = arr,
+    .array.index = 0,
+    .array.value = japi->allocJson(),
+  };
+}
+
+static JSONIterable JSONIterable_FromIter(JSONResultsIterator iter) {
+  return (JSONIterable) {
+    .type = ITERABLE_ITER,
+    .iter = iter,
+  };
+}
+
 // Uncomment when support for more types is added
 // static int JSON_getInt32(RedisJSON json, int32_t *val) {
 //   long long temp;
@@ -228,14 +244,16 @@ static int JSON_getInt8(RedisJSON json, int8_t *val) {
 
 typedef int (*getJSONElementFunc)(RedisJSON, void *);
 int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement, char *target, unsigned char step, QueryError* status) {
+  RedisJSON element = japi->allocJson();
   for (int i = 0; i < len; ++i) {
-    RedisJSON json = japi->getAt(arr, i);
-    if (getElement(json, target) != REDISMODULE_OK) {
+    if (japi->getAt(arr, i, element) != REDISMODULE_OK || getElement(element, target) != REDISMODULE_OK) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
+      japi->freeJson(element);
       return REDISMODULE_ERR;
     }
     target += step;
   }
+  japi->freeJson(element);
   return REDISMODULE_OK;
 }
 
@@ -386,16 +404,17 @@ fail:
 }
 
 int JSON_StoreMultiVectorInDocFieldFromIter(FieldSpec *fs, JSONResultsIterator jsonIter, size_t len, struct DocumentField *df, QueryError *status) {
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
-                                      .iter = jsonIter};
-  return JSON_StoreMultiVectorInDocField(fs, &iter, len, df, status);
+  JSONIterable iter = JSONIterable_FromIter(jsonIter);
+  int ret = JSON_StoreMultiVectorInDocField(fs, &iter, len, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 int JSON_StoreMultiVectorInDocFieldFromArr(FieldSpec *fs, RedisJSON arr, size_t len, struct DocumentField *df, QueryError *status) {
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
-                                      .array.arr = arr,
-                                      .array.index = 0};
-  return JSON_StoreMultiVectorInDocField(fs, &iter, len, df, status);
+  JSONIterable iter = JSONIterable_FromArr(arr);
+  int ret = JSON_StoreMultiVectorInDocField(fs, &iter, len, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df, QueryError *status) {
@@ -406,8 +425,12 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
     return REDISMODULE_ERR;
   }
 
-  RedisJSON el = japi->getAt(arr, 0); // We know there is at least one element in the array.
-  switch (japi->getType(el)) {
+  RedisJSON el = japi->allocJson();
+  japi->getAt(arr, 0, el); // We know there is at least one element in the array.
+  JSONType type = japi->getType(el);
+  japi->freeJson(el);
+
+  switch (type) {
     case JSONType_Int:
     case JSONType_Double:
       return JSON_StoreSingleVectorInDocField(fs, arr, df, status);
@@ -423,10 +446,21 @@ RedisJSON JSONIterable_Next(JSONIterable *iterable) {
       return japi->next(iterable->iter);
 
     case ITERABLE_ARRAY:
-      return japi->getAt(iterable->array.arr, iterable->array.index++);
+      japi->getAt(iterable->array.arr, iterable->array.index++, iterable->array.value);
+      return iterable->array.value;
 
     default:
       return NULL;
+  }
+}
+
+void JSONIterable_Clean(JSONIterable *iterable) {
+  switch (iterable->type) {
+    case ITERABLE_ARRAY:
+      japi->freeJson(iterable->array.value);
+      break;
+    case ITERABLE_ITER:
+      break;
   }
 }
 
@@ -465,18 +499,19 @@ error:
 }
 
 int JSON_StoreTextInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df, QueryError *status) {
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
-                                      .iter = jsonIter};
-  return JSON_StoreTextInDocField(len, &iter, df, status);
+  JSONIterable iter = JSONIterable_FromIter(jsonIter);
+  int ret = JSON_StoreTextInDocField(len, &iter, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 int JSON_StoreTextInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, QueryError *status) {
   size_t len;
   japi->getLen(arr, &len);
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
-                                      .array.arr = arr,
-                                      .array.index = 0};
-  return JSON_StoreTextInDocField(len, &iter, df, status);
+  JSONIterable iter = JSONIterable_FromArr(arr);
+  int ret = JSON_StoreTextInDocField(len, &iter, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df, QueryError *status) {
@@ -508,18 +543,19 @@ error:
 }
 
 int JSON_StoreNumericInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df, QueryError *status) {
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
-                                      .iter = jsonIter};
-  return JSON_StoreNumericInDocField(len, &iter, df, status);
+  JSONIterable iter = JSONIterable_FromIter(jsonIter);
+  int ret = JSON_StoreNumericInDocField(len, &iter, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, QueryError *status) {
   size_t len;
   japi->getLen(arr, &len);
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
-                                      .array.arr = arr,
-                                      .array.index = 0};
-  return JSON_StoreNumericInDocField(len, &iter, df, status);
+  JSONIterable iter = JSONIterable_FromArr(arr);
+  int ret = JSON_StoreNumericInDocField(len, &iter, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 

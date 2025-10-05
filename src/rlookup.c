@@ -473,10 +473,12 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
     japi->getLen(json, &len);
     if (len) {
       RSValue **arr = RSValue_AllocateArray(len);
+      RedisJSON value = japi->allocJson();
       for (size_t i = 0; i < len; ++i) {
-        RedisJSON value = japi->getAt(json, i);
+        japi->getAt(json, i, value);
         arr[i] = jsonValToValueExpanded(ctx, value);
       }
+      japi->freeJson(value);
       ret = RSValue_NewArray(arr, len);
     } else {
       // Empty array
@@ -542,11 +544,15 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
     // Second, get the first JSON value
     RedisJSON json = japi->next(iter);
+    bool owning_json = false;
     // If the value is an array, we currently try using the first element
     JSONType type = japi->getType(json);
     if (type == JSONType_Array) {
       // Empty array will return NULL
-      json = japi->getAt(json, 0);
+      if (japi->getAt(json, 0, json) == REDISMODULE_ERR) {
+        json = NULL;
+      }
+      owning_json = true;
     }
 
     if (json) {
@@ -557,6 +563,10 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
       res = REDISMODULE_OK;
     } else if (serialized) {
       RedisModule_FreeString(ctx, serialized);
+    }
+
+    if (owning_json) {
+      japi->freeJson(json);
     }
   }
 
