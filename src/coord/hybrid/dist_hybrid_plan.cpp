@@ -18,13 +18,7 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(HybridRequest_TailAGGPlan(hreq), NULL, NULL, PLN_T_DISTRIBUTE);
     RS_ASSERT(dstp);
 
-    dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
-    int rc = HybridRequest_BuildPipeline(hreq, hybridParams);
-    dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
-    if (rc != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
-    }
-
+    // Collect unresolved fields from tail lookup for LOAD command
     std::vector<const RLookupKey *> loadFields;
     for (RLookupKey *kk = dstp->lk.head; kk != NULL; kk = kk->next) {
         if (kk->flags & RLOOKUP_F_UNRESOLVED) {
