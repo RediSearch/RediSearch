@@ -2,10 +2,11 @@
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
+
 #pragma once
 
 #include "redismodule.h"
@@ -41,12 +42,11 @@ typedef struct RedisJSONAPI {
   RedisJSON (*openKeyFromStr)(RedisModuleCtx *ctx, const char *path);
 
   JSONResultsIterator (*get)(RedisJSON json, const char *path);
+  int (*getAt)(RedisJSON json, size_t index, RedisJSON value);
 
   RedisJSON (*next)(JSONResultsIterator iter);
   size_t (*len)(JSONResultsIterator iter);
   void (*freeIter)(JSONResultsIterator iter);
-
-  RedisJSON (*getAt)(RedisJSON json, size_t index);
 
   /* RedisJSON value functions
    * Return REDISMODULE_OK if RedisJSON is of the correct JSONType,
@@ -123,15 +123,15 @@ typedef struct RedisJSONAPI {
 
   RedisJSON (*openKeyWithFlags)(RedisModuleCtx *ctx, RedisModuleString *key_name, int flags);
 
-  /////////////////////////////////
-  // V6 only updates `getAt` API //
-  /////////////////////////////////
+  ////////////////
+  // V6 entries //
+  ////////////////
+  RedisJSON (*allocJson)();
+  void (*freeJson)(RedisJSON json);
 
 } RedisJSONAPI;
 
 #define RedisJSONAPI_LATEST_API_VER 6
-#define RedisJSONAPI_MIN_API_VER 6
-
 #ifdef __cplusplus
 }
 #endif
