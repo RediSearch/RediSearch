@@ -86,7 +86,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, RLookup *lookup);
 
 /**
  * Build the complete hybrid search pipeline.
