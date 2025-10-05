@@ -107,6 +107,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, lookup);
 
     const char *scoreAlias = params->aggregationParams.common.scoreAlias;
+    lookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
     const RLookupKey *docKey = RLookup_GetKey_Read(lookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
     const RLookupKey *scoreKey = NULL;
     if (scoreAlias) {
