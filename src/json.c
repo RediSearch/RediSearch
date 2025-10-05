@@ -161,15 +161,6 @@ static inline uint16_t floatToBF16bits(float input) {
   return (f32 >> 16);
 }
 
-static int JSON_getBFloat16(RedisJSON json, uint16_t *val) {
-  double temp;
-  int ret = japi->getDouble(json, &temp);
-  if (REDISMODULE_OK == ret) {
-    *val = floatToBF16bits((float)temp);
-  }
-  return ret;
-}
-
 // via Fabian "ryg" Giesen.
 // https://gist.github.com/2156668
 // Not handling INF or NaN (we don't expect them, and we don't handle them elsewhere)
@@ -191,41 +182,29 @@ static inline uint16_t floatToFP16bits(float input) {
   return ((f16 >> 13) | (sign >> 16));
 }
 
+static int JSON_getBFloat16(RedisJSON json, uint16_t *val) {
+  double temp;
+  int ret = japi->getDouble(json, &temp);
+  *val = floatToBF16bits((float)temp);
+  return ret;
+}
+
 static int JSON_getFloat16(RedisJSON json, uint16_t *val) {
   double temp;
   int ret = japi->getDouble(json, &temp);
-  if (REDISMODULE_OK == ret) {
-    *val = floatToFP16bits((float)temp);
-  }
+  *val = floatToFP16bits((float)temp);
   return ret;
 }
 
 static int JSON_getFloat32(RedisJSON json, float *val) {
   double temp;
   int ret = japi->getDouble(json, &temp);
-  if (REDISMODULE_OK == ret) {
-    *val = (float)temp;
-    return ret;
-  } else {
-    // On RedisJSON<2.0.9, getDouble can't handle integer values.
-    long long tempInt;
-    ret = japi->getInt(json, &tempInt);
-    *val = (float)tempInt;
-    return ret;
-  }
+  *val = (float)temp;
+  return ret;
 }
 
 static int JSON_getFloat64(RedisJSON json, double *val) {
-  int ret = japi->getDouble(json, val);
-  if (REDISMODULE_OK == ret) {
-    return ret;
-  } else {
-    // On RedisJSON<2.0.9, getDouble can't handle integer values
-    long long temp;
-    ret = japi->getInt(json, &temp);
-    *val = (double)temp;
-    return ret;
-  }
+  return japi->getDouble(json, val);
 }
 
 static int JSON_getUint8(RedisJSON json, uint8_t *val) {
