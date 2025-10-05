@@ -1999,11 +1999,9 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
     IndexSpec_IncreasCounter(sp);
   }
 
-  #ifndef RS_UNIT_TESTS
-  if ((sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
+  if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));
   }
-  #endif // RS_UNIT_TESTS
   return spec_ref;
 }
 
