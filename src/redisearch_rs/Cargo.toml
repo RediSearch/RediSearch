@@ -23,6 +23,7 @@ members = [
     "rqe_iterators_bencher",
     "varint_bencher",
     "wildcard",
+    "search_result",
 ]
 
 resolver = "3"
@@ -70,6 +71,7 @@ varint = { path = "./varint" }
 qint = { path = "./qint" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
+search_result = { path = "./search_result" }
 
 cbindgen = "0.29"
 cc = "1"

@@ -694,8 +694,10 @@ VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
       if (primary_params->algo == VecSimAlgo_HNSWLIB) {
         HNSWParams hnsw_params = primary_params->algoParams.hnswParams;
         return hnsw_params.metric;
+      } else if (primary_params->algo == VecSimAlgo_SVS) {
+        SVSParams svs_params = primary_params->algoParams.svsParams;
+        return svs_params.metric;
       } else {
-        // TODO: Add SVS support here after FT.HYBRID is merged to master
         // Unknown primary algorithm in tiered index
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "Unknown primary algorithm in tiered index: %s",

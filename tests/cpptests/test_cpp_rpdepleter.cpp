@@ -16,6 +16,8 @@
 #include <thread>
 #include <chrono>
 #include "redismock/redismock.h"
+#include "search_result.h"
+
 #include <thread>
 #include <chrono>
 #include <atomic>
@@ -135,7 +137,7 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
   int resultCount = 0;
   do {
     if (rc == RS_RESULT_OK) {
-      ASSERT_EQ(res.docId, ++resultCount);
+      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount);
       SearchResult_Clear(&res);
     }
   } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
@@ -181,7 +183,7 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
   int resultCount = 0;
   do {
     if (rc == RS_RESULT_OK) {
-      ASSERT_EQ(res.docId, ++resultCount);
+      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount);
       SearchResult_Clear(&res);
     }
   } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
@@ -250,7 +252,7 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
   int resultCount = 0;
   do {
     if (rc1 == RS_RESULT_OK) {
-      ASSERT_EQ(res.docId, ++resultCount);
+      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount);
       SearchResult_Clear(&res);
     }
   } while ((rc1 = fastDepleter->Next(fastDepleter, &res)) == RS_RESULT_OK);
@@ -263,7 +265,7 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
   resultCount = 0;
   do {
     if (rc2 == RS_RESULT_OK) {
-      ASSERT_EQ(res.docId, ++resultCount + 100);
+      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount + 100);
       SearchResult_Clear(&res);
     }
   } while ((rc2 = slowDepleter->Next(slowDepleter, &res)) == RS_RESULT_OK);
@@ -309,7 +311,7 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
   int resultCount = 0;
   do {
     if (rc == RS_RESULT_OK) {
-      ASSERT_EQ(res.docId, ++resultCount);
+      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount);
       SearchResult_Clear(&res);
     }
   } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);

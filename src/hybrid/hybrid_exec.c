@@ -28,6 +28,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "pipeline/pipeline.h"
 #include "util/units.h"
+#include "value.h"
 
 #include <time.h>
 
@@ -76,7 +77,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
   const uint32_t options = HREQ_RequestFlags(hreq);
-  const RSDocumentMetadata *dmd = r->dmd;
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
   RedisModule_Reply_Map(reply); // >result
 
@@ -86,11 +87,11 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     RedisModule_Reply_SimpleString(reply, "score");
     if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
       // This will become a string in RESP2
-      RedisModule_Reply_Double(reply, r->score);
+      RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
     } else {
       RedisModule_Reply_Array(reply);
-      RedisModule_Reply_Double(reply, r->score);
-      SEReply(reply, r->scoreExplain);
+      RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
+      SEReply(reply, SearchResult_GetScoreExplain(r));
       RedisModule_Reply_ArrayEnd(reply);
     }
   }
@@ -98,9 +99,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLookup;
 
-    RedisModule_ReplyKV_Map(reply, "attributes"); // >attributes
-
-    if (r->flags & Result_ExpiredDoc) {
+    if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
       RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
@@ -111,14 +110,14 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       int requiredFlags = RLOOKUP_F_NOFLAGS;  //Hybrid does not use RETURN fields; it uses LOAD fields instead
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
+      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
 
       int i = 0;
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
         if (!kk->name || !skipFieldIndex[i++]) {
           continue;
         }
-        const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+        const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
         RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
         RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
@@ -127,26 +126,25 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
         flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
         unsigned int apiVersion = sctx->apiVersion;
-        if (v && v->t == RSValue_Duo) {
+        if (RSValue_IsTrio(v)) {
           // Which value to use for duo value
           if (!(flags & SENDREPLY_FLAG_EXPAND)) {
             // STRING
             if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
               // Multi
-              v = RS_DUOVAL_OTHERVAL(*v);
+              v = RSValue_Trio_GetMiddle(v);
             } else {
               // Single
-              v = RS_DUOVAL_VAL(*v);
+              v = RSValue_Trio_GetLeft(v);
             }
           } else {
             // EXPAND
-            v = RS_DUOVAL_OTHER2VAL(*v);
+            v = RSValue_Trio_GetRight(v);
           }
         }
-        RSValue_SendReply(reply, v, flags);
+        RedisModule_Reply_RSValue(reply, v, flags);
       }
     }
-    RedisModule_Reply_MapEnd(reply); // >attributes
   }
   RedisModule_Reply_MapEnd(reply); // >result
 }
@@ -227,13 +225,8 @@ static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size
 
     RedisModule_Reply_Map(reply);
 
-    // <format>
-    QEFlags reqFlags = HREQ_RequestFlags(hreq);
-    if (reqFlags & QEXEC_FORMAT_EXPAND) {
-      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
-    } else {
-      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
-    }
+    // <total_results>
+    RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
@@ -259,9 +252,6 @@ static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size
 
 done:
     RedisModule_Reply_ArrayEnd(reply); // >results
-
-    // <total_results>
-    RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     // warnings
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
@@ -546,14 +536,19 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
 
-  if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status) != REDISMODULE_OK) {
+  if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
+
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
+
+  // Update dialect statistics only after successful execution
+  SET_DIALECT(sctx->spec->used_dialects, hybridRequest->reqConfig.dialectVersion);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, hybridRequest->reqConfig.dialectVersion);
 
   DefaultCleanup(hybrid_ref);
   return REDISMODULE_OK;

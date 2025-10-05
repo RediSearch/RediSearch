@@ -156,7 +156,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   };
 
   // Parse the hybrid command - this fills out hybridParams
-  int rc = parseHybridCommand(ctx, args, args.size(), test_sctx, specName, &cmd, status);
+  int rc = parseHybridCommand(ctx, args, args.size(), test_sctx, specName, &cmd, status, true);
   if (rc != REDISMODULE_OK) {
     HybridRequest_Free(hybridReq);
     return nullptr;
@@ -410,6 +410,56 @@ TEST_F(HybridRequestParseTest, testHybridRequestLinearScoringWithLimit) {
 
   // Verify that LINEAR scoring was properly configured
   // This is tested by verifying the pipeline builds successfully with LINEAR scoring parameters
+  VERIFY_TWO_SUBQUERIES(hybridReq);
+}
+
+// Test that RRF window parameter properly propagates to search subquery's arrange step limit
+TEST_F(HybridRequestParseTest, testHybridRequestRRFWindowArrangeStep) {
+  // Create a hybrid query with RRF scoring and WINDOW=5
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_rrf_window_arrange",
+                      "SEARCH", "machine",
+                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "COMBINE", "RRF", "4", "CONSTANT", "60.0", "WINDOW", "5");
+
+  HYBRID_TEST_SETUP("test_rrf_window_arrange", args);
+  VERIFY_TWO_SUBQUERIES(hybridReq);
+
+  // Verify that the RRF window size propagated to the arrange step limit in search subquery
+  AREQ *searchReq = hybridReq->requests[0]; // First request should be SEARCH
+  ASSERT_NE(nullptr, searchReq);
+
+  // Find the arrange step in the search request pipeline
+  PLN_ArrangeStep *arrangeStep = (PLN_ArrangeStep *)AGPLN_FindStep(&searchReq->pipeline.ap, NULL, NULL, PLN_T_ARRANGE);
+  ASSERT_NE(nullptr, arrangeStep) << "Search request should have an arrange step";
+
+  // Verify that the arrange step limit matches the RRF window size
+  EXPECT_EQ(5, arrangeStep->limit) << "ArrangeStep limit should match RRF WINDOW parameter";
+  EXPECT_EQ(0, arrangeStep->offset) << "ArrangeStep offset should be 0";
+
+}
+
+// Test that LINEAR window parameter properly propagates to search subquery's arrange step limit
+TEST_F(HybridRequestParseTest, testHybridRequestLinearWindowArrangeStep) {
+  // Create a hybrid query with LINEAR scoring and WINDOW=5
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_linear_window_arrange",
+                      "SEARCH", "artificial",
+                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "COMBINE", "LINEAR", "6", "ALPHA", "0.7", "BETA", "0.3", "WINDOW", "5");
+
+  HYBRID_TEST_SETUP("test_linear_window_arrange", args);
+
+  // Verify that the LINEAR window size propagated to the arrange step limit in search subquery
+  AREQ *searchReq = hybridReq->requests[0]; // First request should be SEARCH
+  ASSERT_NE(nullptr, searchReq);
+
+  // Find the arrange step in the search request pipeline
+  PLN_ArrangeStep *arrangeStep = (PLN_ArrangeStep *)AGPLN_FindStep(&searchReq->pipeline.ap, NULL, NULL, PLN_T_ARRANGE);
+  ASSERT_NE(nullptr, arrangeStep) << "Search request should have an arrange step";
+
+  // Verify that the arrange step limit matches the LINEAR window size
+  EXPECT_EQ(5, arrangeStep->limit) << "ArrangeStep limit should match LINEAR WINDOW parameter";
+  EXPECT_EQ(0, arrangeStep->offset) << "ArrangeStep offset should be 0";
+
   VERIFY_TWO_SUBQUERIES(hybridReq);
 }
 

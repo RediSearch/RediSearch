@@ -20,6 +20,7 @@ typedef enum {
 typedef struct {
   double *linearWeights;
   size_t numWeights;
+  size_t window;
 } HybridLinearContext;
 
 typedef struct {
@@ -38,7 +39,7 @@ typedef struct {
 
 /* Constructor functions for HybridScoringContext */
 HybridScoringContext* HybridScoringContext_NewRRF(double constant, size_t window, bool hasExplicitWindow);
-HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size_t numWeights);
+HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size_t numWeights, size_t window);
 HybridScoringContext* HybridScoringContext_NewDefault(void);
 
 /* Generic free function for HybridScoringContext */

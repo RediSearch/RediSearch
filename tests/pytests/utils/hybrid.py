@@ -38,12 +38,20 @@ def _validate_results(env, actual_results: List[Result], expected_results: List[
     # We assume the number of actual result is correct
     env.assertLessEqual(len(actual_results), len(expected_results), message=comparison_table)
     for i in range(len(actual_results)):
-        env.assertEqual(
-            actual_results[i].key, expected_results[i].key,
-            message=f'key mismatch at index {i}: actual: {actual_results[i].key}, expected: {expected_results[i].key}')
-        env.assertAlmostEqual(
-            actual_results[i].score, expected_results[i].score, delta=1e-10,
-            message=f'score mismatch at index {i}: actual: {actual_results[i].score}, expected: {expected_results[i].score}')
+        if actual_results[i].score == actual_results[-1].score:
+            # in this case, we cannot know which subset of the results is included in the response, so we just validate inclusion
+            expected_results_with_last_score = [result.key for result in expected_results if abs(result.score - actual_results[i].score) < 1e-10]
+            actual_results_with_last_score = [result.key for result in actual_results if abs(result.score - actual_results[i].score) < 1e-10]
+            env.assertTrue(set(actual_results_with_last_score).issubset(set(expected_results_with_last_score)),
+                message=f'Keys in actual results with last score ({actual_results[i].score}) not found in expected results with same score: {set(actual_results_with_last_score) - set(expected_results_with_last_score)}. {comparison_table}')
+            break
+        else:
+            env.assertEqual(
+                actual_results[i].key, expected_results[i].key,
+                message=f'key mismatch at index {i}: actual: {actual_results[i].key}, expected: {expected_results[i].key}')
+            env.assertAlmostEqual(
+                actual_results[i].score, expected_results[i].score, delta=1e-10,
+                message=f'score mismatch at index {i}: actual: {actual_results[i].score}, expected: {expected_results[i].score}')
 
 def _process_search_response(search_results):
     """
@@ -128,42 +136,34 @@ def _process_hybrid_response(hybrid_results, expected_results: Optional[List[Res
     ranking_info = {'search_ranks': {}, 'vector_ranks': {}}
 
     for result_item in results_data:
-        # Each result_item is: ['attributes', [['__key', doc_id, 'SEARCH_RANK', '2', 'VECTOR_RANK', '5', '__score', score_str]]]
-        if (len(result_item) >= 2 and
-            result_item[0] == 'attributes' and
-            result_item[1] and
-            isinstance(result_item[1], list)):
+        attrs = dict(zip(result_item[::2], result_item[1::2]))
 
-            # Convert flat key-value list to dict using zip with slicing
-            attr_list = result_item[1]
-            attrs = dict(zip(attr_list[::2], attr_list[1::2]))
+        # Extract doc_id and score if both exist
+        if '__key' in attrs and '__score' in attrs:
+            try:
+                score = float(attrs['__score'])
+                doc_id = attrs['__key']
 
-            # Extract doc_id and score if both exist
-            if '__key' in attrs and '__score' in attrs:
-                try:
-                    score = float(attrs['__score'])
-                    doc_id = attrs['__key']
+                # Extract ranking information
+                search_rank = attrs.get('SEARCH_RANK', '-')
+                vector_rank = attrs.get('VECTOR_RANK', '-')
 
-                    # Extract ranking information
-                    search_rank = attrs.get('SEARCH_RANK', '-')
-                    vector_rank = attrs.get('VECTOR_RANK', '-')
+                # Store ranking info (convert to int if not '-')
+                if search_rank != '-':
+                    try:
+                        ranking_info['search_ranks'][doc_id] = int(search_rank)
+                    except ValueError:
+                        pass
 
-                    # Store ranking info (convert to int if not '-')
-                    if search_rank != '-':
-                        try:
-                            ranking_info['search_ranks'][doc_id] = int(search_rank)
-                        except ValueError:
-                            pass
+                if vector_rank != '-':
+                    try:
+                        ranking_info['vector_ranks'][doc_id] = int(vector_rank)
+                    except ValueError:
+                        pass
 
-                    if vector_rank != '-':
-                        try:
-                            ranking_info['vector_ranks'][doc_id] = int(vector_rank)
-                        except ValueError:
-                            pass
-
-                    processed.append(Result(key=doc_id, score=score))
-                except (ValueError, TypeError):
-                    pass  # Skip invalid scores
+                processed.append(Result(key=doc_id, score=score))
+            except (ValueError, TypeError):
+                pass  # Skip invalid scores
 
     return processed, ranking_info
 
@@ -318,7 +318,7 @@ def translate_search_query(search_query, index_name):
     # Split into command parts
     command_parts = [
         'FT.SEARCH', index_name, search_query, 'WITHSCORES', 'NOCONTENT',
-        'DIALECT', '2'
+        'DIALECT', '2', 'LIMIT', '0', '20'
     ]
     return command_parts
 

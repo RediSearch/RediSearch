@@ -57,14 +57,18 @@ impl Decoder for FieldsOnly {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, field_mask] = decoded_values;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask as t_fieldMask);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask as t_fieldMask;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }
 
@@ -107,13 +111,17 @@ impl Decoder for FieldsOnlyWide {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let delta = u32::read_as_varint(cursor)?;
         let field_mask = u128::read_as_varint(cursor)?;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }

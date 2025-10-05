@@ -10,6 +10,9 @@ on:
       RUST_CODE_CHANGED:
         description: "Indicates if Rust code files were modified"
         value: ${{ jobs.change-checks.outputs.RUST_CODE_CHANGED }}
+      TESTS_CHANGED:
+        description: "Indicates if tests were modified"
+        value: ${{ jobs.change-checks.outputs.TESTS_CHANGED }}
 
 jobs:
   change-checks:
@@ -18,6 +21,7 @@ jobs:
       CODE_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       BENCHMARK_CHANGED: ${{ steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      TESTS_CHANGED: ${{ steps.check-tests.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,6 +56,14 @@ jobs:
                 .github/workflows/benchmark-*.yml
                 **/CMakeLists.txt
                 **/Makefile
+          fetch_additional_submodule_history: true
+      - name: Check if tests were changed
+        id: check-tests
+        uses: tj-actions/changed-files@v46.0.5
+        with: # Only run on changes to these paths (tests related changes)
+          files: |
+                tests/**
+                .github/workflows/*test*.yml
           fetch_additional_submodule_history: true
       - name: Check if rust micro-benchmarks were changed
         id: check-micro-benchmarks
