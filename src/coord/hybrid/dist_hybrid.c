@@ -67,10 +67,11 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   int limit = (params_index == -1 ? argc : params_index);
   for (int i = current_index; i < limit; i++) {
     // Skip LOAD arguments
-    if (i == load_index) {
+    if (nload && (i == load_index)) {
       i += nload + 1;
       continue;
     }
+
     if (i == vsim_index + 2 && argv[i] != '$') {
       MRCommand_AppendRstr(xcmd, argv[i]);
     } else {
@@ -97,7 +98,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Add the remaining arguments (TIMEOUT, DIALECT, FILTER, etc.)
   for (int i = current_index; i < argc; i++) {
     // Skip LOAD arguments
-    if (i == load_index) {
+    if (nload && (i == load_index)) {
       i += nload + 1;
       continue;
     }

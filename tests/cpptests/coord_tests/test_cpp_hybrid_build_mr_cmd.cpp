@@ -18,15 +18,21 @@ class HybridBuildMRCommandTest : public ::testing::Test {
 protected:
     void SetUp() override {
         ctx = RedisModule_GetThreadSafeContext(NULL);
-        memset(&us, 0, sizeof(us));
-        memset(&hybridParams, 0, sizeof(hybridParams));
+        us = {0};
+        hybridParams = {0};
     }
 
     void TearDown() override {
         if (ctx) {
             RedisModule_FreeThreadSafeContext(ctx);
         }
-        array_free(us.serialized);
+        if (us.serialized) {
+            for (size_t i = 0; i < us.nserialized; i++) {
+                free(const_cast<char*>(us.serialized[i]));
+            }
+            free(const_cast<char**>(us.serialized));
+            us.serialized = nullptr;
+        }
     }
 
     RedisModuleCtx *ctx = nullptr;
@@ -76,6 +82,32 @@ protected:
         EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "WITHCURSOR") << "WITHCURSOR should be third to last";
         EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "WITHSCORES") << "WITHSCORES should be second to last";
         EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "_NUM_SSTRING") << "_NUM_SSTRING should be last";
+
+        printArgvList(args, args.size());
+        printMRCommand(&xcmd);
+
+        MRCommand_Free(&xcmd);
+    }
+
+    // Helper function to test command transformation with custom expected results
+    void testCommandTransformationWithLoad(const std::vector<const char*>& inputArgs,
+                                          const std::vector<const char*>& expectedArgs) {
+        // Convert vector to array for ArgvList constructor
+        std::vector<const char*> argsWithNull = inputArgs;
+        argsWithNull.push_back(nullptr);  // ArgvList expects null-terminated
+
+        // Create ArgvList from input
+        RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
+
+        // Build MR command
+        MRCommand xcmd;
+        HybridRequest_buildMRCommand(args, args.size(), &us, &xcmd, nullptr, &hybridParams);
+
+        // Verify transformation matches expected results exactly
+        EXPECT_EQ(xcmd.num, expectedArgs.size()) << "Command should have " << expectedArgs.size() << " arguments";
+        for (size_t i = 0; i < expectedArgs.size(); i++) {
+            EXPECT_STREQ(xcmd.strs[i], expectedArgs[i]) << "Argument at index " << i << " should match expected";
+        }
 
         printArgvList(args, args.size());
         printMRCommand(&xcmd);
@@ -158,3 +190,109 @@ TEST_F(HybridBuildMRCommandTest, testMinimalCommand) {
         "FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data"
     });
 }
+
+// Test command with LOAD without PARAM
+TEST_F(HybridBuildMRCommandTest, testCommandLoadWithoutParams) {
+    // Input arguments
+    const std::vector<const char*> inputArgs = {
+        "FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data",
+        "LOAD", "2", "__key", "field",
+        "DIALECT", "2"
+    };
+
+    // Expected arguments after transformation
+    // FT.HYBRID -> _FT.HYBRID
+    // LOAD arguments are removed
+    // WITHCURSOR, WITHSCORES, _NUM_SSTRING are added
+    const std::vector<const char*> expectedArgs = {
+        "_FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data",
+        "DIALECT", "2",
+        "WITHCURSOR", "WITHSCORES", "_NUM_SSTRING"
+    };
+
+    testCommandTransformationWithLoad(inputArgs, expectedArgs);
+}
+
+// Test command with LOAD and different parameters
+TEST_F(HybridBuildMRCommandTest, testCommandLoadAfterParams) {
+    // Input arguments
+    const std::vector<const char*> inputArgs = {
+        "FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data",
+        "PARAMS", "2", "param1", "value1",
+        "LOAD", "2", "__key", "field",
+        "DIALECT", "2"
+    };
+
+    // Expected arguments after transformation
+    // FT.HYBRID -> _FT.HYBRID
+    // LOAD arguments are removed
+    // WITHCURSOR, WITHSCORES, _NUM_SSTRING are added
+    const std::vector<const char*> expectedArgs = {
+        "_FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data",
+        "PARAMS", "2", "param1", "value1",
+        "DIALECT", "2",
+        "WITHCURSOR", "WITHSCORES", "_NUM_SSTRING"
+    };
+
+    testCommandTransformationWithLoad(inputArgs, expectedArgs);
+}
+
+// Test command with LOAD and null upstream info
+TEST_F(HybridBuildMRCommandTest, testCommandLoadBeforeParams) {
+    // Input arguments
+    const std::vector<const char*> inputArgs = {
+        "FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data",
+        "LOAD", "3", "__key", "__score", "field",
+        "PARAMS", "2", "param1", "value1",
+        "TIMEOUT", "3000", "DIALECT", "2"
+    };
+
+    // Expected arguments after transformation
+    // FT.HYBRID -> _FT.HYBRID
+    // LOAD arguments are removed
+    // WITHCURSOR, WITHSCORES, _NUM_SSTRING are added
+    const std::vector<const char*> expectedArgs = {
+        "_FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data",
+        "PARAMS", "2", "param1", "value1",
+        "TIMEOUT", "3000", "DIALECT", "2",
+        "WITHCURSOR", "WITHSCORES", "_NUM_SSTRING"
+    };
+
+    testCommandTransformationWithLoad(inputArgs, expectedArgs);
+}
+
+// Test command with LOAD and upstream info
+TEST_F(HybridBuildMRCommandTest, testCommandWithLoadAndUpstream) {
+    // Init upstream info with LOAD arguments
+    const std::vector<const char*> serializedArgs = {
+        "LOAD", "2", "__key", "__score"
+    };
+    us.serialized = (const char**)malloc(serializedArgs.size() * sizeof(char*));
+    for (size_t i = 0; i < serializedArgs.size(); i++) {
+        const_cast<char**>(us.serialized)[i] = strdup(serializedArgs[i]);
+    }
+    us.nserialized = serializedArgs.size();
+    us.lookup = nullptr;
+
+    // Input arguments
+    const std::vector<const char*>& inputArgs = {
+        "FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data",
+        "PARAMS", "2", "param1", "value1",
+        "LOAD", "1", "field",
+    };
+
+    // Expected arguments after transformation
+    // FT.HYBRID -> _FT.HYBRID
+    // 'LOAD 1 field' was removed
+    // 'LOAD 2 __key __score' from upstream was added before 'PARAMS'
+    // WITHCURSOR, WITHSCORES, _NUM_SSTRING were added at the end
+    const std::vector<const char*>& expectedArgs = {
+        "_FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data",
+        "LOAD", "2", "__key", "__score",
+        "PARAMS", "2", "param1", "value1",
+        "WITHCURSOR", "WITHSCORES", "_NUM_SSTRING"
+    };
+
+    testCommandTransformationWithLoad(inputArgs, expectedArgs);
+}
+
