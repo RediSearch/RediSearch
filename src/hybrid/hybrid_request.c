@@ -176,6 +176,23 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
     return hybridReq;
 }
 
+void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
+   // skip command and index name
+  argv += 2;
+  argc -= 2;
+  req->args = rm_malloc(sizeof(*req->args) * argc);
+  req->nargs = argc;
+  // Copy the arguments into an owned array of sds strings
+  for (size_t ii = 0; ii < argc; ++ii) {
+    size_t n;
+    const char *s = RedisModule_StringPtrLen(argv[ii], &n);
+    req->args[ii] = sdsnewlen(s, n);
+  }
+
+  // Parse the query and basic keywords first..
+  ArgsCursor_InitSDS(&ac, req->args, req->nargs);
+}
+
 /**
  * Free a HybridRequest and all its associated resources.
  * This function properly cleans up all individual AREQ requests, the tail pipeline,
@@ -233,6 +250,12 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
+    if (req->args) {
+      for (size_t ii = 0; ii < req->nargs; ++ii) {
+        sdsfree(req->args[ii]);
+      }
+      rm_free(req->args);
+    }
 
     rm_free(req);
 }

@@ -515,12 +515,11 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
  * @param argv Command arguments array (starting with "FT.HYBRID")
  * @param argc Number of arguments in argv
  * @param sctx Search context for the index (takes ownership)
- * @param indexname Name of the index to search
  * @param status Output parameter for error reporting
  * @return HybridRequest* on success, NULL on error
  */
-int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                       RedisSearchCtx *sctx, const char *indexname, ParseHybridCommandCtx *parsedCmdCtx,
+int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
+                       RedisSearchCtx *sctx, ParseHybridCommandCtx *parsedCmdCtx,
                        QueryError *status, bool internal) {
   HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
@@ -551,18 +550,16 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
-  ArgsCursor ac;
-  ArgsCursor_InitRString(&ac, argv + 2, argc - 2);
-  if (AC_IsAtEnd(&ac) || !AC_AdvanceIfMatch(&ac, "SEARCH")) {
+  if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ESYNTAX, "SEARCH argument is required");
     goto error;
   }
 
-  if (parseSearchSubquery(&ac, searchRequest, status) != REDISMODULE_OK) {
+  if (parseSearchSubquery(ac, searchRequest, status) != REDISMODULE_OK) {
     goto error;
   }
 
-  if (parseVectorSubquery(&ac, vectorRequest, status) != REDISMODULE_OK) {
+  if (parseVectorSubquery(ac, vectorRequest, status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -578,7 +575,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
   };
-  if (HybridParseOptionalArgs(&hybridParseCtx, &ac, internal) != REDISMODULE_OK) {
+  if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
   }
 
