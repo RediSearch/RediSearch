@@ -772,10 +772,12 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
-  if (!RS_IsMock && ctx->nits >= q->config->maxPrefixExpansions) {
+  #ifndef RS_UNIT_TESTS
+  if (ctx->nits >= q->config->maxPrefixExpansions) {
     q->status->reachedMaxPrefixExpansions = true;
     return REDISEARCH_ERR;
   }
+  #endif // RS_UNIT_TESTS
   RSToken tok = {0};
   tok.str = runesToStr(r, n, &tok.len);
   QueryIterator *ir = NULL;
