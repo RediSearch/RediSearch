@@ -74,7 +74,6 @@ static void hybridRequestSetupCoordinatorSubqueriesRequests(HybridRequest *hreq,
       if (!s) {
         continue;
       }
-      RedisModule_Log(RSDummyContext, "warning", "hybridRequestSetupCoordinatorSubqueriesRequests: query: %zu, key is %s", i, s);
       RLookup_GetKey_ReadEx(tailLookup, s, length, RLOOKUP_F_NOFLAGS);
     }
   }
