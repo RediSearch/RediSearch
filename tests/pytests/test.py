@@ -4215,6 +4215,46 @@ def test_multiple_slot_ranges_per_shard(env: Env):
 
 
 @skip(cluster=False) # this test is only relevant on cluster
+def test_cluster_set_multiple_slots(env: Env):
+    env.cmd(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER')
+    num_slots = 16384
+    ranges_per_shard = 2
+    slot_range_size = math.ceil(num_slots / (env.shardsCount * ranges_per_shard))
+    first_slots = list(range(0, num_slots, slot_range_size))
+    ranges = [(first, min(first + slot_range_size - 1, num_slots - 1)) for first in first_slots]
+
+    set_ranges = []
+    for i, slot_range in enumerate(ranges):
+        set_ranges += [
+            'SHARD', str(i % env.shardsCount),
+            'SLOTRANGE', str(slot_range[0]), str(slot_range[1]),
+            'ADDR', f'127.0.0.1:{env.envRunner.shards[i % env.shardsCount].port}',
+            'MASTER'
+        ]
+    env.expect(
+        'SEARCH.CLUSTERSET',
+            'HASHFUNC', 'CRC16',
+            'NUMSLOTS', '16384',
+            'MYID', '1',
+            'RANGES', len(ranges),
+            *set_ranges
+    ).ok()
+
+    generic_shard = [
+        [ANY] * 2 * ranges_per_shard,   # slot ranges, first and last slot of each range
+        [ANY] * 4                       # node id, host, port, role
+    ]
+    expected = [
+        'num_partitions', env.shardsCount,              # Number of shards, not necessarily the number of slots ranges
+        'cluster_type', 'redis_oss',
+        'hash_func', 'CRC16',
+        'num_slots', num_slots,
+        'shards', *[generic_shard] * env.shardsCount    # one entry per shard
+    ]
+    env.expect('SEARCH.CLUSTERINFO').equal(expected)
+
+
+@skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set_errors(env: Env):
 
     # Check general values parsing
