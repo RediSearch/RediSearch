@@ -17,6 +17,12 @@ extern "C" {
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
 typedef struct HybridRequest {
+    /* Arguments converted to sds. Received on input */
+    // We need to copy the arguments so rlookup keys can point to them
+    // in short lifetime of the strings
+    sds *args;
+    size_t nargs;
+
     arrayof(AREQ*) requests;
     size_t nrequests;
     QueryError tailPipelineError;
@@ -51,6 +57,12 @@ typedef struct blockedClientHybridCtx {
  * @param nrequests Number of requests in the array
 */
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+
+/*
+* We need to clone the arguments so the objects that rely on them can use them throughout the lifetime of the hybrid request
+* For example lookup keys
+*/
+void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, RedisModuleString **argv, int argc);
 
 /**
  * Build the depletion pipeline for hybrid search processing.
