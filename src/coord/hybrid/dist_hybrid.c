@@ -70,9 +70,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // TODO: This could generate commands with two LOAD keyword: LOAD 1 @description LOAD 2 @__key @__score
   // Add LOAD arguments
-  RedisModule_Log(RSDummyContext, "notice", "Adding %zu LOAD arguments", us->nserialized);
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
-    RedisModule_Log(RSDummyContext, "notice", "LOAD argument %s", us->serialized[ii]);
     MRCommand_Append(xcmd, us->serialized[ii], strlen(us->serialized[ii]));
   }
 
