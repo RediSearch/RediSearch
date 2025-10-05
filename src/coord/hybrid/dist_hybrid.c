@@ -46,7 +46,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     RedisModule_StringToLongLong(argv[params_index + 1], &nparams);
   }
 
-  // LOAD is optional, and if present, it should be ignored, since we add our own LOAD step
+  // LOAD is optional, but if present, it must come after VSIM + 2
   int load_index = RMUtil_ArgIndex("LOAD", argv + vsim_index + 2, argc - (vsim_index + 2));
   if (load_index != -1) {
     load_index += vsim_index + 2;
@@ -82,7 +82,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
   current_index = limit;
 
-  // Add LOAD arguments
+  // Add LOAD arguments from upstream info
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
     MRCommand_Append(xcmd, us->serialized[ii], strlen(us->serialized[ii]));
   }
