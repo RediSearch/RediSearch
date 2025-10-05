@@ -4171,7 +4171,7 @@ def test_multiple_slot_ranges_per_shard(env: Env):
     ranges = [(first, min(first + slot_range_size - 1, num_slots - 1)) for first in first_slots]
 
     shards = env.getOSSMasterNodesConnectionList()
-    ports = [env.envRunner.shards[i].port for i in range(env.shardsCount)]
+    ports = [shard.port for shard in env.envRunner.shards]
 
     # Reset the cluster slot ranges
     for shard in shards:
@@ -4207,6 +4207,11 @@ def test_multiple_slot_ranges_per_shard(env: Env):
         'shards', *[generic_shard] * env.shardsCount    # one entry per shard
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
+
+    # Try basic commands
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 't', 'foo').ok()
+    env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['t', 'foo']])
 
 
 @skip(cluster=False) # this test is only relevant on cluster
