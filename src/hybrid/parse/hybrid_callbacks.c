@@ -179,7 +179,6 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
         QueryError_SetError(status, QUERY_EADDARGS, "Multiple PARAMS are not allowed. Parameters can be defined only once");
         return;
     }
-    
     // Validate argument count (must be even for key-value pairs)
     if (paramsArgs->argc == 0 || paramsArgs->argc % 2) {
         QueryError_SetError(status, QUERY_EADDARGS, "Parameters must be specified in PARAM VALUE pairs");
@@ -192,26 +191,26 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create parameter dictionary");
         return;
     }
-    
+
     size_t value_len;
     int n = AC_NumArgs(paramsArgs);
     for (int i = 0; i < n; i += 2) {
         const char *param = AC_GetStringNC(paramsArgs, NULL);
         const char *value = AC_GetStringNC(paramsArgs, &value_len);
-        
         if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
             Param_DictFree(params);  // Cleanup on error
             return;
         }
     }
-    
+
     ctx->searchopts->params = params;
 }
 
 // DIALECT callback - implements EXACT original logic from lines 341-349
 void handleDialect(ArgParser *parser, const void *value, void *user_data) {
-    HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ctx->specifiedArgs |= SPECIFIED_ARG_DIALECT;
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  QueryError *status = ctx->status;
+  QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
 }
 
 // FORMAT callback - implements EXACT original logic from lines 359-366
@@ -406,5 +405,11 @@ void handleWithScores(ArgParser *parser, const void *value, void *user_data) {
 void handleExplainScore(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ctx->specifiedArgs |= SPECIFIED_ARG_EXPLAINSCORE;
+}
+
+// _NUM_SSTRING callback - implements EXACT original logic from handleNumSString
+void handleNumSString(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ctx->specifiedArgs |= SPECIFIED_ARG_NUM_SSTRING;
 }
 

@@ -42,7 +42,7 @@ static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   }
 
   RSValue *val = RLookup_GetItem(fvx->retprop, srcrow);
-  if (!val) val = RS_NullVal();
+  if (!val) val = RSValue_NullStatic();
   fvx->value = RSValue_IncrRef(val);
   return 1;
 }
@@ -50,10 +50,10 @@ static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   fvCtx *fvx = ctx;
   RSValue *val = RLookup_GetItem(fvx->retprop, srcrow);
-  if (!val) val = RS_NullVal();
+  if (!val) val = RSValue_NullStatic();
 
   RSValue *curSortval = RLookup_GetItem(fvx->sortprop, srcrow);
-  if (!curSortval) curSortval = RS_NullVal();
+  if (!curSortval) curSortval = RSValue_NullStatic();
 
   if (!fvx->sortval) {
     // This is the first value we see
@@ -63,14 +63,13 @@ static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
     // If the current value is null, we don't need to do anything
   } else if (RSValue_IsNull(fvx->sortval)) {
     // If the best value is null, replace it with the current value (which is not null)
-    RSVALUE_REPLACE(&fvx->sortval, curSortval);
-    RSVALUE_REPLACE(&fvx->value, val);
+    RSValue_Replace(&fvx->sortval, curSortval);
   } else {
     // If both values are not null, compare them and replace if necessary
     int rc = RSValue_Cmp(curSortval, fvx->sortval, NULL);
     if (fvx->ascending ? rc < 0 : rc > 0) {
-      RSVALUE_REPLACE(&fvx->sortval, curSortval);
-      RSVALUE_REPLACE(&fvx->value, val);
+      RSValue_Replace(&fvx->sortval, curSortval);
+      RSValue_Replace(&fvx->value, val);
     }
   }
 
@@ -82,14 +81,18 @@ static RSValue *fvFinalize(Reducer *parent, void *ctx) {
   if (fvx->value) {
     return RSValue_IncrRef(fvx->value);
   } else {
-    return RS_NullVal();
+    return RSValue_NullStatic();
   }
 }
 
 static void fvFreeInstance(Reducer *parent, void *p) {
   fvCtx *fvx = p;
-  RSVALUE_CLEARVAR(fvx->value);
-  RSVALUE_CLEARVAR(fvx->sortval);
+  if (fvx->value) {
+    RSValue_DecrRef(fvx->value);
+  };
+  if (fvx->sortval) {
+    RSValue_DecrRef(fvx->sortval);
+  };
 }
 
 Reducer *RDCRFirstValue_New(const ReducerOptions *options) {

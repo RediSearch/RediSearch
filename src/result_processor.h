@@ -25,6 +25,7 @@
 #include "hybrid/hybrid_lookup_context.h"
 #include "vector_normalization.h"
 #include "result_processor_rs.h"
+#include "search_result.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -117,34 +118,6 @@ QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 
-/*
- * SearchResult - the object all the processing chain is working on.
- * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
- * and a list of fields loaded by the chain
- */
-typedef struct {
-  t_docId docId;
-
-  // not all results have score - TBD
-  double score;
-  RSScoreExplain *scoreExplain;
-
-  const RSDocumentMetadata *dmd;
-
-  // index result should cover what you need for highlighting,
-  // but we will add a method to duplicate index results to make
-  // them thread safe
-  RSIndexResult *indexResult;
-
-  // Row data. Use RLookup_* functions to access
-  RLookupRow rowdata;
-
-  uint8_t flags;
-} SearchResult;
-
-/* SearchResult flags */
-static const uint8_t Result_ExpiredDoc = 1 << 0;
-
 /* Result processor return codes */
 
 /** Possible return values from Next() */
@@ -198,25 +171,6 @@ typedef struct ResultProcessor {
   /** Frees the processor and any internal data related to it. */
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
-
-
-/**
- * This function allocates a new SearchResult, copies the data from `src` to it,
- * and returns it.
-*/
-SearchResult *SearchResult_Copy(SearchResult *r);
-
-/**
- * This function resets the search result, so that it may be reused again.
- * Internal caches are reset but not freed
- */
-void SearchResult_Clear(SearchResult *r);
-
-/**
- * This function clears the search result, also freeing its internals. Internal
- * caches are freed. Use this function if `r` will not be used again.
- */
-void SearchResult_Destroy(SearchResult *r);
 
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr, RedisSearchCtx *sctx);
 
@@ -353,6 +307,7 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
 ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
+                                    const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
                                     HybridLookupContext *lookupCtx);

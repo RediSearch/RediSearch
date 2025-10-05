@@ -33,8 +33,8 @@ def run_test_scenario(env, no_tag_search_query, with_tag_search_query):
     hybrid_res_results_index = recursive_index(hybrid_res_no_tag, 'results')
     hybrid_res_results_index[-1] += 1
 
-    results_no_tag = get_results_from_hybrid_response(hybrid_res_no_tag)
-    results_with_tag = get_results_from_hybrid_response(hybrid_res_with_tag)
+    results_no_tag, _ = get_results_from_hybrid_response(hybrid_res_no_tag)
+    results_with_tag, _ = get_results_from_hybrid_response(hybrid_res_with_tag)
     shared_keys = results_no_tag.keys() & results_with_tag.keys()
     for key in shared_keys:
         score_no_tag = float(results_no_tag[key][SCORE_FIELD])
