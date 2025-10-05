@@ -363,6 +363,12 @@ void RPDepleter_ClearResults(RPDepleter *self);
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
+ * Test function to control thread pool failure simulation.
+ * @param should_fail If true, RPDepleter_StartDepletionThread will fail in mock mode
+ */
+void Test_SetThreadPoolFailure(bool should_fail);
+
+/**
  * Creates a new shared synchronization object for coordinating multiple RPDepleter processors.
  * This is used during pipeline construction to create sync objects that allow multiple
  * depleters to coordinate their background threads and wake each other when depleting completes.

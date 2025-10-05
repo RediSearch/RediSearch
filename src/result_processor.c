@@ -26,6 +26,8 @@
 #include "hybrid/hybrid_search_result.h"
 #include "config.h"
 #include "module.h"
+#include "redisearch.h"
+#include "redismodule.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -1507,7 +1509,6 @@ struct RPDepleter {
   RPStatus last_rc;                    // Last return code from upstream
   bool first_call;                     // Whether the first call to Next has been made
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
-
   };
 
 /*
@@ -1530,8 +1531,6 @@ typedef struct {
   atomic_int num_locked;   // Number of depleters that have locked the index
   bool index_released;     // Whether or not the index-spec has been released by the pipeline thread yet
   bool take_index_lock;    // Whether or not the depleter should take the index lock
-
-
 } DepleterSync;
 
 // Free function for DepleterSync
@@ -1658,7 +1657,10 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   self->cur_idx++;
   return RS_RESULT_OK;
 }
-
+static bool mock_thread_pool_should_fail = false;
+void Test_SetThreadPoolFailure(bool should_fail) {
+    mock_thread_pool_should_fail = should_fail;
+}
 /**
  * Adds a depletion job to the depleters thread pool with timeout validation.
  *
@@ -1671,9 +1673,13 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
  * @return true if job was submitted successfully, false if timeout already exceeded
  */
 static inline bool RPDepleter_StartDepletionThread(RPDepleter *self) {
-    // Submit the job to the thread pool
-    int rc = redisearch_thpool_add_work(depleterPool, RPDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
-    return (rc == 0);  // Return true if successfully added to queue
+  if (RS_IsMock && mock_thread_pool_should_fail) {
+    return false;
+  }
+
+  // Submit the job to the thread pool
+  int rc = redisearch_thpool_add_work(depleterPool, RPDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
+  return (rc == 0);  // Return true if successfully added to queue
 }
 
 // Can only succeed once, if called after RE_RESULT_OK was returned an error will be returned
@@ -1786,8 +1792,6 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
 
-
-
   return &ret->base;
 }
 
@@ -1845,14 +1849,22 @@ int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
     RPDepleter* depleter = (RPDepleter*)depleters[i];
     depleter->first_call = false;
 
-    // Try to start the depletion thread (with assert)
+    // Try to start the depletion thread
     if (!RPDepleter_StartDepletionThread(depleter)) {
       // Thread pool submission failed (not timeout)
+      // Need to fail gracefully without endlessly waiting for this thread to start depleting
+      depleter->last_rc = RS_RESULT_ERROR;
+      if (sync->take_index_lock) {
+        atomic_fetch_add(&sync->num_locked, 1);
+      }
       failedStartThread = true;
     }
   }
 
-  RS_ASSERT_ALWAYS(!failedStartThread);
+  // If any thread failed to start, return error immediately
+  if (failedStartThread) {
+    return RS_RESULT_ERROR;
+  }
 
   // Wait for depleting to start with configurable interval and timeout
   while (RPDepleter_WaitForDepletionToStart(sync, searchCtx) == RS_RESULT_DEPLETING) {
