@@ -68,6 +68,14 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
   current_index = limit;
 
+  // TODO: This could generate commands with two LOAD keyword: LOAD 1 @description LOAD 2 @__key @__score
+  // Add LOAD arguments
+  RedisModule_Log(RSDummyContext, "notice", "Adding %zu LOAD arguments", us->nserialized);
+  for (size_t ii = 0; ii < us->nserialized; ++ii) {
+    RedisModule_Log(RSDummyContext, "notice", "LOAD argument %s", us->serialized[ii]);
+    MRCommand_Append(xcmd, us->serialized[ii], strlen(us->serialized[ii]));
+  }
+
   // Add PARAMS arguments if present
   if (params_index != -1) {
     for (int i = params_index; i < params_index + nparams + 2; i++) {
@@ -251,8 +259,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     rc = AGGPLN_Distribute(HybridRequest_TailAGGPlan(hreq), status);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-    AREQDIST_UpstreamInfo us = {NULL};
-
     hybridRequestSetupCoordinatorSubqueriesRequests(hreq, &hybridParams);
 
     rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, &hybridParams);
@@ -261,6 +267,10 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // AREQ_AddRequestFlags(hreq somehow,QEXEC_F_BUILDPIPELINE_NO_ROOT);
 
     rc = HybridRequest_BuildMergePipeline(hreq, &hybridParams);
+    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+
+    AREQDIST_UpstreamInfo us = {NULL};
+    rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, &us, status);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     // Construct the command string

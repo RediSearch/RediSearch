@@ -1776,7 +1776,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    RS_ASSERT(self->iterator);
    // Get next entry from iterator
    dictEntry *entry = dictNext(self->iterator);
-     if (!entry) {
+  if (!entry) {
     // No more results to yield
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
@@ -1786,6 +1786,22 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    void *key = dictGetKey(entry);
    HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
    RS_ASSERT(hybridResult);
+
+  // Resolve docKey in lookup if it was marked as unresolved
+  if (self->docKey && (self->docKey->flags & RLOOKUP_F_UNRESOLVED)) {
+    // Write the document key value to the output result's rowdata
+    const char *keyPtr = (const char*)key;
+    size_t keyLen = strlen(keyPtr);
+    RLookup_WriteOwnKey(self->docKey, SearchResult_GetRowDataMut(r),
+                      RSValue_NewCopiedString(keyPtr, keyLen));
+
+    // Clear the unresolved flag since we now have the document key value
+    ((RLookupKey*)self->docKey)->flags &= ~RLOOKUP_F_UNRESOLVED;
+  }
+
+   // write to tailLookup the document key
+   RLookup_WriteOwnKeyByName(self->lookupCtx->tailLookup, "__key", strlen("__key"), SearchResult_GetRowDataMut(r),
+                            RSValue_NewCopiedString(key, strlen(key)));
 
    SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
    if (!mergedResult) {
