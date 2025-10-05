@@ -190,7 +190,7 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
   }
 
   // Parse the query and basic keywords first..
-  ArgsCursor_InitSDS(&ac, req->args, req->nargs);
+  ArgsCursor_InitSDS(ac, req->args, req->nargs);
 }
 
 /**
