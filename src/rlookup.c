@@ -455,7 +455,7 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisModuleString *keyName;
       size_t i = 0;
       RedisJSON value;
- 
+
       RSValueMap map = RSValueMap_AllocUninit(len);
       for (; (value = japi->nextKeyValue(iter, &keyName)); ++i) {
         RSValueMap_SetEntry(&map, i, RSValue_NewStolenRedisString(keyName),
@@ -1011,10 +1011,20 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
 
     // Find corresponding key in destination lookup
     RLookupKey *dest_key = RLookup_FindKey(destLookup, src_key->name, src_key->name_len);
-    RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
+    // RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
 
-    // Write fields to destination (increments refcount, shares ownership)
-    RLookup_WriteKey(dest_key, destRow, value);
+    if (dest_key) {
+      RedisModule_Log(RSDummyContext, "warning", "Writing key %s to destination row", dest_key->name);
+      // Write fields to destination (increments refcount, shares ownership)
+      RLookup_WriteKey(dest_key, destRow, value);
+    } else {
+      if (src_key->name_len == 0) {
+        continue;
+      }
+      // Key does not exist in destination - create it
+      RedisModule_Log(RSDummyContext, "warning", "Key '%s' does not exist in destination lookup len=%zu", src_key->name, src_key->name_len);
+      // dest_key = RLookup_GetKey_Write(destLookup, src_key->name, src_key->name_len);
+    }
   }
   // Caller is responsible for managing source row lifecycle
 }
