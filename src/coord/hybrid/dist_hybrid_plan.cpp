@@ -54,6 +54,53 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   return REDISMODULE_OK;
 }
 
+static void hybridRequestSetupCoordinatorSubqueriesRequests(HybridRequest *hreq, const HybridPipelineParams *hybridParams, RLookup *tailLookup) {
+  RS_ASSERT(hybridParams->scoringCtx);
+  size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+
+  bool isKNN = hreq->requests[VECTOR_INDEX]->ast.root->type == QN_VECTOR;
+  size_t K = isKNN ? hreq->requests[VECTOR_INDEX]->ast.root->vn.vq->knn.k : 0;
+
+  // Put all the loaded keys in the tail so he is aware of them
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *areq = hreq->requests[i];
+    PLN_LoadStep *step = (PLN_LoadStep *)AGPLN_FindStep(AREQ_AGGPlan(areq), NULL, NULL, PLN_T_LOAD);
+    if (!step) {
+      continue;
+    }
+    while (!AC_IsAtEnd(&step->args)) {
+      size_t length = 0;
+      const char *s = AC_GetStringNC(&step->args, &length);
+      if (!s) {
+        continue;
+      }
+      RedisModule_Log(RSDummyContext, "warning", "hybridRequestSetupCoordinatorSubqueriesRequests: query: %zu, key is %s", i, s);
+      RLookup_GetKey_ReadEx(tailLookup, s, length, RLOOKUP_F_NOFLAGS);
+    }
+  }
+
+  array_free_ex(hreq->requests, AREQ_Free(*(AREQ**)ptr));
+  hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
+  hreq->nrequests = array_len(hreq->requests);
+
+  AREQ_AddRequestFlags(hreq->requests[SEARCH_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
+  AREQ_AddRequestFlags(hreq->requests[VECTOR_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
+
+  PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[SEARCH_INDEX]));
+  searchArrangeStep->limit = window;
+
+  PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[VECTOR_INDEX]));
+  if (isKNN) {
+    // Vector subquery is a KNN query
+    // Heapsize should be min(window, KNN K)
+    // ast structure is: root = vector node <- filter node <- ... rest
+    vectorArrangeStep->limit = MIN(window, K);
+  } else {
+    // its range, limit = window
+    vectorArrangeStep->limit = window;
+  }
+}
+
 int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     HybridPipelineParams *hybridParams,
     AREQDIST_UpstreamInfo *us,
@@ -62,10 +109,12 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     RLookup *lookup = AGPLN_GetLookup(HybridRequest_TailAGGPlan(hreq), NULL, AGPLN_GETLOOKUP_FIRST);
     RS_ASSERT(lookup);
 
+    lookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
+    hybridRequestSetupCoordinatorSubqueriesRequests(hreq, hybridParams, lookup);
+
     int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-    lookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
     rc = HybridRequest_BuildMergePipeline(hreq, hybridParams, lookup);
     lookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
