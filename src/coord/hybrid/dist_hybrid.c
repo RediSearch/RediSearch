@@ -41,11 +41,19 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   if (params_index != -1) {
     params_index += vsim_index + 2;
   }
-  long long nparams;
-  if (params_index == -1) {
-    nparams = 0;
-  } else {
+  long long nparams = 0;
+  if (params_index != -1) {
     RedisModule_StringToLongLong(argv[params_index + 1], &nparams);
+  }
+
+  // LOAD is optional, and if present, it should be ignored, since we add our own LOAD step
+  int load_index = RMUtil_ArgIndex("LOAD", argv + vsim_index + 2, argc - (vsim_index + 2));
+  if (load_index != -1) {
+    load_index += vsim_index + 2;
+  }
+  long long nload = 0;
+  if (load_index != -1) {
+    RedisModule_StringToLongLong(argv[load_index + 1], &nload);
   }
 
   // Add SEARCH arguments
@@ -55,9 +63,14 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
   current_index = vsim_index + 2;
 
-  // Add VSIM + COMBINE arguments
+  // Add VSIM + COMBINE arguments up to but not including PARAMS, skip LOAD arguments
   int limit = (params_index == -1 ? argc : params_index);
   for (int i = current_index; i < limit; i++) {
+    // Skip LOAD arguments
+    if (i == load_index) {
+      i += nload + 1;
+      continue;
+    }
     if (i == vsim_index + 2 && argv[i] != '$') {
       MRCommand_AppendRstr(xcmd, argv[i]);
     } else {
@@ -68,7 +81,6 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
   current_index = limit;
 
-  // TODO: This could generate commands with two LOAD keyword: LOAD 1 @description LOAD 2 @__key @__score
   // Add LOAD arguments
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
     MRCommand_Append(xcmd, us->serialized[ii], strlen(us->serialized[ii]));
@@ -84,6 +96,11 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // Add the remaining arguments (TIMEOUT, DIALECT, FILTER, etc.)
   for (int i = current_index; i < argc; i++) {
+    // Skip LOAD arguments
+    if (i == load_index) {
+      i += nload + 1;
+      continue;
+    }
     size_t len;
     const char *str = RedisModule_StringPtrLen(argv[i], &len);
     MRCommand_Append(xcmd, str, len);
