@@ -13,6 +13,19 @@
 #include "module.h"
 #include "util/strconv.h"
 
+#ifndef ENABLE_ASSERT
+#define ASSERT_KEY(reply, idx, expected)
+#else
+#define ASSERT_KEY(reply, idx, expected)                                        \
+  do {                                                                          \
+    RedisModuleCallReply *key = RedisModule_CallReplyArrayElement(reply, idx);  \
+    RS_ASSERT(RedisModule_CallReplyType(key) == REDISMODULE_REPLY_STRING);      \
+    size_t key_len;                                                             \
+    const char *key_str = RedisModule_CallReplyStringPtr(key, &key_len);        \
+    RS_ASSERT(STR_EQ(key_str, key_len, expected));                              \
+  } while (0)
+#endif
+
 static void parseSlots(RedisModuleCallReply *slots, MRClusterShard *sh) {
   size_t len = RedisModule_CallReplyLength(slots);
   RS_ASSERT(len % 2 == 0);
@@ -53,6 +66,12 @@ static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
       n->endpoint.port = (int)RedisModule_CallReplyInteger(val); // Only set if tls-port wasn't set
     }
   }
+}
+
+static bool hasNoSlots(const RedisModuleCallReply *shard) {
+  ASSERT_KEY(shard, 0, "slots");
+  RedisModuleCallReply *slots = RedisModule_CallReplyArrayElement(shard, 1);
+  return RedisModule_CallReplyLength(slots) == 0;
 }
 
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
@@ -111,8 +130,8 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   */
 
   size_t numShards = RedisModule_CallReplyLength(cluster_shards);
-  if (numShards < 1) {
-    RedisModule_Log(ctx, "warning", "Got no shards in CLUSTER SHARDS");
+  if (numShards == 1 && hasNoSlots(RedisModule_CallReplyArrayElement(cluster_shards, 0))) {
+    RedisModule_Log(ctx, "warning", "Got no slots in CLUSTER SHARDS");
     return NULL;
   }
   MRClusterTopology *topo = rm_calloc(1, sizeof(MRClusterTopology));
@@ -129,18 +148,11 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     RS_ASSERT(RedisModule_CallReplyLength(currShard) == 4);
 
     // Handle slots
-#ifdef ENABLE_ASSERT
-    size_t key_len;
-    const char *key_str = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(currShard, 0), &key_len);
-    RS_ASSERT(STR_EQ(key_str, key_len, "slots"));
-#endif
+    ASSERT_KEY(currShard, 0, "slots");
     parseSlots(RedisModule_CallReplyArrayElement(currShard, 1), &topo->shards[i]);
 
     // Handle nodes
-#ifdef ENABLE_ASSERT
-    key_str = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(currShard, 2), &key_len);
-    RS_ASSERT(STR_EQ(key_str, key_len, "nodes"));
-#endif
+    ASSERT_KEY(currShard, 2, "nodes");
     RedisModuleCallReply *nodes = RedisModule_CallReplyArrayElement(currShard, 3);
     RS_ASSERT(RedisModule_CallReplyType(nodes) == REDISMODULE_REPLY_ARRAY);
     topo->shards[i].capNodes = RedisModule_CallReplyLength(nodes);
