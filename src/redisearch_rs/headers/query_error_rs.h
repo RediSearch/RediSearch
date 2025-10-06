@@ -63,13 +63,8 @@ typedef enum QueryErrorCode {
   QUERY_ERROR_CODE_OUT_OF_MEMORY,
 } QueryErrorCode;
 
-typedef struct Option_String Option_String;
-
 typedef struct QueryError {
-  enum QueryErrorCode code;
-  struct Option_String message;
-  struct Option_String detail;
-  bool reached_max_prefix_expansions;
+  Size64Align8 _0;
 } QueryError;
 
 #ifdef __cplusplus

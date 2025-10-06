@@ -8,4 +8,4 @@ parse_deps = true
 include = ["query_error"]
 
 [export.rename]
-"QueryErrorFFI" = "QueryError"
+"QueryErrorMimic" = "QueryError"

@@ -87,6 +87,7 @@ insta = "1.42.2"
 itertools = "0.14.0"
 lending-iterator = "0.1.7"
 libc = "0.2.170"
+mimic = { git = "https://github.com/JonasKruckenberg/mimic", branch = "jonas/cbindgen-compat", version = "0.1.0" }
 memchr = "2.7.4"
 pretty_assertions = "1.4.1"
 proptest = { version = "1.6.0", default-features = false }

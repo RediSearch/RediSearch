@@ -128,3 +128,5 @@ pub struct QueryError {
 
     reached_max_prefix_expansions: bool,
 }
+
+mimic::impl_mimic!(QueryError);
