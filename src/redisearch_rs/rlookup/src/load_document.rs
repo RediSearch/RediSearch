@@ -65,8 +65,9 @@ pub struct RLookupLoadOptions<'a> {
 impl RLookupLoadOptions<'_> {
     /// Get a mutable pointer to the RedisModuleCtx from the RedisSearchCtx.
     fn ctx_mut(&self) -> Option<NonNull<redis_module::raw::RedisModuleCtx>> {
-        let rs_ctx = self.sctx;
-        let rs_ctx = rs_ctx.cast::<redis_module::raw::RedisModuleCtx>();
+        // Safety: We assume the sctx pointer is valid and points to a valid RedisSearchCtx.
+        let rs_ctx = unsafe { self.sctx.as_ref() }.unwrap();
+        let rs_ctx = rs_ctx.redisCtx.cast::<redis_module::raw::RedisModuleCtx>();
 
         NonNull::new(rs_ctx)
     }
@@ -258,7 +259,7 @@ fn h_get_all_scan(
         with_or_create_key(lookup, field_cstr, |key| {
             // Decide on the coerce type
             let mut coerce_type = RLookupCoerceType::Str;
-            if !options.force_string && key.flags.contains(RLookupKeyFlag::QuerySrc) {
+            if !options.force_string && key.flags.contains(RLookupKeyFlag::Numeric) {
                 coerce_type = RLookupCoerceType::Dbl;
             }
 
@@ -347,31 +348,39 @@ fn h_get_all_fallback(
             panic!("Expected a string reply for the value, but got something else");
         };
 
+        // the following is like the c strndup function, so we need to add the trailing zero:
         let key_bytes = k.as_bytes();
-        {
-            // Safety: We create a CString from the bytes we received from Redis CALL API:
-            let field_cstr = unsafe { CStr::from_bytes_with_nul_unchecked(key_bytes) };
+        // create a new Vec with the trailing zero
+        let mut v = Vec::with_capacity(key_bytes.len() + 1);
+        v.extend_from_slice(key_bytes);
+        v.push(0);
+
+        // we need a ptr and length and postpone the memory cleanup to later:
+        let (ptr, len) = (v.as_ptr(), v.len());
+        // Safety: We create a byte slice from the vector we just created, which is valid as long as we don't free the vector.
+        let byte_slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+        v.leak();
+
+        // Safety: We create a CString from null terminated RedisString:
+        let field_cstr = unsafe { CStr::from_bytes_with_nul_unchecked(byte_slice) };
+        let is_still_leaking = {
             if let Some(_cursor) = lookup.keys.find_by_name(field_cstr) {
-                // Key already exists, nothing to do
+                // Key already exists, we have to cleanup the "temporary" leaked memory, but later
+                true
             } else {
-                let name = Cow::Owned(field_cstr.to_owned());
+                // Safety: We convert the CStr into a CString to own the memory, which is safe because we added the trailing zero above and had Ownership of the memory via the vector.
+                let cstring = unsafe { CString::from_raw(field_cstr.as_ptr().cast_mut()) };
+                let name = Cow::from(cstring);
+
                 let flags = make_bitflags!(RLookupKeyFlag::{DocSrc | QuerySrc | NameAlloc});
                 lookup.keys.push(RLookupKey::new_with_cow(name, flags));
+                false
             }
-        }
-
-        // convert key to Cow: CString -> Copied CString -> Cow
-        let cstring = CString::new(k.as_bytes()).unwrap();
-        let cow: Cow<'_, CStr> = Cow::from(cstring.clone());
-
-        // generate a cstr that is used as the field name but is the same as the cow
-        let ptr = cow.as_ptr();
-        // Safety: The pointer is valid as it comes from a RedisModuleString that is expected to be valid.
-        let field_cstr = unsafe { CStr::from_ptr(ptr) };
+        };
 
         with_or_create_key(lookup, field_cstr, |rlk| {
             let mut coerce_ty = RLookupCoerceType::Str;
-            if !options.force_string && rlk.flags.contains(RLookupKeyFlag::QuerySrc) {
+            if !options.force_string && rlk.flags.contains(RLookupKeyFlag::Numeric) {
                 coerce_ty = RLookupCoerceType::Dbl;
             }
 
@@ -395,6 +404,12 @@ fn h_get_all_fallback(
                 }
             });
         });
+
+        if is_still_leaking {
+            // Safety: We know the len is the capacity, so we can safely reconstruct the CString to free it.
+            let to_be = unsafe { CString::from_raw(field_cstr.as_ptr().cast_mut()) };
+            drop(to_be);
+        }
     }
 
     Ok(())
@@ -412,12 +427,19 @@ where
 {
     let new_required = lookup.keys.find_by_name(field_cstr).is_none();
     if new_required {
-        let flags = make_bitflags!(RLookupKeyFlag::{ForceLoad});
+        let flags = make_bitflags!(RLookupKeyFlag::{ForceLoad | NameAlloc});
         let name = Cow::from(field_cstr.to_owned());
         lookup.keys.push(RLookupKey::new_with_cow(name, flags));
     }
 
-    let flags = make_bitflags!(RLookupKeyFlag::{DocSrc | QuerySrc | NameAlloc});
-    let key = lookup.get_key_load(field_cstr, field_cstr, flags).unwrap();
+    let cursor = lookup
+        .keys
+        .find_by_name(field_cstr)
+        .expect("key must exist now");
+
+    let key = cursor.current().expect(
+        "the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!",
+    );
+
     f(key)
 }

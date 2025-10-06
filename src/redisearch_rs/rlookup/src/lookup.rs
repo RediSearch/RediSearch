@@ -299,6 +299,7 @@ impl<'a> RLookupKey<'a> {
     /// Returns the name of this key as a `&CStr`.
     ///
     /// This is used internally (load_document code paths) to access a reference with the correct lifetime.
+    #[expect(unused, reason = "Used by follow-up PRs")]
     pub(crate) fn name(&self) -> &CStr {
         // Safety: We assume the pointer is valid and points to a null-terminated C string.
         &self._name
