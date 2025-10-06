@@ -6,6 +6,7 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
+mimic.workspace = true
 query_error.workspace = true
 
 [build-dependencies]

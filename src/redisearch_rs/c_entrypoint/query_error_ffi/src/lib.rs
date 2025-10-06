@@ -7,13 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use mimic::Size64Align8;
 use std::os::raw::c_char;
 
-pub use query_error::{QueryError, QueryErrorCode};
+use query_error::QueryError;
+pub use query_error::QueryErrorCode;
+
+#[repr(C)]
+pub struct QueryErrorMimic(Size64Align8);
 
 #[unsafe(no_mangle)]
-#[allow(improper_ctypes_definitions)]
-pub extern "C" fn QueryError_Default() -> QueryError {
+pub extern "C" fn QueryError_Default() -> QueryErrorMimic {
     todo!()
 }
 
@@ -24,7 +28,7 @@ pub extern "C" fn QueryError_Strerror(_code: QueryErrorCode) -> *const c_char {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn QueryError_SetError(
-    _status: *mut QueryError,
+    _status: *mut QueryErrorMimic,
     _code: QueryErrorCode,
     _message: *const c_char,
 ) {
@@ -32,13 +36,13 @@ pub extern "C" fn QueryError_SetError(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn QueryError_SetCode(_status: *mut QueryError, _code: QueryErrorCode) {
+pub extern "C" fn QueryError_SetCode(_status: *mut QueryErrorMimic, _code: QueryErrorCode) {
     todo!()
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn QueryError_SetMessage(
-    _status: *mut QueryError,
+    _status: *mut QueryErrorMimic,
     _code: QueryErrorCode,
     _message: *const c_char,
 ) {
@@ -46,46 +50,46 @@ pub extern "C" fn QueryError_SetMessage(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn QueryError_CloneFrom(_src: *const QueryError, _dest: *mut QueryError) {
+pub extern "C" fn QueryError_CloneFrom(_src: *const QueryErrorMimic, _dest: *mut QueryErrorMimic) {
     todo!()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn QueryError_GetUserError(_status: *const QueryError) -> *const c_char {
+pub extern "C" fn QueryError_GetUserError(_status: *const QueryErrorMimic) -> *const c_char {
     todo!()
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn QueryError_GetDisplayableError(
-    _status: *const QueryError,
+    _status: *const QueryErrorMimic,
     _obfuscate: bool,
 ) -> *const c_char {
     todo!()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn QueryError_GetCode(_status: *const QueryError) -> QueryErrorCode {
+pub extern "C" fn QueryError_GetCode(_status: *const QueryErrorMimic) -> QueryErrorCode {
     todo!()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn QueryError_ClearError(_err: *mut QueryError) {
+pub extern "C" fn QueryError_ClearError(_err: *mut QueryErrorMimic) {
     todo!()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn QueryError_MaybeSetCode(_status: *mut QueryError, _code: QueryErrorCode) {
+pub extern "C" fn QueryError_MaybeSetCode(_status: *mut QueryErrorMimic, _code: QueryErrorCode) {
     todo!()
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn QueryError_HasReachedMaxPrefixExpansionsWarning(
-    _status: *const QueryError,
+    _status: *const QueryErrorMimic,
 ) -> bool {
     todo!()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn QueryError_SetReachedMaxPrefixExpansionsWarning(_status: *mut QueryError) {
+pub extern "C" fn QueryError_SetReachedMaxPrefixExpansionsWarning(_status: *mut QueryErrorMimic) {
     todo!()
 }

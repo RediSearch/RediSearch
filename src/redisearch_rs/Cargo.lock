@@ -989,6 +989,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 
 [[package]]
+name = "mimic"
+version = "0.1.0"
+source = "git+https://github.com/JonasKruckenberg/mimic?branch=jonas%2Fcbindgen-compat#119ed3804fd180af7e5211f2e43d4673d958f000"
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1257,6 +1262,7 @@ dependencies = [
 name = "query_error"
 version = "0.0.1"
 dependencies = [
+ "mimic",
  "thiserror",
 ]
 
@@ -1266,6 +1272,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "cbindgen",
+ "mimic",
  "query_error",
 ]
 
