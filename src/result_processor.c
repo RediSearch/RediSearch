@@ -1749,13 +1749,14 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
+   RLookupKey *docKey = RLookup_GetKey_Read(self->lookupCtx->sourceLookups[upstreamIndex], UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
        double score = SearchResult_GetScore(r);
        consumed++;
        if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
          score = consumed;
        }
-       if (hybridMergerStoreUpstreamResult(r, self->hybridResults, self->docKey, upstreamIndex, self->numUpstreams, score)) {
+       if (hybridMergerStoreUpstreamResult(r, self->hybridResults, docKey, upstreamIndex, self->numUpstreams, score)) {
          r = rm_calloc(1, sizeof(*r));
        } else {
          SearchResult_Clear(r);
