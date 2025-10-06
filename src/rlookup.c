@@ -1014,16 +1014,8 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
     // RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
 
     if (dest_key) {
-      RedisModule_Log(RSDummyContext, "warning", "Writing key %s to destination row", dest_key->name);
       // Write fields to destination (increments refcount, shares ownership)
       RLookup_WriteKey(dest_key, destRow, value);
-    } else {
-      if (src_key->name_len == 0) {
-        continue;
-      }
-      // Key does not exist in destination - create it
-      RedisModule_Log(RSDummyContext, "warning", "Key '%s' does not exist in destination lookup len=%zu", src_key->name, src_key->name_len);
-      // dest_key = RLookup_GetKey_Write(destLookup, src_key->name, src_key->name_len);
     }
   }
   // Caller is responsible for managing source row lifecycle
