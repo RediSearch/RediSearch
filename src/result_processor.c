@@ -1770,54 +1770,38 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  }
 
  /* Yield phase - iterate through results and apply hybrid scoring */
- static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
-   RPHybridMerger *self = (RPHybridMerger *)rp;
+static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
+  RPHybridMerger *self = (RPHybridMerger *)rp;
 
-   RS_ASSERT(self->iterator);
-   // Get next entry from iterator
-   dictEntry *entry = dictNext(self->iterator);
+  RS_ASSERT(self->iterator);
+  // Get next entry from iterator
+  dictEntry *entry = dictNext(self->iterator);
   if (!entry) {
     // No more results to yield
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
   }
 
-   // Get the key and value before removing the entry
-   void *key = dictGetKey(entry);
-   HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
-   RS_ASSERT(hybridResult);
+  // Get the key and value before removing the entry
+  void *key = dictGetKey(entry);
+  HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
+  RS_ASSERT(hybridResult);
 
-  // Resolve docKey in lookup if it was marked as unresolved
-  if (self->docKey && (self->docKey->flags & RLOOKUP_F_UNRESOLVED)) {
-    // Write the document key value to the output result's rowdata
-    const char *keyPtr = (const char*)key;
-    size_t keyLen = strlen(keyPtr);
-    RLookup_WriteOwnKey(self->docKey, SearchResult_GetRowDataMut(r),
-                      RSValue_NewCopiedString(keyPtr, keyLen));
-
-    // Clear the unresolved flag since we now have the document key value
-    ((RLookupKey*)self->docKey)->flags &= ~RLOOKUP_F_UNRESOLVED;
+  SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
+  if (!mergedResult) {
+    return RS_RESULT_ERROR;
   }
 
-   // write to tailLookup the document key
-   RLookup_WriteOwnKeyByName(self->lookupCtx->tailLookup, "__key", strlen("__key"), SearchResult_GetRowDataMut(r),
-                            RSValue_NewCopiedString(key, strlen(key)));
+  // Override the output result with merged data
+  SearchResult_Override(r, mergedResult);
+  rm_free(mergedResult);
 
-   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
-   if (!mergedResult) {
-     return RS_RESULT_ERROR;
-   }
+  // Add score as field if scoreKey is provided
+  if (self->scoreKey) {
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
+  }
 
-   // Override the output result with merged data
-   SearchResult_Override(r, mergedResult);
-   rm_free(mergedResult);
-
-   // Add score as field if scoreKey is provided
-   if (self->scoreKey) {
-     RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
-   }
-
-   return RS_RESULT_OK;
+  return RS_RESULT_OK;
  }
 
  /* Accumulation phase - consume window results from all upstreams */
