@@ -34,7 +34,8 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       // Set the result limit for the current AREQ - hack for now, should use window value
       if (IsHybridVectorSubquery(areq)){
         qctx->resultLimit = areq->maxAggregateResults;
-      } else if (IsHybridSearchSubquery(areq)) {
+      } else {
+        RS_ASSERT(IsHybridSearchSubquery(areq));
         qctx->resultLimit = areq->maxSearchResults;
       }
       // Create a depleter processor to extract results from this pipeline
