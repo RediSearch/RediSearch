@@ -128,6 +128,9 @@ def test_query_oom_cluster_shards_error():
 # Test OOM error returned from shards (only for fail), enforcing first reply from non-error shard
 @skip(cluster=False)
 def test_query_oom_cluster_shards_error_first_reply():
+    # This test crashes with SANITIZER because of the process pause.
+    if SANITIZER:
+        raise SkipTest()
     # Workers is necessary to make sure the query is not finished before we resume the shards
     env  = Env(shardsCount=3, moduleArgs='WORKERS 1')
 
