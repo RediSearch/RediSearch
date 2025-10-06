@@ -189,7 +189,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
       char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
-      return RS_StringVal(summarized, docLen);
+      return RSValue_NewString(summarized, docLen);
     } else {
       // Otherwise, just return the whole field, but without highlighting
     }
@@ -203,7 +203,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
     // highlighted.
     char *hlDoc = FragmentList_HighlightWholeDocS(&frags, &tags);
     FragmentList_Free(&frags);
-    return RS_StringValC(hlDoc);
+    return RSValue_NewCString(hlDoc);
   }
 
   size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, FragmentList_GetNumFrags(&frags));
@@ -243,7 +243,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
   char *hlText = Array_Steal(&bufTmp, &hlLen);
   Array_Free(&bufTmp);
   FragmentList_Free(&frags);
-  return RS_StringVal(hlText, hlLen);
+  return RSValue_NewString(hlText, hlLen);
 }
 
 static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
@@ -263,7 +263,7 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
   const char *fName = spec->name;
   const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
 
-  if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
+  if (fieldValue == NULL || !RSValue_IsAnyString(fieldValue)) {
     return;
   }
   RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
@@ -304,7 +304,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   // Get the index result for the current document from the root iterator.
   // The current result should not contain an index result
-  const RSIndexResult *ir = r->indexResult ? r->indexResult : getIndexResult(rbase, r->docId);
+  const RSIndexResult *ir = SearchResult_HasIndexResult(r) ? SearchResult_GetIndexResult(r) : getIndexResult(rbase, SearchResult_GetDocId(r));
 
   // we can't work without the index result, just return QUEUED
   if (!ir) {
@@ -313,7 +313,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   size_t numIovsArr = 0;
   const FieldList *fields = hlp->fields;
-  const RSDocumentMetadata *dmd = r->dmd;
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   if (!dmd) {
     return RS_RESULT_OK;
   }
@@ -321,7 +321,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
   hlpDocContext docParams = {.byteOffsets = dmd->byteOffsets,  // nl
                              .iovsArr = NULL,
                              .indexResult = ir,
-                             .row = &r->rowdata};
+                             .row = SearchResult_GetRowDataMut(r)};
 
   if (fields->numFields) {
     for (size_t ii = 0; ii < fields->numFields; ++ii) {

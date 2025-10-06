@@ -223,6 +223,8 @@ impl NumericDelta {
 impl Encoder for Numeric {
     type Delta = NumericDelta;
 
+    const ALLOW_DUPLICATES: bool = true;
+
     fn encode<W: Write + std::io::Seek>(
         &self,
         mut writer: W,
@@ -399,11 +401,18 @@ impl DecodedBy for Numeric {
 }
 
 impl Decoder for Numeric {
+    /// Decode a numeric record from the given cursor, using the provided base document ID.
+    /// The result is written into the provided `RSIndexResult` instance.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true to ensure `result` is holding numeric data.
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let mut header = [0; 1];
         cursor.read_exact(&mut header)?;
 
@@ -466,9 +475,18 @@ impl Decoder for Numeric {
         };
 
         let doc_id = base + delta;
-        let record = RSIndexResult::numeric(num).doc_id(doc_id);
 
-        Ok(record)
+        result.doc_id = doc_id;
+        // SAFETY: Caller must ensure `result` is numeric
+        unsafe {
+            *result.as_numeric_unchecked_mut() = num;
+        }
+
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::numeric(0.0)
     }
 }
 
@@ -560,12 +578,12 @@ impl Value {
         let u64_val = abs_val as u64;
 
         if u64_val as f64 == abs_val {
-            if u64_val <= 0b111 {
-                Value::TinyInteger(u64_val as u8)
-            } else if value.is_sign_positive() {
-                Value::IntegerPositive(u64_val)
-            } else {
+            if value.is_sign_negative() {
                 Value::IntegerNegative(u64_val)
+            } else if u64_val <= 0b111 {
+                Value::TinyInteger(u64_val as u8)
+            } else {
+                Value::IntegerPositive(u64_val)
             }
         } else {
             match value {

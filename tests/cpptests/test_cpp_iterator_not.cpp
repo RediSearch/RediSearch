@@ -19,7 +19,7 @@
 #include "src/iterators/wildcard_iterator.h"
 #include "src/iterators/empty_iterator.h"
 #include "src/iterators/inverted_index_iterator.h"
-#include "src/inverted_index/inverted_index.h"
+#include "inverted_index.h"
 #include "index_utils.h"
 
 class NotIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<t_docId>, std::optional<t_docId>, bool>> {

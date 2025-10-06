@@ -27,6 +27,9 @@ typedef struct CommonPipelineParams {
    *  Used to apply various query optimizations like iterator reordering,
    *  early termination, and scoring optimizations. */
   struct QOptimizer *optimizer;
+
+  /** Name to use as the score alias, used by both scorer and sorter. */
+  const char* scoreAlias;
 } CommonPipelineParams;
 
 /**

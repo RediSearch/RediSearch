@@ -56,7 +56,7 @@
      // Decrement the result limit, now that we got a valid result.
      rp->parent->resultLimit--;
 
-     array_append(results, SearchResult_Copy(&r));
+     array_append(results, SearchResult_AllocateMove(&r));
 
      // clean the search result
      r = (SearchResult){0};
