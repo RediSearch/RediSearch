@@ -5,7 +5,7 @@ pragma_once = true
 
 [parse]
 parse_deps = true
-include = ["query_error"]
+include = ["mimic", "query_error"]
 
 [export.rename]
 "QueryErrorMimic" = "QueryError"
