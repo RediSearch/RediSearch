@@ -36,10 +36,6 @@ typedef struct {
 int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
                             void *privdata);
 
-/* Get a connected connection according to the cluster, strategy and command.
- * Returns NULL if no fitting connection exists at the moment */
-MRConn *MRCluster_GetConn(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd);
-
 /* Send a command to its appropriate shard, selecting a node based on the coordination strategy.
  * Returns REDIS_OK on success, REDIS_ERR on failure. Notice that that send is asynchronous so even
  * though we signal for success, the request may fail */
