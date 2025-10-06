@@ -139,7 +139,8 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
         }
     }
 
-    us->lookup = &dstp->lk;
+    // This lookup goes to the rpnet - we need the lookup keys its write will be what the merger expects
+    us->lookup = lookup;
     us->serialized = ser_args.data();
     us->nserialized = ser_args.size();
     return REDISMODULE_OK;
