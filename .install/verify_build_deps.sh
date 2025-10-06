@@ -178,7 +178,6 @@ declare -A common_dependencies=(
   ["make"]="command"       # Verify using command -v
   ["gcc"]="command"        # Verify using command -v
   ["g++"]="command"        # Verify using command -v
-  ["uv"]="command"         # Verify using command -v
   ["python3"]="command"    # Verify using command -v
   ["cmake"]="command"      # Verify using command -v
 )
