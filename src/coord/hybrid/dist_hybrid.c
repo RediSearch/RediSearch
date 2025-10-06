@@ -19,6 +19,8 @@
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
 
+// We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
+#define HYBRID_RESP_PROTOCOL_VERSION 3
 
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
@@ -190,7 +192,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // Construct the command string
     MRCommand xcmd;
     HybridRequest_buildMRCommand(argv, argc, &us, &xcmd, sp, &hybridParams);
-    xcmd.protocol = is_resp3(ctx) ? 3 : 2;
+    xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     xcmd.forProfiling = false;  // No profiling support for hybrid yet
     xcmd.rootCommand = C_READ;
