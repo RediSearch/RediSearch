@@ -8,6 +8,8 @@
 */
 
 //! Metric iterator implementation
+use std::borrow::BorrowMut;
+
 use ffi::{RLookupKey, RS_NewValue, RSValue, RSValueType_RSValue_Number, RSYieldableMetric, t_docId};
 use inverted_index::{RSIndexResult, RSYieldableMetric_Concat};
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdList};
@@ -20,22 +22,23 @@ pub enum MetricType {
 pub struct Metric {
     base: IdList,
     type_: MetricType,
-    metric_data: Vec<u8>,    
+    metric_data: Vec<f64>,
 }
 
 impl Metric {
-    pub fn new(ids: Vec<t_docId>, metric_data: Vec<u8>) -> Self {
+    pub fn new(ids: Vec<t_docId>, metric_data: Vec<f64>) -> Self {
         Metric {
             base: IdList::new(ids),
             type_: MetricType::VectorDistance,
             metric_data,
         }
     }
-    fn set_result_metrics(&self, result: &mut RSIndexResult<'_>) {
+    #[inline(always)]
+    fn set_result_metrics(&self, result: &RSIndexResult<'_>) {
         unsafe {
             let v = RS_NewValue(RSValueType_RSValue_Number);
-            (*v).__bindgen_anon_1.numval = self.metric_data[result.doc_id as usize] as f64;
-            let new_metrics = RSYieldableMetric{key: None, value: v};
+            (*v).__bindgen_anon_1.numval = self.metric_data[self.base.offset()];
+            let new_metrics = RSYieldableMetric{key: std::ptr::null_mut(), value: v};
             RSYieldableMetric_Concat(&mut result.metrics, &new_metrics);
         }
     }
@@ -47,11 +50,16 @@ impl RQEIterator for Metric {
             return Ok(None);
         }
 
-        let result = self.base.read()?.as_mut();
+        let result = self.base.read()?;
         match result {
             Some(res) => {
-                self.set_result_metrics(res);
-                Ok(Some(res))
+            unsafe {
+                let v = RS_NewValue(RSValueType_RSValue_Number);
+                (*v).__bindgen_anon_1.numval = self.metric_data[self.base.offset()];
+                let new_metrics = RSYieldableMetric{key: std::ptr::null_mut(), value: v};
+                RSYieldableMetric_Concat(&mut res.metrics, &new_metrics);
+            }
+        Ok(Some(res))
             }
             None => {
                 Ok(None)
@@ -63,7 +71,20 @@ impl RQEIterator for Metric {
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
-        self.base.skip_to(doc_id)
+        let skip_outcome = self.base.skip_to(doc_id)?;
+        match skip_outcome{
+            Some(SkipToOutcome::Found(res)) | Some(SkipToOutcome::NotFound(res)) => {
+                unsafe {
+                    let v = RS_NewValue(RSValueType_RSValue_Number);
+                    (*v).__bindgen_anon_1.numval = self.metric_data[self.base.offset()];
+                    let new_metrics = RSYieldableMetric{key: std::ptr::null_mut(), value: v};
+                    RSYieldableMetric_Concat(&mut res.metrics, &new_metrics);
+                }
+                Ok(Some(SkipToOutcome::Found(res)))
+            },
+            // Some(SkipToOutcome::NotFound(r)) => Ok(Some(SkipToOutcome::NotFound(r))),
+            None => Ok(None)
+        }
     }
 
     fn rewind(&mut self) {
@@ -72,14 +93,14 @@ impl RQEIterator for Metric {
 
     // This should always return total results from the iterator, even after some yields.
     fn num_estimated(&self) -> usize {
-        self.top_id as usize
+        self.base.num_estimated()
     }
 
     fn last_doc_id(&self) -> t_docId {
-        self.current_id
+        self.base.last_doc_id()
     }
 
     fn at_eof(&self) -> bool {
-        self.current_id >= self.top_id
+        self.base.at_eof()
     }
 }
