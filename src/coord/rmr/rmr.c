@@ -215,22 +215,6 @@ static void uvFanoutRequest(void *p) {
   }
 }
 
-// This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRCtx
-static void uvMapRequest(void *p) {
-  MRCtx *mrctx = p;
-  IORuntimeCtx *ioRuntime = mrctx->ioRuntime;
-
-  int rc = MRCluster_SendCommand(ioRuntime, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx);
-  mrctx->numExpected = (rc == REDIS_OK) ? 1 : 0;
-
-  if (mrctx->numExpected == 0) {
-    RedisModuleBlockedClient *bc = mrctx->bc;
-    RS_ASSERT(bc);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mrctx);
-  }
-}
-
 /* Fanout map - send the same command to all the shards, sending the collective
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool block) {
@@ -246,16 +230,6 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
 
 
   IORuntimeCtx_Schedule(mrctx->ioRuntime, uvFanoutRequest, mrctx);
-  return REDIS_OK;
-}
-
-int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
-  ctx->reducer = reducer;
-  ctx->cmd = cmd;
-  RS_ASSERT(!ctx->bc);
-  ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
-  RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
-  IORuntimeCtx_Schedule(ctx->ioRuntime, uvMapRequest, ctx);
   return REDIS_OK;
 }
 
