@@ -19,6 +19,7 @@ members = [
     "varint",
     "rlookup",
     "build_utils",
+    "query_error",
     "rqe_iterators",
     "rqe_iterators_bencher",
     "varint_bencher",
@@ -72,6 +73,7 @@ qint = { path = "./qint" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
 search_result = { path = "./search_result" }
+query_error = { path = "./query_error" }
 
 cbindgen = "0.29"
 cc = "1"
