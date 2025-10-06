@@ -34,7 +34,7 @@ typedef struct {
  * @param vsimMappings Empty array to populate with vector similarity cursor mappings
  * @return RS_RESULT_OK on success, error code otherwise
  */
-int ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings);
+int ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status);
 
 #ifdef __cplusplus
 }

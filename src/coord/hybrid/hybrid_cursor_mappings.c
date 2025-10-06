@@ -19,14 +19,21 @@
 typedef struct {
     StrongRef searchMappings;
     StrongRef vsimMappings;
+    arrayof(QueryError*) errors;
     pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
     pthread_cond_t *completion_cond;  // Condition variable for completion signaling
     int numShards;                    // Total number of expected shards
 } processCursorMappingCallbackContext;
 
+static void processHybridError(processCursorMappingCallbackContext *ctx, const char *errorMessage) {
+    QueryError error = {0};
+    QueryError_Init(&error);
+    QueryError_SetError(&error, QUERY_EGENERIC, errorMessage);
+    ctx->errors = array_ensure_append_1(ctx->errors, error);
+}
+
 // Process cursor mappings for RESP2 protocol
 static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply *rep, MRCommand *cmd) {
-    pthread_mutex_lock(ctx->mutex);
     for (size_t i = 0; i < INTERNAL_HYBRID_RESP2_LENGTH; i += 2) {
         CursorMapping mapping = {0};
         mapping.targetSlot = cmd->targetSlot;
@@ -48,8 +55,6 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
         RS_ASSERT(vsimOrSearch);
         vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
     }
-    pthread_cond_broadcast(ctx->completion_cond);
-    pthread_mutex_unlock(ctx->mutex);
 }
 
 // Process cursor mappings for RESP3 protocol
@@ -58,7 +63,6 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
     const char *keys[] = {"SEARCH", "VSIM"};
     const bool isSearch[] = {true, false};
     const StrongRef* mappings[] = {&ctx->searchMappings, &ctx->vsimMappings};
-    pthread_mutex_lock(ctx->mutex);
     for (int i = 0; i < 2; i++) {
         MRReply *cursorId = MRReply_MapElement(rep, keys[i]);
         RS_ASSERT(cursorId);
@@ -72,8 +76,6 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
         RS_ASSERT(vsimOrSearch);
         vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
     }
-    pthread_cond_broadcast(ctx->completion_cond);
-    pthread_mutex_unlock(ctx->mutex);
 }
 
 // Callback implementation for processing cursor mappings
@@ -83,32 +85,37 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
-    // Check if an error returned from the shard
-    if (MRReply_Type(rep) == MR_REPLY_ERROR) {
-        const char* error = MRReply_String(rep, NULL);
-        // RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
-        // RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
-        MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
-        MRIteratorCallback_Done(ctx, 1);
-        return;
-    }
+    pthread_mutex_lock(cb_ctx->mutex);
 
-    // Detect protocol version based on reply type
-    bool isResp3 = MRReply_Type(rep) == MR_REPLY_MAP;
-
-    if (isResp3) {
-        RS_ASSERT(MRReply_Type(rep) == MR_REPLY_MAP && MRReply_Length(rep) == INTERNAL_HYBRID_RESP3_LENGTH);
+    const int replyType = MRReply_Type(rep);
+    if (replyType == MR_REPLY_ERROR) {
+        const char* errorMessage = MRReply_String(rep, NULL);
+        processHybridError(cb_ctx, errorMessage);
+    } else if (replyType == MR_REPLY_MAP) {
+        RS_ASSERT(MRReply_Length(rep) == INTERNAL_HYBRID_RESP3_LENGTH);
         processHybridResp3(cb_ctx, rep, cmd);
-    } else {
-        RS_ASSERT(MRReply_Type(rep) == MR_REPLY_ARRAY && MRReply_Length(rep) == INTERNAL_HYBRID_RESP2_LENGTH);
+    } else if (replyType == MR_REPLY_ARRAY) {
+        RS_ASSERT(MRReply_Length(rep) == INTERNAL_HYBRID_RESP2_LENGTH);
         processHybridResp2(cb_ctx, rep, cmd);
+    } else {
+        processHybridError(cb_ctx, "Unsupported reply type");
     }
+
+    // we must notify the coordinator a response has arrived, even if it's an error
+    pthread_cond_signal(cb_ctx->completion_cond);
+    pthread_mutex_unlock(cb_ctx->mutex);
 
     MRIteratorCallback_Done(ctx, 0);
     MRReply_Free(rep);
 }
 
-int ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef) {
+static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
+    pthread_mutex_destroy(ctx->mutex);
+    pthread_cond_destroy(ctx->completion_cond);
+    array_free_ex(ctx->errors, QueryError_ClearError((QueryError*)ptr));
+}
+
+int ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -121,6 +128,7 @@ int ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef s
     processCursorMappingCallbackContext ctx = {
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
+        .errors = array_new(QueryError*, numShards),
         .mutex = &mutex,
         .completion_cond = &completion_cond,
         .numShards = numShards
@@ -130,8 +138,8 @@ int ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef s
     MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, &ctx, iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
-        pthread_mutex_destroy(&mutex);
-        pthread_cond_destroy(&completion_cond);
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to start iteration");
+        cleanupCtx(&ctx);
         return 4; // RS_RESULT_ERROR
     }
 
@@ -144,13 +152,18 @@ int ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef s
         CursorMappings *searchMappings = StrongRef_Get(ctx.searchMappings);
         CursorMappings *vsimMappings = StrongRef_Get(ctx.vsimMappings);
         count = array_len(searchMappings->mappings) + array_len(vsimMappings->mappings);
+        count += array_len(ctx.errors) * 2; // every error accounts for both vsim ans search
     }
     pthread_mutex_unlock(&mutex);
+    int result = 0;
+    if (array_len(ctx.errors)) {
+        QueryError_SetWithUserDataFmt(status, QUERY_EGENERIC, "Failed to process cursor mappings, first error: %s", QueryError_GetUserError(&ctx.errors[0]));
+        result = 4; // RS_RESULT_ERROR
+    }
 
     // Cleanup
     MRIterator_Release(it);
-    pthread_mutex_destroy(&mutex);
-    pthread_cond_destroy(&completion_cond);
+    cleanupCtx(&ctx);
 
-    return 0; // RS_RESULT_OK
+    return result; // RS_RESULT_OK
 }
