@@ -160,7 +160,7 @@ def test_query_oom_cluster_shards_error_first_reply():
     query_result = []
 
     # Build threads
-    query_args = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t']
+    query_args = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name']
 
     t_query = threading.Thread(
         target=call_and_store,
