@@ -54,27 +54,23 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   return REDISMODULE_OK;
 }
 
-static void hybridRequestSetupCoordinatorSubqueriesRequests(HybridRequest *hreq, const HybridPipelineParams *hybridParams, RLookup *tailLookup) {
+static int hybridRequestSetupCoordinatorSubqueriesRequests(HybridRequest *hreq, const HybridPipelineParams *hybridParams, RLookup *tailLookup, QueryError *status) {
   RS_ASSERT(hybridParams->scoringCtx);
   size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
 
   bool isKNN = hreq->requests[VECTOR_INDEX]->ast.root->type == QN_VECTOR;
   size_t K = isKNN ? hreq->requests[VECTOR_INDEX]->ast.root->vn.vq->knn.k : 0;
 
-  // Put all the loaded keys in the tail so he is aware of them
+  // Put all the loaded keys in the tail so all the result processors in the tail can use them
+  // especially rpnet and hybrid merger
   for (size_t i = 0; i < hreq->nrequests; i++) {
     AREQ *areq = hreq->requests[i];
     PLN_LoadStep *step = (PLN_LoadStep *)AGPLN_FindStep(AREQ_AGGPlan(areq), NULL, NULL, PLN_T_LOAD);
     if (!step) {
       continue;
     }
-    while (!AC_IsAtEnd(&step->args)) {
-      size_t length = 0;
-      const char *s = AC_GetStringNC(&step->args, &length);
-      if (!s) {
-        continue;
-      }
-      RLookup_GetKey_ReadEx(tailLookup, s, length, RLOOKUP_F_NOFLAGS);
+    if (OpenLoadKeys(step, tailLookup, 0, status, NULL) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
     }
   }
 
@@ -98,6 +94,7 @@ static void hybridRequestSetupCoordinatorSubqueriesRequests(HybridRequest *hreq,
     // its range, limit = window
     vectorArrangeStep->limit = window;
   }
+  return REDISMODULE_OK;
 }
 
 int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
@@ -109,9 +106,10 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     RS_ASSERT(lookup);
 
     lookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
-    hybridRequestSetupCoordinatorSubqueriesRequests(hreq, hybridParams, lookup);
+    int rc = hybridRequestSetupCoordinatorSubqueriesRequests(hreq, hybridParams, lookup, status);
+    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-    int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
+    rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     rc = HybridRequest_BuildMergePipeline(hreq, hybridParams, lookup);
