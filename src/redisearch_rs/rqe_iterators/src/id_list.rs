@@ -47,6 +47,10 @@ impl IdList {
     fn get_current(&self) -> Option<t_docId> {
         self.ids.get(self.offset).copied()
     }
+    #[inline(always)]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
 }
 
 impl RQEIterator for IdList {
