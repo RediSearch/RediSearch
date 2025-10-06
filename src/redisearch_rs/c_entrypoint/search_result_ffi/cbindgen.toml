@@ -18,4 +18,4 @@ parse_deps = true
 include = ["mimic"]
 
 [export.rename]
-"Size72Align8" = "SearchResult"
+"Size80Align8" = "SearchResult"
