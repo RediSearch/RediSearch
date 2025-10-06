@@ -1,13 +1,13 @@
 from includes import *
 from common import *
-import os
 
 
 def testBasicFuzzy(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                    'title', 'hello world',
-                                    'body', 'this is a test').ok()
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command(
+        'ft.add', 'idx', 'doc1', 1.0, 'fields',
+        'title', 'hello world',
+        'body', 'this is a test'))
 
     res = env.cmd('ft.search', 'idx', '%word%')
     env.assertEqual(res[0:2], [1, 'doc1'])
@@ -24,15 +24,17 @@ def testThreeFuzzy(env):
 
 def testLdLimit(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text')
-    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world')
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world')
     env.assertEqual([1, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', '%word%'))  # should be ok
     env.assertEqual([0], env.cmd('ft.search', 'idx', r'%sword%'))  # should return nothing
     env.assertEqual([1, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', r'%%sword%%'))
 
 def testStopwords(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
+    con = env.getClusterConnectionIfNeeded()
     for t in ('iwth', 'ta', 'foo', 'rof', 'whhch', 'witha'):
-        env.cmd('ft.add', 'idx', t, 1.0, 'fields', 't1', t)
+        con.execute_command('ft.add', 'idx', t, 1.0, 'fields', 't1', t)
 
     r = env.cmd('ft.search', 'idx', '%for%')
     env.assertEqual([1, 'foo', ['t1', 'foo']], r)
@@ -48,18 +50,19 @@ def testStopwords(env):
 
 def testFuzzyMultipleResults(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
+    con = env.getClusterConnectionIfNeeded()
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'hello world',
-                                    'body', 'this is a test').ok()
-    env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields',
+                                    'body', 'this is a test'))
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
                                     'title', 'hello word',
-                                    'body', 'this is a test').ok()
-    env.expect('ft.add', 'idx', 'doc3', 1.0, 'fields',
+                                    'body', 'this is a test'))
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc3', 1.0, 'fields',
                                     'title', 'hello ward',
-                                    'body', 'this is a test').ok()
-    env.expect('ft.add', 'idx', 'doc4', 1.0, 'fields',
+                                    'body', 'this is a test'))
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc4', 1.0, 'fields',
                                     'title', 'hello wakld',
-                                    'body', 'this is a test').ok()
+                                    'body', 'this is a test'))
 
     res = env.cmd('ft.search', 'idx', '%word%')
     env.assertEqual(res[0], 3)
@@ -69,8 +72,9 @@ def testFuzzyMultipleResults(env):
 def testFuzzySyntaxError(env):
     unallowChars = ('*', '$', '~', '&', '@', '!')
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-               'title', 'hello world', 'body', 'this is a test').ok()
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                        'title', 'hello world', 'body', 'this is a test')
     for ch in unallowChars:
         error = None
         try:
@@ -81,7 +85,8 @@ def testFuzzySyntaxError(env):
 
 def testFuzzyWithNumbersOnly(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'test', 'TEXT', 'SORTABLE').equal('OK')
-    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12345').equal('OK')
+    con = env.getClusterConnectionIfNeeded()
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12345'))
 
     MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):

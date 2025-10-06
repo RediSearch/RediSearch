@@ -26,7 +26,7 @@ def test_acl_search_commands(env):
         'FT._ALIASDELIFX', 'FT._CREATEIFNX', 'FT._ALIASADDIFNX', 'FT._ALTERIFNX',
         'FT._DROPINDEXIFX', 'FT.DROPINDEX', 'FT.TAGVALS', 'FT._DROPIFX',
         'FT.DROP', 'FT.GET', 'FT.SYNADD', 'FT.ADD', 'FT.MGET', 'FT.DEL',
-        '_FT.CONFIG', '_FT.DEBUG', '_FT.SAFEADD'
+        '_FT.CONFIG', '_FT.DEBUG', 'FT.SAFEADD'
     ]
     if not env.isCluster():
         commands.append('FT.CONFIG')
