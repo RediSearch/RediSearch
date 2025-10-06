@@ -5,6 +5,10 @@
 extern "C" {
 #endif
 
+typedef void (*KeyCallback)(PLN_LoadStep *loadStep, RLookupKey *key);
+
+int OpenLoadKeys(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t loadFlags, QueryError *status, KeyCallback keyCallback);
+
 /** Build the document search and scoring part of the pipeline.
  *  This creates the initial pipeline components that execute the query against
  *  the index to find matching documents and calculate their relevance scores. */
