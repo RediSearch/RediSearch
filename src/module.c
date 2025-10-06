@@ -2874,6 +2874,7 @@ QueryErrorCode extractQueryErrorFromReply(MRReply *reply) {
   return QUERY_EGENERIC;
 }
 
+// TODO - get RequestConfig ptr as parameter instead of global config
 bool should_return_error(QueryErrorCode errCode) {
   // Check if this is a timeout error with non-fail policy
   if (errCode == QUERY_ETIMEDOUT) {

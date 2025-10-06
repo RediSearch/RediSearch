@@ -192,6 +192,7 @@ def test_query_oom_cluster_coord_error():
     _ = _common_cluster_test_scenario(env)
     # Note: the coord's maxmemory is changed in the function above
 
+    allShards_change_oom_policy(env, 'fail')
     # Verify query fails
     env.expect('FT.SEARCH', 'idx', '*').error().contains(OOM_QUERY_ERROR)
     # Verify aggregation query fails
