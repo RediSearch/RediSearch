@@ -24,6 +24,9 @@ on:
         description: 'Optional: SHA to checkout. If not provided, `ref` will be used'
       redis-ref:
         type: string
+      beta-version:
+        type: string
+        description: 'Pre-generated beta version identifier for consistent versioning across builds'
 
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
@@ -208,24 +211,22 @@ jobs:
           aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
           aws configure set region "$AWS_REGION"
-      - name: Generate Beta Version unique identifier
+      - name: Set Version identifier
         id: beta-version
         run: |
-          # Check if this is a beta version (99.99.99)
-          MAJOR=$(grep '#define REDISEARCH_VERSION_MAJOR' src/version.h | awk '{print $3}')
-          MINOR=$(grep '#define REDISEARCH_VERSION_MINOR' src/version.h | awk '{print $3}')
-          PATCH=$(grep '#define REDISEARCH_VERSION_PATCH' src/version.h | awk '{print $3}')
-          VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          if [[ "$VERSION" == "99.99.99" ]]; then
-            # Generate timestamp at workflow start for consistent beta versioning
-            TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
-            # Add workflow number to ensure the version is unique (if multiple workflows started at the same time)
-            WORKFLOW_NUM=${{ github.run_number }}
-            BETA_VERSION="99.99.99.${TIMESTAMP}.${WORKFLOW_NUM}"
+          # Use the pre-generated beta version if provided (master branch builds)
+          # Otherwise generate regular version from version.h (non-master branch builds)
+          if [[ -n "${{ inputs.beta-version }}" ]]; then
+            BETA_VERSION="${{ inputs.beta-version }}"
             echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
-            echo "Beta version detected, using: $BETA_VERSION"
+            echo "Using pre-generated beta version: $BETA_VERSION"
           else
-            echo "Regular version detected: $VERSION"
+            # Generate regular version from version.h for non-master branches
+            MAJOR=$(grep '#define REDISEARCH_VERSION_MAJOR' src/version.h | awk '{print $3}')
+            MINOR=$(grep '#define REDISEARCH_VERSION_MINOR' src/version.h | awk '{print $3}')
+            PATCH=$(grep '#define REDISEARCH_VERSION_PATCH' src/version.h | awk '{print $3}')
+            REGULAR_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            echo "No beta version provided, using regular version: $REGULAR_VERSION"
           fi
       - name: Upload Artifacts
         env:
