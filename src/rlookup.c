@@ -1011,12 +1011,9 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
 
     // Find corresponding key in destination lookup
     RLookupKey *dest_key = RLookup_FindKey(destLookup, src_key->name, src_key->name_len);
-    // RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
-
-    if (dest_key) {
-      // Write fields to destination (increments refcount, shares ownership)
-      RLookup_WriteKey(dest_key, destRow, value);
-    }
+    RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
+    // Write fields to destination (increments refcount, shares ownership)
+    RLookup_WriteKey(dest_key, destRow, value);
   }
   // Caller is responsible for managing source row lifecycle
 }
