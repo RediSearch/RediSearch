@@ -43,10 +43,6 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
       ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
       QITR_PushRP(qctx, depleter);
-
-      // RPNet *rpNet = RPNet_New(xcmd, rpnetNext_StartWithMappings);
-      // RPNet_SetDispatcher(rpNet, dispatcher);
-      // QITR_PushRP(qctx, &rpNet->base);
   }
 
   // Release the sync reference as depleters now hold their own references
@@ -136,6 +132,7 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
         ser_args.push_back(ldsze);
         for (auto kk : loadFields) {
             ser_args.push_back(rm_strndup(kk->name, kk->name_len));
+            RedisModule_Log(NULL, "warning", "HybridRequest_BuildDistributedPipeline: Adding LOAD field %s", kk->name);
         }
     }
 

@@ -114,6 +114,16 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Numeric responses are encoded as simple strings.
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
+  // Log the final command
+  RedisModule_Log(NULL, "warning", "MRCommand: ");
+  for (int i = 0; i < xcmd->num; i++) {
+    if (xcmd->strs[i] && xcmd->lens[i] > 0) {
+      RedisModule_Log(NULL, "warning", "MRCommand: %s", xcmd->strs[i]);
+    } else {
+      RedisModule_Log(NULL, "warning", "MRCommand: NULL");
+    }
+  }
+  RedisModule_Log(NULL, "warning", "MRCommand: END");
 }
 
 // UPDATED: Set RPNet types when creating them
@@ -188,9 +198,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // // Set request flags from hybridParams
     // hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
 
-    // TODO: Do we need a different AGGPLN_Hybrid_Distribute()?
-    // by now I'm reusing AGGPLN_Distribute()
-    rc = AGGPLN_Distribute(HybridRequest_TailAGGPlan(hreq), status);
+    rc = Hybrid_AGGPLN_Distribute(HybridRequest_TailAGGPlan(hreq), status);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     AREQDIST_UpstreamInfo us = {0};

@@ -32,6 +32,8 @@ typedef struct PLN_DistributeStep {
 
 int AGGPLN_Distribute(AGGPlan *src, QueryError *status);
 
+int Hybrid_AGGPLN_Distribute(AGGPlan *src, QueryError *status);
+
 typedef struct {
   // Arguments to upstream FT.AGGREGATE
   const char **serialized;

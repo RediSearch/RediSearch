@@ -561,6 +561,27 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
   array_free(tmp);
 }
 
+int Hybrid_AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
+  AGGPlan *remote = (AGGPlan *)rm_malloc(sizeof(*remote));
+  AGPLN_Init(remote);
+
+  PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
+  dstp->base.type = PLN_T_DISTRIBUTE;
+  dstp->plan = remote;
+  dstp->serialized = new std::vector<const char *>();
+  dstp->base.dtor = freeDistStep;
+  dstp->base.getLookup = distStepGetLookup;
+  BlkAlloc_Init(&dstp->alloc);
+
+  // Simplified finalization for empty remote plan
+  RLookup_Init(&dstp->lk, nullptr);
+  AGPLN_PopStep(&src->firstStep_s.base);
+  AGPLN_Prepend(src, &dstp->base);
+
+  return REDISMODULE_OK;
+}
+
+
 int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
 
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_DISTRIBUTE);
@@ -588,6 +609,7 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
     ser_args.push_back(ldsze);
     for (auto kk : loadFields) {
       ser_args.push_back(rm_strndup(kk->name, kk->name_len));
+      RedisModule_Log(NULL, "warning", "AREQ_BuildDistributedPipeline: Adding LOAD field %s", kk->name);
     }
   }
 
