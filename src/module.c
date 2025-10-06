@@ -1337,7 +1337,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
          0, 0, 0, "slow admin", false))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_ADD_CMD, RSAddDocumentCommand,
-         "write deny-oom", INDEX_DOC_CMD_ARGS, "write", !IsEnterprise()))
+         "write deny-oom", INDEX_DOC_CMD_ARGS, "write", false))
 
 #ifdef RS_CLUSTER_ENTERPRISE
   // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
@@ -1354,7 +1354,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
         "write deny-oom", INDEX_DOC_CMD_ARGS, "write", false))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DEL_CMD, DeleteCommand, "write",
-         INDEX_DOC_CMD_ARGS, "write", !IsEnterprise()))
+         INDEX_DOC_CMD_ARGS, "write", false))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, "", true))
@@ -1366,7 +1366,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
          "readonly", INDEX_ONLY_CMD_ARGS, "read", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_GET_CMD, GetSingleDocumentCommand,
-         "readonly", INDEX_DOC_CMD_ARGS, "read", !IsEnterprise()))
+         "readonly", INDEX_DOC_CMD_ARGS, "read", false))
 
   // Do not force cross slot validation since coordinator will handle it.
   RM_TRY(RMCreateSearchCommand(ctx, RS_MGET_CMD, GetDocumentsCommand,
@@ -1646,20 +1646,6 @@ int mergeArraysReducer(struct MRCtx *mc, int count, MRReply **replies) {
     return rc;
   }
   RedisModule_Reply_ArrayEnd(reply);
-
-  RedisModule_EndReply(reply);
-  return REDISMODULE_OK;
-}
-
-int singleReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-  if (count == 0) {
-    RedisModule_Reply_Null(reply);
-  } else {
-    MR_ReplyWithMRReply(reply, replies[0]);
-  }
 
   RedisModule_EndReply(reply);
   return REDISMODULE_OK;
@@ -3187,48 +3173,6 @@ static int FanoutCommandHandlerIndexless(RedisModuleCtx *ctx,
   return MastersFanoutCommandHandler(ctx, argv, argc, -1);
 }
 
-// Supports FT.ADD, FT.DEL, FT.GET, FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN.
-// If needed for more commands, make sure `MRCommand_GetShardingKey` is implemented for them.
-// Notice that only OSS cluster should deal with such redirections.
-static int SingleShardCommandHandler(RedisModuleCtx *ctx,
-  RedisModuleString **argv, int argc, int indexNamePos) {
-  if (argc < 2) {
-    return RedisModule_WrongArity(ctx);
-  } else if (!SearchCluster_Ready()) {
-    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  }
-  RS_AutoMemory(ctx);
-
-  // Validate ACL key permissions if needed (for commands that access an index)
-  if (indexNamePos != -1) {
-    if (indexNamePos >= argc) {
-      return RedisModule_WrongArity(ctx);
-    }
-    VERIFY_ACL(ctx, argv[indexNamePos])
-  }
-
-  if (NumShards == 1) {
-    // There is only one shard in the cluster. We can handle the command locally.
-    return genericCallUnderscoreVariant(ctx, argv, argc);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
-  }
-
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  MRCommand_SetProtocol(&cmd, ctx);
-  /* Replace our own FT command with _FT. command */
-  MRCommand_SetPrefix(&cmd, "_FT");
-
-  MR_MapSingle(MR_CreateCtx(ctx, 0, NULL, NumShards), singleReplyReducer, cmd);
-
-  return REDISMODULE_OK;
-}
-
-static int SingleShardCommandHandlerWithIndexAtFirstArg(RedisModuleCtx *ctx,
-  RedisModuleString **argv, int argc) {
-  return SingleShardCommandHandler(ctx, argv, argc, 1);
-}
-
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx);
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -3949,9 +3893,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),"write deny-oom", 0, 0, -1, "", false))
 
     // Deprecated OSS commands
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, "read", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "write", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write", false))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write slow dangerous", false))
     RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "write", false))
 #endif
