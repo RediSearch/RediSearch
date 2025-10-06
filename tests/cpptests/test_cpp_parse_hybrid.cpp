@@ -613,7 +613,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
 
   QueryError status = {QueryErrorCode(0)};
   parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, false);
-  EXPECT_EQ(status.code, QUERY_EPARSEARGS) << "Should fail as external command";
+  EXPECT_EQ(QueryError_GetCode(&status), QUERY_EPARSEARGS) << "Should fail as external command";
   QueryError_ClearError(&status);
 
   // Clean up any partial allocations from the failed parse
@@ -631,7 +631,7 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
 
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
   parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
-  EXPECT_EQ(status.code, QUERY_OK) << "Should succeed as internal command";
+  ASSERT_TRUE(QueryError_IsOk(&status)) << "Should succeed as internal command";
   QueryError_ClearError(&status);
 
   // Verify _NUM_SSTRING flag is set after parsing
