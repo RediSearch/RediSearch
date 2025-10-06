@@ -2,6 +2,7 @@ from common import *
 import threading
 import psutil
 import numpy as np
+from redis.exceptions import ResponseError
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
@@ -295,25 +296,44 @@ def test_oom_verbosity_cluster_return(env):
     # Note - only the coordinator shard will return results
 
     # RESP3
+
     # Search Profile
     res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
     env.assertEqual(res['Results']['warning'], OOM_WARNING)
+    shards_error_lst = [str(shard_err) for shard_err in res['Profile']['Shards'] if isinstance(shard_err, ResponseError)]
+    # Since we don't know the order of responses, we need to count 2 errors
+    env.assertEqual(shards_error_lst.count(OOM_QUERY_ERROR), 2)
+
     # Aggregate Profile
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
     env.assertEqual(res['Results']['warning'][0], OOM_WARNING)
     env.assertEqual(res['Profile']['Coordinator']['Warning'], OOM_WARNING)
+    shards_error_lst = [str(shard_err) for shard_err in res['Profile']['Shards'] if isinstance(shard_err, ResponseError)]
+    # Since we don't know the order of responses, we need to count 2 errors
+    env.assertEqual(shards_error_lst.count(OOM_QUERY_ERROR), 2)
+
     # FT.SEARCH
     res = env.cmd('FT.SEARCH', 'idx', '*')
     env.assertEqual(res['warning'], OOM_WARNING)
+
     # FT.AGGREGATE
     res = env.cmd('FT.AGGREGATE', 'idx', '*')
     env.assertEqual(res['warning'][0], OOM_WARNING)
 
     # RESP2
     env.cmd('HELLO', 2)
+
+    # Search Profile
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
+    shards_lst = [str(shard) for shard in res[1][1]]
+    # Since we don't know the order of responses, we need to count 2 errors
+    env.assertEqual(shards_lst.count(OOM_QUERY_ERROR), 2)
+
     # Aggregate Profile
-    # Note that Search is not tested since it does not output a warning in RESP2
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
     coord_res = res[1][3]
     warning_idx = coord_res.index('Warning') + 1
     env.assertEqual(coord_res[warning_idx], OOM_WARNING)
+    shards_error_lst = [str(shard_err) for shard_err in res[1][1] if isinstance(shard_err, ResponseError)]
+    # Since we don't know the order of responses, we need to count 2 errors
+    env.assertEqual(shards_error_lst.count(OOM_QUERY_ERROR), 2)

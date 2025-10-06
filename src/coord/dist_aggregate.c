@@ -290,6 +290,12 @@ static int getNextReply(RPNet *nc) {
   // Check if an error was returned
   if(MRReply_Type(root) == MR_REPLY_ERROR) {
     nc->current.root = root;
+    // If for profiling, clone and append the error
+    if (nc->cmd.forProfiling) {
+      // Clone the error and append it to the profile
+      MRReply *error = MRReply_Clone(root);
+      array_append(nc->shardsProfile, error);
+    }
     return 1;
   }
 

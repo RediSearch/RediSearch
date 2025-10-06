@@ -2768,9 +2768,10 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
     if (MRReply_Type(current) == MR_REPLY_ERROR) {
       // Since we expect this to happen only with OOM, we assert it until this invariant changes.
       RS_ASSERT(extractQueryErrorFromReply(replies[i]) == QUERY_EOOM);
+      MR_ReplyWithMRReply(reply, current);
       continue;
     }
-    if (isSearch) {
+    else if (isSearch) {
       // On FT.SEARCH, extract the profile information from the reply. (should be the second element)
       current = MRReply_ArrayElement(current, 1);
     }
@@ -2785,6 +2786,7 @@ static void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply
     MRReply *current = replies[i];
     // Check if reply is error
     if (MRReply_Type(current) == MR_REPLY_ERROR) {
+      MR_ReplyWithMRReply(reply, current);
       continue;
     }
     if (isSearch) { // On aggregate commands, we get the profile info directly.
