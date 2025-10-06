@@ -103,7 +103,7 @@ pub enum QueryErrorCode {
     #[error("'IsMissing' requires field to be defined with 'INDEXMISSING'")]
     Missing,
     #[error("Index mismatch: Shard index is different than queried index")]
-    MissMatch,
+    Mismatch,
     #[error("Unknown index name")]
     UnknownIndex,
     #[error("The index was dropped before the query could be executed")]

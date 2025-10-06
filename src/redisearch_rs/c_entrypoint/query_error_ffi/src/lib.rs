@@ -7,14 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use mimic::Size64Align8;
+use query_error::QueryError;
 use std::os::raw::c_char;
 
-use query_error::QueryError;
+pub use mimic::Size64Align8;
 pub use query_error::QueryErrorCode;
 
 #[repr(C)]
 pub struct QueryErrorMimic(Size64Align8);
+
+const _: () = {
+    assert!(std::mem::size_of::<QueryErrorMimic>() == std::mem::size_of::<QueryError>());
+    assert!(std::mem::align_of::<QueryErrorMimic>() == std::mem::align_of::<QueryError>());
+};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn QueryError_Default() -> QueryErrorMimic {

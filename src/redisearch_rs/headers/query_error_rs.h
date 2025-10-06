@@ -53,7 +53,7 @@ typedef enum QueryErrorCode {
   QUERY_ERROR_CODE_ADHOC_WITH_EF_RUNTIME,
   QUERY_ERROR_CODE_NON_RANGE,
   QUERY_ERROR_CODE_MISSING,
-  QUERY_ERROR_CODE_MISS_MATCH,
+  QUERY_ERROR_CODE_MISMATCH,
   QUERY_ERROR_CODE_UNKNOWN_INDEX,
   QUERY_ERROR_CODE_DROPPED_BACKGROUND,
   QUERY_ERROR_CODE_ALIAS_CONFLICT,
@@ -63,8 +63,13 @@ typedef enum QueryErrorCode {
   QUERY_ERROR_CODE_OUT_OF_MEMORY,
 } QueryErrorCode;
 
+/**
+ * A type with a size of `64` bytes and alignment `8`.
+ */
+typedef struct Size64Align8 Size64Align8;
+
 typedef struct QueryError {
-  Size64Align8 _0;
+  struct Size64Align8 _0;
 } QueryError;
 
 #ifdef __cplusplus
