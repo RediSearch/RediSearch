@@ -991,7 +991,7 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
 }
 
 void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-                               RLookupRow *destRow, const RLookup *destLookup) {
+                               RLookupRow *destRow, RLookup *destLookup) {
   RS_ASSERT(srcRow && srcLookup);
   RS_ASSERT(destRow && destLookup);
 
