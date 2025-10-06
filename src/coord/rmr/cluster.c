@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cluster.h"
-#include "crc16.h"
-#include "crc12.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 
@@ -29,19 +27,6 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   return cl;
 }
 
-/* Find the shard responsible for a given slot */
-MRClusterShard *_MRCluster_FindShard(MRClusterTopology *topo, unsigned slot) {
-  // TODO: Switch to binary search
-  for (int i = 0; i < topo->numShards; i++) {
-    for (int r = 0; r < topo->shards[i].numRanges; r++) {
-      if (topo->shards[i].ranges[r].start <= slot && topo->shards[i].ranges[r].end >= slot) {
-        return &topo->shards[i];
-      }
-    }
-  }
-  return NULL;
-}
-
 /* Select a node from the shard according to the coordination strategy */
 MRClusterNode *_MRClusterShard_SelectNode(MRClusterShard *sh, bool mastersOnly) {
   // if we only want masters - find the master of this shard
@@ -53,80 +38,17 @@ MRClusterNode *_MRClusterShard_SelectNode(MRClusterShard *sh, bool mastersOnly) 
   return &sh->nodes[rand() % sh->numNodes];
 }
 
-typedef struct {
-  const char *base;
-  size_t baseLen;
-  const char *shard;
-  size_t shardLen;
-} MRKey;
-
-void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
-  mk->shard = mk->base = src;
-  mk->shardLen = mk->baseLen = srclen;
-
-  const char *endBrace = src + srclen - 1;
-  if (srclen < 3 || !*endBrace || *endBrace != '}') {
-    return;
-  }
-
-  const char *beginBrace = endBrace;
-  while (beginBrace >= src && *beginBrace != '{') {
-    beginBrace--;
-  }
-
-  if (*beginBrace != '{') {
-    return;
-  }
-
-  mk->baseLen = beginBrace - src;
-  mk->shard = beginBrace + 1;
-  mk->shardLen = endBrace - mk->shard;
-}
-
-static const char *MRGetShardKey(const MRCommand *cmd, size_t *len) {
-  int pos = MRCommand_GetShardingKey(cmd);
-  if (pos >= cmd->num) {
-    return NULL;
-  }
-
-  size_t klen;
-  const char *k = MRCommand_ArgStringPtrLen(cmd, pos, &klen);
-  MRKey mk;
-  MRKey_Parse(&mk, k, klen);
-  *len = mk.shardLen;
-  return mk.shard;
-}
-
-
-static mr_slot_t getSlotByCmd(const MRCommand *cmd, const MRClusterTopology *topo) {
-  size_t len;
-  const char *k = MRGetShardKey(cmd, &len);
-  if (!k) return 0;
-  // Default to crc16
-  uint16_t crc = (topo->hashFunc == MRHashFunc_CRC12) ? crc12(k, len) : crc16(k, len);
-  return crc % topo->numSlots;
-}
-
-MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd) {
-
+static MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd) {
+  // No topology, no connections
   if (!ioRuntime->topo) return NULL;
-
-  MRClusterShard *sh;
-  if (cmd->targetShard != INVALID_SHARD && cmd->targetShard < ioRuntime->topo->numShards) {
-    /* Get the shard directly by the targetShard field */
-    sh = &ioRuntime->topo->shards[cmd->targetShard];
-
-  } else {
-    if (ioRuntime->topo->numShards <= cmd->targetShard) {
-      RedisModule_Log(RSDummyContext, "warning", "Command targetShard %d is out of bounds (numShards=%zu)", cmd->targetShard, ioRuntime->topo->numShards);
-    }
-    /* Get the cluster slot from the sharder */
-    unsigned slot = getSlotByCmd(cmd, ioRuntime->topo);
-
-    /* Get the shard from the slot map */
-    sh = _MRCluster_FindShard(ioRuntime->topo, slot);
-    if (!sh) return NULL;
+  // No target shard, or out of range.
+  if (cmd->targetShard >= ioRuntime->topo->numShards) {
+    RedisModule_Log(RSDummyContext, "warning", "Command targetShard %d is out of bounds (numShards=%zu)", cmd->targetShard, ioRuntime->topo->numShards);
   }
+  if (cmd->targetShard == INVALID_SHARD || cmd->targetShard >= ioRuntime->topo->numShards) return NULL;
+
+  /* Get the shard directly by the targetShard field */
+  MRClusterShard *sh = &ioRuntime->topo->shards[cmd->targetShard];
 
   MRClusterNode *node = _MRClusterShard_SelectNode(sh, mastersOnly);
   if (!node) return NULL;
