@@ -1,6 +1,6 @@
 use std::os::raw::c_char;
 
-pub use query_error::{QueryErrorCode, QueryError};
+pub use query_error::{QueryError, QueryErrorCode};
 
 #[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
