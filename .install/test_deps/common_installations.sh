@@ -4,7 +4,7 @@ OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
 activate_venv() {
-  echo "copy ativation script to shell config"
+  echo "copy activation script to shell config"
   if [[ $OS_TYPE == Darwin ]]; then
     echo "source .venv/bin/activate" >> ~/.bashrc
     echo "source .venv/bin/activate" >> ~/.zshrc
