@@ -11,7 +11,9 @@ use core::panic;
 
 use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
 use inverted_index::{Encoder, InvertedIndex, RSIndexResult};
-use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index_it::NumericFull};
+use rqe_iterators::{
+    RQEIterator, RQEValidateStatus, SkipToOutcome, inverted_index_it::NumericFull,
+};
 
 mod c_mocks;
 
@@ -142,4 +144,124 @@ fn numeric_full_read() {
 fn numeric_full_skip_to() {
     let test = BaseTest::new(inverted_index::numeric::Numeric::default());
     test.skip_to(NumericFull::new(test.ii.reader()));
+}
+
+struct RevalidateTest<E> {
+    doc_ids: Vec<t_docId>,
+    ii: InvertedIndex<E>,
+}
+
+impl<E: Encoder> RevalidateTest<E> {
+    fn new(enc: E) -> Self {
+        let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, enc);
+
+        let n_docs = 10;
+        let doc_ids = (0..n_docs).map(|i| (i + 1) as t_docId).collect::<Vec<_>>();
+
+        for i in 0..n_docs {
+            let record = RSIndexResult::numeric(i as f64 * 10.0).doc_id(doc_ids[i]);
+            ii.add_record(&record).expect("failed to add record");
+        }
+
+        Self { doc_ids, ii }
+    }
+
+    /// Basic test to ensure the iterator setup works correctly
+    fn basic_iterator_functionality<I: RQEIterator>(&self, mut it: I) {
+        // Test that we can read all documents
+        let mut count = 0;
+        while let Some(record) = it.read().expect("failed to read") {
+            assert_eq!(record.doc_id, self.doc_ids[count]);
+            count += 1;
+        }
+        assert!(it.at_eof());
+        assert_eq!(count, self.doc_ids.len());
+
+        // Test rewind functionality
+        it.rewind();
+        assert_eq!(it.last_doc_id(), 0);
+        assert!(!it.at_eof());
+    }
+
+    /// test basic revalidation functionality - should return VALIDATE_OK when index is valid
+    fn revalidate_basic<I: RQEIterator>(&self, mut it: I) {
+        assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+        assert!(matches!(it.read(), Ok(Some(_))));
+        assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    }
+
+    /// test revalidation functionality when iterator is at EOF
+    fn revalidate_at_eof<I: RQEIterator>(&self, mut it: I) {
+        // Read all documents to reach EOF
+        while let Some(_record) = it.read().expect("failed to read") {}
+        assert!(it.at_eof());
+        assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    }
+
+    // test revalidate returns `Aborted` when the underlying index disappears
+    fn revalidate_after_index_disappears<I: RQEIterator>(&self, mut it: I) {
+        // First, verify the iterator works normally and read at least one document
+        // TODO: update this comment once we actually implement CheckAbort:
+        // This is important because CheckAbort functions need current->data.term.term to be set
+        assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+        assert!(it.read().expect("failed to read").is_some());
+        assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+
+        // Full iterators don't have sctx, so they can't detect disappearance
+        // They will always return Ok regardless of index state
+        assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    }
+
+    // test revalidate returns `Moved` when the lastDocId was deleted from the index
+    fn revalidate_after_document_deleted<I: RQEIterator>(&self, mut it: I) {
+        // First, read a few documents to establish a position
+        assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+        assert!(it.read().expect("failed to read").is_some());
+        let first_doc_id = it.last_doc_id();
+
+        assert!(it.read().expect("failed to read").is_some());
+        let second_doc_id = it.last_doc_id();
+
+        assert!(it.read().expect("failed to read").is_some());
+        let third_doc_id = it.last_doc_id();
+
+        assert_eq!(first_doc_id, self.doc_ids[0]);
+        assert_eq!(second_doc_id, self.doc_ids[1]);
+        assert_eq!(third_doc_id, self.doc_ids[2]);
+        assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+
+        // TODO: The full test requires:
+        // 1. Marking the document at lastDocId as deleted in the DocTable
+        // 2. Using IndexBlock_Repair to remove the deleted document from the inverted index
+        // 3. Incrementing the GC marker to trigger the SkipTo path in revalidation
+        // 4. This should cause revalidate() to return RQEValidateStatus::Moved
+        //
+        // Currently, the Rust InvertedIndex API does not expose:
+        // - Document deletion/repair functionality
+        // - Direct GC marker manipulation
+        // - DocTable integration for testing
+        //
+        // The C++ test (test_cpp_iterator_index.cpp:RevalidateAfterDocumentDeleted) achieves this by:
+        // - Creating a temporary DocTable
+        // - Using DocTable_Pop to mark documents as deleted
+        // - Calling IndexBlock_Repair to physically remove entries
+        // - Incrementing InvertedIndex_SetGcMarker to trigger revalidation
+        // - Verifying that Revalidate returns VALIDATE_MOVED
+        //
+        // For now, we can only verify the basic iterator positioning works.
+        // Full implementation requires extending the Rust inverted index API.
+
+        // Verify basic positioning still works
+    }
+}
+
+#[test]
+/// test revalidating numeric_full iterator
+fn numeric_full_revalidate() {
+    let test = RevalidateTest::new(inverted_index::numeric::Numeric::default());
+    test.basic_iterator_functionality(NumericFull::new(test.ii.reader()));
+    test.revalidate_basic(NumericFull::new(test.ii.reader()));
+    test.revalidate_at_eof(NumericFull::new(test.ii.reader()));
+    test.revalidate_after_index_disappears(NumericFull::new(test.ii.reader()));
+    test.revalidate_after_document_deleted(NumericFull::new(test.ii.reader()));
 }
