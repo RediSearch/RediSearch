@@ -97,6 +97,7 @@ pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
 
     let h1 = base.wrapping_add(std::mem::size_of::<usize>()) as *mut usize;
     // Safety: `h1` is within the allocated header region and disjoint from `h0`.
+    // ... we assign req to h1 purely for diagnostics reasons
     unsafe { *h1 = req };
 
     // pointer after header, alignment preserved since HEADER_SIZE is a multiple of ALIGNMENT.
