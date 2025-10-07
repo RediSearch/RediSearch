@@ -55,5 +55,8 @@ fn rewind() {
 #[test]
 fn revalidate() {
     let mut it = Empty::default();
-    assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    assert_eq!(
+        it.revalidate().expect("revalidate failed"),
+        RQEValidateStatus::Ok
+    );
 }
