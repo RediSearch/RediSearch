@@ -19,6 +19,21 @@ fn layout_for(total: usize) -> Layout {
     Layout::from_size_align(total, ALIGNMENT).unwrap()
 }
 
+/// Allocates the required memory of `size` bytes for the caller usage. The caller must invoke `free_shim`
+/// to free the memory when it is no longer needed.
+///
+/// The allocator includes an additional header to keep track of the requested size.
+/// That size information will be required, later on, if reallocating or deallocating the
+/// buffer that this function returns.
+///
+/// If the reallocation fails and the size is non-zero, it panics.
+///
+/// The pointer returned by this function points right after the header slot, which is
+/// invisible to the caller. Or it returns a null pointer if the size is zero.
+///
+/// Safety:
+/// 1. The caller must ensure that the pointer returned by this function is freed using `free_shim` and
+///    not another free function.
 pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
     if size == 0 {
         return ptr::null_mut();
@@ -49,6 +64,15 @@ pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
     base.wrapping_add(HEADER_SIZE) as *mut c_void
 }
 
+/// Allocates the required memory of `size`*`count` bytes for the caller usage. The caller must invoke `free_shim`
+/// to free the memory when it is no longer needed.
+///
+/// The function behaves like [alloc_shim] but besides the header slots initializes the allocated memory to zero.
+///
+/// That also implicates that if either `size` or `count` is zero, the function returns a null pointer.
+///
+/// Safety:
+/// 1. The caller must ensure that pointers returned by this function are freed using `free_shim`.
 pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
     let req = match count.checked_mul(size) {
         Some(n) if n > 0 => n,
@@ -79,6 +103,15 @@ pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
     base.wrapping_add(HEADER_SIZE) as *mut c_void
 }
 
+/// Frees the memory allocated by the `alloc_shim`, `calloc_shim` or `realloc_shim` functions.
+///
+/// It retrieves the original pointer by subtracting the header size from the given pointer.
+/// The function then retrieves the size from the first 8 bytes of the original pointer.
+/// Finally, it deallocates the memory using Rust's `dealloc` function, which uses free from libc.
+/// The function does nothing if the pointer is null.
+///
+/// Safety:
+/// 1. The caller must ensure that the pointer is valid and was allocated by `alloc_shim`.
 pub extern "C" fn free_shim(ptr_user: *mut c_void) {
     if ptr_user.is_null() {
         return;
@@ -96,6 +129,27 @@ pub extern "C" fn free_shim(ptr_user: *mut c_void) {
     unsafe { dealloc(base, layout_for(alloc_size)) }
 }
 
+/// Reallocates the required memory of `size` bytes for the caller usage. The `ptr` must be created
+/// via `alloc_shim`, `calloc_shim` or `realloc_shim` functions. The caller must invoke `free_shim`
+/// to free the memory when it is no longer needed.
+///
+/// If this is called with a null pointer, it behaves like `alloc_shim`. If the size is zero, the function
+/// frees the memory and returns a null pointer.
+///
+/// It retrieves the original pointer by subtracting the header size from the given pointer.
+/// The function then retrieves the size from the first 8 bytes of the original pointer.
+///
+/// The pointer returned by this function points right after the header slot, which is
+/// invisible to the caller.
+///
+/// If the pointer is null, it behaves like `alloc_shim`.
+/// If the reallocation fails and the size is non-zero, it panics.
+///
+/// Safety:
+/// 1. The caller must ensure that the pointer is valid and was allocated by `alloc_shim`.
+///
+/// If the pointer is null the function behaves like `alloc_shim`, that means if size is zero
+/// the function returns a null pointer.
 pub extern "C" fn realloc_shim(ptr_user: *mut c_void, new_size: usize) -> *mut c_void {
     if ptr_user.is_null() {
         return alloc_shim(new_size);
