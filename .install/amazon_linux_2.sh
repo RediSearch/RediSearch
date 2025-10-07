@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 ARCH=$(uname -m)
 MODE=$1 # whether to install using sudo or not
 set -e
@@ -17,22 +17,11 @@ then
     $MODE sed -i 's/mirrorlist=/#mirrorlist=/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo                        # Disable mirrorlist
     $MODE sed -i 's/#baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo # Enable a working baseurl
 
-    $MODE yum install -y wget git devtoolset-11-make rsync unzip libclang-dev clang
+    $MODE yum install -y wget git devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync unzip libclang-dev clang
 
     source /opt/rh/devtoolset-11/enable
 
     cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh
-
-    # install newer binutils
-    wget https://ftp.gnu.org/gnu/binutils/binutils-2.42.tar.gz
-    tar -xzf binutils-2.42.tar.gz
-    cd binutils-2.42
-    ./configure --prefix=/usr/local
-    make -j$(nproc)
-    make install
-    echo "/usr/local/bin" >> "$GITHUB_PATH"
-    as --version   # Should now be 2.42
-    cd ..
 else
     # Install the RPM package that provides the Software Collections (SCL) required for devtoolset-10
     $MODE yum install -y https://vault.centos.org/altarch/7/extras/aarch64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm
@@ -44,11 +33,19 @@ else
     # Enable a working baseurl
     $MODE sed -i 's/#baseurl=http:\/\/mirror.centos.org\/centos/baseurl=http:\/\/vault.centos.org\/altarch/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
 
-    $MODE yum install -y wget git \
-        devtoolset-10-make rsync unzip clang curl libclang-dev
+    $MODE yum install -y wget git devtoolset-10-gcc devtoolset-10-gcc-c++ \
+        devtoolset-10-make rsync unzip clang curl  libclang-dev
 
     source /opt/rh/devtoolset-10/enable
 
     $MODE cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
 
+    # hack gcc 10.2.1 Redhat to enable _GLIBCXX_USE_CXX11_ABI=1
+    $MODE sed -i \
+        -e 's/^# define _GLIBCXX_USE_DUAL_ABI 0/# define _GLIBCXX_USE_DUAL_ABI 1/g' \
+        -e 's/^# define _GLIBCXX_USE_CXX11_ABI 0/# define _GLIBCXX_USE_CXX11_ABI 1/g' \
+        /opt/rh/devtoolset-10/root/usr/include/c++/10/aarch64-redhat-linux/bits/c++config.h
 fi
+
+$MODE yum install -y openssl11 openssl11-devel
+$MODE ln -s "$(which openssl11)" /usr/bin/openssl
