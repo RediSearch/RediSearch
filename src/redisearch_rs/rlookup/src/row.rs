@@ -183,7 +183,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// # Safety
     ///
     /// This function is marked as unsafe because it assumes that the provided lookups and rows are
-    /// valid and compatible.
+    /// valid and associated.
     ///
     /// 1. The caller must ensure that `dst_lookup` is initialized and is compatible with `self`.
     /// 2. The caller must ensure that `src_row` is initialized and is compatible with `src_lookup`.
