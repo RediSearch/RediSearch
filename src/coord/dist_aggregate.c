@@ -111,8 +111,8 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     return;
   }
 
-  // Normal reply from the shard.
-  // In any case, the cursor id is the second element in the reply
+
+#ifndef ENABLE_ASSERT
   size_t len = MRReply_Length(rep);
 
   if (len < 2) {
@@ -121,9 +121,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     MRIteratorCallback_Done(ctx, 1);
     return;
   }
-
-  RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
-  long long cursorId = MRReply_Integer(MRReply_ArrayElement(rep, 1));
+#endif
 
   // Assert that the reply is in the expected format.
 #ifdef ENABLE_ASSERT
@@ -134,6 +132,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     RS_ASSERT(MRReply_Length(rep) == 2);
     RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_MAP);
     RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
+    long long cursorId = MRReply_Integer(MRReply_ArrayElement(rep, 1));
     MRReply *map = MRReply_ArrayElement(rep, 0);
     MRReply *Results = MRReply_MapElement(map, "Results");
 
@@ -169,6 +168,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       RS_ASSERT(MRReply_Length(rep) == 3);
       RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_ARRAY);
       RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
+      long long cursorId = MRReply_Integer(MRReply_ArrayElement(rep, 1));
       // If this is the last reply from this shard, the profile reply should be set, otherwise it should be NULL
       if (cursorId == CURSOR_EOF) {
         RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 2)) == MR_REPLY_ARRAY);
@@ -184,6 +184,10 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     }
   }
 #endif // Reply structure assertions
+
+  // Normal reply from the shard.
+  // In any case, the cursor id is the second element in the reply
+  long long cursorId = MRReply_Integer(MRReply_ArrayElement(rep, 1));
 
   // Push the reply down the chain, to be picked up by getNextReply
   MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
