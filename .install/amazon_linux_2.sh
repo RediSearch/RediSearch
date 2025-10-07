@@ -5,9 +5,7 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 
 $MODE yum update -y
-$MODE amazon-linux-extras enable python3.8
-$MODE yum install -y python3.8 python38-devel which
-$MODE ln -s "$(which python3.8)" /usr/bin/python3
+$MODE yum install -y which
 
 if [[ $ARCH = 'x86_64' ]]
 then
@@ -41,7 +39,7 @@ else
     source /opt/rh/devtoolset-10/enable
 
     $MODE cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
-    
+
     # hack gcc 10.2.1 Redhat to enable _GLIBCXX_USE_CXX11_ABI=1
     $MODE sed -i \
         -e 's/^# define _GLIBCXX_USE_DUAL_ABI 0/# define _GLIBCXX_USE_DUAL_ABI 1/g' \
