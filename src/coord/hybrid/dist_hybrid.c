@@ -65,10 +65,17 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // Add VSIM + COMBINE arguments up to but not including PARAMS, skip LOAD arguments
   int limit = (params_index == -1 ? argc : params_index);
+  size_t len;
   for (int i = current_index; i < limit; i++) {
     // Skip LOAD arguments
     if (nload && (i == load_index)) {
       i += nload + 1;
+      continue;
+    }
+
+    // skip APPLY arguments
+    if(strcmp(RedisModule_StringPtrLen(argv[i], &len), "APPLY") == 0) {
+      i += 3;
       continue;
     }
 
@@ -102,6 +109,13 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
       i += nload + 1;
       continue;
     }
+
+    // skip APPLY arguments
+    if(strcmp(RedisModule_StringPtrLen(argv[i], &len), "APPLY") == 0) {
+      i += 3;
+      continue;
+    }
+
     size_t len;
     const char *str = RedisModule_StringPtrLen(argv[i], &len);
     MRCommand_Append(xcmd, str, len);
