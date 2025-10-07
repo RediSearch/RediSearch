@@ -24,6 +24,8 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 
+#define ENABLE_ASSERT_JOAN 1
+
 #define CURSOR_EOF 0
 
 // Get cursor command using a cursor id and an existing aggregate command
@@ -90,11 +92,41 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
 
 
 static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  printf("🔥🔥🔥 ENTERING netCursorCallback 🔥🔥🔥\n");
+  fflush(stdout);
+
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
+  printf("⭐ Command root: %d, forCursor: %d, protocol: %d ⭐\n",
+         cmd->rootCommand, cmd->forCursor, cmd->protocol);
+
+  // Print detailed reply information
+  printf("📦 REPLY INFO: Type=%d, Length=%zu 📦\n",
+         MRReply_Type(rep), MRReply_Length(rep));
+
+  if (MRReply_Type(rep) == MR_REPLY_ARRAY && MRReply_Length(rep) >= 2) {
+    printf("🎯 CURSOR ID: %lld 🎯\n",
+           MRReply_Integer(MRReply_ArrayElement(rep, 1)));
+
+    MRReply *firstElement = MRReply_ArrayElement(rep, 0);
+    printf("🎪 FIRST ELEMENT: Type=%d, Length=%zu 🎪\n",
+           MRReply_Type(firstElement), MRReply_Length(firstElement));
+
+    if (cmd->protocol == 3 && MRReply_Type(firstElement) == MR_REPLY_MAP) {
+      printf("🗺️  RESP3 MAP KEYS: ");
+      for (size_t i = 0; i < MRReply_Length(firstElement); i += 2) {
+        MRReply *key = MRReply_ArrayElement(firstElement, i);
+        printf("'%s' ", MRReply_String(key, NULL));
+      }
+      printf("🗺️\n");
+    }
+  }
+  fflush(stdout);
 
   // If the root command of this reply is a DEL command, we don't want to
   // propagate it up the chain to the client
   if (cmd->rootCommand == C_DEL) {
+    printf("🚨 DEL COMMAND - Discarding response 🚨\n");
+    fflush(stdout);
     // Discard the response, and return REDIS_OK
     MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
     MRReply_Free(rep);
@@ -103,6 +135,8 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // Check if an error returned from the shard
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
+    printf("❌ ERROR from shard: %s ❌\n", MRReply_String(rep, NULL));
+    fflush(stdout);
     const char* error = MRReply_String(rep, NULL);
     RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
@@ -111,8 +145,10 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     return;
   }
 
+  printf("✅ Normal reply - processing cursor ✅\n");
+  fflush(stdout);
 
-#ifndef ENABLE_ASSERT
+#ifndef ENABLE_ASSERT_JOAN
   size_t len = MRReply_Length(rep);
 
   if (len < 2) {
@@ -124,7 +160,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 #endif
 
   // Assert that the reply is in the expected format.
-#ifdef ENABLE_ASSERT
+#ifdef ENABLE_ASSERT_JOAN
   if (cmd->protocol == 3) {
     // RESP3 reply structure:
     // [map, cursor] - map contains the results, cursor is the next cursor id

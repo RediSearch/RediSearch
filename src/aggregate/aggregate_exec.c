@@ -404,6 +404,30 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &results, &r, &rc);
 
+    printf("🚀🚀🚀 AFTER startPipeline - RC: %d 🚀🚀🚀\n", rc);
+
+    if (results != NULL) {
+        printf("📊 AGGREGATED RESULTS: %zu results 📊\n", array_len(results));
+        for (size_t i = 0; i < MIN(3, array_len(results)); i++) {
+            printf("  Result[%zu]: docId=%llu, score=%.3f\n",
+                   i, SearchResult_GetDocId(results[i]), SearchResult_GetScore(results[i]));
+        }
+        if (array_len(results) > 3) {
+            printf("  ... and %zu more results\n", array_len(results) - 3);
+        }
+    } else {
+        printf("🔄 STREAMING MODE: Single result, docId=%llu, score=%.3f 🔄\n",
+               SearchResult_GetDocId(&r), SearchResult_GetScore(&r));
+    }
+
+    printf("⏰ Timeout Policy: %s ⏰\n",
+           req->reqConfig.timeoutPolicy == TimeoutPolicy_Return ? "RETURN" : "FAIL");
+    fflush(stdout);
+
+    ReplyWithTimeoutError(reply);
+    cursor_done = true;
+    goto done_2_err;
+
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(rp->parent->err, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
@@ -666,8 +690,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   qctx->resultLimit = limit;
 
   if (reply->resp3) {
+    printf("Joan HERE I AM SENDING CHUNK RESP3\n\n\n\n\n\n\n");
+    fflush(stdout);
     sendChunk_Resp3(req, reply, limit, cv);
   } else {
+    printf("Joan HERE I AM SENDING CHUNK RESP2\n\n\n\n\n\n\n");
+    fflush(stdout);
     sendChunk_Resp2(req, reply, limit, cv);
   }
 
@@ -742,11 +770,28 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply _reply = RedisModule_NewReply(outctx), *reply = &_reply;
     int rc = AREQ_StartCursor(req, reply, execution_ref, &status, false);
+
+    printf("🎯🎯🎯 AFTER AREQ_StartCursor - RC: %d 🎯🎯🎯\n", rc);
+    printf("📋 Reply count: %d, cursor_id: %llu 📋\n",
+           reply->count, req->cursor_id);
+    printf("🌐 Protocol: RESP%d 🌐\n", reply->resp3 ? 3 : 2);
+
+    if (rc != REDISMODULE_OK) {
+        printf("❌ CURSOR START FAILED: %s ❌\n",
+               QueryError_GetUserError(&status));
+    } else {
+        printf("✅ CURSOR STARTED SUCCESSFULLY ✅\n");
+    }
+    fflush(stdout);
+
     RedisModule_EndReply(reply);
     if (rc != REDISMODULE_OK) {
       goto error;
     }
+
   } else {
+    printf("Joan HERE I AM EXECUTING NON-CURSOR QUERY\n");
+    fflush(stdout);
     AREQ_Execute(req, outctx);
   }
 
@@ -926,6 +971,8 @@ int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, 
 }
 
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
+  printf("Joan HERE I AM BUILDING PIPELINE\n\n\n\n\n\n\n");
+  fflush(stdout);
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread()) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
@@ -936,6 +983,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     if (r->qiter.isProfile){
       r->qiter.GILTime += rs_wall_clock_elapsed_ns(&r->qiter.initTime);
     }
+    printf("Joan HERE I AM ADDING WORK\n\n\n\n\n\n\n");
+    fflush(stdout);
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
   } else {
@@ -948,6 +997,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       return REDISMODULE_ERR;
     }
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
+      printf("Joan HERE I AM STARTING CURSOR\n\n\n\n\n\n\n");
+      fflush(stdout);
       // Since we are still in the main thread, and we already validated the
       // spec'c existence, it is safe to directly get the strong reference from the spec
       // found in buildRequest
@@ -960,6 +1011,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
         return REDISMODULE_ERR;
       }
     } else {
+      printf("Joan HERE I AM EXECUTING NON-CURSOR QUERY\n");
+      fflush(stdout);
       AREQ_Execute(r, ctx);
     }
   }
