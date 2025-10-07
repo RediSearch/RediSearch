@@ -73,9 +73,9 @@ pub trait RQEIterator {
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
     /// The iterator should check if it is still valid.
-    fn revalidate(&mut self) -> RQEValidateStatus {
+    fn revalidate(&mut self) -> Result<RQEValidateStatus, RQEIteratorError> {
         // Default implementation does nothing.
-        RQEValidateStatus::Ok
+        Ok(RQEValidateStatus::Ok)
     }
 
     ///Rewind the iterator to the beginning and reset its properties.
