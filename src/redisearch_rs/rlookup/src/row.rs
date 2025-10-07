@@ -176,20 +176,36 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         self.dyn_values = vec![];
     }
 
-    // /**
-    //  * Write field data from source row to destination row with different schemas.
-    //  * Iterate through source lookup keys, find corresponding keys in destination by name,
-    //  * and write it to destination row using RLookup_WriteOwnKey().
-    //  * Assumes all source keys exist in destination (enforce with ASSERT).
-    //  */
-    // void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-    //                                RLookupRow *destRow, const RLookup *destLookup);
-    pub fn copy_fields_from(
-        dst_row: &mut Self,
+    /// Write fields from a source row into this row, the fields must exist in both lookups (schemas).
+    ///  
+    /// Iterate through the source lookup keys, if it finds a corresponding key in the destination
+    /// lookup by name, then it's value is written to this row as a destination.
+    ///
+    /// If a source key is not found in the destination lookup the function will panic (same as C behavior).
+    ///
+    /// If a source key has no value in the source row, it is skipped.
+    ///
+    /// # Arguments
+    ///
+    /// - `dst_lookup`: The destination lookup containing the schema of this row.
+    /// - `src_row`: The source row from which to copy values.
+    /// - `src_lookup`: The source lookup containing the schema of the source row.
+    ///
+    /// # Safety
+    ///
+    /// This function is marked as unsafe because it assumes that the provided lookups and rows are
+    /// valid and compatible.
+    ///
+    /// 1. The caller must ensure that `dst_lookup` is initialized and is compatible with `self`.
+    /// 2. The caller must ensure that `src_row` is initialized and is compatible with `src_lookup`.
+    pub unsafe fn copy_fields_from(
+        &mut self,
         dst_lookup: &RLookup,
         src_row: &Self,
         src_lookup: &RLookup,
     ) {
+        let dst_row = self;
+
         // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
         for src_key in src_lookup.cursor() {
             // Get value from source row
