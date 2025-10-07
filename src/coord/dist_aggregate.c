@@ -113,6 +113,15 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // Normal reply from the shard.
   // In any case, the cursor id is the second element in the reply
+  size_t len = MRReply_Length(rep);
+
+  if (len < 2) {
+    RedisModule_Log(RSDummyContext, "notice", "Coordinator got an expected reply with less than 2 elements from a shard");
+    MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
+    MRIteratorCallback_Done(ctx, 1);
+    return;
+  }
+
   RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
   long long cursorId = MRReply_Integer(MRReply_ArrayElement(rep, 1));
 
