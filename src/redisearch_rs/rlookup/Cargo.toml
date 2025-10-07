@@ -28,7 +28,6 @@ default-features = false
 [target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
 workspace = true
 default-features = true
-strum.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = ["std"] }
