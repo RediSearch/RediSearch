@@ -58,6 +58,12 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                          ARG_OPT_CALLBACK, handleSortBy, ctx,
                          ARG_OPT_END);
 
+    // NOSORT - disables result sorting
+    ArgParser_AddBitflagV(parser, "NOSORT", "Disables result sorting",
+        ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_NO_SORT,
+        ARG_OPT_CALLBACK, handleNoSort, ctx,
+        ARG_OPT_OPTIONAL, ARG_OPT_END);
+
     // WITHCURSOR [COUNT count] [MAXIDLE maxidle] - enables cursor-based pagination
     ArgParser_AddBitflagV(parser, "WITHCURSOR", "Enable cursor-based pagination",
                          ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_IS_CURSOR,

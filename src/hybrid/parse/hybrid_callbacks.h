@@ -27,6 +27,12 @@ extern "C" {
 void handleLimit(ArgParser *parser, const void *value, void *user_data);
 
 /**
+ * NOSORT callback - handles NOSORT
+ * Sets QEXEC_F_NO_SORT flag - Disables result sorting
+ */
+void handleNoSort(ArgParser *parser, const void *value, void *user_data);
+
+/**
  * SORTBY callback - handles SORTBY field [ASC|DESC] [field [ASC|DESC] ...]
  * Sets up PLN_ArrangeStep with sorting configuration
  */
