@@ -151,7 +151,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, &ctx, iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to start iteration");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to communicate with shards");
         cleanupCtx(&ctx);
         return false;
     }
@@ -165,7 +165,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     pthread_mutex_unlock(&mutex);
     bool success = true;
     if (array_len(ctx.errors)) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process cursor mappings, first error: %s, total error count: %zu", QueryError_GetUserError(&ctx.errors[0]), array_len(ctx.errors));
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process shard responses, first error: %s, total error count: %zu", QueryError_GetUserError(&ctx.errors[0]), array_len(ctx.errors));
         success = false;
     }
 
