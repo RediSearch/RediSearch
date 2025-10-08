@@ -20,16 +20,18 @@ pub enum MetricType {
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
 pub struct Metric {
     base: IdList,
-    type_: MetricType,
     metric_data: Vec<f64>,
+    #[allow(dead_code)]
+    type_: MetricType,
 }
 
 impl Metric {
     pub fn new(ids: Vec<t_docId>, metric_data: Vec<f64>) -> Self {
+        debug_assert!(ids.len() == metric_data.len());
         Metric {
             base: IdList::new(ids),
-            type_: MetricType::VectorDistance,
             metric_data,
+            type_: MetricType::VectorDistance,
         }
     }
     #[inline(always)]
@@ -50,7 +52,7 @@ impl RQEIterator for Metric {
         }
         
         self.base.read()?;
-        let val = self.metric_data[self.base.offset()];
+        let val = self.metric_data[self.base.offset()-1];
         let result = self.set_result_metrics(val);
         Ok(Some(result))
         
@@ -63,12 +65,12 @@ impl RQEIterator for Metric {
         let skip_outcome = self.base.skip_to(doc_id)?;
         match skip_outcome{
             Some(SkipToOutcome::Found(_)) => {
-                let val = self.metric_data[self.base.offset()];
+                let val = self.metric_data[self.base.offset()-1];
                 let result = self.set_result_metrics(val);
                 Ok(Some(SkipToOutcome::Found(result)))
             },
             Some(SkipToOutcome::NotFound(_)) => {
-                let val = self.metric_data[self.base.offset()];
+                let val = self.metric_data[self.base.offset()-1];
                 let result = self.set_result_metrics(val);
                 Ok(Some(SkipToOutcome::NotFound(result)))
             },
