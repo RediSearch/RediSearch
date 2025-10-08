@@ -70,12 +70,6 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
   current_index = limit;
 
-  // TODO: This could generate commands with two LOAD keyword: LOAD 1 @description LOAD 2 @__key @__score
-  // Add LOAD arguments
-  for (size_t ii = 0; ii < us->nserialized; ++ii) {
-    MRCommand_Append(xcmd, us->serialized[ii], strlen(us->serialized[ii]));
-  }
-
   // Add PARAMS arguments if present
   if (params_index != -1) {
     for (int i = params_index; i < params_index + nparams + 2; i++) {
