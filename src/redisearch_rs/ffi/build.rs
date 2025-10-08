@@ -37,6 +37,7 @@ fn main() {
 
         let redisearch_rs = src.join("redisearch_rs").join("headers");
         let inverted_index = src.join("inverted_index");
+        let value = src.join("value");
         let vecsim = deps.join("VectorSimilarity").join("src");
         let buffer = src.join("buffer");
 
@@ -46,6 +47,7 @@ fn main() {
             deps,
             redisearch_rs,
             inverted_index,
+            value,
             vecsim,
             buffer,
         ]
@@ -60,7 +62,6 @@ fn main() {
         root.join("src").join("search_result.h"),
         root.join("src").join("result_processor.h"),
         root.join("src").join("sortable.h"),
-        root.join("src").join("value.h"),
         root.join("src").join("obfuscation").join("hidden.h"),
         root.join("src").join("spec.h"),
         root.join("src").join("doc_table.h"),

@@ -24,7 +24,7 @@ members = [
     "rqe_iterators_bencher",
     "varint_bencher",
     "wildcard",
-    "search_result",
+    "search_result", "rsvalue_bencher",
 ]
 
 resolver = "3"
