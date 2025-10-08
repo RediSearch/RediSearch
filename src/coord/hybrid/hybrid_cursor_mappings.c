@@ -165,7 +165,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     pthread_mutex_unlock(&mutex);
     bool success = true;
     if (array_len(ctx.errors)) {
-        QueryError_SetWithUserDataFmt(status, QUERY_EGENERIC, "Failed to process cursor mappings, first error: %s, total error count: %zu", QueryError_GetUserError(&ctx.errors[0]), array_len(ctx.errors));
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process cursor mappings, first error: %s, total error count: %zu", QueryError_GetUserError(&ctx.errors[0]), array_len(ctx.errors));
         success = false;
     }
 
