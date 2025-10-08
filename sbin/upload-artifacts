@@ -176,8 +176,8 @@ s3_upload() {
 
         for file in "${files[@]}"; do
             local base_name=$(basename "$file")
-            # Remove .master. from beta version filename and add BETA_VERSION
-            local new_name="${base_name/.master./.${BETA_VERSION}.}"
+            # Insert BETA_VERSION before .zip extension
+            local new_name="${base_name%.zip}.${BETA_VERSION}.zip"
             # Create temp file with new name
             local temp_file="./${new_name}"
             cp "$file" "$temp_file"
