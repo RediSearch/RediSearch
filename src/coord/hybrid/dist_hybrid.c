@@ -26,68 +26,98 @@
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             AREQDIST_UpstreamInfo *us, MRCommand *xcmd,
                             IndexSpec *sp, HybridPipelineParams *hybridParams) {
+  int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
   // Build _FT.HYBRID command (no profiling support)
   *xcmd = MR_NewCommand(2, "_FT.HYBRID", index_name);
 
-  // Find the indices of the hybrid query components
-  // SEARCH and VSIM are mandatory, COMBINE and PARAMS are optional
-  int search_index = RMUtil_ArgIndex("SEARCH", argv + 2, argc - 2) + 2;
-  int vsim_index = RMUtil_ArgIndex("VSIM", argv + search_index, argc - search_index) + search_index;
-
-  // PARAMS is optional, but if present, it must come after VSIM + 2
-  int params_index = RMUtil_ArgIndex("PARAMS", argv + vsim_index + 2, argc - (vsim_index + 2) );
-  if (params_index != -1) {
-    params_index += vsim_index + 2;
+  // Add SEARCH
+  int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
+  if (searchOffset == -1 || searchOffset + 1 >= argc) {
+    // Handle error - SEARCH not found or missing query argument
+    return;
   }
-  long long nparams = 0;
-  if (params_index != -1) {
-    RedisModule_StringToLongLong(argv[params_index + 1], &nparams);
+  MRCommand_AppendRstr(xcmd, argv[searchOffset]);
+  MRCommand_AppendRstr(xcmd, argv[searchOffset + 1]);
+
+  // Add VSIM
+  int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
+  if (vsimOffset == -1 || vsimOffset + 2 >= argc) {
+    // Handle error - VSIM not found or missing field/vector arguments
+    return;
+  }
+  MRCommand_AppendRstr(xcmd, argv[vsimOffset]);
+  MRCommand_AppendRstr(xcmd, argv[vsimOffset + 1]);
+
+  size_t paramLen;
+  const char *paramStr = RedisModule_StringPtrLen(argv[vsimOffset + 2], &paramLen);
+  if (paramLen > 0 && paramStr[0] == '$') {
+    // It's a parameter placeholder - forward as is
+    MRCommand_AppendRstr(xcmd, argv[vsimOffset + 2]);
+  } else {
+    // It's raw data - forward as binary
+    MRCommand_Append(xcmd, paramStr, paramLen);
   }
 
-  // LOAD is optional, but if present, it must come after VSIM + 2
-  int load_index = RMUtil_ArgIndex("LOAD", argv + vsim_index + 2, argc - (vsim_index + 2));
-  if (load_index != -1) {
-    load_index += vsim_index + 2;
+
+  // Add KNN/RANGE and its arguments
+  argOffset = RMUtil_ArgIndex("KNN", argv + vsimOffset, argc - vsimOffset);
+  if (argOffset == -1) {
+    argOffset = RMUtil_ArgIndex("RANGE", argv + vsimOffset, argc - vsimOffset);
   }
-  long long nload = 0;
-  if (load_index != -1) {
-    RedisModule_StringToLongLong(argv[load_index + 1], &nload);
-  }
+  argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
+  if (argOffset != -1 && argOffset < argc - 2) {
+    long long nargs;
+    RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
 
-  // Add SEARCH arguments
-  int current_index = 2; // Skip the command and index name
-  for (int i = current_index; i < vsim_index + 2; i++) {
-    MRCommand_AppendRstr(xcmd, argv[i]);
-  }
-  current_index = vsim_index + 2;
-
-  // Add VSIM + COMBINE arguments up to but not including PARAMS, skip LOAD arguments
-  int limit = (params_index == -1 ? argc : params_index);
-  size_t len;
-  for (int i = current_index; i < limit; i++) {
-    // Skip LOAD arguments
-    if (nload && (i == load_index)) {
-      i += nload + 1;
-      continue;
-    }
-
-    // skip APPLY arguments
-    if(strcmp(RedisModule_StringPtrLen(argv[i], &len), "APPLY") == 0) {
-      i += 3;
-      continue;
-    }
-
-    if (i == vsim_index + 2 && argv[i] != '$') {
-      MRCommand_AppendRstr(xcmd, argv[i]);
-    } else {
-      size_t len;
-      const char *str = RedisModule_StringPtrLen(argv[i], &len);
-      MRCommand_Append(xcmd, str, len);
+    for (int i = 0; i < nargs + 2; ++i) {
+      MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
     }
   }
-  current_index = limit;
+
+  // Add VSIM FILTER
+  int vsimFilterOffset = RMUtil_ArgIndex("FILTER", argv + vsimOffset, argc - vsimOffset);
+  vsimFilterOffset = vsimFilterOffset != -1 ? vsimFilterOffset + vsimOffset : -1;
+  bool hasFilter = vsimFilterOffset != -1;
+
+  int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
+  combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
+  bool hasCombine = combineOffset != -1;
+
+  // Possible cases:
+  // VSIM ... FILTER xx
+  // VSIM ... FILTER xx COMBINE xx
+  // VSIM ... FILTER xx COMBINE xx FILTER xx
+  // VSIM ... FILTER xx FILTER xx
+  // VSIM ... COMBINE xx FILTER xx --> This is a post query filter ignore it
+  if ((vsimFilterOffset < argc - 2) &&
+        (   hasFilter && !hasCombine ||
+            (hasFilter && hasCombine && (combineOffset > vsimFilterOffset))
+        )
+    ) {
+    MRCommand_AppendRstr(xcmd, argv[vsimFilterOffset]);
+    MRCommand_AppendRstr(xcmd, argv[vsimFilterOffset + 1]);
+  }
+
+  // Add COMBINE
+  if (combineOffset != -1) {
+    MRCommand_AppendRstr(xcmd, argv[combineOffset]);
+    // Add RRF/LINEAR and its arguments
+    argOffset = RMUtil_ArgIndex("RRF", argv + vsimOffset, argc - vsimOffset);
+    if (argOffset == -1) {
+      argOffset = RMUtil_ArgIndex("LINEAR", argv + vsimOffset, argc - vsimOffset);
+    }
+    argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
+    if (argOffset != -1 && argOffset < argc - 2) {
+      long long nargs;
+      RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
+
+      for (int i = 0; i < nargs + 2; ++i) {
+        MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
+      }
+    }
+  }
 
   // Add LOAD arguments from upstream info
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
@@ -95,30 +125,36 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
 
   // Add PARAMS arguments if present
-  if (params_index != -1) {
-    for (int i = params_index; i < params_index + nparams + 2; i++) {
-      MRCommand_AppendRstr(xcmd, argv[i]);
+  argOffset = RMUtil_ArgIndex("PARAMS", argv + vsimOffset, argc - vsimOffset);
+  argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
+  if (argOffset != -1) {
+    long long nargs;
+    int rc = RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
+
+    // PARAMS keyword and count - treat as string
+    MRCommand_AppendRstr(xcmd, argv[argOffset]);
+    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
+
+    // append params string including PARAMS keyword and nargs
+    for (int i = 2; i < nargs + 2; ++i) {
+      if (i % 2 == 0) {
+        // Parameter name - treat as string
+        MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
+      } else {
+        // Parameter value - could be binary, treat as binary
+        size_t valueLen;
+        const char *valueData = RedisModule_StringPtrLen(argv[argOffset + i], &valueLen);
+        MRCommand_Append(xcmd, valueData, valueLen);
+      }
     }
-    current_index = params_index + nparams + 2;
   }
 
-  // Add the remaining arguments (TIMEOUT, DIALECT, FILTER, etc.)
-  for (int i = current_index; i < argc; i++) {
-    // Skip LOAD arguments
-    if (nload && (i == load_index)) {
-      i += nload + 1;
-      continue;
-    }
-
-    // skip APPLY arguments
-    if(strcmp(RedisModule_StringPtrLen(argv[i], &len), "APPLY") == 0) {
-      i += 3;
-      continue;
-    }
-
-    size_t len;
-    const char *str = RedisModule_StringPtrLen(argv[i], &len);
-    MRCommand_Append(xcmd, str, len);
+  // check for timeout argument and append it to the command.
+  // If TIMEOUT exists, it was already validated at AREQ_Compile.
+  argOffset = RMUtil_ArgIndex("TIMEOUT", argv, argc);
+  if (argOffset != -1) {
+    MRCommand_AppendRstr(xcmd, argv[argOffset]);
+    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
   }
 
   // Add WITHCURSOR
@@ -128,16 +164,15 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Numeric responses are encoded as simple strings.
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
-  // Log the final command
-  RedisModule_Log(NULL, "warning", "MRCommand: ");
+  // At the end of HybridRequest_buildMRCommand, add:
+  RedisModule_Log(NULL, REDISMODULE_LOGLEVEL_DEBUG, "Final MRCommand has %d args:", xcmd->num);
   for (int i = 0; i < xcmd->num; i++) {
     if (xcmd->strs[i] && xcmd->lens[i] > 0) {
-      RedisModule_Log(NULL, "warning", "MRCommand: %s", xcmd->strs[i]);
+      RedisModule_Log(NULL, REDISMODULE_LOGLEVEL_DEBUG, "  [%d]: %.*s (len=%zu)", i, (int)xcmd->lens[i], xcmd->strs[i], xcmd->lens[i]);
     } else {
-      RedisModule_Log(NULL, "warning", "MRCommand: NULL");
+      RedisModule_Log(NULL, REDISMODULE_LOGLEVEL_DEBUG, "  [%d]: NULL or empty", i);
     }
   }
-  RedisModule_Log(NULL, "warning", "MRCommand: END");
 }
 
 // UPDATED: Set RPNet types when creating them
