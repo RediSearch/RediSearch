@@ -11,7 +11,6 @@
 #include "redismodule.h"
 #include "../../rmalloc.h"
 #include "../../../deps/rmutil/rm_assert.h"
-
 #include <string.h>
 
 
