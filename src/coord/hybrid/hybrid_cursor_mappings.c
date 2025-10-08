@@ -23,7 +23,7 @@ typedef struct {
     arrayof(QueryError) errors;
     size_t responseCount;
     pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
-    pthread_cond_t *completion_cond;  // Condition variable for completion signaling
+    pthread_cond_t *completionCond;   // Condition variable for completion signaling
     int numShards;                    // Total number of expected shards
 } processCursorMappingCallbackContext;
 
@@ -112,7 +112,7 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     }
 
     // we must notify the coordinator a response has arrived, even if it's an error
-    pthread_cond_signal(cb_ctx->completion_cond);
+    pthread_cond_signal(cb_ctx->completionCond);
     pthread_mutex_unlock(cb_ctx->mutex);
 
     MRIteratorCallback_Done(ctx, 0);
@@ -121,7 +121,9 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
 
 static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     pthread_mutex_destroy(ctx->mutex);
-    pthread_cond_destroy(ctx->completion_cond);
+    pthread_cond_destroy(ctx->completionCond);
+    StrongRef_Release(ctx->searchMappings);
+    StrongRef_Release(ctx->vsimMappings);
     array_free_ex(ctx->errors, QueryError_ClearError((QueryError*)ptr));
 }
 
@@ -132,7 +134,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
 
     // Initialize synchronization primitives
     pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-    pthread_cond_t completion_cond = PTHREAD_COND_INITIALIZER;
+    pthread_cond_t completionCond = PTHREAD_COND_INITIALIZER;
 
     // Setup callback context
     processCursorMappingCallbackContext ctx = {
@@ -141,7 +143,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
         .errors = array_new(QueryError, numShards),
         .responseCount = 0,
         .mutex = &mutex,
-        .completion_cond = &completion_cond,
+        .completionCond = &completionCond,
         .numShards = numShards
     };
 
@@ -156,9 +158,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
 
     // Wait for all callbacks to complete
     pthread_mutex_lock(&mutex);
-    int expected_total = numShards * 2; // 2 mappings per shard (search + vsim)
     for (size_t count = 0; count < numShards; count = ctx.responseCount) {
-        pthread_cond_wait(&completion_cond, &mutex);
+        pthread_cond_wait(&completionCond, &mutex);
     }
     pthread_mutex_unlock(&mutex);
     bool success = true;
