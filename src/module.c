@@ -3645,18 +3645,25 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
   }
 
-  size_t num_connections_per_shard;
-  if (clusterConfig.connPerShard) {
-    num_connections_per_shard = clusterConfig.connPerShard;
+  // (Temporary hack) Only initialize the coordinator/cluster functionality if we're actually in cluster mode
+  if (isClusterEnabled) {
+    size_t num_connections_per_shard;
+    if (clusterConfig.connPerShard) {
+      num_connections_per_shard = clusterConfig.connPerShard;
+    } else {
+      // default
+      num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
+    }
+
+    size_t num_io_threads = clusterConfig.coordinatorIOThreads;
+    size_t conn_pool_size = CEIL_DIV(num_connections_per_shard, num_io_threads);
+
+    MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
   } else {
-    // default
-    num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
+    RedisModule_Log(ctx, "notice", "Standalone mode: skipping coordinator initialization");
+    // Temporary hack to get single-shard logic without sending first `search-CLUSTERSET` command
+    NumShards = 1;
   }
-
-  size_t num_io_threads = clusterConfig.coordinatorIOThreads;
-  size_t conn_pool_size = CEIL_DIV(num_connections_per_shard, num_io_threads);
-
-  MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
 
   return REDISMODULE_OK;
 }
