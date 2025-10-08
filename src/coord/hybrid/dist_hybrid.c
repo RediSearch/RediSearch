@@ -90,7 +90,6 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Numeric responses are encoded as simple strings.
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
-\
 }
 
 // UPDATED: Set RPNet types when creating them
@@ -313,8 +312,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     MRCommand *cmd = &searchRPNet->cmd;
     int numShards = GetNumShards_UnSafe();
 
-    int result = ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef);
-    if (result != RS_RESULT_OK) {
+    if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, status)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -326,9 +324,6 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     vsimRPNet->mappings = vsimMappingsRef;
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
-
-    RedisModule_Log(NULL, "verbose", "searchMappings length: %d, vsimMappings length: %d", array_len(searchMappings->mappings), array_len(vsimMappings->mappings));
-
 
     bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     if (isCursor) {

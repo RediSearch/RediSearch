@@ -32,9 +32,10 @@ typedef struct {
  * @param numShards Expected number of shards (determines expected callbacks)
  * @param searchMappings Empty array to populate with search cursor mappings
  * @param vsimMappings Empty array to populate with vector similarity cursor mappings
- * @return RS_RESULT_OK on success, error code otherwise
+ * @param status QueryError pointer to store error information on failure
+ * @return true on success, false otherwise, on failure status will contain error information
  */
-int ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings);
+bool ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status);
 
 #ifdef __cplusplus
 }
