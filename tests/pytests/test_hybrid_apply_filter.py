@@ -53,8 +53,7 @@ def setup_basic_index(env):
     for doc_id, doc_data in test_data.items():
         conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_apply_filter_linear():
     env = Env()
     setup_basic_index(env)
@@ -65,8 +64,7 @@ def test_hybrid_apply_filter_linear():
     env.assertTrue(set(results.keys()) == {"doc:1{hash_tag}"})
     env.assertEqual(count, 1)
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_apply_filter_rrf():
     env = Env()
     setup_basic_index(env)
@@ -85,8 +83,7 @@ def test_hybrid_apply_filter_rrf():
     env.assertTrue(set(results.keys()) == {"doc:4{hash_tag}"})
     env.assertEqual(count, 1)
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_apply_filter_rrf_no_results():
     env = Env()
     setup_basic_index(env)

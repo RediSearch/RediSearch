@@ -45,8 +45,6 @@ def setup_filter_test_index(env):
     )
 
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_filter_behavior():
     """Test that FILTER without and with COMBINE behavior in hybrid queries"""
     env = Env()
@@ -110,16 +108,16 @@ def test_hybrid_filter_behavior():
         'FILTER', '@category:{"vegetable"}',
     )
     results, _ = get_results_from_hybrid_response(response)
-    env.assertEqual(set(results.keys()), {"doc:3", "doc:4"})
+    env.assertEqual(set(results.keys()), {'doc:3{hash_tag}', 'doc:4{hash_tag}'})
 
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', query_vector,
-        'FILTER', '@category:{"vegetable"}', "FILTER", "@__key!=\"doc:3\"",
+        'FILTER', '@category:{"vegetable"}', "FILTER", "@__key!=\"doc:3{hash_tag}\"",
     )
     results, _ = get_results_from_hybrid_response(response)
-    env.assertEqual(set(results.keys()), {"doc:4"})
+    env.assertEqual(set(results.keys()), {'doc:4{hash_tag}'})
 
     response = env.cmd(
         'FT.HYBRID', 'filter_idx',

@@ -33,8 +33,7 @@ def setup_basic_index(env):
     for doc_id, doc_data in test_data.items():
         conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_search_invalid_query_with_vector():
     """Test that hybrid search subquery fails when it contains vector query"""
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
@@ -44,8 +43,7 @@ def test_hybrid_search_invalid_query_with_vector():
     env.expect('FT.HYBRID', 'idx', 'SEARCH', '@embedding:[VECTOR_RANGE 0.01 $BLOB]', 'VSIM' ,'@embedding', '$BLOB',\
                'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e").error().contains('Vector expressions are not allowed in FT.HYBRID SEARCH')
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_search_explicit_scorer():
     """Test that hybrid search subquery fails when it contains vector query"""
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
@@ -58,5 +56,5 @@ def test_hybrid_search_explicit_scorer():
         env.assertEqual(count, len(results.keys()))
         results = {a: float(results[a][SCORE_FIELD]) for a in results}
         agg_response = env.cmd('FT.AGGREGATE', 'idx', 'shoes', 'ADDSCORES', 'SCORER', scorer, 'LOAD', 2, '__key', '__score')
-        agg_results = {a[3]: float(a[1]) for a in agg_response[1:]}
+        agg_results = {a[1]: float(a[3]) for a in agg_response[1:]}
         env.assertEqual(results, agg_results)
