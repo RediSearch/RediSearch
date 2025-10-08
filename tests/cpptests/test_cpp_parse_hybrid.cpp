@@ -106,7 +106,7 @@ class ParseHybridTest : public ::testing::Test {
   int parseCommandInternal(RMCK::ArgvList& args) {
     QueryError status = {QueryErrorCode(0)};
     ArgsCursor ac = {0};
-    ArgsCursor_InitRString(&ac, args + 2, args.size() - 2);
+    HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
     int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
     EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
@@ -614,7 +614,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
 
   QueryError status = {QueryErrorCode(0)};
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, args + 2, args.size() - 2);
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
   EXPECT_EQ(status.code, QUERY_EPARSEARGS) << "Should fail as external command";
   QueryError_ClearError(&status);
@@ -634,7 +634,7 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
 
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, args + 2, args.size() - 2);
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
   EXPECT_EQ(status.code, QUERY_OK) << "Should succeed as internal command";
   QueryError_ClearError(&status);
@@ -686,7 +686,7 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
 
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, args + 2, args.size() - 2);
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(status.code, expected_code) << "parsing error: " << QueryError_GetUserError(&status);

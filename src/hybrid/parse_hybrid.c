@@ -512,11 +512,12 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
  *                  [COMBINE <method> [params]] [aggregation_options]
  *
  * @param ctx Redis module context
- * @param argv Command arguments array (starting with "FT.HYBRID")
- * @param argc Number of arguments in argv
+ * @param ac ArgsCursor for parsing command arguments - should start after the index name
  * @param sctx Search context for the index (takes ownership)
+ * @param parsedCmdCtx Parsed command context containing AREQs and pipeline parameters
  * @param status Output parameter for error reporting
- * @return HybridRequest* on success, NULL on error
+ * @param internal Whether the request is internal (not exposed to the user)
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
 int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
                        RedisSearchCtx *sctx, ParseHybridCommandCtx *parsedCmdCtx,

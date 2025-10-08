@@ -156,7 +156,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   };
 
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, args + 2, args.size() - 2);
+  HybridRequest_InitArgsCursor(hybridReq, &ac, args, args.size());
   // Parse the hybrid command - this fills out hybridParams
   int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, status, true);
   if (rc != REDISMODULE_OK) {

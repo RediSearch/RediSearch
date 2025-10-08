@@ -396,3 +396,40 @@ def test_hybrid_internal_empty_search_results(env):
 
     # VSIM cursor should return some results
     env.assertTrue(len(cursor_results['VSIM']) > 0)
+
+@skip(cluster=True)
+def test_hybrid_internal_withcursor_with_load():
+    """Test basic _FT.HYBRID command with WITHCURSOR functionality and explicit load of __key and description
+    """
+    env = Env(enableDebugCommand=True)
+    setup_hybrid_test_data(env)
+
+    # Execute _FT.HYBRID command with WITHCURSOR using direct vector specification
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+                     'VSIM', '@embedding', query_vec.tobytes(),
+                     'LOAD', '2', '__key', 'description',
+                     'WITHCURSOR')
+
+    # Should return a map with VSIM and SEARCH cursor IDs
+    env.assertTrue(isinstance(result, list))
+    env.assertTrue(len(result) > 0)
+
+    # Convert list to dict for easier access
+    result_dict = dict(zip(result[::2], result[1::2]))
+
+    # Should have VSIM and SEARCH cursor IDs
+    env.assertIn('VSIM', result_dict)
+    env.assertIn('SEARCH', result_dict)
+
+    # Both cursor IDs should be valid integers
+    vsim_cursor = result_dict['VSIM']
+    search_cursor = result_dict['SEARCH']
+    env.assertTrue(isinstance(vsim_cursor, (int, str)))
+    env.assertTrue(isinstance(search_cursor, (int, str)))
+
+    search_cursor_results = read_cursor_completely(env, 'idx', search_cursor)
+    env.assertEqual(search_cursor_results, ['doc:2', 'doc:3'])
+
+    vsim_cursor_results = read_cursor_completely(env, 'idx', vsim_cursor)
+    env.assertEqual(vsim_cursor_results, ['doc:1', 'doc:2', 'doc:3', 'doc:4'])

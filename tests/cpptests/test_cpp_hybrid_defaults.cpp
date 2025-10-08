@@ -80,7 +80,7 @@ protected:
     cmd.cursorConfig = &result->cursorConfig;
 
     ArgsCursor ac = {0};
-    ArgsCursor_InitRString(&ac, args + 2, args.size() - 2);
+    HybridRequest_InitArgsCursor(result, &ac, args, args.size());
     int rc =  parseHybridCommand(ctx, &ac, result->sctx, &cmd, &status, true);
     if (rc != REDISMODULE_OK) {
       HybridRequest_Free(result);

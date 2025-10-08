@@ -177,10 +177,11 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 }
 
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
-   // skip command and index name
-  argv += 2;
-  argc -= 2;
-  req->args = rm_malloc(sizeof(*req->args) * argc);
+  // skip command and index name
+  const int step = argc > 2 ? 2 : argc;
+  argv += step;
+  argc -= step;
+  req->args = rm_calloc(argc, sizeof(*req->args));
   req->nargs = argc;
   // Copy the arguments into an owned array of sds strings
   for (size_t ii = 0; ii < argc; ++ii) {
