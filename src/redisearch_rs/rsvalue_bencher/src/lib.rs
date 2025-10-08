@@ -7,6 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use redis_module::{RedisModuleCtx, RedisModuleString};
 use std::ffi::c_void;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
+
+#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
+pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
+
+#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
+pub static mut RSDummyContext: *const c_void = std::ptr::null();
+
+#[unsafe(no_mangle)]
+pub extern "C" fn RedisModule_RetainString(ctx: *mut RedisModuleCtx, s: *mut RedisModuleString) {
+    panic!("unexpected call to RedisModule_RetainString")
+}
