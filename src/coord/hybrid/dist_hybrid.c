@@ -228,7 +228,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     cmd.tailPlan = &hreq->tailPipeline->ap;
     cmd.reqConfig = &hreq->reqConfig;
 
-    const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
     int rc = parseHybridCommand(ctx, &ac, hreq->sctx, &cmd, status, false);
