@@ -34,19 +34,11 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // Add SEARCH
   int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
-  if (searchOffset == -1 || searchOffset + 1 >= argc) {
-    // Handle error - SEARCH not found or missing query argument
-    return;
-  }
   MRCommand_AppendRstr(xcmd, argv[searchOffset]);
   MRCommand_AppendRstr(xcmd, argv[searchOffset + 1]);
 
   // Add VSIM
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
-  if (vsimOffset == -1 || vsimOffset + 2 >= argc) {
-    // Handle error - VSIM not found or missing field/vector arguments
-    return;
-  }
   MRCommand_AppendRstr(xcmd, argv[vsimOffset]);
   MRCommand_AppendRstr(xcmd, argv[vsimOffset + 1]);
 
