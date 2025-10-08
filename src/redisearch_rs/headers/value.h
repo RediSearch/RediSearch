@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "redismodule.h"
+#include "hiredis/sds.h"
 
 /**
  * Enumeration of the types an
@@ -16,6 +17,7 @@ typedef enum RsValueType {
   RsValueType_Undefined,
   RsValueType_Null,
   RsValueType_Number,
+  RsValueType_Sds,
   RsValueType_Ref,
   RsValueType_Trio,
   RsValueType_Map,
@@ -25,6 +27,23 @@ typedef enum RsValueType {
  * Tuple struct holding 3 [`SharedRsValue`] items.
  */
 typedef struct RsValueTrioData RsValueTrioData;
+
+/**
+ * Rust wrapper around [`sds`]
+ *
+ * # Invariants
+ * - The wrapped [`sds`] is non-null and points to a fully initialized `sds`
+ *   originating from a call to [`sdsnew`](ffi::sdsnew), [`sdsnewlen`](ffi::sdsnewlen),
+ *   [`sdsempty`](ffi::sdsempty), or [`sdsdup`].
+ * - The wrapped [`sds`] is unique, i.e. there are no other references to its
+ *   backing memory buffer.
+ * - The wrapped [`sds`] points to a null-terminated C string.
+ * - The wrapped [`sds`] is valid for reads of bytes at least until and including
+ *   its null terminator.
+ * - The null terminator is within `isize::MAX` from the address the wrapped [`sds`]
+ *   points to, i.e. the start of the actual C string.
+ */
+typedef sds OwnedSds;
 
 /**
  * A heap-allocated and refcounted RedisSearch dynamic value.
@@ -95,6 +114,10 @@ typedef enum RsValueInternal_Tag {
    */
   Number,
   /**
+   * Owned SDS value
+   */
+  Sds,
+  /**
    * Reference value
    */
   Ref,
@@ -113,6 +136,9 @@ typedef struct RsValueInternal {
   union {
     struct {
       double number;
+    };
+    struct {
+      OwnedSds sds;
     };
     struct {
       struct SharedRsValue ref;

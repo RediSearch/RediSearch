@@ -12,6 +12,8 @@ mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
+use sds_rs::OwnedSds;
+
 use std::fmt::Debug;
 
 use crate::{map::RsValueMap, shared::SharedRsValue, trio::RsValueTrio};
@@ -27,10 +29,6 @@ pub mod map;
 pub mod shared;
 pub mod trio;
 
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct SDS(usize); // TODO bind
-
 /// Internal storage of [`RsValue`] and [`SharedRsValue`]
 // TODO: optimize memory size
 #[derive(Debug, Clone)]
@@ -40,6 +38,8 @@ pub enum RsValueInternal {
     Null,
     /// Numeric value
     Number(f64),
+    /// Owned SDS value
+    Sds(OwnedSds),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
