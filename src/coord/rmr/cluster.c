@@ -112,11 +112,14 @@ MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *
   if (!ioRuntime->topo) return NULL;
 
   MRClusterShard *sh;
-  if (cmd->targetShard != -1 && cmd->targetShard < ioRuntime->topo->numShards) {
+  if (cmd->targetShard != INVALID_SHARD && cmd->targetShard < ioRuntime->topo->numShards) {
     /* Get the shard directly by the targetShard field */
     sh = &ioRuntime->topo->shards[cmd->targetShard];
 
   } else {
+    if (ioRuntime->topo->numShards <= cmd->targetShard) {
+      RedisModule_Log(RSDummyContext, "warning", "Command targetShard %d is out of bounds (numShards=%zu)", cmd->targetShard, ioRuntime->topo->numShards);
+    }
     /* Get the cluster slot from the sharder */
     unsigned slot = getSlotByCmd(cmd, ioRuntime->topo);
 

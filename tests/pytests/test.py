@@ -4240,16 +4240,17 @@ def test_cluster_set_multiple_slots(env: Env):
             *set_ranges
     ).ok()
 
+    # SEARCH.CLUSTERSET does not support multiple slot ranges per shard
     generic_shard = [
-        [ANY] * 2 * ranges_per_shard,   # slot ranges, first and last slot of each range
-        [ANY] * 4                       # node id, host, port, role
+        [ANY] * 2,  # slot ranges, first and last slot of the range
+        [ANY] * 4,  # node id, host, port, role
     ]
     expected = [
-        'num_partitions', env.shardsCount,              # Number of shards, not necessarily the number of slots ranges
+        'num_partitions', len(ranges),              # Number of slot ranges, not the number of shards!
         'cluster_type', 'redis_oss',
         'hash_func', 'CRC16',
         'num_slots', num_slots,
-        'shards', *[generic_shard] * env.shardsCount    # one entry per shard
+        'shards', *[generic_shard] * len(ranges)    # one entry per range
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 

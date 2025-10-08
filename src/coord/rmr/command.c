@@ -58,7 +58,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->num = len;
   cmd->strs = rm_malloc(sizeof(*cmd->strs) * len);
   cmd->lens = rm_malloc(sizeof(*cmd->lens) * len);
-  cmd->targetShard = -1;
+  cmd->targetShard = INVALID_SHARD;
   cmd->cmd = NULL;
   cmd->protocol = 0;
   cmd->depleted = false;

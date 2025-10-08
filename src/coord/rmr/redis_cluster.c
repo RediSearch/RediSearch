@@ -66,12 +66,17 @@ static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
       n->endpoint.port = (int)RedisModule_CallReplyInteger(val); // Only set if tls-port wasn't set
     }
   }
+  // Basic sanity - verify we have the required fields
+  RS_ASSERT(n->id != NULL);
+  RS_ASSERT(n->endpoint.host != NULL);
+  RS_ASSERT(n->endpoint.port != -1);
 }
 
-static bool hasNoSlots(const RedisModuleCallReply *shard) {
+static bool hasSlots(RedisModuleCallReply *shard) {
   ASSERT_KEY(shard, 0, "slots");
   RedisModuleCallReply *slots = RedisModule_CallReplyArrayElement(shard, 1);
-  return RedisModule_CallReplyLength(slots) == 0;
+  RS_ASSERT(RedisModule_CallReplyType(slots) == REDISMODULE_REPLY_ARRAY);
+  return RedisModule_CallReplyLength(slots) > 0;
 }
 
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
@@ -130,7 +135,7 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   */
 
   size_t numShards = RedisModule_CallReplyLength(cluster_shards);
-  if (numShards == 1 && hasNoSlots(RedisModule_CallReplyArrayElement(cluster_shards, 0))) {
+  if (numShards == 0 || (numShards == 1 && !hasSlots(RedisModule_CallReplyArrayElement(cluster_shards, 0)))) {
     RedisModule_Log(ctx, "warning", "Got no slots in CLUSTER SHARDS");
     return NULL;
   }
@@ -145,7 +150,7 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   for (size_t i = 0; i < numShards; i++) {
     RedisModuleCallReply *currShard = RedisModule_CallReplyArrayElement(cluster_shards, i);
     RS_ASSERT(RedisModule_CallReplyType(currShard) == REDISMODULE_REPLY_ARRAY);
-    RS_ASSERT(RedisModule_CallReplyLength(currShard) == 4);
+    RS_ASSERT(RedisModule_CallReplyLength(currShard) == 4); // We expect 4 elements: "slots", <array>, "nodes", <array>
 
     // Handle slots
     ASSERT_KEY(currShard, 0, "slots");

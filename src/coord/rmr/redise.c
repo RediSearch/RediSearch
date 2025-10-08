@@ -19,26 +19,12 @@ typedef struct {
 
 static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
 
-  for (int i = 0; i < t->numShards; i++) {
-    for (int r = 0; r < t->shards[i].numRanges; r++) {
-      if (sh->startSlot == t->shards[i].ranges[r].start && sh->endSlot == t->shards[i].ranges[r].end) {
-        // New node in the same shard
-        MRClusterShard_AddNode(&t->shards[i], &sh->node);
-        return;
-      }
-    }
-    if (!(sh->node.flags & MRNode_Master)) {
-      continue; // Only master nodes can cause shard merging
-    }
-    // Check if the master node already exists in the shard, in which case we can just
-    for (int n = 0; n < t->shards[i].numNodes; n++) {
-      if (!strcmp(sh->node.id, t->shards[i].nodes[n].id)) {
-        // Same node, extend the slot ranges (for all the nodes in the shard)
-        MRClusterShard_AddRange(&t->shards[i], sh->startSlot, sh->endSlot);
-        // Consume the node, we don't need to add it again
-        MRClusterNode_Free(&sh->node);
-        return;
-      }
+  for (size_t i = 0; i < t->numShards; i++) {
+    RS_ASSERT(t->shards[i].numRanges == 1); // We only support single-range shards using this method
+    if (sh->startSlot == t->shards[i].ranges[0].start && sh->endSlot == t->shards[i].ranges[0].end) {
+      // New node in the same shard
+      MRClusterShard_AddNode(&t->shards[i], &sh->node);
+      return;
     }
   }
 
