@@ -101,12 +101,12 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     }
 
     // Assumes all upstreams have non-null lookups
-     // Init lookup since we dont call buildQueryPart
+    // Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
     HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, lookup);
     const char *scoreAlias = params->aggregationParams.common.scoreAlias;
-    const RLookupKey *docKey = RLookup_GetKey_Read(lookup, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+    const RLookupKey *docKey = RLookup_GetKey_Read(lookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
     const RLookupKey *scoreKey = NULL;
     if (scoreAlias) {
       scoreKey = RLookup_GetKey_Write(lookup, scoreAlias, RLOOKUP_F_NOFLAGS);
@@ -116,7 +116,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
         return REDISMODULE_ERR;
       }
     } else {
-      scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_HIDDEN);
+      scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
     }
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
