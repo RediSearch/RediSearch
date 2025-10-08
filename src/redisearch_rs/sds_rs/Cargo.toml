@@ -1,0 +1,16 @@
+[package]
+name = "sds_rs"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+ffi.workspace = true
+libc.workspace = true
+
+[lints]
+workspace = true
