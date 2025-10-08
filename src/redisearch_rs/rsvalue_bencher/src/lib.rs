@@ -21,6 +21,22 @@ pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
 pub static mut RSDummyContext: *const c_void = std::ptr::null();
 
 #[unsafe(no_mangle)]
-pub extern "C" fn RedisModule_RetainString(ctx: *mut RedisModuleCtx, s: *mut RedisModuleString) {
+pub extern "C" fn RedisModule_RetainString(
+    _ctx: *mut RedisModuleCtx,
+    _string: *mut RedisModuleString,
+) {
     panic!("unexpected call to RedisModule_RetainString")
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Obfuscate_Text(_text: *const std::ffi::c_char) -> *const std::ffi::c_char {
+    c"Text".as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Obfuscate_Number(_number: f64) -> *const std::ffi::c_char {
+    c"Number".as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn AC_GetString() {}
