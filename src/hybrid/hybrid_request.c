@@ -105,7 +105,6 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
     HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, lookup);
-
     const char *scoreAlias = params->aggregationParams.common.scoreAlias;
     const RLookupKey *docKey = RLookup_GetKey_Read(lookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
     const RLookupKey *scoreKey = NULL;
@@ -177,6 +176,24 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
     return hybridReq;
 }
 
+void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
+  // skip command and index name
+  const int step = argc > 2 ? 2 : argc;
+  argv += step;
+  argc -= step;
+  req->args = rm_calloc(argc, sizeof(*req->args));
+  req->nargs = argc;
+  // Copy the arguments into an owned array of sds strings
+  for (size_t ii = 0; ii < argc; ++ii) {
+    size_t n;
+    const char *s = RedisModule_StringPtrLen(argv[ii], &n);
+    req->args[ii] = sdsnewlen(s, n);
+  }
+
+  // Parse the query and basic keywords first..
+  ArgsCursor_InitSDS(ac, req->args, req->nargs);
+}
+
 /**
  * Free a HybridRequest and all its associated resources.
  * This function properly cleans up all individual AREQ requests, the tail pipeline,
@@ -234,6 +251,12 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
+    if (req->args) {
+      for (size_t ii = 0; ii < req->nargs; ++ii) {
+        sdsfree(req->args[ii]);
+      }
+      rm_free(req->args);
+    }
 
     rm_free(req);
 }

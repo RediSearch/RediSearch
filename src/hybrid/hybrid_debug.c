@@ -199,6 +199,9 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   int hybrid_argc = argc - debug_argv_count;
 
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hreq, &ac, argv, hybrid_argc);
+  
   HybridPipelineParams hybridParams = {0};  // Stack allocation
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hreq->requests[SEARCH_INDEX];
@@ -208,7 +211,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   cmd.tailPlan = &hreq->tailPipeline->ap;
   cmd.reqConfig = &hreq->reqConfig;
 
-  int rc = parseHybridCommand(ctx, argv, hybrid_argc, sctx, indexname, &cmd, status, false);
+  int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false);
   if (rc != REDISMODULE_OK) {
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
