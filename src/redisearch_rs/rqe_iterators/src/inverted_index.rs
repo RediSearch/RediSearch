@@ -123,7 +123,9 @@ impl<'iterator, 'index> RQEIterator<'iterator, 'index> for NumericFull<'index> {
         self.at_eos
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus, RQEIteratorError> {
+    fn revalidate(
+        &'iterator mut self,
+    ) -> Result<RQEValidateStatus<'iterator, 'index>, RQEIteratorError> {
         // TODO: NumericCheckAbort when implementing queries
 
         if !self.reader.needs_revalidation() {
@@ -144,7 +146,8 @@ impl<'iterator, 'index> RQEIterator<'iterator, 'index> for NumericFull<'index> {
         // try restoring the last docId
         let res = match self.skip_to(last_doc_id)? {
             Some(SkipToOutcome::Found(_)) => RQEValidateStatus::Ok,
-            _ => RQEValidateStatus::Moved,
+            Some(SkipToOutcome::NotFound(doc)) => RQEValidateStatus::Moved { current: Some(doc) },
+            None => RQEValidateStatus::Moved { current: None },
         };
 
         Ok(res)
