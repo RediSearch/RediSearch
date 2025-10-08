@@ -285,10 +285,14 @@ impl<E: Encoder + DecodedBy + Default> RevalidateTest<E> {
         // Remove the element at the current position of the iterator.
         // When validating we won't be able to skip to this element, so we should get RQEValidateStatus::Moved.
         self.remove_document(self.doc_ids[2]);
-        assert_eq!(
-            it.revalidate().expect("revalidate failed"),
-            RQEValidateStatus::Moved
-        );
+        let res = it.revalidate().expect("revalidate failed");
+        let current_doc = match res {
+            RQEValidateStatus::Moved {
+                current: Some(current),
+            } => current,
+            _ => panic!("wrong revalidate result: {:?}", res),
+        };
+        assert_eq!(current_doc.doc_id, self.doc_ids[3]);
         // iterator advanced to the next element
         assert_eq!(it.last_doc_id(), self.doc_ids[3]);
 
@@ -311,11 +315,9 @@ impl<E: Encoder + DecodedBy + Default> RevalidateTest<E> {
         assert_eq!(it.last_doc_id(), last_doc_id);
 
         self.remove_document(last_doc_id);
-        // revalidate should return Moved and be at EOF.
-        assert_eq!(
-            it.revalidate().expect("revalidate failed"),
-            RQEValidateStatus::Moved
-        );
+        // revalidate should return Moved without current doc and be at EOF.
+        let res = it.revalidate().expect("revalidate failed");
+        assert!(matches!(res, RQEValidateStatus::Moved { current: None }));
         assert!(it.at_eof());
     }
 }
