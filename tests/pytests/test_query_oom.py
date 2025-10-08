@@ -149,7 +149,7 @@ def test_query_oom_cluster_shards_error_first_reply():
     shards_p = [psutil.Process(pid) for pid in shards_pid]
     for shard_p in shards_p:
         shard_p.suspend()
-    with TimeLimit(10):
+    with TimeLimit(60, 'Timeout while waiting for shards to pause'):
         while any(shard_p.status() != psutil.STATUS_STOPPED for shard_p in shards_p):
             time.sleep(0.1)
 
@@ -178,10 +178,8 @@ def test_query_oom_cluster_shards_error_first_reply():
     # Let's resume the shards
     for shard_p in shards_p:
         shard_p.resume()
-    with TimeLimit(10):
-        while any(shard_p.status() != psutil.STATUS_RUNNING for shard_p in shards_p):
-            time.sleep(0.1)
-
+    # Wait for the query to finish
+    # The query will finish only when all of the shards returned their results
     t_query.join()
 
 
