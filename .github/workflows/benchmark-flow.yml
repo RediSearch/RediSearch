@@ -76,6 +76,7 @@ jobs:
           REDISEARCH_MT_BUILD=0
       - name: Install Python dependencies
         run: |
+          . .venv/bin/activate
           python3 -m pip install -r tests/benchmarks/requirements.txt
       - name: Prepare ReJSON Module
         run: |
@@ -106,7 +107,9 @@ jobs:
           BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
-        run: redisbench-admin run-remote
+        run: |
+          . ../../.venv/bin/activate
+          redisbench-admin run-remote
               --module_path ../../${{ inputs.module_path }}
               --required-module search
               --github_actor ${{ github.triggering_actor }}
@@ -129,7 +132,9 @@ jobs:
         env:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
-        run: redisbench-admin compare
+        run: |
+          . .venv/bin/activate
+          redisbench-admin compare
               --defaults_filename ./tests/benchmarks/defaults.yml
               --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
               --baseline-branch ${{ github.event.pull_request.base.ref }}
