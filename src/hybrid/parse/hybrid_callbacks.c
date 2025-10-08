@@ -85,11 +85,6 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
 
 #define ASC_BY_DEFAULT true
 
-void handleNoSort(ArgParser *parser, const void *value, void *user_data) {
-    HybridParseContext *ctx = (HybridParseContext*)user_data;
-    *ctx->reqFlags |= QEXEC_F_NO_SORT;
-}
-
 void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
