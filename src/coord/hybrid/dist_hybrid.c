@@ -19,8 +19,6 @@
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
 
-// We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
-#define HYBRID_RESP_PROTOCOL_VERSION 3
 
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
@@ -92,6 +90,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Numeric responses are encoded as simple strings.
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
+\
 }
 
 // UPDATED: Set RPNet types when creating them
@@ -141,6 +140,80 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
   }
 }
 
+// should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
+int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
+  // Create synchronization context for coordinating depleter processors
+  // This ensures thread-safe access when multiple depleters read from their pipelines
+  StrongRef sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
+
+  // Build individual pipelines for each search request
+  for (size_t i = 0; i < req->nrequests; i++) {
+      AREQ *areq = req->requests[i];
+
+      // areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
+      AREQ_AddRequestFlags(areq,QEXEC_F_BUILDPIPELINE_NO_ROOT);
+
+      int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+      if (rc != REDISMODULE_OK) {
+          StrongRef_Release(sync_ref);
+          return REDISMODULE_ERR;
+      }
+
+      // Obtain the query processing context for the current AREQ
+      QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
+      // Set the result limit for the current AREQ - hack for now, should use window value
+      if (IsHybridVectorSubquery(areq)){
+        qctx->resultLimit = areq->maxAggregateResults;
+      } else if (IsHybridSearchSubquery(areq)) {
+        qctx->resultLimit = areq->maxSearchResults;
+      }
+      // Create a depleter processor to extract results from this pipeline
+      // The depleter will feed results to the hybrid merger
+      RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
+      RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
+      ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
+      QITR_PushRP(qctx, depleter);
+
+      // RPNet *rpNet = RPNet_New(xcmd, rpnetNext_StartWithMappings);
+      // RPNet_SetDispatcher(rpNet, dispatcher);
+      // QITR_PushRP(qctx, &rpNet->base);
+  }
+
+  // Release the sync reference as depleters now hold their own references
+  StrongRef_Release(sync_ref);
+  return REDISMODULE_OK;
+}
+
+static void hybridRequestSetupCoordinatorSubqueriesRequests(HybridRequest *hreq, const HybridPipelineParams *hybridParams) {
+  RS_ASSERT(hybridParams->scoringCtx);
+  size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+
+  bool isKNN = hreq->requests[VECTOR_INDEX]->ast.root->type == QN_VECTOR;
+  size_t K = isKNN ? hreq->requests[VECTOR_INDEX]->ast.root->vn.vq->knn.k : 0;
+
+  array_free_ex(hreq->requests, AREQ_Free(*(AREQ**)ptr));
+  hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
+  hreq->nrequests = array_len(hreq->requests);
+
+  AREQ_AddRequestFlags(hreq->requests[SEARCH_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
+  AREQ_AddRequestFlags(hreq->requests[VECTOR_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
+
+  PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[SEARCH_INDEX]));
+  searchArrangeStep->limit = window;
+
+  PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[VECTOR_INDEX]));
+  if (isKNN) {
+    // Vector subquery is a KNN query
+    // Heapsize should be min(window, KNN K)
+    // ast structure is: root = vector node <- filter node <- ... rest
+    vectorArrangeStep->limit = MIN(window, K);
+  } else {
+    // its range, limit = window
+    vectorArrangeStep->limit = window;
+  }
+
+}
+
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
         RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
 
@@ -156,6 +229,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     cmd.tailPlan = &hreq->tailPipeline->ap;
     cmd.reqConfig = &hreq->reqConfig;
 
+    const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
     int rc = parseHybridCommand(ctx, &ac, hreq->sctx, &cmd, status, false);
@@ -171,14 +245,22 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     rc = AGGPLN_Distribute(HybridRequest_TailAGGPlan(hreq), status);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-    AREQDIST_UpstreamInfo us = {0};
-    rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, &us, status);
+    AREQDIST_UpstreamInfo us = {NULL};
+
+    hybridRequestSetupCoordinatorSubqueriesRequests(hreq, &hybridParams);
+
+    rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, &hybridParams);
+    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+
+    // AREQ_AddRequestFlags(hreq somehow,QEXEC_F_BUILDPIPELINE_NO_ROOT);
+
+    rc = HybridRequest_BuildMergePipeline(hreq, &hybridParams);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     // Construct the command string
     MRCommand xcmd;
     HybridRequest_buildMRCommand(argv, argc, &us, &xcmd, sp, &hybridParams);
-    xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
+    xcmd.protocol = is_resp3(ctx) ? 3 : 2;
     // xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     // xcmd.forProfiling = false;  // No profiling support for hybrid yet
     // xcmd.rootCommand = C_AGG;   // Response is equivalent to a `CURSOR READ` response

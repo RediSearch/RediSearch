@@ -32,7 +32,7 @@ void SearchResult_Clear(SearchResult *r) {
     SearchResult_SetScoreExplain(r, NULL);
   }
 
-  const RSIndexResult* index_result = SearchResult_GetIndexResult(r);
+  RSIndexResult* index_result = SearchResult_GetIndexResult(r);
   if (index_result) {
     SearchResult_SetIndexResult(r, NULL);
   }

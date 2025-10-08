@@ -1768,38 +1768,38 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  }
 
  /* Yield phase - iterate through results and apply hybrid scoring */
-static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
-  RPHybridMerger *self = (RPHybridMerger *)rp;
+ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
+   RPHybridMerger *self = (RPHybridMerger *)rp;
 
-  RS_ASSERT(self->iterator);
-  // Get next entry from iterator
-  dictEntry *entry = dictNext(self->iterator);
-  if (!entry) {
+   RS_ASSERT(self->iterator);
+   // Get next entry from iterator
+   dictEntry *entry = dictNext(self->iterator);
+     if (!entry) {
     // No more results to yield
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
   }
 
-  // Get the key and value before removing the entry
-  void *key = dictGetKey(entry);
-  HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
-  RS_ASSERT(hybridResult);
+   // Get the key and value before removing the entry
+   void *key = dictGetKey(entry);
+   HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
+   RS_ASSERT(hybridResult);
 
-  SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
-  if (!mergedResult) {
-    return RS_RESULT_ERROR;
-  }
+   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
+   if (!mergedResult) {
+     return RS_RESULT_ERROR;
+   }
 
-  // Override the output result with merged data
-  SearchResult_Override(r, mergedResult);
-  rm_free(mergedResult);
+   // Override the output result with merged data
+   SearchResult_Override(r, mergedResult);
+   rm_free(mergedResult);
 
-  // Add score as field if scoreKey is provided
-  if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
-  }
+   // Add score as field if scoreKey is provided
+   if (self->scoreKey) {
+     RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
+   }
 
-  return RS_RESULT_OK;
+   return RS_RESULT_OK;
  }
 
  /* Accumulation phase - consume window results from all upstreams */

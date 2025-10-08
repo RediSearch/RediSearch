@@ -88,7 +88,7 @@ static HybridLookupContext *InitializeHybridLookupContext(arrayof(AREQ*) request
     return lookupCtx;
 }
 
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, RLookup* lookup) {
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params) {
     // Array to collect depleter processors from each individual request pipeline
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -101,9 +101,12 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     }
 
     // Assumes all upstreams have non-null lookups
+     // Init lookup since we dont call buildQueryPart
+    RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
     HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, lookup);
     const char *scoreAlias = params->aggregationParams.common.scoreAlias;
-    const RLookupKey *docKey = RLookup_GetKey_Read(lookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
+    const RLookupKey *docKey = RLookup_GetKey_Read(lookup, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
     const RLookupKey *scoreKey = NULL;
     if (scoreAlias) {
       scoreKey = RLookup_GetKey_Write(lookup, scoreAlias, RLOOKUP_F_NOFLAGS);
@@ -130,11 +133,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     if (HybridRequest_BuildDepletionPipeline(req, params) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-    RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-    // Init lookup since we dont call buildQueryPart
-    RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
     // Build the merge pipeline for combining and processing results from the depletion pipeline
-    return HybridRequest_BuildMergePipeline(req, params, lookup);
+    return HybridRequest_BuildMergePipeline(req, params);
 }
 
 /**

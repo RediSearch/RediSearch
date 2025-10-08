@@ -441,7 +441,7 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags);
  * Assumes all source keys exist in destination (enforce with ASSERT).
  */
 void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-                               RLookupRow *destRow, RLookup *destLookup);
+                               RLookupRow *destRow, const RLookup *destLookup);
 
 #ifdef __cplusplus
 }
