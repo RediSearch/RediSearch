@@ -79,13 +79,14 @@ def test_hybrid_vector_direct_blob_knn_with_filter():
     env.assertTrue(set(results.keys()) == {"doc:4{hash_tag}"})
 
 # TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+# @skip(cluster=True)
 def test_hybrid_vector_direct_blob_range():
     env = Env()
     setup_basic_index(env)
+    conn = env.getClusterConnectionIfNeeded()
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
-                        'RANGE', '2', 'RADIUS', '1')
+    response = conn.execute_command('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
+                        'RANGE', '2', 'RADIUS', '1', target_nodes='default-node')
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
     env.assertTrue(set(results.keys()) == {"doc:2{hash_tag}", "doc:4{hash_tag}"})
