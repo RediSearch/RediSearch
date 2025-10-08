@@ -8,9 +8,8 @@
 */
 
 //! Metric iterator implementation
-use std::borrow::BorrowMut;
 
-use ffi::{RLookupKey, RS_NewValue, RSValue, RSValueType_RSValue_Number, RSYieldableMetric, t_docId};
+use ffi::{RSValue_NewNumber, RSYieldableMetric, t_docId};
 use inverted_index::{RSIndexResult, RSYieldableMetric_Concat};
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdList};
 
@@ -34,13 +33,13 @@ impl Metric {
         }
     }
     #[inline(always)]
-    fn set_result_metrics(&self, result: &RSIndexResult<'_>) {
+    fn set_result_metrics(&mut self, val: f64) -> &RSIndexResult<'static> {
+        let result = self.base.get_mut_result();
         unsafe {
-            let v = RS_NewValue(RSValueType_RSValue_Number);
-            (*v).__bindgen_anon_1.numval = self.metric_data[self.base.offset()];
-            let new_metrics = RSYieldableMetric{key: std::ptr::null_mut(), value: v};
+            let new_metrics = RSYieldableMetric{key: std::ptr::null_mut(), value: RSValue_NewNumber(val)};
             RSYieldableMetric_Concat(&mut result.metrics, &new_metrics);
         }
+        result
     }
 }
 
@@ -49,22 +48,12 @@ impl RQEIterator for Metric {
         if self.base.at_eof() {
             return Ok(None);
         }
-
-        let result = self.base.read()?;
-        match result {
-            Some(res) => {
-            unsafe {
-                let v = RS_NewValue(RSValueType_RSValue_Number);
-                (*v).__bindgen_anon_1.numval = self.metric_data[self.base.offset()];
-                let new_metrics = RSYieldableMetric{key: std::ptr::null_mut(), value: v};
-                RSYieldableMetric_Concat(&mut res.metrics, &new_metrics);
-            }
-        Ok(Some(res))
-            }
-            None => {
-                Ok(None)
-            }
-        }
+        
+        self.base.read()?;
+        let val = self.metric_data[self.base.offset()];
+        let result = self.set_result_metrics(val);
+        Ok(Some(result))
+        
     }
 
     fn skip_to(
@@ -73,16 +62,16 @@ impl RQEIterator for Metric {
     ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
         let skip_outcome = self.base.skip_to(doc_id)?;
         match skip_outcome{
-            Some(SkipToOutcome::Found(res)) | Some(SkipToOutcome::NotFound(res)) => {
-                unsafe {
-                    let v = RS_NewValue(RSValueType_RSValue_Number);
-                    (*v).__bindgen_anon_1.numval = self.metric_data[self.base.offset()];
-                    let new_metrics = RSYieldableMetric{key: std::ptr::null_mut(), value: v};
-                    RSYieldableMetric_Concat(&mut res.metrics, &new_metrics);
-                }
-                Ok(Some(SkipToOutcome::Found(res)))
+            Some(SkipToOutcome::Found(_)) => {
+                let val = self.metric_data[self.base.offset()];
+                let result = self.set_result_metrics(val);
+                Ok(Some(SkipToOutcome::Found(result)))
             },
-            // Some(SkipToOutcome::NotFound(r)) => Ok(Some(SkipToOutcome::NotFound(r))),
+            Some(SkipToOutcome::NotFound(_)) => {
+                let val = self.metric_data[self.base.offset()];
+                let result = self.set_result_metrics(val);
+                Ok(Some(SkipToOutcome::NotFound(result)))
+            },
             None => Ok(None)
         }
     }

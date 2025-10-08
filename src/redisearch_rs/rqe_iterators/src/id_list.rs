@@ -51,6 +51,9 @@ impl IdList {
     pub fn offset(&self) -> usize {
         self.offset
     }
+    pub fn get_mut_result(&mut self) -> &mut RSIndexResult<'static> {
+        &mut self.result
+    }
 }
 
 impl RQEIterator for IdList {
