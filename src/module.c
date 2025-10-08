@@ -2771,7 +2771,7 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
       MR_ReplyWithMRReply(reply, current);
       continue;
     }
-    else if (isSearch) {
+    if (isSearch) {
       // On FT.SEARCH, extract the profile information from the reply. (should be the second element)
       current = MRReply_ArrayElement(current, 1);
     }
