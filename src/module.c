@@ -1296,12 +1296,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  if (isFlex) {
-    bool disk_initialized = SearchDisk_Initialize(ctx);
-    if (!disk_initialized) {
-      RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
-      return REDISMODULE_ERR;
-    }
+  bool disk_initialized = SearchDisk_Initialize(ctx);
+  if (!disk_initialized) {
+    RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
+    return REDISMODULE_ERR;
   }
 
   // register trie-dictionary type
