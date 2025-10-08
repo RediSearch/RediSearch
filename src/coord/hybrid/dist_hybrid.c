@@ -20,6 +20,108 @@
 #include "hybrid_cursor_mappings.h"
 
 
+/**
+ * Appends all SEARCH-related arguments to MR command.
+ * This includes SEARCH keyword, query, and optional SCORER and YIELD_SCORE_AS parameters
+ * that come immediately after the query in sequence.
+ *
+ * @param argv - source command arguments array
+ * @param argc - total argument count
+ * @param xcmd - destination MR command to append arguments to
+ * @param searchOffset - offset where SEARCH keyword appears
+ */
+static void HybridRequest_appendSearch(RedisModuleString **argv, int argc, MRCommand *xcmd, int searchOffset) {
+  // Add SEARCH keyword and query
+  MRCommand_AppendRstr(xcmd, argv[searchOffset]);     // SEARCH
+  MRCommand_AppendRstr(xcmd, argv[searchOffset + 1]); // query
+
+  // Process optional parameters sequentially right after the query
+  int currentOffset = searchOffset + 2; // Start after SEARCH "query"
+
+  // Process SCORER and YIELD_SCORE_AS in any order, but they must be sequential
+  while (currentOffset < argc) {
+    const char *argStr = RedisModule_StringPtrLen(argv[currentOffset], NULL);
+
+    if (strcmp(argStr, "SCORER") == 0 && currentOffset < argc - 1) {
+      // Found SCORER - append it and its argument
+      MRCommand_AppendRstr(xcmd, argv[currentOffset]);     // SCORER
+      MRCommand_AppendRstr(xcmd, argv[currentOffset + 1]); // scorer name
+      currentOffset += 2;
+    } else if (strcmp(argStr, "YIELD_SCORE_AS") == 0 && currentOffset < argc - 1) {
+      // Found YIELD_SCORE_AS - append it and its argument
+      MRCommand_AppendRstr(xcmd, argv[currentOffset]);     // YIELD_SCORE_AS
+      MRCommand_AppendRstr(xcmd, argv[currentOffset + 1]); // score alias
+      currentOffset += 2;
+    } else {
+      // Not a SEARCH parameter - we've reached the end of SEARCH section
+      break;
+    }
+  }
+}
+
+/**
+ * Appends all VSIM-related arguments to MR command.
+ * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER if present.
+ *
+ * @param argv - source command arguments array
+ * @param argc - total argument count
+ * @param xcmd - destination MR command to append arguments to
+ * @param vsimOffset - offset where VSIM keyword appears
+ */
+static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRCommand *xcmd, int vsimOffset) {
+  // Add VSIM keyword and field
+  MRCommand_AppendRstr(xcmd, argv[vsimOffset]);     // VSIM
+  MRCommand_AppendRstr(xcmd, argv[vsimOffset + 1]); // field
+
+  // Add vector data (handle parameter placeholders vs raw data)
+  size_t paramLen;
+  const char *paramStr = RedisModule_StringPtrLen(argv[vsimOffset + 2], &paramLen);
+  if (paramLen > 0 && paramStr[0] == '$') {
+    // It's a parameter placeholder - forward as is
+    MRCommand_AppendRstr(xcmd, argv[vsimOffset + 2]);
+  } else {
+    // It's raw data - forward as binary
+    MRCommand_Append(xcmd, paramStr, paramLen);
+  }
+
+  // Find and add KNN/RANGE method and its arguments
+  long long methodNargs = 0;
+  int vectorMethodOffset = -1;
+
+  int argOffset = RMUtil_ArgIndex("KNN", argv + vsimOffset, argc - vsimOffset);
+  if (argOffset == -1) {
+    argOffset = RMUtil_ArgIndex("RANGE", argv + vsimOffset, argc - vsimOffset);
+  }
+
+  if (argOffset != -1) {
+    vectorMethodOffset = argOffset + vsimOffset;
+    if (vectorMethodOffset < argc - 2) {
+      RedisModule_StringToLongLong(argv[vectorMethodOffset + 1], &methodNargs);
+
+      // Append method name, argument count, and all method arguments
+      for (int i = 0; i < methodNargs + 2; ++i) {
+        MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);
+      }
+    }
+  }
+
+  // Add VSIM FILTER if present at expected position
+  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] FILTER <expression>
+  int expectedFilterOffset = vsimOffset + 3; // VSIM + field + vector
+  if (vectorMethodOffset != -1) {
+    expectedFilterOffset += 2 + methodNargs; // method + count + args
+  }
+
+  int actualFilterOffset = RMUtil_ArgIndex("FILTER", argv + vsimOffset, argc - vsimOffset);
+  actualFilterOffset = actualFilterOffset != -1 ? actualFilterOffset + vsimOffset : -1;
+
+  if (actualFilterOffset == expectedFilterOffset && actualFilterOffset < argc - 1) {
+    // This is a VSIM FILTER - append it to the command
+    MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
+    MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
+  }
+}
+
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
@@ -32,65 +134,17 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Build _FT.HYBRID command (no profiling support)
   *xcmd = MR_NewCommand(2, "_FT.HYBRID", index_name);
 
-  // Add SEARCH
+  // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
   int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
-  MRCommand_AppendRstr(xcmd, argv[searchOffset]);
-  MRCommand_AppendRstr(xcmd, argv[searchOffset + 1]);
+  HybridRequest_appendSearch(argv, argc, xcmd, searchOffset);
 
-  // Add VSIM
+  // Add all VSIM-related arguments (VSIM, field, vector, methods, filter)
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
-  MRCommand_AppendRstr(xcmd, argv[vsimOffset]);
-  MRCommand_AppendRstr(xcmd, argv[vsimOffset + 1]);
-
-  size_t paramLen;
-  const char *paramStr = RedisModule_StringPtrLen(argv[vsimOffset + 2], &paramLen);
-  if (paramLen > 0 && paramStr[0] == '$') {
-    // It's a parameter placeholder - forward as is
-    MRCommand_AppendRstr(xcmd, argv[vsimOffset + 2]);
-  } else {
-    // It's raw data - forward as binary
-    MRCommand_Append(xcmd, paramStr, paramLen);
-  }
-
-
-  // Add KNN/RANGE and its arguments
-  argOffset = RMUtil_ArgIndex("KNN", argv + vsimOffset, argc - vsimOffset);
-  if (argOffset == -1) {
-    argOffset = RMUtil_ArgIndex("RANGE", argv + vsimOffset, argc - vsimOffset);
-  }
-  argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
-  if (argOffset != -1 && argOffset < argc - 2) {
-    long long nargs;
-    RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
-
-    for (int i = 0; i < nargs + 2; ++i) {
-      MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
-    }
-  }
-
-  // Add VSIM FILTER
-  int vsimFilterOffset = RMUtil_ArgIndex("FILTER", argv + vsimOffset, argc - vsimOffset);
-  vsimFilterOffset = vsimFilterOffset != -1 ? vsimFilterOffset + vsimOffset : -1;
-  bool hasFilter = vsimFilterOffset != -1;
+  HybridRequest_appendVsim(argv, argc, xcmd, vsimOffset);
 
   int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
   combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
   bool hasCombine = combineOffset != -1;
-
-  // Possible cases:
-  // VSIM ... FILTER xx
-  // VSIM ... FILTER xx COMBINE xx
-  // VSIM ... FILTER xx COMBINE xx FILTER xx
-  // VSIM ... FILTER xx FILTER xx
-  // VSIM ... COMBINE xx FILTER xx --> This is a post query filter ignore it
-  if ((vsimFilterOffset < argc - 2) &&
-        (   hasFilter && !hasCombine ||
-            (hasFilter && hasCombine && (combineOffset > vsimFilterOffset))
-        )
-    ) {
-    MRCommand_AppendRstr(xcmd, argv[vsimFilterOffset]);
-    MRCommand_AppendRstr(xcmd, argv[vsimFilterOffset + 1]);
-  }
 
   // Add COMBINE
   if (combineOffset != -1) {

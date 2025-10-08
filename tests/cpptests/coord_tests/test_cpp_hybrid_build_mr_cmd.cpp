@@ -123,6 +123,17 @@ TEST_F(HybridBuildMRCommandTest, testBasicCommandTransformation) {
     });
 }
 
+// Test command with SEARCH optional parameters
+TEST_F(HybridBuildMRCommandTest, testCommandWithSearchOptionalParameters) {
+    testCommandTransformation({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "SCORER", "BM25STD",
+        "YIELD_SCORE_AS", "search_score",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "DIALECT", "2"
+    });
+}
+
 // Test command with PARAMS
 TEST_F(HybridBuildMRCommandTest, testCommandWithParams) {
     testCommandTransformation({
@@ -169,6 +180,30 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithFilters) {
         "_FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
+        "DIALECT", "2",
+        "WITHCURSOR", "WITHSCORES", "_NUM_SSTRING"
+    };
+
+    testCommandTransformationWithLoad(inputArgs, expectedArgs);
+}
+
+// Test command with FILTERS
+TEST_F(HybridBuildMRCommandTest, testCommandWithAdjacentFilters) {
+    // Input arguments
+    const std::vector<const char*> inputArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
+        "FILTER", "@__key == 'doc:1'",
+        "DIALECT", "2"
+    };
+
+    // Expected arguments after transformation
+    // FT.HYBRID -> _FT.HYBRID
+    // FILTER post-query is removed
+    // WITHCURSOR, WITHSCORES, _NUM_SSTRING are added
+    const std::vector<const char*> expectedArgs = {
+        "_FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
         "DIALECT", "2",
         "WITHCURSOR", "WITHSCORES", "_NUM_SSTRING"
     };
