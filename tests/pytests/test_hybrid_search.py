@@ -43,7 +43,8 @@ def test_hybrid_search_invalid_query_with_vector():
     env.expect('FT.HYBRID', 'idx', 'SEARCH', '@embedding:[VECTOR_RANGE 0.01 $BLOB]', 'VSIM' ,'@embedding', '$BLOB',\
                'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e").error().contains('Vector expressions are not allowed in FT.HYBRID SEARCH')
 
-
+# TODO: remove skip once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
 def test_hybrid_search_explicit_scorer():
     """Test that hybrid search subquery fails when it contains vector query"""
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
