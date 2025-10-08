@@ -216,6 +216,7 @@ include_directories(
     ${root}/src/coord
     ${root}/src/inverted_index
     ${root}/src/redisearch_rs/headers
+    ${root}/src/value
     ${root}/deps/libuv/include
     ${root}/deps
     ${root}/deps/RedisModulesSDK
@@ -241,6 +242,7 @@ add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
 add_subdirectory(src/buffer)
 add_subdirectory(src/inverted_index)
+add_subdirectory(src/value)
 add_subdirectory(src/iterators)
 add_subdirectory(src/wildcard)
 add_subdirectory(src/util/arr)
@@ -287,6 +289,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:arr>
     $<TARGET_OBJECTS:buffer>
     $<TARGET_OBJECTS:inverted_index>
+    $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:iterators>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:rscore>
@@ -343,6 +346,7 @@ target_link_libraries(redisearch
         arr
         buffer
         inverted_index
+        value
         iterators
         wildcard
         uv_a
