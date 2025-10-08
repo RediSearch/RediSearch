@@ -92,6 +92,32 @@ typedef struct DocTableDiskAPI {
   bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId);
 
   bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey);
+
+  /**
+   * @brief Schedule an async document metadata read for a given docId
+   *
+   * Initiates an asynchronous read operation for document metadata from disk.
+   * The operation is queued and will be processed in the background.
+   */
+  void (*loadDmdAsync)(RedisSearchDiskIndexSpec* handle, t_docId docId);
+
+  /**
+   * @brief Wait for an async document metadata read to complete
+   *
+   * Blocks until a previously scheduled async read operation completes or timeout expires.
+   * On success, populates the provided RSDocumentMetadata structure with the document's
+   * metadata including key, score, flags, and other attributes.
+   *
+   * @param handle Handle to the document table
+   * @param dmd Output parameter - RSDocumentMetadata structure to populate
+   * @param timeout_ms Maximum time to wait in milliseconds
+   * @param allocateKey Callback function to allocate memory for the document key
+   * @return 1 on success, 0 on timeout, -1 on error/failed read
+   */
+  bool (*waitDmd)(RedisSearchDiskIndexSpec* handle,
+                 RSDocumentMetadata* dmd,
+                 long long timeout_ms,
+                 AllocateKeyCallback allocateKey);
 } DocTableDiskAPI;
 
 typedef struct RedisSearchDiskAPI {

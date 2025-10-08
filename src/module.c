@@ -3739,7 +3739,7 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfiguration, int isClusterEnabled) {
   // register the module configuration with redis, use loaded values from command line as defaults
   if (registerConfiguration) {
-    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+    if (RegisterModuleConfig_Internal(ctx) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Error registering module configuration");
       return REDISMODULE_ERR;
     }

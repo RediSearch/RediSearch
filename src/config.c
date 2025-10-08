@@ -1593,7 +1593,7 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 }
 
 
-int RegisterModuleConfig(RedisModuleCtx *ctx) {
+int RegisterModuleConfig_Internal(RedisModuleCtx *ctx) {
   // Numeric parameters
   RM_TRY(
     RedisModule_RegisterNumericConfig(

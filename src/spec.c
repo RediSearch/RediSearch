@@ -1524,7 +1524,7 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
 }
 
 inline static bool isSpecOnDisk(const IndexSpec *sp) {
-  return isFlex;
+  return (isFlex && !(sp->flags & Index_StoreInRAM)) || (sp->flags & Index_StoreInDisk);
 }
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
@@ -1556,6 +1556,12 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
       {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
       {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
+      // A temporary flag to force indexes to be stored in RAM - for benchmarking purposes.
+      {AC_MKBITFLAG(SPEC_DISK_RAM_STR, &spec->flags, Index_StoreInRAM)},
+      // A temporary flag to force indexes to be stored on disk - for benchmarking purposes.
+      {AC_MKBITFLAG(SPEC_DISK_STR, &spec->flags, Index_StoreInDisk)},
+      // Disk pipeline option to force synchronous dmd reads (disable async)
+      {AC_MKBITFLAG(SPEC_DISK_SYNC_STR, &spec->flags, Index_DiskSyncDmd)},
 
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},

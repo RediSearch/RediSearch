@@ -89,3 +89,20 @@ bool SearchDisk_IsEnabled(RedisModuleCtx *ctx) {
   rm_free(isFlexStr);
   return isFlex;
 }
+
+// Async DMD helpers wrappers (queue managed internally by disk)
+void SearchDisk_LoadDmdAsync(RedisSearchDiskIndexSpec *handle, t_docId docId) {
+    RS_ASSERT(disk && handle);
+    disk->docTable.loadDmdAsync(handle, docId);
+}
+
+void SearchDisk_WaitDmd(RedisSearchDiskIndexSpec* handle,
+                                        RSDocumentMetadata *dmd, // OUT
+                                        long long timeout_ms,
+                                        AllocateKeyCallback allocateKey) {
+    RS_ASSERT(disk && handle);
+    bool rc = disk->docTable.waitDmd(handle, dmd, timeout_ms, allocateKey);
+    if (rc == false) {
+      dmd->keyPtr = NULL;
+    }
+}
