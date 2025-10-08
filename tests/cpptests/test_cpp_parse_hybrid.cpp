@@ -1186,7 +1186,7 @@ TEST_F(ParseHybridTest, testCombineLinearZeroWindow) {
 }
 
 TEST_F(ParseHybridTest, testSortby0InvalidArgumentCount) {
-  // Test invalid syntax: FT.HYBRID <index> SEARCH hello SEARCH world (should fail)
+  // SORTBY requires at least one argument (param count)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "0");
   testErrorCode(args, QUERY_EPARSEARGS, "SORTBY: Invalid argument count");
 }
