@@ -1951,7 +1951,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   struct MRCtx *mctx = MR_CreateCtx(ctx, 0, NULL);
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
-  MR_SetCoordinationStrategy(mctx, MRCluster_FlatCoordination);
+  MR_SetCoordinationStrategy(mctx, MRCluster_MastersOnly);
   MR_Map(mctx, InfoReplyReducer, cg, true);
   cg.Free(cg.ctx);
   return REDISMODULE_OK;
