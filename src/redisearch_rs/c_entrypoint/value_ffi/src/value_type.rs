@@ -19,6 +19,7 @@ pub enum RsValueType {
     Undefined,
     Null,
     Number,
+    Sds,
     Ref,
     Trio,
     Map,
@@ -36,6 +37,7 @@ impl AsRsValueType for RsValueInternal {
         match self {
             RsValueInternal::Null => Null,
             RsValueInternal::Number(_) => Number,
+            RsValueInternal::Sds(_) => Sds,
             RsValueInternal::Ref(_) => Ref,
             RsValueInternal::Trio(_) => Trio,
             RsValueInternal::Map(_) => Map,

@@ -21,6 +21,7 @@ members = [
     "build_utils",
     "rqe_iterators",
     "rqe_iterators_bencher",
+    "sds_rs",
     "varint_bencher",
     "wildcard",
     "search_result",
@@ -71,6 +72,7 @@ varint = { path = "./varint" }
 qint = { path = "./qint" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
+sds_rs = { path = "./sds_rs" }
 search_result = { path = "./search_result" }
 
 cbindgen = "0.29"
