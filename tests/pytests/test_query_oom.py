@@ -178,8 +178,11 @@ def test_query_oom_cluster_shards_error_first_reply():
     # Let's resume the shards
     for shard_p in shards_p:
         shard_p.resume()
+    # consider any non-stopped state as “resumed”
+    with TimeLimit(60):
+        while any(shard_p.status() == psutil.STATUS_STOPPED for shard_p in shards_p):
+            time.sleep(0.1)
     # Wait for the query to finish
-    # The query will finish only when all of the shards returned their results
     t_query.join()
 
 
