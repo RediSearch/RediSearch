@@ -31,7 +31,7 @@ protected:
     //do a copy of the docIds vector before passing it to iterator
     t_docId* ids_array = (t_docId*)rm_malloc(docIds.size() * sizeof(t_docId));
     std::copy(docIds.begin(), docIds.end(), ids_array);
-    iterator_base = IT_V2(NewIdListIterator)(ids_array, docIds.size(), 1.0);
+    iterator_base = NewIdListIterator(ids_array, docIds.size(), 1.0);
   }
   void TearDown() override {
     iterator_base->Free(iterator_base);

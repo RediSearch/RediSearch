@@ -115,12 +115,18 @@ def testTFIDFScorerExplanation(env):
                                     ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                      '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
                                    '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
+    dialect1_coord =['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1', [[
+                                '(Weight 1.00 * total children TFIDF 30.00)', [
+                                  '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)', [
+                                    '(Weight 1.00 * total children TFIDF 20.00)', [
+                                      '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                                      '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]]]
     dialect2 = ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 30.00)', [
                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
-    env.assertEqual(res[2][1], dialect1 if dialect == 1 else dialect2)
+    env.assertEqual(res[2][1], dialect2 if dialect != 1 else dialect1_coord if env.isCluster() else dialect1)
 
     res1 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
             [['(Weight 1.00 * total children TFIDF 40.00)',
@@ -316,9 +322,8 @@ def testOptionalAndWildcardScoring(env):
 
     expected_res = [1, 'doc2', ['0.6288345545057012',
                                 ['Final BM25 : words BM25 0.63 * document score 1.00',
-                                 [['(Weight 1.00 * children BM25 0.63)',
-                                   ['words: (0.63 = Weight 1.00 * IDF 0.69 * (F 1.00 * (k1 1.2 + 1)) '
-                                    '/ (F 1.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 5 / Average Doc Len 4.00)))']]]]]]
+                                 ['words: (0.63 = Weight 1.00 * IDF 0.69 * (F 1.00 * (k1 1.2 + 1)) '
+                                    '/ (F 1.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 5 / Average Doc Len 4.00)))']]]]
     res = conn.execute_command('ft.search', 'idx', '*ds', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD', 'nocontent')
     env.assertEqual(res, expected_res)
 

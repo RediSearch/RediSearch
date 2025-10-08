@@ -160,6 +160,13 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
       RedisModule_InfoAddFieldLongLong(ctx, "Flat", RSGlobalStats.fieldsStats.numVectorFieldsFlat);
     if (RSGlobalStats.fieldsStats.numVectorFieldsHNSW > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "HNSW", RSGlobalStats.fieldsStats.numVectorFieldsHNSW);
+    if (RSGlobalStats.fieldsStats.numVectorFieldsSvsVamana > 0) {
+      RedisModule_InfoAddFieldLongLong(ctx, "SVS_VAMANA",
+                                       RSGlobalStats.fieldsStats.numVectorFieldsSvsVamana);
+      if (RSGlobalStats.fieldsStats.numVectorFieldsSvsVamanaCompressed > 0)
+        RedisModule_InfoAddFieldLongLong(ctx, "SVS_VAMANA_Compressed",
+                                         RSGlobalStats.fieldsStats.numVectorFieldsSvsVamanaCompressed);
+    }
     RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors",
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_VECTOR));
     RedisModule_InfoEndDictField(ctx);
@@ -274,6 +281,8 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
                                    RSGlobalConfig.requestConfigParams.queryTimeoutMS);
   RedisModule_InfoAddFieldCString(ctx, "timeout_policy",
 																	(char *)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
+  RedisModule_InfoAddFieldCString(ctx, "oom_policy",
+                                  (char *)OomPolicy_ToString(RSGlobalConfig.requestConfigParams.oomPolicy));
   RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
   RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
 

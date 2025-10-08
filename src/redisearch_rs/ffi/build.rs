@@ -53,12 +53,19 @@ fn main() {
 
     let headers = [
         root.join("src").join("redisearch.h"),
+        root.join("deps")
+            .join("RedisModulesSDK")
+            .join("redismodule.h"),
         root.join("src").join("buffer/buffer.h"),
+        root.join("src").join("search_result.h"),
         root.join("src").join("result_processor.h"),
         root.join("src").join("sortable.h"),
         root.join("src").join("value.h"),
         root.join("src").join("obfuscation").join("hidden.h"),
         root.join("src").join("spec.h"),
+        root.join("src").join("doc_table.h"),
+        root.join("src").join("score_explain.h"),
+        root.join("src").join("rlookup.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();

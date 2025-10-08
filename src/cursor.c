@@ -70,7 +70,11 @@ static void Cursor_FreeInternal(Cursor *cur) {
   kh_del(cursors, cl->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
-  if (cur->execState) {
+  if (cur->hybrid_ref.rm) {
+    // The AREQ will be free by the hybrid request free function.
+    StrongRef_Release(cur->hybrid_ref);
+    cur->execState = NULL;
+  } else if (cur->execState) {
     AREQ_Free(cur->execState);
     cur->execState = NULL;
   }
@@ -357,23 +361,22 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
 }
 #endif // FTINFO_FOR_INFO_MODULES
 
-void CursorList_Destroy(CursorList *cl) {
-  Cursors_GCInternal(cl, 1);
+void CursorList_Empty(CursorList *cl) {
+  CursorList_Lock(cl);
   for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
     if (!kh_exist(cl->lookup, ii)) {
       continue;
     }
-    Cursor *c = kh_val(cl->lookup, ii);
-    Cursor_FreeInternal(c);
+    Cursor *cur = kh_val(cl->lookup, ii);
+    if (Cursor_IsIdle(cur)) {
+      // Since the cursor is idle, we can free it.
+      Cursor_RemoveFromIdle(cur);
+      Cursor_FreeInternal(cur);
+    } else {
+      // Since the cursor is not idle, we mark it for deletion.
+      // The next time the cursor is accessed, it will be freed.
+      cur->delete_mark = true;
+    }
   }
-  kh_destroy(cursors, cl->lookup);
-
-  pthread_mutex_destroy(&cl->lock);
-  Array_Free(&cl->idle);
-}
-
-void CursorList_Empty(CursorList *cl) {
-  bool is_coord = cl->is_coord;
-  CursorList_Destroy(cl);
-  CursorList_Init(cl, is_coord);
+  CursorList_Unlock(cl);
 }

@@ -7,6 +7,7 @@ from common import *
 from includes import *
 from random import randrange
 from redis import ResponseError
+import distro
 
 '''************* Helper methods for vecsim tests ************'''
 EPSILONS = {'FLOAT32': 1E-6, 'FLOAT64': 1E-9, 'FLOAT16': 1E-2, 'BFLOAT16': 1E-2}
@@ -1706,11 +1707,12 @@ class TestTimeoutReached(object):
 
     def run_long_queries(self, n_vec, query_vec):
         # STANDARD KNN
+        large_k = 1000
         # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, large_k,
+                                   'PARAMS', 4, 'K', large_k, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 0)
-        self.env.assertEqual(res[0], n_vec)
+        self.env.assertEqual(res[0], large_k)
         # run query with 1 millisecond timeout. should fail.
         self.env.expect(
             'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
@@ -1719,23 +1721,17 @@ class TestTimeoutReached(object):
         ).error().contains('Timeout limit was reached')
 
         # RANGE QUERY
-        # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                   'PARAMS', 2,  'vec_param', query_vec.tobytes(),
-                                   'TIMEOUT', 0)
-        self.env.assertEqual(res[0], n_vec)
         # run query with 1 millisecond timeout. should fail.
         self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                    'PARAMS', 2, 'vec_param', query_vec.tobytes(),
                    'TIMEOUT', 1).error().contains('Timeout limit was reached')
 
         # HYBRID MODES
+        # Add some dummy documents so `-dummy` won't be empty and optimized away.
+        with self.env.getClusterConnectionIfNeeded() as conn:
+            for i in range(n_vec + 1, n_vec + 5 * self.env.shardsCount):
+                conn.execute_command('HSET', i, 't', 'dummy')
         for mode in self.hybrid_modes:
-            res = self.env.cmd('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
-                               'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec, 'vec_param',
-                               query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 0)
-            self.env.assertEqual(res[0], n_vec)
-
             self.env.expect(
                 'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
                 'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
@@ -1746,7 +1742,7 @@ class TestTimeoutReached(object):
         # Create index and load vectors.
         n_vec = self.index_sizes['FLAT']
         query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '8', 'TYPE', self.type,
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text', 'vector', 'VECTOR', 'FLAT', '8', 'TYPE', self.type,
                     'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
@@ -1756,7 +1752,7 @@ class TestTimeoutReached(object):
         # Create index and load vectors.
         n_vec = self.index_sizes['HNSW']
         query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', self.type,
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', self.type,
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
@@ -1766,7 +1762,7 @@ class TestTimeoutReached(object):
         # Create index and load vectors.
         n_vec = self.index_sizes['SVS-VAMANA']
         query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', self.type,
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text', 'vector', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', self.type,
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2').ok()
         waitForIndex(self.env, 'idx')
 
@@ -1788,14 +1784,9 @@ def test_create_multi_value_json():
     for algo in VECSIM_ALGOS:
         for path in multi_paths:
             conn.flushall()
-            #TODO: enable when SVS-VAMANA supports multi value
-            if algo == 'SVS-VAMANA':
-                env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
-                           '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).error().contains('Multi-value index is currently not supported for SVS-VAMANA algorithm')
-            else:
-                env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
-                           '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
-                env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 1, message=f'{algo}, {path}')
+            env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
+                       '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
+            env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 1, message=f'{algo}, {path}')
 
         for path in single_paths:
             conn.flushall()
@@ -1813,9 +1804,14 @@ def test_index_multi_value_json():
 
     for data_t in VECSIM_DATA_TYPES:
         conn.flushall()
-        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-            '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-            '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+        args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+                '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+                '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
+        if data_t in ('FLOAT32', 'FLOAT16'):
+            args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
+
+        env.expect(*args).ok()
 
         for i in range(0, n, 2):
             # Test setting vectors with python list
@@ -1869,6 +1865,15 @@ def test_index_multi_value_json():
             flat_res = conn.execute_command(*cmd_range)
             env.assertEqual(sortedResults(flat_res), expected_res_range)
 
+            if data_t in ('FLOAT32', 'FLOAT16'):
+                cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
+                svs_res = conn.execute_command(*cmd_knn)[1:]
+                env.assertEqual(svs_res, expected_res_knn)
+
+                cmd_range[2] = f'@svs:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+                svs_res = conn.execute_command(*cmd_range)
+                env.assertEqual(sortedResults(svs_res), expected_res_range)
+
 @skip(no_json=True)
 def test_bad_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1879,7 +1884,8 @@ def test_bad_index_multi_value_json():
     failures = 0
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-               '$.vecs', 'AS', 'vecs', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+               '$.vecs', 'AS', 'vecs_hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+               '$.vecs', 'AS', 'vecs_svs', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
     # By default, we assume that a static path leads to a single value, so we can't index an array of vectors as multi-value
     conn.json().set(46, '.', {'vecs': [[0.46] * dim] * per_doc})
@@ -1894,7 +1900,8 @@ def test_bad_index_multi_value_json():
     conn.flushall()
     failures = 0
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-               '$.vecs[*]', 'AS', 'vecs', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+               '$.vecs[*]', 'AS', 'vecs_hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+               '$.vecs[*]', 'AS', 'vecs_svs', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
     # dynamic path returns a non array type
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), 'not a vector']})
@@ -1904,7 +1911,7 @@ def test_bad_index_multi_value_json():
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
     env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
-    env.assertEqual(index_info(env, 'idx')['num_records'], 2)
+    env.assertEqual(index_info(env, 'idx')['num_records'], 4)
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
@@ -2114,7 +2121,7 @@ def test_range_query_complex_queries():
         env.assertEqual(con.execute_command('HSET', str(index_size), 't', 'unique'), 0)
 
         radius = dim * 10**2
-        expected_res = [11, str(index_size), '8' if env.isCluster() and env.shardsCount > 1 else '9']  # Todo: fix this inconsistency
+        expected_res = [11, str(index_size), '16' if env.isCluster() and env.shardsCount > 1 else '18']  # Todo: fix this inconsistency
         for i in range(index_size-10, index_size, 5):
             expected_res.extend([str(i), '2'])
         for i in sorted(set(range(index_size-10, index_size))-set(range(index_size-10, index_size+1, 5))):
@@ -2525,6 +2532,9 @@ def test_svs_vamana_info_with_compression():
         except (IOError, FileNotFoundError):
             return False
 
+    def is_alpine():
+        return distro.name().lower() == 'alpine linux'
+
     # Create SVS VAMANA index with all compression flavors (except for global SQ8).
     for compression_type in ['NO_COMPRESSION', 'LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']:
         cmd_params = ['TYPE', data_type,
@@ -2535,7 +2545,8 @@ def test_svs_vamana_info_with_compression():
 
         # Validate that ft.info returns the default params for SVS VAMANA, along with compression
         # compression in runtime is LVQ8 if we are running on intel machine and GlobalSQ otherwise.
-        compression_runtime = compression_type if is_intel_cpu() or compression_type == 'NO_COMPRESSION' else 'GlobalSQ8'
+        is_intel_opt_supported = is_intel_cpu() and not is_alpine()
+        compression_runtime = compression_type if (is_intel_opt_supported and BUILD_INTEL_SVS_OPT) or compression_type == 'NO_COMPRESSION' else 'GlobalSQ8'
         expected_info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
                           'data_type', 'FLOAT32', 'dim', 16, 'distance_metric', 'L2', 'graph_max_degree', 32,
                           'construction_window_size', 200, 'compression', compression_runtime]]

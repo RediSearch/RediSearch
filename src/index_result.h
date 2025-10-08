@@ -24,13 +24,14 @@ extern "C" {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
-static inline void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child) {
-  if (child->metrics) {
-    // Passing ownership over the RSValues in the child metrics, but not on the array itself
-    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
-    array_clear(child->metrics);
-  }
-}
+/* Add the metrics of a child to a parent. */
+void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child);
+
+/* Free the metrics */
+void ResultMetrics_Free(RSYieldableMetric *metrics);
+
+/* Make a complete clone of the metrics array and increment the reference count of each value  */
+RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src);
 
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
@@ -38,79 +39,27 @@ static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue 
 }
 
 static inline void ResultMetrics_Reset(RSIndexResult *r) {
-  array_foreach(r->metrics, adtnl, RSValue_Decref(adtnl.value));
+  array_foreach(r->metrics, adtnl, RSValue_DecrRef(adtnl.value));
   array_clear(r->metrics);
-}
-
-static inline void ResultMetrics_Free(RSIndexResult *r) {
-  array_free_ex(r->metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
-  r->metrics = NULL;
-}
-
-/* Prepare an Index Result to be reused. Add here any relevant cleanup function */
-static inline void IndexResult_Clear(RSIndexResult *r) {
-  ResultMetrics_Free(r);
 }
 
 /* Reset the aggregate result's child vector */
 static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
 
   r->docId = 0;
-  AggregateResult_Reset(&r->data.agg);
-  IndexResult_Clear(r);
+  r->freq = 0;
+  r->fieldMask = 0;
+  IndexResult_AggregateReset(r);
+  ResultMetrics_Free(r->metrics);
+  r->metrics = NULL;
 }
-/* Allocate a new intersection result with a given capacity*/
-RSIndexResult *NewIntersectResult(size_t cap, double weight);
-
-/* Allocate a new union result with a given capacity*/
-RSIndexResult *NewUnionResult(size_t cap, double weight);
-
-RSIndexResult *NewVirtualResult(double weight, t_fieldMask fieldMask);
-
-RSIndexResult *NewNumericResult();
-
-RSIndexResult *NewMetricResult();
-
-RSIndexResult *NewHybridResult();
-
-/* Allocate a new token record result for a given term */
-RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
-
-/* Append a child to an aggregate result */
-static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
-
-  RSAggregateResult *agg = &parent->data.agg;
-  size_t numChildren = AggregateResult_NumChildren(agg);
-  int capacity = AggregateResult_Capacity(agg);
-
-  /* Increase capacity if needed */
-  if (numChildren >= capacity) {
-    int newCapacity = capacity ? capacity * 2 : 1;
-    agg->childrenCap = newCapacity;
-    agg->children = (__typeof__(agg->children))rm_realloc(
-        agg->children, newCapacity * sizeof(RSIndexResult *));
-  }
-  agg->children[agg->numChildren++] = child;
-  // update the parent's type mask
-  agg->typeMask |= child->type;
-  parent->freq += child->freq;
-  parent->docId = child->docId;
-  parent->fieldMask |= child->fieldMask;
-  ResultMetrics_Concat(parent, child);
-}
-/* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
- * caution */
-RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);
-
-/* Free an index result's internal allocations, does not free the result itself */
-void IndexResult_Free(RSIndexResult *r);
 
 /* Get the minimal delta between the terms in the result */
 int IndexResult_MinOffsetDelta(const RSIndexResult *r);
 
 /* Fill an array of max capacity cap with all the matching text terms for the result. The number of
  * matching terms is returned */
-size_t IndexResult_GetMatchedTerms(RSIndexResult *r, RSQueryTerm **arr, size_t cap);
+size_t IndexResult_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm **arr, size_t cap);
 
 /* Return 1 if the the result is within a given slop range, inOrder determines whether the tokens
  * need to be ordered as in the query or not */

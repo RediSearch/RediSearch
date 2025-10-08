@@ -13,7 +13,7 @@
 #include "src/iterators/empty_iterator.h"
 #include "src/iterators/wildcard_iterator.h"
 #include "src/iterators/inverted_index_iterator.h"
-#include "src/inverted_index/inverted_index.h"
+#include "inverted_index.h"
 
 class UnionIteratorCommonTest : public ::testing::TestWithParam<std::tuple<unsigned, bool, std::vector<t_docId>>> {
 protected:
@@ -45,7 +45,7 @@ protected:
       children[i] = (QueryIterator *) new MockIterator(docIds[i]);
     }
     // Create a union iterator
-    ui_base = IT_V2(NewUnionIterator)(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+    ui_base = NewUnionIterator(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   }
   void TearDown() override {
     ui_base->Free(ui_base);
@@ -169,7 +169,7 @@ protected:
       children[i] = (QueryIterator *) it;
     }
     // Create a union iterator
-    ui_base = IT_V2(NewUnionIterator)(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+    ui_base = NewUnionIterator(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   }
   void TearDown() override {
     ui_base->Free(ui_base);
@@ -253,7 +253,7 @@ TEST_F(UnionIteratorSingleTest, ReuseResults) {
   // Create a union iterator
   IteratorsConfig config = RSGlobalConfig.iteratorsConfigParams;
   config.minUnionIterHeap = INT64_MAX; // Ensure we don't use the heap
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 2, true, 1.0, QN_UNION, NULL, &config);
+  QueryIterator *ui_base = NewUnionIterator(children, 2, true, 1.0, QN_UNION, NULL, &config);
   ASSERT_EQ(ui_base->NumEstimated(ui_base), it1->docIds.size() + it2->docIds.size());
 
   ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
@@ -288,9 +288,9 @@ TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildren) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = nullptr;
   children[1] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  children[2] = IT_V2(NewEmptyIterator)();
+  children[2] = NewEmptyIterator();
   children[3] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  QueryIterator *ui_base = NewUnionIterator(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   ASSERT_EQ(ui_base->type, UNION_ITERATOR);
   UnionIterator *ui = (UnionIterator *)ui_base;
   ASSERT_EQ(ui->num, 2);
@@ -300,10 +300,10 @@ TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildren) {
 TEST_F(UnionIteratorReducerTest, TestUnionRemovesAllEmptyChildren) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = nullptr;
-  children[1] = IT_V2(NewEmptyIterator)();
-  children[2] = IT_V2(NewEmptyIterator)();
+  children[1] = NewEmptyIterator();
+  children[2] = NewEmptyIterator();
   children[3] = nullptr;
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  QueryIterator *ui_base = NewUnionIterator(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   ASSERT_EQ(ui_base->type, EMPTY_ITERATOR);
   ui_base->Free(ui_base);
 }
@@ -312,10 +312,10 @@ TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildrenOnlyOneLeft) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = nullptr;
   children[1] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  children[2] = IT_V2(NewEmptyIterator)();
+  children[2] = NewEmptyIterator();
   children[3] = nullptr;
   QueryIterator* expected_iter = children[1];
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  QueryIterator *ui_base = NewUnionIterator(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   ASSERT_EQ(ui_base, expected_iter);
   ui_base->Free(ui_base);
 }
@@ -323,10 +323,10 @@ TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildrenOnlyOneLeft) {
 TEST_F(UnionIteratorReducerTest, TestUnionQuickWithWildcard) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  children[1] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
+  children[1] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
   children[2] = nullptr;
-  children[3] = IT_V2(NewEmptyIterator)();
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  children[3] = NewEmptyIterator();
+  QueryIterator *ui_base = NewUnionIterator(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   ASSERT_EQ(ui_base->type, WILDCARD_ITERATOR);
   ui_base->Free(ui_base);
 }
@@ -334,18 +334,17 @@ TEST_F(UnionIteratorReducerTest, TestUnionQuickWithWildcard) {
 TEST_F(UnionIteratorReducerTest, TestUnionQuickWithReaderWildcard) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   size_t memsize;
-  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
   ASSERT_TRUE(idx != nullptr);
-  ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
-  auto encoder = InvertedIndex_GetEncoder(idx->flags);
+  ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,
       .fieldMask = 1,
       .freq = 1,
-      .type = RSResultType::RSResultType_Term,
+      .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
     };
-    InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
+    InvertedIndex_WriteEntryGeneric(idx, &res);
   }
   // Create an iterator that reads only entries with field mask 2
   QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
@@ -354,9 +353,234 @@ TEST_F(UnionIteratorReducerTest, TestUnionQuickWithReaderWildcard) {
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
   children[1] = iterator;
   children[2] = nullptr;
-  children[3] = IT_V2(NewEmptyIterator)();
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-  ASSERT_EQ(ui_base->type, READ_ITERATOR);
+  children[3] = NewEmptyIterator();
+  QueryIterator *ui_base = NewUnionIterator(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  ASSERT_EQ(ui_base->type, INV_IDX_ITERATOR);
   ui_base->Free(ui_base);
   InvertedIndex_Free(idx);
+}
+
+// Test class for Revalidate functionality of Union Iterator
+class UnionIteratorRevalidateTest : public ::testing::Test {
+protected:
+  QueryIterator *ui_base;
+  std::vector<MockIterator*> mockChildren;
+
+  void SetUp() override {
+    // Create 3 mock children with different doc IDs
+    mockChildren.resize(3);
+    auto children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 3);
+
+    // Child 0: docs [10, 30, 50]
+    mockChildren[0] = new MockIterator({10UL, 30UL, 50UL});
+    children[0] = reinterpret_cast<QueryIterator *>(mockChildren[0]);
+
+    // Child 1: docs [20, 40, 50, 60]
+    mockChildren[1] = new MockIterator({20UL, 40UL, 50UL, 60UL});
+    children[1] = reinterpret_cast<QueryIterator *>(mockChildren[1]);
+
+    // Child 2: docs [15, 35, 55]
+    mockChildren[2] = new MockIterator({15UL, 35UL, 55UL});
+    children[2] = reinterpret_cast<QueryIterator *>(mockChildren[2]);
+
+    // Create union iterator (should yield: 10, 15, 20, 30, 35, 40, 50, 55, 60)
+    ui_base = NewUnionIterator(children, 3, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  }
+
+  void TearDown() override {
+    if (ui_base) {
+      ui_base->Free(ui_base);
+    }
+  }
+};
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateOK) {
+  // All children return VALIDATE_OK
+  for (auto& child : mockChildren) {
+    child->SetRevalidateResult(VALIDATE_OK);
+  }
+
+  // Read a few documents first
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 10);
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 15);
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 20);
+
+  // Revalidate should return VALIDATE_OK
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify all children were revalidated
+  for (auto& child : mockChildren) {
+    ASSERT_EQ(child->GetValidationCount(), 1);
+  }
+
+  // Should be able to continue reading
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 30);
+}
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateAborted) {
+  // Union iterator only returns VALIDATE_ABORTED if ALL children are aborted
+  // If only some children are aborted, it removes them and continues
+
+  // Set all children to be aborted
+  mockChildren[0]->SetRevalidateResult(VALIDATE_ABORTED);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_ABORTED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_ABORTED);
+
+  // Read a document first
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+
+  // Revalidate should return VALIDATE_ABORTED since all children are aborted
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_ABORTED);
+}
+
+TEST_F(UnionIteratorRevalidateTest, RevalidatePartiallyAborted) {
+  // When only some children are aborted, Union iterator removes them and continues
+  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_ABORTED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a document first
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  t_docId docIdBeforeRevalidate = ui_base->lastDocId;
+  ASSERT_EQ(docIdBeforeRevalidate, 10);
+
+  // Revalidate should return VALIDATE_OK or VALIDATE_MOVED (not ABORTED)
+  // since not all children are aborted
+  ASSERT_EQ(mockChildren[0]->base.lastDocId, ui_base->lastDocId); // Child with a matching doc ID is OK
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Should be able to continue reading after removing aborted child
+  IteratorStatus read_status = ui_base->Read(ui_base);
+  ASSERT_EQ(read_status, ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 15); // Should read the next valid doc ID
+}
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateMoved) {
+  // All children return VALIDATE_MOVED - each will advance by one document
+  mockChildren[0]->SetRevalidateResult(VALIDATE_MOVED);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_MOVED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 10);
+
+  // Revalidate should return VALIDATE_MOVED
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_EQ(ui_base->lastDocId, 30); // Last doc ID should have moved forward (to the minimum of the second result of each child)
+
+  // Edge case: child returns VALIDATE_OK due to EOF, its current result is invalid
+  ASSERT_EQ(ui_base->SkipTo(ui_base, 40), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 40);
+  // Revalidate should still return VALIDATE_MOVED since we moved to a valid result
+  status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_EQ(ui_base->lastDocId, 50); // Should have moved to the next valid result
+  ASSERT_FALSE(ui_base->atEOF); // Still not at EOF
+}
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateChildAtEOFBeforeValidation) {
+  // Scenario 1: A child is at EOF before the revalidation
+
+  // Read all documents from child 0 first to bring it to EOF
+  while (mockChildren[0]->base.Read(&mockChildren[0]->base) == ITERATOR_OK) {
+    // Continue reading until EOF
+  }
+  ASSERT_TRUE(mockChildren[0]->base.atEOF);
+
+  // Set revalidate results: child 0 (at EOF) returns OK, others return OK
+  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Position union iterator at first document
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 15); // Should be 15 since child 0 is at EOF
+
+  // Revalidate should return VALIDATE_OK since no changes occurred
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify union iterator continues to work correctly with remaining children
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 20);
+}
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateChildMovesToEOFDuringValidation) {
+  // Scenario 2: A child moves to EOF due to the validation
+
+  // Position union iterator and children properly
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 10);
+
+  // Simulate child 0 moving to EOF during validation
+  // We'll manually set it to EOF and configure VALIDATE_MOVED
+  mockChildren[0]->base.atEOF = true;
+  mockChildren[0]->nextIndex = mockChildren[0]->docIds.size(); // Set to end
+  mockChildren[0]->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Other children remain valid
+  mockChildren[1]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Revalidate should return VALIDATE_MOVED since one child moved and affected the union state
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // The union should now show the next minimum docId from remaining active children
+  // Since child 0 is at EOF, minimum should be from children 1 and 2
+  ASSERT_EQ(ui_base->lastDocId, 15); // Next available doc from remaining children
+
+  // Verify union iterator continues to work correctly
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 20);
+}
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateAllChildrenAtEOFAfterValidation) {
+  // Scenario 3: All children are at EOF after the validation
+
+  // First, advance union iterator near the end
+  IteratorStatus rc;
+  t_docId lastValidDocId = 0;
+  while ((rc = ui_base->Read(ui_base)) == ITERATOR_OK) {
+    lastValidDocId = ui_base->lastDocId;
+  }
+  ASSERT_EQ(rc, ITERATOR_EOF);
+  ASSERT_TRUE(ui_base->atEOF);
+  ASSERT_EQ(lastValidDocId, 60); // Should be the last document
+
+  // Manually reset EOF state to test the scenario where children move to EOF during validation
+  ui_base->atEOF = false;
+  ui_base->lastDocId = lastValidDocId;
+
+  // Set all children to EOF during validation
+  for (auto& child : mockChildren) {
+    child->base.atEOF = true;
+    child->nextIndex = child->docIds.size(); // Set to end
+    child->SetRevalidateResult(VALIDATE_MOVED);
+  }
+
+  // When all children are at EOF after validation, the union iterator's lastDocId won't change
+  // because there are no active children to provide a new minimum docId.
+  // Therefore, it should return VALIDATE_OK (not VALIDATE_MOVED) since the lastDocId is unchanged.
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Union iterator should now be at EOF since all children are at EOF
+  ASSERT_TRUE(ui_base->atEOF);
+
+  // The lastDocId should remain unchanged at the last valid document
+  ASSERT_EQ(ui_base->lastDocId, lastValidDocId);
+
+  // Further reads should return EOF
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF);
+  ASSERT_EQ(ui_base->SkipTo(ui_base, lastValidDocId + 1), ITERATOR_EOF);
 }

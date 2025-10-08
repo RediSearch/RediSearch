@@ -14,11 +14,18 @@
 #include "value.h"
 #include "concurrent_ctx.h"
 #include "search_ctx.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 #include "search_options.h"
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "rs_wall_clock.h"
+#include "util/references.h"
+#include "hybrid/hybrid_scoring.h"
+#include "hybrid/hybrid_lookup_context.h"
+#include "vector_normalization.h"
+#include "result_processor_rs.h"
+#include "search_result.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,29 +67,30 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
-  RP_TIMEOUT, // DEBUG ONLY
-  RP_CRASH, // DEBUG ONLY
-  RP_MAX,
+  RP_VECTOR_NORMALIZER,
+  RP_HYBRID_MERGER,
+  RP_DEPLETER,
+  RP_MAX, // Marks the last non-debug RP type
+  // Debug only result processors
+  RP_TIMEOUT,
+  RP_CRASH,
+  RP_PAUSE,
 } ResultProcessorType;
 
 struct ResultProcessor;
 struct RLookup;
 
-typedef struct {
+// Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
+/// <div rustbindgen hide></div>
+typedef struct QueryProcessingCtx {
   // First processor
   struct ResultProcessor *rootProc;
 
   // Last processor
   struct ResultProcessor *endProc;
 
-  // Concurrent search context for thread switching
-  ConcurrentSearchCtx *conc;
-
-  // Contains our spec
-  RedisSearchCtx *sctx;
-
-  struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  struct timespec GILTime;  //milliseconds
+  rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
+  rs_wall_clock_ns_t GILTime;  //Time accumulated in nanoseconds
 
   // the minimal score applicable for a result. It can be used to optimize the
   // scorers
@@ -104,39 +112,11 @@ typedef struct {
 
   bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
-} QueryIterator, QueryProcessingCtx;
+} QueryProcessingCtx;
 
-IndexIterator *QITR_GetRootFilter(QueryIterator *it);
-void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
-void QITR_FreeChain(QueryIterator *qitr);
-
-/*
- * SearchResult - the object all the processing chain is working on.
- * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
- * and a list of fields loaded by the chain
- */
-typedef struct {
-  t_docId docId;
-
-  // not all results have score - TBD
-  double score;
-  RSScoreExplain *scoreExplain;
-
-  const RSDocumentMetadata *dmd;
-
-  // index result should cover what you need for highlighting,
-  // but we will add a method to duplicate index results to make
-  // them thread safe
-  RSIndexResult *indexResult;
-
-  // Row data. Use RLookup_* functions to access
-  RLookupRow rowdata;
-
-  uint8_t flags;
-} SearchResult;
-
-/* SearchResult flags */
-static const uint8_t Result_ExpiredDoc = 1 << 0;
+QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
+void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
+void QITR_FreeChain(QueryProcessingCtx *qitr);
 
 /* Result processor return codes */
 
@@ -153,6 +133,8 @@ typedef enum {
   // Aborted because of error. The QueryState (parent->status) should have
   // more information.
   RS_RESULT_ERROR,
+  // Depleting process has begun.
+  RS_RESULT_DEPLETING,
   // Not a return code per se, but a marker signifying the end of the 'public'
   // return codes. Implementations can use this for extensions.
   RS_RESULT_MAX
@@ -164,7 +146,7 @@ typedef enum {
  */
 typedef struct ResultProcessor {
   // Reference to the parent structure
-  QueryIterator *parent;
+  QueryProcessingCtx *parent;
 
   // Previous result processor in the chain
   struct ResultProcessor *upstream;
@@ -190,25 +172,7 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-/**
- * This function allocates a new SearchResult, copies the data from `src` to it,
- * and returns it.
-*/
-SearchResult *SearchResult_Copy(SearchResult *r);
-
-/**
- * This function resets the search result, so that it may be reused again.
- * Internal caches are reset but not freed
- */
-void SearchResult_Clear(SearchResult *r);
-
-/**
- * This function clears the search result, also freeing its internals. Internal
- * caches are freed. Use this function if `r` will not be used again.
- */
-void SearchResult_Destroy(SearchResult *r);
-
-ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr, RedisSearchCtx *sctx);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -250,13 +214,13 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  *******************************************************************************************************************/
 struct AREQ;
-ResultProcessor *RPLoader_New(struct AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad);
+ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags);
 
-void SetLoadersForBG(struct AREQ *r);
-void SetLoadersForMainThread(struct AREQ *r);
+void SetLoadersForBG(QueryProcessingCtx *qctx);
+void SetLoadersForMainThread(QueryProcessingCtx *qctx);
 
 /** Creates a new Highlight processor */
-ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
+ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
                                    const RLookup *lookup);
 
 /*******************************************************************************************************************
@@ -265,32 +229,113 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
  * This processor collects time and count info about the performance of its upstream RP.
  *
  *******************************************************************************************************************/
-ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
 
+rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
+uint64_t RPProfile_GetCount(ResultProcessor *rp);
+void RPProfile_IncrementCount(ResultProcessor *rp);
+
+void Profile_AddRPs(QueryProcessingCtx *qctx);
 
 /*******************************************************************************************************************
- *  Counter Processor
+ *  Normalizer Result Processor
  *
- * This processor counts the search results.
- *
+ * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
+ * First accumulates all results from the upstream, then normalizes and yields them.
  *******************************************************************************************************************/
-ResultProcessor *RPCounter_New();
+ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
-uint64_t RPProfile_GetCount(ResultProcessor *rp);
+/*******************************************************************************************************************
+ *  Vector Normalizer Result Processor
+ *
+ * Normalizes vector distance scores using a provided normalization function.
+ * Processes results immediately without accumulation.
+ * The normalization function is provided by pipeline construction logic.
+ *******************************************************************************************************************/
+ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *scoreKey);
 
-void Profile_AddRPs(QueryIterator *qiter);
+/*******************************************************************************
+* Depleter Result Processor
+*
+*  The RPDepleter result processor offloads the task of consuming all results from
+*  its upstream processor into a background thread, storing them in an internal
+*  array. While the background thread is running, calls to Next() wait on a shared
+*  condition variable and return RS_RESULT_DEPLETING. The thread can be awakened
+*  either by its own depleting thread completing or by another RPDepleter's thread
+*  signaling completion. Once depleting is complete for this processor, Next()
+*  yields results one by one from the internal array, and finally returns the last
+*  return code from the upstream.
+*/
+
+/**
+* Constructs a new RPDepleter processor that offloads result consumption to a background thread.
+* The returned processor takes ownership of result depleting and yielding.
+* @param sync_ref Reference to shared synchronization object for coordinating multiple depleters
+* @param depletingThreadCtx Search context for the upstream processor being wrapped
+* @param nextThreadCtx Search context for the downstream processor that will receive results
+*/
+ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
+
+/**
+* Starts the depletion for all the depleters in the array, waits until all finished depleting, and returns.
+* @param depleters Array of depleter processors
+* @param count Number of depleter processors in the array
+* @return RS_RESULT_OK if all depleters completed successfully, otherwise an error code
+*/
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
+
+/**
+* Creates a new shared synchronization object for coordinating multiple RPDepleter processors.
+* This is used during pipeline construction to create sync objects that allow multiple
+* depleters to coordinate their background threads and wake each other when depleting completes.
+* @param num_depleters Number of RPDepleter processors that will share this sync object
+* @param take_index_lock Whether the depleters should participate in index locking coordination
+*/
+StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
+
+/*******************************************************************************************************************
+ *  Hybrid Merger Result Processor
+ *
+ * Merges results from multiple upstream processors using a hybrid scoring function.
+ * Takes results from all upstreams and applies the provided function to combine their scores.
+ *******************************************************************************************************************/
+/*
+ * Creates a new Hybrid Merger processor.
+ * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
+ * @param scoreKey Optional key for writing scores as fields when no LOAD step is provided
+ */
+ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
+                                    ResultProcessor **upstreams,
+                                    size_t numUpstreams,
+                                    const RLookupKey *docKey,
+                                    const RLookupKey *scoreKey,
+                                    RPStatus *subqueriesReturnCodes,
+                                    HybridLookupContext *lookupCtx);
+
+/*
+ * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.
+ */
+const RLookupKey *RPHybridMerger_GetScoreKey(ResultProcessor *rp);
 
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
+
+// Return RPType for string
+ResultProcessorType StringToRPType(const char *str);
+
+
+/*******************************************************************************************************************
+ *  Debug only result processors
+ *
+ * *******************************************************************************************************************/
 
 /*******************************************************************************************************************
  *  Timeout Processor - DEBUG ONLY
  *
  * returns timeout after N results, N >= 0.
  *******************************************************************************************************************/
-ResultProcessor *RPTimeoutAfterCount_New(size_t count);
-void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx);
+void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count);
 
 /*******************************************************************************************************************
  *  Crash Processor - DEBUG ONLY
@@ -300,13 +345,15 @@ void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
 ResultProcessor *RPCrash_New();
 void PipelineAddCrash(struct AREQ *r);
 
- /*******************************************************************************************************************
-  *  Normalizer Result Processor
-  *
-  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
-  * First accumulates all results from the upstream, then normalizes and yields them.
-  *******************************************************************************************************************/
- ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+/*******************************************************************************************************************
+ *  Pause Processor - DEBUG ONLY
+ *
+ * Pauses the query after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPPauseAfterCount_New(size_t count);
+
+// Adds a pause processor after N results, before/after a specific RP type
+bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status);
 
 #ifdef __cplusplus
 }

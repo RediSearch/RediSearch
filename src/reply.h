@@ -10,6 +10,7 @@
 
 #include "util/arr.h"
 #include "redismodule.h"
+#include "value.h"
 
 #ifndef __cplusplus
 #include <stdbool.h>
@@ -38,9 +39,15 @@ typedef struct RedisModule_Reply {
 #endif
 } RedisModule_Reply;
 
+typedef enum {
+  SENDREPLY_FLAG_TYPED = 0x01,
+  SENDREPLY_FLAG_EXPAND = 0x02,
+} SendReplyFlags;
+
+
 //---------------------------------------------------------------------------------------------
 
-bool RedisModule_HasMap(RedisModule_Reply *reply);
+bool RedisModule_IsRESP3(RedisModule_Reply *reply);
 int RedisModule_Reply_LocalCount(RedisModule_Reply *reply);
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx);
@@ -65,6 +72,8 @@ int RedisModule_Reply_Set(RedisModule_Reply *reply);
 int RedisModule_Reply_SetEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply);
 int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply);
+/* Based on the value type, serialize the value into redis client response */
+int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);;
 
 int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long long val);
 int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double val);

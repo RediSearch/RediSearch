@@ -179,12 +179,7 @@ def test_issue1880(env):
   env.assertEqual(res2[1][1][0][3], excepted_res)
 
   # test with a term which does not exist
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 0, 'Child iterators', [
-                  None,
-                  ['Type', 'TEXT', 'Term', 'world', 'Counter', 0, 'Size', 1],
-                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0, 'Size', 2]]]
-
-  # excepted_res = ['Type', 'EMPTY', 'Counter', 0] (After Optimization and new iterators are used, it should change to this)
+  excepted_res = ['Type', 'EMPTY', 'Counter', 0]
 
   res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
   env.assertEqual(res3[1][1][0][3], excepted_res)

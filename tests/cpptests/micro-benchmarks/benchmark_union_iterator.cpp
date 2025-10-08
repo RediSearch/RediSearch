@@ -17,12 +17,11 @@
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/union_iterator.h"
 
-#include "deprecated_iterator_util.h"
-#include "src/index.h"
-
+template <bool quickExit>
 class BM_UnionIterator : public benchmark::Fixture {
 public:
     std::vector<std::vector<t_docId>> childrenIds;
+    QueryIterator *ui_base;
     static bool initialized;
 
     void SetUp(::benchmark::State &state) {
@@ -42,6 +41,14 @@ public:
                 id = dist(rng);
             }
         }
+
+        QueryIterator **children = createChildren();
+        ui_base = NewUnionIterator(children, childrenIds.size(), quickExit,
+                                  1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+    }
+
+    void TearDown(::benchmark::State &state) {
+        ui_base->Free(ui_base);
     }
 
     QueryIterator **createChildren() {
@@ -51,51 +58,32 @@ public:
         }
         return children;
     }
-    IndexIterator **createChildrenOld() {
-        IndexIterator **children = (IndexIterator **)rm_malloc(sizeof(IndexIterator *) * childrenIds.size());
-        for (size_t i = 0; i < childrenIds.size(); i++) {
-            children[i] = (IndexIterator *)new MockOldIterator(childrenIds[i]);
-        }
-        return children;
-    }
 };
-bool BM_UnionIterator::initialized = false;
+template <bool quickExit>
+bool BM_UnionIterator<quickExit>::initialized = false;
 // Translation - exponential range from 2 to 20 (double each time), then 25, 50, 75, and 100.
 // This is the number of child iterators in each scenario
 #define UNION_SCENARIOS() RangeMultiplier(2)->Range(2, 20)->DenseRange(25, 100, 25)
 
-BENCHMARK_DEFINE_F(BM_UnionIterator, ReadFull)(benchmark::State &state) {
-    QueryIterator **children = createChildren();
-    QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, childrenIds.size(), false,
-                                                    1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_UnionIterator, ReadFull, false)(benchmark::State &state) {
     for (auto _ : state) {
         IteratorStatus rc = ui_base->Read(ui_base);
         if (rc == ITERATOR_EOF) {
             ui_base->Rewind(ui_base);
         }
     }
-
-    ui_base->Free(ui_base);
 }
 
-BENCHMARK_DEFINE_F(BM_UnionIterator, ReadQuick)(benchmark::State &state) {
-    QueryIterator **children = createChildren();
-    QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, childrenIds.size(), true,
-                                                    1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_UnionIterator, ReadQuick, true)(benchmark::State &state) {
     for (auto _ : state) {
         IteratorStatus rc = ui_base->Read(ui_base);
         if (rc == ITERATOR_EOF) {
             ui_base->Rewind(ui_base);
         }
     }
-
-    ui_base->Free(ui_base);
 }
 
-BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToFull)(benchmark::State &state) {
-    QueryIterator **children = createChildren();
-    QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, childrenIds.size(), false,
-                                                    1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_UnionIterator, SkipToFull, false)(benchmark::State &state) {
     t_offset step = 10;
     for (auto _ : state) {
         IteratorStatus rc = ui_base->SkipTo(ui_base, ui_base->lastDocId + step);
@@ -103,14 +91,9 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToFull)(benchmark::State &state) {
             ui_base->Rewind(ui_base);
         }
     }
-
-    ui_base->Free(ui_base);
 }
 
-BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToQuick)(benchmark::State &state) {
-    QueryIterator **children = createChildren();
-    QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, childrenIds.size(), true,
-                                                    1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_UnionIterator, SkipToQuick, true)(benchmark::State &state) {
     t_offset step = 10;
     for (auto _ : state) {
         IteratorStatus rc = ui_base->SkipTo(ui_base, ui_base->lastDocId + step);
@@ -118,88 +101,11 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToQuick)(benchmark::State &state) {
             ui_base->Rewind(ui_base);
         }
     }
-
-    ui_base->Free(ui_base);
 }
 
 BENCHMARK_REGISTER_F(BM_UnionIterator, ReadFull)->UNION_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_UnionIterator, ReadQuick)->UNION_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_UnionIterator, SkipToFull)->UNION_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_UnionIterator, SkipToQuick)->UNION_SCENARIOS();
-
-BENCHMARK_DEFINE_F(BM_UnionIterator, ReadFull_old)(benchmark::State &state) {
-    IndexIterator **children = createChildrenOld();
-    IndexIterator *ui_base = NewUnionIterator(children, childrenIds.size(), false,
-                                                1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-    RSIndexResult *hit;
-    for (auto _ : state) {
-        int rc = ui_base->Read(ui_base->ctx, &hit);
-        if (rc == INDEXREAD_EOF) {
-            ui_base->Rewind(ui_base->ctx);
-        }
-    }
-
-    ui_base->Free(ui_base);
-}
-
-BENCHMARK_DEFINE_F(BM_UnionIterator, ReadQuick_old)(benchmark::State &state) {
-    IndexIterator **children = createChildrenOld();
-    IndexIterator *ui_base = NewUnionIterator(children, childrenIds.size(), true,
-                                                1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-    RSIndexResult *hit;
-    for (auto _ : state) {
-        int rc = ui_base->Read(ui_base->ctx, &hit);
-        if (rc == INDEXREAD_EOF) {
-            ui_base->Rewind(ui_base->ctx);
-        }
-    }
-
-    ui_base->Free(ui_base);
-}
-
-BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToFull_old)(benchmark::State &state) {
-    IndexIterator **children = createChildrenOld();
-    IndexIterator *ui_base = NewUnionIterator(children, childrenIds.size(), false,
-                                                1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-    RSIndexResult *hit = ui_base->current;
-    hit->docId = 0; // Ensure initial docId is set to 0
-    t_offset step = 10;
-    for (auto _ : state) {
-        int rc = ui_base->SkipTo(ui_base->ctx, hit->docId + step, &hit);
-        if (rc == INDEXREAD_EOF) {
-            ui_base->Rewind(ui_base->ctx);
-            // Don't rely on the old iterator's Rewind to reset hit->docId
-            hit = ui_base->current;
-            hit->docId = 0;
-        }
-    }
-
-    ui_base->Free(ui_base);
-}
-
-BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToQuick_old)(benchmark::State &state) {
-    IndexIterator **children = createChildrenOld();
-    IndexIterator *ui_base = NewUnionIterator(children, childrenIds.size(), true,
-                                                1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-    RSIndexResult *hit = ui_base->current;
-    hit->docId = 0; // Ensure initial docId is set to 0
-    t_offset step = 10;
-    for (auto _ : state) {
-        int rc = ui_base->SkipTo(ui_base->ctx, hit->docId + step, &hit);
-        if (rc == INDEXREAD_EOF) {
-            ui_base->Rewind(ui_base->ctx);
-            // Don't rely on the old iterator's Rewind to reset hit->docId
-            hit = ui_base->current;
-            hit->docId = 0;
-        }
-    }
-
-    ui_base->Free(ui_base);
-}
-
-BENCHMARK_REGISTER_F(BM_UnionIterator, ReadFull_old)->UNION_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_UnionIterator, ReadQuick_old)->UNION_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_UnionIterator, SkipToFull_old)->UNION_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_UnionIterator, SkipToQuick_old)->UNION_SCENARIOS();
 
 BENCHMARK_MAIN();

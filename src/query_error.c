@@ -29,6 +29,16 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
                          (int)n, s, ac->offset, name);
 }
 
+void QueryError_CloneFrom(const QueryError *src, QueryError *dest) {
+  if (dest->code != QUERY_OK) {
+    return;
+  }
+  dest->code = src->code;
+  const char *error = src->detail ? src->detail : QueryError_Strerror(src->code);
+  dest->detail = rm_strdup(error);
+  dest->message = src->message;
+}
+
 const char *QueryError_Strerror(QueryErrorCode code) {
   if (code == QUERY_OK) {
     return "Success (not an error)";
@@ -68,6 +78,7 @@ void QueryError_ClearError(QueryError *err) {
     rm_free(err->detail);
     err->detail = NULL;
   }
+  err->message = NULL;
   err->code = QUERY_OK;
 }
 

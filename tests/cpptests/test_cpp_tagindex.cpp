@@ -42,31 +42,33 @@ TEST_F(TagIndexTest, testCreate) {
 
   // Buffer grows up to 1077 bytes trying to store 1000 bytes. See Buffer_Grow()
   size_t buffer_cap = 1077;
-  size_t num_blocks = N / INDEX_BLOCK_SIZE_DOCID_ONLY;
+  size_t num_blocks = N / 1000;
 
   // The size of the inverted index structure is 32 bytes
-  size_t iv_index_size = sizeof_InvertedIndex(Index_DocIdsOnly);
+  size_t iv_index_size = 32;
 
-  size_t expectedTotalSZ = v.size() * (iv_index_size + ((buffer_cap + sizeof(IndexBlock)) * num_blocks));
+  // Each index block is 48 bytes + its buffer capacity
+  size_t expectedTotalSZ = v.size() * (iv_index_size + ((buffer_cap + 48) * num_blocks));
   ASSERT_EQ(expectedTotalSZ, totalSZ);
 
   // Add a new entry to and check the last block size
   std::vector<const char *> v2{"bye"};
   size_t sz = TagIndex_Index(idx, &v2[0], v2.size(), ++d);
-  size_t last_block_size = sizeof_InvertedIndex(Index_DocIdsOnly) +
-                            sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  // A base inverted index is 32 bytes
+  // An index block is 48 bytes
+  // And initial block capacity of 6 bytes
+  size_t last_block_size = 32 + 48 + 6;
   ASSERT_EQ(expectedTotalSZ + last_block_size, totalSZ + sz);
 
-  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(it != NULL);
-  RSIndexResult *r;
   t_docId n = 1;
 
   // TimeSample ts;
   // TimeSampler_Start(&ts);
-  while (INDEXREAD_EOF != it->Read(it->ctx, &r)) {
+  while (ITERATOR_EOF != it->Read(it)) {
     // printf("DocId: %d\n", r->docId);
-    ASSERT_EQ(n++, r->docId);
+    ASSERT_EQ(n++, it->lastDocId);
     // TimeSampler_Tick(&ts);
   }
 
@@ -84,14 +86,13 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;
   TagIndex_Index(idx, &v[0], v.size(), docId);
-  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
-  RSIndexResult *r;
-  int rc = it->Read(it->ctx, &r);
-  ASSERT_EQ(rc, INDEXREAD_OK);
-  rc = it->SkipTo(it->ctx, docId, &r);
-  ASSERT_EQ(rc, INDEXREAD_EOF);
-  ASSERT_GE(r->docId, docId);
-  ASSERT_GE(it->LastDocId(it->ctx), docId);
+  QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  IteratorStatus rc = it->Read(it);
+  ASSERT_EQ(rc, ITERATOR_OK);
+  ASSERT_EQ(it->lastDocId, docId);
+  rc = it->SkipTo(it, docId + 1);
+  ASSERT_EQ(rc, ITERATOR_EOF);
+  ASSERT_GE(it->lastDocId, docId);
   it->Free(it);
   TagIndex_Free(idx);
 }

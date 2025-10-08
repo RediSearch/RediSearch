@@ -223,9 +223,25 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 
 }
 
-int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
+/**
+ * Token processing function for forward index construction.
+ *
+ * This function is called for each token during the tokenization process
+ * when building or updating a forward index. It processes individual tokens
+ * and integrates them into the forward index data structure.
+ *
+ * @param tokCtx    Pointer to the forward index tokenizer context containing
+ *                  state information and configuration for the tokenization process
+ * @param tokInfo   Pointer to the token information structure containing
+ *                  the token text, position, attributes, and other metadata
+ *
+ * @return int      Status code indicating success (0) or error condition:
+ *                  - 0: Token processed successfully
+ *                  - Non-zero: Error occurred during token processing
+ *
+ */
+int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
-  const ForwardIndexTokenizerCtx *tokCtx = ctx;
   int options = TOKOPT_F_RAW;  // this is the actual word given in the query
   if (tokInfo->flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
@@ -233,10 +249,6 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   }
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, options);
-
-  if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
-    VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
-  }
 
   if (tokInfo->stem) {
     int stemopts = TOKOPT_F_STEM;
@@ -269,20 +281,19 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
 }
 
 /** Write a forward-index entry to the index */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
-                                            ForwardIndexEntry *ent) {
-  RSIndexResult rec = {.type = RSResultType_Term,
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent) {
+  RSIndexResult rec = {.data.term_tag = RSResultData_Term,
                        .docId = ent->docId,
-                       .offsetsSz = VVW_GetByteLength(ent->vw),
                        .freq = ent->freq,
                        .fieldMask = ent->fieldMask};
 
-  rec.data.term.term = NULL;
+  RSQueryTerm *term = IndexResult_QueryTermRef(&rec);
+  term = NULL;
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(&rec);
   if (ent->vw) {
-    rec.data.term.offsets.data = (char *) VVW_GetByteData(ent->vw);
-    rec.data.term.offsets.len = VVW_GetByteLength(ent->vw);
+    RSOffsetVector_SetData(offsets, (char *) VVW_GetByteData(ent->vw), VVW_GetByteLength(ent->vw));
   }
-  return InvertedIndex_WriteEntryGeneric(idx, encoder, ent->docId, &rec);
+  return InvertedIndex_WriteEntryGeneric(idx, &rec);
 }
 
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash) {

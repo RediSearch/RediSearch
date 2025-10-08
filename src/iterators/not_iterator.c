@@ -226,6 +226,68 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
   return rc;
 }
 
+// Revalidate for NOT iterator - Non-optimized version.
+static ValidateStatus NI_Revalidate_NotOptimized(QueryIterator *base) {
+  NotIterator *ni = (NotIterator *)base;
+
+  // 1. Revalidate the child iterator
+  ValidateStatus child_status = ni->child->Revalidate(ni->child);
+
+  // 2. Handle child validation results
+  if (child_status == VALIDATE_ABORTED) {
+    // Free child and replace with empty iterator
+    // When child is aborted, NOT iterator becomes "NOT nothing" = everything
+    ni->child->Free(ni->child);
+    ni->child = NewEmptyIterator();
+    // Continue processing - this doesn't invalidate our current position
+  }
+
+  // Now the child is either at EOF, OK or MOVED.
+  // if the child is at EOF or OK, we can return VALIDATE_OK.
+  // if the child is MOVED, it must have advanced beyond the iterator's lastDocId, so the current result is still valid in this case.
+  RS_LOG_ASSERT(child_status != VALIDATE_MOVED || ni->child->atEOF || ni->child->lastDocId > base->lastDocId, "Moved but still not beyond lastDocId");
+  return VALIDATE_OK;
+}
+
+// Revalidate for NOT iterator - Optimized version.
+static ValidateStatus NI_Revalidate_Optimized(QueryIterator *base) {
+  NotIterator *ni = (NotIterator *)base;
+
+  // 1. Revalidate the wildcard iterator first
+  ValidateStatus wcii_status = ni->wcii->Revalidate(ni->wcii);
+  if (wcii_status == VALIDATE_ABORTED) {
+    return VALIDATE_ABORTED; // If wildcard iterator is aborted, we must abort too
+  }
+
+  // 2. Revalidate the child iterator
+  ValidateStatus child_status = ni->child->Revalidate(ni->child);
+  if (child_status == VALIDATE_ABORTED) {
+    // Free child and replace with empty iterator
+    // When child is aborted, NOT iterator becomes "NOT nothing" = everything
+    ni->child->Free(ni->child);
+    ni->child = NewEmptyIterator();
+  }
+
+  // 3. If the wildcard iterator has moved, we need to sync the state
+  if (wcii_status == VALIDATE_MOVED) {
+    // Wildcard iterator moved - first sync state
+    base->atEOF = ni->wcii->atEOF;
+    if (!base->atEOF) {
+      base->lastDocId = base->current->docId = ni->wcii->lastDocId;
+      // If child is behind the last ID - need to skip to the lastDocId
+      if (ni->child->lastDocId < base->lastDocId) {
+        ni->child->SkipTo(ni->child, base->lastDocId);
+      }
+      if (ni->child->lastDocId == base->lastDocId) {
+        // Child is at the same position - this is not a valid result.
+        // We need to read the next valid position
+        NI_Read_Optimized(base);
+      }
+    }
+  }
+  return wcii_status;
+}
+
 /*
  * Reduce the not iterator by applying these rules:
  * 1. If the child is an empty iterator or NULL, return a wildcard iterator
@@ -236,9 +298,10 @@ static QueryIterator* NotIteratorReducer(QueryIterator *it, t_docId maxDocId, do
   RS_ASSERT(q);
   QueryIterator *ret = NULL;
   if (!it || it->type == EMPTY_ITERATOR) {
-    ret = IT_V2(NewWildcardIterator)(q, weight);
+    ret = NewWildcardIterator(q, weight);
+    if (ret->current) ret->current->freq = 0;
   } else if (IsWildcardIterator(it)) {
-    ret = IT_V2(NewEmptyIterator)();
+    ret = NewEmptyIterator();
   }
   if (ret != NULL) {
     if (it) {
@@ -248,7 +311,7 @@ static QueryIterator* NotIteratorReducer(QueryIterator *it, t_docId maxDocId, do
   return ret;
 }
 
-QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double weight, struct timespec timeout, QueryEvalCtx *q) {
+QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight, struct timespec timeout, QueryEvalCtx *q) {
   QueryIterator *ret = NotIteratorReducer(it, maxDocId, weight, timeout, q);
   if (ret != NULL) {
     return ret;
@@ -256,15 +319,15 @@ QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double
   NotIterator *ni = rm_calloc(1, sizeof(*ni));
   ret = &ni->base;
   bool optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  optimized |= q && q->sctx && q->sctx->spec && q->sctx->spec->diskSpec;
   if (optimized) {
-    ni->wcii = IT_V2(NewWildcardIterator_Optimized)(q->sctx, weight);
+    ni->wcii = NewWildcardIterator_Optimized(q->sctx, weight);
   }
   ni->child = it;
   ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
   ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
 
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  ret->isAborted = false;
   ret->current->docId = 0;
   ret->atEOF = false;
   ret->type = NOT_ITERATOR;
@@ -274,12 +337,13 @@ QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double
   ret->Read = optimized ? NI_Read_Optimized : NI_Read_NotOptimized;
   ret->SkipTo = optimized ? NI_SkipTo_Optimized : NI_SkipTo_NotOptimized;
   ret->Rewind = NI_Rewind;
+  ret->Revalidate = optimized ? NI_Revalidate_Optimized : NI_Revalidate_NotOptimized;
 
   return ret;
 }
 
 // LCOV_EXCL_START
-QueryIterator *IT_V2(_New_NotIterator_With_WildCardIterator)(QueryIterator *child, QueryIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout) {
+QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, QueryIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout) {
   NotIterator *ni = rm_calloc(1, sizeof(*ni));
   QueryIterator *ret = &ni->base;
   ni->child = child;
@@ -297,6 +361,7 @@ QueryIterator *IT_V2(_New_NotIterator_With_WildCardIterator)(QueryIterator *chil
   ret->Read = NI_Read_Optimized;
   ret->SkipTo = NI_SkipTo_Optimized;
   ret->Rewind = NI_Rewind;
+  ret->Revalidate = NI_Revalidate_Optimized;
 
   return ret;
 }

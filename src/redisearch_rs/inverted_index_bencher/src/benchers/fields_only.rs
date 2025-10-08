@@ -67,10 +67,7 @@ impl Bencher {
             .into_iter()
             .cartesian_product(field_masks_values)
             .map(|(delta, field_mask)| {
-                let record = RSIndexResult::term()
-                    .doc_id(100)
-                    .field_mask(field_mask)
-                    .frequency(1);
+                let record = RSIndexResult::term().doc_id(100).field_mask(field_mask);
 
                 let mut buffer = Cursor::new(Vec::new());
                 let _grew_size = if wide {
@@ -133,9 +130,7 @@ impl Bencher {
                 || TestBuffer::with_capacity(buffer_size),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let mut record = RSIndexResult::term()
-                            .field_mask(test.field_mask)
-                            .frequency(1);
+                        let mut record = RSIndexResult::term().field_mask(test.field_mask);
 
                         let grew_size = encode_fields_only(
                             &mut buffer,
@@ -163,8 +158,7 @@ impl Bencher {
                     for test in &self.test_values {
                         let record = RSIndexResult::term()
                             .doc_id(100)
-                            .field_mask(test.field_mask)
-                            .frequency(1);
+                            .field_mask(test.field_mask);
 
                         let grew_size = if self.wide {
                             FieldsOnlyWide::default()
@@ -207,14 +201,17 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || Cursor::new(&test.encoded),
+                    || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let result = if self.wide {
-                            FieldsOnlyWide::default().decode(buffer, 100)
+                        if self.wide {
+                            let decoder = FieldsOnlyWide::default();
+                            let result = decoder.decode_new(buffer, 100).unwrap();
+                            let _ = black_box(result);
                         } else {
-                            FieldsOnly::default().decode(buffer, 100)
-                        };
-                        let _ = black_box(result);
+                            let decoder = FieldsOnly::default();
+                            let result = decoder.decode_new(buffer, 100).unwrap();
+                            let _ = black_box(result);
+                        }
                     },
                     BatchSize::SmallInput,
                 );

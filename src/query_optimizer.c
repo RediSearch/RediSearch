@@ -8,9 +8,76 @@
 */
 
 #include "query_optimizer.h"
-#include "optimizer_reader.h"
+#include "iterators/optimizer_reader.h"
 #include "numeric_index.h"
 #include "ext/default.h"
+#include "iterators/union_iterator.h"
+#include "iterators/intersection_iterator.h"
+
+/********************* Horrific hacks moved from index.c *********************/
+
+static inline IteratorStatus UI_ReadUnsorted(QueryIterator *ctx) {
+  UnionIterator *ui = (UnionIterator*)ctx;
+
+  IndexResult_ResetAggregate(ui->base.current);
+  while (ui->num > 0) {
+    if (ui->its[ui->num - 1]->Read(ui->its[ui->num - 1]) == ITERATOR_OK) {
+      AggregateResult_AddChild(ui->base.current, ui->its[ui->num - 1]->current);
+      ui->base.lastDocId = ui->base.current->docId;
+      return ITERATOR_OK;
+    }
+    ui->num--;
+  }
+  return ITERATOR_EOF;
+}
+
+void trimUnionIterator(QueryIterator *iter, size_t offset, size_t limit, bool asc) {
+  RS_LOG_ASSERT(iter->type == UNION_ITERATOR, "trim applies to union iterators only");
+  UnionIterator *ui = (UnionIterator *)iter;
+  if (ui->num_orig <= 2) { // nothing to trim
+    return;
+  }
+
+  size_t curTotal = 0;
+  int i;
+  if (offset == 0) {
+    if (asc) {
+      for (i = 1; i < ui->num; ++i) {
+        QueryIterator *it = ui->its_orig[i];
+        curTotal += it->NumEstimated(it);
+        if (curTotal > limit) {
+          ui->num = i + 1;
+          memset(ui->its + ui->num, 0, ui->num_orig - ui->num);
+          break;
+        }
+      }
+    } else {  //desc
+      for (i = ui->num - 2; i > 0; --i) {
+        QueryIterator *it = ui->its_orig[i];
+        curTotal += it->NumEstimated(it);
+        if (curTotal > limit) {
+          ui->num -= i;
+          memmove(ui->its, ui->its + i, ui->num);
+          memset(ui->its + ui->num, 0, ui->num_orig - ui->num);
+          break;
+        }
+      }
+    }
+  } else {
+    UI_SyncIterList(ui);
+  }
+  iter->Read = UI_ReadUnsorted;
+}
+
+void AddIntersectIterator(QueryIterator *parentIter, QueryIterator *childIter) {
+  RS_LOG_ASSERT(parentIter->type == INTERSECT_ITERATOR, "add applies to intersect iterators only");
+  IntersectionIterator *ii = (IntersectionIterator *)parentIter;
+  ii->num_its++;
+  ii->its = rm_realloc(ii->its, ii->num_its);
+  ii->its[ii->num_its - 1] = childIter;
+}
+
+/********************* End of horrific hacks moved from index.c *********************/
 
 QOptimizer *QOptimizer_New() {
   return rm_calloc(1, sizeof(QOptimizer));
@@ -25,11 +92,11 @@ void QOptimizer_Free(QOptimizer *opt) {
 
 void QOptimizer_Parse(AREQ *req) {
   QOptimizer *opt = req->optimizer;
-  opt->sctx = req->sctx;
-  opt->conc = &req->conc;
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  opt->sctx = sctx;
 
   // get FieldSpec of sortby field and results limit
-  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
   if (arng) {
     opt->limit = arng->limit + arng->offset;
     if (IsSearch(req) && !opt->limit) {
@@ -37,7 +104,7 @@ void QOptimizer_Parse(AREQ *req) {
     }
     if (arng->sortKeys) {
       const char *name = arng->sortKeys[0];
-      const FieldSpec *field = IndexSpec_GetFieldWithLength(req->sctx->spec, name, strlen(name));
+      const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
       if (field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
@@ -172,7 +239,7 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
         }
       }
       numSortbyNode->nn.nf->limit = opt->limit;
-      numSortbyNode->nn.nf->asc = opt->asc;
+      numSortbyNode->nn.nf->ascending = opt->asc;
       opt->sortbyNode = numSortbyNode;
       opt->nf = numSortbyNode->nn.nf;
     } else {
@@ -206,22 +273,22 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
 }
 
 // creates an intersect from root and numeric
-static void updateRootIter(AREQ *req, IndexIterator *root, IndexIterator *new) {
+static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
   if (root->type == INTERSECT_ITERATOR) {
     AddIntersectIterator(root, new);
   } else {
-    IndexIterator **its = rm_malloc(2 * sizeof(*its));
+    QueryIterator **its = rm_malloc(2 * sizeof(*its));
     its[0] = req->rootiter;
     its[1] = new;
     // use slop==-1 and inOrder==0 since not applicable
     // use weight 1 since we checked at `checkQueryTypes`
-    req->rootiter = NewIntersectIterator(its, 2, NULL, 0, -1, 0, 1);
+    req->rootiter = NewIntersectionIterator(its, 2, -1, 0, 1);
   }
 }
 
 void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
-  IndexSpec *spec = req->sctx->spec;
-  IndexIterator *root = req->rootiter;
+  IndexSpec *spec = AREQ_SearchCtx(req)->spec;
+  QueryIterator *root = req->rootiter;
 
   switch (opt->type) {
     case Q_OPT_HYBRID:
@@ -253,9 +320,8 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         opt->type = Q_OPT_NONE;
         const FieldSpec *fs = opt->sortbyNode->nn.nf->fieldSpec;
         FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
-        IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
-                                                             &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,
-                                                             &filterCtx);
+        QueryIterator *numericIter = NewNumericFilterIterator(AREQ_SearchCtx(req), opt->sortbyNode->nn.nf, INDEXFLD_T_NUMERIC,
+                                                              &req->ast.config, &filterCtx);
         updateRootIter(req, root, numericIter);
         return;
       }
@@ -267,13 +333,14 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
 }
 
 void QOptimizer_UpdateTotalResults(AREQ *req) {
-    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
     size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
-    req->qiter.totalResults = req->qiter.totalResults > reqOffset ?
-                              req->qiter.totalResults - reqOffset : 0;
-    if(req->qiter.totalResults > reqLimit) {
-      req->qiter.totalResults = reqLimit;
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    qctx->totalResults = qctx->totalResults > reqOffset ?
+                              qctx->totalResults - reqOffset : 0;
+    if(qctx->totalResults > reqLimit) {
+      qctx->totalResults = reqLimit;
     }
 }
 

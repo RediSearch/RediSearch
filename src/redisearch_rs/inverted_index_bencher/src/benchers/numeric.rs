@@ -360,9 +360,10 @@ fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
         |b| {
             for (_, _, buffer) in values {
                 b.iter_batched_ref(
-                    || Cursor::new(buffer),
+                    || Cursor::new(buffer.as_ref()),
                     |buffer| {
-                        let result = Numeric::new().decode(buffer, 100);
+                        let decoder = Numeric::new();
+                        let result = decoder.decode_new(buffer, 100).unwrap();
 
                         let _ = black_box(result);
                     },

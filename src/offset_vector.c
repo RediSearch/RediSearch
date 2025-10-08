@@ -9,6 +9,7 @@
 #include <pthread.h>
 
 #include "redisearch.h"
+#include "types_rs.h"
 #include "varint.h"
 #include "rmalloc.h"
 #include "util/mempool.h"
@@ -70,7 +71,9 @@ RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t)
     pthread_setspecific(__offsetIters, pool);
   }
   _RSOffsetVectorIterator *it = mempool_get(pool);
-  it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(v, &offsets_len);
+  it->buf = (Buffer){.data = (char *) offsets_data, .offset = offsets_len, .cap = offsets_len};
   it->br = NewBufferReader(&it->buf);
   it->lastValue = 0;
   it->term = t;
@@ -124,18 +127,12 @@ static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
     it->terms = rm_calloc(numChildren, sizeof(RSQueryTerm *));
   }
 
-  int i = 0;
-  RSAggregateResultIter *iter = AggregateResult_Iter(agg);
-  RSIndexResult *child = NULL;
+  AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
 
-  while (AggregateResultIter_Next(iter, &child)) {
-    it->iters[i] = RSIndexResult_IterateOffsets(child);
+  for (int i = 0; i < numChildren; i++) {
+    it->iters[i] = RSIndexResult_IterateOffsets(children.ptr[i]);
     it->offsets[i] = it->iters[i].Next(it->iters[i].ctx, &it->terms[i]);
-
-    i++;
   }
-
-  AggregateResultIter_Free(iter);
 
   return (RSOffsetIterator){.Next = _aoi_Next, .Rewind = _aoi_Rewind, .Free = _aoi_Free, .ctx = it};
 }
@@ -155,27 +152,35 @@ RSOffsetIterator _emptyIterator() {
 /* Create the appropriate iterator from a result based on its type */
 RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
 
-  switch (res->type) {
-    case RSResultType_Term:
-      return RSOffsetVector_Iterate(&res->data.term.offsets, res->data.term.term);
+  switch (res->data.tag) {
+    case RSResultData_Term:
+    {
+      const RSOffsetVector *offsets = IndexResult_TermOffsetsRef(res);
+      RSQueryTerm *term = IndexResult_QueryTermRef(res);
+      return RSOffsetVector_Iterate(offsets, term);
+    }
 
     // virtual and numeric entries have no offsets and cannot participate
-    case RSResultType_Virtual:
-    case RSResultType_Numeric:
-    case RSResultType_Metric:
+    case RSResultData_Virtual:
+    case RSResultData_Numeric:
+    case RSResultData_Metric:
       return _emptyIterator();
 
-    case RSResultType_Intersection:
-    case RSResultType_Union:
+    case RSResultData_Intersection:
+    case RSResultData_Union:
     default:
     {
       // if we only have one sub result, just iterate that...
-      size_t numChildren = AggregateResult_NumChildren(&res->data.agg);
+
+      // SAFETY: We checked the tag above, so we can safely assume that res is an aggregate result
+      // and skip the tag check on the next line.
+      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(res);
+      size_t numChildren = AggregateResult_NumChildren(agg);
 
       if (numChildren == 1) {
-        return RSIndexResult_IterateOffsets(AggregateResult_Get(&res->data.agg, 0));
+        return RSIndexResult_IterateOffsets(AggregateResult_GetUnchecked(agg, 0));
       }
-      return _aggregateResult_iterate(&res->data.agg);
+      return _aggregateResult_iterate(agg);
       break;
     }
   }

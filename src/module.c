@@ -16,7 +16,6 @@
 #include "commands.h"
 #include "document.h"
 #include "tag_index.h"
-#include "index.h"
 #include "triemap.h"
 #include "query.h"
 #include "redis_index.h"
@@ -28,6 +27,7 @@
 #include "util/logging.h"
 #include "util/workers.h"
 #include "util/references.h"
+#include "util/mempool.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
@@ -67,6 +67,9 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
+#include "search_disk.h"
+#include "rs_wall_clock.h"
+#include "hybrid/hybrid_exec.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -88,6 +91,8 @@
 extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
+
+redisearch_thpool_t *depleterPool = NULL;
 
 static int DIST_THREADPOOL = -1;
 
@@ -112,10 +117,19 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
     return true;
   }
   RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
+
+  if (!user_name) {
+    // In Redis, the "master" client (such as replication or internal server
+    // operations) may not have an associated user, and
+    // RedisModule_GetCurrentUserName will return NULL in such cases.
+    // We thus allow full access to the super-user.
+    return true;
+  }
+
   RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
 
   if (!user) {
-    RedisModule_Log(ctx, "verbose", "No user found");
+    RedisModule_Log(ctx, "warning", "No user found for current client");
     RedisModule_FreeString(ctx, user_name);
     return false;
   }
@@ -463,7 +477,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   TagIndex *idx = TagIndex_Open(sctx->spec, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
-    RedisModule_ReplyWithSetOrArray(ctx, 0);
+    RedisModule_ReplyWithSet(ctx, 0);
     goto cleanup;
   }
 
@@ -738,7 +752,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   CurrentThread_SetIndexSpec(ref);
 
   if (!sp->smap) {
-    return RedisModule_ReplyWithMapOrArray(ctx, 0, false);
+    return RedisModule_ReplyWithMap(ctx, 0);
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
@@ -747,7 +761,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t size;
   TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
 
-  RedisModule_ReplyWithMapOrArray(ctx, size * 2, true);
+  RedisModule_ReplyWithMap(ctx, size);
 
   for (int i = 0; i < size; ++i) {
     TermData *t_data = terms_data[i];
@@ -1070,8 +1084,8 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
 Version supportedVersion = {
-    .majorVersion = 7,
-    .minorVersion = 1,
+    .majorVersion = 8,
+    .minorVersion = 0,
     .patchVersion = 0,
 };
 
@@ -1117,6 +1131,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
     RedisModule_FreeCallReply(reply);
   }
 
+  isFlex = SearchDisk_IsEnabled(ctx);
 }
 
 void GetFormattedRedisVersion(char *buf, size_t len) {
@@ -1203,6 +1218,49 @@ cleanup:
   return rc;
 }
 
+// Helper function to register commands that write arbitrary keys
+// Attempt to use an additional flag `touches-arbitrary-keys` and if this fails, falls back to the original flags.
+static int RMCreateArbitraryWriteSearchCommand(RedisModuleCtx *ctx, const char *name,
+                                             RedisModuleCmdFunc callback,
+                                             const char *flags,
+                                             int firstkey, int lastkey, int keystep,
+                                             const char *aclCategories, bool internalCommand) {
+  // Build flag combinations
+  char flagCombinations[2][256];
+  int flagCount = 0;
+
+  // Primary flags with touches-arbitrary-keys
+  snprintf(flagCombinations[flagCount], sizeof(flagCombinations[flagCount]), "%s touches-arbitrary-keys", flags);
+  flagCount++;
+
+  // Fallback flags (original flags only)
+  snprintf(flagCombinations[flagCount], sizeof(flagCombinations[flagCount]), "%s", flags);
+  flagCount++;
+
+  // Try each flag combination
+  for (int i = 0; i < flagCount; i++) {
+    int rc = RMCreateSearchCommand(ctx, name, callback, flagCombinations[i],
+                                 firstkey, lastkey, keystep, aclCategories, internalCommand);
+    if (rc == REDISMODULE_OK) {
+      if (i > 0) {
+        RedisModule_Log(ctx, "notice", "Registered command %s with flags: %s",
+                       name, flagCombinations[i]);
+      }
+      return REDISMODULE_OK;
+    }
+  }
+
+  return REDISMODULE_ERR;
+}
+
+int RSShardedHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return hybridCommandHandler(ctx, argv, argc, true);
+}
+
+int RSClientHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return hybridCommandHandler(ctx, argv, argc, false);
+}
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   GetRedisVersion(ctx);
 
@@ -1236,6 +1294,14 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
   if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
+  }
+
+  if (isFlex) {
+    bool disk_initialized = SearchDisk_Initialize(ctx);
+    if (!disk_initialized) {
+      RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
+      return REDISMODULE_ERR;
+    }
   }
 
   // register trie-dictionary type
@@ -1285,6 +1351,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   RM_TRY(RMCreateSearchCommand(ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, "", true))
 
+  RM_TRY(RMCreateSearchCommand(ctx, RS_HYBRID_CMD, RSShardedHybridCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "", true))
+
   RM_TRY(RMCreateSearchCommand(ctx, RS_AGGREGATE_CMD, RSAggregateCommand,
          "readonly", INDEX_ONLY_CMD_ARGS, "read", true))
 
@@ -1301,17 +1370,19 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
          "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_CMD, DropIndexCommand,
+  // Special cases: Register drop commands which write to arbitrary keys
+  RM_TRY(RMCreateArbitraryWriteSearchCommand(ctx, RS_DROP_CMD, DropIndexCommand,
          "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand,
+  RM_TRY(RMCreateArbitraryWriteSearchCommand(ctx, RS_DROP_INDEX_CMD, DropIndexCommand,
          "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand,
+  RM_TRY(RMCreateArbitraryWriteSearchCommand(ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand,
          "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
+
+  RM_TRY(RMCreateArbitraryWriteSearchCommand(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand,
+         "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
+
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_INFO_CMD, IndexInfoCommand,
          "readonly", INDEX_ONLY_CMD_ARGS, "", true))
@@ -1728,7 +1799,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     req->profileArgs += 2;
-    req->profileClock = clock();
+    rs_wall_clock_init(&req->profileClock);
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       req->profileLimited = 1;
       req->profileArgs++;
@@ -1868,7 +1939,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = searchRequestCtx_New();
 
-  req->initClock = clock();
+  rs_wall_clock_init(&req->initClock);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -2716,21 +2787,21 @@ void PrintShardProfile(RedisModule_Reply *reply, void *ctx) {
 }
 
 struct PrintCoordProfile_ctx {
-  clock_t totalTime;
-  clock_t postProcessTime;
+  rs_wall_clock *totalTime;
+  rs_wall_clock_ns_t postProcessTime;
 };
 static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   struct PrintCoordProfile_ctx *pCtx = ctx;
   RedisModule_Reply_Map(reply);
-  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - pCtx->totalTime) / CLOCKS_PER_MILLISEC);
-  RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - pCtx->postProcessTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(pCtx->totalTime)));
+  RedisModule_ReplyKV_Double(reply, "Post Processing time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - pCtx->postProcessTime));
   RedisModule_Reply_MapEnd(reply);
 }
 
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
-                               clock_t totalTime, clock_t postProcessTime) {
-  bool has_map = RedisModule_HasMap(reply);
+                               rs_wall_clock *totalTime, rs_wall_clock_ns_t postProcessTime) {
+  bool has_map = RedisModule_IsRESP3(reply);
   RedisModule_Reply_Map(reply); // root
     // Have a named map for the results for RESP3
     if (has_map) {
@@ -2774,11 +2845,10 @@ static bool should_return_error(MRReply *reply) {
 static bool should_return_timeout_error(searchRequestCtx *req) {
   return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
          && req->timeout != 0
-         && ((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout;
+         && (rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(&req->initClock))) > req->timeout;
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  clock_t postProcessTime;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
@@ -2880,10 +2950,10 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (!profile) {
     sendSearchResults(reply, &rCtx);
   } else {
-    profileSearchReply(reply, &rCtx, count, replies, req->profileClock, clock());
+    profileSearchReply(reply, &rCtx, count, replies, &req->profileClock, rs_wall_clock_now_ns());
   }
-
-  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
+  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
 
 cleanup:
   RedisModule_EndReply(reply);
@@ -3759,6 +3829,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
            SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read", false))
   }
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID",
+    SafeCmd(RSClientHybridCommand), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read", false))
@@ -3843,6 +3915,8 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RSGlobalConfig.frisoIni = NULL;
   }
 
+  SearchDisk_Close();
+
   return REDISMODULE_OK;
 }
 /* ======================= DEBUG ONLY ======================= */
@@ -3895,4 +3969,34 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
   }
   rm_free(sCmdCtx->argv);
   rm_free(sCmdCtx);
+}
+
+// Structure to pass context cleanup data to main thread
+typedef struct ContextCleanupData{
+  RedisModuleCtx *thctx;
+  RedisSearchCtx *sctx;
+} ContextCleanupData;
+
+// Callback to safely free contexts from main thread
+static void freeContextsCallback(void *data) {
+  ContextCleanupData *cleanup = (ContextCleanupData *)data;
+
+  if (cleanup->sctx) {
+    SearchCtx_Free(cleanup->sctx);
+  }
+
+  if (cleanup->thctx) {
+    RedisModule_FreeThreadSafeContext(cleanup->thctx);
+  }
+
+  rm_free(cleanup);
+}
+
+// Public function to schedule context cleanup
+void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx) {
+  ContextCleanupData *cleanup = rm_malloc(sizeof(ContextCleanupData));
+  cleanup->thctx = thctx;
+  cleanup->sctx = sctx;
+
+  ConcurrentSearch_ThreadPoolRun(freeContextsCallback, cleanup, DIST_THREADPOOL);
 }

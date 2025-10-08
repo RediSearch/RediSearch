@@ -11,6 +11,7 @@
 #include "util/arr.h"
 #include "search_ctx.h"
 #include "inverted_index.h"
+#include "iterators/inverted_index_iterator.h"
 #include "redis_index.h"
 #include "numeric_index.h"
 #include "tag_index.h"
@@ -33,6 +34,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"
+#include "util/redis_mem_info.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -54,12 +56,13 @@ typedef enum {
 
 // Assumes the spec is locked.
 static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
-            size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded) {
+            size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded, uint64_t blocksDenied) {
   sctx->spec->stats.numRecords -= recordsRemoved;
   sctx->spec->stats.invertedSize += bytesAdded;
   sctx->spec->stats.invertedSize -= bytesCollected;
   gc->stats.totalCollected += bytesCollected;
   gc->stats.totalCollected -= bytesAdded;
+  gc->stats.gcBlocksDenied += blocksDenied;
 }
 
 // Buff shouldn't be NULL.
@@ -140,162 +143,28 @@ FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
   return REDISMODULE_OK;
 }
 
-typedef struct {
-  // Number of blocks prior to repair
-  uint32_t nblocksOrig;
-  // Number of blocks repaired
-  uint32_t nblocksRepaired;
-  // Number of bytes cleaned in inverted index
-  uint64_t nbytesCollected;
-  // Number of bytes added to inverted index
-  uint64_t nbytesAdded;
-  // Number of document records removed
-  uint64_t ndocsCollected;
-  // Number of numeric records removed
-  uint64_t nentriesCollected;
-
-  /** Specific information about the _last_ index block */
-  size_t lastblkDocsRemoved;
-  size_t lastblkBytesCollected;
-  size_t lastblkNumEntries;
-  size_t lastblkEntriesRemoved;
-} MSG_IndexInfo;
-
-/** Structure sent describing an index block */
-typedef struct {
-  IndexBlock blk;
-  int64_t oldix;  // Old position of the block
-  int64_t newix;  // New position of the block
-  // the actual content of the block follows...
-} MSG_RepairedBlock;
-
-typedef struct {
-  void *ptr;       // Address of the buffer to free
-  uint32_t oldix;  // Old index of deleted block
-  uint32_t _pad;   // Uninitialized reads, otherwise
-} MSG_DeletedBlock;
-
-/**
- * headerCallback and hdrarg are invoked before the inverted index is sent, only
- * if the inverted index was repaired.
- * This function sends the main process an info message with general info on the inverted index garbage collection.
- * In addition, for each fixed block it sends a repair message. For deleted blocks it send delete message.
- * If the index size (number of blocks) wasn't modified (no deleted blocks) we don't send a new block list.
- * In this case, the main process will get the modifications from the fix messages, that contains also a copy of the
- * repaired block.
- * RepairCallback and its argument are passed directly to IndexBlock_Repair; see
- * that function for more details.
- */
-static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedIndex *idx,
-                                  void (*headerCallback)(ForkGC *, void *), void *hdrarg,
-                                  IndexRepairParams *params) {
-  MSG_RepairedBlock *fixed = array_new(MSG_RepairedBlock, 10);
-  MSG_DeletedBlock *deleted = array_new(MSG_DeletedBlock, 10);
-  IndexBlock *blocklist = array_new(IndexBlock, idx->size);
-  MSG_IndexInfo ixmsg = {.nblocksOrig = idx->size};
-  bool rv = false;
-  IndexRepairParams params_s = {0};
-  if (!params) {
-    params = &params_s;
-  }
-
-  for (size_t i = 0; i < idx->size; ++i) {
-    params->bytesCollected = 0;
-    params->bytesBeforFix = 0;
-    params->bytesAfterFix = 0;
-    params->entriesCollected = 0;
-    IndexBlock *blk = idx->blocks + i;
-    if (blk->lastId - blk->firstId > UINT32_MAX) {
-      // Skip over blocks which have a wide variation. In the future we might
-      // want to split a block into two (or more) on high-delta boundaries.
-      // todo: is it ok??
-      // The above TODO was written 5 years ago. We currently don't split blocks,
-      // and it is also not clear why we care about high variations.
-      array_append(blocklist, *blk);
-      continue;
-    }
-
-    // Capture the pointer address before the block is cleared; otherwise
-    // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
-    void *bufptr = blk->buf.data;
-    size_t nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, params);
-    if (nrepaired == 0) {
-      // unmodified block
-      array_append(blocklist, *blk);
-      continue;
-    }
-
-    uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
-
-    if (blk->numEntries == 0) {
-      // this block should be removed
-      MSG_DeletedBlock *delmsg = array_ensure_tail(&deleted, MSG_DeletedBlock);
-      *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
-      curr_bytesCollected += sizeof(IndexBlock);
-    } else {
-      array_append(blocklist, *blk);
-      MSG_RepairedBlock *fixmsg = array_ensure_tail(&fixed, MSG_RepairedBlock);
-      fixmsg->newix = array_len(blocklist) - 1;
-      fixmsg->oldix = i;
-      fixmsg->blk = *blk; // TODO: consider sending the blocklist even if there weren't any deleted blocks instead of this redundant copy.
-      ixmsg.nblocksRepaired++;
-    }
-    ixmsg.nbytesCollected += curr_bytesCollected;
-    ixmsg.ndocsCollected += nrepaired;
-    ixmsg.nentriesCollected += params->entriesCollected;
-    // Save last block statistics because the main process might want to ignore the changes if
-    // the block was modified while the fork was running.
-    if (i == idx->size - 1) {
-      ixmsg.lastblkBytesCollected = curr_bytesCollected;
-      ixmsg.lastblkDocsRemoved = nrepaired;
-      ixmsg.lastblkEntriesRemoved = params->entriesCollected;
-      // Save the original number of entries of the last block so we can compare
-      // this value to the number of entries exist in the main process, to conclude if any new entries
-      // were added during the fork process was running. If there were, the main process will discard the last block
-      // fixes. We rely on the assumption that a block is small enough and it will be either handled in the next iteration,
-      // or it will get to its maximum capacity and will no longer be the last block.
-      ixmsg.lastblkNumEntries = blk->numEntries + params->entriesCollected;
-    }
-  }
-
-  if (array_len(fixed) == 0 && array_len(deleted) == 0) {
-    // No blocks were removed or repaired
-    goto done;
-  }
-
-  headerCallback(gc, hdrarg);
-  FGC_sendFixed(gc, &ixmsg, sizeof ixmsg);
-  if (array_len(blocklist) == idx->size) {
-    // no empty block, there is no need to send the blocks array. Don't send
-    // any new blocks.
-    size_t len = 0;
-    FGC_SEND_VAR(gc, len);
-  } else {
-    FGC_sendBuffer(gc, blocklist, array_len(blocklist) * sizeof(*blocklist));
-  }
-  // TODO: can we move it inside the if?
-  FGC_sendBuffer(gc, deleted, array_len(deleted) * sizeof(*deleted));
-
-  for (size_t i = 0; i < array_len(fixed); ++i) {
-    // write fix block
-    const MSG_RepairedBlock *msg = fixed + i;
-    const IndexBlock *blk = blocklist + msg->newix;
-    FGC_sendFixed(gc, msg, sizeof(*msg));
-    // TODO: check why we need to send the data if its part of the blk struct.
-    FGC_sendBuffer(gc, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
-  }
-  rv = true;
-
-done:
-  array_free(fixed);
-  array_free(blocklist);
-  array_free(deleted);
-  return rv;
+// glue to use process pipe as writer for II GC delta info
+static void pipe_write_cb(void *ctx, const void *buf, size_t len) {
+  ForkGC *gc = ctx;
+  FGC_sendFixed(gc, buf, len);
 }
 
-static void sendHeaderString(ForkGC *gc, void *arg) {
-  struct iovec *iov = arg;
-  FGC_sendBuffer(gc, iov->iov_base, iov->iov_len);
+// glue to use process pipe as reader for II GC delta info
+static int pipe_read_cb(void *ctx, void *buf, size_t len) {
+  ForkGC *gc = ctx;
+  return FGC_recvFixed(gc, buf, len);
+}
+
+// used in code such as ScanRepair
+typedef struct {
+    ForkGC *gc;
+    void *hdrarg;
+} CTX_II_GC_Callback;
+
+static void sendHeaderString(void* ptrCtx) {
+  CTX_II_GC_Callback* ctx = ptrCtx;
+  struct iovec *iov = ctx->hdrarg;
+  FGC_sendBuffer(ctx->gc, iov->iov_base, iov->iov_len);
 }
 
 static void FGC_reportProgress(ForkGC *gc) {
@@ -319,7 +188,17 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, strlen(term), DONT_CREATE_INDEX, NULL);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
-      FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
+
+      CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &iov };
+      II_GCCallback cb = { .ctx = &cbCtx, .call = sendHeaderString };
+
+      II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
+
+      InvertedIndex_GcDelta_Scan(
+          &wr, sctx, idx,
+          &cb, NULL
+      );
+
       FGC_reportProgress(gc);
     }
     rm_free(term);
@@ -346,7 +225,8 @@ static void countRemain(const RSIndexResult *r, const IndexBlock *blk, void *arg
     ctx->last_block = blk;
   }
   // Add the current record to the last block's cardinality
-  hll_add(&ctx->last_block_card, &r->data.num.value, sizeof(r->data.num.value));
+  double value = IndexResult_NumValue(r);
+  hll_add(&ctx->last_block_card, &value, sizeof(value));
 }
 
 typedef struct {
@@ -359,16 +239,18 @@ typedef struct {
   int sentFieldName;
 } tagNumHeader;
 
-static void sendNumericTagHeader(ForkGC *fgc, void *arg) {
-  tagNumHeader *info = arg;
+static void sendNumericTagHeader(void *opaqueCtx) {
+    CTX_II_GC_Callback* ctx = opaqueCtx;
+
+  tagNumHeader *info = ctx->hdrarg;
   if (!info->sentFieldName) {
     info->sentFieldName = 1;
-    FGC_sendBuffer(fgc, info->field, strlen(info->field));
-    FGC_sendFixed(fgc, &info->uniqueId, sizeof info->uniqueId);
+    FGC_sendBuffer(ctx->gc, info->field, strlen(info->field));
+    FGC_sendFixed(ctx->gc, &info->uniqueId, sizeof info->uniqueId);
   }
-  FGC_SEND_VAR(fgc, info->curPtr);
+  FGC_SEND_VAR(ctx->gc, info->curPtr);
   if (info->type == RSFLDTYPE_TAG) {
-    FGC_sendBuffer(fgc, info->tagValue, info->tagLen);
+    FGC_sendBuffer(ctx->gc, info->tagValue, info->tagLen);
   }
 }
 
@@ -424,7 +306,16 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 
       InvertedIndex *idx = currNode->range->entries;
       header.curPtr = currNode;
-      bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
+
+      CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &header };
+      II_GCCallback cb = { .ctx = &cbCtx, .call = sendNumericTagHeader };
+
+      II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
+
+      bool repaired = InvertedIndex_GcDelta_Scan(
+          &wr, sctx, idx,
+          &cb, &params
+      );
 
       if (repaired) {
         // Instead of sending the majority cardinality and the last block's cardinality, we now
@@ -479,8 +370,19 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
         header.curPtr = value;
         header.tagValue = ptr;
         header.tagLen = len;
+
         // send repaired data
-        FGC_childRepairInvidx(gc, sctx, value, sendNumericTagHeader, &header, NULL);
+
+        CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &header };
+        II_GCCallback cb = { .ctx = &cbCtx, .call = sendNumericTagHeader };
+
+        II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
+
+        InvertedIndex_GcDelta_Scan(
+            &wr, sctx, value,
+            &cb, NULL
+        );
+
         FGC_reportProgress(gc);
       }
 
@@ -509,7 +411,17 @@ static void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
       size_t length;
       const char* fieldName = HiddenString_GetUnsafe(hiddenFieldName, &length);
       struct iovec iov = {.iov_base = (void *)fieldName, length};
-      FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
+
+      CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &iov };
+      II_GCCallback cb = { .ctx = &cbCtx, .call = sendHeaderString };
+
+      II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
+
+      InvertedIndex_GcDelta_Scan(
+          &wr, sctx, idx,
+          &cb, NULL
+      );
+
       FGC_reportProgress(gc);
     }
   }
@@ -525,7 +437,16 @@ static void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
   InvertedIndex *idx = spec->existingDocs;
   if (idx) {
     struct iovec iov = {.iov_base = (void *)"", 0};
-    FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
+
+    CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &iov };
+    II_GCCallback cb = { .ctx = &cbCtx, .call = sendHeaderString };
+
+    II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
+
+    InvertedIndex_GcDelta_Scan(
+        &wr, sctx, idx,
+        &cb, NULL
+    );
   }
 
   // we are done with existing docs inverted index
@@ -551,218 +472,10 @@ static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
 }
 
 typedef struct {
-  MSG_DeletedBlock *delBlocks;
-  size_t numDelBlocks;
-
-  MSG_RepairedBlock *changedBlocks;
-
-  IndexBlock *newBlocklist;
-  size_t newBlocklistSize;
-  bool lastBlockIgnored;
-} InvIdxBuffers;
-
-static int __attribute__((warn_unused_result))
-FGC_recvRepairedBlock(ForkGC *gc, MSG_RepairedBlock *binfo) {
-  if (FGC_recvFixed(gc, binfo, sizeof(*binfo)) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  Buffer *b = &binfo->blk.buf;
-  if (FGC_recvBuffer(gc, (void **)&b->data, &b->offset) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  b->cap = b->offset;
-  return REDISMODULE_OK;
-}
-
-static int __attribute__((warn_unused_result))
-FGC_recvInvIdx(ForkGC *gc, InvIdxBuffers *bufs, MSG_IndexInfo *info) {
-  size_t nblocksRecvd = 0;
-  if (FGC_recvFixed(gc, info, sizeof(*info)) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  if (FGC_recvBuffer(gc, (void **)&bufs->newBlocklist, &bufs->newBlocklistSize) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-
-  if (bufs->newBlocklistSize) {
-    bufs->newBlocklistSize /= sizeof(*bufs->newBlocklist);
-  }
-  if (FGC_recvBuffer(gc, (void **)&bufs->delBlocks, &bufs->numDelBlocks) != REDISMODULE_OK) {
-    goto error;
-  }
-  bufs->numDelBlocks /= sizeof(*bufs->delBlocks);
-  bufs->changedBlocks = rm_malloc(sizeof(*bufs->changedBlocks) * info->nblocksRepaired);
-  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
-    if (FGC_recvRepairedBlock(gc, bufs->changedBlocks + i) != REDISMODULE_OK) {
-      goto error;
-    }
-    nblocksRecvd++;
-  }
-  return REDISMODULE_OK;
-
-error:
-  rm_free(bufs->newBlocklist);
-  for (size_t ii = 0; ii < nblocksRecvd; ++ii) {
-    rm_free(bufs->changedBlocks[ii].blk.buf.data);
-  }
-  rm_free(bufs->changedBlocks);
-  memset(bufs, 0, sizeof(*bufs));
-  return REDISMODULE_ERR;
-}
-
-static void freeInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info) {
-  rm_free(bufs->newBlocklist);
-  rm_free(bufs->delBlocks);
-
-  if (bufs->changedBlocks) {
-    // could be null because of pipe error
-    for (size_t ii = 0; ii < info->nblocksRepaired; ++ii) {
-      rm_free(bufs->changedBlocks[ii].blk.buf.data);
-    }
-    rm_free(bufs->changedBlocks);
-  }
-}
-
-static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *info,
-                           InvertedIndex *idx) {
-  IndexBlock *lastOld = idx->blocks + info->nblocksOrig - 1;
-  if (info->lastblkDocsRemoved == 0) {
-    // didn't touch last block in child
-    return;
-  }
-  if (info->lastblkNumEntries == lastOld->numEntries) {
-    // didn't touch last block in parent
-    return;
-  }
-
-  // Otherwise, we added new entries to the last block while the child was running. In this case we discard all
-  // the child garbage collection, assuming they will take place in the next gc iteration.
-
-  if (info->lastblkEntriesRemoved == info->lastblkNumEntries) {
-    // Last block was deleted entirely while updates on the main process.
-    // Remove it from delBlocks list
-    idxData->numDelBlocks--;
-
-    // If all the blocks were deleted, there is no newblocklist. Otherwise, we need to add it to the newBlocklist.
-    if (idxData->newBlocklist) {
-      idxData->newBlocklistSize++;
-      idxData->newBlocklist = rm_realloc(idxData->newBlocklist,
-                                        sizeof(*idxData->newBlocklist) * idxData->newBlocklistSize);
-      idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
-    }
-  } else {
-    // Last block was modified on the child and on the parent. (but not entirely deleted)
-
-    // we need to remove it from changedBlocks
-    MSG_RepairedBlock *rb = idxData->changedBlocks + info->nblocksRepaired - 1;
-    indexBlock_Free(&rb->blk);
-    info->nblocksRepaired--;
-
-    // If newBlocklist!=NULL then the last block must be there (it was changed and not deleted),
-    // prefer the parent's block.
-    if (idxData->newBlocklist) {
-      idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
-    }
-  }
-
-  info->ndocsCollected -= info->lastblkDocsRemoved;
-  info->nbytesCollected -= info->lastblkBytesCollected;
-  info->nentriesCollected -= info->lastblkEntriesRemoved;
-  idxData->lastBlockIgnored = true;
-  gc->stats.gcBlocksDenied++;
-}
-
-static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *info,
-                                   InvertedIndex *idx) {
-  checkLastBlock(gc, idxData, info, idx);
-  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
-    MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
-    indexBlock_Free(&idx->blocks[blockModified->oldix]);
-  }
-  for (size_t i = 0; i < idxData->numDelBlocks; ++i) {
-    // Blocks that were deleted entirely:
-    MSG_DeletedBlock *delinfo = idxData->delBlocks + i;
-    rm_free(delinfo->ptr);
-  }
-  TotalIIBlocks -= idxData->numDelBlocks;
-  rm_free(idxData->delBlocks); // Consume del block array
-  idxData->delBlocks = NULL;
-
-  // Ensure the old index is at least as big as the new index' size
-  RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Current index size should be larger or equal to original index size");
-
-  if (idxData->newBlocklist) { // the child removed some of the blocks, but not all of them
-    /**
-     * At this point, we check if the last block has had new data added to it,
-     * but was _not_ repaired. We check for a repaired last block in
-     * checkLastBlock().
-     */
-
-    if (!info->lastblkDocsRemoved) {
-      /**
-       * Last block was unmodified-- let's prefer the last block's pointer
-       * over our own (which may be stale).
-       * If the last block was repaired, this is handled above in checkLastBlock()
-       */
-      idxData->newBlocklist[idxData->newBlocklistSize - 1] = idx->blocks[info->nblocksOrig - 1];
-    }
-
-    // Number of blocks added in the parent process since the last scan
-    size_t newAddedLen = idx->size - info->nblocksOrig; // TODO: can we just decrease by number of deleted.
-
-    // The final size is the reordered block size, plus the number of blocks
-    // which we haven't scanned yet, because they were added in the parent
-    size_t totalLen = idxData->newBlocklistSize + newAddedLen;
-
-    idxData->newBlocklist =
-        rm_realloc(idxData->newBlocklist, totalLen * sizeof(*idxData->newBlocklist));
-    memcpy(idxData->newBlocklist + idxData->newBlocklistSize, (idx->blocks + info->nblocksOrig),
-           newAddedLen * sizeof(*idxData->newBlocklist));
-
-    rm_free(idx->blocks);
-    idx->blocks = idxData->newBlocklist; // Consume new blocks array
-    idxData->newBlocklist = NULL;
-    idxData->newBlocklistSize += newAddedLen;
-    idx->size = idxData->newBlocklistSize;
-  } else if (idxData->numDelBlocks) {
-    // if idxData->newBlocklist == NULL it's either because all the blocks the child has seen are gone or we didn't change the
-    // size of the index (idxData->numDelBlocks == 0).
-    // So if we enter here (idxData->numDelBlocks != 0) it's the first case, all blocks the child has seen need to be deleted.
-    // Note that we might want to keep the last block, although deleted by the child. In this case numDelBlocks will *not include*
-    // the last block.
-    idx->size -= idxData->numDelBlocks;
-
-    // There were new blocks added to the index in the main process while the child was running,
-    // and/or we decided to ignore changes made to the last block, we copy the blocks data starting from
-    // the first valid block we want to keep.
-
-    memmove(idx->blocks, idx->blocks + idxData->numDelBlocks, sizeof(*idx->blocks) * idx->size);
-
-    if (idx->size == 0) {
-      InvertedIndex_AddBlock(idx, 0, (size_t*)(&info->nbytesAdded));
-    }
-  }
-
-  // TODO : can we skip if we have newBlocklist?
-  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
-    MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
-    idx->blocks[blockModified->newix] = blockModified->blk;
-  }
-  // Consume changed blocks array
-  rm_free(idxData->changedBlocks);
-  idxData->changedBlocks = NULL;
-
-  idx->numDocs -= info->ndocsCollected;
-  idx->gcMarker++;
-  RS_LOG_ASSERT(idx->size, "Index should have at least one block");
-  idx->lastId = idx->blocks[idx->size - 1].lastId; // Update lastId
-}
-
-typedef struct {
   // Node in the tree that was GC'd
   NumericRangeNode *node;
-  InvIdxBuffers idxbufs;
-  MSG_IndexInfo info;
+  InvertedIndexGcDelta* delta;
+  II_GCScanStats info;
 
   void *registersWithLastBlock;
   void *registersWithoutLastBlock; // In case the last block was modified
@@ -783,7 +496,9 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
     return FGC_DONE;
   }
 
-  if (FGC_recvInvIdx(gc, &ninfo->idxbufs, &ninfo->info) != REDISMODULE_OK) {
+  II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
+  ninfo->delta = InvertedIndex_GcDelta_Read(&rd, &ninfo->info);
+  if (ninfo->delta == NULL) {
     goto error;
   }
 
@@ -793,11 +508,12 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
   return FGC_COLLECTED;
 
 error:
+  InvertedIndex_GcDelta_Free(ninfo->delta, &ninfo->info);
   return FGC_CHILD_ERROR;
 }
 
 static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocksSinceFork) {
-  if (!info->idxbufs.lastBlockIgnored) {
+  if (!InvertedIndex_GcDelta_GetLastBlockIgnored(info->delta)) {
     hll_set_registers(&range->hll, info->registersWithLastBlock, NR_REG_SIZE);
     if (blocksSinceFork == 0) {
       return; // No blocks were added since the fork. We're done
@@ -807,29 +523,33 @@ static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocks
     blocksSinceFork++; // Count the ignored block as well
   }
   // Add the entries that were added since the fork to the HLL
-  RSIndexResult *cur;
-  IndexReader *ir = NewMinimalNumericReader(range->entries, false);
-  size_t startIdx = range->entries->size - blocksSinceFork; // Here `blocksSinceFork` > 0
-  t_docId startId = range->entries->blocks[startIdx].firstId;
-  int rc = IR_SkipTo(ir, startId, &cur);
-  while (INDEXREAD_OK == rc) {
-    hll_add(&range->hll, &cur->data.num.value, sizeof(cur->data.num.value));
-    rc = IR_Read(ir, &cur);
+  size_t startIdx = InvertedIndex_NumBlocks(range->entries) - blocksSinceFork; // Here `blocksSinceFork` > 0
+  IndexBlock *startBlock = InvertedIndex_BlockRef(range->entries, startIdx);
+  t_docId startId = IndexBlock_FirstId(startBlock);
+  QueryIterator *iter = NewInvIndIterator_NumericFull(range->entries);
+  // Skip to the starting ID
+  IteratorStatus status = iter->SkipTo(iter, startId);
+
+  // Continue reading the rest
+  while (status == ITERATOR_OK) {
+    double value = IndexResult_NumValue(iter->current);
+    hll_add(&range->hll, &value, sizeof(value));
+    status = iter->Read(iter);
   }
-  IR_Free(ir);
+  iter->Free(iter);
 }
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   NumericRangeNode *currNode = ninfo->node;
-  InvIdxBuffers *idxbufs = &ninfo->idxbufs;
-  MSG_IndexInfo *info = &ninfo->info;
-  size_t blocksSinceFork = currNode->range->entries->size - info->nblocksOrig; // record before applying changes
-  FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
-  currNode->range->entries->numEntries -= info->nentriesCollected;
+  InvertedIndexGcDelta *delta = ninfo->delta;
+  II_GCScanStats *info = &ninfo->info;
+  size_t blocksSinceFork = InvertedIndex_NumBlocks(currNode->range->entries) - info->nblocksOrig; // record before applying changes
+  InvertedIndex_ApplyGcDelta(currNode->range->entries, delta, info);
+  InvertedIndex_SetNumEntries(currNode->range->entries, InvertedIndex_NumEntries(currNode->range->entries) - info->nentriesCollected);
   currNode->range->invertedIndexSize += info->nbytesAdded;
   currNode->range->invertedIndexSize -= info->nbytesCollected;
 
-  FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded);
+  FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded, info->gcBlocksDenied);
 
   resetCardinality(ninfo, currNode->range, blocksSinceFork);
 }
@@ -846,9 +566,12 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     return FGC_DONE;
   }
 
-  InvIdxBuffers idxbufs = {0};
-  MSG_IndexInfo info = {0};
-  if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
+  II_GCScanStats info = {0};
+  II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
+
+  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd, &info);
+
+  if (delta == NULL) {
     rm_free(term);
     return FGC_CHILD_ERROR;
   }
@@ -872,9 +595,9 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     goto cleanup;
   }
 
-  FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
+  InvertedIndex_ApplyGcDelta(idx, delta, &info);
 
-  if (idx->numDocs == 0) {
+  if (InvertedIndex_NumDocs(idx) == 0) {
 
     // inverted index was cleaned entirely lets free it
     RedisModuleString *termKey = fmtRedisTermKey(sctx, term, len);
@@ -901,7 +624,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
   }
 
-  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
+  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
 
 cleanup:
 
@@ -910,9 +633,7 @@ cleanup:
     IndexSpecRef_Release(spec_ref);
   }
   rm_free(term);
-  if (status != FGC_COLLECTED) {
-    freeInvIdx(&idxbufs, &info);
-  }
+  InvertedIndex_GcDelta_Free(delta, &info);
   return status;
 }
 
@@ -976,14 +697,12 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     rt->invertedIndexesSize -= ninfo.info.nbytesCollected;
     rt->invertedIndexesSize += ninfo.info.nbytesAdded;
 
-    if (ninfo.node->range->entries->numDocs == 0) {
+    if (InvertedIndex_NumDocs(ninfo.node->range->entries) == 0) {
       rt->emptyLeaves++;
     }
 
   loop_cleanup:
-    if (status != FGC_COLLECTED) {
-      freeInvIdx(&ninfo.idxbufs, &ninfo.info);
-    }
+    InvertedIndex_GcDelta_Free(ninfo.delta, &ninfo.info);
     if (sp) {
       RedisSearchCtx_UnlockSpec(sctx);
       IndexSpecRef_Release(spec_ref);
@@ -1004,7 +723,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (rt->emptyLeaves >= rt->numLeaves / 2) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       // rv.sz is the number of bytes added. Since we are cleaning empty leaves, it should be negative
-      FGC_updateStats(gc, &sctx, 0, -rv.sz, 0);
+      FGC_updateStats(gc, &sctx, 0, -rv.sz, 0, 0);
     }
     RedisSearchCtx_UnlockSpec(&sctx);
     IndexSpecRef_Release(spec_ref);
@@ -1021,9 +740,9 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
   FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &tagUniqueId);
 
   while (status == FGC_COLLECTED) {
+    InvertedIndexGcDelta *delta = NULL;
+    II_GCScanStats info = {0};
     RedisModuleString *keyName = NULL;
-    MSG_IndexInfo info = {0};
-    InvIdxBuffers idxbufs = {0};
     TagIndex *tagIdx = NULL;
     char *tagVal = NULL;
     size_t tagValLen;
@@ -1053,7 +772,10 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
+    II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
+    delta = InvertedIndex_GcDelta_Read(&rd, &info);
+
+    if (delta == NULL) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
@@ -1075,27 +797,26 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
+    InvertedIndex_ApplyGcDelta(idx, delta, &info);
 
     // if tag value is empty, let's remove it.
-    if (idx->numDocs == 0) {
+    if (InvertedIndex_NumDocs(idx) == 0) {
       // get memory before deleting the inverted index
       info.nbytesCollected += InvertedIndex_MemUsage(idx);
-      TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
+      TrieMap_Delete(tagIdx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
 
       if (tagIdx->suffix) {
         deleteSuffixTrieMap(tagIdx->suffix, tagVal, tagValLen);
       }
     }
 
-    FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
+    FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
 
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
-    if (status != FGC_COLLECTED) {
-      freeInvIdx(&idxbufs, &info);
-    }
+    InvertedIndex_GcDelta_Free(delta, &info);
+
     if (tagVal) {
       rm_free(tagVal);
     }
@@ -1118,9 +839,11 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     return FGC_DONE;
   }
 
-  InvIdxBuffers idxbufs = {0};
-  MSG_IndexInfo info = {0};
-  if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
+  II_GCScanStats info = {0};
+  II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
+  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd, &info);
+
+  if (delta == NULL) {
     rm_free(rawFieldName);
     return FGC_CHILD_ERROR;
   }
@@ -1144,16 +867,14 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     goto cleanup;
   }
 
-  FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
+  InvertedIndex_ApplyGcDelta(idx, delta, &info);
 
-  if (idx->numDocs == 0) {
+  if (InvertedIndex_NumDocs(idx) == 0) {
     // inverted index was cleaned entirely lets free it
-    if (sctx->spec->missingFieldDict) {
-      info.nbytesCollected += InvertedIndex_MemUsage(idx);
-      dictDelete(sctx->spec->missingFieldDict, fieldName);
-    }
+    info.nbytesCollected += InvertedIndex_MemUsage(idx);
+    dictDelete(sctx->spec->missingFieldDict, fieldName);
   }
-  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
+  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
 
 cleanup:
 
@@ -1163,9 +884,8 @@ cleanup:
   }
   HiddenString_Free(fieldName, false);
   rm_free(rawFieldName);
-  if (status != FGC_COLLECTED) {
-    freeInvIdx(&idxbufs, &info);
-  }
+  InvertedIndex_GcDelta_Free(delta, &info);
+
   return status;
 }
 
@@ -1183,9 +903,11 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
     return FGC_DONE;
   }
 
-  InvIdxBuffers idxbufs = {0};
-  MSG_IndexInfo info = {0};
-  if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
+  II_GCScanStats info = {0};
+  II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
+  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd, &info);
+
+  if (delta == NULL) {
     rm_free(empty_indicator);
     return FGC_CHILD_ERROR;
   }
@@ -1204,17 +926,18 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
 
   InvertedIndex *idx = sp->existingDocs;
 
-  FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
+  InvertedIndex_ApplyGcDelta(idx, delta, &info);
+
   // We don't count the records that we removed, because we also don't count
   // their addition (they are duplications so we have no such desire).
 
-  if (idx->numDocs == 0) {
+  if (InvertedIndex_NumDocs(idx) == 0) {
     // inverted index was cleaned entirely, let's free it
     info.nbytesCollected += InvertedIndex_MemUsage(idx);
     InvertedIndex_Free(idx);
     sp->existingDocs = NULL;
   }
-  FGC_updateStats(gc, sctx, 0, info.nbytesCollected, info.nbytesAdded);
+  FGC_updateStats(gc, sctx, 0, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
 
 cleanup:
   rm_free(empty_indicator);
@@ -1222,9 +945,8 @@ cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
   }
-  if (status != FGC_COLLECTED)  {
-    freeInvIdx(&idxbufs, &info);
-  }
+
+  InvertedIndex_GcDelta_Free(delta, &info);
   return status;
 }
 
@@ -1251,22 +973,11 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
 
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
-  #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
-  RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+  // Debug log the memory ratio
+  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
+  RedisModule_Log(ctx, "debug", "ForkGC - used memory ratio: %f", used_memory_ratio);
 
-  size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
-  size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL); // Enterprise limit
-  maxmemory = MIN_NOT_0(maxmemory, max_process_mem);
-
-  size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
-  maxmemory = MIN_NOT_0(maxmemory, total_system_memory);
-
-  size_t used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
-
-  RedisModule_FreeServerInfo(ctx, info);
-
-  RedisModule_Log(ctx, "debug", "ForkGC - checking memory: maxmemory=%zu, used_memory=%zu", maxmemory, used_memory);
-  return used_memory > maxmemory;
+  return used_memory_ratio > 1;
 }
 
 static int periodicCb(void *privdata) {
@@ -1329,6 +1040,8 @@ static int periodicCb(void *privdata) {
     gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
     IndexSpecRef_Release(early_check);
     RedisModule_ThreadSafeContextUnlock(ctx);
+    close(gc->pipe_read_fd);
+    close(gc->pipe_write_fd);
     return 1;
   }
 

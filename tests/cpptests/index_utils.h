@@ -6,7 +6,10 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "index.h"
+
+#pragma once
+
+#include "query_ctx.h"
 #include "inverted_index.h"
 #include "numeric_index.h"
 #include "ttl_table.h"
@@ -41,15 +44,10 @@ void freeSpec(RefManager *ism);
  *
  * this function also verifies that the memory counter of each range is equal to its actual memory.
  * if not, if will set @param failed_range to point to the range that failed the check.
- * Then, you can get the range memory by calling NumericRangeGetMemory(failed_range);
+ * Then, you can get the range memory by calling InvertedIndex_MemUsage(failed_range);
  * NOTE: Upon early bail out, the returned value will **not** include the memory used by the failed range.
  */
 size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range);
-
-/**
- * Returns the total memory consumed by the inverted index of a numeric tree node.
- */
-size_t NumericRangeGetMemory(const NumericRangeNode *Node);
 
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field);
 
@@ -73,6 +71,7 @@ public:
     spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
     spec.docs.maxDocId = maxDocId;
     spec.docs.size = numDocs ?: maxDocId;
+    spec.stats.numDocuments = spec.docs.size;
 
     // Initialize RedisSearchCtx
     sctx = {0};
@@ -89,11 +88,12 @@ public:
     docs.erase(std::unique(docs.begin(), docs.end()), docs.end());
     spec.docs.maxDocId = docs.empty() ? 0 : docs.back();
     spec.docs.size = docs.size();
+    spec.stats.numDocuments = docs.size();
     rule.index_all = true; // Enable index_all for wildcard iterator tests
-    spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &spec.stats.invertedSize);
-    IndexEncoder enc = InvertedIndex_GetEncoder(spec.existingDocs->flags);
+    spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, &spec.stats.invertedSize);
     for (t_docId docId : docs) {
-      InvertedIndex_WriteEntryGeneric(spec.existingDocs, enc, docId, nullptr);
+      RSIndexResult rec = {.docId = docId, .data = {.tag = RSResultData_Virtual}};
+      InvertedIndex_WriteEntryGeneric(spec.existingDocs, &rec);
     }
   }
 

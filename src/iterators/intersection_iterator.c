@@ -277,7 +277,7 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
   // Check for empty iterators
   for (size_t ii = 0; ii < write_idx; ++ii) {
     if (!its[ii] || its[ii]->type == EMPTY_ITERATOR) {
-      ret = its[ii] ? its[ii] : IT_V2(NewEmptyIterator)();
+      ret = its[ii] ? its[ii] : NewEmptyIterator();
       its[ii] = NULL; // Mark as taken
       break;
     }
@@ -308,6 +308,50 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
   return ret;
 }
 
+static ValidateStatus II_Revalidate(QueryIterator *base) {
+  IntersectionIterator *ii = (IntersectionIterator *)base;
+  bool any_child_moved = false, movedToEOF = false;
+  t_docId max_child_docId = 0;
+
+  // Step 1: Revalidate all children and track status
+  for (uint32_t i = 0; i < ii->num_its; i++) {
+    QueryIterator *child = ii->its[i];
+    ValidateStatus child_status = child->Revalidate(child);
+
+    if (child_status == VALIDATE_ABORTED) {
+      return VALIDATE_ABORTED; // Intersection fails if any child fails
+    }
+
+    if (child_status == VALIDATE_MOVED) {
+      any_child_moved = true;
+      // Track the maximum docId among moved children
+      if (child->atEOF) {
+        movedToEOF = true; // If any child moved and now at EOF, the intersection is also at EOF now
+      } else if (child->lastDocId > max_child_docId) {
+        max_child_docId = child->lastDocId;
+      }
+    }
+  }
+
+  // Step 2: Handle the result based on child status
+  if (!any_child_moved) {
+    // All children returned OK - simply return OK
+    return VALIDATE_OK;
+  } else if (base->atEOF) {
+    // If the intersection was already at EOF, we return OK
+    return VALIDATE_OK;
+  } else if (movedToEOF) {
+    // If any child is at EOF, the intersection is also moved to EOF
+    base->atEOF = true;
+    return VALIDATE_MOVED;
+  }
+
+  // Step 3: At least one child moved - need to find new intersection position
+  // Skip to the maximal docId among moved children
+  base->SkipTo(base, max_child_docId);
+  return VALIDATE_MOVED;
+}
+
 QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight) {
   RS_ASSERT(its && num > 0);
   QueryIterator *ret = IntersectionIteratorReducer(its, &num);
@@ -334,7 +378,6 @@ QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_
   ret->atEOF = false;
   ret->lastDocId = 0;
   ret->current = NewIntersectResult(num, weight);
-  ret->isAborted = false;
   ret->NumEstimated = II_NumEstimated;
   if (max_slop < 0 && !in_order) {
     // No slop and no order means every result is relevant, so we can use the fast path
@@ -347,6 +390,7 @@ QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_
   }
   ret->Free = II_Free;
   ret->Rewind = II_Rewind;
+  ret->Revalidate = II_Revalidate;
 
   return ret;
 }

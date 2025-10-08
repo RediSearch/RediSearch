@@ -351,6 +351,15 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   mempool_release(actxPool_g, aCtx);
 }
 
+/***
+ * Write the byte offset of the token to the byte offset writer. This is used for highlighting.
+ */
+static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo) {
+  if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
+    VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
+  }
+}
+
 #define FIELD_HANDLER(name)                                                                \
   static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, DocumentField *field, const FieldSpec *fs, \
                   FieldIndexerData *fdata, QueryError *status)
@@ -385,7 +394,6 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   size_t fl;
   const char *c = DocumentField_GetValueCStr(field, &fl);
   size_t valueCount = (field->unionType != FLD_VAR_T_ARRAY ? 1 : field->arrayLen);
-  bool indexesEmpty = FieldSpec_IndexesEmpty(fs);
 
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
@@ -421,6 +429,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     } else {
       multiTextOffsetDelta = 0;
     }
+    bool indexesEmpty = FieldSpec_IndexesEmpty(fs);
 
     for (size_t i = 0; i < valueCount; ++i) {
 
@@ -433,6 +442,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
       Token tok = {0};
       while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok)) {
+        // We always want to write the byte offset, even when string is empty since it is global across all fields and
+        // we need to know the start position of the next field. This is required for highlighting.
+        writeByteOffsets(&tokCtx, &tok);
         if (!indexesEmpty && tok.tokLen == 0) {
           // Skip empty values if the field should not index them
           // Empty tokens are returned only if the original value was empty
@@ -888,7 +900,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
-  RSValue rv = RSVALUE_STATIC;
+  RSValue rv = RSValue_Undefined();
   if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
     goto CleanUp;
   }
@@ -898,7 +910,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   rc = REDISMODULE_OK;
 
 CleanUp:
-  RLookupRow_Cleanup(&row);
+  RLookupRow_Reset(&row);
   RLookup_Cleanup(&lookup_s);
 done:
   ExprAST_Free(e);

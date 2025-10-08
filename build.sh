@@ -22,13 +22,15 @@ FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=${QUICK:-0} # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
+BUILD_INTEL_SVS_OPT=${BUILD_INTEL_SVS_OPT:-0} # Use SVS pre-compiled library
 
 # Test configuration (0=disabled, 1=enabled)
-BUILD_TESTS=0    # Build test binaries
-RUN_UNIT_TESTS=0 # Run C/C++ unit tests
-RUN_RUST_TESTS=0 # Run Rust tests
-RUN_PYTEST=0     # Run Python tests
-RUN_ALL_TESTS=0  # Run all test types
+BUILD_TESTS=0          # Build test binaries
+RUN_UNIT_TESTS=0       # Run C/C++ unit tests
+RUN_RUST_TESTS=0       # Run Rust tests
+RUN_RUST_VALGRIND=0    # Run Valgrind Rust tests
+RUN_PYTEST=0           # Run Python tests
+RUN_ALL_TESTS=0        # Run all test types
 RUN_MICRO_BENCHMARKS=0 # Run micro-benchmarks
 
 # Rust configuration
@@ -37,6 +39,10 @@ RUST_PROFILE=""  # Which profile should be used to build/test Rust code
                  # the operations to be performed
 RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
+
+# Rust code is built first, so exclude benchmarking crates that link C code,
+# since the static libraries they depend on haven't been built yet.
+EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher"
 
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
@@ -66,6 +72,9 @@ parse_arguments() {
       RUN_RUST_TESTS|run_rust_tests)
         RUN_RUST_TESTS=1
         ;;
+      RUN_RUST_VALGRIND|run_rust_valgrind)
+        RUN_RUST_VALGRIND=1
+        ;;
       RUN_MICRO_BENCHMARKS|run_micro_benchmarks|RUN_MICROBENCHMARKS|run_microbenchmarks)
         RUN_MICRO_BENCHMARKS=1
         ;;
@@ -74,6 +83,20 @@ parse_arguments() {
         ;;
       RUN_PYTEST|run_pytest)
         RUN_PYTEST=1
+        ;;
+      EXT=*|ext=*)
+        EXT="${arg#*=}"
+        ;;
+      EXT_HOST=*|ext_host=*)
+        if [[ "${arg#*=}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+          EXT_HOST="${arg#*=}"
+        else
+          echo "Invalid IP address: ${arg#*=}"
+          exit 1
+        fi
+        ;;
+      EXT_PORT=*|ext_port=*)
+        EXT_PORT="${arg#*=}"
         ;;
       TEST=*)
         TEST_FILTER="${arg#*=}"
@@ -108,6 +131,9 @@ parse_arguments() {
       REDIS_STANDALONE=*)
         REDIS_STANDALONE="${arg#*=}"
         ;;
+      BUILD_INTEL_SVS_OPT=*)
+        BUILD_INTEL_SVS_OPT="${arg#*=}"
+        ;;
       *)
         # Pass all other arguments directly to CMake
         CMAKE_ARGS="$CMAKE_ARGS -D${arg}"
@@ -122,7 +148,7 @@ parse_arguments() {
 #-----------------------------------------------------------------------------
 setup_test_configuration() {
   # If any tests will be run, ensure BUILD_TESTS is enabled
-  if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_PYTEST" == "1" || "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
+  if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_RUST_VALGRIND" == "1" || "$RUN_PYTEST" == "1" || "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
     if [[ "$BUILD_TESTS" != "1" ]]; then
       echo "Test execution requested, enabling test build automatically"
       BUILD_TESTS="1"
@@ -155,16 +181,21 @@ setup_build_environment() {
     FLAVOR="release"
   fi
 
-  # If unset, determine the Rust build profile
-  if [[ "$RUST_PROFILE" == "" ]]; then
+  # Determine the correct Rust profile for both build and tests
+  # Only set RUST_PROFILE if it wasn't already set by the user
+  if [[ -z "$RUST_PROFILE" ]]; then
     if [[ "$BUILD_TESTS" == "1" ]]; then
-      if [[ "$DEBUG" == "1" || "$COV" == "1" ]]; then
+      if [[ "$DEBUG" == "1" || -n "$SAN" || "$COV" == "1" ]]; then
         RUST_PROFILE="dev"
       else
         RUST_PROFILE="optimised_test"
       fi
     else
-      RUST_PROFILE="release"
+      if [[ "$DEBUG" == "1" ]]; then
+        RUST_PROFILE="dev"
+      else
+        RUST_PROFILE="release"
+      fi
     fi
   fi
 
@@ -177,7 +208,7 @@ setup_build_environment() {
     OS_NAME=$(echo "$OS_NAME" | tr '[:upper:]' '[:lower:]')
   fi
 
-  # Get architecture and convert arm64 to arm64v8
+  # Get architecture and convert arm64 to aarch64
   ARCH=$(uname -m)
   if [[ "$ARCH" == "arm64" ]]; then
     ARCH="aarch64"
@@ -200,6 +231,12 @@ setup_build_environment() {
 
   # Set the final BINDIR using the full variant path
   BINDIR="${BINROOT}/${FULL_VARIANT}/${OUTDIR}"
+
+  # Create compatibility symlink for aarch64 -> arm64v8 if needed
+  if [[ "$ARCH" == "aarch64" ]]; then
+    export ARM64V8_VARIANT="${OS_NAME}-arm64v8-${FLAVOR}"
+    export ARM64V8_BINROOT="${BINROOT}/${ARM64V8_VARIANT}"
+  fi
 }
 
 start_group() {
@@ -302,6 +339,31 @@ prepare_cmake_arguments() {
   if [[ "$OS_NAME" == "macos" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
   fi
+
+  if [[ "$BUILD_INTEL_SVS_OPT" == "yes" || "$BUILD_INTEL_SVS_OPT" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_INTEL_SVS_OPT=ON"
+  else
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSVS_SHARED_LIB=OFF"
+  fi
+
+  # Handle RUST_DYN_CRT flag for Alpine Linux compatibility
+  if [[ "$RUST_DYN_CRT" == "1" ]]; then
+    # Add the dynamic C runtime flag to RUSTFLAGS
+    if [[ "$RUSTFLAGS" == "" ]]; then
+      RUSTFLAGS="-C target-feature=-crt-static"
+    else
+      RUSTFLAGS="$RUSTFLAGS -C target-feature=-crt-static"
+    fi
+    # Export RUSTFLAGS so it's available to the Rust build process
+    export RUSTFLAGS
+  fi
+
+  # RUSTFLAGS will be passed as environment variable to avoid quoting issues
+  # This prevents CMake argument parsing from truncating complex flag values
+
+  if [[ "$RUST_PROFILE" != "" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_PROFILE=$RUST_PROFILE"
+  fi
 }
 
 #-----------------------------------------------------------------------------
@@ -312,6 +374,14 @@ run_cmake() {
   # Create build directory and ensure any parent directories exist
   mkdir -p "$BINDIR"
   cd "$BINDIR"
+
+  # Create compatibility symlink for aarch64 -> arm64v8 if needed
+  if [[ "$ARCH" == "aarch64" && -n "$ARM64V8_BINROOT" ]]; then
+    if [[ ! -e "$ARM64V8_BINROOT" ]]; then
+      echo "Creating compatibility symlink: $ARM64V8_BINROOT -> ${BINROOT}/${FULL_VARIANT}"
+      ln -sf "${FULL_VARIANT}" "$ARM64V8_BINROOT"
+    fi
+  fi
 
   # Clean up any cached CMake configuration if force is enabled
   if [[ "$FORCE" == "1" ]]; then
@@ -331,47 +401,11 @@ run_cmake() {
     # If verbose, dump all CMake variables before and after configuration
     if [[ "$VERBOSE" == "1" ]]; then
       echo "Running CMake with verbose output..."
-      $CMAKE_CMD --trace-expand
+      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
     else
-      $CMAKE_CMD
+      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
     fi
   fi
-}
-
-#-----------------------------------------------------------------------------
-# Function: build_redisearch_rs
-# Build the redisearch_rs target explicitly
-#-----------------------------------------------------------------------------
-build_redisearch_rs() {
-  echo "Building redisearch_rs..."
-  REDISEARCH_RS_DIR="$ROOT/src/redisearch_rs"
-  REDISEARCH_RS_TARGET_DIR="$ROOT/bin/redisearch_rs"
-  REDISEARCH_RS_BINDIR="$BINDIR/redisearch_rs"
-
-  # Determine Rust artifact directory based on the chosen profile
-  if [[ "$RUST_PROFILE" == "dev" ]]; then
-    RUST_ARTIFACT_SUBDIR="debug"
-  else
-    RUST_ARTIFACT_SUBDIR="$RUST_PROFILE"
-  fi
-  # Set up RUSTFLAGS for dynamic C runtime if needed
-  if [[ "$RUST_DYN_CRT" == "1" ]]; then
-    # Disable statically linking the C runtime.
-    # Default behaviour or ignored on most platforms,
-    # but necessary on Alpine Linux.
-    # See: https://doc.rust-lang.org/reference/linkage.html#r-link.crt
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
-  fi
-  # Build using cargo
-  mkdir -p "$REDISEARCH_RS_TARGET_DIR"
-  pushd .
-  cd "$REDISEARCH_RS_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --profile="$RUST_PROFILE"
-
-  # Copy artifacts to the target directory
-  mkdir -p "$REDISEARCH_RS_BINDIR"
-  cp "$REDISEARCH_RS_TARGET_DIR/$RUST_ARTIFACT_SUBDIR"/*.a "$REDISEARCH_RS_BINDIR"
-  popd
 }
 
 #-----------------------------------------------------------------------------
@@ -379,9 +413,7 @@ build_redisearch_rs() {
 # Build the RediSearch project using Make
 #-----------------------------------------------------------------------------
 build_project() {
-  # Build redisearch_rs explicitly
-  build_redisearch_rs
-
+  # redisearch_rs is now built automatically by CMake
   # Determine number of parallel jobs for make
   if command -v nproc &> /dev/null; then
     NPROC=$(nproc)
@@ -517,36 +549,45 @@ run_rust_tests() {
 
   echo "Running Rust tests..."
 
+  # Tell Rust build scripts where to find the compiled static libraries
+  export BINDIR
+
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
-  
+
   # Set up RUSTFLAGS for warnings
   if [[ "$RUST_DENY_WARNS" == "1" ]]; then
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
   fi
 
+  # Pin a specific working version of nightly to prevent breaking the CI because
+  # regressions in a nightly build.
+  # Make sure to synchronize updates across all modules: Redis and RedisJSON.
+  NIGHTLY_VERSION="nightly-2025-07-30"
+
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
     # We use the `nightly` compiler in order to include doc tests in the coverage computation.
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
-    RUST_EXTENSIONS="+nightly llvm-cov"
+    RUST_EXTENSIONS="+$NIGHTLY_VERSION llvm-cov"
+    # We exclude Rust benchmarking crates that link to C code when computing coverage.
+    # On one side, we aren't interested in coverage of those utilities.
+    # On top of that, it causes linking issues since, when computing coverage, it seems to
+    # require C symbols to be defined even if they aren't invoked at runtime.
     RUST_TEST_OPTIONS="
       --doctests
+      $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C
       --codecov
-      --workspace
-      --exclude=inverted_index_bencher
-      --exclude=trie_bencher
-      --exclude=varint_bencher
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
-    RUST_EXTENSIONS="+nightly miri"
+    RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
   fi
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
@@ -554,6 +595,53 @@ run_rust_tests() {
     echo "All Rust tests passed!"
   else
     echo "Some Rust tests failed. Check the test logs above for details."
+    HAS_FAILURES=1
+  fi
+}
+
+#-----------------------------------------------------------------------------
+# Function: run_rust_valgrind_tests
+# Run Rust Valgrind tests (to detect memory leaks)
+#-----------------------------------------------------------------------------
+run_rust_valgrind_tests() {
+  if [[ "$RUN_RUST_VALGRIND" != "1" ]]; then
+    return 0
+  fi
+
+  echo "Running Rust tests..."
+
+  # Set Rust test environment
+  RUST_DIR="$ROOT/src/redisearch_rs"
+
+  # Set up RUSTFLAGS for warnings
+  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
+  fi
+
+  cd "$RUST_DIR"
+
+  if [[ "$OS_NAME" == "macos" ]]; then
+    # no valgrind on apple silicon... so...
+    echo "The valgrind test target is only supported on Linux"
+    HAS_FAILURES=1
+    return 0
+  else
+    # Run cargo valgrind with the appropriate filter
+    VALGRINDFLAGS=--suppressions=$PWD/valgrind.supp \
+        RUSTFLAGS="${RUSTFLAGS:--D warnings}" \
+        cargo valgrind test \
+        --profile=$RUST_PROFILE \
+        $RUST_TEST_OPTIONS \
+        --workspace $TEST_FILTER \
+        -- --nocapture
+  fi
+
+  # Check test results
+  RUST_TEST_RESULT=$?
+  if [[ $RUST_TEST_RESULT -eq 0 ]]; then
+    echo "Rust Valgrind test passed!"
+  else
+    echo "Some Rust valgrind tests failed. Check the test logs above for details."
     HAS_FAILURES=1
   fi
 }
@@ -597,6 +685,9 @@ run_python_tests() {
   export REDIS_STANDALONE="${REDIS_STANDALONE:-1}"
   export SA="${SA:-$REDIS_STANDALONE}"
   export COV
+  export EXT=${EXT-"RUN"}
+  export EXT_HOST=${EXT_HOST-"127.0.0.1"}
+  export EXT_PORT=${EXT_PORT-6379}
 
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
@@ -729,6 +820,9 @@ build_project
 
 # Run tests if requested
 run_tests
+
+# Run Rust valgrind tests if requested
+run_rust_valgrind_tests
 
 # Run micro-benchmarks if requested
 run_micro_benchmarks

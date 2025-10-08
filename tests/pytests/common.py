@@ -12,7 +12,7 @@ import itertools
 from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Dict
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
@@ -24,6 +24,7 @@ from unittest import SkipTest
 import inspect
 import subprocess
 import math
+import faker
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -834,8 +835,14 @@ def VerifyTimeoutWarningResp3(env, res, message="", depth=0):
     if (res['warning']):
         env.assertContains("Timeout", res["warning"][0], message=message + " expected timeout warning", depth=depth+1)
 
+def parseDebugQueryCommandArgs(query_cmd, debug_params):
+    return [*query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)]
+
 def runDebugQueryCommand(env, query_cmd, debug_params):
-    return env.cmd(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params))
+    # Use the helper function to build the argument list
+    args = parseDebugQueryCommandArgs(query_cmd, debug_params)
+    return env.cmd(debug_cmd(), *args)
+
 
 def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, internal_only=False):
     debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
@@ -846,6 +853,38 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
 def runDebugQueryCommandAndCrash(env, query_cmd):
     debug_params = ['CRASH']
     return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
+
+
+
+def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, rp_type, pause_after_n):
+    debug_params = ['PAUSE_AFTER_RP_N', rp_type, pause_after_n]
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def runDebugQueryCommandPauseBeforeRPAfterN(env, query_cmd, rp_type, pause_after_n, extra_args=None):
+    debug_params = ['PAUSE_BEFORE_RP_N', rp_type, pause_after_n]
+    if extra_args:
+        debug_params.extend(extra_args)
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def getIsRPPaused(env):
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED')
+
+def setPauseRPResume(env):
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
+
+def allShards_getIsRPPaused(env):
+    results = []
+    for shardId in range(1, env.shardsCount + 1):
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED')
+        results.append(result)
+    return results
+
+def allShards_setPauseRPResume(env):
+    results = []
+    for shardId in range(1, env.shardsCount + 1):
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
+        results.append(result)
+    return results
 
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
@@ -944,3 +983,59 @@ def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
     for k in d1:
         if k in d2:
             env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
+
+def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
+    """Extract all fields from hybrid response results
+
+    Args:
+        response: Hybrid search response containing results
+
+    Returns:
+        Dict mapping key -> dict of all fields from the results list
+        Example: {'doc:1': {'__score': '0.5', 'vector_distance': '0.3'}}
+    """
+    # return dict mapping key -> all fields from the results list
+    res_results_index = recursive_index(response, 'results')
+    res_count_index = recursive_index(response, 'total_results')
+    res_results_index[-1] += 1
+    res_count_index[-1] += 1
+
+    results = {}
+    for result in access_nested_list(response, res_results_index):
+        # Each result has structure: ['attributes', [flat_key_value_list]]
+        result = dict(zip(result[::2], result[1::2]))
+        if '__key' in result:
+            key = result['__key']
+            results[key] = result
+            
+    total_results = access_nested_list(response, res_count_index)
+    return results, total_results
+
+def populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345, offset=0):
+    """Populate database with faker-generated text documents
+
+    Args:
+        env: Test environment
+        num_docs: Number of documents to create
+        doc_len: Number of words per document (equivalent to dim parameter)
+        seed: Random seed for reproducibility
+        offset: Starting offset for document IDs (equivalent to ids_offset)
+    """
+    conn = getConnectionByEnv(env)
+    fake = faker.Faker()
+    fake.seed_instance(seed)
+
+    # Use pipeline for better performance
+    pipeline = conn.pipeline(transaction=False)
+    for i in range(num_docs):
+        # Generate sentences with specified number of words
+        text = fake.sentence(nb_words=doc_len, variable_nb_words=False).rstrip('.')
+        pipeline.execute_command('HSET', f'{offset + i}', 'description', text)
+
+        # Execute pipeline every 1000 docs to avoid memory issues
+        if i % 1000 == 0:
+            pipeline.execute()
+            pipeline = conn.pipeline(transaction=False)
+
+    # Execute remaining docs
+    pipeline.execute()

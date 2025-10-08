@@ -99,39 +99,33 @@ impl VarintBencher {
 /// - Four bytes: 2097152-268435455
 /// - Five bytes: 268435456-u32::MAX
 fn generate_test_values() -> Vec<BenchInputs<u32>> {
-    let mut values = Vec::new();
-
-    // Single byte values (0-127).
-    values.push(BenchInputs {
-        values: vec![10, 50, 100, 127],
-        n_bytes: 1,
-    });
-
-    // Two byte values (128-16383).
-    values.push(BenchInputs {
-        values: vec![128, 1000, 8000, 16383],
-        n_bytes: 2,
-    });
-
-    // Three byte values (16384-2097151).
-    values.push(BenchInputs {
-        values: vec![16384, 100000, 1000000, 2097151],
-        n_bytes: 3,
-    });
-
-    // Four byte values (2097152-268435455).
-    values.push(BenchInputs {
-        values: vec![2097152, 50000000, 200000000, 268435455],
-        n_bytes: 4,
-    });
-
-    // Five byte values (268435456-u32::MAX).
-    values.push(BenchInputs {
-        values: vec![268435456, 1000000000, 3000000000, u32::MAX - 1],
-        n_bytes: 5,
-    });
-
-    values
+    vec![
+        // Single byte values (0-127).
+        BenchInputs {
+            values: vec![10, 50, 100, 127],
+            n_bytes: 1,
+        },
+        // Two byte values (128-16383).
+        BenchInputs {
+            values: vec![128, 1000, 8000, 16383],
+            n_bytes: 2,
+        },
+        // Three byte values (16384-2097151).
+        BenchInputs {
+            values: vec![16384, 100000, 1000000, 2097151],
+            n_bytes: 3,
+        },
+        // Four byte values (2097152-268435455).
+        BenchInputs {
+            values: vec![2097152, 50000000, 200000000, 268435455],
+            n_bytes: 4,
+        },
+        // Five byte values (268435456-u32::MAX).
+        BenchInputs {
+            values: vec![268435456, 1000000000, 3000000000, u32::MAX - 1],
+            n_bytes: 5,
+        },
+    ]
 }
 
 pub struct BenchInputs<T> {

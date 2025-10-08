@@ -7,13 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::{Read, Seek, Write};
+use std::io::{Cursor, Seek, Write};
 
 use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 
 /// Encode and decode the delta, frequency and field mask of a record.
 ///
@@ -30,7 +30,7 @@ impl Encoder for FreqsFields {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -45,16 +45,32 @@ impl Encoder for FreqsFields {
     }
 }
 
+impl DecodedBy for FreqsFields {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
+        Self
+    }
+}
+
 impl Decoder for FreqsFields {
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult> {
-        let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(reader)?;
+    fn decode<'index>(
+        &self,
+        cursor: &mut Cursor<&'index [u8]>,
+        base: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
+        let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, field_mask] = decoded_values;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask as t_fieldMask)
-            .frequency(freq);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask as t_fieldMask;
+        result.freq = freq;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }
 
@@ -74,7 +90,7 @@ impl Encoder for FreqsFieldsWide {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -85,16 +101,32 @@ impl Encoder for FreqsFieldsWide {
     }
 }
 
-impl Decoder for FreqsFieldsWide {
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult> {
-        let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(reader)?;
-        let [delta, freq] = decoded_values;
-        let field_mask = t_fieldMask::read_as_varint(reader)?;
+impl DecodedBy for FreqsFieldsWide {
+    type Decoder = Self;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask)
-            .frequency(freq);
-        Ok(record)
+    fn decoder() -> Self::Decoder {
+        Self
+    }
+}
+
+impl Decoder for FreqsFieldsWide {
+    fn decode<'index>(
+        &self,
+        cursor: &mut Cursor<&'index [u8]>,
+        base: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
+        let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
+        let [delta, freq] = decoded_values;
+        let field_mask = t_fieldMask::read_as_varint(cursor)?;
+
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask;
+        result.freq = freq;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }

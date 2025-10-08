@@ -14,7 +14,6 @@
 struct MetricRequest;
 
 typedef struct QueryEvalCtx {
-  ConcurrentSearchCtx *conc;
   RedisSearchCtx *sctx;
   const RSSearchOptions *opts;
   QueryError *status;

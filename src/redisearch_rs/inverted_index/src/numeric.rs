@@ -140,11 +140,11 @@
 //!      │  └─ Type: INT_POS (10)
 //!      └─ Value bytes: 1 (001) (ie 2 bytes are used for the value)
 
-use std::io::{IoSlice, Read, Write};
+use std::io::{Cursor, IoSlice, Read, Write};
 
 use ffi::t_docId;
 
-use crate::{Decoder, Encoder, IdDelta, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, IdDelta, RSIndexResult};
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
@@ -156,9 +156,6 @@ pub struct Numeric {
     /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
     /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)
     compress_floats: bool,
-
-    /// Keeps track of the number of entries help by the parent inverted index.
-    num_entries: usize,
 }
 
 impl Numeric {
@@ -172,7 +169,6 @@ impl Numeric {
     pub fn new() -> Self {
         Self {
             compress_floats: false,
-            num_entries: 0,
         }
     }
 
@@ -182,11 +178,6 @@ impl Numeric {
         self.compress_floats = true;
 
         self
-    }
-
-    /// Returns the number of entries encoded by this encoder.
-    pub fn num_entries(&self) -> usize {
-        self.num_entries
     }
 }
 
@@ -232,8 +223,10 @@ impl NumericDelta {
 impl Encoder for Numeric {
     type Delta = NumericDelta;
 
+    const ALLOW_DUPLICATES: bool = true;
+
     fn encode<W: Write + std::io::Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -249,7 +242,7 @@ impl Encoder for Numeric {
         let delta = &delta[..end];
         let delta_bytes = delta.len() as _;
 
-        let bytes_written = match Value::from(num_record.0, self.compress_floats) {
+        let bytes_written = match Value::from(num_record, self.compress_floats) {
             Value::TinyInteger(i) => {
                 let header = Header {
                     delta_bytes,
@@ -395,15 +388,33 @@ impl Encoder for Numeric {
             }
         };
 
-        self.num_entries += 1;
         Ok(bytes_written)
     }
 }
 
+impl DecodedBy for Numeric {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
+        Self::default()
+    }
+}
+
 impl Decoder for Numeric {
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult> {
+    /// Decode a numeric record from the given cursor, using the provided base document ID.
+    /// The result is written into the provided `RSIndexResult` instance.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true to ensure `result` is holding numeric data.
+    fn decode<'index>(
+        &self,
+        cursor: &mut Cursor<&'index [u8]>,
+        base: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let mut header = [0; 1];
-        reader.read_exact(&mut header)?;
+        cursor.read_exact(&mut header)?;
 
         let header = header[0];
         let delta_bytes = (header & 0b111) as usize;
@@ -412,49 +423,49 @@ impl Decoder for Numeric {
 
         let (delta, num) = match type_bits {
             Self::TINY_TYPE => {
-                let delta = read_only_u64(reader, delta_bytes)?;
+                let delta = read_only_u64(cursor, delta_bytes)?;
                 let num = upper_bits;
 
                 (delta, num as f64)
             }
             Self::INT_POS_TYPE => {
-                let (delta, num) = read_u64_and_u64(reader, delta_bytes, upper_bits as usize + 1)?;
+                let (delta, num) = read_u64_and_u64(cursor, delta_bytes, upper_bits as usize + 1)?;
 
                 (delta, num as f64)
             }
             Self::INT_NEG_TYPE => {
-                let (delta, num) = read_u64_and_u64(reader, delta_bytes, upper_bits as usize + 1)?;
+                let (delta, num) = read_u64_and_u64(cursor, delta_bytes, upper_bits as usize + 1)?;
 
                 (delta, (num as f64).copysign(-1.0))
             }
             Self::FLOAT_TYPE => match upper_bits {
                 FLOAT32_POSITIVE => {
-                    let (delta, num) = read_u64_and_f32(reader, delta_bytes)?;
+                    let (delta, num) = read_u64_and_f32(cursor, delta_bytes)?;
 
                     (delta, num as f64)
                 }
                 FLOAT32_NEGATIVE => {
-                    let (delta, num) = read_u64_and_f32(reader, delta_bytes)?;
+                    let (delta, num) = read_u64_and_f32(cursor, delta_bytes)?;
 
                     (delta, num.copysign(-1.0) as f64)
                 }
                 FLOAT64_POSITIVE => {
-                    let (delta, num) = read_u64_and_f64(reader, delta_bytes)?;
+                    let (delta, num) = read_u64_and_f64(cursor, delta_bytes)?;
 
                     (delta, num)
                 }
                 FLOAT64_NEGATIVE => {
-                    let (delta, num) = read_u64_and_f64(reader, delta_bytes)?;
+                    let (delta, num) = read_u64_and_f64(cursor, delta_bytes)?;
 
                     (delta, num.copysign(-1.0))
                 }
                 0b101 | FLOAT_INFINITE => {
-                    let delta = read_only_u64(reader, delta_bytes)?;
+                    let delta = read_only_u64(cursor, delta_bytes)?;
 
                     (delta, f64::INFINITY)
                 }
                 0b111 | FLOAT_NEGATIVE_INFINITE => {
-                    let delta = read_only_u64(reader, delta_bytes)?;
+                    let delta = read_only_u64(cursor, delta_bytes)?;
 
                     (delta, f64::NEG_INFINITY)
                 }
@@ -464,9 +475,18 @@ impl Decoder for Numeric {
         };
 
         let doc_id = base + delta;
-        let record = RSIndexResult::numeric(num).doc_id(doc_id);
 
-        Ok(record)
+        result.doc_id = doc_id;
+        // SAFETY: Caller must ensure `result` is numeric
+        unsafe {
+            *result.as_numeric_unchecked_mut() = num;
+        }
+
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::numeric(0.0)
     }
 }
 
@@ -558,12 +578,12 @@ impl Value {
         let u64_val = abs_val as u64;
 
         if u64_val as f64 == abs_val {
-            if u64_val <= 0b111 {
-                Value::TinyInteger(u64_val as u8)
-            } else if value.is_sign_positive() {
-                Value::IntegerPositive(u64_val)
-            } else {
+            if value.is_sign_negative() {
                 Value::IntegerNegative(u64_val)
+            } else if u64_val <= 0b111 {
+                Value::TinyInteger(u64_val as u8)
+            } else {
+                Value::IntegerPositive(u64_val)
             }
         } else {
             match value {

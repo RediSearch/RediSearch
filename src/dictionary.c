@@ -66,7 +66,7 @@ int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
 void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
   Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
   if (t == NULL) {
-    RedisModule_ReplyWithSetOrArray(ctx, 0);
+    RedisModule_ReplyWithSet(ctx, 0);
     return;
   }
 
@@ -76,7 +76,7 @@ void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
   int dist = 0;
   size_t termLen;
 
-  RedisModule_ReplyWithSetOrArray(ctx, t->size);
+  RedisModule_ReplyWithSet(ctx, t->size);
 
   TrieIterator *it = Trie_Iterate(t, "", 0, 0, 1);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {

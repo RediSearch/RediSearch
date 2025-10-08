@@ -130,7 +130,7 @@ def testGeoDistanceFile(env):
 
 # causes server crash before MOD-5646 fix
 @skip(cluster=True)
-def testGeoOnReopen(env):
+def testGeoOnReopen(env:Env):
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
   env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 1000).ok()
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'location', 'GEO').ok()
@@ -150,12 +150,12 @@ def testGeoOnReopen(env):
   ids = set()
   def checkResults(res):
     for id in [int(r[1]) for r in res[1:]]:
-      env.assertNotContains(id, ids)
+      env.assertNotContains(id, ids, depth=1, message=f"Duplicate id {id} found in results")
       ids.add(id)
 
   res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '@location:[-0.15036 51.50566 10000 km]',
                                      'LOAD', 3, '@__key', 'AS', 'id',
-                                     'WITHCURSOR', 'COUNT', 100)
+                                     'WITHCURSOR', 'COUNT', 1000)
   checkResults(res)
 
   forceInvokeGC(env) # trigger the GC to clean all the overwritten docs

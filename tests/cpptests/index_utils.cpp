@@ -9,8 +9,8 @@
 
 #include "index_utils.h"
 #include "common.h"
-#include "src/index.h"
-#include "src/inverted_index/inverted_index.h"
+#include "src/forward_index.h"
+#include "inverted_index.h"
 #include "src/redis_index.h"
 
 std::string numToDocStr(unsigned id) {
@@ -26,9 +26,8 @@ size_t addDocumentWrapper(RedisModuleCtx *ctx, RSIndex *index, const char *docid
 
 InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with) {
     size_t sz;
-    InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &sz);
+    InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &sz);
 
-    IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
     t_docId id = start_with > 0 ? start_with : idStep;
     for (int i = 0; i < size; i++) {
         // if (i % 10000 == 1) {
@@ -47,7 +46,7 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
             VVW_Write(h.vw, n);
         }
 
-        InvertedIndex_WriteForwardIndexEntry(idx, enc, &h);
+        InvertedIndex_WriteForwardIndexEntry(idx, &h);
         VVW_Free(h.vw);
 
         id += idStep;
@@ -89,22 +88,6 @@ NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
   return openNumericKeysDict(spec, fmtkey, DONT_CREATE_INDEX);
 }
 
-size_t NumericRangeGetMemory(const NumericRangeNode *Node) {
-    InvertedIndex *idx = Node->range->entries;
-
-    size_t curr_node_memory = sizeof_InvertedIndex(Index_StoreNumeric);
-
-    // iterate idx blocks
-    for (size_t i = 0; i < idx->size; ++i) {
-        curr_node_memory += sizeof(IndexBlock);
-        IndexBlock *blk = idx->blocks + i;
-        curr_node_memory += blk->buf.cap;
-    }
-
-    return curr_node_memory;
-
-}
-
 size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range) {
     if (!rt) {
         return 0;
@@ -119,7 +102,7 @@ size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNod
         if (!currNode->range) {
             continue;
         }
-        size_t curr_node_memory = NumericRangeGetMemory(currNode);
+        size_t curr_node_memory = InvertedIndex_MemUsage(currNode->range->entries);
 
         // Ensure stats are correct
         if (curr_node_memory != currNode->range->invertedIndexSize) {

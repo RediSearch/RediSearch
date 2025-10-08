@@ -48,6 +48,7 @@ env:
   COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
+  BUILD_INTEL_SVS_OPT: "yes"
 
 jobs:
   common-flow:
@@ -123,6 +124,26 @@ jobs:
               exit 1
               ;;
           esac
+      - name: Print CPU information
+        run: |
+          echo "=== CPU Information ==="
+          if command -v lscpu >/dev/null 2>&1; then
+            echo "--- lscpu output ---"
+            lscpu
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            echo "--- macOS CPU info ---"
+            echo "CPU brand: $(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "N/A")"
+            echo "Core count: $(sysctl -n machdep.cpu.core_count 2>/dev/null || echo "N/A")"
+            echo "Thread count: $(sysctl -n machdep.cpu.thread_count 2>/dev/null || echo "N/A")"
+            echo "CPU vendor: $(sysctl -n machdep.cpu.vendor 2>/dev/null || echo "N/A")"
+            echo "CPU features: $(sysctl -n machdep.cpu.features 2>/dev/null || echo "N/A")"
+          else
+            echo "--- Fallback CPU info ---"
+            cat /proc/cpuinfo 2>/dev/null || echo "CPU info not available"
+          fi
+          echo "Runner OS: $RUNNER_OS"
+          echo "Runner Architecture: ${{ runner.arch }}"
+          echo "========================"
       - name: Setup
         working-directory: .install
         run: |

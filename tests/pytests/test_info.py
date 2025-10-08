@@ -152,7 +152,7 @@ def test_info_text_tag_overhead(env):
 
   # Overhead ~= 0
   res = index_info(env, 'idx')
-  env.assertEqual(float(res['tag_overhead_sz_mb']), 1.52587890625e-05)
+  env.assertEqual(float(res['tag_overhead_sz_mb']), 24. / 1024 / 1024)
   env.assertEqual(float(res['text_overhead_sz_mb']), 0)
 
 def test_vecsim_info_stats_memory():

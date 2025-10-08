@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
-#include "hybrid_reader.h"
-#include "metric_iterator.h"
+#include "iterators/hybrid_reader.h"
+#include "iterators/idlist_iterator.h"
 #include "query_param.h"
 #include "rdb.h"
 #include "util/workers_pool.h"
@@ -22,7 +22,8 @@
 #endif
 
 static bool isLVQSupported() {
-#ifdef CPUID_AVAILABLE
+
+#if defined(CPUID_AVAILABLE) && BUILD_INTEL_SVS_OPT
   // Check if the machine is Intel based on the CPU vendor.
   unsigned int eax, ebx, ecx, edx;
   char vendor[13];
@@ -75,30 +76,36 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   return kdv->p;
 }
 
-IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, bool yields_metric) {
+QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric) {
   size_t res_num = VecSimQueryReply_Len(reply);
   if (res_num == 0) {
     VecSimQueryReply_Free(reply);
     return NULL;
   }
-  t_docId *docIdsList = array_new(t_docId, res_num);
-  double *metricList = array_new(double, res_num);
+  t_docId *docIdsList = rm_malloc(sizeof(*docIdsList) * res_num);
+  double *metricList = yields_metric ? rm_malloc(sizeof(*metricList) * res_num) : NULL;
 
   // Collect the results' id and distance and set it in the arrays.
   VecSimQueryReply_Iterator *iter = VecSimQueryReply_GetIterator(reply);
-  while (VecSimQueryReply_IteratorHasNext(iter)) {
+  for (size_t i = 0; i < res_num; i++) {
     VecSimQueryResult *res = VecSimQueryReply_IteratorNext(iter);
-    array_append(docIdsList, VecSimQueryResult_GetId(res));
-    array_append(metricList, VecSimQueryResult_GetScore(res));
+    docIdsList[i] = VecSimQueryResult_GetId(res);
+    if (yields_metric) {
+      metricList[i] = VecSimQueryResult_GetScore(res);
+    }
   }
   VecSimQueryReply_IteratorFree(iter);
   VecSimQueryReply_Free(reply);
 
-  // Move ownership on the arrays to the MetricIterator.
-  return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, yields_metric);
+  // Move ownership on the arrays to the iterator.
+  if (yields_metric) {
+    return NewMetricIterator(docIdsList, metricList, res_num, VECTOR_DISTANCE);
+  } else {
+    return NewIdListIterator(docIdsList, res_num, 1.0);
+  }
 }
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
+QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = IndexSpec_GetFormattedKey(ctx->spec, vq->field, INDEXFLD_T_VECTOR);
   VecSimIndex *vecsim = openVectorIndex(ctx->spec, key, DONT_CREATE_INDEX);
@@ -211,6 +218,20 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
   params.params[index].value = rm_strndup(val, val_len);
   params.params[index].valLen = val_len;
   return 1;
+}
+
+char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen) {
+  // Generate default scoreField name using vector field name
+  char *scoreFieldName = NULL;
+  int n_written = rm_asprintf(&scoreFieldName, "__%.*s_score", (int)fieldNameLen, fieldName);
+  RS_ASSERT(n_written != -1);
+  return scoreFieldName;
+}
+
+void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen) {
+  // Set default scoreField using vector field name
+  char *defaultName = VectorQuery_GetDefaultScoreFieldName(fieldName, fieldNameLen);
+  vq->scoreField = defaultName;
 }
 
 void VectorQuery_Free(VectorQuery *vq) {
@@ -658,4 +679,37 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   RedisSearchCtx_UnlockSpec(&sctx);
   StrongRef_Release(strong);
   return 1;
+}
+
+VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
+  RS_ASSERT(FIELD_IS(vectorField, INDEXFLD_T_VECTOR))
+  VecSimParams vec_params = vectorField->vectorOpts.vecSimParams;
+
+  VecSimAlgo field_algo = vec_params.algo;
+  AlgoParams algo_params = vec_params.algoParams;
+
+  switch (field_algo) {
+    case VecSimAlgo_TIERED: {
+      VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
+      if (primary_params->algo == VecSimAlgo_HNSWLIB) {
+        HNSWParams hnsw_params = primary_params->algoParams.hnswParams;
+        return hnsw_params.metric;
+      } else if (primary_params->algo == VecSimAlgo_SVS) {
+        SVSParams svs_params = primary_params->algoParams.svsParams;
+        return svs_params.metric;
+      } else {
+        // Unknown primary algorithm in tiered index
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "Unknown primary algorithm in tiered index: %s",
+                 VecSimAlgorithm_ToString(primary_params->algo));
+        RS_ABORT(error_msg);
+      }
+      break;
+    }
+    case VecSimAlgo_BF:
+      return algo_params.bfParams.metric;
+    default:
+      // Unknown algorithm type
+      RS_ABORT("Unknown algorithm in vector index");
+  }
 }

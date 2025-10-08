@@ -8,10 +8,11 @@
 */
 #include "numeric_index.h"
 #include "redis_index.h"
+#include "iterators/inverted_index_iterator.h"
+#include "iterators/union_iterator.h"
 #include "sys/param.h"
 #include "rmutil/vector.h"
 #include "rmutil/util.h"
-#include "index.h"
 #include "util/arr.h"
 #include <math.h>
 #include "redismodule.h"
@@ -32,13 +33,6 @@ static inline size_t getSplitCardinality(size_t depth) {
   if (depth > LAST_DEPTH_OF_NON_MAX_CARD) return NR_MAXRANGE_CARD;
   return _SPLIT_CARD_BY_DEPTH(depth);
 }
-
-typedef struct {
-  IndexIterator *it;
-  uint32_t lastRevId;
-  IndexSpec *sp;
-  const FieldSpec *field;
-} NumericUnionCtx;
 
 void NumericRangeIterator_OnReopen(void *privdata);
 
@@ -80,40 +74,40 @@ static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
 }
 
 /**
- * Get the median from the given index reader.
+ * Get the median from the given inverted index.
  * Getting the median this way performs good enough today (the number of records is limited),
  * but if we see performance issues in the future, we can consider using another algorithm
  * like QuickSelect or an approximation algorithm for the median.
  */
-static double NumericRange_GetMedian(IndexReader *ir) {
-  size_t median_idx = ir->idx->numEntries / 2;
+static double NumericRange_GetMedian(QueryIterator *iter, size_t num_entries) {
+  size_t median_idx = num_entries / 2;
   double_heap_t *low_half = double_heap_new(median_idx);
-  RSIndexResult *cur;
 
   // Read the first half of the values into a heap
   for (size_t i = 0; i < median_idx; i++) {
-    IR_Read(ir, &cur);
-    double_heap_add_raw(low_half, cur->data.num.value);
+    iter->Read(iter);
+    double_heap_add_raw(low_half, IndexResult_NumValue(iter->current));
   }
   double_heap_heapify(low_half);
 
   // Read the rest of the values, replacing the max value in the heap if the current value is smaller
-  while (INDEXREAD_OK == IR_Read(ir, &cur)) {
-    if (cur->data.num.value < double_heap_peek(low_half)) {
-      double_heap_replace(low_half, cur->data.num.value);
+  while (iter->Read(iter) == ITERATOR_OK) {
+    double value = IndexResult_NumValue(iter->current);
+    if (value < double_heap_peek(low_half)) {
+      double_heap_replace(low_half, value);
     }
   }
 
   double median = double_heap_peek(low_half);
 
   double_heap_free(low_half);
-  IR_Rewind(ir); // Rewind iterator
+  iter->Rewind(iter);
   return median;
 }
 
 static inline NumericRange *NumericRange_New() {
   NumericRange *ret = rm_new(NumericRange);
-  ret->entries = NewInvertedIndex(Index_StoreNumeric, 1, &ret->invertedIndexSize);
+  ret->entries = NewInvertedIndex(Index_StoreNumeric, &ret->invertedIndexSize);
   ret->minVal = INFINITY;
   ret->maxVal = -INFINITY;
   hll_init(&ret->hll, NR_BIT_PRECISION);
@@ -141,20 +135,20 @@ static void NumericRangeNode_Split(NumericRangeNode *n, NRN_AddRv *rv) {
 
   rv->sz += lr->invertedIndexSize + rr->invertedIndexSize;
 
-  RSIndexResult *res = NULL;
-  IndexReader *ir = NewMinimalNumericReader(r->entries, false);
-  double split = NumericRange_GetMedian(ir);
+  QueryIterator *iter = NewInvIndIterator_NumericFull(r->entries);
+  double split = NumericRange_GetMedian(iter, InvertedIndex_NumEntries(r->entries));
   if (split == r->minVal) {
     // make sure the split is not the same as the min value
     split = nextafter(split, INFINITY);
   }
-  while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    NumericRange *cur = res->data.num.value < split ? lr : rr;
-    updateCardinality(cur, res->data.num.value);
-    rv->sz += NumericRange_Add(cur, res->docId, res->data.num.value);
+  while (iter->Read(iter) == ITERATOR_OK) {
+    double value = IndexResult_NumValue(iter->current);
+    NumericRange *cur = value < split ? lr : rr;
+    updateCardinality(cur, value);
+    rv->sz += NumericRange_Add(cur, iter->current->docId, value);
     ++rv->numRecords;
   }
-  IR_Free(ir);
+  iter->Free(iter);
 
   n->maxDepth = 1;
   n->value = split;
@@ -174,7 +168,7 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
 
   // free resources
   rv->sz -= temp->invertedIndexSize;
-  rv->numRecords -= temp->entries->numEntries;
+  rv->numRecords -= InvertedIndex_NumEntries(temp->entries);
   InvertedIndex_Free(temp->entries);
   hll_destroy(&temp->hll);
   rm_free(temp);
@@ -241,7 +235,7 @@ static void NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double va
 
     size_t card = getCardinality(n->range);
     if (card >= getSplitCardinality(depth) ||
-        (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
+        (InvertedIndex_NumEntries(n->range->entries) > NR_MAXRANGE_SIZE && card > 1)) {
 
       // split this node but don't delete its range
       NumericRangeNode_Split(n, rv);
@@ -263,10 +257,10 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
     // downwards
     if (NumericRange_Contained(n->range, min, max)) {
       if (!nf->offset) {
-        *total += n->range->entries->numDocs;
+        *total += InvertedIndex_NumDocs(n->range->entries);
         Vector_Push(v, n->range);
       } else {
-        *total += n->range->entries->numDocs;
+        *total += InvertedIndex_NumDocs(n->range->entries);
         if (*total > nf->offset) {
           Vector_Push(v, n->range);
         }
@@ -282,7 +276,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
   // for non leaf nodes - we try to descend into their children.
   // we do it in direction of sorting
   if (!NumericRangeNode_IsLeaf(n)) {
-    if (nf->asc) {
+    if (nf->ascending) {
       if(min <= n->value) {
         __recursiveAddRange(v, n->left, nf, total);
       }
@@ -298,7 +292,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
       }
     }
   } else if (NumericRange_Overlaps(n->range, min, max)) {
-    *total += (*total == 0 && nf->offset == 0) ? 1 : n->range->entries->numDocs;
+    *total += (*total == 0 && nf->offset == 0) ? 1 : InvertedIndex_NumDocs(n->range->entries);
     if (*total > nf->offset) {
       Vector_Push(v, n->range);
     }
@@ -379,7 +373,7 @@ bool NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
   NumericRangeNode *n = *node;
   // stop condition - we are at leaf
   if (NumericRangeNode_IsLeaf(n)) {
-    if (n->range->entries->numDocs == 0) {
+    if (InvertedIndex_NumDocs(n->range->entries) == 0) {
       return CHILD_EMPTY;
     } else {
       return CHILD_NOT_EMPTY;
@@ -398,7 +392,7 @@ bool NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
     return CHILD_NOT_EMPTY;
   }
 
-  if (n->range && n->range->entries->numDocs != 0) {
+  if (n->range && InvertedIndex_NumDocs(n->range->entries) != 0) {
     // We are on a non-leaf node, with some data in it but some of its children are empty.
     // Ideally we would like to trim the empty children, but today we don't fix missing ranges
     // of inner nodes, so we better keep the node as is.
@@ -442,10 +436,10 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
   rm_free(t);
 }
 
-IndexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
-                                       const NumericFilter *f, int skipMulti,
-                                       const FieldFilterContext* filterCtx) {
+static QueryIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
+                                              const NumericFilter *f, const FieldFilterContext* filterCtx) {
 
+  const FieldSpec *fs = f->fieldSpec;
   // for numeric, if this range is at either end of the filter, we need
   // to check each record.
   // for geo, we always keep the filter to check the distance
@@ -454,14 +448,13 @@ IndexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange 
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
-  IndexReader *ir = NewNumericReader(sctx, nr->entries, f, nr->minVal, nr->maxVal, skipMulti, filterCtx);
 
-  return NewReadIterator(ir);
+  return NewInvIndIterator_NumericQuery(nr->entries, sctx, filterCtx, f, fs, nr->minVal, nr->maxVal);
 }
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */
-IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
+QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
                                      const NumericFilter *f, IteratorsConfig *config,
                                      const FieldFilterContext* filterCtx) {
 
@@ -478,14 +471,14 @@ IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
   if (n == 1) {
     NumericRange *rng;
     Vector_Get(v, 0, &rng);
-    IndexIterator *it = NewNumericRangeIterator(sctx, rng, f, true, filterCtx);
+    QueryIterator *it = NewNumericRangeIterator(sctx, rng, f, filterCtx);
     Vector_Free(v);
     return it;
   }
 
   // We create a  union iterator, advancing a union on all the selected range,
   // treating them as one consecutive range
-  IndexIterator **its = rm_calloc(n, sizeof(IndexIterator *));
+  QueryIterator **its = rm_calloc(n, sizeof(QueryIterator *));
 
   for (size_t i = 0; i < n; i++) {
     NumericRange *rng;
@@ -494,14 +487,12 @@ IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
       continue;
     }
 
-    its[i] = NewNumericRangeIterator(sctx, rng, f, true, filterCtx);
+    its[i] = NewNumericRangeIterator(sctx, rng, f, filterCtx);
   }
   Vector_Free(v);
 
   QueryNodeType type = (!f || NumericFilter_IsNumeric(f)) ? QN_NUMERIC : QN_GEO;
-  IndexIterator *it = NewUnionIterator(its, n, 1, 1, type, NULL, config);
-
-  return it;
+  return NewUnionIterator(its, n, true, 1.0, type, NULL, config);
 }
 
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"
@@ -527,9 +518,9 @@ NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyNam
   return kdv->p;
 }
 
-struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config,
-                                               const FieldFilterContext* filterCtx) {
+QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
+                                        FieldType forType, IteratorsConfig *config,
+                                        const FieldFilterContext* filterCtx) {
   const FieldSpec *fs = flt->fieldSpec;
   RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, fs, forType);
   if (!s) {
@@ -541,20 +532,7 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
     return NULL;
   }
 
-  IndexIterator *it = createNumericIterator(ctx, t, flt, config, filterCtx);
-  if (!it) {
-    return NULL;
-  }
-
-  if (csx) {
-    NumericUnionCtx *uc = rm_malloc(sizeof(*uc));
-    uc->lastRevId = t->revisionId;
-    uc->it = it;
-    uc->sp = ctx->spec;
-    uc->field = fs;
-    ConcurrentSearch_AddKey(csx, NumericRangeIterator_OnReopen, uc, rm_free);
-  }
-  return it;
+  return createNumericIterator(ctx, t, flt, config, filterCtx);
 }
 
 static inline size_t NumericRangeNode_sizeof() {
@@ -600,33 +578,4 @@ NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter) 
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter) {
   array_free(iter->nodesStack);
   rm_free(iter);
-}
-
-/* A callback called after a concurrent context regains execution context. When this happen we need
- * to make sure the key hasn't been deleted or its structure changed, which will render the
- * underlying iterators invalid */
-void NumericRangeIterator_OnReopen(void *privdata) {
-  NumericUnionCtx *nu = privdata;
-  IndexSpec *sp = nu->sp;
-  IndexIterator *it = nu->it;
-
-  RedisModuleString *numField = IndexSpec_GetFormattedKey(sp, nu->field, INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = openNumericKeysDict(sp, numField, DONT_CREATE_INDEX);
-
-  if (!rt || rt->revisionId != nu->lastRevId) {
-    // The numeric tree was either completely deleted or a node was split or removed.
-    // The cursor is invalidated.
-    it->Abort(it->ctx);
-    return;
-  }
-
-  if (it->type == READ_ITERATOR) {
-    IndexReader_OnReopen(it->ctx);
-  } else if (it->type == UNION_ITERATOR) {
-    UI_Foreach(it, IndexReader_OnReopen);
-  } else {
-    RS_LOG_ASSERT_FMT(0,
-      "Unexpected iterator type %d. Expected `READ_ITERATOR` (%d) or `UNION_ITERATOR` (%d)",
-      it->type, READ_ITERATOR, UNION_ITERATOR);
-  }
 }

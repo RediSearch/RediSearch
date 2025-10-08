@@ -12,6 +12,7 @@
 #include "iterator_api.h"
 #include "util/heap.h"
 #include "query_node.h"
+#include "config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,8 +47,11 @@ typedef struct {
  * @param q_str - slice of the query that yielded this union node - used by profile iterator
  * @param config - pointer to a valid configuration struct for construction decisions
  */
-QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickExit, double weight,
+QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit, double weight,
                                 QueryNodeType type, const char *q_str, IteratorsConfig *config);
+
+// Sync state according to `its_orig` and `num_orig` (exposed for profile iterator injection)
+void UI_SyncIterList(UnionIterator *ui);
 
 #ifdef __cplusplus
 }

@@ -423,12 +423,14 @@ def test_gc_oom(env:Env):
     # Add some documents
     for i in range(num_docs):
         env.expect('HSET', f'doc{i}', 't', f'name{i}').equal(1)
+
+    set_tight_maxmemory_for_oom(env)
+
     # Delete them all
     for i in range(num_docs):
         env.expect('DEL', f'doc{i}').equal(1)
 
-    set_tight_maxmemory_for_oom(env)
-    forceInvokeGC(env)
+    forceInvokeGC(env)    
 
     # Verify no bytes collected by GC
     info = index_info(env)
@@ -445,3 +447,4 @@ def test_gc_oom(env:Env):
     gc_dict = to_dict(info["gc_stats"])
     bytes_collected = int(gc_dict['bytes_collected'])
     env.assertGreater(bytes_collected, 0)
+

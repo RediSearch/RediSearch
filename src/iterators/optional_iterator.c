@@ -10,6 +10,7 @@
 #include "optional_iterator.h"
 #include "wildcard_iterator.h"
 #include "inverted_index_iterator.h"
+#include "empty_iterator.h"
 
 static void OI_Free(QueryIterator *base) {
   OptionalIterator *oi = (OptionalIterator *)base;
@@ -174,6 +175,83 @@ static IteratorStatus OI_Read_NotOptimized(QueryIterator *base) {
   return ITERATOR_OK;
 }
 
+// Revalidate for OPTIONAL iterator - Non-optimized version.
+static ValidateStatus OI_Revalidate_NotOptimized(QueryIterator *base) {
+  OptionalIterator *oi = (OptionalIterator *)base;
+
+  // 1. Revalidate the child iterator
+  ValidateStatus child_status = oi->child->Revalidate(oi->child);
+
+  // 2. Handle child validation results (but continue processing)
+  if (child_status == VALIDATE_ABORTED) {
+    // Free child and replace with empty iterator
+    oi->child->Free(oi->child);
+    oi->child = NewEmptyIterator();
+  }
+
+  // 3. If the current result is virtual, or if the child was not moved, we can return VALIDATE_OK
+  if (base->current == oi->virt || child_status == VALIDATE_OK) {
+    return VALIDATE_OK;
+  }
+
+  // 4. Current result is real and child was moved (or aborted) - we need to re-read
+  base->Read(base);
+  return VALIDATE_MOVED;
+}
+
+// Revalidate for OPTIONAL iterator - Optimized version.
+static ValidateStatus OI_Revalidate_Optimized(QueryIterator *base) {
+  OptionalIterator *oi = (OptionalIterator *)base;
+
+  // 1. Revalidate the wildcard iterator first
+  ValidateStatus wcii_status = oi->wcii->Revalidate(oi->wcii);
+  base->atEOF = oi->wcii->atEOF; // Update atEOF based on wildcard iterator status
+  if (wcii_status == VALIDATE_ABORTED) {
+    return VALIDATE_ABORTED; // If wildcard iterator is aborted, we must abort too
+  }
+
+  // 2. Revalidate the child iterator
+  ValidateStatus child_status = oi->child->Revalidate(oi->child);
+  if (child_status == VALIDATE_ABORTED) {
+    // Free child and replace with empty iterator
+    oi->child->Free(oi->child);
+    oi->child = NewEmptyIterator();
+  }
+
+  // 3. Validate the current result
+  if (wcii_status == VALIDATE_OK) {
+    // If the wildcard iterator was not moved, we can handle the current state similarly to the non-optimized version.
+    // If the child iterator was not moved, or if the current result is virtual, we can return VALIDATE_OK.
+    if (child_status == VALIDATE_OK || base->current == oi->virt) {
+      return VALIDATE_OK;
+    }
+    // If the child iterator was moved and the current result is real,
+    // we need to read to get the next valid result.
+    base->Read(base);
+    return VALIDATE_MOVED;
+  } else {
+    RS_ASSERT(wcii_status == VALIDATE_MOVED);
+    // If the wildcard iterator was moved, we need to advance the iterator
+    // to the next valid result, which may be a real hit or a virtual hit.
+    // We cannot just read the iterator, because it will advance the wildcard iterator again
+    if (oi->wcii->lastDocId > oi->child->lastDocId) {
+      oi->child->SkipTo(oi->child, oi->wcii->lastDocId);
+    }
+    if (oi->child->lastDocId == oi->wcii->lastDocId) {
+      // If the child iterator has a hit on the same docId, we can return VALIDATE_MOVED
+      base->current = oi->child->current;
+      base->current->weight = oi->weight;
+    } else {
+      // If the child iterator does not have a hit on the same docId,
+      // we return the virtual result.
+      oi->virt->docId = oi->wcii->lastDocId;
+      base->current = oi->virt;
+    }
+    base->lastDocId = oi->wcii->lastDocId;
+    return VALIDATE_MOVED;
+  }
+}
+
 /**
  * Reduce the optional iterator by applying these rules:
  * 1. If the child is an empty iterator or NULL, return a wildcard iterator
@@ -184,19 +262,20 @@ static QueryIterator* OptionalIteratorReducer(QueryIterator *it, QueryEvalCtx *q
   QueryIterator *ret = NULL;
   if (!it || it->type == EMPTY_ITERATOR) {
     // If the child is NULL, we return a wildcard iterator. All will be virtual hits
-    ret = IT_V2(NewWildcardIterator)(q, weight);
+    ret = NewWildcardIterator(q, 0);
     if (it) {
       it->Free(it);
     }
   } else if (IsWildcardIterator(it)) {
     // All will be real hits
     ret = it;
+    ret->current->weight = weight;
   }
   return ret;
 }
 
 // Create a new OPTIONAL iterator - Non-Optimized version.
-QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, double weight) {
+QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double weight) {
   RS_ASSERT(q && q->sctx && q->sctx->spec && q->docTable);
   QueryIterator *ret = OptionalIteratorReducer(it, q, weight);
   if (ret != NULL) {
@@ -204,17 +283,17 @@ QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, do
   }
   OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
   bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  optimized |= q && q->sctx && q->sctx->spec && q->sctx->spec->diskSpec;
   if (optimized) {
-    oi->wcii = IT_V2(NewWildcardIterator_Optimized)(q->sctx, weight);
+    oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
   }
   oi->child = it;
-  oi->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  oi->maxDocId = q->docTable->maxDocId;
+  oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
   oi->virt->freq = 1;
+  oi->maxDocId = q->docTable->maxDocId;
   oi->weight = weight;
 
   ret = &oi->base;
-  ret->isAborted = false;
   ret->type = OPTIONAL_ITERATOR;
   ret->atEOF = false;
   ret->lastDocId = 0;
@@ -225,9 +304,11 @@ QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, do
   if (optimized) {
     ret->Read = OI_Read_Optimized;
     ret->SkipTo = OI_SkipTo_Optimized;
+    ret->Revalidate = OI_Revalidate_Optimized;
   } else {
     ret->Read = OI_Read_NotOptimized;
     ret->SkipTo = OI_SkipTo_NotOptimized;
+    ret->Revalidate = OI_Revalidate_NotOptimized;
   }
 
   return ret;

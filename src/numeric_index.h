@@ -20,6 +20,8 @@
 #include "inverted_index.h"
 #include "numeric_filter.h"
 #include "hll/hll.h"
+#include "config.h"
+#include "iterators/iterator_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -88,13 +90,8 @@ typedef struct {
 
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
-struct indexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
-                                              const NumericFilter *f, int skipMulti,
-                                              const FieldFilterContext* filterCtx);
-
-struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType,
-                                               IteratorsConfig *config, const FieldFilterContext* filterCtx);
+QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt, FieldType forType,
+                                        IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
 /* Recursively trim empty nodes from tree  */
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);

@@ -15,14 +15,11 @@
 
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/idlist_iterator.h"
-#include "src/metric_iterator.h"
 
-#include "src/index.h"
-
-template <typename IteratorType, bool yield_metric>
+template <bool yield_metric>
 class BM_MetricIterator : public benchmark::Fixture {
 public:
-  IteratorType *iterator_base;
+  QueryIterator *iterator_base;
   std::vector<t_docId> docIds;
   std::vector<double> scores;
   t_docId *docIdsArray;
@@ -78,15 +75,11 @@ public:
     memcpy(docIdsArray, docIds.data(), numDocuments * sizeof(t_docId));
     memcpy(scoresArray, scores.data(), numDocuments * sizeof(double));
 
-    if constexpr (std::is_same_v<IteratorType, QueryIterator>) {
-      if (yield_metric) {
-        iterator_base = IT_V2(NewMetricIterator)(docIdsArray, scoresArray, numDocuments, VECTOR_DISTANCE);
-      } else {
-        iterator_base = IT_V2(NewIdListIterator)(docIdsArray, numDocuments, 1.0);
-        rm_free(scoresArray);
-      }
-    } else if constexpr (std::is_same_v<IteratorType, IndexIterator>) {
-      iterator_base = NewMetricIterator(old_docIds, old_metrics, VECTOR_DISTANCE, yield_metric);
+    if (yield_metric) {
+      iterator_base = NewMetricIterator(docIdsArray, scoresArray, numDocuments, VECTOR_DISTANCE);
+    } else {
+      iterator_base = NewIdListIterator(docIdsArray, numDocuments, 1.0);
+      rm_free(scoresArray);
     }
   }
 
@@ -95,10 +88,10 @@ public:
   }
 };
 
-template <typename IteratorType, bool yield_metric>
-bool BM_MetricIterator<IteratorType, yield_metric>::initialized = false;
+template <bool yield_metric>
+bool BM_MetricIterator<yield_metric>::initialized = false;
 
-BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_NotYield, QueryIterator, false)(benchmark::State &state) {
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_MetricIterator, Read_NotYield, false)(benchmark::State &state) {
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->Read(iterator_base);
     if (rc == ITERATOR_EOF) {
@@ -107,7 +100,7 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_NotYield, QueryIterator, fa
   }
 }
 
-BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_NotYield, QueryIterator, false)(benchmark::State &state) {
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_MetricIterator, SkipTo_NotYield, false)(benchmark::State &state) {
   t_docId step = 10;
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
@@ -117,7 +110,7 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_NotYield, QueryIterator, 
   }
 }
 
-BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_Yield, QueryIterator, true)(benchmark::State &state) {
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_MetricIterator, Read_Yield, true)(benchmark::State &state) {
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->Read(iterator_base);
     if (rc == ITERATOR_EOF) {
@@ -126,7 +119,7 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_Yield, QueryIterator, true)
   }
 }
 
-BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Yield, QueryIterator, true)(benchmark::State &state) {
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_MetricIterator, SkipTo_Yield, true)(benchmark::State &state) {
   t_docId step = 10;
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
@@ -140,59 +133,5 @@ BENCHMARK_REGISTER_F(BM_MetricIterator, Read_NotYield);
 BENCHMARK_REGISTER_F(BM_MetricIterator, Read_Yield);
 BENCHMARK_REGISTER_F(BM_MetricIterator, SkipTo_NotYield);
 BENCHMARK_REGISTER_F(BM_MetricIterator, SkipTo_Yield);
-
-
-BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_Old_NotYield, IndexIterator, false)(benchmark::State &state) {
-  RSIndexResult *hit;
-  for (auto _ : state) {
-    int rc = iterator_base->Read(iterator_base, &hit);
-    if (rc == INDEXREAD_EOF) {
-      iterator_base->Rewind(iterator_base);
-    }
-  }
-}
-
-BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Old_NotYield, IndexIterator, false)(benchmark::State &state) {
-  RSIndexResult *hit = iterator_base->current;
-  hit->docId = 0;
-  t_docId step = 10;
-  for (auto _ : state) {
-    int rc = iterator_base->SkipTo(iterator_base, hit->docId + step, &hit);
-    if (rc == INDEXREAD_EOF) {
-      iterator_base->Rewind(iterator_base);
-      hit = iterator_base->current;
-      hit->docId = 0;
-    }
-  }
-}
-
-BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_Old_Yield, IndexIterator, true)(benchmark::State &state) {
-  RSIndexResult *hit;
-  for (auto _ : state) {
-    int rc = iterator_base->Read(iterator_base, &hit);
-    if (rc == INDEXREAD_EOF) {
-      iterator_base->Rewind(iterator_base);
-    }
-  }
-}
-
-BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Old_Yield, IndexIterator, true)(benchmark::State &state) {
-  RSIndexResult *hit = iterator_base->current;
-  hit->docId = 0;
-  t_docId step = 10;
-  for (auto _ : state) {
-    int rc = iterator_base->SkipTo(iterator_base, hit->docId + step, &hit);
-    if (rc == INDEXREAD_EOF) {
-      iterator_base->Rewind(iterator_base);
-      hit = iterator_base->current;
-      hit->docId = 0;
-    }
-  }
-}
-
-BENCHMARK_REGISTER_F(BM_MetricIterator, Read_Old_NotYield);
-BENCHMARK_REGISTER_F(BM_MetricIterator, Read_Old_Yield);
-BENCHMARK_REGISTER_F(BM_MetricIterator, SkipTo_Old_NotYield);
-BENCHMARK_REGISTER_F(BM_MetricIterator, SkipTo_Old_Yield);
 
 BENCHMARK_MAIN();

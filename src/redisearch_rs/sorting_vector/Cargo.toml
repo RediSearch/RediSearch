@@ -11,5 +11,8 @@ icu_casemap.workspace = true
 thiserror.workspace = true
 value.workspace = true
 
+[dev-dependencies]
+value = { workspace = true, features = ["test_utils"] }
+
 [lints]
 workspace = true

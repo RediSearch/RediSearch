@@ -51,38 +51,34 @@ static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **
 // recursively calculate tf-idf
 static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd,
                              RSScoreExplain *scrExp) {
-  if (r->type == RSResultType_Term) {
-    double idf = r->data.term.term ? r->data.term.term->idf : 0;
+  if (r->data.tag == RSResultData_Term) {
+    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    double idf = term ? term->idf : 0;
     double res = r->weight * ((double)r->freq) * idf;
     EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
     return res;
   }
-  if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
+  if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
     double ret = 0;
+    // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+    // and skip the tag check on the next line.
+    const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
     if (!scrExp) {
-      RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
-      RSIndexResult *child = NULL;
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
 
-      while (AggregateResultIter_Next(iter, &child)) {
-        ret += tfidfRecursive(child, dmd, NULL);
+      for (int i = 0; i < children.len; i++) {
+        ret += tfidfRecursive(children.ptr[i], dmd, NULL);
       }
-
-      AggregateResultIter_Free(iter);
     } else {
-      size_t numChildren = AggregateResult_NumChildren(&r->data.agg);
+      size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
-      int i = 0;
-      RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
-      RSIndexResult *child = NULL;
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
 
-      while (AggregateResultIter_Next(iter, &child)) {
-        ret += tfidfRecursive(child, dmd, &scrExp->children[i]);
-        i++;
+      for (int i = 0; i < children.len; i++) {
+        ret += tfidfRecursive(children.ptr[i], dmd, &scrExp->children[i]);
       }
-
-      AggregateResultIter_Free(iter);
 
       EXPLAIN(scrExp, "(Weight %.2f * total children TFIDF %.2f)", r->weight, ret);
     }
@@ -155,38 +151,32 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   static const float k1 = 1.2;
   double f = (double)r->freq;
   double ret = 0;
-  if (r->type == RSResultType_Term) {
-    double idf = (r->data.term.term ? r->data.term.term->idf : 0);
+  if (r->data.tag == RSResultData_Term) {
+    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    double idf = (term ? term->idf : 0);
     ret = r->weight * idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
     EXPLAIN(scrExp,
             "(%.2f = Weight %.2f * IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
             ret, r->weight, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
 
-  } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
+  } else if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
+    // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+    // and skip the tag check on the next line.
+    const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
     if (!scrExp) {
-      RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
-      RSIndexResult *child = NULL;
-
-      while (AggregateResultIter_Next(iter, &child)) {
-        ret += bm25Recursive(ctx, child, dmd, NULL);
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+      for (int i = 0; i < children.len; i++) {
+        ret += bm25Recursive(ctx, children.ptr[i], dmd, NULL);
       }
-
-      AggregateResultIter_Free(iter);
     } else {
-      size_t numChildren = AggregateResult_NumChildren(&r->data.agg);
+      size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
-      int i = 0;
-      RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
-      RSIndexResult *child = NULL;
-
-      while (AggregateResultIter_Next(iter, &child)) {
-        ret += bm25Recursive(ctx, child, dmd, &scrExp->children[i]);
-        i++;
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+      for (int i = 0; i < children.len; i++) {
+        ret += bm25Recursive(ctx, children.ptr[i], dmd, &scrExp->children[i]);
       }
-
-      AggregateResultIter_Free(iter);
 
       EXPLAIN(scrExp, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     }
@@ -249,41 +239,35 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
   static const float k1 = 1.2f;
   double f = (double)r->freq;
   double ret = 0;
-  if (r->type == RSResultType_Term) {
+  if (r->data.tag == RSResultData_Term) {
     // Compute IDF based on total number of docs in the index and the term's total frequency.
-    double idf = r->data.term.term->bm25_idf;
+    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    double idf = term->bm25_idf;
     ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp,
-                           r->data.term.term->str);
-  } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
+                           term->str);
+  } else if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
+    // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+    // and skip the tag check on the next line.
+    const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
     if (!scrExp) {
-      RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
-      RSIndexResult *child = NULL;
-
-      while (AggregateResultIter_Next(iter, &child)) {
-        ret += bm25StdRecursive(ctx, child, dmd, NULL);
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+      for (int i = 0; i < children.len; i++) {
+        ret += bm25StdRecursive(ctx, children.ptr[i], dmd, NULL);
       }
-
-      AggregateResultIter_Free(iter);
     } else {
-      size_t numChildren = AggregateResult_NumChildren(&r->data.agg);
+      size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
-      int i = 0;
-      RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
-      RSIndexResult *child = NULL;
-
-      while (AggregateResultIter_Next(iter, &child)) {
-        ret += bm25StdRecursive(ctx, child, dmd, &scrExp->children[i]);
-        i++;
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+      for (int i = 0; i < children.len; i++) {
+        ret += bm25StdRecursive(ctx, children.ptr[i], dmd, &scrExp->children[i]);
       }
-
-      AggregateResultIter_Free(iter);
 
       EXPLAIN(scrExp, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     }
     ret *= r->weight;
-  } else if (r->type == RSResultType_Virtual && f && r->weight) {
+  } else if (r->data.tag == RSResultData_Virtual && f && r->weight) {
     // For wildcard, score should be determined only by the weight
     // and the document's length (so we set idf and f to be 1).
     double idf = 1.0;
@@ -376,80 +360,77 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
                               RSScoreExplain *scrExp) {
   // for terms - we return the term frequency
   double ret = 0;
-  switch (r->type) {
-    case RSResultType_Term:
-    case RSResultType_Metric:
-    case RSResultType_Numeric:
-    case RSResultType_Virtual:
+  switch (r->data.tag) {
+    case RSResultData_Term:
+    case RSResultData_Metric:
+    case RSResultData_Numeric:
+    case RSResultData_Virtual:
       ret = r->freq;
       EXPLAIN(scrExp, "DISMAX %.2f = Weight %.2f * Frequency %d", r->weight * ret, r->weight,
               r->freq);
       break;
     // for intersections - we sum up the term scores
-    case RSResultType_Intersection:
+    case RSResultData_Intersection:
       if (!scrExp) {
-        RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
-        RSIndexResult *child = NULL;
-
-        while (AggregateResultIter_Next(iter, &child)) {
-          ret += dismaxRecursive(ctx, child, NULL);
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
+        const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+        AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+        for (int i = 0; i < children.len; i++) {
+          ret += dismaxRecursive(ctx, children.ptr[i], NULL);
         }
-
-        AggregateResultIter_Free(iter);
       } else {
-        size_t numChildren = AggregateResult_NumChildren(&r->data.agg);
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
+        const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+        size_t numChildren = AggregateResult_NumChildren(agg);
         scrExp->numChildren = numChildren;
         scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
-        int i = 0;
-        RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
-        RSIndexResult *child = NULL;
-
-        while (AggregateResultIter_Next(iter, &child)) {
-          ret += dismaxRecursive(ctx, child, &scrExp->children[i]);
-          i++;
+        AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+        for (int i = 0; i < children.len; i++) {
+          ret += dismaxRecursive(ctx, children.ptr[i], &scrExp->children[i]);
         }
-
-        AggregateResultIter_Free(iter);
 
         EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
                 ret);
       }
       break;
     // for unions - we take the max frequency
-    case RSResultType_Union:
+    case RSResultData_Union:
       if (!scrExp) {
-        RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
-        RSIndexResult *child = NULL;
-
-        while (AggregateResultIter_Next(iter, &child)) {
-          ret = MAX(ret, dismaxRecursive(ctx, child, NULL));
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
+        const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+        AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+        for (int i = 0; i < children.len; i++) {
+          ret = MAX(ret, dismaxRecursive(ctx, children.ptr[i], NULL));
         }
-
-        AggregateResultIter_Free(iter);
       } else {
-        size_t numChildren = AggregateResult_NumChildren(&r->data.agg);
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
+        const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+        size_t numChildren = AggregateResult_NumChildren(agg);
         scrExp->numChildren = numChildren;
         scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
-        int i = 0;
-        RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
-        RSIndexResult *child = NULL;
-
-        while (AggregateResultIter_Next(iter, &child)) {
-          ret = MAX(ret, dismaxRecursive(ctx, child, &scrExp->children[i]));
-          i++;
+        AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+        for (int i = 0; i < children.len; i++) {
+          ret = MAX(ret, dismaxRecursive(ctx, children.ptr[i], &scrExp->children[i]));
         }
-
-        AggregateResultIter_Free(iter);
 
         EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
                 ret);
       }
       break;
     // for hybrid - just take the non-vector child score (the second one).
-    case RSResultType_HybridMetric:
-      return dismaxRecursive(ctx, AggregateResult_Get(&r->data.agg, 1), scrExp);
+    case RSResultData_HybridMetric:
+    {
+      // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+      // and skip the tag check on the next line.
+      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+      return dismaxRecursive(ctx, AggregateResult_Get(agg, 1), scrExp);
+    }
   }
   return r->weight * ret;
 }

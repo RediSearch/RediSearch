@@ -39,7 +39,7 @@ protected:
     double *scores_array = (double*)rm_malloc(sortedScores.size() * sizeof(double));
     std::copy(sortedDocIds.begin(), sortedDocIds.end(), ids_array);
     std::copy(sortedScores.begin(), sortedScores.end(), scores_array);
-    iterator_base = IT_V2(NewMetricIterator)(ids_array, scores_array, indices.size(), metric_type);
+    iterator_base = NewMetricIterator(ids_array, scores_array, indices.size(), metric_type);
   }
   void TearDown() override {
     iterator_base->Free(iterator_base);
@@ -59,11 +59,11 @@ TEST_P(MetricIteratorCommonTest, Read) {
 
     // Check score value if yields_metric is true
     if (yields_metric) {
-      ASSERT_EQ(iterator_base->current->type, RSResultType_Metric);
-      ASSERT_EQ(iterator_base->current->data.num.value, sortedScores[i]);
+      ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Metric);
+      ASSERT_EQ(IndexResult_NumValue(iterator_base->current), sortedScores[i]);
       ASSERT_EQ(iterator_base->current->metrics[0].key, nullptr);
-      ASSERT_EQ(iterator_base->current->metrics[0].value->t, RSValue_Number);
-      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[i]);
+      ASSERT_EQ(RSValue_Type(iterator_base->current->metrics[0].value), RSValueType_Number);
+      ASSERT_EQ(RSValue_Number_Get(iterator_base->current->metrics[0].value), sortedScores[i]);
     }
     i++;
   }
@@ -101,8 +101,8 @@ TEST_P(MetricIteratorCommonTest, SkipTo) {
       ASSERT_EQ(iterator_base->current->docId, id);
       ASSERT_FALSE(iterator_base->atEOF); // EOF would be set in another iteration
       if (yields_metric) {
-        ASSERT_EQ(iterator_base->current->data.num.value, sortedScores[index]);
-        ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[index]);
+        ASSERT_EQ(IndexResult_NumValue(iterator_base->current), sortedScores[index]);
+        ASSERT_EQ(RSValue_Number_Get(iterator_base->current->metrics[0].value), sortedScores[index]);
       }
 
       iterator_base->Rewind(iterator_base);
@@ -116,7 +116,7 @@ TEST_P(MetricIteratorCommonTest, SkipTo) {
     ASSERT_FALSE(iterator_base->atEOF); // EOF would be set in another iteration
 
     if (yields_metric) {
-      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[index]);
+      ASSERT_EQ(RSValue_Number_Get(iterator_base->current->metrics[0].value), sortedScores[index]);
     }
 
     i++;
@@ -133,7 +133,7 @@ TEST_P(MetricIteratorCommonTest, SkipTo) {
     ASSERT_EQ(iterator_base->lastDocId, id);
 
     if (yields_metric) {
-      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[index]);
+      ASSERT_EQ(RSValue_Number_Get(iterator_base->current->metrics[0].value), sortedScores[index]);
     }
   }
 }
@@ -149,7 +149,7 @@ TEST_P(MetricIteratorCommonTest, Rewind) {
     ASSERT_EQ(iterator_base->lastDocId, id);
 
     if (yields_metric) {
-      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[index]);
+      ASSERT_EQ(RSValue_Number_Get(iterator_base->current->metrics[0].value), sortedScores[index]);
     }
 
     iterator_base->Rewind(iterator_base);
@@ -164,7 +164,7 @@ TEST_P(MetricIteratorCommonTest, Rewind) {
     ASSERT_EQ(iterator_base->lastDocId, sortedDocIds[index]);
 
     if (yields_metric) {
-      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[index]);
+      ASSERT_EQ(RSValue_Number_Get(iterator_base->current->metrics[0].value), sortedScores[index]);
     }
   }
 

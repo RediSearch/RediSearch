@@ -11,9 +11,11 @@ use std::io::Cursor;
 
 use ffi::t_fieldMask;
 use inverted_index::{
-    Decoder, Encoder,
+    Decoder, Encoder, RSIndexResult,
     freqs_fields::{FreqsFields, FreqsFieldsWide},
 };
+
+mod c_mocks;
 
 #[test]
 fn test_encode_freqs_fields() {
@@ -45,12 +47,12 @@ fn test_encode_freqs_fields() {
     for (delta, freq, field_mask, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
 
-        let record = inverted_index::RSIndexResult::term()
+        let record = RSIndexResult::term()
             .doc_id(doc_id)
             .field_mask(field_mask)
             .frequency(freq);
 
-        let bytes_written = FreqsFields::default()
+        let bytes_written = FreqsFields
             .encode(&mut buf, delta, &record)
             .expect("to encode freqs only record");
 
@@ -60,8 +62,10 @@ fn test_encode_freqs_fields() {
         // decode
         buf.set_position(0);
         let prev_doc_id = doc_id - (delta as u64);
-        let record_decoded = FreqsFields::default()
-            .decode(&mut buf, prev_doc_id)
+        let buf = buf.into_inner();
+        let mut buf = Cursor::new(buf.as_ref());
+        let record_decoded = FreqsFields
+            .decode_new(&mut buf, prev_doc_id)
             .expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
@@ -110,12 +114,12 @@ fn test_encode_freqs_fields_wide() {
     for (delta, freq, field_mask, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
 
-        let record = inverted_index::RSIndexResult::term()
+        let record = RSIndexResult::term()
             .doc_id(doc_id)
             .field_mask(field_mask)
             .frequency(freq);
 
-        let bytes_written = FreqsFieldsWide::default()
+        let bytes_written = FreqsFieldsWide
             .encode(&mut buf, delta, &record)
             .expect("to encode freqs only record");
 
@@ -125,8 +129,10 @@ fn test_encode_freqs_fields_wide() {
         // decode
         buf.set_position(0);
         let prev_doc_id = doc_id - (delta as u64);
-        let record_decoded = FreqsFieldsWide::default()
-            .decode(&mut buf, prev_doc_id)
+        let buf = buf.into_inner();
+        let mut buf = Cursor::new(buf.as_ref());
+        let record_decoded = FreqsFieldsWide
+            .decode_new(&mut buf, prev_doc_id)
             .expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
@@ -140,8 +146,8 @@ fn test_encode_freqs_fields_field_mask_overflow() {
     let buf = [0u8; 100];
     let mut cursor = Cursor::new(buf);
 
-    let record = inverted_index::RSIndexResult::term().field_mask(u32::MAX as t_fieldMask + 1);
-    let _res = FreqsFields::default().encode(&mut cursor, 0, &record);
+    let record = RSIndexResult::term().field_mask(u32::MAX as t_fieldMask + 1);
+    let _res = FreqsFields.encode(&mut cursor, 0, &record);
 }
 
 #[test]
@@ -150,15 +156,15 @@ fn test_encode_freqs_fields_output_too_small() {
     let buf = [0u8; 3];
     let mut cursor = Cursor::new(buf);
 
-    let record = inverted_index::RSIndexResult::term().field_mask(10);
+    let record = RSIndexResult::term().field_mask(10);
 
-    let res = FreqsFields::default().encode(&mut cursor, 0, &record);
-    assert_eq!(res.is_err(), true);
+    let res = FreqsFields.encode(&mut cursor, 0, &record);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 
-    let res = FreqsFieldsWide::default().encode(&mut cursor, 0, &record);
-    assert_eq!(res.is_err(), true);
+    let res = FreqsFieldsWide.encode(&mut cursor, 0, &record);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 }
@@ -167,15 +173,15 @@ fn test_encode_freqs_fields_output_too_small() {
 fn test_decode_freqs_fields_input_too_small() {
     // Encoded data is too short.
     let buf = vec![0, 0];
-    let mut cursor = Cursor::new(buf);
+    let mut buf = Cursor::new(buf.as_ref());
 
-    let res = FreqsFields::default().decode(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    let res = FreqsFields.decode_new(&mut buf, 100);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FreqsFieldsWide::default().decode(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    let res = FreqsFieldsWide.decode_new(&mut buf, 100);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
@@ -184,15 +190,15 @@ fn test_decode_freqs_fields_input_too_small() {
 fn test_decode_freqs_fields_empty_input() {
     // Try decoding an empty buffer.
     let buf = vec![];
-    let mut cursor = Cursor::new(buf);
+    let mut buf = Cursor::new(buf.as_ref());
 
-    let res = FreqsFields::default().decode(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    let res = FreqsFields.decode_new(&mut buf, 100);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FreqsFieldsWide::default().decode(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    let res = FreqsFieldsWide.decode_new(&mut buf, 100);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }

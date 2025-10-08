@@ -30,7 +30,12 @@ jobs:
 
   basic-test:
     needs: [check-what-changed, get-latest-redis-tag]
-    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
+    if: >
+      (
+        needs.check-what-changed.outputs.CODE_CHANGED == 'true' ||
+        needs.check-what-changed.outputs.TESTS_CHANGED == 'true' ||
+        contains(github.event.pull_request.labels.*.name, 'enforce:test')
+      )
     uses: ./.github/workflows/task-test.yml
     with:
       test-config: QUICK=1
@@ -43,6 +48,7 @@ jobs:
     if: >
       vars.ENABLE_CODE_COVERAGE != 'false' && (
           (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
+          (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') ||
           contains(github.event.pull_request.labels.*.name, 'enforce:coverage')
       )
     uses: ./.github/workflows/task-test.yml
@@ -58,6 +64,7 @@ jobs:
     if: >
       (
         (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
+        (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') ||
         contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')
       )
     secrets: inherit

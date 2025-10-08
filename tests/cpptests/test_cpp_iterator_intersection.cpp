@@ -12,7 +12,7 @@
 
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/inverted_index_iterator.h"
-#include "src/inverted_index/inverted_index.h"
+#include "inverted_index.h"
 #include "src/iterators/empty_iterator.h"
 #include "src/iterators/wildcard_iterator.h"
 #include "src/forward_index.h"
@@ -194,7 +194,7 @@ public:
     for (auto &term : terms) {
       if (invertedIndexes.find(term) == invertedIndexes.end()) {
         // Create a new inverted index for the term if it doesn't exist
-        invertedIndexes[term] = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &dummy);
+        invertedIndexes[term] = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS | Index_WideSchema), &dummy);
       }
     }
     t_docId docId = ++num_docs;
@@ -214,8 +214,7 @@ public:
     // Write the forward index entries to the inverted indexes
     for (auto &[term, entry] : entries) {
       InvertedIndex *index = invertedIndexes[term];
-      IndexEncoder enc = InvertedIndex_GetEncoder(index->flags);
-      InvertedIndex_WriteForwardIndexEntry(index, enc, &entry);
+      InvertedIndex_WriteForwardIndexEntry(index, &entry);
       // Free the entry's vector writer
       VVW_Free(entry.vw);
     }
@@ -369,7 +368,7 @@ class IntersectionIteratorReducerTest : public ::testing::Test {};
 TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithEmptyChild) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 3);
   children[0] = (QueryIterator *) new MockIterator({1UL, 2UL, 3UL});
-  children[1] = IT_V2(NewEmptyIterator)();
+  children[1] = NewEmptyIterator();
   children[2] = (QueryIterator *) new MockIterator({1UL, 2UL, 3UL, 4UL, 5UL});
 
   size_t num = 3;
@@ -397,22 +396,21 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithNULLChild) {
 TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  children[1] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
+  children[1] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
   children[2] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
   // Create a READER Iterator and set the `isWildCard` flag so that it is removed by the reducer
   size_t memsize;
-  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
   ASSERT_TRUE(idx != nullptr);
-  ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
-  auto encoder = InvertedIndex_GetEncoder(idx->flags);
+  ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,
       .fieldMask = 1,
       .freq = 1,
-      .type = RSResultType::RSResultType_Term,
+      .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
     };
-    InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
+    InvertedIndex_WriteEntryGeneric(idx, &res);
   }
   // Create an iterator that reads only entries with field mask 2
   QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
@@ -434,10 +432,10 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
 
 TEST_F(IntersectionIteratorReducerTest, TestIntersectionAllWildCardChildren) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
-  children[0] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
-  children[1] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
-  children[2] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
-  children[3] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
+  children[0] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
+  children[1] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
+  children[2] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
+  children[3] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
 
   QueryIterator *expected_iter = children[3];
   size_t num = 4;
@@ -449,8 +447,8 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionAllWildCardChildren) {
 TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithSingleChild) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 3);
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  children[1] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
-  children[2] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
+  children[1] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
+  children[2] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
   auto expected_type = children[0]->type;
 
   size_t num = 3;
@@ -458,4 +456,187 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithSingleChild) {
 
   ASSERT_EQ(ii_base->type, expected_type);
   ii_base->Free(ii_base);
+}
+
+// Test class for Revalidate functionality of Intersection Iterator
+class IntersectionIteratorRevalidateTest : public ::testing::Test {
+protected:
+  QueryIterator *ii_base;
+  std::vector<MockIterator*> mockChildren;
+  std::vector<t_docId> commonDocIds;
+
+  void SetUp() override {
+    // Create common document IDs that all children will have
+    commonDocIds = {10, 20, 30, 40, 50};
+
+    // Create 3 mock children with overlapping doc IDs
+    mockChildren.resize(3);
+    auto children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 3);
+
+    // Child 0: has common docs + some unique ones
+    mockChildren[0] = new MockIterator({10UL, 15UL, 20UL, 25UL, 30UL, 35UL, 40UL, 45UL, 50UL, 55UL});
+    children[0] = reinterpret_cast<QueryIterator *>(mockChildren[0]);
+
+    // Child 1: has common docs + different unique ones
+    mockChildren[1] = new MockIterator({5UL, 10UL, 18UL, 20UL, 28UL, 30UL, 38UL, 40UL, 48UL, 50UL, 60UL});
+    children[1] = reinterpret_cast<QueryIterator *>(mockChildren[1]);
+
+    // Child 2: has common docs + different unique ones
+    mockChildren[2] = new MockIterator({2UL, 10UL, 12UL, 20UL, 22UL, 30UL, 32UL, 40UL, 42UL, 50UL, 70UL});
+    children[2] = reinterpret_cast<QueryIterator *>(mockChildren[2]);
+
+    // Create intersection iterator
+    ii_base = NewIntersectionIterator(children, 3, -1, false, 1.0);
+  }
+
+  void TearDown() override {
+    if (ii_base) {
+      ii_base->Free(ii_base);
+    }
+  }
+};
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateOK) {
+  // All children return VALIDATE_OK
+  for (auto& child : mockChildren) {
+    child->SetRevalidateResult(VALIDATE_OK);
+  }
+
+  // Read a few documents first
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 10);
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 20);
+
+  // Revalidate should return VALIDATE_OK
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify all children were revalidated
+  for (auto& child : mockChildren) {
+    ASSERT_EQ(child->GetValidationCount(), 1);
+  }
+
+  // Should be able to continue reading
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 30);
+}
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateAborted) {
+  // One child returns VALIDATE_ABORTED
+  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_ABORTED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a document first
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+
+  // Revalidate should return VALIDATE_ABORTED since one child is aborted
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_ABORTED);
+}
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateMoved) {
+  // All children return VALIDATE_MOVED - each will advance by one document
+  mockChildren[0]->SetRevalidateResult(VALIDATE_MOVED);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_MOVED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 10);
+
+  // Revalidate should return VALIDATE_MOVED
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_EQ(ii_base->lastDocId, 20) << "After revalidation with VALIDATE_MOVED, the lastDocId should be advanced to the next common doc ID";
+}
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateMixedResults) {
+  // Mix of different revalidate results
+  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_MOVED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a document first
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 10);
+
+  // Revalidate should return VALIDATE_MOVED (if any child moved)
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_EQ(ii_base->lastDocId, 20);
+
+  ASSERT_EQ(ii_base->SkipTo(ii_base, commonDocIds.back()), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 50);
+
+  // Revalidate should return VALIDATE_MOVED, but atEOF should be true
+  status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_TRUE(ii_base->atEOF);
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
+}
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateAfterEOF) {
+  // Test case 1: Revalidate after EOF - make sure all children were revalidated regardless, and returned OK
+
+  // First, advance intersection iterator to EOF
+  IteratorStatus rc = ii_base->SkipTo(ii_base, commonDocIds.back() + 1);
+  ASSERT_EQ(rc, ITERATOR_EOF);
+  ASSERT_TRUE(ii_base->atEOF);
+
+  // Set all children to return VALIDATE_MOVED
+  for (auto& child : mockChildren) {
+    child->SetRevalidateResult(VALIDATE_MOVED);
+  }
+
+  // Revalidate should return VALIDATE_OK when already at EOF
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify all children were revalidated regardless of iterator being at EOF
+  for (auto& child : mockChildren) {
+    ASSERT_EQ(child->GetValidationCount(), 1) << "All children should be revalidated even when iterator is at EOF";
+  }
+
+  // Iterator should still be at EOF
+  ASSERT_TRUE(ii_base->atEOF);
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
+}
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateSomeChildrenMovedToEOF) {
+  // Test case 2: Some children (at least one) moved to EOF while revalidating
+
+  // Position intersection iterator at a valid document
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 10);
+
+  // Simulate some children moving to EOF during validation
+  // Child 0: stays valid
+  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
+
+  // Child 1: moves to EOF
+  mockChildren[1]->base.atEOF = true;
+  mockChildren[1]->nextIndex = mockChildren[1]->docIds.size(); // Set to end
+  mockChildren[1]->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Child 2: stays valid
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Revalidate should return VALIDATE_MOVED and set intersection to EOF
+  // because if any child is at EOF, the intersection has no more results
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // Intersection iterator should now be at EOF since one child moved to EOF
+  ASSERT_TRUE(ii_base->atEOF);
+
+  // Verify all children were revalidated
+  for (auto& child : mockChildren) {
+    ASSERT_EQ(child->GetValidationCount(), 1);
+  }
+
+  // Further reads should return EOF
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
+  ASSERT_EQ(ii_base->SkipTo(ii_base, 100), ITERATOR_EOF);
 }

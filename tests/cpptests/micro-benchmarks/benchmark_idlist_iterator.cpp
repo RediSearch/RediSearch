@@ -16,14 +16,11 @@
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/idlist_iterator.h"
 
-#include "src/index.h"
-
-template <typename IteratorType>
 class BM_IdListIterator : public benchmark::Fixture {
 public:
   std::vector<t_docId> docIds;
   static bool initialized;
-  IteratorType *iterator_base;
+  QueryIterator *iterator_base;
 
   void SetUp(::benchmark::State &state) {
     if (!initialized) {
@@ -46,22 +43,16 @@ public:
     t_docId* ids_array = (t_docId*)rm_malloc(docIds.size() * sizeof(t_docId));
     std::copy(docIds.begin(), docIds.end(), ids_array);
 
-    if constexpr (std::is_same_v<IteratorType, QueryIterator>) {
-      iterator_base = IT_V2(NewIdListIterator)(ids_array, docIds.size(), 1.0);
-    } else if constexpr (std::is_same_v<IteratorType, IndexIterator>) {
-      iterator_base = NewIdListIterator(ids_array, docIds.size(), 1.0);
-    }
+    iterator_base = NewIdListIterator(ids_array, docIds.size(), 1.0);
   }
 
   void TearDown(::benchmark::State &state) {
     iterator_base->Free(iterator_base);
   }
 };
+bool BM_IdListIterator::initialized = false;
 
-template <typename IteratorType>
-bool BM_IdListIterator<IteratorType>::initialized = false;
-
-BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read, QueryIterator)(benchmark::State &state) {
+BENCHMARK_DEFINE_F(BM_IdListIterator, Read)(benchmark::State &state) {
   for (auto _ : state) {
     auto rc = iterator_base->Read(iterator_base);
     if (rc == ITERATOR_EOF) {
@@ -70,7 +61,7 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read, QueryIterator)(benchmark::
   }
 }
 
-BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo, QueryIterator)(benchmark::State &state) {
+BENCHMARK_DEFINE_F(BM_IdListIterator, SkipTo)(benchmark::State &state) {
   t_offset step = 10;
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
@@ -82,34 +73,5 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo, QueryIterator)(benchmark
 
 BENCHMARK_REGISTER_F(BM_IdListIterator, Read);
 BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo);
-
-BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read_Old, IndexIterator)(benchmark::State &state) {
-  RSIndexResult *hit;
-  for (auto _ : state) {
-    auto rc = iterator_base->Read(iterator_base, &hit);
-    if (rc == INDEXREAD_EOF) {
-      iterator_base->Rewind(iterator_base);
-    }
-  }
-}
-
-BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo_Old, IndexIterator)(benchmark::State &state) {
-  RSIndexResult *hit = iterator_base->current;
-  hit->docId = 0; // Ensure initial docId is set to 0
-
-  t_offset step = 10;
-  for (auto _ : state) {
-    int rc = iterator_base->SkipTo(iterator_base, hit->docId + step, &hit);
-    if (rc == INDEXREAD_EOF) {
-      iterator_base->Rewind(iterator_base);
-      // Don't rely on the old iterator's Rewind to reset hit->docId
-      hit = iterator_base->current;
-      hit->docId = 0;
-    }
-  }
-}
-
-BENCHMARK_REGISTER_F(BM_IdListIterator, Read_Old);
-BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo_Old);
 
 BENCHMARK_MAIN();

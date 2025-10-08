@@ -10,22 +10,20 @@
 #define __REDIS_INDEX__
 
 #include "document.h"
-#include "index.h"
 #include "inverted_index.h"
 #include "search_ctx.h"
 #include "concurrent_ctx.h"
 #include "spec.h"
+#include "iterators/iterator_api.h"
 
 /* Open an inverted index reader on a redis DMA string, for a specific term.
  * If singleWordMode is set to 1, we do not load the skip index, only the score index
  */
-IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
-                              t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
-                              double weight);
+QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
+                                 t_fieldMask fieldMask, double weight);
 
 InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len,
                                          int write, bool *outIsNew);
-void Redis_CloseReader(IndexReader *r);
 
 /*
  * Select a random term from the index that matches the index prefix and inveted key format.
@@ -61,8 +59,5 @@ int Redis_StatsScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opa
 RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len);
 RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len);
 RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field);
-
-void InvertedIndex_Free(void *idx);
-unsigned long InvertedIndex_MemUsage(const void *value);
 
 #endif

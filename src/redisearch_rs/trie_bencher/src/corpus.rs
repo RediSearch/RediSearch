@@ -14,7 +14,7 @@ use crate::bencher::rust_load_from_terms;
 /// This enum defines different corpora for benchmarking.
 ///
 /// Users may call [CorpusType::download_or_read_corpus] to get the full content of the source files of a corpus or
-/// use the [CorpusType::create_terms] method that generates a [Vec<String>] containing the unique terms for trie construction.
+/// use the [CorpusType::create_terms] method that generates a [`Vec<String>`] containing the unique terms for trie construction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CorpusType {
     /// Uses a corpus from the redisearch benchmarks that contains 1k rows in a csv file describing wikipedia articles as a line.
@@ -37,7 +37,7 @@ pub enum CorpusType {
 
     /// Small corpus of a book text from gutenberg.net.
     ///
-    /// See https://gutenberg.net.au/ebooks01/0100021.txt
+    /// See <https://gutenberg.net.au/ebooks01/0100021.txt>
     GutenbergEbook(bool),
 }
 
@@ -111,19 +111,17 @@ impl CorpusType {
         let mut rdr = csv::Reader::from_reader(reader);
 
         // generate strings without prefix:
-        let strings = rdr
-            .records()
+
+        rdr.records()
             .map(|e| {
                 e.unwrap()
                     .get(idx)
                     .unwrap()
                     .strip_prefix(prefix)
-                    .unwrap_or_else(|| panic!("prefix in csv isn't {} anymore.", prefix))
+                    .unwrap_or_else(|| panic!("prefix in csv isn't {prefix} anymore."))
                     .to_owned()
             })
-            .collect::<Vec<_>>();
-
-        strings
+            .collect::<Vec<_>>()
     }
 
     fn create_terms_gutenberg(&self, contents: &str, full: bool) -> Vec<String> {
@@ -153,19 +151,17 @@ impl CorpusType {
         let mut rdr = csv::Reader::from_reader(reader);
 
         // generate strings without prefix:
-        let strings = rdr
-            .records()
+
+        rdr.records()
             .map(|e| {
                 e.unwrap()
                     .get(title_offset)
                     .unwrap()
                     .strip_prefix(prefix)
-                    .unwrap_or_else(|| panic!("prefix in csv isn't {} anymore.", prefix))
+                    .unwrap_or_else(|| panic!("prefix in csv isn't {prefix} anymore."))
                     .to_owned()
             })
-            .collect::<Vec<_>>();
-
-        strings
+            .collect::<Vec<_>>()
     }
 
     /// Returns the url of the corpus.

@@ -177,6 +177,11 @@ Benchmarks:
   make benchmark        Run performance benchmarks
   make micro-benchmarks Run micro-benchmarks
   make vecsim-bench     Run VecSim micro-benchmarks
+
+Documentation:
+  make check-links         Check all links in Markdown files (failures only)
+  make check-links-verbose Check all links in Markdown files (show all)
+  make test-linkcheck      Test the link checker functionality
 endef # HELPTEXT
 
 help:
@@ -277,10 +282,15 @@ run:
 		fi; \
 	fi
 
+# Function to extract EXCLUDE_RUST_BENCHING_CRATES_LINKING_C from build.sh
+define get_rust_exclude_crates
+$(shell grep "EXCLUDE_RUST_BENCHING_CRATES_LINKING_C=" build.sh | cut -d'=' -f2 | tr -d '"' | head -n1)
+endef
+
 lint:
 	@echo "Running linters..."
-	@cd $(ROOT)/src/redisearch_rs && cargo clippy -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc
+	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) -- -D warnings
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates)
 
 fmt:
 ifeq ($(CHECK),1)
@@ -357,7 +367,39 @@ callgrind:
 		--save "" --appendonly no \
 		--loadmodule $$(find $(ROOT)/bin -name "redisearch.so" -o -name "module-enterprise.so" | head -1)
 
+check-links:
+	@echo "Checking links in Markdown files..."
+	@if [ ! -f scripts/requirements-linkcheck.txt ]; then \
+		echo "Error: scripts/requirements-linkcheck.txt not found"; \
+		exit 1; \
+	fi
+	@if ! python3 -c "import requests, bs4" 2>/dev/null; then \
+		echo "Installing link checker dependencies..."; \
+		uv pip install -r scripts/requirements-linkcheck.txt; \
+	fi
+	@python3 scripts/check_links.py .
+
+check-links-verbose:
+	@echo "Checking links in Markdown files (verbose mode)..."
+	@if [ ! -f scripts/requirements-linkcheck.txt ]; then \
+		echo "Error: scripts/requirements-linkcheck.txt not found"; \
+		exit 1; \
+	fi
+	@if ! python3 -c "import requests, bs4" 2>/dev/null; then \
+		echo "Installing link checker dependencies..."; \
+		uv pip install -r scripts/requirements-linkcheck.txt; \
+	fi
+	@python3 scripts/check_links.py . --verbose
+
+test-linkcheck:
+	@echo "Testing link checker functionality..."
+	@if ! python3 -c "import requests, bs4" 2>/dev/null; then \
+		echo "Installing link checker dependencies..."; \
+		uv pip install -r scripts/requirements-linkcheck.txt; \
+	fi
+	@python3 scripts/test_link_checker.py
 
 .PHONY: help build clean test unit-tests rust-tests pytest
 .PHONY: run lint fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
+.PHONY: check-links check-links-verbose test-linkcheck
