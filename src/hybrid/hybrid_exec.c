@@ -63,7 +63,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   } else if (returnCode == RS_RESULT_ERROR) {
     // Non-fatal error
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
-  } else if (err->reachedMaxPrefixExpansions) {
+  } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
   }
 
@@ -168,7 +168,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
 
   // TODO: take to error using HybridRequest_GetError
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-  if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
+  if (QueryError_IsOk(qctx->err) || hasTimeoutError(qctx->err)) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
   }
@@ -217,7 +217,7 @@ static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    QueryError err = {0};
+    QueryError err = QueryError_Default();
     HybridRequest_GetError(hreq, &err);
     if (ShouldReplyWithError(&err, hreq->reqConfig.timeoutPolicy, false)) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
@@ -516,7 +516,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
 
   if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
     // OOM guardrail
@@ -593,7 +593,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
 
   StrongRef execution_ref = IndexSpecRef_Promote(BCHCtx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {

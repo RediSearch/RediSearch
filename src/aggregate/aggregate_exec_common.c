@@ -17,9 +17,11 @@
  }
 
  bool ShouldReplyWithError(QueryError *status, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
+   QueryErrorCode code = QueryError_GetCode(status);
+
    return QueryError_HasError(status)
-       && (status->code != QUERY_ETIMEDOUT
-           || (status->code == QUERY_ETIMEDOUT
+       && (code != QUERY_ETIMEDOUT
+           || (code == QUERY_ETIMEDOUT
                && timeoutPolicy == TimeoutPolicy_Fail
                && !isProfile));
  }
