@@ -1820,7 +1820,14 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
  /* Accumulation phase - consume window results from all upstreams */
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
-   RPHybridMerger *self = (RPHybridMerger *)rp;
+  RPHybridMerger *self = (RPHybridMerger *)rp;
+
+  size_t window;
+  if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    window = self->hybridScoringCtx->rrfCtx.window;
+  } else {
+    window = self->hybridScoringCtx->linearCtx.window;
+  }
 
   bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
   size_t numConsumed = 0;
@@ -1829,12 +1836,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
     for (size_t i = 0; i < self->numUpstreams; i++) {
       if (consumed[i]) {
         continue;
-      }
-      size_t window;
-      if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-        window = self->hybridScoringCtx->rrfCtx.window;
-      } else {
-        window = self->hybridScoringCtx->linearCtx.window;
       }
       int rc = hybridMergerConsumeFromUpstream(self, window, self->upstreams[i], i);
 
