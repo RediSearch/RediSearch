@@ -461,7 +461,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
         // Assuming that if we are here, we are under return on OOM policy
         // Since other policies are already handled before this point
         if (errCode == QUERY_EOOM) {
-          AREQ_QueryProcessingCtx(nc->areq)->err->queryOOM = true;
+          QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
         }
         // Free the error reply before we override it and continue
         MRReply_Free(nc->current.root);

@@ -214,6 +214,13 @@ bool QueryError_HasReachedMaxPrefixExpansionsWarning(const QueryError *status);
 /*** Sets the reached max prefix expansions warning */
 void QueryError_SetReachedMaxPrefixExpansionsWarning(QueryError *status);
 
+/*** Whether the query OOM warning is set */
+bool QueryError_HasQueryOOMWarning(const QueryError *status);
+
+/*** Sets the query OOM warning */
+void QueryError_SetQueryOOMWarning(QueryError *status);
+
+
 #ifdef __cplusplus
 }
 #endif

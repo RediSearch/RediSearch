@@ -470,7 +470,7 @@ done_2:
       .timedout = has_timedout,
       .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
-      .queryOOM = qctx->err->queryOOM,
+      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
     };
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
@@ -588,7 +588,7 @@ done_3:
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
-    if (qctx->err->queryOOM) {
+    if (QueryError_HasQueryOOMWarning(qctx->err)) {
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     }
     if (rc == RS_RESULT_TIMEDOUT) {
@@ -613,7 +613,7 @@ done_3:
       .timedout = has_timedout,
       .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
-      .queryOOM = qctx->err->queryOOM,
+      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
     };
 
     if (IsProfile(req)) {
