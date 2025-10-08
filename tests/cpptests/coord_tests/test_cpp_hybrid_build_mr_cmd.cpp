@@ -132,6 +132,28 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithSearchOptionalParameters) {
         "VSIM", "@vector_field", TEST_BLOB_DATA,
         "DIALECT", "2"
     });
+
+    testCommandTransformation({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "SCORER", "BM25STD",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "DIALECT", "2"
+    });
+
+    testCommandTransformation({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "YIELD_SCORE_AS", "search_score",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "DIALECT", "2"
+    });
+
+    testCommandTransformation({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "YIELD_SCORE_AS", "search_score",
+        "SCORER", "BM25STD",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "DIALECT", "2"
+    });
 }
 
 // Test command with PARAMS
