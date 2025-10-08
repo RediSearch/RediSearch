@@ -96,7 +96,7 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
 
     const int replyType = MRReply_Type(rep);
     pthread_mutex_lock(cb_ctx->mutex);
-    // add under a lock, allowes coordinator to know when all responsed have arrived
+    // add under a lock, allows the coordinator to know when all responses have arrived
     cb_ctx->responseCount++;
     if (replyType == MR_REPLY_ERROR) {
         const char* errorMessage = MRReply_String(rep, NULL);
