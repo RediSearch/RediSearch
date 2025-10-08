@@ -158,7 +158,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
 
     // Wait for all callbacks to complete
     pthread_mutex_lock(&mutex);
-    // initialize count with response coudn in case some shards already sent a response
+    // initialize count with response counts in case some shards already sent a response
     for (size_t count = ctx.responseCount; count < numShards; count = ctx.responseCount) {
         pthread_cond_wait(&completionCond, &mutex);
     }
