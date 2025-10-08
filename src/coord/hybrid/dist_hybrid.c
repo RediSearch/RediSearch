@@ -313,8 +313,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     MRCommand *cmd = &searchRPNet->cmd;
     int numShards = GetNumShards_UnSafe();
 
-    int result = ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, status);
-    if (result != RS_RESULT_OK) {
+    if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, status)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
