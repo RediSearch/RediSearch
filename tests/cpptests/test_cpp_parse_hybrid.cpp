@@ -1190,3 +1190,8 @@ TEST_F(ParseHybridTest, testSortby0InvalidArgumentCount) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "0");
   testErrorCode(args, QUERY_EPARSEARGS, "SORTBY: Invalid argument count");
 }
+
+TEST_F(ParseHybridTest, testSortbyNotEnoughArguments) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "2", "title");
+  testErrorCode(args, QUERY_EPARSEARGS, "SORTBY: Not enough arguments were provided based on argument count");
+}
