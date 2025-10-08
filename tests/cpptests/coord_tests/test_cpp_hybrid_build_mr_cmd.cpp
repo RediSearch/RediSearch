@@ -150,15 +150,30 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithDialect) {
     });
 }
 
-// Test command with DIALECT
+// Test command with FILTERS
 TEST_F(HybridBuildMRCommandTest, testCommandWithFilters) {
-    testCommandTransformation({
+    // Input arguments
+    const std::vector<const char*> inputArgs = {
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
         "FILTER", "@__key == 'doc:1'",
         "DIALECT", "2"
-    });
+    };
+
+    // Expected arguments after transformation
+    // FT.HYBRID -> _FT.HYBRID
+    // FILTER post-query is removed
+    // WITHCURSOR, WITHSCORES, _NUM_SSTRING are added
+    const std::vector<const char*> expectedArgs = {
+        "_FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
+        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
+        "DIALECT", "2",
+        "WITHCURSOR", "WITHSCORES", "_NUM_SSTRING"
+    };
+
+    testCommandTransformationWithLoad(inputArgs, expectedArgs);
 }
 
 // Test complex command with all optional parameters
@@ -172,16 +187,90 @@ TEST_F(HybridBuildMRCommandTest, testComplexCommandWithAllParams) {
     });
 }
 
-// Test complex command with all optional parameters
+// Test complex command with PARAMS after TIMEOUT
 TEST_F(HybridBuildMRCommandTest, testComplexCommandParamsAfterTimeout) {
-    testCommandTransformation({
+    // Input arguments
+    const std::vector<const char*> inputArgs = {
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
         "TIMEOUT", "3000",
         "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
         "DIALECT", "2"
-    });
+    };
+
+    // Expected arguments after transformation
+    // FT.HYBRID -> _FT.HYBRID
+    // TIMEOUT is moved after PARAMS
+    // WITHCURSOR, WITHSCORES, _NUM_SSTRING are added
+    const std::vector<const char*> expectedArgs = {
+        "_FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
+        "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
+        "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
+        "TIMEOUT", "3000",
+        "DIALECT", "2",
+        "WITHCURSOR", "WITHSCORES", "_NUM_SSTRING"
+    };
+
+    testCommandTransformationWithLoad(inputArgs, expectedArgs);
+}
+
+// Test command with APPLY
+TEST_F(HybridBuildMRCommandTest, testCommandWithApply) {
+    // Input arguments
+    const std::vector<const char*> inputArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "@title:(hello)",
+        "VSIM", "@vector_field", "$BLOB",
+        "APPLY", "@__key", "AS", "mykey",
+        "APPLY", "@__score*3", "AS", "score3",
+        "TIMEOUT", "3000",
+        "DIALECT", "2"
+    };
+
+    // Expected arguments after transformation
+    // FT.HYBRID -> _FT.HYBRID
+    // APPLY arguments are removed
+    // FILTER post-query is removed
+    // WITHCURSOR, WITHSCORES, _NUM_SSTRING are added
+    const std::vector<const char*> expectedArgs = {
+        "_FT.HYBRID", "test_idx", "SEARCH", "@title:(hello)",
+        "VSIM", "@vector_field", "$BLOB",
+        "TIMEOUT", "3000",
+        "DIALECT", "2",
+        "WITHCURSOR", "WITHSCORES", "_NUM_SSTRING"
+    };
+
+    testCommandTransformationWithLoad(inputArgs, expectedArgs);
+}
+
+// Test command with APPLY and post query filter
+TEST_F(HybridBuildMRCommandTest, testCommandWithApplyAndPostFilter) {
+    // Input arguments
+    const std::vector<const char*> inputArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "@title:(hello)",
+        "VSIM", "@vector_field", "$BLOB",
+        "APPLY", "@__key", "AS", "mykey",
+        "APPLY", "@__score*3", "AS", "score3",
+        "TIMEOUT", "3000",
+        "FILTER", "@mykey==\"doc:1\"",
+        "DIALECT", "2"
+    };
+
+    // Expected arguments after transformation
+    // FT.HYBRID -> _FT.HYBRID
+    // APPLY arguments are removed
+    // FILTER post-query is removed
+    // WITHCURSOR, WITHSCORES, _NUM_SSTRING are added
+    const std::vector<const char*> expectedArgs = {
+        "_FT.HYBRID", "test_idx", "SEARCH", "@title:(hello)",
+        "VSIM", "@vector_field", "$BLOB",
+        "TIMEOUT", "3000",
+        "DIALECT", "2",
+        "WITHCURSOR", "WITHSCORES", "_NUM_SSTRING"
+    };
+
+    testCommandTransformationWithLoad(inputArgs, expectedArgs);
 }
 
 // Test minimal command

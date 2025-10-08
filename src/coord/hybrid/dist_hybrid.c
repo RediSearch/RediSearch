@@ -149,6 +149,13 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
   }
 
+  // Add DIALECT arguments if present
+  argOffset = RMUtil_ArgIndex("DIALECT", argv, argc);
+  if (argOffset != -1) {
+    MRCommand_AppendRstr(xcmd, argv[argOffset]);
+    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
+  }
+
   // Add WITHCURSOR
   MRCommand_Append(xcmd, "WITHCURSOR", strlen("WITHCURSOR"));
 
