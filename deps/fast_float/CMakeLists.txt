@@ -1,3 +1,5 @@
 ADD_LIBRARY(fast_float_strtod OBJECT fast_float_strtod.cpp)
 target_compile_definitions(fast_float_strtod PRIVATE FASTFLOAT_SKIP_WHITE_SPACE)
 target_compile_definitions(fast_float_strtod PRIVATE FASTFLOAT_ALLOWS_LEADING_PLUS)
+
+ADD_LIBRARY(fast_float_strtod_static STATIC fast_float_strtod.cpp)
