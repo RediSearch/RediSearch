@@ -92,7 +92,8 @@ class TestHybridVectorNormalizer:
     """Test class for hybrid vector normalizer functionality"""
 
     def __init__(self):
-        pass
+        # TODO: remove skip once FT.HYBRID for cluster is implemented
+        skipTest(cluster=True)
 
     def setup_index(self, env, algorithm, data_type, metric, index_command, dim=2):
         """Setup index with specified algorithm, data type, metric, and index command template"""
