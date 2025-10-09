@@ -511,7 +511,7 @@ static bool isIndexCoherentWithQuery(HybridParseContext *ctx, ArgsCursor *ac, In
     return true;
   }
 
-  sds *args = (sds *)*ac->objs;
+  sds *args = (sds *)ac->objs;
   long long n_prefixes = strtol(args[ctx->prefixesOffset + 1], NULL, 10);
 
   arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
