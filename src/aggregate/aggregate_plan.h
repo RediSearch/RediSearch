@@ -114,7 +114,7 @@ typedef struct {
   size_t nkeys;
 } PLN_LoadStep;
 
-// Used primarly by coordinator to ensure keys merger will need will be available in upstreams
+// Used primarily by coordinator to ensure keys merger will need will be available in upstreams
 typedef struct {
   PLN_BaseStep base;
   const char *docKeyName;
