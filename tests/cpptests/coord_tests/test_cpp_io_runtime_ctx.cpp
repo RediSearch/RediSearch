@@ -41,7 +41,6 @@ protected:
   IORuntimeCtx *ctx;
   static MRClusterTopology *getDummyTopology(size_t numSlots) {
     MRClusterTopology *topo = static_cast<MRClusterTopology*>(rm_malloc(sizeof(*topo)));
-    topo->hashFunc = MRHashFunc_CRC16;
     topo->numShards = 0;
     topo->numSlots = numSlots;
     topo->shards = nullptr;
