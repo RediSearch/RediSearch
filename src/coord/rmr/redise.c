@@ -19,17 +19,19 @@ typedef struct {
 
 static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
 
-  for (int i = 0; i < t->numShards; i++) {
-    if (sh->startSlot == t->shards[i].startSlot && sh->endSlot == t->shards[i].endSlot) {
-      // New node in the same shard (slot range)
+  for (size_t i = 0; i < t->numShards; i++) {
+    RS_ASSERT(t->shards[i].numRanges == 1); // We only support single-range shards using this method
+    if (sh->startSlot == t->shards[i].ranges[0].start && sh->endSlot == t->shards[i].ranges[0].end) {
+      // New node in the same shard
       MRClusterShard_AddNode(&t->shards[i], &sh->node);
       return;
     }
   }
 
   // New shard
-  MRClusterShard csh = MR_NewClusterShard(sh->startSlot, sh->endSlot, 2);
+  MRClusterShard csh = MR_NewClusterShard(2);
   MRClusterShard_AddNode(&csh, &sh->node);
+  MRClusterShard_AddRange(&csh, sh->startSlot, sh->endSlot);
   MRClusterTopology_AddShard(t, &csh);
 }
 
@@ -175,7 +177,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     }
     sh.node.flags = 0;
     if (!strcmp(sh.node.id, myID)) {
-      sh.node.flags |= MRNode_Self;  // TODO: verify there's only one self?
+      sh.node.flags |= MRNode_Self;
     }
     /* Optional MASTER */
     if (AC_AdvanceIfMatch(&ac, "MASTER")) {
