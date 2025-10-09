@@ -1443,10 +1443,8 @@ static void RPDepleter_Deplete_Inner(RPDepleter *self, DepleterSync *sync) {
   // Save the last return code from the upstream.
   self->last_rc = rc;
 
-  // If TIMEOUT with policy FAIL, we can already clean the results - will not be used
+  // If TIMEOUT with policy FAIL, we can already clear the results - will not be used
   if (rc == RS_RESULT_TIMEDOUT && self->base.parent->timeoutPolicy == TimeoutPolicy_Fail) {
-    // array_free_ex(self->results, srDtor(*(char **)ptr));
-    // self->results = array_new(SearchResult*, 0);
     RPDepleter_ClearResults(self);
   }
 

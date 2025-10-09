@@ -286,6 +286,12 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
+ * Clear RPDepleter results array and reset index
+ * @param self The RPDepleter instance to clear
+ */
+void RPDepleter_ClearResults(RPDepleter *self);
+
+/**
 * Creates a new shared synchronization object for coordinating multiple RPDepleter processors.
 * This is used during pipeline construction to create sync objects that allow multiple
 * depleters to coordinate their background threads and wake each other when depleting completes.
