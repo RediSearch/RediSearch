@@ -459,6 +459,9 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
           || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
         QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_EGENERIC, strErr);
         return RS_RESULT_ERROR;
+      } else if (strErr && !strcmp(strErr, "Timeout limit was reached") && nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
+        MRReply_Free(nc->current.root);
+        nc->current.root = NULL;
       }
     }
 
