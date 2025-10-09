@@ -986,7 +986,7 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
     // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
     // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
     uint32_t combined_flags = flags | (src_key->flags & ~RLOOKUP_TRANSIENT_FLAGS);
-    RLookupKey *dest_key = RLookup_GetKey_Write(dest, src_key->name, combined_flags);
+    RLookupKey *dest_key = RLookup_GetKey_Read(dest, src_key->name, combined_flags);
   }
 }
 

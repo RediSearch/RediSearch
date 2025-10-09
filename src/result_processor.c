@@ -1766,7 +1766,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
          --consumed; // avoid wrong rank in RRF
        }
    }
-   RLookup_AddKeysFrom(self->lookupCtx->sourceLookups[upstreamIndex], self->lookupCtx->tailLookup, RLOOKUP_F_NOFLAGS);
    rm_free(r);
    return rc;
  }
@@ -1849,10 +1848,6 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     return RS_RESULT_ERROR;
   } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
     return RS_RESULT_TIMEDOUT;
-  }
-
-  for (size_t i = 0; i < self->numUpstreams; i++) {
-    RLookup_AddKeysFrom(self->lookupCtx->sourceLookups[i], self->lookupCtx->tailLookup, RLOOKUP_F_NOFLAGS);
   }
 
   // Initialize iterator for yield phase

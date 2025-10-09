@@ -133,10 +133,6 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
         RS_ASSERT(srcDocKey);
         array_ensure_append_1(docKeys, srcDocKey);
       }
-      // we open the doc key in the tail so we know to add the __key to the LOAD clause since it is unresolved
-      RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
-      // We don't expect anybody else in the tail to open the key before us, so it must be unresolved
-      RS_ASSERT(docKey && (docKey->flags & RLOOKUP_F_UNRESOLVED));
     }
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, docKeys, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger

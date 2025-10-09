@@ -161,7 +161,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     int rc = parseHybridCommand(ctx, &ac, hreq->sctx, &cmd, status, false);
     // we only need parse the combine and what comes after it
     // we can manually create the subqueries pipelines (depleter -> sorter(window)-> RPNet(shared dispatcher ))
-    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+    if (rc != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
 
     // Initialize timeout for all subqueries BEFORE building pipelines
     // but after the parsing to know the timeout values
@@ -182,8 +184,10 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     }
     arrayof(AREQDIST_UpstreamInfo) us = array_newlen(AREQDIST_UpstreamInfo, hreq->nrequests);
     rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, us, status);
-    array_free(us);
-    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+    if (rc != REDISMODULE_OK) {
+      array_free(us);
+      return REDISMODULE_ERR;
+    }
 
     // Construct the command string
     MRCommand xcmd;
