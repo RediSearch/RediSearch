@@ -342,11 +342,16 @@ void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
   switch (subevent) {
 
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED:
-      // We can do something here in the future
+      should_filter_slots = true;
+      workersThreadPool_OnEventStart();
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED:
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED:
-      // We can do something here in the future
+      should_filter_slots = false;
+      // Since importing is done in a part-time job while redis is running other commands, we notify
+      // the thread pool to no longer receive new jobs (in RCE mode), and terminate the threads
+      // ONCE ALL PENDING JOBS ARE DONE.
+      workersThreadPool_OnEventEnd(false);
       break;
 
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED:
@@ -356,8 +361,9 @@ void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED:
       // We can do something here in the future
       break;
+
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE:
-      // We can do something here in the future
+      // TODO: Serialize and propagate all the schemas using FT._CREATEIFNX
       break;
   }
 }
@@ -370,11 +376,17 @@ void ClusterASMTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t sub
   switch (subevent) {
 
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_STARTED:
-      // We can do something here in the future
+      should_filter_slots = true;
+      workersThreadPool_OnEventStart();
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_COMPLETED:
-      // We can do something here in the future
+      should_filter_slots = false;
+      // Since trimming is done in a part-time job while redis is running other commands, we notify
+      // the thread pool to no longer receive new jobs (in RCE mode), and terminate the threads
+      // ONCE ALL PENDING JOBS ARE DONE.
+      workersThreadPool_OnEventEnd(false);
       break;
+
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND:
       // We can do something here in the future
       break;
