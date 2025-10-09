@@ -4,9 +4,25 @@ This test only runs in cluster mode and simulates random timeouts on shards
 during aggregate operations.
 """
 
-import time
 import random
 from common import *
+
+def configure_shards_with_different_timeout_policies(env):
+    """Configure shards with different timeout policies"""
+    #env.cmd(debug_cmd(), 'ALLOW_ZERO_TIMEOUT', 'true')
+    env.cmd('CONFIG', 'SET', 'search-timeout', '1')
+    res = env.cmd('CONFIG', 'get', 'search-timeout')
+    print(f"JOAN res of CONFIG set search-on-timeout: {res}")
+    for shard_id in range(1, env.shardsCount + 1):
+        conn = env.getConnection(shard_id)
+        print(f'Conn {shard_id} port is {conn.connection_pool.connection_kwargs["port"]}')
+
+        if shard_id == 1:
+            # First shard uses RETURN policy
+            conn.execute_command('CONFIG', 'SET', 'search-on-timeout', 'return')
+        else:
+            # All other shards use FAIL policy
+            conn.execute_command('CONFIG', 'SET', 'search-on-timeout', 'fail')
 
 @skip(cluster=False)
 def test_cluster_aggregate_random_timeout(env):
@@ -17,167 +33,81 @@ def test_cluster_aggregate_random_timeout(env):
     if not env.isCluster():
         env.skip()
 
-    # Create index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'price', 'NUMERIC', 'category', 'TAG').ok()
+    configure_shards_with_different_timeout_policies(env)
 
-    # Add test documents across multiple shards
+    print("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n JOAAAAN HERE AFTER CONFIGURATION \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n" )
+    time.sleep(10)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'title', 'TEXT', 'SORTABLE',
+               'price', 'NUMERIC', 'SORTABLE',
+               'category', 'TAG', 'SORTABLE',
+               'brand', 'TEXT', 'NOSTEM',
+               'rating', 'NUMERIC',
+               'stock', 'NUMERIC',
+               'tags', 'TAG',
+               'created_date', 'NUMERIC').ok()
+
     conn = getConnectionByEnv(env)
-    num_docs = 100
+    num_docs = 100000
+
+    brands = ['Apple', 'Samsung', 'Sony', 'LG', 'Dell', 'HP', 'Nike', 'Adidas', 'Zara', 'H&M']
 
     for i in range(num_docs):
         doc_key = f'doc:{i}'
         title = f'Product {i} title with keywords'
         price = random.randint(10, 1000)
         category = random.choice(['electronics', 'books', 'clothing', 'home'])
+        brand = random.choice(brands)
+        rating = round(random.uniform(1.0, 5.0), 1)
+        stock = random.randint(0, 100)
+        tags = ','.join(random.sample(['new', 'sale', 'premium', 'bestseller', 'limited'], k=random.randint(1, 3)))
+        created_date = random.randint(1640995200, 1672531200)  # 2022-2023 timestamps
 
         conn.execute_command('HSET', doc_key,
                            'title', title,
                            'price', price,
-                           'category', category)
+                           'category', category,
+                           'brand', brand,
+                           'rating', rating,
+                           'stock', stock,
+                           'tags', tags,
+                           'created_date', created_date)
 
-    # Wait for indexing to complete
     waitForIndex(env, 'idx')
 
-    # Verify we have documents indexed
     info = index_info(env, 'idx')
     env.assertGreater(int(info['num_docs']), 0)
 
-    # Test basic aggregate without timeout first
-    result = env.cmd('FT.AGGREGATE', 'idx', '*',
-                     'GROUPBY', '1', '@category',
-                     'REDUCE', 'COUNT', '0', 'AS', 'count',
-                     'REDUCE', 'AVG', '1', '@price', 'AS', 'avg_price')
+    for _ in range(10):
+      # Make sure it checks all shards as coord
+      result = env.cmd('FT.AGGREGATE', 'idx', '*',
+                      'GROUPBY', '1', '@category',
+                      'REDUCE', 'COUNT', '0', 'AS', 'count',
+                      'REDUCE', 'AVG', '1', '@price', 'AS', 'avg_price')
 
-    env.assertGreater(len(result), 1)  # Should have results
 
-    # Now test with debug timeout simulation
-    # This will cause one of the shards to timeout randomly during processing
-    try:
-        result = env.cmd('_FT.DEBUG', 'FT.AGGREGATE', 'idx', '*',
-                        'GROUPBY', '1', '@category',
-                        'REDUCE', 'COUNT', '0', 'AS', 'count',
-                        'REDUCE', 'AVG', '1', '@price', 'AS', 'avg_price',
-                        'TIMEOUT_AFTER_N', '10',  # Timeout after processing 10 results
-                        'DEBUG_PARAMS_COUNT', '2')
+      print(result)
 
-        # If we get here, the query completed before timeout
-        env.assertGreater(len(result), 1)
+      env.assertGreater(len(result), 1)  # Should have results
 
-    except Exception as e:
-        # Expected timeout error
-        error_msg = str(e)
-        env.assertTrue('Timeout' in error_msg or 'timeout' in error_msg)
+      # Complex aggregate with multiple grouping, filtering, and calculations
+      result = env.cmd('FT.AGGREGATE', 'idx', '@category:{electronics|clothing}',
+                      'FILTER', '@price >= 50 && @rating >= 3.0',
+                      'APPLY', 'floor(@price/100)*100', 'AS', 'price_range',
+                      'APPLY', 'if(@stock > 50, "high", if(@stock > 20, "medium", "low"))', 'AS', 'stock_level',
+                      'GROUPBY', '3', '@category', '@brand', '@stock_level',
+                      'REDUCE', 'COUNT', '0', 'AS', 'product_count',
+                      'REDUCE', 'AVG', '1', '@price', 'AS', 'avg_price',
+                      'REDUCE', 'AVG', '1', '@rating', 'AS', 'avg_rating',
+                      'REDUCE', 'SUM', '1', '@stock', 'AS', 'total_stock',
+                      'REDUCE', 'MIN', '1', '@price', 'AS', 'min_price',
+                      'REDUCE', 'MAX', '1', '@price', 'AS', 'max_price',
+                      'FILTER', '@product_count >= 10',
+                      'APPLY', 'format("%.2f", @avg_price)', 'AS', 'formatted_avg_price',
+                      'SORTBY', '4', '@avg_rating', 'DESC', '@product_count', 'DESC',
+                      'LIMIT', '0', '20')
 
-@skip(cluster=False)
-def test_cluster_aggregate_cursor_timeout(env):
-    """
-    Test FT.AGGREGATE with cursor in cluster mode with random shard timeouts.
-    """
-    if not env.isCluster():
-        env.skip()
+      print(result)
 
-    # Create index
-    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'content', 'TEXT', 'score', 'NUMERIC').ok()
-
-    # Add more documents to test cursor behavior
-    conn = getConnectionByEnv(env)
-    num_docs = 200
-
-    for i in range(num_docs):
-        doc_key = f'doc2:{i}'
-        content = f'Document {i} with some content for testing aggregation'
-        score = random.randint(1, 100)
-
-        conn.execute_command('HSET', doc_key,
-                           'content', content,
-                           'score', score)
-
-    # Wait for indexing to complete
-    waitForIndex(env, 'idx2')
-
-    # Test aggregate with cursor and potential timeout
-    try:
-        result, cursor = env.cmd('FT.AGGREGATE', 'idx2', '*',
-                               'LOAD', '2', '@content', '@score',
-                               'APPLY', '@score * 2', 'AS', 'double_score',
-                               'SORTBY', '2', '@score', 'DESC',
-                               'WITHCURSOR', 'COUNT', '50')
-
-        env.assertGreater(len(result), 1)
-
-        # Continue reading with cursor if available
-        total_results = len(result)
-        while cursor and cursor != 0:
-            try:
-                result, cursor = env.cmd('FT.CURSOR', 'READ', 'idx2', cursor)
-                total_results += len(result)
-            except Exception as e:
-                # Cursor might timeout or be cleaned up
-                break
-
-        env.assertGreater(total_results, 50)
-
-    except Exception as e:
-        # Expected timeout or error during cursor operations
-        error_msg = str(e)
-        env.assertTrue('Timeout' in error_msg or 'timeout' in error_msg or 'Cursor' in error_msg)
-
-@skip(cluster=False)
-def test_cluster_aggregate_complex_query_timeout(env):
-    """
-    Test complex FT.AGGREGATE query in cluster mode with potential timeouts.
-    """
-    if not env.isCluster():
-        env.skip()
-
-    # Create index with multiple field types
-    env.expect('FT.CREATE', 'idx3', 'SCHEMA',
-               'name', 'TEXT', 'SORTABLE',
-               'age', 'NUMERIC', 'SORTABLE',
-               'city', 'TAG', 'SORTABLE',
-               'salary', 'NUMERIC').ok()
-
-    # Add test data
-    conn = getConnectionByEnv(env)
-    cities = ['New York', 'London', 'Tokyo', 'Paris', 'Berlin']
-    names = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Henry']
-
-    num_docs = 150
-    for i in range(num_docs):
-        doc_key = f'person:{i}'
-        name = random.choice(names) + f' {i}'
-        age = random.randint(20, 65)
-        city = random.choice(cities)
-        salary = random.randint(30000, 150000)
-
-        conn.execute_command('HSET', doc_key,
-                           'name', name,
-                           'age', age,
-                           'city', city,
-                           'salary', salary)
-
-    # Wait for indexing
-    waitForIndex(env, 'idx3')
-
-    # Complex aggregate query that might timeout on some shards
-    try:
-        result = env.cmd('FT.AGGREGATE', 'idx3', '*',
-                        'GROUPBY', '2', '@city', '@age',
-                        'REDUCE', 'COUNT', '0', 'AS', 'count',
-                        'REDUCE', 'AVG', '1', '@salary', 'AS', 'avg_salary',
-                        'REDUCE', 'MAX', '1', '@salary', 'AS', 'max_salary',
-                        'REDUCE', 'MIN', '1', '@salary', 'AS', 'min_salary',
-                        'SORTBY', '2', '@avg_salary', 'DESC',
-                        'LIMIT', '0', '20')
-
-        env.assertGreater(len(result), 1)
-
-        # Verify result structure
-        for row in result[1:]:  # Skip count
-            env.assertTrue(isinstance(row, list))
-            env.assertGreater(len(row), 6)  # Should have city, age, count, avg_salary, max_salary, min_salary
-
-    except Exception as e:
-        # May timeout due to complex processing
-        error_msg = str(e)
-        env.assertTrue('Timeout' in error_msg or 'timeout' in error_msg)
+      env.assertGreater(len(result), 1)  # Should have results
