@@ -21,8 +21,7 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   RS_ASSERT(sh->node.flags & MRNode_Master);
 
   // New shard
-  MRClusterShard csh = MR_NewClusterShard();
-  MRClusterShard_AddNode(&csh, &sh->node);
+  MRClusterShard csh = MR_NewClusterShard(&sh->node);
   MRClusterTopology_AddShard(t, &csh);
 }
 
@@ -107,7 +106,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     return NULL;
   }
 
-  MRClusterTopology *topo = MR_NewTopology(numShards, numSlots);
+  MRClusterTopology *topo = MR_NewTopology(numShards);
 
   // Parse shards. We have to free the topology and previous shards if we encounter an error
   for (size_t i = 0; i < numShards; i++) {
