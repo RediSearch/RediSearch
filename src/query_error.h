@@ -220,7 +220,6 @@ bool QueryError_HasQueryOOMWarning(const QueryError *status);
 /*** Sets the query OOM warning */
 void QueryError_SetQueryOOMWarning(QueryError *status);
 
-
 #ifdef __cplusplus
 }
 #endif

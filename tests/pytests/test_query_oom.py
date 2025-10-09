@@ -157,7 +157,7 @@ def test_query_oom_cluster_shards_error_first_reply():
     query_result = []
 
     # Build threads
-    query_args = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name']
+    query_args = ['FT.AGGREGATE', 'idx', '*']
 
     t_query = threading.Thread(
         target=call_and_store,
@@ -179,7 +179,7 @@ def test_query_oom_cluster_shards_error_first_reply():
     for shard_p in shards_p:
         shard_p.resume()
     # consider any non-stopped state as “resumed”
-    with TimeLimit(60):
+    with TimeLimit(60, 'Timeout while waiting for shards to resume'):
         while any(shard_p.status() == psutil.STATUS_STOPPED for shard_p in shards_p):
             time.sleep(0.1)
     # Wait for the query to finish
