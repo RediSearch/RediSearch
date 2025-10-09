@@ -39,18 +39,17 @@ static void testTopoCallback(void *privdata) {
 class IORuntimeCtxCommonTest : public ::testing::Test {
 protected:
   IORuntimeCtx *ctx;
-  static MRClusterTopology *getDummyTopology(size_t numSlots) {
+  static MRClusterTopology *getDummyTopology(uint32_t identifier) {
     MRClusterTopology *topo = static_cast<MRClusterTopology*>(rm_malloc(sizeof(*topo)));
     topo->numShards = 0;
-    topo->numSlots = numSlots;
+    topo->capShards = identifier; // Just to have a different value for the test
     topo->shards = nullptr;
     return topo;
   }
 
   void SetUp() override {
     struct MRClusterTopology *topo = getDummyTopology(4096);
-    ctx = IORuntimeCtx_Create(2, topo, 1, false);
-    MRClusterTopology_Free(topo);
+    ctx = IORuntimeCtx_Create(2, topo, 1, true);
   }
 
   void TearDown() override {
@@ -102,11 +101,10 @@ TEST_F(IORuntimeCtxCommonTest, ScheduleTopology) {
   MRClusterTopology *newTopo = getDummyTopology(4097);
 
   // Schedule the topology update
-  IORuntimeCtx_Schedule_Topology(ctx, testTopoCallback, newTopo, false);
-  MRClusterTopology_Free(newTopo);
+  IORuntimeCtx_Schedule_Topology(ctx, testTopoCallback, newTopo, true);
 
   // Verify the topology was not yet updated (will be updated once a request is scheduled)
-  ASSERT_EQ(ctx->topo->numSlots, 4096);
+  ASSERT_EQ(ctx->topo->capShards, 4096);
 
   int counter = 0;
   IORuntimeCtx_Schedule(ctx, testCallback, &counter);
@@ -114,7 +112,7 @@ TEST_F(IORuntimeCtxCommonTest, ScheduleTopology) {
   while (counter < 1) {
     usleep(1); // 1us delay
   }
-  ASSERT_EQ(ctx->topo->numSlots, 4097);
+  ASSERT_EQ(ctx->topo->capShards, 4097);
 
   // We don't need to free newTopo here as it's handled by testTopoCallback
 }
@@ -126,8 +124,7 @@ TEST_F(IORuntimeCtxCommonTest, MultipleTopologyUpdates) {
   // Schedule multiple topology updates in quick succession
   for (int i = 3; i <= 5; i++) {
     MRClusterTopology *newTopo = getDummyTopology(4096 + i);
-    IORuntimeCtx_Schedule_Topology(ctx, testTopoCallback, newTopo, false);
-    MRClusterTopology_Free(newTopo);
+    IORuntimeCtx_Schedule_Topology(ctx, testTopoCallback, newTopo, true);
   }
 
   // Give some time for the last topology to be applied
@@ -137,7 +134,7 @@ TEST_F(IORuntimeCtxCommonTest, MultipleTopologyUpdates) {
   }
 
   // Only the last topology should be applied
-  ASSERT_EQ(ctx->topo->numSlots, 4101);
+  ASSERT_EQ(ctx->topo->capShards, 4101);
 }
 
 TEST_F(IORuntimeCtxCommonTest, ClearPendingTopo) {

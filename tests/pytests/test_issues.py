@@ -916,7 +916,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     env.assertOk(new_shard_conn.execute_command("search.CLUSTERREFRESH"))
     cluster_info = new_shard_conn.execute_command("search.clusterinfo")
     shards_idx = cluster_info.index('shards') + 1
-    unique_shards = set(shard[0][0] for shard in cluster_info[shards_idx:])
+    unique_shards = set(shard[0] for shard in cluster_info[shards_idx])
     env.assertEqual(len(unique_shards), initial_shards_count+1, message=f"cluster info is {cluster_info}")
 
 @skip(cluster=True)
