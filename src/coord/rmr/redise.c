@@ -159,6 +159,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     /* Optional MASTER */
     if (!AC_AdvanceIfMatch(&ac, "MASTER")) {
       // We don't care for replicas using this command anymore
+      MREndpoint_Free(&sh.node.endpoint);
       continue;
     }
     // All good. Finish up the node
