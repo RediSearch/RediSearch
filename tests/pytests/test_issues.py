@@ -904,25 +904,20 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
     with TimeLimit(40, "fail to acknowledge topology"):
-        while True:
-            cluster_info = new_shard_conn.execute_command("search.clusterinfo")
-            shards_idx = cluster_info.index('shards') + 1
-            if any([range[0] == [0, 0] for range in cluster_info[shards_idx:]]):
-                break
+        shards = env.getOSSMasterNodesConnectionList()
+        while not all([sh.execute_command('CLUSTER', 'INFO').startswith('cluster_state:ok') for sh in shards]):
             time.sleep(0.5)
     # search.clusterinfo response format is the following:
     # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'shards',
-    # [[0, 0], ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
-    # [[1, 5461], ['60cdcb85a8f73f87ac6cc831ee799b75752aace3', '127.0.0.1', 6379, 'master']],
-    # [[5462, 10923], ['6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', '127.0.0.1', 6381, 'master']],
-    # [[10924, 16383], ['4e51033405651441a4be6ddfb46cd85d0c54af6f', '127.0.0.1', 6383, 'master']]]
-    unique_shards = set(shard[1][0] for shard in cluster_info[shards_idx:])
+    # [['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
+    # [['60cdcb85a8f73f87ac6cc831ee799b75752aace3', '127.0.0.1', 6379, 'master']],
+    # [['6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', '127.0.0.1', 6381, 'master']],
+    # [['4e51033405651441a4be6ddfb46cd85d0c54af6f', '127.0.0.1', 6383, 'master']]]
+    env.assertOk(new_shard_conn.execute_command("search.CLUSTERREFRESH"))
+    cluster_info = new_shard_conn.execute_command("search.clusterinfo")
+    shards_idx = cluster_info.index('shards') + 1
+    unique_shards = set(shard[0][0] for shard in cluster_info[shards_idx:])
     env.assertEqual(len(unique_shards), initial_shards_count+1, message=f"cluster info is {cluster_info}")
-
-    # Verify that slot 0 moved to the new shard,
-    shards_with_slot_0 = [shard for shard in cluster_info[shards_idx:] if shard[0][0] == 0]
-    env.assertEqual(len(shards_with_slot_0), 1, message=f"cluster info is {cluster_info}")
-    env.assertEqual(shards_with_slot_0[0][1][0], new_shard_id, message=f"cluster info is {cluster_info}")
 
 @skip(cluster=True)
 def test_mod5910(env):
