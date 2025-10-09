@@ -43,11 +43,6 @@ static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
     } else if (STR_EQ(key_str, key_len, "endpoint")) {
       const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
       n->endpoint.host = rm_strndup(val_str, val_len);
-    } else if (STR_EQ(key_str, key_len, "role")) {
-      const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
-      if (STR_EQ(val_str, val_len, "master")) {
-        n->flags |= MRNode_Master;
-      }
     } else if (STR_EQ(key_str, key_len, "tls-port")) {
       n->endpoint.port = (int)RedisModule_CallReplyInteger(val); // Prefer tls-port if available
     } else if (STR_EQ(key_str, key_len, "port") && n->endpoint.port == -1) {
@@ -104,14 +99,6 @@ static bool hasSlots(RedisModuleCallReply *shard) {
 
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   RS_AutoMemory(ctx);
-  RedisModuleCallReply *myID_reply = RedisModule_Call(ctx, "CLUSTER", "c", "MYID");
-  if (myID_reply == NULL || RedisModule_CallReplyType(myID_reply) != REDISMODULE_REPLY_STRING) {
-    RedisModule_Log(ctx, "warning", "Error calling CLUSTER MYID");
-    return NULL;
-  }
-
-  size_t idlen;
-  const char *myID = RedisModule_CallReplyStringPtr(myID_reply, &idlen);
 
   RedisModuleCallReply *cluster_shards = RedisModule_Call(ctx, "CLUSTER", "c", "SHARDS");
   if (cluster_shards == NULL || RedisModule_CallReplyType(cluster_shards) != REDISMODULE_REPLY_ARRAY) {
@@ -183,12 +170,6 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     RS_ASSERT(RedisModule_CallReplyType(nodes) == REDISMODULE_REPLY_ARRAY);
     // parse and store the master
     parseMasterNode(nodes, &topo->shards[i].node);
-    // Mark the node as self if its ID matches our ID
-    if (STR_EQ(myID, idlen, topo->shards[i].node.id)) {
-      topo->shards[i].node.flags |= MRNode_Self;
-    }
-    // Make sure the node is the master
-    RS_ASSERT(topo->shards[i].node.flags & MRNode_Master);
   }
 
   return topo;

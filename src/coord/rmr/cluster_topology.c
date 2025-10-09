@@ -44,8 +44,6 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
     new_shard.node.id = rm_strdup(original_shard->node.id);
     MREndpoint_Copy(&new_shard.node.endpoint, &original_shard->node.endpoint);
     new_shard.node.endpoint.port = original_shard->node.endpoint.port;
-    new_shard.node.flags = 0;
-    new_shard.node.flags = original_shard->node.flags;
 
     MRClusterTopology_AddShard(topo, &new_shard);
   }

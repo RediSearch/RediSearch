@@ -74,7 +74,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
         ERROR_MISSING("HASHFUNC");
         return NULL;
       }
-      if (strcasecmp(hashFuncStr, MRHASHFUNC_CRC12_STR) && strcasecmp(hashFuncStr, MRHASHFUNC_CRC16_STR)) {
+      if (strcasecmp(hashFuncStr, "CRC12") && strcasecmp(hashFuncStr, "CRC16")) {
         ERROR_BADVAL("HASHFUNC", hashFuncStr);
         return NULL;
       }
@@ -166,11 +166,6 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     if (unixSock) {
       sh.node.endpoint.unixSock = rm_strdup(unixSock);
     }
-    sh.node.flags = 0;
-    if (!strcmp(sh.node.id, myID)) {
-      sh.node.flags |= MRNode_Self;
-    }
-    sh.node.flags |= MRNode_Master;
     // Add the shard. This function will take ownership of the node's allocated strings
     MRTopology_AddRLShard(topo, &sh);
   }
