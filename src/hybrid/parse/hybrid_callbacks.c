@@ -85,19 +85,11 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
 
 #define ASC_BY_DEFAULT true
 
-// SORTBY callback - implements EXACT original logic from lines 298-323
 void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_SORTBY;
-
-    // We managed to get a valid arg cursor
-    if (AC_IsAtEnd(ac)) {
-        // We essentially got SORTBY 0
-        *ctx->reqFlags |= QEXEC_F_NO_SORT;
-        return;
-    }
 
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(ctx->plan);
     // Parse field/direction pairs
