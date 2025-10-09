@@ -57,7 +57,12 @@ pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
     unsafe { *h0 = alloc_size };
 
     let h1 = base.wrapping_add(std::mem::size_of::<usize>()) as *mut usize;
-    // Safety: `h1` points into the allocated header and is disjoint from `h0`.
+    // Safety: `h1` is within the allocated header region and disjoint from `h0`.
+    // Since the header is two words-long, and we only need one word
+    // for required metadata (i.e. the actual allocated space),
+    // we can use the second word to keep track of additional information
+    // that can be handy when troubleshooting, such as the size
+    // requested by the user.
     unsafe { *h1 = size };
 
     // Compute user pointer just after the header while preserving alignment.
@@ -97,7 +102,11 @@ pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
 
     let h1 = base.wrapping_add(std::mem::size_of::<usize>()) as *mut usize;
     // Safety: `h1` is within the allocated header region and disjoint from `h0`.
-    // ... we assign req to h1 purely for diagnostics reasons
+    // Since the header is two words-long, and we only need one word
+    // for required metadata (i.e. the actual allocated space),
+    // we can use the second word to keep track of additional information
+    // that can be handy when troubleshooting, such as the size
+    // requested by the user.
     unsafe { *h1 = req };
 
     // pointer after header, alignment preserved since HEADER_SIZE is a multiple of ALIGNMENT.
@@ -186,7 +195,12 @@ pub extern "C" fn realloc_shim(ptr_user: *mut c_void, new_size: usize) -> *mut c
     unsafe { *h0_new = new_alloc_size };
 
     let h1_new = new_base.wrapping_add(std::mem::size_of::<usize>()) as *mut usize;
-    // Safety: `h1_new` points within the header block and is disjoint from `h0_new`.
+    // Safety: `h1_new` is within the allocated header region and disjoint from `h0_new`.
+    // Since the header is two words-long, and we only need one word
+    // for required metadata (i.e. the actual allocated space),
+    // we can use the second word to keep track of additional information
+    // that can be handy when troubleshooting, such as the size
+    // requested by the user.
     unsafe { *h1_new = new_size };
 
     // pointer just after the header
