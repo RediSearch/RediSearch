@@ -34,6 +34,7 @@ typedef enum {
   rename_from_cmd,
   rename_to_cmd,
   trimmed_cmd,
+  key_trimmed_cmd,
   restore_cmd,
   expire_cmd,
   persist_cmd,
@@ -77,7 +78,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
   static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0, *hincrby_event = 0,
                     *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
-                    *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
+                    *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0, *key_trimmed_event = 0,
                     *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
                     *loaded_event = 0, *copy_to_event = 0, *hexpire_event = 0, *hexpired_event = 0,
                     *expire_event = 0, *hpersist_event = 0, *persist_event = 0;
@@ -95,6 +96,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(rename_from)
   else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(trimmed)
+  else CHECK_CACHED_EVENT(key_trimmed)
   else CHECK_CACHED_EVENT(restore)
   else CHECK_CACHED_EVENT(hexpired)
   else CHECK_CACHED_EVENT(expire)
@@ -122,6 +124,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_from)
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(trimmed)
+    else CHECK_AND_CACHE_EVENT(key_trimmed)
     else CHECK_AND_CACHE_EVENT(restore)
     else CHECK_AND_CACHE_EVENT(hexpire)
     else CHECK_AND_CACHE_EVENT(hexpired)
@@ -172,6 +175,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case del_cmd:
     case set_cmd:
     case trimmed_cmd:
+    case key_trimmed_cmd:
     case expired_cmd:
     case evicted_cmd:
       Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
@@ -330,6 +334,54 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   }
 }
 
+void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(ctx);
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(data);
+
+  switch (subevent) {
+
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED:
+      // We can do something here in the future
+      break;
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED:
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED:
+      // We can do something here in the future
+      break;
+
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED:
+      // We can do something here in the future
+      break;
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED:
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED:
+      // We can do something here in the future
+      break;
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE:
+      // We can do something here in the future
+      break;
+  }
+}
+
+void ClusterASMTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(ctx);
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(data);
+
+  switch (subevent) {
+
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_STARTED:
+      // We can do something here in the future
+      break;
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_COMPLETED:
+      // We can do something here in the future
+      break;
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND:
+      // We can do something here in the future
+      break;
+  }
+}
+
+
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
   RediSearch_CleanupModule();
@@ -376,7 +428,7 @@ void Initialize_KeyspaceNotifications() {
   if (!RS_KeyspaceEvents_Initialized) {
     RedisModule_SubscribeToKeyspaceEvents(RSDummyContext,
       REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
-      REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_STRING |
+      REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_KEY_TRIMMED | REDISMODULE_NOTIFY_STRING |
       REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
       REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
       HashNotificationCallback);
@@ -405,6 +457,10 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
 
   RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
+
+  RedisModule_Log(ctx, "notice", "%s", "Subscribe to cluster ASM events");
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterAsm, ClusterASMEvent);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterAsmTrim, ClusterASMTrimEvent);
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {
