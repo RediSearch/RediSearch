@@ -321,10 +321,10 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     }
 
     // Store mappings in RPNet structures
-    searchRPNet->mappings = searchMappingsRef;
-    vsimRPNet->mappings = vsimMappingsRef;
-    CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
-    CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
+    searchRPNet->mappings = StrongRef_Clone(searchMappingsRef);
+    vsimRPNet->mappings = StrongRef_Clone(vsimMappingsRef);
+    StrongRef_Release(searchMappingsRef);
+    StrongRef_Release(vsimMappingsRef);
 
     bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     if (isCursor) {
@@ -345,8 +345,6 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
             .lastAstp = AGPLN_GetArrangeStep(plan)
         };
         sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
-        StrongRef_Release(searchMappingsRef);
-        StrongRef_Release(vsimMappingsRef);
         HybridRequest_Free(hreq);
     }
     return REDISMODULE_OK;
