@@ -4,8 +4,10 @@ set -e
 
 $MODE dnf update -y
 
-# Development Tools includes config-manager
-$MODE dnf groupinstall "Development Tools" -yqq
+# Development Tools includes python11 and config-manager
+$MODE dnf groupinstall "Development Tools" -yqq --nobest --skip-broken
+# install pip
+$MODE dnf install python3.12-pip -y --nobest --skip-broken
 
 # powertools is needed to install epel
 $MODE dnf config-manager --set-enabled powertools --nobest --skip-broken
@@ -15,14 +17,8 @@ $MODE dnf install epel-release -yqq --nobest --skip-broken
 
 $MODE dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ \
     gcc-toolset-13-libatomic-devel make wget git openssl openssl-devel \
-    bzip2-devel libffi-devel zlib-devel tar xz which rsync \
-    clang curl clang-devel --nobest --skip-broken
-
-# We need Python headers to build psutil@5.x.y from
-# source, since it only started providing wheels for aarch64
-# in version 6.w.z.
-if [ "$(uname -m)" = "aarch64" ]; then
-    $MODE dnf install -y python3.12-devel
-fi
+    bzip2-devel libffi-devel zlib-devel tar xz which rsync python3.12-devel \
+    clang curl --nobest --skip-broken
 
 cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
+
