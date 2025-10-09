@@ -475,6 +475,27 @@ static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
   }
 }
 
+static void applyLimitSortingConstraint(AREQ *searchRequest, AREQ *vectorRequest, HybridPipelineParams *hybridParams) {
+  const size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+
+  const bool isKNN = vectorRequest->ast.root->type == QN_VECTOR;
+  const size_t K = isKNN ? vectorRequest->ast.root->vn.vq->knn.k : 0;
+
+  PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(searchRequest));
+  searchArrangeStep->limit = window;
+
+  PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(vectorRequest));
+  if (isKNN) {
+    // Vector subquery is a KNN query
+    // Heapsize should be min(window, KNN K)
+    // ast structure is: root = vector node <- filter node <- ... rest
+    vectorArrangeStep->limit = MIN(window, K);
+  } else {
+    // its range, limit = window
+    vectorArrangeStep->limit = window;
+  }
+}
+
 // Field names for implicit LOAD step
 #define HYBRID_IMPLICIT_KEY_FIELDS UNDERSCORE_KEY, UNDERSCORE_SCORE
 #define HYBRID_IMPLICIT_KEY_FIELD_COUNT 2
@@ -503,6 +524,21 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     implicitLoadStep->keys = rm_calloc(implicitLoadStep->args.argc, sizeof(RLookupKey*));
 
     return implicitLoadStep;
+}
+
+static void mergeDtor(PLN_BaseStep *bstp) {
+  PLN_MergeStep *mstp = (PLN_MergeStep *)bstp;
+  rm_free(bstp);
+}
+
+static PLN_MergeStep *createMergeStep(void) {
+  PLN_MergeStep *mergeStep = rm_calloc(1, sizeof(PLN_MergeStep));
+  mergeStep->base.type = PLN_T_MERGE;
+  mergeStep->base.dtor = mergeDtor; // Use standard destructor
+  mergeStep->base.alias = NULL;
+  mergeStep->base.flags = 0;
+  mergeStep->docKeyName = UNDERSCORE_KEY;
+  return mergeStep;
 }
 
 /**
@@ -649,7 +685,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
   }
 
-
   // We need a load step, implicit or an explicit one
   PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
   if (!loadStep) {
@@ -666,6 +701,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Free the source load step
   loadStep->base.dtor(&loadStep->base);
   loadStep = NULL;
+
+  // our way of letting the pipeline know we need the __key rlookup key even it it didn't appear in the load clause
+  AGPLN_AddStep(&searchRequest->pipeline.ap, &createMergeStep()->base);
+  AGPLN_AddStep(&vectorRequest->pipeline.ap, &createMergeStep()->base);
 
   if (!(*mergeReqflags & QEXEC_F_NO_SORT)) {
     // No SORTBY 0 - add implicit sort-by-score
@@ -684,6 +723,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     AddValidationErrorContext(vectorRequest, status);
     goto error;
   }
+
+  // Apply limit constraint for sorting
+  applyLimitSortingConstraint(searchRequest, vectorRequest, hybridParams);
 
   // thread safe context
   const AggregationPipelineParams params = {

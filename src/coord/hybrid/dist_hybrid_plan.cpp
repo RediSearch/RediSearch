@@ -9,6 +9,8 @@
 
 #include "dist_hybrid_plan.h"
 #include "hybrid/hybrid_request.h"
+#include <set>
+#include <string>
 
 // should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
 int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
@@ -55,92 +57,48 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   return REDISMODULE_OK;
 }
 
-static int hybridRequestSetupCoordinatorSubqueriesRequests(HybridRequest *hreq, const HybridPipelineParams *hybridParams, RLookup *tailLookup, QueryError *status) {
-  RS_ASSERT(hybridParams->scoringCtx);
-  size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
-
-  bool isKNN = hreq->requests[VECTOR_INDEX]->ast.root->type == QN_VECTOR;
-  size_t K = isKNN ? hreq->requests[VECTOR_INDEX]->ast.root->vn.vq->knn.k : 0;
-
-  // Put all the loaded keys in the tail so all the result processors in the tail can use them
-  // especially rpnet and hybrid merger
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    AREQ *areq = hreq->requests[i];
-    PLN_LoadStep *step = (PLN_LoadStep *)AGPLN_FindStep(AREQ_AGGPlan(areq), NULL, NULL, PLN_T_LOAD);
-    if (!step) {
-      continue;
-    }
-    if (OpenLoadKeys(step, tailLookup, 0, status, NULL) != REDISMODULE_OK) {
-      return REDISMODULE_ERR;
-    }
-  }
-
-  array_free_ex(hreq->requests, AREQ_Free(*(AREQ**)ptr));
-  hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
-  hreq->nrequests = array_len(hreq->requests);
-
-  AREQ_AddRequestFlags(hreq->requests[SEARCH_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
-  AREQ_AddRequestFlags(hreq->requests[VECTOR_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
-
-  PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[SEARCH_INDEX]));
-  searchArrangeStep->limit = window;
-
-  PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[VECTOR_INDEX]));
-  if (isKNN) {
-    // Vector subquery is a KNN query
-    // Heapsize should be min(window, KNN K)
-    // ast structure is: root = vector node <- filter node <- ... rest
-    vectorArrangeStep->limit = MIN(window, K);
-  } else {
-    // its range, limit = window
-    vectorArrangeStep->limit = window;
-  }
-  return REDISMODULE_OK;
-}
-
 int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     HybridPipelineParams *hybridParams,
-    AREQDIST_UpstreamInfo *us,
+    arrayof(AREQDIST_UpstreamInfo) us,
     QueryError *status) {
 
-    RLookup *lookup = AGPLN_GetLookup(HybridRequest_TailAGGPlan(hreq), NULL, AGPLN_GETLOOKUP_FIRST);
-    RS_ASSERT(lookup);
+    RLookup *tailLookup = AGPLN_GetLookup(HybridRequest_TailAGGPlan(hreq), NULL, AGPLN_GETLOOKUP_FIRST);
 
-    lookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
-    int rc = hybridRequestSetupCoordinatorSubqueriesRequests(hreq, hybridParams, lookup, status);
+    int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-    rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
+    tailLookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
+    rc = HybridRequest_BuildMergePipeline(hreq, hybridParams, true);
+    tailLookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-    rc = HybridRequest_BuildMergePipeline(hreq, hybridParams, lookup);
-    lookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
-    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     // Collect unresolved fields from tail lookup for LOAD command
-    std::vector<const RLookupKey *> loadFields;
-    for (RLookupKey *kk = lookup->head; kk != NULL; kk = kk->next) {
-        if (kk->flags & RLOOKUP_F_UNRESOLVED) {
-            loadFields.push_back(kk);
+    std::set<std::string> loadFields;
+    for (RLookupKey *kk = tailLookup->head; kk != NULL; kk = kk->next) {
+        if (kk->flags & RLOOKUP_F_UNRESOLVED && kk->name) {
+            loadFields.emplace(kk->name, kk->name_len);
         }
     }
 
-    auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(HybridRequest_TailAGGPlan(hreq), NULL, NULL, PLN_T_DISTRIBUTE);
-    RS_ASSERT(dstp);
-    auto &ser_args = *dstp->serialized;
-    if (!loadFields.empty()) {
-        ser_args.push_back(rm_strndup("LOAD", 4));
-        char *ldsze;
-        rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
-        ser_args.push_back(ldsze);
-        for (auto kk : loadFields) {
-            ser_args.push_back(rm_strndup(kk->name, kk->name_len));
+    for (int i = 0; i < hreq->nrequests; i++) {
+        AREQ *areq = hreq->requests[i];
+        auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(areq), NULL, NULL, PLN_T_DISTRIBUTE);
+        RS_ASSERT(dstp);
+        auto &ser_args = *dstp->serialized;
+        if (!loadFields.empty()) {
+          ser_args.push_back(rm_strndup("LOAD", 4));
+          char *ldsze;
+          rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
+          ser_args.push_back(ldsze);
+          for (auto& kk : loadFields) {
+              ser_args.push_back(rm_strndup(kk.c_str(), kk.size()));
+          }
+          // This lookup goes to the rpnet - we need the lookup keys its write will be what the merger expects
+          us[i].lookup = &dstp->lk;
+          us[i].serialized = ser_args.data();
+          us[i].nserialized = ser_args.size();
         }
-    }
-
-    // This lookup goes to the rpnet - we need the lookup keys its write will be what the merger expects
-    us->lookup = lookup;
-    us->serialized = ser_args.data();
-    us->nserialized = ser_args.size();
+      }
     return REDISMODULE_OK;
 }

@@ -32,6 +32,7 @@ typedef enum {
   PLN_T_APPLY,
   PLN_T_ARRANGE,
   PLN_T_LOAD,
+  PLN_T_MERGE,
   PLN_T_VECTOR_NORMALIZER,
   PLN_T__MAX
 } PLN_StepType;
@@ -112,6 +113,12 @@ typedef struct {
   const RLookupKey **keys;
   size_t nkeys;
 } PLN_LoadStep;
+
+// Used primarly by coordinator to ensure keys merger will need will be available in upstreams
+typedef struct {
+  PLN_BaseStep base;
+  const char *docKeyName;
+} PLN_MergeStep;
 
 /** VECTOR_NORMALIZER normalizes vector distance scores to [0,1] range */
 typedef struct {
