@@ -56,7 +56,7 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
       newCmd.rootCommand = C_READ;
     }
 
-    newCmd.targetSlot = cmd->targetSlot;
+    newCmd.targetShard = cmd->targetShard;
     newCmd.protocol = cmd->protocol;
     newCmd.forCursor = cmd->forCursor;
     newCmd.forProfiling = cmd->forProfiling;
