@@ -17,29 +17,25 @@
 extern "C" {
 #endif
 
-/* A "shard" represents a slot set of the cluster, with its associated nodes */
+/* A "shard" represents a slot set of the cluster, with its associated node (we keep a single node per shard) */
 typedef struct {
-  uint32_t numNodes;
-  uint32_t capNodes;
-  MRClusterNode *nodes;
+  MRClusterNode node;
 } MRClusterShard;
 
 /* Create a new cluster shard to be added to a topology */
-MRClusterShard MR_NewClusterShard(void);
-void MRClusterShard_AddNode(MRClusterShard *sh, MRClusterNode *n);
+MRClusterShard MR_NewClusterShard(MRClusterNode *node);
 
 #define MRHASHFUNC_CRC12_STR "CRC12"
 #define MRHASHFUNC_CRC16_STR "CRC16"
 
 /* A topology is the mapping of slots to shards and nodes */
 typedef struct MRClusterTopology {
-  size_t numSlots;
-  size_t numShards;
-  size_t capShards;
+  uint32_t numShards;
+  uint32_t capShards;
   MRClusterShard *shards;
 } MRClusterTopology;
 
-MRClusterTopology *MR_NewTopology(size_t numShards, size_t numSlots);
+MRClusterTopology *MR_NewTopology(uint32_t numShards);
 void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh);
 
 void MRClusterTopology_Free(MRClusterTopology *t);

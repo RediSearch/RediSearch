@@ -60,6 +60,41 @@ static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
   RS_ASSERT(n->endpoint.port != -1);
 }
 
+static void parseMasterNode(RedisModuleCallReply *nodes, MRClusterNode *n) {
+  const size_t numNodes = RedisModule_CallReplyLength(nodes);
+
+  for (size_t i = 0; i < numNodes; i++) {
+    RedisModuleCallReply *node = RedisModule_CallReplyArrayElement(nodes, i);
+    RS_ASSERT(RedisModule_CallReplyType(node) == REDISMODULE_REPLY_ARRAY);
+    size_t node_len = RedisModule_CallReplyLength(node);
+    RS_ASSERT(node_len % 2 == 0);
+
+    // Find the "role" key
+    size_t j = 0;
+    for (; j < node_len / 2; j++) {
+      RedisModuleCallReply *key = RedisModule_CallReplyArrayElement(node, j * 2);
+      RS_ASSERT(RedisModule_CallReplyType(key) == REDISMODULE_REPLY_STRING);
+      size_t key_len;
+      const char *key_str = RedisModule_CallReplyStringPtr(key, &key_len);
+      if (STR_EQ(key_str, key_len, "role")) {
+        break;
+      }
+    }
+    // Check if this is a master node
+    ASSERT_KEY(node, j * 2, "role");
+    RedisModuleCallReply *val = RedisModule_CallReplyArrayElement(node, j * 2 + 1);
+    size_t val_len;
+    const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
+    if (STR_EQ(val_str, val_len, "master")) {
+      parseNode(node, n);
+      return;
+    }
+  }
+
+  // We should always find a master node
+  RS_ABORT("No master node found in shard");
+}
+
 static bool hasSlots(RedisModuleCallReply *shard) {
   ASSERT_KEY(shard, 0, "slots");
   RedisModuleCallReply *slots = RedisModule_CallReplyArrayElement(shard, 1);
@@ -129,7 +164,6 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   }
   MRClusterTopology *topo = rm_calloc(1, sizeof(MRClusterTopology));
 
-  topo->numSlots = 16384;
   topo->numShards = numShards;
   topo->shards = rm_calloc(numShards, sizeof(MRClusterShard));
 
@@ -147,29 +181,14 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     ASSERT_KEY(currShard, 2, "nodes");
     RedisModuleCallReply *nodes = RedisModule_CallReplyArrayElement(currShard, 3);
     RS_ASSERT(RedisModule_CallReplyType(nodes) == REDISMODULE_REPLY_ARRAY);
-    topo->shards[i].capNodes = RedisModule_CallReplyLength(nodes);
-    topo->shards[i].numNodes = topo->shards[i].capNodes; // we expect all nodes to be valid
-    topo->shards[i].nodes = rm_calloc(topo->shards[i].capNodes, sizeof(MRClusterNode));
-    // parse each node
-    for (size_t n = 0; n < topo->shards[i].numNodes; n++) {
-      parseNode(RedisModule_CallReplyArrayElement(nodes, n), &topo->shards[i].nodes[n]);
-      // Mark the node as self if its ID matches our ID
-      if (STR_EQ(myID, idlen, topo->shards[i].nodes[n].id)) {
-        topo->shards[i].nodes[n].flags |= MRNode_Self;
-      }
+    // parse and store the master
+    parseMasterNode(nodes, &topo->shards[i].node);
+    // Mark the node as self if its ID matches our ID
+    if (STR_EQ(myID, idlen, topo->shards[i].node.id)) {
+      topo->shards[i].node.flags |= MRNode_Self;
     }
-    // Make sure the first node is the master
-    if (!(topo->shards[i].nodes[0].flags & MRNode_Master)) {
-      for (size_t n = 1; n < topo->shards[i].numNodes; n++) {
-        if (topo->shards[i].nodes[n].flags & MRNode_Master) {
-          MRClusterNode tmp = topo->shards[i].nodes[n];
-          topo->shards[i].nodes[n] = topo->shards[i].nodes[0];
-          topo->shards[i].nodes[0] = tmp;
-          break;
-        }
-      }
-    }
-    RS_ASSERT(topo->shards[i].nodes[0].flags & MRNode_Master);
+    // Make sure the node is the master
+    RS_ASSERT(topo->shards[i].node.flags & MRNode_Master);
   }
 
   return topo;
@@ -179,7 +198,7 @@ extern size_t NumShards;
 void UpdateTopology(RedisModuleCtx *ctx) {
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
   if (topo) { // if we didn't get a topology, do nothing. Log was already printed
-    RedisModule_Log(ctx, "debug", "UpdateTopology: Setting number of partitions to %ld", topo->numShards);
+    RedisModule_Log(ctx, "debug", "UpdateTopology: Setting number of partitions to %u", topo->numShards);
     NumShards = topo->numShards;
     MR_UpdateTopology(topo);
   }

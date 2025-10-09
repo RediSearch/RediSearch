@@ -56,7 +56,6 @@ typedef struct MRCtx {
   void *privdata;
   RedisModuleCtx *redisCtx;
   RedisModuleBlockedClient *bc;
-  bool mastersOnly;
   MRCommand cmd;
   IORuntimeCtx *ioRuntime;
 
@@ -72,10 +71,6 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 } MRCtx;
 
-void MR_SetCoordinationStrategy(MRCtx *ctx, bool mastersOnly) {
-  ctx->mastersOnly = mastersOnly;
-}
-
 /* Create a new MapReduce context */
 MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *privdata, int replyCap) {
   RS_ASSERT(cluster_g);
@@ -87,7 +82,6 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->replies = rm_calloc(ret->repliesCap, sizeof(redisReply *));
   ret->reducer = NULL;
   ret->privdata = privdata;
-  ret->mastersOnly = true; // default to masters only
   ret->redisCtx = ctx;
   ret->bc = bc;
   RS_ASSERT(ctx || bc);
@@ -204,8 +198,7 @@ static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
   IORuntimeCtx *ioRuntime = mrctx->ioRuntime;
 
-  mrctx->numExpected =
-      MRCluster_FanoutCommand(ioRuntime, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx);
+  mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, fanoutCallback, mrctx);
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
@@ -396,33 +389,24 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
     RedisModule_ReplyKV_SimpleString(reply, "hash_func", hash_func_str);
 
     // Report topology
-    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
+    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (1<<14) : 0);
 
     if (!topo) {
       RedisModule_ReplyKV_Null(reply, "shards");
     } else {
       RedisModule_ReplyKV_Array(reply, "shards"); // >shards
       for (int i = 0; i < topo->numShards; i++) {
-        MRClusterShard *sh = &topo->shards[i];
-        RedisModule_Reply_Map(reply); // >>(shard)
+        MRClusterNode *node = &topo->shards[i].node;
+        RedisModule_Reply_Map(reply); // >>(node)
 
-        RedisModule_ReplyKV_Array(reply, "nodes"); // >>>nodes
-        for (int j = 0; j < sh->numNodes; j++) {
-          MRClusterNode *node = &sh->nodes[j];
-          RedisModule_Reply_Map(reply); // >>>>(node)
+        REPLY_KVSTR_SAFE("id", node->id);
+        REPLY_KVSTR_SAFE("host", node->endpoint.host);
+        RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
+        RedisModule_ReplyKV_SimpleStringf(reply, "role", "%s%s",
+                                    node->flags & MRNode_Master ? "master" : "replica",
+                                    node->flags & MRNode_Self ? " self" : "");
 
-          REPLY_KVSTR_SAFE("id", node->id);
-          REPLY_KVSTR_SAFE("host", node->endpoint.host);
-          RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
-          RedisModule_ReplyKV_SimpleStringf(reply, "role", "%s%s",
-                                      node->flags & MRNode_Master ? "master" : "replica",
-                                      node->flags & MRNode_Self ? " self" : "");
-
-          RedisModule_Reply_MapEnd(reply); // >>>>(node)
-        }
-        RedisModule_Reply_ArrayEnd(reply); // >>>nodes
-
-        RedisModule_Reply_MapEnd(reply); // >>(shard)
+        RedisModule_Reply_MapEnd(reply); // >>(node)
       }
       RedisModule_Reply_ArrayEnd(reply); // >shards
     }
@@ -440,31 +424,26 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
     RedisModule_ReplyKV_SimpleString(reply, "hash_func", hash_func_str);
 
     // Report topology
-    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
+    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (1<<14) : 0);
 
     RedisModule_Reply_SimpleString(reply, "shards");
 
     if (!topo) {
       RedisModule_Reply_Null(reply);
     } else {
+      RedisModule_Reply_Array(reply); // >shards
       for (int i = 0; i < topo->numShards; i++) {
-        MRClusterShard *sh = &topo->shards[i];
-        RedisModule_Reply_Array(reply); // >shards
-
-        for (int j = 0; j < sh->numNodes; j++) {
-          MRClusterNode *node = &sh->nodes[j];
-          RedisModule_Reply_Array(reply); // >>node
-            REPLY_SIMPLE_SAFE(node->id);
-            REPLY_SIMPLE_SAFE(node->endpoint.host);
-            RedisModule_Reply_LongLong(reply, node->endpoint.port);
-            RedisModule_Reply_SimpleStringf(reply, "%s%s",
-                                      node->flags & MRNode_Master ? "master" : "replica",
-                                      node->flags & MRNode_Self ? " self" : "");
-          RedisModule_Reply_ArrayEnd(reply); // >>node
-        }
-
-        RedisModule_Reply_ArrayEnd(reply); // >shards
+        MRClusterNode *node = &topo->shards[i].node;
+        RedisModule_Reply_Array(reply); // >>node
+        REPLY_SIMPLE_SAFE(node->id);
+        REPLY_SIMPLE_SAFE(node->endpoint.host);
+        RedisModule_Reply_LongLong(reply, node->endpoint.port);
+        RedisModule_Reply_SimpleStringf(reply, "%s%s",
+                                  node->flags & MRNode_Master ? "master" : "replica",
+                                  node->flags & MRNode_Self ? " self" : "");
+        RedisModule_Reply_ArrayEnd(reply); // >>node
       }
+      RedisModule_Reply_ArrayEnd(reply); // >shards
     }
 
     RedisModule_Reply_ArrayEnd(reply); // root
@@ -510,7 +489,7 @@ static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
 
 int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx) {
   IORuntimeCtx *io_runtime_ctx = ctx->it->ctx.ioRuntime;
-  return MRCluster_SendCommand(io_runtime_ctx, true, &ctx->cmd, mrIteratorRedisCB, ctx);
+  return MRCluster_SendCommand(io_runtime_ctx, &ctx->cmd, mrIteratorRedisCB, ctx);
 }
 
 // Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible
@@ -603,7 +582,7 @@ void iterStartCb(void *p) {
 
   // This implies that every connection to each shard will work inside a single IO thread
   for (size_t i = 0; i < it->len; i++) {
-    if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
+    if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
@@ -616,7 +595,7 @@ void iterManualNextCb(void *p) {
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
   for (size_t i = 0; i < it->len; i++) {
     if (!it->cbxs[i].cmd.depleted) {
-      if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
+      if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
                                 mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
         MRIteratorCallback_Done(&it->cbxs[i], 1);
       }
