@@ -586,7 +586,7 @@ def test_clusterinfo():
       'num_partitions': 3,
       'num_slots': 16384,
       'shards': [
-        { 'slots': [{'start': 0, 'end': 5461}],
+        {
           'nodes': [
             { 'host': '127.0.0.1',
               'id': ANY,
@@ -595,7 +595,7 @@ def test_clusterinfo():
             }
           ],
         },
-        { 'slots': [{'start': 5462, 'end': 10923}],
+        {
           'nodes': [
             {'host': '127.0.0.1',
              'id': ANY,
@@ -603,7 +603,7 @@ def test_clusterinfo():
              'role': 'master'}
           ],
         },
-        { 'slots': [{'start': 10924, 'end': 16383}],
+        {
           'nodes': [
             { 'host': '127.0.0.1',
               'id': ANY,
@@ -615,7 +615,6 @@ def test_clusterinfo():
       ]
     }
     res = env.cmd('SEARCH.CLUSTERINFO')
-    res['shards'].sort(key=lambda x: x['slots'][0]['start'])
     env.assertEqual(order_dict(res), order_dict(exp))
 
 def test_profile_crash_mod5323():
