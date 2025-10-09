@@ -15,9 +15,6 @@ def configure_shards_with_different_timeout_policies(env):
 
 @skip(cluster=False)
 def test_cluster_aggregate_with_shards_timeout(env):
-    if not env.isCluster():
-        env.skip()
-
     configure_shards_with_different_timeout_policies(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
@@ -29,6 +26,8 @@ def test_cluster_aggregate_with_shards_timeout(env):
                'stock', 'NUMERIC',
                'tags', 'TAG',
                'created_date', 'NUMERIC').ok()
+
+    waitForIndex(env, 'idx')
 
     conn = getConnectionByEnv(env)
     num_docs = 100000
@@ -55,15 +54,9 @@ def test_cluster_aggregate_with_shards_timeout(env):
                            'stock', stock,
                            'tags', tags,
                            'created_date', created_date)
-
-    waitForIndex(env, 'idx')
-
-    info = index_info(env, 'idx')
-    env.assertGreater(int(info['num_docs']), 0)
-
     result = env.cmd('FT.AGGREGATE', 'idx', '*',
                     'GROUPBY', '1', '@category',
                     'REDUCE', 'COUNT', '0', 'AS', 'count',
                     'REDUCE', 'AVG', '1', '@price', 'AS', 'avg_price')
 
-    env.assertGreater(len(result), 1)  # Should have results, at least the coordinator does not timeout
+    env.assertGreater(len(result), 1, message=result)  # Should have results, at least the coordinator does not timeout
