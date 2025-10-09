@@ -128,7 +128,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
       docKeys = array_new(const RLookupKey *, req->nrequests);
       for (size_t i = 0; i < req->nrequests; i++) {
         RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(req->requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
-        // doc key will be null in standalone, should be valid but unresolved in coordinator - will lead to us asking fot it from the shards in the load clause
+        // doc key will be null in standalone, should be valid but unresolved in coordinator - will lead to us asking for it from the shards in the load clause
         const RLookupKey *srcDocKey = RLookup_GetKey_Read(srcLookup, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
         RS_ASSERT(srcDocKey);
         array_ensure_append_1(docKeys, srcDocKey);
