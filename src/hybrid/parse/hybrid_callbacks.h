@@ -110,7 +110,7 @@ void handleExplainScore(ArgParser *parser, const void *value, void *user_data);
 
 /**
  * _INDEX_PREFIXES callback - handles _INDEX_PREFIXES prefix [prefix ...]
- * Validates and sets index prefixes for hybrid request
+ * sets index prefix offset for later validation if needed
  */
 void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data);
 
