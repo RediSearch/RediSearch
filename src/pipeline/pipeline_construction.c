@@ -251,9 +251,16 @@ bool hasQuerySortby(const AGGPlan *pln) {
   return arng && arng->sortKeys;
 }
 
-int OpenLoadKeys(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t loadFlags, QueryError *status, KeyCallback keyCallback) {
+static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t loadFlags,
+                               QueryError *status) {
+  if (!loadStep || !lookup) {
+    return REDISMODULE_ERR;
+  }
+
   // Use the original ArgsCursor directly
   ArgsCursor *ac = &loadStep->args;
+
+    // Process all arguments in the ArgsCursor
   while (!AC_IsAtEnd(ac)) {
     size_t name_len;
     const char *name, *path = AC_GetStringNC(ac, &name_len);
@@ -285,20 +292,14 @@ int OpenLoadKeys(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t loadFlags, Qu
 
     // Create the RLookupKey
     RLookupKey *kk = RLookup_GetKey_LoadEx(lookup, name, name_len, path, loadFlags);
-    if (kk && keyCallback) {
-      keyCallback(loadStep, kk);
+    // We only get a NULL return if the key already exists, which means
+    // that we don't need to retrieve it again.
+    if (kk && loadStep->nkeys < loadStep->args.argc) {
+      loadStep->keys[loadStep->nkeys++] = kk;
     }
   }
 
   return REDISMODULE_OK;
-}
-
-static void processLoadKey(PLN_LoadStep *loadStep, RLookupKey *key) {
-  // We only get a NULL return if the key already exists, which means
-  // that we don't need to retrieve it again.
-  if (loadStep->nkeys < loadStep->args.argc) {
-    loadStep->keys[loadStep->nkeys++] = key;
-  }
 }
 
 ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
@@ -309,7 +310,7 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
   }
 
   // Process the LOAD step arguments to populate keys array
-  if (OpenLoadKeys(loadStep, lookup, loadFlags, status, processLoadKey) != REDISMODULE_OK) {
+  if (processLoadStepArgs(loadStep, lookup, loadFlags, status) != REDISMODULE_OK) {
     return NULL;
   }
 
