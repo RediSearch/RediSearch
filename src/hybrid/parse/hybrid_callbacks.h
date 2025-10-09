@@ -108,6 +108,12 @@ void handleWithScores(ArgParser *parser, const void *value, void *user_data);
  */
 void handleExplainScore(ArgParser *parser, const void *value, void *user_data);
 
+/**
+ * _INDEX_PREFIXES callback - handles _INDEX_PREFIXES prefix [prefix ...]
+ * Validates and sets index prefixes for hybrid request
+ */
+void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data);
+
 #ifdef __cplusplus
 }
 #endif

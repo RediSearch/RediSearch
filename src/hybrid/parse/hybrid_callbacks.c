@@ -413,3 +413,10 @@ void handleNumSString(ArgParser *parser, const void *value, void *user_data) {
     ctx->specifiedArgs |= SPECIFIED_ARG_NUM_SSTRING;
 }
 
+// _INDEX_PREFIXES callback - implements EXACT original logic from handleIndexPrefixes
+void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) {
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  ArgsCursor *paramsArgs = (ArgsCursor*)value;
+  QueryError *status = ctx->status;
+  ctx->prefixesOffset = paramsArgs->offset - 1;
+}
