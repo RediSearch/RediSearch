@@ -91,17 +91,20 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
   MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
+  if (sp && sp->rule && sp->rule->prefixes) {
+    arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
+    char *n_prefixes;
+    rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+    MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
+    rm_free(n_prefixes);
 
-  arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
-  char *n_prefixes;
-  rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-  MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
-  rm_free(n_prefixes);
-
-  for (uint i = 0; i < array_len(prefixes); i++) {
-    size_t len;
-    const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
-    MRCommand_Append(xcmd, prefix, len);
+    for (uint i = 0; i < array_len(prefixes); i++) {
+      size_t len;
+      const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
+      MRCommand_Append(xcmd, prefix, len);
+    }
+  } else {
+    MRCommand_Append(xcmd, "0", 1);
   }
 }
 

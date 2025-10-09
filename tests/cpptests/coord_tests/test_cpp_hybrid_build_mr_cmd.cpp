@@ -72,10 +72,12 @@ protected:
             EXPECT_STREQ(xcmd.strs[i], inputArgs[i]) << "Argument at index " << i << " should be preserved";
         }
 
-        // Verify WITHCURSOR and _NUM_SSTRING are added at the end
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "WITHCURSOR") << "WITHCURSOR should be third to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "WITHSCORES") << "WITHSCORES should be second to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "_NUM_SSTRING") << "_NUM_SSTRING should be last";
+        // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, _INDEX_PREFIXES, and prefix count are added at the end
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 5], "WITHCURSOR") << "WITHCURSOR should be fifth to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 4], "WITHSCORES") << "WITHSCORES should be fourth to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "_NUM_SSTRING") << "_NUM_SSTRING should be third to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "_INDEX_PREFIXES") << "_INDEX_PREFIXES should be second to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "0") << "Prefix count should be last (0 when no IndexSpec)";
 
         printArgvList(args, args.size());
         printMRCommand(&xcmd);
