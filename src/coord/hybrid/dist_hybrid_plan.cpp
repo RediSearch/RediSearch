@@ -9,8 +9,6 @@
 
 #include "dist_hybrid_plan.h"
 #include "hybrid/hybrid_request.h"
-#include <set>
-#include <string>
 
 // should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
 int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
@@ -74,10 +72,10 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
 
 
     // Collect unresolved fields from tail lookup for LOAD command
-    std::set<std::string> loadFields;
+    std::vector<const RLookupKey*> loadFields;
     for (RLookupKey *kk = tailLookup->head; kk != NULL; kk = kk->next) {
         if (kk->flags & RLOOKUP_F_UNRESOLVED && kk->name) {
-            loadFields.emplace(kk->name, kk->name_len);
+            loadFields.push_back(kk);
         }
     }
 
@@ -91,8 +89,8 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
           char *ldsze;
           rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
           ser_args.push_back(ldsze);
-          for (auto& kk : loadFields) {
-              ser_args.push_back(rm_strndup(kk.c_str(), kk.size()));
+          for (auto kk : loadFields) {
+              ser_args.push_back(rm_strndup(kk->name, kk->name_len));
           }
           // This lookup goes to the rpnet - we need the lookup keys its write will be what the merger expects
           us[i].lookup = &dstp->lk;
