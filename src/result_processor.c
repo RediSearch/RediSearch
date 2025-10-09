@@ -1409,6 +1409,18 @@ void RPDepleter_ClearResults(RPDepleter *self) {
 }
 
 /**
+ * Signal that depleting is done for this RPDepleter.
+ * Sets done_depleting to true and broadcasts to hybrid merger and waiting depleters.
+ * Must be called when the depleter has finished processing (successfully or with error).
+ */
+static inline void RPDepleter_SignalDone(RPDepleter *self, DepleterSync *sync) {
+  pthread_mutex_lock(&sync->mutex);
+  self->done_depleting = true;
+  pthread_cond_broadcast(&sync->cond);
+  pthread_mutex_unlock(&sync->mutex);
+}
+
+/**
  * Destructor
  */
 static void RPDepleter_Free(ResultProcessor *base) {
@@ -1476,11 +1488,8 @@ static void RPDepleter_Deplete(void *arg) {
     }
   }
 
-  // Signal completion under mutex protection
-  pthread_mutex_lock(&sync->mutex);
-  self->done_depleting = true;
-  pthread_cond_broadcast(&sync->cond);  // Wake up all waiting depleters
-  pthread_mutex_unlock(&sync->mutex);
+  // Signal completion
+  RPDepleter_SignalDone(self, sync);
 }
 
 /**
@@ -1601,6 +1610,15 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
     // Try to start the depletion thread
     if (!RPDepleter_StartDepletionThread(self)) {
       // Thread pool submission failed (not timeout)
+      // Need to increment lock counter as if depleter started depleting
+      DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
+      if (sync->take_index_lock) {
+        atomic_fetch_add(&sync->num_locked, 1);
+      }
+
+      // Signal completion as if depleter is finished
+      RPDepleter_SignalDone(self, sync);
+
       return RS_RESULT_ERROR;
     }
     return RS_RESULT_DEPLETING;

@@ -35,10 +35,13 @@ protected:
     int sleep_ms;
     int doc_id_offset;
 
-    MockUpstream(int max_docs = 3, int final_result = RS_RESULT_EOF, int sleep_ms = 0, int doc_id_offset = 0)
-      : max_docs(max_docs), final_result(final_result), sleep_ms(sleep_ms), doc_id_offset(doc_id_offset) {
+    MockUpstream(int max_docs = 3, int final_result = RS_RESULT_EOF, int sleep_ms = 0, int doc_id_offset = 0) {
       memset(this, 0, sizeof(*this));
       this->Next = NextFn;
+      this->max_docs = max_docs;
+      this->final_result = final_result;
+      this->sleep_ms = sleep_ms;
+      this->doc_id_offset = doc_id_offset;
     }
 
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
@@ -50,7 +53,7 @@ protected:
         std::this_thread::sleep_for(std::chrono::milliseconds(self->sleep_ms));
       }
 
-      res->docId = ++self->count + self->doc_id_offset;
+      SearchResult_SetDocId(res, ++self->count + self->doc_id_offset);
       return RS_RESULT_OK;
     }
   };
@@ -367,10 +370,15 @@ TEST_P(RPDepleterTest, TestThreadPoolFailure) {
 
   MockUpstream mockUpstream(n_docs, RS_RESULT_EOF);
 
-  // Test 1: Enable thread pool failure - should return RS_RESULT_ERROR
-  Test_SetThreadPoolFailure(true);
+  // Test 1: First test the successful case (no thread pool failure)
+  Test_SetThreadPoolFailure(false);
 
-  // Create depleter processor with new sync reference
+  // If testing with index locking, the main thread must acquire the lock first
+  if (take_index_lock) {
+    RedisSearchCtx_LockSpecRead(&searchContexts[1]);
+  }
+
+  // Create depleter processor - should work normally
   ResultProcessor *depleter1 = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
 
   QITR_PushRP(&qitr, &mockUpstream);
@@ -379,31 +387,9 @@ TEST_P(RPDepleterTest, TestThreadPoolFailure) {
   SearchResult res = {0};
   int rc;
 
-  // The first call should return RS_RESULT_ERROR due to thread pool failure
-  rc = depleter1->Next(depleter1, &res);
-  ASSERT_EQ(rc, RS_RESULT_ERROR) << "Expected RS_RESULT_ERROR when thread pool failure is enabled";
-
-  // Clean up first depleter
-  depleter1->Free(depleter1);
-
-  // Test 2: Disable thread pool failure - should work normally
-  Test_SetThreadPoolFailure(false);
-
-  // Reset query processing context for second test
-  QueryProcessingCtx qitr2 = {0};
-
-  // Create new depleter processor
-  ResultProcessor *depleter2 = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
-
-  QITR_PushRP(&qitr2, &mockUpstream);
-  QITR_PushRP(&qitr2, depleter2);
-
-  // Reset mock upstream counter for second test
-  mockUpstream.count = 0;
-
   int depletingCount = 0;
   // The first call(s) should return RS_RESULT_DEPLETING until the thread is done
-  while ((rc = depleter2->Next(depleter2, &res)) == RS_RESULT_DEPLETING) {
+  while ((rc = depleter1->Next(depleter1, &res)) == RS_RESULT_DEPLETING) {
     depletingCount++;
   }
   ASSERT_GT(depletingCount, 0) << "Should have at least one depleting state when thread pool works";
@@ -415,14 +401,51 @@ TEST_P(RPDepleterTest, TestThreadPoolFailure) {
       ASSERT_EQ(res.docId, ++resultCount);
       SearchResult_Clear(&res);
     }
-  } while ((rc = depleter2->Next(depleter2, &res)) == RS_RESULT_OK);
+  } while ((rc = depleter1->Next(depleter1, &res)) == RS_RESULT_OK);
 
   // Should have processed all documents
   ASSERT_EQ(resultCount, n_docs) << "Should have processed all documents when thread pool works";
   ASSERT_EQ(rc, RS_RESULT_EOF) << "Should end with RS_RESULT_EOF when thread pool works";
 
+  // Clean up first depleter
+  depleter1->Free(depleter1);
+
+  // Unlock the index lock if we acquired it in test 1
+  if (take_index_lock) {
+    RedisSearchCtx_UnlockSpec(&searchContexts[1]);
+  }
+
+  // Test 2: Enable thread pool failure - should return RS_RESULT_ERROR immediately
+  Test_SetThreadPoolFailure(true);
+
+  // Reset query processing context for second test
+  QueryProcessingCtx qitr2 = {0};
+
+  // If testing with index locking, the main thread must acquire the lock first
+  if (take_index_lock) {
+    RedisSearchCtx_LockSpecRead(&searchContexts[1]);
+  }
+
+  // Create new depleter processor
+  ResultProcessor *depleter2 = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
+
+  QITR_PushRP(&qitr2, &mockUpstream);
+  QITR_PushRP(&qitr2, depleter2);
+
+  // Reset mock upstream counter for second test
+  mockUpstream.count = 0;
+
+  // The first call should return RS_RESULT_ERROR due to thread pool failure
+  rc = depleter2->Next(depleter2, &res);
+  ASSERT_EQ(rc, RS_RESULT_ERROR) << "Expected RS_RESULT_ERROR when thread pool failure is enabled";
+
   SearchResult_Destroy(&res);
   depleter2->Free(depleter2);
+
+  // Unlock the index lock if we acquired it in test 2
+  if (take_index_lock) {
+    RedisSearchCtx_UnlockSpec(&searchContexts[1]);
+  }
 
   // Reset thread pool failure state for other tests
   Test_SetThreadPoolFailure(false);
