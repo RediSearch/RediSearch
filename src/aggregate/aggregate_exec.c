@@ -379,7 +379,7 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   }
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
+  if (QueryError_IsOk(qctx->err) || hasTimeoutError(qctx->err)) {
     rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
     TotalGlobalStats_CountQuery(AREQ_RequestFlags(req), duration);
   }
@@ -482,7 +482,7 @@ done_2:
     ProfilePrinterCtx profileCtx = {
       .req = req,
       .timedout = has_timedout,
-      .reachedMaxPrefixExpansions = qctx->err->reachedMaxPrefixExpansions,
+      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
     };
 
@@ -606,7 +606,7 @@ done_3:
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
-    } else if (qctx->err->reachedMaxPrefixExpansions) {
+    } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
@@ -621,7 +621,7 @@ done_3:
     ProfilePrinterCtx profileCtx = {
       .req = req,
       .timedout = has_timedout,
-      .reachedMaxPrefixExpansions = qctx->err->reachedMaxPrefixExpansions,
+      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
     };
 
@@ -719,7 +719,7 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
 
   StrongRef execution_ref = IndexSpecRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
@@ -985,7 +985,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_WrongArity(ctx);
   }
 
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
 
   // Currently supporting OOM policy only in standalone env
   if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore && !isClusterEnv_TempOOM_DoNotUse())
@@ -1153,7 +1153,7 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
 
 static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, bool bg) {
 
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
 
   QEFlags reqFlags = 0;
   bool hasLoader = false;
@@ -1313,7 +1313,7 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
   AREQ *r = NULL;
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
   if (!debug_req) {
     goto error;
