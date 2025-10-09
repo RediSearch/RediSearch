@@ -27,7 +27,6 @@
 #include "pipeline/pipeline.h"
 #include "util/units.h"
 #include "hybrid/hybrid_request.h"
-#include "util/redis_mem_info.h"
 #include "module.h"
 #include "result_processor.h"
 
@@ -45,20 +44,7 @@ typedef struct {
   WeakRef spec_ref;
 } blockedClientReqCtx;
 
-// OOM guardrail with heuristics
-// TODO: add heuristics
-// Assumes the GIL is held by the caller
-static bool estimateOOM(RedisModuleCtx *ctx) {
-  return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
-}
-
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
-
-// Temporary function to check if we are in a cluster environment
-// TODO : Remove this function once it's no longer needed
-static bool isClusterEnv_TempOOM_DoNotUse() {
-  return GetNumShards_UnSafe() > 1;
-}
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -336,8 +322,13 @@ static size_t getResultsFactor(AREQ *req) {
 }
 
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  startPipelineCommon(req->reqConfig.timeoutPolicy, &req->sctx->time.timeout,
-                      rp, results, r, rc);
+  CommonPipelineCtx ctx = {
+    .timeoutPolicy = req->reqConfig.timeoutPolicy,
+    .timeout = &req->sctx->time.timeout,
+    .oomPolicy = req->reqConfig.oomPolicy,
+  };
+  startPipelineCommon(&ctx, rp, results, r, rc);
+
 }
 
 static int populateReplyWithResults(RedisModule_Reply *reply,
@@ -479,6 +470,7 @@ done_2:
       .timedout = has_timedout,
       .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
+      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
     };
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
@@ -596,6 +588,9 @@ done_3:
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
+    if (QueryError_HasQueryOOMWarning(qctx->err)) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+    }
     if (rc == RS_RESULT_TIMEDOUT) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     } else if (rc == RS_RESULT_ERROR) {
@@ -618,6 +613,7 @@ done_3:
       .timedout = has_timedout,
       .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
+      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
     };
 
     if (IsProfile(req)) {
@@ -980,9 +976,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   QueryError status = QueryError_Default();
 
-  // Currently supporting OOM policy only in standalone env
-  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore && !isClusterEnv_TempOOM_DoNotUse())
-  {
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
     // OOM guardrail
     if (estimateOOM(ctx)) {
       RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");

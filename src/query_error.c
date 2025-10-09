@@ -152,3 +152,11 @@ bool QueryError_HasReachedMaxPrefixExpansionsWarning(const QueryError *status) {
 void QueryError_SetReachedMaxPrefixExpansionsWarning(QueryError *status) {
   status->_reachedMaxPrefixExpansions = true;
 }
+
+bool QueryError_HasQueryOOMWarning(const QueryError *status) {
+  return status->_queryOOM;
+}
+
+void QueryError_SetQueryOOMWarning(QueryError *status) {
+  status->_queryOOM = true;
+}

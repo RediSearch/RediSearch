@@ -29,6 +29,7 @@
 #include "pipeline/pipeline.h"
 #include "util/units.h"
 #include "value.h"
+#include "module.h"
 
 #include <time.h>
 
@@ -150,9 +151,12 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
 }
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  startPipelineCommon(hreq->reqConfig.timeoutPolicy,
-          &hreq->sctx->time.timeout,
-          rp, results, r, rc);
+  CommonPipelineCtx ctx = {
+    .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
+    .timeout = &hreq->sctx->time.timeout,
+    .oomPolicy = hreq->reqConfig.oomPolicy,
+  };
+  startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
 static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration) {
@@ -512,10 +516,20 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
+  QueryError status = QueryError_Default();
+
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
+    // OOM guardrail
+    if (estimateOOM(ctx)) {
+      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+      QueryError_SetCode(&status, QUERY_EOOM);
+      return QueryError_ReplyAndClear(ctx, &status);
+    }
+  }
+
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError status = QueryError_Default();
     QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -523,7 +537,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
   CurrentThread_SetIndexSpec(spec_ref);
 
-  QueryError status = QueryError_Default();
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
   HybridPipelineParams hybridParams = {0};

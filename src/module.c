@@ -70,6 +70,7 @@
 #include "search_disk.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
+#include "util/redis_mem_info.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -156,6 +157,13 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
 // Enterprise environments only.
 static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
   return !IsEnterprise() || ACLUserMayAccessIndex(ctx, sp);
+}
+
+// OOM guardrail with heuristics
+// TODO: add heuristics
+// Assumes the GIL is held by the caller
+bool estimateOOM(RedisModuleCtx *ctx) {
+  return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
 }
 
 // Returns true if the current context has permission to execute debug commands
@@ -2645,6 +2653,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     RedisModule_Reply_SimpleString(reply, "warning"); // >warning
     if (rCtx->warning) {
       MR_ReplyWithMRReply(reply, rCtx->warning);
+    } else if (req->queryOOM) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -2754,6 +2764,13 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
   // On FT.AGGREGATE, `replies` is already the profile part only
   for (int i = 0; i < count; ++i) {
     MRReply *current = replies[i];
+    // Check if reply is error
+    if (MRReply_Type(current) == MR_REPLY_ERROR) {
+      // Since we expect this to happen only with OOM, we assert it until this invariant changes.
+      RS_ASSERT(extractQueryErrorFromReply(replies[i]) == QUERY_EOOM);
+      MR_ReplyWithMRReply(reply, current);
+      continue;
+    }
     if (isSearch) {
       // On FT.SEARCH, extract the profile information from the reply. (should be the second element)
       current = MRReply_ArrayElement(current, 1);
@@ -2767,6 +2784,11 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
 static void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
     MRReply *current = replies[i];
+    // Check if reply is error
+    if (MRReply_Type(current) == MR_REPLY_ERROR) {
+      MR_ReplyWithMRReply(reply, current);
+      continue;
+    }
     if (isSearch) { // On aggregate commands, we get the profile info directly.
       current = MRReply_MapElement(current, PROFILE_STR);
     }
@@ -2834,12 +2856,39 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
   return REDISMODULE_OK;
 }
 
-static bool should_return_error(MRReply *reply) {
-  // TODO: Replace third condition with a var instead of hard-coded string
+// Extracts the query error from the reply
+// Returns the error code
+// Only checks for timeout and OOM errors
+QueryErrorCode extractQueryErrorFromReply(MRReply *reply) {
   const char *errStr = MRReply_String(reply, NULL);
-  return (!errStr
-          || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
-          || strcmp(errStr, "Timeout limit was reached"));
+  if (!errStr) {
+    return QUERY_EGENERIC;
+  }
+
+  if (!strcmp(errStr, QueryError_Strerror(QUERY_ETIMEDOUT))) {
+    return QUERY_ETIMEDOUT;
+  }
+
+  if (!strcmp(errStr, QueryError_Strerror(QUERY_EOOM))) {
+    return QUERY_EOOM;
+  }
+
+  return QUERY_EGENERIC;
+}
+
+// TODO - get RequestConfig ptr as parameter instead of global config
+bool should_return_error(QueryErrorCode errCode) {
+  // Check if this is a timeout error with non-fail policy
+  if (errCode == QUERY_ETIMEDOUT) {
+    return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
+  }
+  // Check if this is an OOM error with non-fail policy
+  if (errCode == QUERY_EOOM) {
+    return RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail;
+  }
+
+  // For any other error, return it
+  return true;
 }
 
 static bool should_return_timeout_error(searchRequestCtx *req) {
@@ -2870,9 +2919,15 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
       rCtx.errorOccurred = true;
       rCtx.lastError = curr_rep;
-      if (should_return_error(curr_rep)) {
+      QueryErrorCode errCode = extractQueryErrorFromReply(curr_rep);
+      if (should_return_error(errCode)) {
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;
+      } else {
+        // Check if OOM
+        if (errCode == QUERY_EOOM) {
+          req->queryOOM = true;
+        }
       }
     }
   }
@@ -2923,6 +2978,14 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   } else {
     for (int i = 0; i < count; ++i) {
       MRReply *mr_reply;
+
+      // Check that the reply is not an error, can be caused if a shard failed to execute the query (i.e OOM).
+      if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
+        // Since we expect this to happen only with OOM, we assert it until this invariant changes.
+        RS_ASSERT(extractQueryErrorFromReply(replies[i]) == QUERY_EOOM);
+        continue;
+      }
+
       if (reply->resp3) {
         mr_reply = MRReply_MapElement(replies[i], "Results");
       } else {
@@ -3199,6 +3262,15 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (!sp) {
     // Reply with error
     return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
+  }
+
+  // Check OOM if OOM policy is not ignore
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
+    // No need to hold the GIL since we are not in a background thread
+    if (estimateOOM(ctx)) {
+      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    }
   }
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
@@ -3529,6 +3601,15 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     argv++;
     argc--;
     dist_callback = DEBUG_DistSearchCommandHandler;
+  }
+
+  // Check OOM if OOM policy is not ignore
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
+    // No need to hold the GIL since we are not in a background thread
+    if (estimateOOM(ctx)) {
+      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    }
   }
 
   // Prepare spec ref for the background thread
