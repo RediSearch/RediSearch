@@ -96,6 +96,8 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
+  rm_free(n_prefixes);
+
   for (uint i = 0; i < array_len(prefixes); i++) {
     size_t len;
     const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
