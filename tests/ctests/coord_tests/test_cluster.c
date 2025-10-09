@@ -68,7 +68,6 @@ static MRClusterTopology *getTopology(size_t numNodes, const char **hosts){
       MRClusterTopology_Free(topo);
       return NULL;
     }
-    node->flags = MRNode_Master;
     node->id = rm_strdup(hosts[i]);
   }
 
@@ -99,7 +98,6 @@ void testClusterTopology_Clone() {
     mu_check(cloned_sh->node.id != original_sh->node.id); // Different memory address
     mu_check(strcmp(cloned_sh->node.endpoint.host, original_sh->node.endpoint.host) == 0);
     mu_check(cloned_sh->node.endpoint.port == original_sh->node.endpoint.port);
-    mu_check(cloned_sh->node.flags == original_sh->node.flags);
   }
 
   // Clean up

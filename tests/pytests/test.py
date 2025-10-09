@@ -4109,7 +4109,7 @@ def cluster_set_test(env: Env):
     def verify_address(addr):
         try:
             with TimeLimit(10, f'Failed waiting cluster set command to be updated with the new IP address `{addr}`'):
-                while env.cmd('SEARCH.CLUSTERINFO')[9][0][1] != addr:
+                while env.cmd('SEARCH.CLUSTERINFO')[5][0][3] != addr:
                     pass
         except Exception as e:
             env.assertTrue(False, message=str(e))
@@ -4261,14 +4261,14 @@ def test_multiple_slot_ranges_per_shard(env: Env):
     env.expect('SEARCH.CLUSTERREFRESH').ok()
 
     generic_shard = [
-        [ANY] * 4                       # node id, host, port, role
+        'id', ANY,
+        'host', '127.0.0.1',
+        'port', ANY,
     ]
     expected = [
         'num_partitions', env.shardsCount,              # Number of shards, not necessarily the number of slots ranges
         'cluster_type', 'redis_oss',
-        'hash_func', 'CRC16',
-        'num_slots', num_slots,
-        'shards', generic_shard * env.shardsCount       # one entry per shard
+        'shards', [generic_shard] * env.shardsCount     # one entry per shard
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 
@@ -4306,14 +4306,14 @@ def test_cluster_set_multiple_slots(env: Env):
 
     # SEARCH.CLUSTERSET does not support multiple slot ranges per shard
     generic_shard = [
-        [ANY] * 4,  # node id, host, port, role
+        'id', ANY,
+        'host', '127.0.0.1',
+        'port', ANY,
     ]
     expected = [
         'num_partitions', len(ranges),              # Number of slot ranges, not the number of shards!
         'cluster_type', 'redis_oss',
-        'hash_func', 'CRC16',
-        'num_slots', num_slots,
-        'shards', generic_shard * len(ranges)       # one entry per range
+        'shards', [generic_shard] * len(ranges)     # one entry per range
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 

@@ -908,15 +908,16 @@ def mod5778_add_new_shard_to_cluster(env: Env):
         while not all([sh.execute_command('CLUSTER', 'INFO').startswith('cluster_state:ok') for sh in shards]):
             time.sleep(0.5)
     # search.clusterinfo response format is the following:
-    # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'shards',
-    # [['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
-    # [['60cdcb85a8f73f87ac6cc831ee799b75752aace3', '127.0.0.1', 6379, 'master']],
-    # [['6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', '127.0.0.1', 6381, 'master']],
-    # [['4e51033405651441a4be6ddfb46cd85d0c54af6f', '127.0.0.1', 6383, 'master']]]
+    # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'shards', [
+    #  ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385],
+    #  ['60cdcb85a8f73f87ac6cc831ee799b75752aace3', '127.0.0.1', 6379],
+    #  ['6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', '127.0.0.1', 6381],
+    #  ['4e51033405651441a4be6ddfb46cd85d0c54af6f', '127.0.0.1', 6383],
+    # ]]
     env.assertOk(new_shard_conn.execute_command("search.CLUSTERREFRESH"))
     cluster_info = new_shard_conn.execute_command("search.clusterinfo")
     shards_idx = cluster_info.index('shards') + 1
-    unique_shards = set(shard[0] for shard in cluster_info[shards_idx])
+    unique_shards = set(shard[1] for shard in cluster_info[shards_idx])
     env.assertEqual(len(unique_shards), initial_shards_count+1, message=f"cluster info is {cluster_info}")
 
 @skip(cluster=True)
