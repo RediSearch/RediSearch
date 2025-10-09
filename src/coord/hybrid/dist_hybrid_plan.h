@@ -25,7 +25,7 @@ extern "C" {
  * @param[out] us upstream parameters
  * @param status if there is an error
  */
-int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq, HybridPipelineParams *hybridParams, AREQDIST_UpstreamInfo *us, QueryError *status);
+int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq, HybridPipelineParams *hybridParams, arrayof(AREQDIST_UpstreamInfo) us, QueryError *status);
 
 #ifdef __cplusplus
 }

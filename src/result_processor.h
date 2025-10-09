@@ -307,8 +307,8 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
 ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
-                                    const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
+                                    arrayof(const RLookupKey *) docKeys,
                                     RPStatus *subqueriesReturnCodes,
                                     HybridLookupContext *lookupCtx);
 

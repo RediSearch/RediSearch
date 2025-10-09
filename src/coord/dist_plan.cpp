@@ -442,6 +442,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         // Otherwise (if there was no arrange step), we can move the filter step from local to remote
         current = hadArrange ? PLN_NEXT_STEP(current) : moveStep(remote, src, current);
         break;
+      case PLN_T_MERGE:
       case PLN_T_LOAD:
       case PLN_T_APPLY: {
         current = moveStep(remote, src, current);
@@ -516,6 +517,11 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
   for (DLLIST_node *nn = &lastLkStep->llnodePln; nn != &remote->steps; nn = nn->next) {
     PLN_BaseStep *cur = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     switch (cur->type) {
+      case PLN_T_MERGE: {
+        PLN_MergeStep *mstp = (PLN_MergeStep *)cur;
+        RLookup_GetKey_Write(lookup, mstp->docKeyName, RLOOKUP_F_HIDDEN);
+        break;
+      }
       case PLN_T_LOAD: {
         PLN_LoadStep *lstp = (PLN_LoadStep *)cur;
         for (size_t ii = 0; ii < AC_NumArgs(&lstp->args); ++ii) {

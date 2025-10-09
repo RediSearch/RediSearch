@@ -174,26 +174,29 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // // Set request flags from hybridParams
     // hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
 
-    // TODO: Do we need a different AGGPLN_Hybrid_Distribute()?
-    // by now I'm reusing AGGPLN_Distribute()
-    rc = AGGPLN_Distribute(HybridRequest_TailAGGPlan(hreq), status);
-    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
-
-    AREQDIST_UpstreamInfo us = {0};
-    rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, &us, status);
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+        AREQ *areq = hreq->requests[i];
+        if (AGGPLN_Distribute(AREQ_AGGPlan(areq), status) != REDISMODULE_OK) {
+            return REDISMODULE_ERR;
+        }
+    }
+    arrayof(AREQDIST_UpstreamInfo) us = array_newlen(AREQDIST_UpstreamInfo, hreq->nrequests);
+    rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, us, status);
+    array_free(us);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, &us, &xcmd, sp, &hybridParams);
+    HybridRequest_buildMRCommand(argv, argc, &us[0], &xcmd, sp, &hybridParams);
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     xcmd.forProfiling = false;  // No profiling support for hybrid yet
     xcmd.rootCommand = C_READ;
 
     // UPDATED: Use new start function with mappings (no dispatcher needed)
-    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartWithMappings);
-    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartWithMappings);
+    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us[0], rpnetNext_StartWithMappings);
+    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us[1], rpnetNext_StartWithMappings);
+    array_free(us);
 
     // Free the command
     MRCommand_Free(&xcmd);

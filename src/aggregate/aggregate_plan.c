@@ -26,6 +26,8 @@ static const char *steptypeToString(PLN_StepType type) {
       return "GROUPBY";
     case PLN_T_LOAD:
       return "LOAD";
+    case PLN_T_MERGE:
+      return "MERGE";
     case PLN_T_VECTOR_NORMALIZER:
       return "VECTOR_NORMALIZER";
     case PLN_T_DISTRIBUTE:
@@ -339,6 +341,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
         break;
       }
       case PLN_T_ROOT:
+      case PLN_T_MERGE:
       case PLN_T_DISTRIBUTE:
       case PLN_T_INVALID:
       case PLN_T__MAX:
@@ -465,6 +468,7 @@ array_t AGPLN_Serialize(const AGGPlan *pln) {
         break;
       case PLN_T_INVALID:
       case PLN_T_ROOT:
+      case PLN_T_MERGE:
       case PLN_T_DISTRIBUTE:
       case PLN_T__MAX:
         break;
