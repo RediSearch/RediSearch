@@ -544,15 +544,17 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
     // Second, get the first JSON value
     RedisJSON json = japi->next(iter);
-    bool owning_json = false;
+    RedisJSON json_alloc = NULL; // Used if we need to allocate a new JSON value (e.g if the value is an array)
     // If the value is an array, we currently try using the first element
     JSONType type = japi->getType(json);
     if (type == JSONType_Array) {
+      json_alloc = japi->allocJson();
       // Empty array will return NULL
-      if (japi->getAt(json, 0, json) == REDISMODULE_ERR) {
+      if (japi->getAt(json, 0, json_alloc) == REDISMODULE_OK) {
+        json = json_alloc;
+      } else {
         json = NULL;
       }
-      owning_json = true;
     }
 
     if (json) {
@@ -565,8 +567,8 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
       RedisModule_FreeString(ctx, serialized);
     }
 
-    if (owning_json) {
-      japi->freeJson(json);
+    if (json_alloc) {
+      japi->freeJson(json_alloc);
     }
   }
 
