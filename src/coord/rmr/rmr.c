@@ -381,18 +381,8 @@ void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  const char *hash_func_str;
-  switch (topo ? topo->hashFunc : MRHashFunc_None) {
-  case MRHashFunc_CRC12:
-    hash_func_str = MRHASHFUNC_CRC12_STR;
-    break;
-  case MRHashFunc_CRC16:
-    hash_func_str = MRHASHFUNC_CRC16_STR;
-    break;
-  default:
-    hash_func_str = "n/a";
-    break;
-  }
+  const char *hash_func_str = MRHASHFUNC_CRC16_STR;
+
   const char *cluster_type_str = clusterConfig.type == ClusterType_RedisOSS ? CLUSTER_TYPE_OSS : CLUSTER_TYPE_RLABS;
   size_t partitions = topo ? topo->numShards : 0;
 
@@ -415,15 +405,6 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
       for (int i = 0; i < topo->numShards; i++) {
         MRClusterShard *sh = &topo->shards[i];
         RedisModule_Reply_Map(reply); // >>(shard)
-
-        RedisModule_ReplyKV_Array(reply, "slots"); // >>>slots
-        for (uint32_t r = 0; r < sh->numRanges; r++) {
-          RedisModule_Reply_Map(reply); // >>>>(slot range)
-          RedisModule_ReplyKV_LongLong(reply, "start", sh->ranges[r].start);
-          RedisModule_ReplyKV_LongLong(reply, "end", sh->ranges[r].end);
-          RedisModule_Reply_MapEnd(reply); // >>>>(slot range)
-        }
-        RedisModule_Reply_ArrayEnd(reply); // >>>slots
 
         RedisModule_ReplyKV_Array(reply, "nodes"); // >>>nodes
         for (int j = 0; j < sh->numNodes; j++) {
@@ -469,13 +450,6 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
       for (int i = 0; i < topo->numShards; i++) {
         MRClusterShard *sh = &topo->shards[i];
         RedisModule_Reply_Array(reply); // >shards
-
-        RedisModule_Reply_Array(reply); // >>>slots
-        for (uint32_t r = 0; r < sh->numRanges; r++) {
-          RedisModule_Reply_LongLong(reply, sh->ranges[r].start);
-          RedisModule_Reply_LongLong(reply, sh->ranges[r].end);
-        }
-        RedisModule_Reply_ArrayEnd(reply); // >>>slots
 
         for (int j = 0; j < sh->numNodes; j++) {
           MRClusterNode *node = &sh->nodes[j];

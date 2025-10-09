@@ -26,18 +26,6 @@
   } while (0)
 #endif
 
-static void parseSlots(RedisModuleCallReply *slots, MRClusterShard *sh) {
-  size_t len = RedisModule_CallReplyLength(slots);
-  RS_ASSERT(len % 2 == 0);
-  sh->numRanges = len / 2;
-  sh->capRanges = sh->numRanges;
-  sh->ranges = rm_malloc(sh->numRanges * sizeof(mr_slot_range_t));
-  for (size_t r = 0; r < sh->numRanges; r++) {
-    sh->ranges[r].start = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(slots, r * 2));
-    sh->ranges[r].end = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(slots, r * 2 + 1));
-  }
-}
-
 static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
   const size_t len = RedisModule_CallReplyLength(node);
   RS_ASSERT(len % 2 == 0);
@@ -140,7 +128,6 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     return NULL;
   }
   MRClusterTopology *topo = rm_calloc(1, sizeof(MRClusterTopology));
-  topo->hashFunc = MRHashFunc_CRC16;
 
   topo->numSlots = 16384;
   topo->numShards = numShards;
@@ -154,7 +141,7 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
 
     // Handle slots
     ASSERT_KEY(currShard, 0, "slots");
-    parseSlots(RedisModule_CallReplyArrayElement(currShard, 1), &topo->shards[i]);
+    // We don't actually use the slots, as we don't handle slot-level routing ourselves
 
     // Handle nodes
     ASSERT_KEY(currShard, 2, "nodes");
