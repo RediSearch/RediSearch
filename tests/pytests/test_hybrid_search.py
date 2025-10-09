@@ -6,19 +6,19 @@ SCORE_FIELD = "__score"
 
 # Test data with deterministic vectors
 test_data = {
-    'doc:1': {
+    'doc:1{hash_tag}': {
         'description': "red shoes",
         'embedding': np.array([0.0, 0.0]).astype(np.float32).tobytes()
     },
-    'doc:2': {
+    'doc:2{hash_tag}': {
         'description': "red running shoes",
         'embedding': np.array([1.0, 0.0]).astype(np.float32).tobytes()
     },
-    'doc:3': {
+    'doc:3{hash_tag}': {
         'description': "running gear and many different shoes",
         'embedding': np.array([0.0, 1.0]).astype(np.float32).tobytes()
     },
-    'doc:4': {
+    'doc:4{hash_tag}': {
         'description': "blue shoes",
         'embedding': np.array([1.0, 1.0]).astype(np.float32).tobytes()
     }
@@ -33,8 +33,7 @@ def setup_basic_index(env):
     for doc_id, doc_data in test_data.items():
         conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_search_invalid_query_with_vector():
     """Test that hybrid search subquery fails when it contains vector query"""
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
@@ -45,7 +44,6 @@ def test_hybrid_search_invalid_query_with_vector():
                'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e").error().contains('Vector expressions are not allowed in FT.HYBRID SEARCH')
 
 # TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_search_explicit_scorer():
     """Test that hybrid search subquery fails when it contains vector query"""
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
@@ -58,5 +56,6 @@ def test_hybrid_search_explicit_scorer():
         env.assertEqual(count, len(results.keys()))
         results = {a: float(results[a][SCORE_FIELD]) for a in results}
         agg_response = env.cmd('FT.AGGREGATE', 'idx', 'shoes', 'ADDSCORES', 'SCORER', scorer, 'LOAD', 2, '__key', '__score')
-        agg_results = {a[3]: float(a[1]) for a in agg_response[1:]}
+        agg_results_dict = [dict(zip(item[::2], item[1::2])) for item in agg_response[1:]]
+        agg_results = {a['__key']: float(a[SCORE_FIELD]) for a in agg_results_dict}
         env.assertEqual(results, agg_results)

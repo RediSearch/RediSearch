@@ -88,7 +88,7 @@ static HybridLookupContext *InitializeHybridLookupContext(arrayof(AREQ*) request
     return lookupCtx;
 }
 
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params) {
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, RLookup* lookup) {
     // Array to collect depleter processors from each individual request pipeline
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -101,9 +101,6 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     }
 
     // Assumes all upstreams have non-null lookups
-    // Init lookup since we dont call buildQueryPart
-    RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-    RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
     HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, lookup);
     const char *scoreAlias = params->aggregationParams.common.scoreAlias;
     const RLookupKey *docKey = RLookup_GetKey_Read(lookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
@@ -116,7 +113,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
         return REDISMODULE_ERR;
       }
     } else {
-      scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
+      scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_HIDDEN);
     }
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
@@ -133,8 +130,11 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     if (HybridRequest_BuildDepletionPipeline(req, params) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
+    RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    // Init lookup since we dont call buildQueryPart
+    RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
     // Build the merge pipeline for combining and processing results from the depletion pipeline
-    return HybridRequest_BuildMergePipeline(req, params);
+    return HybridRequest_BuildMergePipeline(req, params, lookup);
 }
 
 /**
@@ -212,16 +212,23 @@ void HybridRequest_Free(HybridRequest *req) {
       if (areq && areq->sctx && areq->sctx->redisCtx) {
         RedisModuleCtx *thctx = areq->sctx->redisCtx;
         RedisSearchCtx *sctx = areq->sctx;
+        extern size_t NumShards;  // Declared in module.c
 
-        // Check if we're running in background thread
-        if (RunInThread()) {
-          // Background thread: schedule cleanup on main thread
-          ScheduleContextCleanup(thctx, sctx);
-        } else {
-          // Main thread: safe to free directly
+        if (NumShards > 1) {
+          // Cluster mode: contexts are not detached, just free the search context
+          // The Redis context belongs to the command handler and will be freed by the framework
           SearchCtx_Free(sctx);
-          if (thctx) {
-            RedisModule_FreeThreadSafeContext(thctx);
+        } else {
+          // Standalone mode: handle detached contexts
+          if (RunInThread()) {
+            // Background thread: schedule async cleanup
+            ScheduleContextCleanup(thctx, sctx);
+          } else {
+            // Main thread: safe to free directly
+            SearchCtx_Free(sctx);
+            if (thctx) {
+              RedisModule_FreeThreadSafeContext(thctx);
+            }
           }
         }
 
@@ -302,12 +309,21 @@ void HybridRequest_ClearErrors(HybridRequest *req) {
 }
 
 /**
- * Create a detached thread-safe search context.
+ * Create a search context, detached only when necessary.
+ * In cluster mode, we're already on a background thread, so no need for detached context.
  */
-static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const char *indexname) {
-  RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
-  RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
-  return NewSearchCtxC(detachedCtx, indexname, true);
+static RedisSearchCtx* createSearchContext(RedisModuleCtx *ctx, const char *indexname) {
+  extern size_t NumShards;  // Declared in module.c
+
+  if (NumShards > 1) {
+    // Cluster mode: we're already on DIST_THREADPOOL, use the existing context directly
+    return NewSearchCtxC(ctx, indexname, true);
+  } else {
+    // Standalone mode: create detached context for thread safety
+    RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
+    RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
+    return NewSearchCtxC(detachedCtx, indexname, true);
+  }
 }
 
 AREQ **MakeDefaultHybridUpstreams(RedisSearchCtx *sctx) {
@@ -316,8 +332,8 @@ AREQ **MakeDefaultHybridUpstreams(RedisSearchCtx *sctx) {
   initializeAREQ(search);
   initializeAREQ(vector);
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
-  vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
+  search->sctx = createSearchContext(sctx->redisCtx, indexName);
+  vector->sctx = createSearchContext(sctx->redisCtx, indexName);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);
@@ -328,8 +344,8 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
-  vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
+  search->sctx = createSearchContext(sctx->redisCtx, indexName);
+  vector->sctx = createSearchContext(sctx->redisCtx, indexName);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);

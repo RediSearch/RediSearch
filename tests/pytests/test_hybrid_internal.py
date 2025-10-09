@@ -11,13 +11,13 @@ def setup_hybrid_test_data(env):
 
     # Add test documents with embeddings
     conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'doc:1', 'description', 'red shoes',
+    conn.execute_command('HSET', 'doc:1{hash_tag}', 'description', 'red shoes',
                         'embedding', create_np_array_typed([0.0, 0.0], 'FLOAT32').tobytes())
-    conn.execute_command('HSET', 'doc:2', 'description', 'red running shoes',
+    conn.execute_command('HSET', 'doc:2{hash_tag}', 'description', 'red running shoes',
                         'embedding', create_np_array_typed([1.0, 0.0], 'FLOAT32').tobytes())
-    conn.execute_command('HSET', 'doc:3', 'description', 'running gear',
+    conn.execute_command('HSET', 'doc:3{hash_tag}', 'description', 'running gear',
                         'embedding', create_np_array_typed([0.0, 1.0], 'FLOAT32').tobytes())
-    conn.execute_command('HSET', 'doc:4', 'description', 'blue shoes',
+    conn.execute_command('HSET', 'doc:4{hash_tag}', 'description', 'blue shoes',
                         'embedding', create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes())
 
     # Mark as internal client for _FT.HYBRID command
@@ -429,7 +429,7 @@ def test_hybrid_internal_withcursor_with_load():
     env.assertTrue(isinstance(search_cursor, (int, str)))
 
     search_cursor_results = read_cursor_completely(env, 'idx', search_cursor)
-    env.assertEqual(search_cursor_results, ['doc:2', 'doc:3'])
+    env.assertEqual(search_cursor_results, ['doc:2{hash_tag}', 'doc:3{hash_tag}'])
 
     vsim_cursor_results = read_cursor_completely(env, 'idx', vsim_cursor)
-    env.assertEqual(vsim_cursor_results, ['doc:1', 'doc:2', 'doc:3', 'doc:4'])
+    env.assertEqual(vsim_cursor_results, ['doc:1{hash_tag}', 'doc:2{hash_tag}', 'doc:3{hash_tag}', 'doc:4{hash_tag}'])
