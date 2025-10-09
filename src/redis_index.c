@@ -22,7 +22,9 @@
 RedisModuleType *InvertedIndexType;
 
 static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
+  #ifdef RS_UNIT_TESTS
   if (RS_IsMock) return;
+  #endif // RS_UNIT_TESTS
 
   // 0 disables the timeout
   if (durationNS == 0) {
