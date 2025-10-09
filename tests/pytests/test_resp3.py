@@ -615,6 +615,7 @@ def test_clusterinfo():
       ]
     }
     res = env.cmd('SEARCH.CLUSTERINFO')
+    res['shards'].sort(key=lambda x: x['nodes'][0]['port'])
     env.assertEqual(order_dict(res), order_dict(exp))
 
 def test_profile_crash_mod5323():
