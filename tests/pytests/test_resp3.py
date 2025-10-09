@@ -587,35 +587,27 @@ def test_clusterinfo():
       'num_slots': 16384,
       'shards': [
         {
-          'nodes': [
-            { 'host': '127.0.0.1',
-              'id': ANY,
-              'port': ANY,
-              'role': 'master self'
-            }
-          ],
+          'host': '127.0.0.1',
+          'id': ANY,
+          'port': ANY,
+          'role': 'master self'
         },
         {
-          'nodes': [
-            {'host': '127.0.0.1',
-             'id': ANY,
-             'port': ANY,
-             'role': 'master'}
-          ],
+          'host': '127.0.0.1',
+          'id': ANY,
+          'port': ANY,
+          'role': 'master'
         },
         {
-          'nodes': [
-            { 'host': '127.0.0.1',
-              'id': ANY,
-              'port': ANY,
-              'role': 'master'
-            }
-          ],
+          'host': '127.0.0.1',
+          'id': ANY,
+          'port': ANY,
+          'role': 'master'
         }
       ]
     }
     res = env.cmd('SEARCH.CLUSTERINFO')
-    res['shards'].sort(key=lambda x: x['nodes'][0]['port'])
+    res['shards'].sort(key=lambda x: x['port'])
     env.assertEqual(order_dict(res), order_dict(exp))
 
 def test_profile_crash_mod5323():

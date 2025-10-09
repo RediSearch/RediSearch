@@ -4268,7 +4268,7 @@ def test_multiple_slot_ranges_per_shard(env: Env):
         'cluster_type', 'redis_oss',
         'hash_func', 'CRC16',
         'num_slots', num_slots,
-        'shards', *[generic_shard] * env.shardsCount    # one entry per shard
+        'shards', generic_shard * env.shardsCount       # one entry per shard
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 
@@ -4313,7 +4313,7 @@ def test_cluster_set_multiple_slots(env: Env):
         'cluster_type', 'redis_oss',
         'hash_func', 'CRC16',
         'num_slots', num_slots,
-        'shards', *[generic_shard] * len(ranges)    # one entry per range
+        'shards', generic_shard * len(ranges)       # one entry per range
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 

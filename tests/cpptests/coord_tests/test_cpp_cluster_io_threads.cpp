@@ -41,10 +41,9 @@ static void topoCallback(void *privdata) {
 // Test fixture for cluster IO threads tests
 class ClusterIOThreadsTest : public ::testing::Test {
 protected:
-  static MRClusterTopology *getDummyTopology(size_t numSlots) {
+  static MRClusterTopology *getDummyTopology() {
     MRClusterTopology *topo = static_cast<MRClusterTopology*>(rm_malloc(sizeof(*topo)));
     topo->numShards = 0;
-    topo->numSlots = numSlots;
     topo->shards = nullptr;
     return topo;
   }
@@ -97,7 +96,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   // Create counters to track callback execution
   int target = 10;
   int counters[5] = {0};
-  MRClusterTopology *topo = getDummyTopology(4096);
+  MRClusterTopology *topo = getDummyTopology();
 
   // Schedule callbacks on each IO runtime
   for (int i = 0; i < cluster->num_io_threads; i++) {
