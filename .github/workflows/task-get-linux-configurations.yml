@@ -172,11 +172,11 @@ jobs:
             if rocky_version in x86_platforms:
               x86_include.append({
                 'OS': rocky_version,
-                'pre-deps': "dnf update -y && dnf install -y git"})
+                'pre-deps': "sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/Rocky-* && sed -i 's|#baseurl=http://dl.rockylinux.org/$contentdir|baseurl=http://dl.rockylinux.org/vault/rocky|g' /etc/yum.repos.d/Rocky-* && dnf update -y && dnf install -y git"})
             if rocky_version in arm_platforms:
               arm_include.append({
                 'OS': rocky_version,
-                'pre-deps': "dnf update -y && dnf install -y git"})
+                'pre-deps': "sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/Rocky-* && sed -i 's|#baseurl=http://dl.rockylinux.org/$contentdir|baseurl=http://dl.rockylinux.org/vault/rocky|g' /etc/yum.repos.d/Rocky-* && dnf update -y && dnf install -y git"})
 
 
 
