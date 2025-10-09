@@ -577,37 +577,19 @@ def test_tagvals():
 @skip(cluster=False)
 def test_clusterinfo():
     env = Env(protocol=3)
-    if env.shardsCount != 3:
-        env.skip()
     verify_shard_init(env)
+
+    generic_shard = {
+      'host': '127.0.0.1',
+      'id': ANY,
+      'port': ANY,
+    }
     exp = {
       'cluster_type': 'redis_oss',
-      'hash_func': 'CRC16',
-      'num_partitions': 3,
-      'num_slots': 16384,
-      'shards': [
-        {
-          'host': '127.0.0.1',
-          'id': ANY,
-          'port': ANY,
-          'role': 'master self'
-        },
-        {
-          'host': '127.0.0.1',
-          'id': ANY,
-          'port': ANY,
-          'role': 'master'
-        },
-        {
-          'host': '127.0.0.1',
-          'id': ANY,
-          'port': ANY,
-          'role': 'master'
-        }
-      ]
+      'num_partitions': env.shardsCount,
+      'shards': [generic_shard] * env.shardsCount
     }
     res = env.cmd('SEARCH.CLUSTERINFO')
-    res['shards'].sort(key=lambda x: x['port'])
     env.assertEqual(order_dict(res), order_dict(exp))
 
 def test_profile_crash_mod5323():
