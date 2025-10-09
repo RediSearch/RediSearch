@@ -321,9 +321,9 @@ TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
   ASSERT_EQ(vq->knn.k, HYBRID_DEFAULT_KNN_K);
 }
 
-TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
+TEST_F(ParseHybridTest, testNOSORTDisablesImplicitSort) {
   // Test SORTBY 0 to disable implicit sorting
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "0");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "NOSORT");
 
   parseCommand(args);
 
@@ -1057,7 +1057,7 @@ TEST_F(ParseHybridTest, testParamsOddArgumentCount) {
 TEST_F(ParseHybridTest, testParamsZeroArguments) {
   // Test PARAMS with zero arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "PARAMS", "0");
-  testErrorCode(args, QUERY_EADDARGS, "Parameters must be specified in PARAM VALUE pairs");
+  testErrorCode(args, QUERY_EPARSEARGS, "PARAMS: Invalid argument count");
 }
 
 // WITHCURSOR callback error tests
@@ -1183,4 +1183,15 @@ TEST_F(ParseHybridTest, testCombineLinearZeroWindow) {
   // Test LINEAR with zero WINDOW value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "0");
   testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}
+
+TEST_F(ParseHybridTest, testSortby0InvalidArgumentCount) {
+  // SORTBY requires at least one argument (param count)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "0");
+  testErrorCode(args, QUERY_EPARSEARGS, "SORTBY: Invalid argument count");
+}
+
+TEST_F(ParseHybridTest, testSortbyNotEnoughArguments) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "2", "title");
+  testErrorCode(args, QUERY_EPARSEARGS, "SORTBY: Not enough arguments were provided based on argument count");
 }
