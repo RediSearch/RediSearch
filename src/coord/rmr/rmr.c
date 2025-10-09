@@ -374,81 +374,33 @@ void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  const char *hash_func_str = MRHASHFUNC_CRC16_STR;
-
   const char *cluster_type_str = clusterConfig.type == ClusterType_RedisOSS ? CLUSTER_TYPE_OSS : CLUSTER_TYPE_RLABS;
   size_t partitions = topo ? topo->numShards : 0;
 
-  //-------------------------------------------------------------------------------------------
-  if (reply->resp3) { // RESP3 variant
-    RedisModule_Reply_Map(reply); // root
+  RedisModule_Reply_Map(reply); // root
 
-    RedisModule_ReplyKV_LongLong(reply, "num_partitions", partitions);
-    RedisModule_ReplyKV_SimpleString(reply, "cluster_type", cluster_type_str);
+  RedisModule_ReplyKV_LongLong(reply, "num_partitions", partitions);
+  RedisModule_ReplyKV_SimpleString(reply, "cluster_type", cluster_type_str);
 
-    RedisModule_ReplyKV_SimpleString(reply, "hash_func", hash_func_str);
+  // Report topology
+  if (!topo) {
+    RedisModule_ReplyKV_Null(reply, "shards");
+  } else {
+    RedisModule_ReplyKV_Array(reply, "shards"); // >shards
+    for (int i = 0; i < topo->numShards; i++) {
+      MRClusterNode *node = &topo->shards[i].node;
+      RedisModule_Reply_Map(reply); // >>(node)
 
-    // Report topology
-    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (1<<14) : 0);
+      REPLY_KVSTR_SAFE("id", node->id);
+      REPLY_KVSTR_SAFE("host", node->endpoint.host);
+      RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
 
-    if (!topo) {
-      RedisModule_ReplyKV_Null(reply, "shards");
-    } else {
-      RedisModule_ReplyKV_Array(reply, "shards"); // >shards
-      for (int i = 0; i < topo->numShards; i++) {
-        MRClusterNode *node = &topo->shards[i].node;
-        RedisModule_Reply_Map(reply); // >>(node)
-
-        REPLY_KVSTR_SAFE("id", node->id);
-        REPLY_KVSTR_SAFE("host", node->endpoint.host);
-        RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
-        RedisModule_ReplyKV_SimpleStringf(reply, "role", "%s%s",
-                                    node->flags & MRNode_Master ? "master" : "replica",
-                                    node->flags & MRNode_Self ? " self" : "");
-
-        RedisModule_Reply_MapEnd(reply); // >>(node)
-      }
-      RedisModule_Reply_ArrayEnd(reply); // >shards
+      RedisModule_Reply_MapEnd(reply); // >>(node)
     }
-
-    RedisModule_Reply_MapEnd(reply); // root
+    RedisModule_Reply_ArrayEnd(reply); // >shards
   }
-  //-------------------------------------------------------------------------------------------
-  else // RESP2 variant
-  {
-    RedisModule_Reply_Array(reply); // root
 
-    RedisModule_ReplyKV_LongLong(reply, "num_partitions", partitions);
-    RedisModule_ReplyKV_SimpleString(reply, "cluster_type", cluster_type_str);
-
-    RedisModule_ReplyKV_SimpleString(reply, "hash_func", hash_func_str);
-
-    // Report topology
-    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (1<<14) : 0);
-
-    RedisModule_Reply_SimpleString(reply, "shards");
-
-    if (!topo) {
-      RedisModule_Reply_Null(reply);
-    } else {
-      RedisModule_Reply_Array(reply); // >shards
-      for (int i = 0; i < topo->numShards; i++) {
-        MRClusterNode *node = &topo->shards[i].node;
-        RedisModule_Reply_Array(reply); // >>node
-        REPLY_SIMPLE_SAFE(node->id);
-        REPLY_SIMPLE_SAFE(node->endpoint.host);
-        RedisModule_Reply_LongLong(reply, node->endpoint.port);
-        RedisModule_Reply_SimpleStringf(reply, "%s%s",
-                                  node->flags & MRNode_Master ? "master" : "replica",
-                                  node->flags & MRNode_Self ? " self" : "");
-        RedisModule_Reply_ArrayEnd(reply); // >>node
-      }
-      RedisModule_Reply_ArrayEnd(reply); // >shards
-    }
-
-    RedisModule_Reply_ArrayEnd(reply); // root
-  }
-  //-------------------------------------------------------------------------------------------
+  RedisModule_Reply_MapEnd(reply); // root
 
   RedisModule_EndReply(reply);
 }
