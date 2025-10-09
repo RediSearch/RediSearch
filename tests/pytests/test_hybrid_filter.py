@@ -98,7 +98,6 @@ def test_hybrid_filter_behavior():
         'FILTER', '@category:{"vegetable"}', "LOAD", 2, "__key", "category", "FILTER", "@category==\"clothing\"",
     )
     results, _ = get_results_from_hybrid_response(response)
-    # This should filter as before, just an extra combine
     env.assertEqual(set(results.keys()), {"doc:3{hash_tag}"})
 
     response = env.cmd(
@@ -126,5 +125,4 @@ def test_hybrid_filter_behavior():
         'FILTER', '@category:{"vegetable"}', "FILTER", "@__key==\"doc:3{hash_tag}\"",
     )
     results, _ = get_results_from_hybrid_response(response)
-    # This should filter as before, just an extra combine
     env.assertEqual(set(results.keys()), {"doc:3{hash_tag}"})

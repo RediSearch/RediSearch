@@ -28,9 +28,9 @@ protected:
         }
         if (us.serialized) {
             for (size_t i = 0; i < us.nserialized; i++) {
-                free(const_cast<char*>(us.serialized[i]));
+                rm_free(const_cast<char*>(us.serialized[i]));
             }
-            free(const_cast<char**>(us.serialized));
+            rm_free(const_cast<char**>(us.serialized));
             us.serialized = nullptr;
         }
     }
@@ -415,7 +415,7 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithLoadAndUpstream) {
     };
     us.serialized = (const char**)malloc(serializedArgs.size() * sizeof(char*));
     for (size_t i = 0; i < serializedArgs.size(); i++) {
-        const_cast<char**>(us.serialized)[i] = strdup(serializedArgs[i]);
+        const_cast<char**>(us.serialized)[i] = rm_strdup(serializedArgs[i]);
     }
     us.nserialized = serializedArgs.size();
     us.lookup = nullptr;

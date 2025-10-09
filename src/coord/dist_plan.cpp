@@ -609,7 +609,6 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
     ser_args.push_back(ldsze);
     for (auto kk : loadFields) {
       ser_args.push_back(rm_strndup(kk->name, kk->name_len));
-      RedisModule_Log(NULL, "warning", "AREQ_BuildDistributedPipeline: Adding LOAD field %s", kk->name);
     }
   }
 

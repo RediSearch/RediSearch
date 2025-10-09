@@ -132,7 +132,6 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
         ser_args.push_back(ldsze);
         for (auto kk : loadFields) {
             ser_args.push_back(rm_strndup(kk->name, kk->name_len));
-            RedisModule_Log(NULL, "warning", "HybridRequest_BuildDistributedPipeline: Adding LOAD field %s", kk->name);
         }
     }
 
