@@ -26,8 +26,7 @@
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            arrayof(const char*) unresolvedTailKeys, MRCommand *xcmd,
-                            IndexSpec *sp, HybridPipelineParams *hybridParams) {
+                            MRCommand *xcmd, IndexSpec *sp, HybridPipelineParams *hybridParams) {
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
   // Build _FT.HYBRID command (no profiling support)
@@ -97,7 +96,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 // UPDATED: Set RPNet types when creating them
 // NOTE: Caller should clone the dispatcher_ref before calling this function
 static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
-                          AREQDIST_UpstreamInfo *us,
+                          RLookup *lookup,
                           int (*nextFunc)(ResultProcessor *, SearchResult *)) {
   // Establish our root processor, which is the distributed processor
   MRCommand cmd = MRCommand_Copy(xcmd);
@@ -106,7 +105,7 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   rpRoot->base.parent = qctx;
-  rpRoot->lookup = us->lookup;
+  rpRoot->lookup = lookup;
   rpRoot->areq = r;
 
   ResultProcessor *rpProfile = NULL;
@@ -207,18 +206,14 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // apply the sorting changes after the distribute phase
     setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
     RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
-    arrayof(const char*) unresolvedTailKeys = array_new(const char*, 8);
-    rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, unresolvedTailKeys, status);
+    rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
     if (rc != REDISMODULE_OK) {
-      array_free(unresolvedTailKeys);
       return REDISMODULE_ERR;
     }
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, unresolvedTailKeys, &xcmd, sp, &hybridParams);
-    // We copied the command inside, free the array
-    array_free_ex(unresolvedTailKeys, rm_free(ptr));
+    HybridRequest_buildMRCommand(argv, argc, &xcmd, sp, &hybridParams);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
@@ -226,8 +221,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     xcmd.rootCommand = C_READ;
 
     // UPDATED: Use new start function with mappings (no dispatcher needed)
-    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &lookups[0], rpnetNext_StartWithMappings);
-    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &lookups[1], rpnetNext_StartWithMappings);
+    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext_StartWithMappings);
+    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, lookups[1], rpnetNext_StartWithMappings);
 
     // Free the command
     MRCommand_Free(&xcmd);

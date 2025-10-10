@@ -54,7 +54,6 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
 int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     HybridPipelineParams *hybridParams,
     RLookup **lookups,
-    arrayof(const char*) unresolvedTailKeys,
     QueryError *status) {
 
     RLookup *tailLookup = AGPLN_GetLookup(HybridRequest_TailAGGPlan(hreq), NULL, AGPLN_GETLOOKUP_FIRST);
@@ -67,13 +66,17 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     tailLookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-
-    // Collect unresolved fields from tail lookup for LOAD command
+  #if DEBUG
     for (RLookupKey *kk = tailLookup->head; kk != NULL; kk = kk->next) {
         if (kk->flags & RLOOKUP_F_UNRESOLVED && kk->name) {
-            array_append(unresolvedTailKeys, rm_strndup(kk->name, kk->name_len));
+          // we currently don't expect unresolved keys in the tail lookup
+          // notice the merger expects to know about all the keys in advance and does not copy unexpected keys
+          // The load clause should contain all needed fields
+          // This is the current assumption which might break
+          RS_ASSERT(true);
         }
     }
+  #endif
 
     for (int i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];

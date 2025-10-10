@@ -26,7 +26,7 @@ extern "C" {
  * @param[out] unresolvedTailKeys array to populate with unresolved keys from the tail pipeline
  * @param status if there is an error
  */
-int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq, HybridPipelineParams *hybridParams, RLookup **lookups, arrayof(const char*) unresolvedTailKeys, QueryError *status);
+int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq, HybridPipelineParams *hybridParams, RLookup **lookups, QueryError *status);
 
 #ifdef __cplusplus
 }
