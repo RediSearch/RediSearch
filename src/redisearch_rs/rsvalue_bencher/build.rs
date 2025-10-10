@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate C bindings - fail build if this doesn't work
     let root = git_root().expect("Could not find git root");
     let ii_header = root.join("src").join("value").join("value.h");
-    generate_c_bindings(vec![ii_header], ".*/value.h", false)?;
+    generate_c_bindings(vec![ii_header], ".*/value.h", [])?;
 
     Ok(())
 }
