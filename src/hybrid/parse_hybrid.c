@@ -505,10 +505,16 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     return implicitLoadStep;
 }
 
-static bool isIndexCoherentWithQuery(HybridParseContext *ctx, ArgsCursor *ac, IndexSpec *spec)  {
+// This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate does not use ArgsCursor
+static bool IsIndexCoherentWithQuery(HybridParseContext *ctx, ArgsCursor *ac, IndexSpec *spec)  {
   if (ctx->prefixesOffset == 0) {
     // No prefixes in the query --> No validation needed.
     return true;
+  }
+
+  if (ctx->prefixesOffset > 0 && (!spec || !spec->rule || !spec->rule->prefixes)) {
+    // Index has no prefixes, but query has prefixes --> Incoherent
+    return false;
   }
 
   // Create a slice starting at the prefixes offset to access the number of prefixes
@@ -719,7 +725,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  if (!isIndexCoherentWithQuery(&hybridParseCtx, ac, parsedCmdCtx->search->sctx->spec)) {
+  if (!IsIndexCoherentWithQuery(&hybridParseCtx, ac, parsedCmdCtx->search->sctx->spec)) {
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
     goto error;
   }
