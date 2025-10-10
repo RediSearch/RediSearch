@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod ffi;
+
 use redis_module::{RedisModuleCtx, RedisModuleString};
 use std::ffi::c_void;
 

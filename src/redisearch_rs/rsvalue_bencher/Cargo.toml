@@ -8,9 +8,20 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[[bench]]
+name = "alloc_free"
+harness = false
+
+[[bench]]
+name = "float_parsing"
+harness = false
+
 [build-dependencies]
 bindgen.workspace = true
 build_utils = { path = "../build_utils" }
+
+[dev-dependencies]
+criterion.workspace = true
 
 [dependencies]
 buffer.workspace = true
