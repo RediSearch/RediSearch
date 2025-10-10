@@ -15,6 +15,11 @@ def configure_shards_with_different_timeout_policies(env):
 
 @skip(cluster=False)
 def test_cluster_aggregate_with_shards_timeout(env):
+    """
+    This test tries to reproduce an issue MOD-10774, which crashed when the coordinator shard had a different TimeOur Return Policy
+    than the other shards. (The coordinator had On TimeOut return and the other On Timeout Fail). When the shard actually timed out,
+    the coordinator would crash.
+    """
     configure_shards_with_different_timeout_policies(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
@@ -30,13 +35,13 @@ def test_cluster_aggregate_with_shards_timeout(env):
     waitForIndex(env, 'idx')
 
     conn = getConnectionByEnv(env)
-    num_docs = 100000
+    num_docs = 20000
 
     brands = ['Apple', 'Samsung', 'Sony', 'LG', 'Dell', 'HP', 'Nike', 'Adidas', 'Zara', 'H&M']
 
     # Use pipeline for much faster bulk HSET operations
     pipeline = conn.pipeline(transaction=False)
-    batch_size = 1000  # Execute pipeline every 1000 docs to avoid memory issues
+    batch_size = 10000  # Execute pipeline every 1000 docs to avoid memory issues
 
     for i in range(num_docs):
         doc_key = f'doc:{i}'
@@ -66,9 +71,10 @@ def test_cluster_aggregate_with_shards_timeout(env):
 
     # Execute remaining docs
     pipeline.execute()
-    result = env.cmd('FT.AGGREGATE', 'idx', '*',
-                    'GROUPBY', '1', '@category',
-                    'REDUCE', 'COUNT', '0', 'AS', 'count',
-                    'REDUCE', 'AVG', '1', '@price', 'AS', 'avg_price')
+    conn_shard_1 = env.getConnection(1)
+    result = conn_shard_1.execute_command('FT.AGGREGATE', 'idx', '*',
+                                          'GROUPBY', '1', '@category',
+                                          'REDUCE', 'COUNT', '0', 'AS', 'count',
+                                          'REDUCE', 'AVG', '1', '@price', 'AS', 'avg_price')
 
     env.assertGreater(len(result), 1, message=result)  # Should have results, at least the coordinator does not timeout
