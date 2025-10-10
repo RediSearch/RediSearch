@@ -184,7 +184,6 @@ class TestRealTimeouts(object):
 
     def __init__(self):
         #TODO: remove skip once FT.HYBRID for cluster is implemented
-        skipTest(cluster=True)
         self.dim = 128
         self.num_docs = 100000
         self.timeout_ms = 1  # Very short timeout to ensure timeout occurs
@@ -236,5 +235,11 @@ class TestRealTimeouts(object):
 
         warnings = get_warnings(response)
 
-        env.assertTrue('Timeout limit was reached (SEARCH)' in warnings)
-        env.assertTrue('Timeout limit was reached (VSIM)' in warnings)
+        env.assertTrue(
+            'Timeout limit was reached (SEARCH)' in warnings,
+            message=f"Expected 'Timeout limit was reached (SEARCH)' in warnings: {warnings}"
+        )
+        env.assertTrue(
+            'Timeout limit was reached (VSIM)' in warnings,
+            message=f"Expected 'Timeout limit was reached (VSIM)' in warnings: {warnings}"
+        )

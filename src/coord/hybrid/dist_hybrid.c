@@ -218,6 +218,13 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     hreq->tailPipeline->qctx.err = status;
 
+    // Initialize timeout for all subqueries BEFORE building pipelines
+    for (int i = 0; i < hreq->nrequests; i++) {
+        AREQ *subquery = hreq->requests[i];
+        RedisSearchCtx *sctx = AREQ_SearchCtx(subquery);
+        SearchCtx_UpdateTime(sctx, subquery->reqConfig.queryTimeoutMS);
+    }
+
     // Parse the hybrid command (equivalent to AREQ_Compile)
     HybridPipelineParams hybridParams = {0};
     ParseHybridCommandCtx cmd = {0};
@@ -266,13 +273,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // UPDATED: Use new start function with mappings (no dispatcher needed)
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartWithMappings);
     HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartWithMappings);
-
-    // Add timeout initialization for each subquery after building RPNet chains
-    for (int i = 0; i < hreq->nrequests; i++) {
-        AREQ *subquery = hreq->requests[i];
-        RedisSearchCtx *sctx = AREQ_SearchCtx(subquery);
-        SearchCtx_UpdateTime(sctx, subquery->reqConfig.queryTimeoutMS);
-    }
 
     // Free the command
     MRCommand_Free(&xcmd);
