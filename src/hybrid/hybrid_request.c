@@ -293,6 +293,11 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
   search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
   vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
+
+  // Initialize timeout for hybrid search contexts with default timeout
+  SearchCtx_UpdateTime(search->sctx, RSGlobalConfig.requestConfigParams.queryTimeoutMS);
+  SearchCtx_UpdateTime(vector->sctx, RSGlobalConfig.requestConfigParams.queryTimeoutMS);
+
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);

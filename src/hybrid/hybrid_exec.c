@@ -520,6 +520,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
+  // Initialize timeout for hybrid search context with default timeout
+  SearchCtx_UpdateTime(sctx, RSGlobalConfig.requestConfigParams.queryTimeoutMS);
+
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
   CurrentThread_SetIndexSpec(spec_ref);
 
