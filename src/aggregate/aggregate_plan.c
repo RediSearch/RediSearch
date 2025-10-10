@@ -405,12 +405,34 @@ static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
   }
 }
 
-static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
+static bool shouldAppenDocKey(const PLN_LoadStep *lstp, const char *mergeDocKey) {
+  if (!mergeDocKey) {
+    return false;
+  }
+  for (size_t ii = 0; ii < lstp->args.argc; ++ii) {
+    const char *key = AC_StringArg(&lstp->args, ii);
+    if (key[0] == '@') {
+      ++key;
+    }
+    if (strcmp(key, mergeDocKey) == 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp, const char *docKey) {
   PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
+  const bool appendDocKey = shouldAppenDocKey(lstp, docKey);
   if (lstp->args.argc) {
     append_string(arr, "LOAD");
     append_uint(arr, lstp->args.argc);
     append_ac(arr, &lstp->args);
+    if (appendDocKey) {
+      char *key;
+      rm_asprintf(&key, "@%s", docKey);
+      array_append(arr, key);
+    }
   } else if (lstp->base.flags & PLN_F_LOAD_ALL) {
     append_string(arr, "LOAD");
     append_string(arr, "*");
@@ -447,6 +469,7 @@ static void serializeVectorNormalizer(myArgArray_t *arr, const PLN_BaseStep *bst
 
 array_t AGPLN_Serialize(const AGGPlan *pln) {
   char **arr = array_new(char *, 1);
+  const char* mergeDocKey = NULL;
   for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     switch (stp->type) {
@@ -458,17 +481,17 @@ array_t AGPLN_Serialize(const AGGPlan *pln) {
         serializeArrange(&arr, stp);
         break;
       case PLN_T_LOAD:
-        serializeLoad(&arr, stp);
-        break;
-      case PLN_T_VECTOR_NORMALIZER:
-        serializeVectorNormalizer(&arr, stp);
+        serializeLoad(&arr, stp, mergeDocKey);
         break;
       case PLN_T_GROUP:
         serializeGroup(&arr, stp);
         break;
+      case PLN_T_MERGE:
+        mergeDocKey = ((PLN_MergeStep *)stp)->docKeyName;
+        break;
+      case PLN_T_VECTOR_NORMALIZER:
       case PLN_T_INVALID:
       case PLN_T_ROOT:
-      case PLN_T_MERGE:
       case PLN_T_DISTRIBUTE:
       case PLN_T__MAX:
         break;

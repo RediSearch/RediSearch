@@ -101,8 +101,6 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     }
 
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-    // We must open the doc key as read before InitializeHybridLookupContext to ensure it will get marked as unresolved 
-    const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
     // a lookup construct to help us translate an upstream rlookup to the tail lookup
     // Assumes all upstreams have non-null lookups
     HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, tailLookup);

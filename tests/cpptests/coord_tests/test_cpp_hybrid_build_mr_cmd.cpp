@@ -9,8 +9,7 @@
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
 extern "C" {
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd,
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, MRCommand *xcmd,
                             IndexSpec *sp, HybridPipelineParams *hybridParams);
 }
 
@@ -18,7 +17,6 @@ class HybridBuildMRCommandTest : public ::testing::Test {
 protected:
     void SetUp() override {
         ctx = RedisModule_GetThreadSafeContext(NULL);
-        memset(&us, 0, sizeof(us));
         memset(&hybridParams, 0, sizeof(hybridParams));
     }
 
@@ -26,11 +24,9 @@ protected:
         if (ctx) {
             RedisModule_FreeThreadSafeContext(ctx);
         }
-        array_free(us.serialized);
     }
 
     RedisModuleCtx *ctx = nullptr;
-    AREQDIST_UpstreamInfo us;
     HybridPipelineParams hybridParams;
 
     void printMRCommand(const MRCommand *cmd) {
@@ -62,7 +58,7 @@ protected:
 
         // Build MR command
         MRCommand xcmd;
-        HybridRequest_buildMRCommand(args, args.size(), &us, &xcmd, nullptr, &hybridParams);
+        HybridRequest_buildMRCommand(args, args.size(), &xcmd, nullptr, &hybridParams);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
