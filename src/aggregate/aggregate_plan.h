@@ -201,10 +201,21 @@ struct AGGPlan {
   uint64_t steptypes;         // Mask of step-types contained in plan
 };
 
+// this is basically a mini hash map
+// but it allows us to ensure order of steps and should allow reodering steps before other steps for better performance
+typedef struct SerializedSteps {
+  arrayof(char *) steps[PLN_T__MAX];
+  // allows us to get the order of a step, iterate over the steps in the same order they were added
+  arrayof(PLN_StepType) order;
+} SerializedSteps;
+
+bool SerializedSteps_HasSteps(const SerializedSteps *steps);
+void SerializedSteps_Clean(SerializedSteps *steps);
+
 /* Serialize the plan into an array of string args, to create a command to be sent over the network.
  * The strings need to be freed with free and the array needs to be freed with array_free(). The
  * length can be extracted with array_len */
-array_t AGPLN_Serialize(const AGGPlan *plan);
+void AGPLN_Serialize(const AGGPlan *plan, SerializedSteps *target);
 
 /* Free the plan resources, not the plan itself */
 void AGPLN_Free(AGGPlan *plan);

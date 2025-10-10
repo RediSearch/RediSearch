@@ -9,7 +9,7 @@
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
 extern "C" {
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, MRCommand *xcmd,
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, MRCommand *xcmd, SerializedSteps *serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams);
 }
 
@@ -58,7 +58,8 @@ protected:
 
         // Build MR command
         MRCommand xcmd;
-        HybridRequest_buildMRCommand(args, args.size(), &xcmd, nullptr, &hybridParams);
+        SerializedSteps serialized = {0};
+        HybridRequest_buildMRCommand(args, args.size(), &xcmd, &serialized, nullptr, &hybridParams);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
