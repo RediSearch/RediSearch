@@ -90,6 +90,7 @@ pretty_assertions = "1.4.1"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
 rand = "0.9.1"
+smallvec = "1.15.1"
 thiserror = "2.0.12"
 ureq = "3.0.10"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
