@@ -51,7 +51,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   return REDISMODULE_OK;
 }
 
-int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
+SerializedSteps *HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     HybridPipelineParams *hybridParams,
     RLookup **lookups,
     QueryError *status) {
@@ -59,30 +59,20 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     RLookup *tailLookup = AGPLN_GetLookup(HybridRequest_TailAGGPlan(hreq), NULL, AGPLN_GETLOOKUP_FIRST);
 
     int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
-    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+    if (rc != REDISMODULE_OK) return NULL;
 
     tailLookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
     rc = HybridRequest_BuildMergePipeline(hreq, hybridParams, true);
     tailLookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
-    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
-
-  #if DEBUG
-    for (RLookupKey *kk = tailLookup->head; kk != NULL; kk = kk->next) {
-        if (kk->flags & RLOOKUP_F_UNRESOLVED && kk->name) {
-          // we currently don't expect unresolved keys in the tail lookup
-          // notice the merger expects to know about all the keys in advance and does not copy unexpected keys
-          // The load clause should contain all needed fields
-          // This is the current assumption which might break
-          RS_ASSERT(true);
-        }
-    }
-  #endif
-
+    if (rc != REDISMODULE_OK) return NULL;
+    
+    SerializedSteps *serialized = NULL;
     for (int i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];
         auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(areq), NULL, NULL, PLN_T_DISTRIBUTE);
         RS_ASSERT(dstp);
         lookups[i] = &dstp->lk;
+        serialized = &dstp->serialized;
     }
-    return REDISMODULE_OK;
+    return serialized;
 }

@@ -180,13 +180,7 @@ static void freeDistStep(PLN_BaseStep *bstp) {
     rm_free(dstp->plan);
     dstp->plan = NULL;
   }
-  if (dstp->serialized) {
-    auto &v = *dstp->serialized;
-    for (auto s : v) {
-      rm_free((void *)s);
-    }
-    delete &v;
-  }
+  SerializedSteps_Clean(&dstp->serialized);
   if (dstp->oldSteps) {
     for (size_t ii = 0; ii < array_len(dstp->oldSteps); ++ii) {
       dstp->oldSteps[ii]->base.dtor(&dstp->oldSteps[ii]->base);
@@ -378,7 +372,6 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
   dstp->base.type = PLN_T_DISTRIBUTE;
   dstp->plan = remote;
-  dstp->serialized = new std::vector<const char *>();
   dstp->base.dtor = freeDistStep;
   dstp->base.getLookup = distStepGetLookup;
   BlkAlloc_Init(&dstp->alloc);
@@ -445,10 +438,9 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
       case PLN_T_MERGE: // merging is done in coordinator, but we need the coordinator AREQ rlookup to be aware of __key which we will get from the shard
       case PLN_T_VECTOR_NORMALIZER: // normalizing is done in shards
       case PLN_T_LOAD: // loading is done in shards
-      case PLN_T_APPLY: {
+      case PLN_T_APPLY: 
         current = moveStep(remote, src, current);
         break;
-      }
       case PLN_T_ARRANGE: {
         PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
         // If we already had an arrange step, or this arrange step should only run local,
@@ -520,8 +512,7 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
     switch (cur->type) {
       case PLN_T_MERGE: {
         PLN_MergeStep *mstp = (PLN_MergeStep *)cur;
-        // If previously requested by a different step, e.g excplicitly stated in the load clause then the hidden flag will not take affect
-        RLookup_GetKey_Write(lookup, mstp->docKeyName, RLOOKUP_F_HIDDEN);
+        RLookup_GetKey_Write(lookup, mstp->docKeyName, RLOOKUP_F_NOFLAGS);
         break;
       }
       case PLN_T_VECTOR_NORMALIZER: {
@@ -566,12 +557,19 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
 
   AGPLN_PopStep(&local->firstStep_s.base);
   AGPLN_Prepend(local, &dstp->base);
-  auto tmp = (char **)AGPLN_Serialize(dstp->plan);
-  auto &v = *dstp->serialized;
-  for (size_t ii = 0; ii < array_len(tmp); ++ii) {
-    v.push_back(tmp[ii]);
+  AGPLN_Serialize(dstp->plan, &dstp->serialized);
+}
+
+// We want to fillk AREQDIST_UpstreamInfo with the steps from the SerializedSteps struct in the same order
+void SerializedSteps_FillUpstreamInfo(SerializedSteps *ss, AREQDIST_UpstreamInfo *us) {
+  us->serialized = array_new(const char *, 1);
+  for (size_t ii = 0; ii < array_len(ss->order); ++ii) {
+    PLN_StepType st = ss->order[ii];
+    arrayof(char *) *tokens = &ss->steps[st];  
+    for (size_t jj = 0; jj < array_len(*tokens); ++jj) {
+      array_ensure_append_1(us->serialized, tokens[jj]);
+    }
   }
-  array_free(tmp);
 }
 
 int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
@@ -592,20 +590,21 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
       loadFields.push_back(kk);
     }
   }
-
-  auto &ser_args = *dstp->serialized;
+  // If we have any unresolved fields, we need to add a load step
   if (!loadFields.empty()) {
-    ser_args.push_back(rm_strndup("LOAD", 4));
+    arrayof(char *) *loadStep = &dstp->serialized.steps[PLN_T_LOAD];
+    RS_ASSERT(*loadStep == NULL);
+    *loadStep = array_new(char *, loadFields.size() + 2);
+    array_append(*loadStep, rm_strndup("LOAD", 4));
     char *ldsze;
     rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
-    ser_args.push_back(ldsze);
+    array_append(*loadStep, ldsze);
     for (auto kk : loadFields) {
-      ser_args.push_back(rm_strndup(kk->name, kk->name_len));
+      array_append(*loadStep, rm_strndup(kk->name, kk->name_len));
     }
   }
 
   us->lookup = &dstp->lk;
-  us->serialized = ser_args.data();
-  us->nserialized = ser_args.size();
+  SerializedSteps_FillUpstreamInfo(&dstp->serialized, us);
   return REDISMODULE_OK;
 }
