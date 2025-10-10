@@ -17,6 +17,7 @@
 #include "spec.h"
 #include "module.h"
 
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -153,6 +154,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
+    hybridReq->isDebugMode = false;  // Default to production mode
 
     // Initialize error tracking for each individual request
     hybridReq->errors = array_new(QueryError, nrequests);
@@ -294,14 +296,32 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
   vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
 
-  // Initialize timeout for hybrid search contexts with default timeout
-  SearchCtx_UpdateTime(search->sctx, RSGlobalConfig.requestConfigParams.queryTimeoutMS);
-  SearchCtx_UpdateTime(vector->sctx, RSGlobalConfig.requestConfigParams.queryTimeoutMS);
+  // Note: Timeout initialization for subquery contexts is handled after debug parameters are processed
+  // to avoid interfering with debug timeout mechanisms
 
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);
   return HybridRequest_New(sctx, requests, array_len(requests));
+}
+
+void HybridRequest_InitializeSubqueryTimeouts(HybridRequest *hreq) {
+  // Skip timeout initialization for debug commands to avoid interfering with debug timeout mechanisms
+  if (hreq->isDebugMode) {
+    return;
+  }
+
+  // Copy timeout from main hybrid context to subquery contexts if it's been set
+  RedisSearchCtx *main_sctx = hreq->sctx;
+  if (main_sctx->time.timeout.tv_sec != 0 || main_sctx->time.timeout.tv_nsec != 0) {
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      AREQ *req = hreq->requests[i];
+      // Only initialize timeout if the subquery context doesn't already have a timeout set
+      if (req->sctx->time.timeout.tv_sec == 0 && req->sctx->time.timeout.tv_nsec == 0) {
+        req->sctx->time.timeout = main_sctx->time.timeout;
+      }
+    }
+  }
 }
 
 void AddValidationErrorContext(AREQ *req, QueryError *status) {

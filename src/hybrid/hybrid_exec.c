@@ -520,14 +520,18 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Initialize timeout for hybrid search context with default timeout
-  SearchCtx_UpdateTime(sctx, RSGlobalConfig.requestConfigParams.queryTimeoutMS);
+  // Initialize timeout for hybrid search context with default timeout (only if not already set)
+  if (sctx->time.timeout.tv_sec == 0 && sctx->time.timeout.tv_nsec == 0) {
+    SearchCtx_UpdateTime(sctx, RSGlobalConfig.requestConfigParams.queryTimeoutMS);
+  }
 
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
   CurrentThread_SetIndexSpec(spec_ref);
 
   QueryError status = {0};
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
+  // Initialize subquery timeouts from main context (no debug parameters in regular command)
+  HybridRequest_InitializeSubqueryTimeouts(hybridRequest);
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
   HybridPipelineParams hybridParams = {0};
 

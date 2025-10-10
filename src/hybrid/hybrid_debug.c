@@ -199,6 +199,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   int hybrid_argc = argc - debug_argv_count;
 
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+  hreq->isDebugMode = true;  // Mark as debug mode to skip timeout initialization
   HybridPipelineParams hybridParams = {0};  // Stack allocation
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hreq->requests[SEARCH_INDEX];
@@ -262,6 +263,10 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
+  // Initialize timeout for hybrid search context with default timeout
+  // Debug commands don't support the TIMEOUT parameter, so the context is always freshly created with zero timeout
+  SearchCtx_UpdateTime(sctx, RSGlobalConfig.requestConfigParams.queryTimeoutMS);
+
   // Create debug hybrid request using the same sctx
   HybridRequest_Debug *debug_req = HybridRequest_Debug_New(ctx, argv, argc, sctx, indexname, &status);
   if (!debug_req) {
@@ -283,6 +288,8 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
     HybridRequest_Debug_Free(debug_req);
     return QueryError_ReplyAndClear(ctx, &status);
   }
+
+  // Note: For debug commands, we don't initialize subquery timeouts to avoid interfering with debug timeout mechanisms
 
   HybridRequest_Execute(hreq, ctx, hreq->sctx);
 
