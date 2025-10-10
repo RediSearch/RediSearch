@@ -44,10 +44,6 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
       ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
       QITR_PushRP(qctx, depleter);
-
-      // RPNet *rpNet = RPNet_New(xcmd, rpnetNext_StartWithMappings);
-      // RPNet_SetDispatcher(rpNet, dispatcher);
-      // QITR_PushRP(qctx, &rpNet->base);
   }
 
   // Release the sync reference as depleters now hold their own references
@@ -57,7 +53,8 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
 
 int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     HybridPipelineParams *hybridParams,
-    arrayof(AREQDIST_UpstreamInfo) us,
+    RLookup **lookups,
+    arrayof(const char*) serializedArgs,
     QueryError *status) {
 
     RLookup *tailLookup = AGPLN_GetLookup(HybridRequest_TailAGGPlan(hreq), NULL, AGPLN_GETLOOKUP_FIRST);
@@ -79,24 +76,21 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
         }
     }
 
+    if (!loadFields.empty()) {
+        array_append(serializedArgs, rm_strndup("LOAD", 4));
+        char *ldsze;
+        rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
+        array_append(serializedArgs, ldsze);
+        for (auto kk : loadFields) {
+            array_append(serializedArgs, rm_strndup(kk->name, kk->name_len));
+        }
+    }
+
     for (int i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];
         auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(areq), NULL, NULL, PLN_T_DISTRIBUTE);
         RS_ASSERT(dstp);
-        auto &ser_args = *dstp->serialized;
-        if (!loadFields.empty()) {
-          ser_args.push_back(rm_strndup("LOAD", 4));
-          char *ldsze;
-          rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
-          ser_args.push_back(ldsze);
-          for (auto kk : loadFields) {
-              ser_args.push_back(rm_strndup(kk->name, kk->name_len));
-          }
-        }
-        // This lookup goes to the rpnet - we need the lookup keys its write will be what the merger expects
-        us[i].lookup = &dstp->lk;
-        us[i].serialized = ser_args.data();
-        us[i].nserialized = ser_args.size();
-      }
+        lookups[i] = &dstp->lk;
+    }
     return REDISMODULE_OK;
 }

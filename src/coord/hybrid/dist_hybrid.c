@@ -26,7 +26,7 @@
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd,
+                            arrayof(const char*) serializedArgs, MRCommand *xcmd,
                             IndexSpec *sp, HybridPipelineParams *hybridParams) {
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -141,9 +141,10 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
   }
 }
 
-static void applyLimitSortingConstraint(AREQ *searchRequest, AREQ *vectorRequest, HybridPipelineParams *hybridParams) {
+static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorRequest, HybridPipelineParams *hybridParams) {
   const size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
 
+  // TODO: would be better to look for a vector node (recursive search on the ast) and decide according to its query type (knn/range)
   const bool isKNN = vectorRequest->ast.root->type == QN_VECTOR;
   const size_t K = isKNN ? vectorRequest->ast.root->vn.vq->knn.k : 0;
 
@@ -204,26 +205,29 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
         }
     }
     // apply the sorting changes after the distribute phase
-    applyLimitSortingConstraint(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
-    arrayof(AREQDIST_UpstreamInfo) us = array_newlen(AREQDIST_UpstreamInfo, hreq->nrequests);
-    rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, us, status);
+    setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
+    RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
+    arrayof(const char*) serializedArgs = array_new(const char*, 8);
+    rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, serializedArgs, status);
     if (rc != REDISMODULE_OK) {
-      array_free(us);
+      array_free(serializedArgs);
       return REDISMODULE_ERR;
     }
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, &us[0], &xcmd, sp, &hybridParams);
+    HybridRequest_buildMRCommand(argv, argc, serializedArgs, &xcmd, sp, &hybridParams);
+    // We copied the command inside, free the array
+    array_free_ex(serializedArgs, rm_free(ptr));
+
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     xcmd.forProfiling = false;  // No profiling support for hybrid yet
     xcmd.rootCommand = C_READ;
 
     // UPDATED: Use new start function with mappings (no dispatcher needed)
-    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us[0], rpnetNext_StartWithMappings);
-    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us[1], rpnetNext_StartWithMappings);
-    array_free(us);
+    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &lookups[0], rpnetNext_StartWithMappings);
+    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &lookups[1], rpnetNext_StartWithMappings);
 
     // Free the command
     MRCommand_Free(&xcmd);
