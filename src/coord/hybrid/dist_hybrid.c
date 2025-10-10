@@ -141,6 +141,27 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
   }
 }
 
+static void applyLimitSortingConstraint(AREQ *searchRequest, AREQ *vectorRequest, HybridPipelineParams *hybridParams) {
+  const size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+
+  const bool isKNN = vectorRequest->ast.root->type == QN_VECTOR;
+  const size_t K = isKNN ? vectorRequest->ast.root->vn.vq->knn.k : 0;
+
+  PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(searchRequest));
+  searchArrangeStep->limit = window;
+
+  PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(vectorRequest));
+  if (isKNN) {
+    // Vector subquery is a KNN query
+    // Heapsize should be min(window, KNN K)
+    // ast structure is: root = vector node <- filter node <- ... rest
+    vectorArrangeStep->limit = MIN(window, K);
+  } else {
+    // its range, limit = window
+    vectorArrangeStep->limit = window;
+  }
+}
+
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
         RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
 
@@ -182,6 +203,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
             return REDISMODULE_ERR;
         }
     }
+    // apply the sorting changes after the distribute phase
+    applyLimitSortingConstraint(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
     arrayof(AREQDIST_UpstreamInfo) us = array_newlen(AREQDIST_UpstreamInfo, hreq->nrequests);
     rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, us, status);
     if (rc != REDISMODULE_OK) {
