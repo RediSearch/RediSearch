@@ -14,8 +14,8 @@ $MODE apt install -yqq wget make clang-format gcc python3 python3-venv python3-p
 
 $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave /usr/bin/g++ g++ /usr/bin/g++-10
 
-# Install Python 3.12
-$MODE apt -y install python3.12 python3.12-venv python3.12-dev
+# Install Python 3.9
+$MODE apt -y install python3.9 python3.9-venv python3.9-dev
 
-# Set python3 to point to python3.12
-$MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 2
+# Set python3 to point to python3.9
+$MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 2
