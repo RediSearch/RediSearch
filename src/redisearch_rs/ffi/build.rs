@@ -39,7 +39,7 @@ fn main() {
         let inverted_index = src.join("inverted_index");
         let vecsim = deps.join("VectorSimilarity").join("src");
         let buffer = src.join("buffer");
-
+        let arr = src.join("util").join("arr");
         [
             redis_modules,
             src,
@@ -48,6 +48,7 @@ fn main() {
             inverted_index,
             vecsim,
             buffer,
+            arr,
         ]
     };
 
@@ -66,6 +67,7 @@ fn main() {
         root.join("src").join("doc_table.h"),
         root.join("src").join("score_explain.h"),
         root.join("src").join("rlookup.h"),
+        root.join("src").join("util").join("arr").join("arr.h")
     ];
 
     let mut bindings = bindgen::Builder::default();

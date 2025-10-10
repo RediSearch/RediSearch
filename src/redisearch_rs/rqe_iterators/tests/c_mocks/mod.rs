@@ -51,3 +51,17 @@ pub extern "C" fn Term_Free(t: *mut RSQueryTerm) {
         panic!("No test created a term record");
     }
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_NewNumber(_val: f64) -> *mut ffi::RSValue {
+    // Mock implementation - return null pointer for testing
+    std::ptr::null_mut()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn RSYieldableMetric_Concat(
+    _metrics: *mut ffi::RSYieldableMetric,
+    _new_metric: *const ffi::RSYieldableMetric,
+) {
+    // Mock implementation - do nothing for testing
+}
