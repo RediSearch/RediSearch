@@ -511,8 +511,21 @@ static bool isIndexCoherentWithQuery(HybridParseContext *ctx, ArgsCursor *ac, In
     return true;
   }
 
-  sds *args = (sds *)ac->objs;
-  long long n_prefixes = strtol(args[ctx->prefixesOffset + 1], NULL, 10);
+  // Create a slice starting at the prefixes offset to access the number of prefixes
+  ArgsCursor prefixesCursor;
+  if (AC_GetSlice(ac, &prefixesCursor, ac->argc - ctx->prefixesOffset) != AC_OK) {
+    return false;
+  }
+
+  // Advance to the position where the number of prefixes is stored (offset + 1)
+  if (AC_AdvanceBy(&prefixesCursor, 1) != AC_OK) {
+    return false;
+  }
+
+  long long n_prefixes;
+  if (AC_GetLongLong(&prefixesCursor, &n_prefixes, AC_F_GE0) != AC_OK) {
+    return false;
+  }
 
   arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
   if (n_prefixes != array_len(spec_prefixes)) {
@@ -521,10 +534,12 @@ static bool isIndexCoherentWithQuery(HybridParseContext *ctx, ArgsCursor *ac, In
 
   // Validate that the prefixes in the arguments are the same as the ones in the
   // index (also in the same order)
-  // The first argument is at req->prefixesOffset + 2
-  uint base_idx = ctx->prefixesOffset + 2;
+  // The prefixes start right after the number
   for (uint i = 0; i < n_prefixes; i++) {
-    sds arg = args[base_idx + i];
+    const char *arg;
+    if (AC_GetString(&prefixesCursor, &arg, NULL, 0) != AC_OK) {
+      return false;
+    }
     if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
       // Unmatching prefixes
       return false;
