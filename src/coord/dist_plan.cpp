@@ -512,7 +512,9 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
     switch (cur->type) {
       case PLN_T_MERGE: {
         PLN_MergeStep *mstp = (PLN_MergeStep *)cur;
-        RLookup_GetKey_Write(lookup, mstp->docKeyName, RLOOKUP_F_NOFLAGS);
+        // If no one explicitly asked for the key - indicates we didn't have an implicit load step - user specified LOAD 
+        // mark key as hidden to not appear in the result
+        RLookup_GetKey_Write(lookup, mstp->docKeyName, RLOOKUP_F_HIDDEN);
         break;
       }
       case PLN_T_VECTOR_NORMALIZER: {
