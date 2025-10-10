@@ -183,7 +183,6 @@ class TestRealTimeouts(object):
     """Tests for real timeout conditions with large datasets"""
 
     def __init__(self):
-        #TODO: remove skip once FT.HYBRID for cluster is implemented
         self.dim = 128
         self.num_docs = 100000
         self.timeout_ms = 1  # Very short timeout to ensure timeout occurs

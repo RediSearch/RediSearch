@@ -417,7 +417,6 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
                                    bool internal) {
   // Build the pipeline and execute
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
-
   hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
