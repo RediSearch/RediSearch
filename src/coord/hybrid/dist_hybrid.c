@@ -26,7 +26,7 @@
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            arrayof(const char*) serializedArgs, MRCommand *xcmd,
+                            arrayof(const char*) unresolvedTailKeys, MRCommand *xcmd,
                             IndexSpec *sp, HybridPipelineParams *hybridParams) {
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -207,8 +207,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // apply the sorting changes after the distribute phase
     setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
     RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
-    arrayof(const char*) serializedArgs = array_new(const char*, 8);
-    rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, serializedArgs, status);
+    arrayof(const char*) unresolvedTailKeys = array_new(const char*, 8);
+    rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, unresolvedTailKeys, status);
     if (rc != REDISMODULE_OK) {
       array_free(serializedArgs);
       return REDISMODULE_ERR;
@@ -216,7 +216,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, serializedArgs, &xcmd, sp, &hybridParams);
+    HybridRequest_buildMRCommand(argv, argc, unresolvedTailKeys, &xcmd, sp, &hybridParams);
     // We copied the command inside, free the array
     array_free_ex(serializedArgs, rm_free(ptr));
 
