@@ -311,6 +311,7 @@ static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const ch
 }
 
 AREQ **MakeDefaultHybridUpstreams(RedisSearchCtx *sctx) {
+
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
   initializeAREQ(search);
