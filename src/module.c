@@ -232,7 +232,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  if (!checkEnterpriseACL(ctx, sctx->spec)) {
+  if (!ACLUserMayAccessIndex(ctx, sctx->spec)) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
@@ -426,8 +426,8 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  // On Enterprise, we validate ACL permission to the index
-  if (!checkEnterpriseACL(ctx, sp)) {
+  // Validate ACL permission to the index
+  if (!ACLUserMayAccessIndex(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
