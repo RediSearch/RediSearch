@@ -345,21 +345,6 @@ static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const 
   }
 }
 
-AREQ **MakeDefaultHybridUpstreams(RedisSearchCtx *sctx) {
-  extern size_t NumShards;  // Declared in module.c
-  AREQ *search = AREQ_New();
-  AREQ *vector = AREQ_New();
-  initializeAREQ(search);
-  initializeAREQ(vector);
-  const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
-  vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
-  arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
-  requests = array_ensure_append_1(requests, search);
-  requests = array_ensure_append_1(requests, vector);
-  return requests;
-}
-
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   extern size_t NumShards;  // Declared in module.c
   AREQ *search = AREQ_New();

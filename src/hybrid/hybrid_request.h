@@ -118,8 +118,6 @@ void HybridRequest_ClearErrors(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
-arrayof(AREQ *) MakeDefaultHybridUpstreams(RedisSearchCtx *sctx);
-
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
 
 /**
