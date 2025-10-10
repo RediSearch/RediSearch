@@ -30,8 +30,4 @@ if [[ $BOOST_EXIT_CODE -ne 0 ]]; then
     exit $BOOST_EXIT_CODE
 fi
 
-# Install Python here since it is needed on all platforms and
-# the installer doesn't rely on any platform-specific tools (e.g. the package manager)
-source install_python.sh
-
 git config --global --add safe.directory '*'
