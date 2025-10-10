@@ -177,7 +177,7 @@ fn link_static_lib(
 pub fn generate_c_bindings(
     headers: Vec<PathBuf>,
     allowlist_file: &str,
-    include_inverted_index: bool,
+    additional_includes: impl IntoIterator<Item = PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let root = git_root().expect("Could not find git root for static library linking");
 
@@ -190,9 +190,7 @@ pub fn generate_c_bindings(
         root.join("src").join("buffer"),
     ];
 
-    if include_inverted_index {
-        includes.push(root.join("src").join("inverted_index"));
-    }
+    includes.extend(additional_includes);
 
     let headers = headers
         .into_iter()
