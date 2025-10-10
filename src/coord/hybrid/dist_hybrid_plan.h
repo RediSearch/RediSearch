@@ -23,10 +23,10 @@ extern "C" {
  * @param hreq the hybrid request
  * @param hybridParams pipeline parameters needed for building the pipeline
  * @param[out] lookups array to populate with lookups for each subquery
- * @param[out] serializedArgs array to populate with serialized arguments for the remote command
+ * @param[out] unresolvedTailKeys array to populate with unresolved keys from the tail pipeline
  * @param status if there is an error
  */
-int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq, HybridPipelineParams *hybridParams, RLookup **lookups, arrayof(const char*) serializedArgs, QueryError *status);
+int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq, HybridPipelineParams *hybridParams, RLookup **lookups, arrayof(const char*) unresolvedTailKeys, QueryError *status);
 
 #ifdef __cplusplus
 }

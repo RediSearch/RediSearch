@@ -54,7 +54,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
 int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     HybridPipelineParams *hybridParams,
     RLookup **lookups,
-    arrayof(const char*) serializedArgs,
+    arrayof(const char*) unresolvedTailKeys,
     QueryError *status) {
 
     RLookup *tailLookup = AGPLN_GetLookup(HybridRequest_TailAGGPlan(hreq), NULL, AGPLN_GETLOOKUP_FIRST);
@@ -69,20 +69,9 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
 
 
     // Collect unresolved fields from tail lookup for LOAD command
-    std::vector<const RLookupKey*> loadFields;
     for (RLookupKey *kk = tailLookup->head; kk != NULL; kk = kk->next) {
         if (kk->flags & RLOOKUP_F_UNRESOLVED && kk->name) {
-            loadFields.push_back(kk);
-        }
-    }
-
-    if (!loadFields.empty()) {
-        array_append(serializedArgs, rm_strndup("LOAD", 4));
-        char *ldsze;
-        rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
-        array_append(serializedArgs, ldsze);
-        for (auto kk : loadFields) {
-            array_append(serializedArgs, rm_strndup(kk->name, kk->name_len));
+            array_append(unresolvedTailKeys, rm_strndup(kk->name, kk->name_len));
         }
     }
 
