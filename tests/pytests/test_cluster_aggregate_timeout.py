@@ -34,6 +34,10 @@ def test_cluster_aggregate_with_shards_timeout(env):
 
     brands = ['Apple', 'Samsung', 'Sony', 'LG', 'Dell', 'HP', 'Nike', 'Adidas', 'Zara', 'H&M']
 
+    # Use pipeline for much faster bulk HSET operations
+    pipeline = conn.pipeline(transaction=False)
+    batch_size = 1000  # Execute pipeline every 1000 docs to avoid memory issues
+
     for i in range(num_docs):
         doc_key = f'doc:{i}'
         title = f'Product {i} title with keywords'
@@ -45,15 +49,23 @@ def test_cluster_aggregate_with_shards_timeout(env):
         tags = ','.join(random.sample(['new', 'sale', 'premium', 'bestseller', 'limited'], k=random.randint(1, 3)))
         created_date = random.randint(1640995200, 1672531200)  # 2022-2023 timestamps
 
-        conn.execute_command('HSET', doc_key,
-                           'title', title,
-                           'price', price,
-                           'category', category,
-                           'brand', brand,
-                           'rating', rating,
-                           'stock', stock,
-                           'tags', tags,
-                           'created_date', created_date)
+        pipeline.execute_command('HSET', doc_key,
+                                'title', title,
+                                'price', price,
+                                'category', category,
+                                'brand', brand,
+                                'rating', rating,
+                                'stock', stock,
+                                'tags', tags,
+                                'created_date', created_date)
+
+        # Execute pipeline every batch_size docs to avoid memory issues
+        if (i + 1) % batch_size == 0:
+            pipeline.execute()
+            pipeline = conn.pipeline(transaction=False)
+
+    # Execute remaining docs
+    pipeline.execute()
     result = env.cmd('FT.AGGREGATE', 'idx', '*',
                     'GROUPBY', '1', '@category',
                     'REDUCE', 'COUNT', '0', 'AS', 'count',
