@@ -88,7 +88,7 @@ static HybridLookupContext *InitializeHybridLookupContext(arrayof(AREQ*) request
     return lookupCtx;
 }
 
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params) {
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, bool useDocKey) {
     // Array to collect depleter processors from each individual request pipeline
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -100,25 +100,43 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
         array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
     }
 
-    // Assumes all upstreams have non-null lookups
+    RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     // Init lookup since we dont call buildQueryPart
-    RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-    RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
-    HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, lookup);
+    RLookup_Init(tailLookup, IndexSpec_GetSpecCache(req->sctx->spec));
+    // a lookup construct to help us translate an upstream rlookup to the tail lookup
+    // Assumes all upstreams have non-null lookups
+    HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, tailLookup);
     const char *scoreAlias = params->aggregationParams.common.scoreAlias;
-    const RLookupKey *docKey = RLookup_GetKey_Read(lookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
     const RLookupKey *scoreKey = NULL;
     if (scoreAlias) {
-      scoreKey = RLookup_GetKey_Write(lookup, scoreAlias, RLOOKUP_F_NOFLAGS);
+      scoreKey = RLookup_GetKey_Write(tailLookup, scoreAlias, RLOOKUP_F_NOFLAGS);
       if (!scoreKey) {
         array_free(depleters);
         QueryError_SetWithUserDataFmt(&req->tailPipelineError, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", ", score alias: %s", scoreAlias);
         return REDISMODULE_ERR;
       }
     } else {
-      scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
+      scoreKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_SCORE, RLOOKUP_F_HIDDEN);
     }
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
+    arrayof(const RLookupKey *) docKeys = NULL;
+    if (useDocKey) {
+      /*
+      * So we know the __key should be coming in the upstreams in the coordinator case
+      * In the standalone case it will be in the dmd, we expect the array to be null
+      * In the coordinator case the issue is that the __key won't be specified in the query
+      * The tail lookup allows us during this time to open unresolved fields but not the upstreams
+      * So we open the doc key for write in the upstreams, in the tail we will open it for read just 
+      */
+      docKeys = array_new(const RLookupKey *, req->nrequests);
+      for (size_t i = 0; i < req->nrequests; i++) {
+        RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(req->requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
+        // doc key will be null in standalone, should be valid but unresolved in coordinator - will lead to us asking for it from the shards in the load clause
+        const RLookupKey *srcDocKey = RLookup_GetKey_Read(srcLookup, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+        RS_ASSERT(srcDocKey);
+        array_ensure_append_1(docKeys, srcDocKey);
+      }
+    }
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, docKeys, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
     // Build the aggregation part of the tail pipeline for final result processing
@@ -132,9 +150,9 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     // Build the depletion pipeline for extracting results from individual search requests
     if (HybridRequest_BuildDepletionPipeline(req, params) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
-    }
+    }    
     // Build the merge pipeline for combining and processing results from the depletion pipeline
-    return HybridRequest_BuildMergePipeline(req, params);
+    return HybridRequest_BuildMergePipeline(req, params, false);
 }
 
 /**
@@ -308,20 +326,6 @@ static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const ch
   RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
   RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
   return NewSearchCtxC(detachedCtx, indexname, true);
-}
-
-AREQ **MakeDefaultHybridUpstreams(RedisSearchCtx *sctx) {
-  AREQ *search = AREQ_New();
-  AREQ *vector = AREQ_New();
-  initializeAREQ(search);
-  initializeAREQ(vector);
-  const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
-  vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
-  arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
-  requests = array_ensure_append_1(requests, search);
-  requests = array_ensure_append_1(requests, vector);
-  return requests;
 }
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {

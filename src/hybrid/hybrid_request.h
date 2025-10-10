@@ -98,7 +98,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, bool useDocKey);
 
 /**
  * Build the complete hybrid search pipeline.
@@ -117,8 +117,6 @@ int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 void HybridRequest_ClearErrors(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
-
-AREQ **MakeDefaultHybridUpstreams(RedisSearchCtx *sctx);
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
 
