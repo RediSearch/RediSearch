@@ -92,11 +92,11 @@ int HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
           for (auto kk : loadFields) {
               ser_args.push_back(rm_strndup(kk->name, kk->name_len));
           }
-          // This lookup goes to the rpnet - we need the lookup keys its write will be what the merger expects
-          us[i].lookup = &dstp->lk;
-          us[i].serialized = ser_args.data();
-          us[i].nserialized = ser_args.size();
         }
+        // This lookup goes to the rpnet - we need the lookup keys its write will be what the merger expects
+        us[i].lookup = &dstp->lk;
+        us[i].serialized = ser_args.data();
+        us[i].nserialized = ser_args.size();
       }
     return REDISMODULE_OK;
 }

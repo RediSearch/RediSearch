@@ -1882,6 +1882,10 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
      rm_free(self->lookupCtx);
    }
 
+   if (self->docKeys) {
+     array_free(self->docKeys);
+   }
+
    // Free the processor itself
    rm_free(self);
  }
