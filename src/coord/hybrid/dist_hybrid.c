@@ -90,8 +90,8 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Numeric responses are encoded as simple strings.
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
-  MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
   if (sp && sp->rule && sp->rule->prefixes) {
+    MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
     arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
     char *n_prefixes;
     rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
@@ -103,8 +103,6 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
       const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
       MRCommand_Append(xcmd, prefix, len);
     }
-  } else {
-    MRCommand_Append(xcmd, "0", 1);
   }
 }
 

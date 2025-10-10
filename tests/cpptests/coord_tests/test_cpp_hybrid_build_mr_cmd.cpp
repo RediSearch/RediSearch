@@ -4,6 +4,9 @@
 #include "hybrid/hybrid_request.h"
 #include "rmr/command.h"
 #include "dist_plan.h"
+#include "index_utils.h"
+#include "common.h"
+
 #include <vector>
 
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -52,7 +55,7 @@ protected:
     }
 
     // Helper function to test command transformation
-    void testCommandTransformation(const std::vector<const char*>& inputArgs) {
+    void testCommandTransformationWithoutIndexSpec(const std::vector<const char*>& inputArgs) {
         // Convert vector to array for ArgvList constructor
         std::vector<const char*> argsWithNull = inputArgs;
         argsWithNull.push_back(nullptr);  // ArgvList expects null-terminated
@@ -73,29 +76,79 @@ protected:
         }
 
         // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, _INDEX_PREFIXES, and prefix count are added at the end
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 5], "WITHCURSOR") << "WITHCURSOR should be fifth to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 4], "WITHSCORES") << "WITHSCORES should be fourth to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "_NUM_SSTRING") << "_NUM_SSTRING should be third to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "_INDEX_PREFIXES") << "_INDEX_PREFIXES should be second to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "0") << "Prefix count should be last (0 when no IndexSpec)";
-
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "WITHCURSOR") << "WITHCURSOR should be fifth to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "WITHSCORES") << "WITHSCORES should be fourth to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "_NUM_SSTRING") << "_NUM_SSTRING should be third to last";
         printArgvList(args, args.size());
         printMRCommand(&xcmd);
 
         MRCommand_Free(&xcmd);
     }
+
+    // Helper function to test command transformation
+    void testCommandTransformationWithIndexSpec(const std::vector<const char*>& inputArgs) {
+      // Convert vector to array for ArgvList constructor
+      std::vector<const char*> argsWithNull = inputArgs;
+      argsWithNull.push_back(nullptr);  // ArgvList expects null-terminated
+
+      // Create ArgvList from input
+      RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
+      const char *prefixes[] = {"prefix1", "prefix2"};
+      RefManager *ism = createSpec(ctx, prefixes, 2);
+
+      // Get the IndexSpec from the RefManager
+      IndexSpec *sp = get_spec(ism);
+      ASSERT_NE(sp, nullptr) << "IndexSpec should be accessible from RefManager";
+      ASSERT_NE(sp->rule, nullptr) << "IndexSpec should have a rule";
+      ASSERT_NE(sp->rule->prefixes, nullptr) << "IndexSpec rule should have prefixes";
+
+      // Build MR command
+      MRCommand xcmd;
+      HybridRequest_buildMRCommand(args, args.size(), &us, &xcmd, sp, &hybridParams);
+
+      // Verify transformation: FT.HYBRID -> _FT.HYBRID
+      EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
+
+      // Verify all other original args are preserved (except first)
+      for (size_t i = 1; i < inputArgs.size(); i++) {
+          EXPECT_STREQ(xcmd.strs[i], inputArgs[i]) << "Argument at index " << i << " should be preserved";
+      }
+
+      // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, _INDEX_PREFIXES, and prefix count are added at the end
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 7], "WITHCURSOR") << "WITHCURSOR should be fifth to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 6], "WITHSCORES") << "WITHSCORES should be fourth to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 5], "_NUM_SSTRING") << "_NUM_SSTRING should be third to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 4], "_INDEX_PREFIXES") << "_INDEX_PREFIXES should be second to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "2") << "Prefix count should be last (0 when no IndexSpec)";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "prefix1") << "Prefix count should be last (0 when no IndexSpec)";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "prefix2") << "Prefix count should be last (0 when no IndexSpec)";
+      printArgvList(args, args.size());
+      printMRCommand(&xcmd);
+
+      // Clean up
+      MRCommand_Free(&xcmd);
+      freeSpec(ism);
+  }
 };
 
 // Test basic command transformation
 TEST_F(HybridBuildMRCommandTest, testBasicCommandTransformation) {
-    testCommandTransformation({
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", TEST_BLOB_DATA
+    });
+    testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", TEST_BLOB_DATA
     });
 }
 
 // Test command with PARAMS
 TEST_F(HybridBuildMRCommandTest, testCommandWithParams) {
-    testCommandTransformation({
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
+        "VSIM", "@vector_field", "$BLOB",
+        "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA
+    });
+    testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
         "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA
@@ -104,7 +157,12 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithParams) {
 
 // Test command with TIMEOUT
 TEST_F(HybridBuildMRCommandTest, testCommandWithTimeout) {
-    testCommandTransformation({
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA,
+        "TIMEOUT", "5000"
+    });
+    testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA,
         "TIMEOUT", "5000"
@@ -113,7 +171,7 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithTimeout) {
 
 // Test command with DIALECT
 TEST_F(HybridBuildMRCommandTest, testCommandWithDialect) {
-    testCommandTransformation({
+    testCommandTransformationWithoutIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA,
         "DIALECT", "2"
@@ -122,7 +180,14 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithDialect) {
 
 // Test command with DIALECT
 TEST_F(HybridBuildMRCommandTest, testCommandWithFilters) {
-    testCommandTransformation({
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
+        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
+        "FILTER", "@__key == 'doc:1'",
+        "DIALECT", "2"
+    });
+    testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
@@ -133,7 +198,14 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithFilters) {
 
 // Test complex command with all optional parameters
 TEST_F(HybridBuildMRCommandTest, testComplexCommandWithAllParams) {
-    testCommandTransformation({
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
+        "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
+        "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
+        "TIMEOUT", "3000", "DIALECT", "2"
+    });
+    testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
@@ -144,7 +216,15 @@ TEST_F(HybridBuildMRCommandTest, testComplexCommandWithAllParams) {
 
 // Test complex command with all optional parameters
 TEST_F(HybridBuildMRCommandTest, testComplexCommandParamsAfterTimeout) {
-    testCommandTransformation({
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
+        "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
+        "TIMEOUT", "3000",
+        "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
+        "DIALECT", "2"
+    });
+    testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
@@ -156,7 +236,10 @@ TEST_F(HybridBuildMRCommandTest, testComplexCommandParamsAfterTimeout) {
 
 // Test minimal command
 TEST_F(HybridBuildMRCommandTest, testMinimalCommand) {
-    testCommandTransformation({
+    testCommandTransformationWithoutIndexSpec({
+        "FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data"
+    });
+    testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data"
     });
 }
