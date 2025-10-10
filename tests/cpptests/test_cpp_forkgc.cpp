@@ -88,7 +88,7 @@ class FGCTest : public ::testing::Test {
   pthread_t thread;
 
   void SetUp() override {
-    ism = createSpec(ctx);
+    ism = createSpec(ctx, nullptr, 0);
     RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
     RSGlobalStats.totalStats.logically_deleted = 0;
     runGcThread();

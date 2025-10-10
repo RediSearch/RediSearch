@@ -58,17 +58,24 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
     return idx;
 }
 
-RefManager *createSpec(RedisModuleCtx *ctx) {
+RefManager *createSpec(RedisModuleCtx *ctx, const char **prefixes, int nprefixes) {
     RSIndexOptions opts = {0};
     opts.gcPolicy = GC_POLICY_FORK;
     auto ism = RediSearch_CreateIndex("idx", &opts);
     if (!ism) return ism;
 
-    const char *pref = "";
     SchemaRuleArgs args = {0};
     args.type = "HASH";
-    args.prefixes = &pref;
-    args.nprefixes = 1;
+
+    if (prefixes && nprefixes > 0) {
+        args.prefixes = prefixes;
+        args.nprefixes = nprefixes;
+    } else {
+        // Default to empty prefix if none provided
+        const char *pref = "";
+        args.prefixes = &pref;
+        args.nprefixes = 1;
+    }
 
     QueryError status = {};
 

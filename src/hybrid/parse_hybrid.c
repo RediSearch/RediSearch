@@ -505,6 +505,56 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     return implicitLoadStep;
 }
 
+// This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate does not use ArgsCursor
+static bool IsIndexCoherentWithQuery(HybridParseContext *ctx, ArgsCursor *ac, IndexSpec *spec)  {
+  if (ctx->prefixesOffset == 0) {
+    // No prefixes in the query --> No validation needed.
+    return true;
+  }
+
+  if (ctx->prefixesOffset > 0 && (!spec || !spec->rule || !spec->rule->prefixes)) {
+    // Index has no prefixes, but query has prefixes --> Incoherent
+    return false;
+  }
+
+  // Create a slice starting at the prefixes offset to access the number of prefixes
+  ArgsCursor prefixesCursor;
+  if (AC_GetSlice(ac, &prefixesCursor, ac->argc - ctx->prefixesOffset) != AC_OK) {
+    return false;
+  }
+
+  // Advance to the position where the number of prefixes is stored (offset + 1)
+  if (AC_AdvanceBy(&prefixesCursor, 1) != AC_OK) {
+    return false;
+  }
+
+  long long n_prefixes;
+  if (AC_GetLongLong(&prefixesCursor, &n_prefixes, AC_F_GE0) != AC_OK) {
+    return false;
+  }
+
+  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
+  if (n_prefixes != array_len(spec_prefixes)) {
+    return false;
+  }
+
+  // Validate that the prefixes in the arguments are the same as the ones in the
+  // index (also in the same order)
+  // The prefixes start right after the number
+  for (uint i = 0; i < n_prefixes; i++) {
+    const char *arg;
+    if (AC_GetString(&prefixesCursor, &arg, NULL, 0) != AC_OK) {
+      return false;
+    }
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
+      // Unmatching prefixes
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
@@ -575,6 +625,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
+      .prefixesOffset = 0,
   };
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
@@ -649,7 +700,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
   }
 
-
   // We need a load step, implicit or an explicit one
   PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
   if (!loadStep) {
@@ -674,6 +724,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
+
+  if (!IsIndexCoherentWithQuery(&hybridParseCtx, ac, parsedCmdCtx->search->sctx->spec)) {
+    QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
+    goto error;
+  }
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {

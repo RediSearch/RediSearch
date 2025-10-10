@@ -327,6 +327,9 @@ AREQ **MakeDefaultHybridUpstreams(RedisSearchCtx *sctx) {
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
+  // Prefixes validation will be done w.r.t Hybrid Request
+  search->prefixesOffset = 0;
+  vector->prefixesOffset = 0;
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
   search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
   vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);

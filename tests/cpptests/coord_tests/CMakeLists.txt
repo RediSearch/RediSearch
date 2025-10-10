@@ -19,6 +19,7 @@ file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 
 set(COMMON_FILES
   ../common.cpp
+  ../index_utils.cpp
 )
 
 add_executable(rstest_coord ${TEST_SOURCES} ${COMMON_FILES})
