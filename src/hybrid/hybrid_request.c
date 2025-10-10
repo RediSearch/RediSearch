@@ -101,6 +101,8 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     }
 
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    // Init lookup since we dont call buildQueryPart
+    RLookup_Init(tailLookup, IndexSpec_GetSpecCache(req->sctx->spec));
     // a lookup construct to help us translate an upstream rlookup to the tail lookup
     // Assumes all upstreams have non-null lookups
     HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, tailLookup);
@@ -148,10 +150,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     // Build the depletion pipeline for extracting results from individual search requests
     if (HybridRequest_BuildDepletionPipeline(req, params) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
-    }
-    RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-    // Init lookup since we dont call buildQueryPart
-    RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
+    }    
     // Build the merge pipeline for combining and processing results from the depletion pipeline
     return HybridRequest_BuildMergePipeline(req, params, false);
 }
