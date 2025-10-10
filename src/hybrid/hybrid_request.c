@@ -331,20 +331,6 @@ static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const ch
   return NewSearchCtxC(detachedCtx, indexname, true);
 }
 
-arrayof(AREQ *) MakeDefaultHybridUpstreams(RedisSearchCtx *sctx) {
-  AREQ *search = AREQ_New();
-  AREQ *vector = AREQ_New();
-  initializeAREQ(search);
-  initializeAREQ(vector);
-  const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
-  vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
-  arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
-  requests = array_ensure_append_1(requests, search);
-  requests = array_ensure_append_1(requests, vector);
-  return requests;
-}
-
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
