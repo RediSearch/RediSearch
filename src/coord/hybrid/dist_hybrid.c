@@ -210,7 +210,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     arrayof(const char*) unresolvedTailKeys = array_new(const char*, 8);
     rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, unresolvedTailKeys, status);
     if (rc != REDISMODULE_OK) {
-      array_free(serializedArgs);
+      array_free(unresolvedTailKeys);
       return REDISMODULE_ERR;
     }
 
@@ -218,7 +218,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     MRCommand xcmd;
     HybridRequest_buildMRCommand(argv, argc, unresolvedTailKeys, &xcmd, sp, &hybridParams);
     // We copied the command inside, free the array
-    array_free_ex(serializedArgs, rm_free(ptr));
+    array_free_ex(unresolvedTailKeys, rm_free(ptr));
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
