@@ -1527,6 +1527,137 @@ inline static bool isSpecOnDisk(const IndexSpec *sp) {
   return isFlex;
 }
 
+/**
+ * Convert an IndexSpec to the equivalent FT.CREATE command arguments
+ * The returned array must be freed by the caller using array_free
+ * Note that the returned array contains RedisModuleString* which must be freed by the caller
+ * using RedisModule_FreeString
+*/
+arrayof(RedisModuleString *) IndexSpec_AsCommand(RedisModuleCtx *ctx, const IndexSpec *sp) {
+  arrayof(RedisModuleString *) argv = array_new(RedisModuleString *, 32);
+
+  // Index name
+  array_append(argv, HiddenString_CreateRedisModuleString(ctx, sp->specName));
+
+  // Global Text options
+  if (!(sp->flags & Index_StoreTermOffsets)) {
+    array_append(argv, RedisModule_CreateString(ctx, SPEC_NOOFFSETS_STR, strlen(SPEC_NOOFFSETS_STR)));
+  }
+  if (!(sp->flags & Index_StoreFieldFlags)) {
+    array_append(argv, RedisModule_CreateString(ctx, SPEC_NOFIELDS_STR, strlen(SPEC_NOFIELDS_STR)));
+  }
+  if (!(sp->flags & Index_StoreFreqs)) {
+    array_append(argv, RedisModule_CreateString(ctx, SPEC_NOFREQS_STR, strlen(SPEC_NOFREQS_STR)));
+  }
+  if (!(sp->flags & Index_StoreByteOffsets)) {
+    array_append(argv, RedisModule_CreateString(ctx, SPEC_NOHL_STR, strlen(SPEC_NOHL_STR)));
+  }
+  if (sp->flags & Index_WideSchema && array_len(sp->fieldIdToIndex) <= SPEC_WIDEFIELD_THRESHOLD) {
+    array_append(argv, RedisModule_CreateString(ctx, SPEC_SCHEMA_EXPANDABLE_STR, strlen(SPEC_SCHEMA_EXPANDABLE_STR)));
+  }
+
+  // Temporary
+  if (sp->flags & Index_Temporary) {
+    array_append(argv, RedisModule_CreateString(ctx, SPEC_TEMPORARY_STR, strlen(SPEC_TEMPORARY_STR)));
+    long long seconds = sp->timeout / 1000;
+    array_append(argv, RedisModule_CreateStringFromLongLong(ctx, seconds));
+  }
+
+  // Stopwords
+  if (sp->flags & Index_HasCustomStopwords) {
+    array_append(argv, RedisModule_CreateString(ctx, SPEC_STOPWORDS_STR, strlen(SPEC_STOPWORDS_STR)));
+    size_t len;
+    char **stopwords = GetStopWordsList(sp->stopwords, &len);
+    array_append(argv, RedisModule_CreateStringFromLongLong(ctx, len));
+    for (size_t i = 0; i < len; i++) {
+      array_append(argv, RedisModule_CreateString(ctx, stopwords[i], strlen(stopwords[i])));
+    }
+    rm_free(stopwords);
+  }
+
+  // Rules
+  if (sp->rule) {
+    // Type
+    array_append(argv, RedisModule_CreateString(ctx, "ON", 2));
+    const char *rule_type = DocumentType_ToString(sp->rule->type);
+    array_append(argv, RedisModule_CreateString(ctx, rule_type, strlen(rule_type)));
+
+    array_append(argv, RedisModule_CreateString(ctx, "PREFIX", 6));
+    for (size_t i = 0; i < array_len(sp->rule->prefixes); i++) {
+      array_append(argv, HiddenUnicodeString_CreateRedisModuleString(sp->rule->prefixes[i], ctx));
+    }
+
+    if (sp->rule->filter_exp) {
+      array_append(argv, RedisModule_CreateString(ctx, "FILTER", 6));
+      array_append(argv, HiddenString_CreateRedisModuleString(ctx, sp->rule->filter_exp_str));
+    }
+
+    const char *lang = RSLanguage_ToString(sp->rule->lang_default);
+    array_append(argv, RedisModule_CreateString(ctx, "LANGUAGE", 8));
+    array_append(argv, RedisModule_CreateString(ctx, lang, strlen(lang)));
+
+    if (sp->rule->score_default != DEFAULT_SCORE) {
+      array_append(argv, RedisModule_CreateString(ctx, "SCORE", 5));
+      array_append(argv, RedisModule_CreateStringFromDouble(ctx, sp->rule->score_default));
+    }
+
+    if (sp->rule->lang_field) {
+      array_append(argv, RedisModule_CreateString(ctx, "LANGUAGE_FIELD", 14));
+      array_append(argv, RedisModule_CreateString(ctx, sp->rule->lang_field, strlen(sp->rule->lang_field)));
+    }
+
+    if (sp->rule->score_field) {
+      array_append(argv, RedisModule_CreateString(ctx, "SCORE_FIELD", 11));
+      array_append(argv, RedisModule_CreateString(ctx, sp->rule->score_field, strlen(sp->rule->score_field)));
+    }
+
+    if (sp->rule->payload_field) {
+      array_append(argv, RedisModule_CreateString(ctx, "PAYLOAD_FIELD", 13));
+      array_append(argv, RedisModule_CreateString(ctx, sp->rule->payload_field, strlen(sp->rule->payload_field)));
+    }
+  }
+
+  // Fields
+  array_append(argv, RedisModule_CreateString(ctx, SPEC_SCHEMA_STR, strlen(SPEC_SCHEMA_STR)));
+  for (size_t i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = sp->fields + i;
+    // Field name
+    array_append(argv, HiddenString_CreateRedisModuleString(ctx, fs->fieldPath));
+    if (fs->fieldPath != fs->fieldName) {
+      array_append(argv, RedisModule_CreateString(ctx, SPEC_AS_STR, strlen(SPEC_AS_STR)));
+      array_append(argv, HiddenString_CreateRedisModuleString(ctx, fs->fieldName));
+    }
+    // Field type
+    switch (fs->types) {
+      case INDEXFLD_T_FULLTEXT:
+        array_append(argv, RedisModule_CreateString(ctx, SPEC_TEXT_STR, strlen(SPEC_TEXT_STR)));
+        TextFieldSpec_AsCommand(ctx, fs, argv);
+        break;
+      case INDEXFLD_T_NUMERIC:
+        array_append(argv, RedisModule_CreateString(ctx, SPEC_NUMERIC_STR, strlen(SPEC_NUMERIC_STR)));
+        NumericFieldSpec_AsCommand(ctx, fs, argv);
+        break;
+      case INDEXFLD_T_GEO:
+        array_append(argv, RedisModule_CreateString(ctx, SPEC_GEO_STR, strlen(SPEC_GEO_STR)));
+        GeoFieldSpec_AsCommand(ctx, fs, argv);
+        break;
+      case INDEXFLD_T_TAG:
+        array_append(argv, RedisModule_CreateString(ctx, SPEC_TAG_STR, strlen(SPEC_TAG_STR)));
+        TagFieldSpec_AsCommand(ctx, fs, argv);
+        break;
+      case INDEXFLD_T_VECTOR:
+        array_append(argv, RedisModule_CreateString(ctx, SPEC_VECTOR_STR, strlen(SPEC_VECTOR_STR)));
+        VectorFieldSpec_AsCommand(ctx, fs, argv);
+        break;
+      case INDEXFLD_T_GEOMETRY:
+        array_append(argv, RedisModule_CreateString(ctx, SPEC_GEOMETRY_STR, strlen(SPEC_GEOMETRY_STR)));
+        GeometryFieldSpec_AsCommand(ctx, fs, argv);
+        break;
+    }
+  }
+  return argv;
+}
+
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
