@@ -168,9 +168,7 @@ static int applyHybridTimeout(HybridRequest *hreq, const HybridDebugParams *para
 
   // Apply timeout to tail pipeline
   if (params->tail_timeout_count > 0 && hreq->tailPipeline) {
-    // We need a search context for the timeout processor. Use the search context from the first subquery.
-    RedisSearchCtx *sctx = AREQ_SearchCtx(search_req);
-    PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, sctx, params->tail_timeout_count);
+    PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx, params->tail_timeout_count);
   }
 
   return REDISMODULE_OK;
@@ -201,7 +199,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hreq, &ac, argv, hybrid_argc);
-  
+
   HybridPipelineParams hybridParams = {0};  // Stack allocation
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hreq->requests[SEARCH_INDEX];
