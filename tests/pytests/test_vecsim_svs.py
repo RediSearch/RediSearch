@@ -1,20 +1,25 @@
 from RLTest import Env
-from common import *
-from includes import *
+import time
+
+from vecsim_utils import (
+    create_vector_index,
+    get_unique_vector,
+    DEFAULT_BLOCK_SIZE,
+    populated_with_vectors,
+    get_tiered_frontnend_debug_info,
+    get_tiered_debug_info,
+    get_tiered_backnend_debug_info
+)
+from common import (
+    getConnectionByEnv,
+    skip,
+    TimeLimit,
+)
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
-
-# Global counter for unique vector generation
-_vector_seed_counter = 0
-
-def get_unique_vector(dim, data_type='FLOAT32'):
-    """Generate a unique random vector by incrementing seed counter"""
-    global _vector_seed_counter
-    _vector_seed_counter += 1
-    return create_random_np_array_typed(dim, data_type, seed=_vector_seed_counter)
 
 '''
 This test reproduce the crash described in MOD-10771,
-wherer SVS crashes during topk search if CONSTRUCTION_WINDOW_SIZE given in creation is small.
+where SVS crashes during topk search if CONSTRUCTION_WINDOW_SIZE given in creation is small.
 '''
 def test_small_window_size():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -35,7 +40,6 @@ def test_small_window_size():
                 vector = get_unique_vector(dim, data_type)
                 conn.execute_command('HSET', f'doc_{i}', 'v_SVS_VAMANA', vector.tobytes())
 
-
             # delete most
             for i in range(num_vectors - keep_count):
                 conn.execute_command('DEL', f'doc_{i}')
@@ -46,3 +50,49 @@ def test_small_window_size():
             conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @v_SVS_VAMANA $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, '__v_score')
 
             conn.execute_command('FLUSHALL')
+
+@skip(cluster=True)
+def test_rdb_load_trained_svs_vamana():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    training_threshold = DEFAULT_BLOCK_SIZE * 3
+    extend_params = ['COMPRESSION', 'LVQ8', 'TRAINING_THRESHOLD', training_threshold]
+    dim = 4
+    index_name='idx'
+    field_name='vec'
+
+    for data_type in VECSIM_SVS_DATA_TYPES:
+        create_vector_index(env, dim, index_name=index_name, field_name=field_name, datatype=data_type, alg='SVS-VAMANA', addtional_vec_params=extend_params)
+
+        frontend_index_info = get_tiered_frontnend_debug_info(env, index_name, field_name)
+        env.assertEqual(frontend_index_info['INDEX_SIZE'], 0)
+
+        # Insert vectors (not triggering training yet)
+        populated_with_vectors(env, num_docs=training_threshold - 1, dim=dim, datatype=data_type, field_name=field_name)
+
+        env.assertEqual(get_tiered_frontnend_debug_info(env, index_name, field_name)['INDEX_SIZE'], training_threshold - 1)
+        env.assertEqual(get_tiered_backnend_debug_info(env, index_name, field_name)['INDEX_SIZE'], 0)
+
+        # Insert more vectors to trigger training
+        populated_with_vectors(env, num_docs=1, dim=dim, datatype=data_type, field_name=field_name, initial_doc_id=training_threshold)
+
+        def verify_trained(message):
+            with TimeLimit(30, message):
+                is_trained = False
+                while not is_trained:
+                    # 'BACKGROUND_INDEXING' == 0 means training is done
+                    is_trained = get_tiered_debug_info(env, index_name, field_name)['BACKGROUND_INDEXING'] == 0
+                    time.sleep(0.1)
+
+
+            env.assertEqual(get_tiered_frontnend_debug_info(env, index_name, field_name)['INDEX_SIZE'], 0, message=message)
+            env.assertEqual(get_tiered_backnend_debug_info(env, index_name, field_name)['INDEX_SIZE'], training_threshold, message=message)
+
+        verify_trained(f"datatype: {data_type} before rdb load")
+
+        # reload rdb
+        for _ in env.reloadingIterator():
+            verify_trained(f"datatype: {data_type} after rdb load")
+
+        conn.execute_command('FLUSHALL')
