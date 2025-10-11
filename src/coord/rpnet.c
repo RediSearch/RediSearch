@@ -179,7 +179,10 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     nc->cmd.protocol = 3;
     rm_free(idx_copy);
 
-    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, iterCursorMappingCb, vsimOrSearch);
+    StrongRef *mappingsRef = rm_malloc(sizeof(StrongRef));
+    *mappingsRef = StrongRef_Clone(nc->mappings);
+
+    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, iterCursorMappingCb, mappingsRef);
     nc->base.Next = rpnetNext;
 
     return rpnetNext(rp, r);
@@ -339,7 +342,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
-  // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3 
+  // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3
   // when opening shard connections
   if (score) {
     RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
