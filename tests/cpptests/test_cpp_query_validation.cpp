@@ -69,9 +69,9 @@ TEST_F(QueryValidationTest, testInvalidVectorFilter) {
     "body", "text", "INDEXMISSING", "INDEXEMPTY",
     "v", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"};
 
-  QueryError err = {QUERY_OK};
+  QueryError err = QueryError_Default();
   StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
-  ASSERT_EQ(err.code, QUERY_OK) << QueryError_GetUserError(&err);
+  ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
 
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
 
@@ -114,9 +114,9 @@ TEST_F(QueryValidationTest, testValidVectorFilter) {
     "body", "text", "INDEXMISSING", "INDEXEMPTY"
   };
 
-  QueryError err = {QUERY_OK};
+  QueryError err = QueryError_Default();
   StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
-  ASSERT_EQ(err.code, QUERY_OK) << QueryError_GetUserError(&err);
+  ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
 
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
 
@@ -145,9 +145,9 @@ TEST_F(QueryValidationTest, testInvalidHybridSearch) {
     "body", "text",
     "v", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"};
 
-  QueryError err = {QUERY_OK};
+  QueryError err = QueryError_Default();
   StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
-  ASSERT_EQ(err.code, QUERY_OK) << QueryError_GetUserError(&err);
+  ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
 
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -182,9 +182,9 @@ TEST_F(QueryValidationTest, testValidHybridSearch) {
     "body", "text", "INDEXMISSING", "INDEXEMPTY"
   };
 
-  QueryError err = {QUERY_OK};
+  QueryError err = QueryError_Default();
   StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
-  ASSERT_EQ(err.code, QUERY_OK) << QueryError_GetUserError(&err);
+  ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
 
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
 

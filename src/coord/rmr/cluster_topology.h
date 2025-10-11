@@ -18,21 +18,27 @@ extern "C" {
 #endif
 
 typedef uint16_t mr_slot_t;
+typedef struct {
+  mr_slot_t start;
+  mr_slot_t end;
+} mr_slot_range_t;
 
 /* A "shard" represents a slot range of the cluster, with its associated nodes. For each sharding
  * key, we select the slot based on the hash function, and then look for the shard in the cluster's
  * shard array */
 typedef struct {
-  mr_slot_t startSlot;
-  mr_slot_t endSlot;
-  size_t numNodes;
-  size_t capNodes;
+  uint32_t numRanges;
+  uint32_t capRanges;
+  mr_slot_range_t *ranges;
+  uint32_t numNodes;
+  uint32_t capNodes;
   MRClusterNode *nodes;
 } MRClusterShard;
 
 /* Create a new cluster shard to be added to a topology */
-MRClusterShard MR_NewClusterShard(mr_slot_t startSlot, mr_slot_t endSlots, size_t capNodes);
+MRClusterShard MR_NewClusterShard(uint32_t capNodes);
 void MRClusterShard_AddNode(MRClusterShard *sh, MRClusterNode *n);
+void MRClusterShard_AddRange(MRClusterShard *sh, mr_slot_t start, mr_slot_t end);
 
 #define MRHASHFUNC_CRC12_STR "CRC12"
 #define MRHASHFUNC_CRC16_STR "CRC16"

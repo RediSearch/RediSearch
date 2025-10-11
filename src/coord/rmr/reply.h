@@ -70,3 +70,8 @@ int MRReply_ToDouble(MRReply *reply, double *d);
 
 int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep);
 int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRReply *rep);
+
+// Clone MRReply from another MRReply
+// Currently implements a partial clone, only for the type and string types.
+// Support types - MR_REPLY_STRING, MR_REPLY_ERROR
+MRReply *MRReply_Clone(MRReply *src);

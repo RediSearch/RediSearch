@@ -205,7 +205,7 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   res = getPredicateBoolean(eval, &l, &r, pred->cond);
 
 success:
-  if (!eval->err || eval->err->code == QUERY_OK) {
+  if (!eval->err || QueryError_IsOk(eval->err)) {
     RSValue_IntoNumber(result, res);
     rc = EXPR_EVAL_OK;
   } else {
@@ -331,7 +331,7 @@ EvalCtx *EvalCtx_Create() {
   RLookup_Init(&r->lk, NULL);
   RLookupRow _row = {0};
   r->row = _row;
-  QueryError _status = {0};
+  QueryError _status = QueryError_Default();
   r->status = _status;
 
   r->ee.lookup = &r->lk;

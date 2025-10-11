@@ -89,7 +89,7 @@ TEST_F(RdbMockTest, testBasicRdbOperations) {
 TEST_F(RdbMockTest, testCreateIndexSpec) {
     // Test creating a simple IndexSpec using IndexSpec_ParseC
     const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "1.0", "body", "TEXT", "price", "NUMERIC"};
-    QueryError err = {QUERY_OK};
+    QueryError err = QueryError_Default();
     
     StrongRef spec_ref = IndexSpec_ParseC("test_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -131,7 +131,7 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
 
     // Create an IndexSpec
     const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "2.0", "body", "TEXT", "price", "NUMERIC"};
-    QueryError err = {QUERY_OK};
+    QueryError err = QueryError_Default();
 
     StrongRef original_spec_ref = IndexSpec_ParseC("test_rdb_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -159,7 +159,7 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     // Reset read position to load it back
     io->read_pos = 0;
 
-    QueryError status = {QUERY_OK, 0};
+    QueryError status = QueryError_Default();
     IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, &status);
     EXPECT_TRUE(loadedSpec != nullptr);
     std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](IndexSpec *spec) {

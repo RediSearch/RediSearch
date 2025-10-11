@@ -58,7 +58,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->num = len;
   cmd->strs = rm_malloc(sizeof(*cmd->strs) * len);
   cmd->lens = rm_malloc(sizeof(*cmd->lens) * len);
-  cmd->targetSlot = -1;
+  cmd->targetShard = INVALID_SHARD;
   cmd->cmd = NULL;
   cmd->protocol = 0;
   cmd->depleted = false;
@@ -85,7 +85,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   ret.forProfiling = cmd->forProfiling;
   ret.rootCommand = cmd->rootCommand;
   ret.depleted = cmd->depleted;
-
+  ret.targetShard = cmd->targetShard;
   for (int i = 0; i < cmd->num; i++) {
     copyStr(&ret, i, cmd, i);
   }

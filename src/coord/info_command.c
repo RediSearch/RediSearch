@@ -406,7 +406,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  QueryError error = {0};
+  QueryError error = QueryError_Default();
 
   for (size_t ii = 0; ii < count; ++ii) {
     int type = MRReply_Type(replies[ii]);

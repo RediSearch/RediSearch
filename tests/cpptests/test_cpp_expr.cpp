@@ -22,7 +22,7 @@ class ExprTest : public ::testing::Test {
 };
 
 struct TEvalCtx : ExprEval {
-  QueryError status_s = {QueryErrorCode(0)};
+  QueryError status_s = QueryError_Default();
   RSValue res_s = {RSValueType_Null};
 
   TEvalCtx() {
@@ -109,7 +109,7 @@ TEST_F(ExprTest, testExpr) {
   RSExpr *l = RS_NewNumberLiteral(2);
   RSExpr *r = RS_NewNumberLiteral(4);
   RSExpr *op = RS_NewOp('+', l, r);
-  QueryError status = {QueryErrorCode(0)};
+  QueryError status = QueryError_Default();
   TEvalCtx eval(op);
 
   int rc = eval.eval();
@@ -129,7 +129,7 @@ TEST_F(ExprTest, testDump) {
     {"((@foo + (sqrt(@bar) / @baz)) + ' ')", {"((@foo + (sqrt(@bar) / @baz)) + \" \")", "((@Text + (sqrt(@Text) / @Text)) + \"Text\")"}},
   };
   for (auto& [expression, pair] : exprToDump) {
-    QueryError status = {QueryErrorCode(0)};
+    QueryError status = QueryError_Default();
     HiddenString *expr = NewHiddenString(expression, strlen(expression), false);
     RSExpr *root = ExprAST_Parse(expr, &status);
     HiddenString_Free(expr, false);
@@ -220,7 +220,7 @@ TEST_F(ExprTest, testArithmetics) {
 
 TEST_F(ExprTest, testParser) {
   const char *e = "(((2 + 2) * (3 / 4) + 2 % 3 - 0.43) ^ -3)";
-  QueryError status = {QueryErrorCode(0)};
+  QueryError status = QueryError_Default();
   HiddenString *hidden = NewHiddenString(e, strlen(e), false);
   RSExpr *root = ExprAST_Parse(hidden, &status);
   HiddenString_Free(hidden, false);
@@ -236,7 +236,7 @@ TEST_F(ExprTest, testParser) {
 
 TEST_F(ExprTest, testGetFields) {
   const char *e = "@foo + sqrt(@bar) / @baz + ' '";
-  QueryError status = {QueryErrorCode(0)};
+  QueryError status = QueryError_Default();
   HiddenString *hidden = NewHiddenString(e, strlen(e), false);
   RSExpr *root = ExprAST_Parse(hidden, &status);
   HiddenString_Free(hidden, false);
@@ -316,7 +316,7 @@ TEST_F(ExprTest, testPredicate) {
   RLookupRow rr = {0};
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(1));
   RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(2));
-  QueryError status = {QueryErrorCode(0)};
+  QueryError status = QueryError_Default();
 #define TEST_EVAL(e, expected)                          \
   {                                                     \
     EvalResult restmp = testEval(e, &lk, &rr, &status); \

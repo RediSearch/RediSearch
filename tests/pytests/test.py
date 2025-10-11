@@ -4044,7 +4044,7 @@ def cluster_set_test(env: Env):
     def verify_address(addr):
         try:
             with TimeLimit(10, f'Failed waiting cluster set command to be updated with the new IP address `{addr}`'):
-                while env.cmd('SEARCH.CLUSTERINFO')[9][2][1] != addr:
+                while env.cmd('SEARCH.CLUSTERINFO')[9][1][1] != addr:
                     pass
         except Exception as e:
             env.assertTrue(False, message=str(e))
@@ -4162,6 +4162,98 @@ def test_rq_job_without_topology():
     # We should also see the effect of setting the number of workers
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal([ANY, [ANY] * (compute_total_number_of_connections(workers + 1))] * env.shardsCount)
 
+@skip(cluster=False) # this test is only relevant on cluster
+def test_multiple_slot_ranges_per_shard(env: Env):
+    num_slots = 16384
+    ranges_per_shard = 2
+    slot_range_size = math.ceil(num_slots / (env.shardsCount * ranges_per_shard))
+    first_slots = list(range(0, num_slots, slot_range_size))
+    ranges = [(first, min(first + slot_range_size - 1, num_slots - 1)) for first in first_slots]
+
+    shards = env.getOSSMasterNodesConnectionList()
+    ports = [shard.port for shard in env.envRunner.shards]
+
+    # Reset the cluster slot ranges
+    for shard in shards:
+        shard.execute_command('FLUSHALL')
+        env.assertEqual(shard.execute_command('CLUSTER', 'RESET', 'SOFT'), 'OK')
+    # Set the slot ranges
+    for i, slot_range in enumerate(ranges):
+        shard = shards[i % env.shardsCount]
+        env.assertEqual(shard.execute_command('CLUSTER', 'ADDSLOTSRANGE', slot_range[0], slot_range[1]), 'OK')
+    # Meet all the nodes again
+    for sh in shards:
+        for port in ports:
+            env.assertEqual(sh.execute_command('CLUSTER', 'MEET', '127.0.0.1', port), 'OK')
+
+    with TimeLimit(40, 'Failed waiting for the cluster to be OK'):
+        while True:
+            states = [sh.execute_command('CLUSTER', 'INFO') for sh in shards]
+            if all([s.startswith('cluster_state:ok') for s in states]):
+                break
+            time.sleep(0.5)
+
+    env.expect('SEARCH.CLUSTERREFRESH').ok()
+
+    generic_shard = [
+        [ANY] * 2 * ranges_per_shard,   # slot ranges, first and last slot of each range
+        [ANY] * 4                       # node id, host, port, role
+    ]
+    expected = [
+        'num_partitions', env.shardsCount,              # Number of shards, not necessarily the number of slots ranges
+        'cluster_type', 'redis_oss',
+        'hash_func', 'CRC16',
+        'num_slots', num_slots,
+        'shards', *[generic_shard] * env.shardsCount    # one entry per shard
+    ]
+    env.expect('SEARCH.CLUSTERINFO').equal(expected)
+
+    # Try basic commands
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 't', 'foo').ok()
+    env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['t', 'foo']])
+
+
+@skip(cluster=False) # this test is only relevant on cluster
+def test_cluster_set_multiple_slots(env: Env):
+    env.cmd(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER')
+    num_slots = 16384
+    ranges_per_shard = 2
+    slot_range_size = math.ceil(num_slots / (env.shardsCount * ranges_per_shard))
+    first_slots = list(range(0, num_slots, slot_range_size))
+    ranges = [(first, min(first + slot_range_size - 1, num_slots - 1)) for first in first_slots]
+
+    set_ranges = []
+    for i, slot_range in enumerate(ranges):
+        set_ranges += [
+            'SHARD', str(i % env.shardsCount),
+            'SLOTRANGE', str(slot_range[0]), str(slot_range[1]),
+            'ADDR', f'127.0.0.1:{env.envRunner.shards[i % env.shardsCount].port}',
+            'MASTER'
+        ]
+    env.expect(
+        'SEARCH.CLUSTERSET',
+            'HASHFUNC', 'CRC16',
+            'NUMSLOTS', '16384',
+            'MYID', '1',
+            'RANGES', len(ranges),
+            *set_ranges
+    ).ok()
+
+    # SEARCH.CLUSTERSET does not support multiple slot ranges per shard
+    generic_shard = [
+        [ANY] * 2,  # slot ranges, first and last slot of the range
+        [ANY] * 4,  # node id, host, port, role
+    ]
+    expected = [
+        'num_partitions', len(ranges),              # Number of slot ranges, not the number of shards!
+        'cluster_type', 'redis_oss',
+        'hash_func', 'CRC16',
+        'num_slots', num_slots,
+        'shards', *[generic_shard] * len(ranges)    # one entry per range
+    ]
+    env.expect('SEARCH.CLUSTERINFO').equal(expected)
+
 
 @skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set_errors(env: Env):
@@ -4270,10 +4362,9 @@ def test_cluster_set_errors(env: Env):
             ).error().contains('Bad value for ADDR:').contains(addr)
 
 
+@skip(cluster=False) # this test is only relevant on cluster
 def test_internal_commands(env):
     ''' Test that internal cluster commands cannot run from a script '''
-    if not env.isCluster():
-        env.skip()
 
     def fail_eval_call(r, env, cmd):
         cmd = str(cmd)[1:-1]

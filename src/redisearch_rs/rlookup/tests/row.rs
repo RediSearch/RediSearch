@@ -7,11 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rlookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow};
+use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow};
 use sorting_vector::RSSortingVector;
 use std::{
     ffi::CString,
+    mem::offset_of,
     ops::{Deref, DerefMut},
+    ptr::NonNull,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use value::{RSValueMock, RSValueTrait};
 
@@ -386,6 +389,125 @@ fn test_rlookup_get_item_priority_dynamic_over_static() {
     assert!(result.is_some());
     // Should return dynamic value, not static
     assert_eq!(result.unwrap().as_str(), Some("dynamic_value"));
+}
+
+#[test]
+fn test_write_key_by_name_new_key() {
+    // Test case: name is not yet part of the lookup and gets created
+    let mut lookup = RLookup::new();
+    let mut row = RLookupRow::new();
+
+    let key_name = CString::new("new_key").unwrap();
+    let value = RSValueMock::create_string("test_value".to_string());
+
+    // Initially, row should be empty
+    assert_eq!(row.len(), 0);
+
+    // Write the key
+    row.write_key_by_name(&mut lookup, key_name.to_owned(), value.clone());
+
+    // Verify we can find the key by name
+    let cursor = lookup.find_by_name(&key_name);
+    assert!(cursor.is_some());
+
+    // Verify the rlookup row is in correct state
+    assert_eq!(row.len(), 1);
+    assert!(row.dyn_values()[0].is_some());
+    assert_eq!(
+        row.dyn_values()[0].as_ref().unwrap().as_str(),
+        Some("test_value")
+    );
+}
+
+#[test]
+fn test_write_key_by_name_existing_key_overwrite() {
+    // Test case: name is part of the lookup and its value gets overwritten
+    let mut lookup = RLookup::new();
+    let mut row = RLookupRow::new();
+
+    let key_name = CString::new("existing_key").unwrap();
+    let initial_value = RSValueMock::create_string("initial_value".to_string());
+    let new_value = RSValueMock::create_string("new_value".to_string());
+
+    // Write initial value
+    row.write_key_by_name(&mut lookup, key_name.to_owned(), initial_value.clone());
+
+    // Verify initial state
+    let cursor = lookup.find_by_name(&key_name).unwrap();
+    assert!(cursor.into_current().is_some());
+    assert_eq!(row.len(), 1);
+    assert_eq!(
+        row.dyn_values()[0].as_ref().unwrap().as_str(),
+        initial_value.as_str()
+    );
+
+    // Overwrite with new value - key count should not increase
+    row.write_key_by_name(&mut lookup, key_name.to_owned(), new_value.clone());
+
+    let cursor = lookup.find_by_name(&key_name).unwrap();
+    assert!(cursor.into_current().is_some());
+    assert_eq!(row.len(), 1);
+    assert_eq!(
+        row.dyn_values()[0].as_ref().unwrap().as_str(),
+        new_value.as_str()
+    );
+}
+
+#[test]
+fn test_write_multiple_different_keys() {
+    // Test case: writing multiple different keys
+    let mut lookup = RLookup::new();
+    let mut row = RLookupRow::new();
+
+    let key1_name = CString::new("key1").unwrap();
+    let key2_name = CString::new("key2").unwrap();
+    let key3_name = CString::new("key3").unwrap();
+
+    let value1 = RSValueMock::create_string("value1".to_string());
+    let value2 = RSValueMock::create_string("value2".to_string());
+    let value3 = RSValueMock::create_string("value3".to_string());
+
+    // Write multiple keys
+    row.write_key_by_name(&mut lookup, key1_name.to_owned(), value1.clone());
+    row.write_key_by_name(&mut lookup, key2_name.to_owned(), value2.clone());
+    row.write_key_by_name(&mut lookup, key3_name.to_owned(), value3.clone());
+
+    // Verify all keys were added
+    assert_eq!(row.len(), 3);
+
+    for (key_name, value) in [
+        (&key1_name, value1),
+        (&key2_name, value2),
+        (&key3_name, value3),
+    ] {
+        let cursor = lookup.find_by_name(key_name);
+        let key = cursor.unwrap().into_current().unwrap();
+        assert!(row.dyn_values()[key.dstidx as usize].is_some());
+        assert_eq!(
+            row.dyn_values()[key.dstidx as usize]
+                .as_ref()
+                .unwrap()
+                .as_str(),
+            value.as_str(),
+        );
+    }
+}
+
+/// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes
+#[unsafe(no_mangle)]
+extern "C" fn IndexSpecCache_Decref(spcache: Option<NonNull<ffi::IndexSpecCache>>) {
+    let spcache = spcache.expect("`spcache` must not be null");
+    let refcount = unsafe {
+        spcache
+            .byte_add(offset_of!(ffi::IndexSpecCache, refcount))
+            .cast::<usize>()
+    };
+
+    let refcount = unsafe { AtomicUsize::from_ptr(refcount.as_ptr()) };
+
+    if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
+        drop(unsafe { Box::from_raw(spcache.as_ptr()) });
+    }
 }
 
 fn create_test_key(dstidx: u16, svidx: u16, flags: RLookupKeyFlags) -> RLookupKey<'static> {

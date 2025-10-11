@@ -1065,7 +1065,7 @@ void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
 
 int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   *err = NULL;
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
 
   if (RedisModule_GetServerVersion) {   // for rstest
     RSGlobalConfig.serverVersion = RedisModule_GetServerVersion();

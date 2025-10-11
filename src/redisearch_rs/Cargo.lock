@@ -1592,6 +1592,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "search_result"
+version = "0.0.1"
+dependencies = [
+ "enumflags2",
+ "ffi",
+ "inverted_index",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.219"
 source = "registry+https://github.com/rust-lang/crates.io-index"

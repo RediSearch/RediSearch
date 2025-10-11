@@ -193,8 +193,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   // Assign the document:
   aCtx->doc = doc;
   if (AddDocumentCtx_SetDocument(aCtx, sp) != 0) {
-    *status = aCtx->status;
-    aCtx->status.detail = NULL;
+    QueryError_CloneFrom(&aCtx->status, status);
+    QueryError_ClearError(&aCtx->status);
     mempool_release(actxPool_g, aCtx);
     return NULL;
   }
@@ -252,7 +252,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    * fields must be reindexed.
    */
   int rv = REDISMODULE_ERR;
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   Document_Clear(aCtx->doc);
 
   // Path is not covered and is not relevant
@@ -351,6 +351,15 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   mempool_release(actxPool_g, aCtx);
 }
 
+/***
+ * Write the byte offset of the token to the byte offset writer. This is used for highlighting.
+ */
+static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo) {
+  if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
+    VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
+  }
+}
+
 #define FIELD_HANDLER(name)                                                                \
   static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, DocumentField *field, const FieldSpec *fs, \
                   FieldIndexerData *fdata, QueryError *status)
@@ -385,7 +394,6 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   size_t fl;
   const char *c = DocumentField_GetValueCStr(field, &fl);
   size_t valueCount = (field->unionType != FLD_VAR_T_ARRAY ? 1 : field->arrayLen);
-  bool indexesEmpty = FieldSpec_IndexesEmpty(fs);
 
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
@@ -421,6 +429,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     } else {
       multiTextOffsetDelta = 0;
     }
+    bool indexesEmpty = FieldSpec_IndexesEmpty(fs);
 
     for (size_t i = 0; i < valueCount; ++i) {
 
@@ -433,6 +442,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
       Token tok = {0};
       while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok)) {
+        // We always want to write the byte offset, even when string is empty since it is global across all fields and
+        // we need to know the start position of the next field. This is required for highlighting.
+        writeByteOffsets(&tokCtx, &tok);
         if (!indexesEmpty && tok.tokLen == 0) {
           // Skip empty values if the field should not index them
           // Empty tokens are returned only if the original value was empty
