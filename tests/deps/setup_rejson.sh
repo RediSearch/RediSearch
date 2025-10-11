@@ -15,7 +15,7 @@ CURR_DIR=`pwd`
 ROOT=${ROOT:=$CURR_DIR}  # unless ROOT is set, assume it is the current directory
 BINROOT=${BINROOT:=${ROOT}/bin/linux-x64-release}
 
-JSON_BRANCH=${REJSON_BRANCH:-master}
+JSON_BRANCH=${REJSON_BRANCH:-MOD-11358-integrate-ijson-to-the-json-module-avivd}
 JSON_REPO_URL="https://github.com/RedisJSON/RedisJSON.git"
 TEST_DEPS_DIR="${ROOT}/tests/deps"
 JSON_MODULE_DIR="${TEST_DEPS_DIR}/RedisJSON"
@@ -38,6 +38,9 @@ if [ ! -d "${JSON_MODULE_DIR}" ]; then
     echo "Done"
 else
     echo "RedisJSON already exists in ${JSON_MODULE_DIR}"
+    cd ${JSON_MODULE_DIR}
+    run_command git pull --quiet
+    cd -
 fi
 
 # Navigate to the module directory and checkout the specified branch and its submodules

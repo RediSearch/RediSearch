@@ -40,7 +40,7 @@ jobs:
     with:
       test-config: QUICK=1
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: master
+      rejson-branch: MOD-11358-integrate-ijson-to-the-json-module-avivd
     secrets: inherit
 
   coverage:
@@ -55,7 +55,7 @@ jobs:
     with:
       coverage: true
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: master
+      rejson-branch: MOD-11358-integrate-ijson-to-the-json-module-avivd
       test-config: QUICK=1
     secrets: inherit
 
@@ -72,7 +72,7 @@ jobs:
     with:
       san: address
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: master
+      rejson-branch: MOD-11358-integrate-ijson-to-the-json-module-avivd
       test-config: QUICK=1
 
   pr-validation:

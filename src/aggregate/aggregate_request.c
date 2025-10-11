@@ -231,10 +231,6 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
       QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format is only supported with JSON");
       return REDISMODULE_ERR;
     }
-    if (japi_ver < 4) {
-      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format requires a newer RedisJSON (with API version RedisJSON_V4)");
-      return REDISMODULE_ERR;
-    }
   }
   return REDISMODULE_OK;
 }
