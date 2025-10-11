@@ -28,6 +28,7 @@ typedef struct HybridRequest {
     RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
     RedisSearchCtx *sctx;
     QEFlags reqflags;
+    bool isDebugMode;  // Flag to indicate if this is a debug command (avoids timeout initialization)
 } HybridRequest;
 
 // Blocked client context for HybridRequest background execution
@@ -107,6 +108,15 @@ void HybridRequest_ClearErrors(HybridRequest *req);
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
+
+/**
+ * Initialize timeout values for subquery contexts from the main hybrid context.
+ * This should be called after debug parameters are processed to avoid interfering with debug timeout mechanisms.
+ * Only copies timeout if the main context has a valid timeout and the subquery context doesn't already have one.
+ *
+ * @param hreq The HybridRequest containing subquery contexts to initialize
+ */
+void HybridRequest_InitializeSubqueryTimeouts(HybridRequest *hreq);
 
 /**
  * Add information to validation error messages based on request type (VSIM/SEARCH subquery).
