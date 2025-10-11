@@ -231,8 +231,8 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  // On Enterprise, we validate ACL permission to the index
-  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+  // Validate ACL permission to the index
+  if (!ACLUserMayAccessIndex(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
