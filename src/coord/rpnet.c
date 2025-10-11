@@ -85,7 +85,6 @@ static int getNextReply(RPNet *nc) {
     }
   }
   MRReply *root = MRIterator_Next(nc->it);
-
   if (root == NULL) {
     // No more replies
     RPNet_resetCurrent(nc);
@@ -95,6 +94,12 @@ static int getNextReply(RPNet *nc) {
   // Check if an error was returned
   if(MRReply_Type(root) == MR_REPLY_ERROR) {
     nc->current.root = root;
+    // If for profiling, clone and append the error
+    if (nc->cmd.forProfiling) {
+      // Clone the error and append it to the profile
+      MRReply *error = MRReply_Clone(root);
+      array_append(nc->shardsProfile, error);
+    }
     return 1;
   }
 
@@ -262,7 +267,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
             if (!strcmp(warning_str, QueryError_Strerror(QUERY_ETIMEDOUT))) {
               timed_out = true;
             } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
-              AREQ_QueryProcessingCtx(nc->areq)->err->reachedMaxPrefixExpansions = true;
+              QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
             }
           }
         }
@@ -299,12 +304,25 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     // If an error was returned, propagate it
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      const char *strErr = MRReply_String(nc->current.root, NULL);
-      if (!strErr
-          || strcmp(strErr, "Timeout limit was reached")
-          || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_EGENERIC, strErr);
+      QueryErrorCode errCode = extractQueryErrorFromReply(nc->current.root);
+      // TODO - use should_return_error after it is changed to support RequestConfig ptr
+      if (errCode == QUERY_EGENERIC ||
+          ((errCode == QUERY_ETIMEDOUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
+          ((errCode == QUERY_EOOM) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
+        // We need to pass the reply string as the error message, since the error code might be generic
+        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, errCode,  MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
+      } else  {
+        // Check if OOM error
+        // Assuming that if we are here, we are under return on OOM policy
+        // Since other policies are already handled before this point
+        if (errCode == QUERY_EOOM) {
+          QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+        }
+        // Free the error reply before we override it and continue
+        MRReply_Free(nc->current.root);
+        // Set it as NULL avoid another free
+        nc->current.root = NULL;
       }
     }
 
@@ -339,7 +357,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
-  // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3 
+  // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3
   // when opening shard connections
   if (score) {
     RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");

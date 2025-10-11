@@ -24,5 +24,10 @@ void destroyResults(SearchResult **results);
 
 SearchResult **AggregateResults(ResultProcessor *rp, int *rc);
 
-void startPipelineCommon(RSTimeoutPolicy timeoutPolicy, struct timespec *timeout,
-                              ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);
+typedef struct CommonPipelineCtx {
+  RSTimeoutPolicy timeoutPolicy;
+  struct timespec *timeout;
+  RSOomPolicy oomPolicy;
+} CommonPipelineCtx;
+
+void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);
