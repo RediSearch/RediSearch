@@ -2653,7 +2653,7 @@ void Indexes_ScanAndReindex() {
 
 int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
                                        QueryError *status) {
-  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
   size_t len = strlen(rawName);
   char *name = rm_strndup(rawName, len);
   RedisModule_Free(rawName);
@@ -2780,6 +2780,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 cleanup:
   addPendingIndexDrop();
   StrongRef_Release(spec_ref);
+cleanup_no_index:
   QueryError_SetError(status, QUERY_EPARSEARGS, "while reading an index");
   return REDISMODULE_ERR;
 }
