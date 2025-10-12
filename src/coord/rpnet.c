@@ -176,10 +176,11 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
 
     // Create cursor read command using the copied index name
     nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx_copy);
+    nc->cmd.rootCommand = C_READ;
     nc->cmd.protocol = 3;
     rm_free(idx_copy);
 
-    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, iterCursorMappingCb, vsimOrSearch);
+    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, iterCursorMappingCb, &nc->mappings);
     nc->base.Next = rpnetNext;
 
     return rpnetNext(rp, r);
@@ -247,7 +248,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // RESP2: [] or [ 0 ]
   // RESP3: {}
 
-  // RedisModule_Log(NULL, "warning", "rpnetNext: rows is %p", rows);
   if (rows) {
       size_t len = MRReply_Length(rows);
 
@@ -339,7 +339,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
-  // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3 
+  // We expect for it to exist in hybrid since we send WITHSCORES to the shard and we should use resp3
   // when opening shard connections
   if (score) {
     RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");

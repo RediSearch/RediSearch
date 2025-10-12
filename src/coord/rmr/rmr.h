@@ -14,6 +14,7 @@
 #include "reply.h"
 #include "cluster.h"
 #include "command.h"
+#include "util/references.h"
 #include <unistd.h>
 
 
@@ -90,7 +91,7 @@ MRReply *MRIterator_Next(MRIterator *it);
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,void *iterStartCbPrivateData);
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,StrongRef *iterStartCbPrivateData);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
