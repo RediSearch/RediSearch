@@ -9,6 +9,8 @@
 
 #[allow(unused_imports)]
 use crate::c_mocks::get_rs_value_number;
+#[allow(unused_imports)]
+use crate::c_mocks::{RSValue_NewNumber, get_mock_number_value};
 use ffi::RSValue;
 use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, metric::Metric};
 mod c_mocks;
