@@ -1904,8 +1904,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
+                                    const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
-                                    const RLookupKey * docKey,
                                     RPStatus *subqueriesReturnCodes,
                                     HybridLookupContext *lookupCtx) {
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));

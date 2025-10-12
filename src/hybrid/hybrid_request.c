@@ -124,7 +124,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     } else {
       scoreKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_SCORE, RLOOKUP_F_HIDDEN);
     }
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, docKey, req->subqueriesReturnCodes, lookupCtx);
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
     // Build the aggregation part of the tail pipeline for final result processing
