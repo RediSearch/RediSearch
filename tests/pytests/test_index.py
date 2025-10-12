@@ -147,7 +147,7 @@ def test_lazy_index_creation_info_modules(env):
 def test_restore_schema(env: Env):
 
     # Test that the command is not exposed to normal users
-    env.expect('_FT._RESTOREIFNX', 'SCHEMA').error().contains('unknown command')
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA').error().contains('unknown subcommand')
     # Mark the client as internal for the rest of the test
     env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 

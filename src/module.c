@@ -1108,7 +1108,7 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int RegisterRestoreIfNxCommands(RedisModuleCommand *restoreCmd) {
   int rc;
 
-  const char *schema_flags = IsEnterprise() ? "write "CMD_PROXY_FILTERED : "write internal";
+  const char *schema_flags = IsEnterprise() ? "write "CMD_PROXY_FILTERED : "write "CMD_INTERNAL;
   rc = RedisModule_CreateSubcommand(restoreCmd, "SCHEMA", RestoreSchema, schema_flags, 0, 0, 0);
   if (rc != REDISMODULE_OK) return rc;
 
@@ -1411,7 +1411,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
          "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_RESTORE_IF_NX, NULL,
-         IsEnterprise() ? "write " CMD_PROXY_FILTERED : "write", 0, 0, 0, "", true))
+         "write", INDEX_ONLY_CMD_ARGS, "", true))
   RM_TRY_F(RegisterRestoreIfNxCommands, RedisModule_GetCommand(ctx, RS_RESTORE_IF_NX))
 
   // Special cases: Register drop commands which write to arbitrary keys

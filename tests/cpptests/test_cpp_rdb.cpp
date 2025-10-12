@@ -253,4 +253,8 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
     ASSERT_STREQ(HiddenString_GetUnsafe(spec->fields[0].fieldName, NULL), "title");
     ASSERT_STREQ(HiddenString_GetUnsafe(spec->fields[1].fieldName, NULL), "body");
     ASSERT_STREQ(HiddenString_GetUnsafe(spec->fields[2].fieldName, NULL), "price");
+
+    // Clean up
+    IndexSpec_RemoveFromGlobals(loaded_spec_ref, false);
+    RedisModule_FreeString(NULL, serialized);
 }
