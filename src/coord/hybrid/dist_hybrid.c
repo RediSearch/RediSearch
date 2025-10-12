@@ -266,10 +266,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     MRCommand xcmd;
     HybridRequest_buildMRCommand(argv, argc, &us, &xcmd, sp, &hybridParams);
     xcmd.protocol = is_resp3(ctx) ? 3 : 2;
-    // xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
-    // xcmd.forProfiling = false;  // No profiling support for hybrid yet
-    xcmd.rootCommand = C_READ;   // Response is equivalent to a `CURSOR READ` response
-
+    xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
+    xcmd.forProfiling = false;  // No profiling support for hybrid yet
+    xcmd.rootCommand = C_READ;
     // UPDATED: Use new start function with mappings (no dispatcher needed)
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartWithMappings);
     HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartWithMappings);
