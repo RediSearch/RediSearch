@@ -2966,7 +2966,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
 }
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status) {
-  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
   size_t len = strlen(rawName);
   HiddenString* specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
@@ -3056,6 +3056,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
 
 cleanup:
   StrongRef_Release(spec_ref);
+cleanup_no_index:
   QueryError_SetError(status, QUERY_EPARSEARGS, "while reading an index");
   return NULL;
 }
