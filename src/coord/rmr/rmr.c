@@ -674,11 +674,9 @@ void iterStartCb(void *p) {
 void iterCursorMappingCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
-
-  // Handle StrongRef* instead of raw CursorMappings* to prevent use-after-free
-  StrongRef *mappingsRef = (StrongRef*)data->privateData;
-  RS_ASSERT(mappingsRef && mappingsRef->rm);
-  CursorMappings *vsimOrSearch = StrongRef_Get(*mappingsRef);
+  CursorMappings *vsimOrSearch = (CursorMappings*)data->privateData;
+  // RedisModule_Log(NULL, "warning", "iterCursorMappingCb: mappings is %p, array_len(mappings) is %zu", vsimOrSearch, array_len(vsimOrSearch->mappings));
+  // RS_ASSERT(mappings && array_len(mappings) > 0);
 
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
   size_t numShards = io_runtime_ctx->topo->numShards;
@@ -717,9 +715,7 @@ void iterCursorMappingCb(void *p) {
     }
   }
 
-  //Clean up the StrongRef and allocated memory
-  StrongRef_Release(*mappingsRef);
-  rm_free(mappingsRef);
+  // Clean up the data structure
   rm_free(data);
 }
 
