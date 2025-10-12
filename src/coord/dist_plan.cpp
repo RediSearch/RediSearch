@@ -562,8 +562,8 @@ void SerializedSteps_FillUpstreamInfo(SerializedSteps *serialized, AREQDIST_Upst
   }
   for (size_t ii = 0; ii < array_len(serialized->order); ++ii) {
     PLN_StepType st = serialized->order[ii];
-    arrayof(char *) *tokens = &serialized->steps[st];  
-    for (size_t jj = 0; jj < array_len(*tokens); ++jj) {
+    arrayof(char *) tokens = serialized->steps[st];  
+    for (size_t jj = 0; jj < array_len(tokens); ++jj) {
       array_ensure_append_1(us->serialized, tokens[jj]);
     }
   }
