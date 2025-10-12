@@ -676,6 +676,7 @@ void iterCursorMappingCb(void *p) {
   MRIterator *it = data->it;
 
   StrongRef mappingsRef = WeakRef_Promote(data->privateDataRef);
+  WeakRef_Release(data->privateDataRef);
   CursorMappings *vsimOrSearch = StrongRef_Get(mappingsRef);
   if (!vsimOrSearch) {
     // Cursor mappings have been freed - cannot proceed with command dispatch.
@@ -813,13 +814,6 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
   if (iterStartCbPrivateData) {
     data->privateDataRef = StrongRef_Demote(*iterStartCbPrivateData);
   }
-  // Itzik changed:
-  // RQ_Push(rq_g, iterStartCb, ret);
-  // --> RQ_Push(rq_g, iterStartCb, data);
-
-  // Guy changed:
-  // RQ_Push(rq_g, iterStartCb, ret);
-  // --> IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, ret);
   IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, data);
   return ret;
 }
