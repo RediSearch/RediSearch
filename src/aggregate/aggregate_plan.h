@@ -195,7 +195,7 @@ struct AGGPlan {
 };
 
 // this is basically a mini hash map
-// but it allows us to ensure order of steps and should allow reodering steps before other steps for better performance
+// but it allows us to ensure order of steps and should allow reordering of steps before other steps for better performance
 typedef struct SerializedSteps {
   arrayof(char *) steps[PLN_T__MAX];
   // allows us to get the order of a step, iterate over the steps in the same order they were added

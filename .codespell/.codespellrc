@@ -1,6 +1,6 @@
 [codespell]
 # Ignore certain files and directories.
-skip = .git,./deps/*,*.csv,./srcutil/*,./bin/*,./sbin/*,*/parser.c,*/parser.h,*/parser.out,*/lexer.c,*/Makefile,src/redisearch_rs/trie_bencher/data/*,src/redisearch_rs/wildcard/tests/integration/*,src/redisearch_rs/wildcard/benches/*,tests/cpptests/test_cpp_trie.cpp
+skip = .git,./deps/*,*.csv,./srcutil/*,./bin/*,./sbin/*,*/parser.c,*/parser.h,*/parser.out,*/lexer.c,*/Makefile,src/redisearch_rs/trie_bencher/data/*,src/redisearch_rs/wildcard/tests/integration/*,src/redisearch_rs/wildcard/benches/*,tests/cpptests/test_cpp_trie.cpp,tests/pytests/test_phonetics.py,tests/pytests/test_fuzzy.py
 # Ignore words.
 ignore-words = .codespell/ignore_wordlist.txt
 
