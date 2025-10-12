@@ -592,7 +592,9 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
     SerializedSteps_AddStepOnce(&dstp->serialized, PLN_T_LOAD);
     arrayof(char *) *loadStep = &dstp->serialized.steps[PLN_T_LOAD];
     array_append(*loadStep, rm_strndup("LOAD", 4));
-    rm_asprintf(&(*loadStep)[1], "%lu", (unsigned long)loadFields.size());
+    char *count = NULL;
+    rm_asprintf(&count, "%lu", (unsigned long)loadFields.size());
+    array_append(*loadStep, count);
     for (auto kk : loadFields) {
       array_append(*loadStep, rm_strndup(kk->name, kk->name_len));
     }
