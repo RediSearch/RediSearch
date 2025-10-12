@@ -64,7 +64,7 @@ static bool addKeysToLoadStep(SerializedSteps *target, std::vector<const RLookup
   }
   
   size_t count = array_len(*arr) - 2 + keys.size() /* LOAD <count> */;
-  if (!(*arr)[1]) {
+  if ((*arr)[1]) {
     rm_free((*arr)[1]);
   }
   rm_asprintf(&(*arr)[1], "%zu", count);
