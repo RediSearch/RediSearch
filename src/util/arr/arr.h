@@ -227,26 +227,16 @@ static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
   return arr ? array_hdr(arr)->len : 0;
 }
 
-#define ARR_CAP_NOSHRINK ((uint16_t)-1)
-static inline void *array_trimm(array_t arr, uint32_t len, uint16_t cap) {
+static inline void *array_trimm(array_t arr, uint32_t new_len) {
   array_hdr_t *arr_hdr = array_hdr(arr);
-  RS_LOG_ASSERT(len >= 0, "trimming len is negative");
-  RS_LOG_ASSERT((cap == ARR_CAP_NOSHRINK || cap > 0 || len == cap), "trimming capacity is illegal");
-  RS_LOG_ASSERT((cap == ARR_CAP_NOSHRINK || cap >= len), "trimming len is greater then capacity");
-  RS_LOG_ASSERT((len <= arr_hdr->len), "trimming len is greater then current len");
-  arr_hdr->len = len;
-  if (cap != ARR_CAP_NOSHRINK) {
-    arr_hdr->cap = cap;
-    arr_hdr = (array_hdr_t *)array_realloc_fn(arr_hdr, array_sizeof(arr_hdr));
-  }
+  RS_LOG_ASSERT(new_len >= 0, "trimming len is negative");
+  RS_LOG_ASSERT((new_len <= arr_hdr->len), "trimming len is greater then current len");
+  arr_hdr->len = new_len;
   return arr_hdr->buf;
 }
 
 /* Trim array by `len` elements */
-#define array_trimm_len(arr, len) (__typeof__(arr)) array_trimm(arr, array_len(arr) - (len), ARR_CAP_NOSHRINK)
-
-/* Resize array to `cap` elements */
-#define array_trimm_cap(arr, len) (__typeof__(arr)) array_trimm(arr, len, len)
+#define array_trimm_len(arr, len) (__typeof__(arr)) array_trimm(arr, array_len(arr) - (len))
 
 #define array_clear(arr)                    \
   ({                                        \
