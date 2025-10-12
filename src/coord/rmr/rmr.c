@@ -676,6 +676,7 @@ void iterCursorMappingCb(void *p) {
   MRIterator *it = data->it;
 
   StrongRef mappingsRef = WeakRef_Promote(data->privateDataRef);
+  WeakRef_Release(data->privateDataRef);
   CursorMappings *vsimOrSearch = StrongRef_Get(mappingsRef);
   if (!vsimOrSearch) {
     // Cursor mappings have been freed - cannot proceed with command dispatch.
