@@ -151,9 +151,6 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
 
   } else {
     // The previous command was a _FT.CURSOR READ command, so we may not need to change anything.
-    if (cmd->rootCommand != C_READ) {
-      RedisModule_Log(RSDummyContext, "warning", "calling `getCursorCommand` after a %s command", MRCommand_SafeToString(cmd));
-    }
     RS_LOG_ASSERT(cmd->rootCommand == C_READ, "calling `getCursorCommand` after a DEL command");
     RS_ASSERT(cmd->num == 4);
     RS_ASSERT(STR_EQ(cmd->strs[0], cmd->lens[0], "_FT.CURSOR"));
