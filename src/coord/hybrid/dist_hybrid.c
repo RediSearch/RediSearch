@@ -266,7 +266,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // Construct the command string
     MRCommand xcmd;
     HybridRequest_buildMRCommand(argv, argc, &us, &xcmd, sp, &hybridParams);
-    xcmd.protocol = 3;
+    xcmd.protocol = is_resp3(ctx) ? 3 : 2;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     xcmd.forProfiling = false;  // No profiling support for hybrid yet
     xcmd.rootCommand = C_READ;
