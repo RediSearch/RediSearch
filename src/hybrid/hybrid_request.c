@@ -313,9 +313,7 @@ void HybridRequest_ClearErrors(HybridRequest *req) {
  * Create a search context, detached only when necessary.
  * In cluster mode, we're already on a background thread, so no need for detached context.
  */
-static RedisSearchCtx* createSearchContext(RedisModuleCtx *ctx, const char *indexname) {
-  extern size_t NumShards;  // Declared in module.c
-
+static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const char *indexname, size_t NumShards) {
   if (NumShards > 1) {
     // Cluster mode: we're already on DIST_THREADPOOL, use the existing context directly
     return NewSearchCtxC(ctx, indexname, true);
@@ -328,13 +326,14 @@ static RedisSearchCtx* createSearchContext(RedisModuleCtx *ctx, const char *inde
 }
 
 AREQ **MakeDefaultHybridUpstreams(RedisSearchCtx *sctx) {
+  extern size_t NumShards;  // Declared in module.c
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
   initializeAREQ(search);
   initializeAREQ(vector);
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  search->sctx = createSearchContext(sctx->redisCtx, indexName);
-  vector->sctx = createSearchContext(sctx->redisCtx, indexName);
+  search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
+  vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);
@@ -342,11 +341,12 @@ AREQ **MakeDefaultHybridUpstreams(RedisSearchCtx *sctx) {
 }
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
+  extern size_t NumShards;  // Declared in module.c
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  search->sctx = createSearchContext(sctx->redisCtx, indexName);
-  vector->sctx = createSearchContext(sctx->redisCtx, indexName);
+  search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
+  vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);
