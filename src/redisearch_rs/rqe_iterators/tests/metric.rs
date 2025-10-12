@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::RSValue;
 use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, metric::Metric};
+#[allow(unused_imports)]
+use crate::c_mocks::{RSValue_NewNumber, get_mock_number_value};
 mod c_mocks;
 
 static CASES: &[&[u64]] = &[
@@ -64,10 +67,11 @@ fn read() {
             assert!(res.is_some(), "Case {i}, element {j}, expected {expected_id}");
             let res = res.unwrap();
             assert_eq!(res.doc_id, expected_id, "Case {i}, element {j}");
-            // unsafe {
-            //     let a = *res.metrics;
-            //     assert_eq!((*res.metrics.wrapping_add(0)).value, RSValue_NewNumber(metric_data[j]));
-            // }
+            let val: *mut RSValue = unsafe {
+                let x = (*res.metrics).value;
+                x
+            };
+            assert_eq!(get_mock_number_value(val).unwrap(), metric_data[j]);
             assert_eq!(it.last_doc_id(), expected_id, "Case {i}, element {j}");
 
         }
