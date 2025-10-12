@@ -58,7 +58,7 @@ struct ReducerDistCtx {
   }
 
   bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status, ArgsCursor *cargs) {
-    if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
+    if (PLNGroupStep_AddReducer(gstp, name, cargs, status, false) != REDISMODULE_OK) {
       return false;
     }
     if (alias) {

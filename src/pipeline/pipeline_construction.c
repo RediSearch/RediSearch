@@ -269,6 +269,9 @@ static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t
     if (*path == '@') {
       path++;
       name_len--;
+    } else if (loadStep->strict && *path != '$') {
+        QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing field symbol prefix for field name in LOAD", ", perhaps you meant to use @%s?", path);
+      return REDISMODULE_ERR;
     }
 
     // Check for AS alias
