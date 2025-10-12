@@ -589,17 +589,9 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   }
   // If we have any unresolved fields, we need to add a load step
   if (!loadFields.empty()) {
-    const bool added = SerializedSteps_AddStepOnce(&dstp->serialized, PLN_T_LOAD);
+    SerializedSteps_AddStepOnce(&dstp->serialized, PLN_T_LOAD);
     arrayof(char *) *loadStep = &dstp->serialized.steps[PLN_T_LOAD];
-    if (added) {
-      array_append(*loadStep, rm_strndup("LOAD", 4));
-      char *noCount = NULL;
-      array_append(*loadStep, noCount);
-    }
-    RS_ASSERT(array_len(*loadStep) >= 2); // we expect LOAD <count>
-    if ((*loadStep)[1]) {
-      rm_free((*loadStep)[1]);
-    }
+    array_append(*loadStep, rm_strndup("LOAD", 4));
     rm_asprintf(&(*loadStep)[1], "%lu", (unsigned long)loadFields.size());
     for (auto kk : loadFields) {
       array_append(*loadStep, rm_strndup(kk->name, kk->name_len));
