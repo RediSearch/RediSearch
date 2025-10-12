@@ -248,7 +248,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // RESP2: [] or [ 0 ]
   // RESP3: {}
 
-  // RedisModule_Log(NULL, "warning", "rpnetNext: rows is %p", rows);
   if (rows) {
       size_t len = MRReply_Length(rows);
 
