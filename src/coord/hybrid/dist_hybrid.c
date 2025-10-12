@@ -224,6 +224,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
         RedisSearchCtx *sctx = AREQ_SearchCtx(subquery);
         SearchCtx_UpdateTime(sctx, subquery->reqConfig.queryTimeoutMS);
     }
+    SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
 
     // Parse the hybrid command (equivalent to AREQ_Compile)
     HybridPipelineParams hybridParams = {0};
