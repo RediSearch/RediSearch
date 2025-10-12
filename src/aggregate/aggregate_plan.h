@@ -111,6 +111,7 @@ typedef struct {
   ArgsCursor args;
   const RLookupKey **keys;
   size_t nkeys;
+  bool strict; // Whether we should fail if a field is not prefixed with an @ or $ sign
 } PLN_LoadStep;
 
 /** VECTOR_NORMALIZER normalizes vector distance scores to [0,1] range */
@@ -140,6 +141,7 @@ typedef struct {
  /**
   * Allocates and initializes a new group step.
   * @param properties_ref StrongRef referencing the properties array (must be cloned by caller)
+  * @param strict Whether we should fail if a key is not prefixed with an @ sign
   * @return Pointer to the newly created group step
   */
 PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref);
@@ -157,7 +159,7 @@ arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp);
  *  here as well.
  */
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
-                            QueryError *status);
+                            QueryError *status, bool strict);
 
 PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
 

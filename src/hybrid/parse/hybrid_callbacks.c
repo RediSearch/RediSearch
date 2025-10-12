@@ -103,6 +103,9 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
         // Remove '@' prefix if present (same logic as parseSortby)
         if (*field == '@') {
             field++;  // Skip the '@' prefix
+        } else {
+            QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing @ prefix for field name in SORTBY", " (%s)", field);
+            return;
         }
 
         // Default to ascending
@@ -279,7 +282,7 @@ void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
             QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for REDUCE", ": %s", AC_Strerror(rv));
             return;
         }
-        if (PLNGroupStep_AddReducer(gstp, name, reduce, status) != REDISMODULE_OK) {
+        if (PLNGroupStep_AddReducer(gstp, name, reduce, status, true) != REDISMODULE_OK) {
             return;
         }
     }
@@ -353,6 +356,7 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data) {
     PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
     lstp->base.type = PLN_T_LOAD;
     lstp->base.dtor = loadDtor;
+    lstp->strict = true;  // Enable strict field validation
     if (loadfields.argc > 0) {
         lstp->args = loadfields;
         lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));

@@ -212,6 +212,7 @@ PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original) {
 
   cloned->args = original->args; // Shallow copy of ArgsCursor
   cloned->nkeys = 0;
+  cloned->strict = original->strict; // Copy the strict field validation flag
   // Pre-allocate keys array based on the number of arguments
   if (original->args.argc > 0) {
     cloned->keys = rm_calloc(original->args.argc, sizeof(RLookupKey*));

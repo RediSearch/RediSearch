@@ -735,7 +735,7 @@ PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, Arg
 }
 
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
-                            QueryError *status) {
+                            QueryError *status, bool strict) {
   // Just a list of functions..
   PLN_Reducer *gr = array_ensure_tail(&gstp->reducers, PLN_Reducer);
 
@@ -744,6 +744,17 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, name, rv);
     goto error;
+  }
+
+  if (strict) {
+    ArgsCursor verify = gr->args;
+    for (size_t i = 0; i < AC_NumArgs(&verify); ++i) {
+      const char *arg = AC_GetStringNC(&verify, NULL);
+      if (arg && arg[0] != '@') {
+        QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing @ prefix or for field name in REDUCE", ", field: (%s)", arg);
+        goto error;
+      }
+    }
   }
 
   const char *alias = NULL;
@@ -827,7 +838,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for REDUCE: %s", AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
-    if (PLNGroupStep_AddReducer(gstp, name, ac, status) != REDISMODULE_OK) {
+    if (PLNGroupStep_AddReducer(gstp, name, ac, status, false) != REDISMODULE_OK) {
       goto error;
     }
   }
