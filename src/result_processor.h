@@ -79,6 +79,7 @@ typedef enum {
 
 struct ResultProcessor;
 struct RLookup;
+typedef struct RPDepleter RPDepleter;
 
 // Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
 /// <div rustbindgen hide></div>
@@ -285,6 +286,12 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
+ * Clear RPDepleter results array and reset index
+ * @param self The RPDepleter instance to clear
+ */
+void RPDepleter_ClearResults(RPDepleter *self);
+
+/**
 * Creates a new shared synchronization object for coordinating multiple RPDepleter processors.
 * This is used during pipeline construction to create sync objects that allow multiple
 * depleters to coordinate their background threads and wake each other when depleting completes.
@@ -351,6 +358,12 @@ void PipelineAddCrash(struct AREQ *r);
  * Pauses the query after N results, N >= 0.
  *******************************************************************************************************************/
 ResultProcessor *RPPauseAfterCount_New(size_t count);
+
+/**
+ * Test function to control thread pool failure simulation.
+ * @param should_fail If true, RPDepleter_StartDepletionThread will fail in mock mode
+ */
+void Test_SetThreadPoolFailure(bool should_fail);
 
 // Adds a pause processor after N results, before/after a specific RP type
 bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status);

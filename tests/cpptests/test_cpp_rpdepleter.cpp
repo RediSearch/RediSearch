@@ -13,6 +13,8 @@
 #include "search_ctx.h"
 #include "rmalloc.h"
 #include "common.h"
+#include <thread>
+#include <chrono>
 #include "redismock/redismock.h"
 #include "search_result.h"
 
@@ -25,13 +27,45 @@
 // Base test class for parameterized tests
 class RPDepleterTest : public ::testing::Test, public ::testing::WithParamInterface<bool> {
 protected:
-  void SetUp() override {
-    // Create a real index for testing index locking
-    if (GetParam()) {  // Only create spec when testing with index locking
-      for (size_t i = 0; i < NumberOfContexts; ++i) {
-        redisContexts[i] = RedisModule_GetThreadSafeContext(NULL);
+  // Reusable mock upstream processor
+  struct MockUpstream : public ResultProcessor {
+    int count = 0;
+    int max_docs;
+    int final_result;
+    int sleep_ms;
+    int doc_id_offset;
+
+    MockUpstream(int max_docs = 3, int final_result = RS_RESULT_EOF, int sleep_ms = 0, int doc_id_offset = 0) {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+      this->max_docs = max_docs;
+      this->final_result = final_result;
+      this->sleep_ms = sleep_ms;
+      this->doc_id_offset = doc_id_offset;
+    }
+
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream *self = (MockUpstream *)rp;
+      if (self->count >= self->max_docs) return self->final_result;
+
+      // Sleep if specified (for timing tests)
+      if (self->sleep_ms > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(self->sleep_ms));
       }
 
+      SearchResult_SetDocId(res, ++self->count + self->doc_id_offset);
+      return RS_RESULT_OK;
+    }
+  };
+  
+  void SetUp() override {
+    // Initialize Redis contexts for all test variants (WithoutIndexLock and WithIndexLock)
+    for (size_t i = 0; i < NumberOfContexts; ++i) {
+      redisContexts[i] = RedisModule_GetThreadSafeContext(NULL);
+    }
+
+    // Create a real index for testing index locking
+    if (GetParam()) {  // Only create spec when testing with index locking
       // Generate a unique index name for each test to avoid conflicts
       const ::testing::TestInfo* const test_info =
         ::testing::UnitTest::GetInstance()->current_test_info();
@@ -46,17 +80,27 @@ protected:
                err.code, QueryError_GetUserError(&err));
       }
       ASSERT_NE(mockSpec, nullptr) << "Failed to create index spec. Error: " << QueryError_GetUserError(&err);
-      for (size_t i = 0; i < NumberOfContexts; ++i) {
-        searchContexts[i] = SEARCH_CTX_STATIC(redisContexts[i], mockSpec);
-      }
+    }
+
+    // Initialize search contexts for all tests (with or without real spec)
+    for (size_t i = 0; i < NumberOfContexts; ++i) {
+      searchContexts[i] = SEARCH_CTX_STATIC(redisContexts[i], mockSpec);
+    }
+
+    // Set proper timeout on all search contexts to avoid immediate timeout
+    // Since RS_IsMock prevents SearchCtx_UpdateTime from working, set timeout directly
+    struct timespec future_timeout;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &future_timeout);
+    future_timeout.tv_sec += 10; // 10 seconds from now
+    for (size_t i = 0; i < NumberOfContexts; ++i) {
+      searchContexts[i].time.timeout = future_timeout;
     }
   }
 
   void TearDown() override {
-    if (GetParam()) {
-      for (auto ctx : redisContexts) {
-        RedisModule_FreeThreadSafeContext(ctx);
-      }
+    // Free Redis contexts for all test variants (WithoutIndexLock and WithIndexLock)
+    for (auto ctx : redisContexts) {
+      RedisModule_FreeThreadSafeContext(ctx);
     }
   }
 
@@ -75,19 +119,7 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
   const size_t n_docs = 3;
   QueryProcessingCtx qitr = {0};
 
-  struct MockUpstream : public ResultProcessor {
-    int count = 0;
-    static int NextFn(ResultProcessor *rp, SearchResult *res) {
-      MockUpstream *self = (MockUpstream *)rp;
-      if (self->count >= n_docs) return RS_RESULT_EOF;
-      SearchResult_SetDocId(res, ++self->count);
-      return RS_RESULT_OK;
-    }
-    MockUpstream() {
-      memset(this, 0, sizeof(*this));
-      this->Next = NextFn;
-    }
-  } mockUpstream;
+  MockUpstream mockUpstream(n_docs, RS_RESULT_EOF);
 
   // Create depleter processor with new sync reference
   ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
@@ -132,19 +164,7 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
   const size_t n_docs = 3;
   QueryProcessingCtx qitr = {0};
 
-  struct MockUpstream : public ResultProcessor {
-    int count = 0;
-    static int NextFn(ResultProcessor *rp, SearchResult *res) {
-      MockUpstream *self = (MockUpstream *)rp;
-      if (self->count >= n_docs) return RS_RESULT_TIMEDOUT;
-      SearchResult_SetDocId(res, ++self->count);
-      return RS_RESULT_OK;
-    }
-    MockUpstream() {
-      memset(this, 0, sizeof(*this));
-      this->Next = NextFn;
-    }
-  } mockUpstream;
+  MockUpstream mockUpstream(n_docs, RS_RESULT_TIMEDOUT);
 
   // Create depleter processor with new sync reference
   ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
@@ -192,41 +212,11 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
   const size_t n_docs = 2;
   QueryProcessingCtx qitr1 = {0}, qitr2 = {0};
 
-  // Mock upstream that finishes quickly.
-  struct FastUpstream : public ResultProcessor {
-    int count = 0;
-    static int NextFn(ResultProcessor *rp, SearchResult *res) {
-      FastUpstream *self = (FastUpstream *)rp;
-      if (self->count >= n_docs) return RS_RESULT_EOF;
-      SearchResult_SetDocId(res, ++self->count);
-      // Sleep so it won't finish so fast
-      // We use large times in order to reduce flakiness.
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
-      return RS_RESULT_OK;
-    }
-    FastUpstream() {
-      memset(this, 0, sizeof(*this));
-      this->Next = NextFn;
-    }
-  } fastUpstream;
+  // Mock upstream that finishes quickly (500ms sleep per result)
+  MockUpstream fastUpstream(n_docs, RS_RESULT_EOF, 500, 0);
 
-  // Mock upstream that takes much longer.
-  struct SlowUpstream : public ResultProcessor {
-    int count = 0;
-    static int NextFn(ResultProcessor *rp, SearchResult *res) {
-      SlowUpstream *self = (SlowUpstream *)rp;
-      if (self->count >= n_docs) return RS_RESULT_EOF;
-      // Sleep to simulate much slower operation
-      // We use large times in order to reduce flakiness.
-      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-      SearchResult_SetDocId(res, ++self->count + 100);  // Different doc IDs
-      return RS_RESULT_OK;
-    }
-    SlowUpstream() {
-      memset(this, 0, sizeof(*this));
-      this->Next = NextFn;
-    }
-  } slowUpstream;
+  // Mock upstream that takes much longer (1000ms sleep per result, different doc IDs)
+  MockUpstream slowUpstream(n_docs, RS_RESULT_EOF, 1000, 100);
 
   // Create shared sync reference and two depleters sharing it
   StrongRef sync_ref = DepleterSync_New(2, take_index_lock);
@@ -300,16 +290,7 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
 
   QueryProcessingCtx qitr = {0};
 
-  struct MockUpstream : public ResultProcessor {
-    int count = 0;
-    static int NextFn(ResultProcessor *rp, SearchResult *res) {
-      return RS_RESULT_ERROR;
-    }
-    MockUpstream() {
-      memset(this, 0, sizeof(*this));
-      this->Next = NextFn;
-    }
-  } mockUpstream;
+  MockUpstream mockUpstream(0, RS_RESULT_ERROR);
 
   // Create depleter processor with new sync reference
   ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
@@ -345,6 +326,30 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
   depleter->Free(depleter);
 }
 
+// Note: This test verifies that RPDepleter_ClearResults compiles and links correctly.
+// A more comprehensive test would require access to RPDepleter's internal fields,
+// which are intentionally opaque. The function is tested indirectly through
+// the destructor and other integration tests.
+TEST_P(RPDepleterTest, TestClearResults) {
+  bool take_index_lock = GetParam();
+
+  // Create depleter processor with new sync reference
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
+
+  // Cast to RPDepleter to call the clear function
+  RPDepleter *rp_depleter = (RPDepleter *)depleter;
+
+  // Call the clear function - this should not crash
+  // The function clears internal results and resets the index
+  RPDepleter_ClearResults(rp_depleter);
+
+  // Clean up
+  depleter->Free(depleter);
+
+  // If we got here without crashing, the test passed
+  SUCCEED();
+}
+
 // Instantiate the parameterized test with both true and false values
 INSTANTIATE_TEST_SUITE_P(
     LockingVariants,
@@ -354,3 +359,94 @@ INSTANTIATE_TEST_SUITE_P(
       return info.param ? "WithIndexLock" : "WithoutIndexLock";
     }
 );
+
+// Test thread pool failure simulation
+TEST_P(RPDepleterTest, TestThreadPoolFailure) {
+  bool take_index_lock = GetParam();
+
+  // Mock upstream processor: yields 3 results, then EOF
+  const size_t n_docs = 3;
+  QueryProcessingCtx qitr = {0};
+
+  MockUpstream mockUpstream(n_docs, RS_RESULT_EOF);
+
+  // Test 1: First test the successful case (no thread pool failure)
+  Test_SetThreadPoolFailure(false);
+
+  // If testing with index locking, the main thread must acquire the lock first
+  if (take_index_lock) {
+    RedisSearchCtx_LockSpecRead(&searchContexts[1]);
+  }
+
+  // Create depleter processor - should work normally
+  ResultProcessor *depleter1 = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
+
+  QITR_PushRP(&qitr, &mockUpstream);
+  QITR_PushRP(&qitr, depleter1);
+
+  SearchResult res = {0};
+  int rc;
+
+  int depletingCount = 0;
+  // The first call(s) should return RS_RESULT_DEPLETING until the thread is done
+  while ((rc = depleter1->Next(depleter1, &res)) == RS_RESULT_DEPLETING) {
+    depletingCount++;
+  }
+  ASSERT_GT(depletingCount, 0) << "Should have at least one depleting state when thread pool works";
+
+  // Now, results should be available
+  int resultCount = 0;
+  do {
+    if (rc == RS_RESULT_OK) {
+      ASSERT_EQ(res.docId, ++resultCount);
+      SearchResult_Clear(&res);
+    }
+  } while ((rc = depleter1->Next(depleter1, &res)) == RS_RESULT_OK);
+
+  // Should have processed all documents
+  ASSERT_EQ(resultCount, n_docs) << "Should have processed all documents when thread pool works";
+  ASSERT_EQ(rc, RS_RESULT_EOF) << "Should end with RS_RESULT_EOF when thread pool works";
+
+  // Clean up first depleter
+  depleter1->Free(depleter1);
+
+  // Unlock the index lock if we acquired it in test 1
+  if (take_index_lock) {
+    RedisSearchCtx_UnlockSpec(&searchContexts[1]);
+  }
+
+  // Test 2: Enable thread pool failure - should return RS_RESULT_ERROR immediately
+  Test_SetThreadPoolFailure(true);
+
+  // Reset query processing context for second test
+  QueryProcessingCtx qitr2 = {0};
+
+  // If testing with index locking, the main thread must acquire the lock first
+  if (take_index_lock) {
+    RedisSearchCtx_LockSpecRead(&searchContexts[1]);
+  }
+
+  // Create new depleter processor
+  ResultProcessor *depleter2 = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
+
+  QITR_PushRP(&qitr2, &mockUpstream);
+  QITR_PushRP(&qitr2, depleter2);
+
+  // Reset mock upstream counter for second test
+  mockUpstream.count = 0;
+
+  // The first call should return RS_RESULT_ERROR due to thread pool failure
+  rc = depleter2->Next(depleter2, &res);
+  ASSERT_EQ(rc, RS_RESULT_ERROR) << "Expected RS_RESULT_ERROR when thread pool failure is enabled";
+
+  SearchResult_Destroy(&res);
+  depleter2->Free(depleter2);
+
+  // Unlock the index lock if we acquired it in test 2
+  if (take_index_lock) {
+    RedisSearchCtx_UnlockSpec(&searchContexts[1]);
+  }
+
+  // Reset thread pool failure state for other tests
+  Test_SetThreadPoolFailure(false);
+}
