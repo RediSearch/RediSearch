@@ -3384,11 +3384,15 @@ static void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, u
   workersThreadPool_Drain(ctx, 100);
 }
 
+static void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
+  IndexSpec_RdbSave(rdb, value);
+}
+
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {
       .version = REDISMODULE_TYPE_METHOD_VERSION,
-      .rdb_load = IndexSpec_RdbLoad_Logic,  // We don't store the index spec in the key space,
-      .rdb_save = IndexSpec_RdbSave,        // but these are useful for serialization/deserialization (and legacy loading)
+      .rdb_load = IndexSpec_RdbLoad_Logic,    // We don't store the index spec in the key space,
+      .rdb_save = IndexSpec_RdbSave_Wrapper,  // but these are useful for serialization/deserialization (and legacy loading)
       .aux_load = Indexes_RdbLoad,
       .aux_save = Indexes_RdbSave,
       .free = IndexSpec_LegacyFree,
