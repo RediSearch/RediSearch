@@ -142,3 +142,86 @@ def test_lazy_index_creation_info_modules(env):
     }
     env.cmd('INFO', 'MODULES')
     validate_spec_invidx_info(env, expected_reply, "after INFO MODULES")
+
+@skip(cluster=True)
+def test_restore_schema(env: Env):
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    # create index with all fields types
+    env.expect(
+        "FT.CREATE", "idx", "SCHEMA",
+        "t", "TEXT", 'WEIGHT', '2.1',
+        "n", "NUMERIC", 'NOINDEX',
+        "g", "GEO",
+        "tags", "TAG", 'CASESENSITIVE', 'SEPARATOR', ';',
+        "geom", "GEOSHAPE",
+        "vec", "VECTOR",
+            "FLAT", "6", "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2",
+    ).ok()
+
+    # add some synonyms
+    env.expect('FT.SYNUPDATE', 'idx', 'meow', 'cat').ok()
+    env.expect('FT.SYNUPDATE', 'idx', 'bark', 'dog').ok()
+
+    # Test restore failures
+    # env.expect('_FT._RESTOREIFNX').error().contains('wrong number of arguments') # TODO: Uncomment when redis issue is fixed
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA').error().contains('wrong number of arguments')
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', 'Too', 'many', 'arguments').error().contains('wrong number of arguments')
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', 'Ten', 'blob').error().contains('Invalid encoding version')
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', '42', 'blob').error().contains('Failed to deserialize schema')
+
+    # dump the index
+    dump, encode = env.cmd(debug_cmd(), 'DUMP_SCHEMA', 'idx', NEVER_DECODE=True)
+
+    # Test that we manage to call restore while the index exists
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump).ok()
+    env.assertEqual(env.cmd('FT._LIST'), ['idx'], message="Expected only one index after restoring existing index")
+
+    # drop the index
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.assertEqual(env.cmd('FT._LIST'), [], message="Expected no indexes after dropping the index")
+
+    # restore the index
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump).ok()
+    env.assertEqual(env.cmd('FT._LIST'), ['idx'], message="Expected one index after restoring the index")
+
+    # Test that the restored index works as expected, and that the schema is as expected
+    expected = [
+        [
+            'identifier', 't',
+            'attribute', 't',
+            'type', 'TEXT',
+            'WEIGHT', '2.1'
+        ], [
+            'identifier', 'n',
+            'attribute', 'n',
+            'type', 'NUMERIC',
+            'NOINDEX',
+        ], [
+            'identifier', 'g',
+            'attribute', 'g',
+            'type', 'GEO',
+        ], [
+            'identifier', 'tags',
+            'attribute', 'tags',
+            'type', 'TAG',
+            'SEPARATOR', ';',
+            'CASESENSITIVE',
+        ], [
+            'identifier', 'geom',
+            'attribute', 'geom',
+            'type', 'GEOSHAPE',
+            'coord_system', 'SPHERICAL',
+        ], [
+            'identifier', 'vec',
+            'attribute', 'vec',
+            'type', 'VECTOR',
+            'algorithm', 'FLAT',
+            'data_type', 'FLOAT32',
+            'dim', 2,
+            'distance_metric', 'L2',
+        ]
+    ]
+    env.assertEqual(index_info(env)['attributes'], expected)
+
+    # Test that synonyms were also restored correctly
+    env.expect('FT.SYNDUMP', 'idx').equal(['cat', ['meow'], 'dog', ['bark']])
