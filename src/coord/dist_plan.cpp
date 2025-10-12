@@ -435,7 +435,6 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         // Otherwise (if there was no arrange step), we can move the filter step from local to remote
         current = hadArrange ? PLN_NEXT_STEP(current) : moveStep(remote, src, current);
         break;
-      case PLN_T_MERGE: // merging is done in coordinator, but we need the coordinator AREQ rlookup to be aware of __key which we will get from the shard
       case PLN_T_VECTOR_NORMALIZER: // normalizing is done in shards
       case PLN_T_LOAD: // loading is done in shards
       case PLN_T_APPLY: 
@@ -510,13 +509,6 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
   for (DLLIST_node *nn = &lastLkStep->llnodePln; nn != &remote->steps; nn = nn->next) {
     PLN_BaseStep *cur = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     switch (cur->type) {
-      case PLN_T_MERGE: {
-        PLN_MergeStep *mstp = (PLN_MergeStep *)cur;
-        // If no one explicitly asked for the key - indicates we didn't have an implicit load step - user specified LOAD 
-        // mark key as hidden to not appear in the result
-        RLookup_GetKey_Write(lookup, mstp->docKeyName, RLOOKUP_F_HIDDEN);
-        break;
-      }
       case PLN_T_VECTOR_NORMALIZER: {
         PLN_VectorNormalizerStep *vnStep = (PLN_VectorNormalizerStep *)cur;
         RLookup_GetKey_Write(lookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);

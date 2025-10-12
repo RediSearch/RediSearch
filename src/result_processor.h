@@ -308,7 +308,7 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
                                     const RLookupKey *scoreKey,
-                                    arrayof(const RLookupKey *) docKeys,
+                                    const RLookupKey *docKey,
                                     RPStatus *subqueriesReturnCodes,
                                     HybridLookupContext *lookupCtx);
 

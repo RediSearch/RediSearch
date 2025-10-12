@@ -26,8 +26,6 @@ static const char *steptypeToString(PLN_StepType type) {
       return "GROUPBY";
     case PLN_T_LOAD:
       return "LOAD";
-    case PLN_T_MERGE:
-      return "MERGE";
     case PLN_T_VECTOR_NORMALIZER:
       return "VECTOR_NORMALIZER";
     case PLN_T_DISTRIBUTE:
@@ -341,7 +339,6 @@ void AGPLN_Dump(const AGGPlan *pln) {
         break;
       }
       case PLN_T_ROOT:
-      case PLN_T_MERGE:
       case PLN_T_VECTOR_NORMALIZER:
       case PLN_T_DISTRIBUTE:
       case PLN_T_INVALID:
@@ -366,17 +363,8 @@ static inline void append_ac(arrayof(char *) *arr, const ArgsCursor *ac) {
   }
 }
 
-bool addStepOnce(SerializedSteps *target, PLN_StepType st) {
-  if (target->steps[st]) {
-    return false;
-  }
-  target->steps[st] = array_new(char *, 1);
-  array_ensure_append_1(target->order, st);
-  return true;
-}
-
 static void serializeMapFilter(SerializedSteps *target, const PLN_BaseStep *stp) {
-  if (!addStepOnce(target, stp->type)) {
+  if (!SerializedSteps_AddStepOnce(target, stp->type)) {
     return;
   }
   arrayof(char *) *arr = &target->steps[stp->type];
@@ -394,7 +382,7 @@ static void serializeMapFilter(SerializedSteps *target, const PLN_BaseStep *stp)
 }
 
 static void serializeArrange(SerializedSteps *target, const PLN_BaseStep *stp) {
-  if (!addStepOnce(target, PLN_T_ARRANGE)) {
+  if (!SerializedSteps_AddStepOnce(target, PLN_T_ARRANGE)) {
     return;
   }
   arrayof(char *) *arr = &target->steps[PLN_T_ARRANGE];
@@ -422,7 +410,7 @@ static void serializeArrange(SerializedSteps *target, const PLN_BaseStep *stp) {
 }
 
 static void serializeLoad(SerializedSteps *target, const PLN_BaseStep *stp) {
-  if (!addStepOnce(target, PLN_T_LOAD)) {
+  if (!SerializedSteps_AddStepOnce(target, PLN_T_LOAD)) {
     return;
   }
   arrayof(char *) *arr = &target->steps[PLN_T_LOAD];
@@ -438,7 +426,7 @@ static void serializeLoad(SerializedSteps *target, const PLN_BaseStep *stp) {
 }
 
 static void serializeGroup(SerializedSteps *target, const PLN_BaseStep *stp) {
-  if (!addStepOnce(target, PLN_T_GROUP)) {
+  if (!SerializedSteps_AddStepOnce(target, PLN_T_GROUP)) {
     return;
   }
   arrayof(char *) *arr = &target->steps[PLN_T_GROUP];
@@ -480,36 +468,13 @@ void SerializedSteps_Clean(SerializedSteps *target) {
   array_free(target->order);
 }
 
-// modifies the load step to include the doc key
-static void serializeMerge(SerializedSteps *target, const PLN_BaseStep *stp) {
-  PLN_MergeStep *mstp = (PLN_MergeStep *)stp;
-  arrayof(char *) *arr = &target->steps[PLN_T_LOAD];
-  if (addStepOnce(target, PLN_T_LOAD)) {
-    append_string(arr, "LOAD");
-    char *noCount = NULL;
-    array_append(*arr, noCount);
-  } else if (array_len(*arr) < 2) {
-    return;
-  } else {
-    // check if the doc key is already in the load step
-    for (size_t ii = 2; ii < array_len(*arr); ++ii) {
-      const char *token = (*arr)[ii];
-      if (token[0] == '@') {
-        ++token;
-      }
-      if (strcmp(token, mstp->docKeyName) == 0) {
-        return;
-      }
-    }
+bool SerializedSteps_AddStepOnce(SerializedSteps *target, PLN_StepType st) {
+  if (target->steps[st]) {
+    return false;
   }
-  
-  size_t count = array_len(*arr) - 2 /* LOAD <count> */;
-  ++count; // dockey
-  if (!(*arr)[1]) {
-    rm_free((*arr)[1]);
-  }
-  rm_asprintf(&(*arr)[1], "%zu", count);
-  append_string(arr, mstp->docKeyName);
+  target->steps[st] = array_new(char *, 1);
+  array_ensure_append_1(target->order, st);
+  return true;
 }
 
  void AGPLN_Serialize(const AGGPlan *pln, SerializedSteps *target) {
@@ -529,9 +494,6 @@ static void serializeMerge(SerializedSteps *target, const PLN_BaseStep *stp) {
         break;
       case PLN_T_GROUP:
         serializeGroup(target, stp);
-        break;
-      case PLN_T_MERGE:
-        serializeMerge(target, stp);
         break;
       case PLN_T_VECTOR_NORMALIZER:
       case PLN_T_INVALID:

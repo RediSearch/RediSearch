@@ -595,9 +595,6 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
       case PLN_T_ROOT:
         // Placeholder step for initial lookup
         break;
-      case PLN_T_MERGE:
-        // step for merging results, helps to ensure upstreams in coordinator will have the __key rlookup key
-        break;
       case PLN_T_DISTRIBUTE:
         // This is the root already
         break;
