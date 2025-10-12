@@ -1720,9 +1720,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   // Single shard case - use dmd->keyPtr
   RLookupRow translated = {0};
   RLookupRow_WriteFieldsFrom(&r->rowdata, self->lookupCtx->sourceLookups[upstreamIndex], &translated, self->lookupCtx->tailLookup);
-  RLookupRow_Wipe(&r->rowdata);
-  RLookupRow_Move(self->lookupCtx->tailLookup, &translated, &r->rowdata);
-
+  RLookupRow_Reset(&r->rowdata);
+  r->rowdata = translated;
+  
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
   // Coordinator case - no dmd - use docKey in rlookup
