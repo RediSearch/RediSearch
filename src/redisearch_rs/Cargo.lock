@@ -2005,6 +2005,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "value_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "libc",
+ "redis-module",
+ "value",
+]
+
+[[package]]
 name = "varint"
 version = "0.0.1"
 dependencies = [

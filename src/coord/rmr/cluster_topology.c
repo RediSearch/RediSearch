@@ -16,15 +16,36 @@ void MRClusterShard_AddNode(MRClusterShard *sh, MRClusterNode *n) {
     sh->capNodes += 1;
     sh->nodes = rm_realloc(sh->nodes, sh->capNodes * sizeof(MRClusterNode));
   }
-  sh->nodes[sh->numNodes++] = *n;
+
+  if (n->flags & MRNode_Master && sh->numNodes > 0) {
+    // Ensure that master nodes are always at the front of the list
+    sh->nodes[sh->numNodes] = sh->nodes[0];
+    sh->nodes[0] = *n;
+  } else {
+    // Otherwise, just append
+    sh->nodes[sh->numNodes] = *n;
+  }
+  sh->numNodes++;
 }
 
-MRClusterShard MR_NewClusterShard(mr_slot_t startSlot, mr_slot_t endSlot, size_t capNodes) {
+
+void MRClusterShard_AddRange(MRClusterShard *sh, mr_slot_t start, mr_slot_t end) {
+  if (sh->capRanges == sh->numRanges) {
+    sh->capRanges++;
+    sh->ranges = rm_realloc(sh->ranges, sh->capRanges * sizeof(mr_slot_range_t));
+  }
+  sh->ranges[sh->numRanges].start = start;
+  sh->ranges[sh->numRanges].end = end;
+  sh->numRanges++;
+}
+
+MRClusterShard MR_NewClusterShard(uint32_t capNodes) {
   MRClusterShard ret = (MRClusterShard){
-      .startSlot = startSlot,
-      .endSlot = endSlot,
-      .capNodes = capNodes,
+      .numRanges = 0,
+      .capRanges = 1,
+      .ranges = rm_calloc(1, sizeof(mr_slot_range_t)),
       .numNodes = 0,
+      .capNodes = capNodes,
       .nodes = rm_calloc(capNodes, sizeof(MRClusterNode)),
   };
   return ret;
@@ -55,7 +76,12 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
   MRClusterTopology *topo = MR_NewTopology(t->numShards, t->numSlots, t->hashFunc);
   for (int s = 0; s < t->numShards; s++) {
     MRClusterShard *original_shard = &t->shards[s];
-    MRClusterShard new_shard = MR_NewClusterShard(original_shard->startSlot, original_shard->endSlot, original_shard->numNodes);
+    MRClusterShard new_shard = MR_NewClusterShard(original_shard->numNodes);
+    new_shard.numRanges = original_shard->numRanges;
+    new_shard.capRanges = original_shard->numRanges;
+    new_shard.ranges = rm_realloc(new_shard.ranges, new_shard.capRanges * sizeof(mr_slot_range_t));
+    memcpy(new_shard.ranges, original_shard->ranges, original_shard->numRanges * sizeof(mr_slot_range_t));
+
     for (int n = 0; n < original_shard->numNodes; n++) {
       MRClusterNode *node = &original_shard->nodes[n];
       MRClusterShard_AddNode(&new_shard, node);
@@ -83,6 +109,7 @@ void MRClusterTopology_Free(MRClusterTopology *t) {
       MRClusterNode_Free(&t->shards[s].nodes[n]);
     }
     rm_free(t->shards[s].nodes);
+    rm_free(t->shards[s].ranges);
   }
   rm_free(t->shards);
   rm_free(t);
