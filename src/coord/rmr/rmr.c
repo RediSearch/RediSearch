@@ -678,7 +678,10 @@ void iterCursorMappingCb(void *p) {
   StrongRef mappingsRef = WeakRef_Promote(data->privateDataRef);
   CursorMappings *vsimOrSearch = StrongRef_Get(mappingsRef);
   if (!vsimOrSearch) {
-    MRIteratorCallback_Done(data, 1);
+    // Cursor mappings have been freed - cannot proceed with command dispatch.
+    // Release the iterator to decrement its reference count and trigger cleanup.
+    // This handles the case where we abort before sending commands to any shards.
+    MRIterator_Release(it);
     rm_free(data);
     return;
   }
