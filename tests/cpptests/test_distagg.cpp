@@ -124,7 +124,7 @@ static void testCountDistinct() {
   }
   assert(rc == REDISMODULE_OK);
   AGPLN_Dump(plan2);
-  for (size_t ii = 0; ii < us.nserialized; ++ii) {
+  for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
   AREQ_Free(r);
@@ -162,7 +162,7 @@ static void testSplit() {
   }
   assert(rc == REDISMODULE_OK);
   AGPLN_Dump(plan3);
-  for (size_t ii = 0; ii < us.nserialized; ++ii) {
+  for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
   AREQ_Free(r);
