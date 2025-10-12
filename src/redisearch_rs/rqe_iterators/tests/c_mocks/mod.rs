@@ -18,18 +18,21 @@
 //! ```
 
 use ffi::RSQueryTerm;
+use ffi::{array_ensure_append_n_func, array_clear_func, array_free};
 use inverted_index::{RSIndexResult, RSTermRecord};
+use std::ffi::c_void;
+
+redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }
+    unsafe {
+        array_free(metrics as *mut c_void);   
+    }
 
-    panic!(
-        "did not expect any test to set metrics, but got: {:?}",
-        unsafe { *metrics }
-    );
 }
 
 #[unsafe(no_mangle)]
@@ -53,15 +56,43 @@ pub extern "C" fn Term_Free(t: *mut RSQueryTerm) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn RSValue_NewNumber(_val: f64) -> *mut ffi::RSValue {
-    // Mock implementation - return null pointer for testing
-    std::ptr::null_mut()
+pub extern "C" fn RSValue_NewNumber(val: f64) -> *mut ffi::RSValue {
+    // Allocate the f64 value and cast the pointer
+    let mock_value = Box::new(val);
+    Box::into_raw(mock_value) as *mut ffi::RSValue
+}
+
+#[allow(dead_code)]
+pub fn get_mock_number_value(ptr: *const ffi::RSValue) -> Option<f64> {
+    if ptr.is_null() {
+        return None;
+    }
+    
+    // Cast back to f64 pointer and read the value
+    unsafe {
+        Some(*(ptr as *const f64))
+    }
 }
 
 #[unsafe(no_mangle)]
+#[allow(unused_assignments)]
 pub extern "C" fn RSYieldableMetric_Concat(
-    _metrics: *mut ffi::RSYieldableMetric,
-    _new_metric: *const ffi::RSYieldableMetric,
+    metrics: *mut *mut ffi::RSYieldableMetric,
+    new_metric: *const ffi::RSYieldableMetric,
 ) {
-    // Mock implementation - do nothing for testing
+    if new_metric.is_null() {
+        return;
+    }
+    unsafe {
+        let elem_sz = std::mem::size_of::<ffi::RSYieldableMetric>();
+        // array_ensure_append_n_func returns a new array pointer, but we don't need to use it in this mock
+        *metrics = array_ensure_append_n_func(
+            *metrics as *mut c_void, 
+            new_metric as *mut c_void, 
+            1, 
+            elem_sz) as *mut ffi::RSYieldableMetric ;
+        
+        // array_clear_func returns a new array pointer, but we don't need to use it in this mock
+        let _ = array_clear_func(new_metric as *mut c_void, elem_sz);
+    }
 }
