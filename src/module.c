@@ -1106,13 +1106,10 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int RegisterRestoreIfNxCommands(RedisModuleCommand *restoreCmd) {
-
-  RedisModule_Log(RSDummyContext, "warning", "Registering internal command %s: %p", RS_RESTORE_IF_NX, restoreCmd);
   int rc;
 
   const char *schema_flags = IsEnterprise() ? "write "CMD_PROXY_FILTERED : "write internal";
   rc = RedisModule_CreateSubcommand(restoreCmd, "SCHEMA", RestoreSchema, schema_flags, 0, 0, 0);
-  RedisModule_Log(RSDummyContext, "warning", "Registering internal command %s SCHEMA: %s", RS_RESTORE_IF_NX, rc == REDISMODULE_OK ? "OK" : rc == REDISMODULE_ERR ? "ERR" : "UNKNOWN");
   if (rc != REDISMODULE_OK) return rc;
 
   return REDISMODULE_OK;
