@@ -167,18 +167,8 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, MRCommand 
   }
 
   if (SerializedSteps_HasSteps(serialized)) {
-    if (serialized->steps[PLN_T_ARRANGE]) {
-      arrayof(char *) *arrangeStep = &serialized->steps[PLN_T_ARRANGE];
-      for (size_t ii = 0; ii < array_len(*arrangeStep); ++ii) {
-        MRCommand_Append(xcmd, (*arrangeStep)[ii], strlen((*arrangeStep)[ii]));
-      }
-    }
-
     for (size_t ii = 0; ii < array_len(serialized->order); ++ii) {
       PLN_StepType st = serialized->order[ii];
-      if (st == PLN_T_ARRANGE) {
-        continue;
-      }
       arrayof(char *) *step = &serialized->steps[st];
       for (size_t jj = 0; jj < array_len(*step); ++jj) {
         MRCommand_Append(xcmd, (*step)[jj], strlen((*step)[jj]));
