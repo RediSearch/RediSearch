@@ -61,9 +61,8 @@ static void testAverage() {
   // Serialize it!
   // printf("Printing serialized plan..\n");
   // AGPLN_Dump(dstp->plan);
-  auto &v = *dstp->serialized;
-  for (size_t ii = 0; ii < v.size(); ++ii) {
-    printf("Serialized[%lu]: %s\n", ii, v[ii]);
+  for (size_t ii = 0; ii < array_len(dstp->serialized); ++ii) {
+    printf("Serialized[%lu]: %s\n", ii, dstp->serialized[ii]);
   }
 
   dstp = (PLN_DistributeStep *)AGPLN_FindStep(plan, NULL, NULL, PLN_T_DISTRIBUTE);
