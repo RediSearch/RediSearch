@@ -546,7 +546,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
   // Start the garbage collector
-  IndexSpec_StartGC(ctx, spec_ref, sp);
+  IndexSpec_StartGC(spec_ref, sp);
 
   Cursors_initSpec(sp);
 
@@ -1527,136 +1527,6 @@ inline static bool isSpecOnDisk(const IndexSpec *sp) {
   return isFlex;
 }
 
-/**
- * Convert an IndexSpec to the equivalent FT.CREATE command arguments
- * The returned array must be freed by the caller using array_free
- * Note that the returned array contains RedisModuleString* which must be freed by the caller
- * using RedisModule_FreeString
-*/
-arrayof(RedisModuleString *) IndexSpec_AsCommand(RedisModuleCtx *ctx, const IndexSpec *sp) {
-  arrayof(RedisModuleString *) argv = array_new(RedisModuleString *, 32);
-
-  // Index name
-  array_append(argv, HiddenString_CreateRedisModuleString(ctx, sp->specName));
-
-  // Global Text options
-  if (!(sp->flags & Index_StoreTermOffsets)) {
-    array_append(argv, RedisModule_CreateString(ctx, SPEC_NOOFFSETS_STR, strlen(SPEC_NOOFFSETS_STR)));
-  }
-  if (!(sp->flags & Index_StoreFieldFlags)) {
-    array_append(argv, RedisModule_CreateString(ctx, SPEC_NOFIELDS_STR, strlen(SPEC_NOFIELDS_STR)));
-  }
-  if (!(sp->flags & Index_StoreFreqs)) {
-    array_append(argv, RedisModule_CreateString(ctx, SPEC_NOFREQS_STR, strlen(SPEC_NOFREQS_STR)));
-  }
-  if (!(sp->flags & Index_StoreByteOffsets)) {
-    array_append(argv, RedisModule_CreateString(ctx, SPEC_NOHL_STR, strlen(SPEC_NOHL_STR)));
-  }
-  if (sp->flags & Index_WideSchema && array_len(sp->fieldIdToIndex) <= SPEC_WIDEFIELD_THRESHOLD) {
-    array_append(argv, RedisModule_CreateString(ctx, SPEC_SCHEMA_EXPANDABLE_STR, strlen(SPEC_SCHEMA_EXPANDABLE_STR)));
-  }
-
-  // Temporary
-  if (sp->flags & Index_Temporary) {
-    array_append(argv, RedisModule_CreateString(ctx, SPEC_TEMPORARY_STR, strlen(SPEC_TEMPORARY_STR)));
-    long long seconds = sp->timeout / 1000;
-    array_append(argv, RedisModule_CreateStringFromLongLong(ctx, seconds));
-  }
-
-  // Stopwords
-  if (sp->flags & Index_HasCustomStopwords) {
-    array_append(argv, RedisModule_CreateString(ctx, SPEC_STOPWORDS_STR, strlen(SPEC_STOPWORDS_STR)));
-    size_t len;
-    char **stopwords = GetStopWordsList(sp->stopwords, &len);
-    array_append(argv, RedisModule_CreateStringFromLongLong(ctx, len));
-    for (size_t i = 0; i < len; i++) {
-      array_append(argv, RedisModule_CreateString(ctx, stopwords[i], strlen(stopwords[i])));
-    }
-    rm_free(stopwords);
-  }
-
-  // Rules
-  if (sp->rule) {
-    // Type
-    array_append(argv, RedisModule_CreateString(ctx, "ON", 2));
-    const char *rule_type = DocumentType_ToString(sp->rule->type);
-    array_append(argv, RedisModule_CreateString(ctx, rule_type, strlen(rule_type)));
-
-    array_append(argv, RedisModule_CreateString(ctx, "PREFIX", 6));
-    for (size_t i = 0; i < array_len(sp->rule->prefixes); i++) {
-      array_append(argv, HiddenUnicodeString_CreateRedisModuleString(sp->rule->prefixes[i], ctx));
-    }
-
-    if (sp->rule->filter_exp) {
-      array_append(argv, RedisModule_CreateString(ctx, "FILTER", 6));
-      array_append(argv, HiddenString_CreateRedisModuleString(ctx, sp->rule->filter_exp_str));
-    }
-
-    const char *lang = RSLanguage_ToString(sp->rule->lang_default);
-    array_append(argv, RedisModule_CreateString(ctx, "LANGUAGE", 8));
-    array_append(argv, RedisModule_CreateString(ctx, lang, strlen(lang)));
-
-    if (sp->rule->score_default != DEFAULT_SCORE) {
-      array_append(argv, RedisModule_CreateString(ctx, "SCORE", 5));
-      array_append(argv, RedisModule_CreateStringFromDouble(ctx, sp->rule->score_default));
-    }
-
-    if (sp->rule->lang_field) {
-      array_append(argv, RedisModule_CreateString(ctx, "LANGUAGE_FIELD", 14));
-      array_append(argv, RedisModule_CreateString(ctx, sp->rule->lang_field, strlen(sp->rule->lang_field)));
-    }
-
-    if (sp->rule->score_field) {
-      array_append(argv, RedisModule_CreateString(ctx, "SCORE_FIELD", 11));
-      array_append(argv, RedisModule_CreateString(ctx, sp->rule->score_field, strlen(sp->rule->score_field)));
-    }
-
-    if (sp->rule->payload_field) {
-      array_append(argv, RedisModule_CreateString(ctx, "PAYLOAD_FIELD", 13));
-      array_append(argv, RedisModule_CreateString(ctx, sp->rule->payload_field, strlen(sp->rule->payload_field)));
-    }
-  }
-
-  // Fields
-  array_append(argv, RedisModule_CreateString(ctx, SPEC_SCHEMA_STR, strlen(SPEC_SCHEMA_STR)));
-  for (size_t i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = sp->fields + i;
-    // Field name
-    array_append(argv, HiddenString_CreateRedisModuleString(ctx, fs->fieldPath));
-    if (fs->fieldPath != fs->fieldName) {
-      array_append(argv, RedisModule_CreateString(ctx, SPEC_AS_STR, strlen(SPEC_AS_STR)));
-      array_append(argv, HiddenString_CreateRedisModuleString(ctx, fs->fieldName));
-    }
-    // Field type
-    switch (fs->types) {
-      case INDEXFLD_T_FULLTEXT:
-        array_append(argv, RedisModule_CreateString(ctx, SPEC_TEXT_STR, strlen(SPEC_TEXT_STR)));
-        TextFieldSpec_AsCommand(ctx, fs, argv);
-        break;
-      case INDEXFLD_T_NUMERIC:
-        array_append(argv, RedisModule_CreateString(ctx, SPEC_NUMERIC_STR, strlen(SPEC_NUMERIC_STR)));
-        NumericFieldSpec_AsCommand(ctx, fs, argv);
-        break;
-      case INDEXFLD_T_GEO:
-        array_append(argv, RedisModule_CreateString(ctx, SPEC_GEO_STR, strlen(SPEC_GEO_STR)));
-        GeoFieldSpec_AsCommand(ctx, fs, argv);
-        break;
-      case INDEXFLD_T_TAG:
-        array_append(argv, RedisModule_CreateString(ctx, SPEC_TAG_STR, strlen(SPEC_TAG_STR)));
-        TagFieldSpec_AsCommand(ctx, fs, argv);
-        break;
-      case INDEXFLD_T_VECTOR:
-        array_append(argv, RedisModule_CreateString(ctx, SPEC_VECTOR_STR, strlen(SPEC_VECTOR_STR)));
-        VectorFieldSpec_AsCommand(ctx, fs, argv);
-        break;
-      case INDEXFLD_T_GEOMETRY:
-        array_append(argv, RedisModule_CreateString(ctx, SPEC_GEOMETRY_STR, strlen(SPEC_GEOMETRY_STR)));
-        GeometryFieldSpec_AsCommand(ctx, fs, argv);
-        break;
-    }
-  }
-  return argv;
-}
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
@@ -2333,7 +2203,7 @@ void IndexSpec_StartGCFromSpec(StrongRef global, IndexSpec *sp, uint32_t gcPolic
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
  * index after removing documents */
 // Only used on new specs so it's thread safe
-void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
+void IndexSpec_StartGC(StrongRef global, IndexSpec *sp) {
   RS_LOG_ASSERT(!sp->gc, "GC already exists");
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.gcConfigParams.enableGC && !(sp->flags & Index_Temporary)) {
@@ -2341,8 +2211,8 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
     GCContext_Start(sp->gc);
 
     const char* name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
-    RedisModule_Log(ctx, "verbose", "Starting GC for %s", name);
-    RedisModule_Log(ctx, "debug", "Starting GC %p for %s", sp->gc, name);
+    RedisModule_Log(RSDummyContext, "verbose", "Starting GC for %s", name);
+    RedisModule_Log(RSDummyContext, "debug", "Starting GC %p for %s", sp->gc, name);
   }
 }
 
@@ -3191,10 +3061,8 @@ cleanup:
   return NULL;
 }
 
-int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
-                                       QueryError *status) {
-  // Load the index spec using the new function
-  IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, status);
+static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
+
   if (!sp) {
     addPendingIndexDrop();
     return REDISMODULE_ERR;
@@ -3211,7 +3079,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
   }
 
-  IndexSpec_StartGC(ctx, spec_ref, sp);
+  IndexSpec_StartGC(spec_ref, sp);
   Cursors_initSpec(sp);
 
   if (sp->isDuplicate) {
@@ -3229,6 +3097,12 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     }
   }
   return REDISMODULE_OK;
+}
+
+static int IndexSpec_CreateFromRdb(RedisModuleIO *rdb, int encver, QueryError *status) {
+  // Load the index spec using the new function
+  IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, status);
+  return IndexSpec_StoreAfterRdbLoad(sp);
 }
 
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
@@ -3340,7 +3214,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   // start the gc and add the spec to the cursor list
-  IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
+  IndexSpec_StartGC(spec_ref, sp);
   Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
@@ -3362,10 +3236,9 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   }
 
   size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   QueryError status = QueryError_Default();
   for (size_t i = 0; i < nIndexes; ++i) {
-    if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
+    if (IndexSpec_CreateFromRdb(rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
@@ -3401,6 +3274,45 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   if (dictSize(specDict_g)) {
     Indexes_RdbSave(rdb, when);
   }
+}
+
+void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
+  if (encver < INDEX_VECSIM_SVS_VAMANA_VERSION) {
+    // Legacy index, loaded in order to upgrade from an old version
+    return IndexSpec_LegacyRdbLoad(rdb, encver);
+  } else {
+    // New index, loaded normally.
+    // Even though we don't actually load or save the index spec in the key space, this implementation is useful
+    // because it allows us to serialize and deserialize the index spec in a clean way.
+    QueryError status = QueryError_Default();
+    IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, &status);
+    if (!sp) {
+      RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+      QueryError_ClearError(&status);
+    }
+    return sp;
+  }
+}
+
+/**
+ * Convert an IndexSpec to its RDB serialized form, by calling the `IndexSpecType` rdb_save function.
+ * Note that the returned RedisModuleString* must be freed by the caller
+ * using RedisModule_FreeString
+*/
+RedisModuleString * IndexSpec_Serialize(IndexSpec *sp) {
+  return RedisModule_SaveDataTypeToString(NULL, sp, IndexSpecType);
+}
+
+/**
+ * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
+ * Note that this function also stores the index spec in the global spec dictionary, as if it was loaded
+ * from the RDB file.
+ * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure.
+ * Does not consume the serialized string, the caller is responsible for freeing it.
+*/
+int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver) {
+  IndexSpec *sp = RedisModule_LoadDataTypeFromStringEncver(serialized, IndexSpecType, encver);
+  return IndexSpec_StoreAfterRdbLoad(sp);
 }
 
 int CompareVersions(Version v1, Version v2) {
@@ -3475,8 +3387,8 @@ static void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, u
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {
       .version = REDISMODULE_TYPE_METHOD_VERSION,
-      .rdb_load = IndexSpec_LegacyRdbLoad,
-      .rdb_save = IndexSpec_LegacyRdbSave,
+      .rdb_load = IndexSpec_RdbLoad_Logic,  // We don't store the index spec in the key space,
+      .rdb_save = IndexSpec_RdbSave,        // but these are useful for serialization/deserialization (and legacy loading)
       .aux_load = Indexes_RdbLoad,
       .aux_save = Indexes_RdbSave,
       .free = IndexSpec_LegacyFree,
