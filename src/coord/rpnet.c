@@ -176,6 +176,7 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
 
     // Create cursor read command using the copied index name
     nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx_copy);
+    nc->cmd.rootCommand = C_READ;
     nc->cmd.protocol = 3;
     rm_free(idx_copy);
 
