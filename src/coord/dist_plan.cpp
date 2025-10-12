@@ -555,11 +555,14 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
 }
 
 // We want to fillk AREQDIST_UpstreamInfo with the steps from the SerializedSteps struct in the same order
-void SerializedSteps_FillUpstreamInfo(SerializedSteps *ss, AREQDIST_UpstreamInfo *us) {
+void SerializedSteps_FillUpstreamInfo(SerializedSteps *serialized, AREQDIST_UpstreamInfo *us) {
   us->serialized = array_new(const char *, 1);
-  for (size_t ii = 0; ii < array_len(ss->order); ++ii) {
-    PLN_StepType st = ss->order[ii];
-    arrayof(char *) *tokens = &ss->steps[st];  
+  if (!serialized->order) {
+    return;
+  }
+  for (size_t ii = 0; ii < array_len(serialized->order); ++ii) {
+    PLN_StepType st = serialized->order[ii];
+    arrayof(char *) *tokens = &serialized->steps[st];  
     for (size_t jj = 0; jj < array_len(*tokens); ++jj) {
       array_ensure_append_1(us->serialized, tokens[jj]);
     }
@@ -586,9 +589,9 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   }
   // If we have any unresolved fields, we need to add a load step
   if (!loadFields.empty()) {
+    const bool added = SerializedSteps_AddStepOnce(&dstp->serialized, PLN_T_LOAD);
     arrayof(char *) *loadStep = &dstp->serialized.steps[PLN_T_LOAD];
-    RS_ASSERT(*loadStep == NULL);
-    *loadStep = array_new(char *, loadFields.size() + 2);
+    RS_ASSERT(added);
     array_append(*loadStep, rm_strndup("LOAD", 4));
     char *ldsze;
     rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
