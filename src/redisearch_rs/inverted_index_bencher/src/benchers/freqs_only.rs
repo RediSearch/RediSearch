@@ -30,6 +30,12 @@ struct TestValue {
     encoded: Vec<u8>,
 }
 
+impl Default for Bencher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Bencher {
     const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
     const WARMUP_TIME: Duration = Duration::from_millis(200);
@@ -46,7 +52,7 @@ impl Bencher {
                     .doc_id(100)
                     .frequency(freq);
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = FreqsOnly::default()
+                let _grew_size = FreqsOnly
                     .encode(&mut buffer, delta, &record)
                     .unwrap();
                 let encoded = buffer.into_inner();
@@ -127,7 +133,7 @@ impl Bencher {
                             .doc_id(100)
                             .frequency(test.freq);
 
-                        let grew_size = FreqsOnly::default()
+                        let grew_size = FreqsOnly
                             .encode(&mut buffer, test.delta, &record)
                             .unwrap();
 

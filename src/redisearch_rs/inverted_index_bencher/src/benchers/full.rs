@@ -84,11 +84,11 @@ impl Bencher {
                 let mut buffer = Cursor::new(Vec::new());
 
                 let _grew_size = if wide {
-                    FullWide::default()
+                    FullWide
                         .encode(&mut buffer, delta, &record.record)
                         .unwrap()
                 } else {
-                    Full::default()
+                    Full
                         .encode(&mut buffer, delta, &record.record)
                         .unwrap()
                 };
@@ -185,11 +185,11 @@ impl Bencher {
                         );
 
                         let grew_size = if self.wide {
-                            FullWide::default()
+                            FullWide
                                 .encode(&mut buffer, test.delta, &record.record)
                                 .unwrap()
                         } else {
-                            Full::default()
+                            Full
                                 .encode(&mut buffer, test.delta, &record.record)
                                 .unwrap()
                         };
@@ -229,9 +229,9 @@ impl Bencher {
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
                         let result = if self.wide {
-                            FullWide::default().decode_new(buffer, 100).unwrap()
+                            FullWide.decode_new(buffer, 100).unwrap()
                         } else {
-                            Full::default().decode_new(buffer, 100).unwrap()
+                            Full.decode_new(buffer, 100).unwrap()
                         };
 
                         let _ = black_box(result);

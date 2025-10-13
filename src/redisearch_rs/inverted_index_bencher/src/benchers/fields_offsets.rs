@@ -77,11 +77,11 @@ impl Bencher {
                 let mut buffer = Cursor::new(Vec::new());
 
                 let _grew_size = if wide {
-                    FieldsOffsetsWide::default()
+                    FieldsOffsetsWide
                         .encode(&mut buffer, delta, &record.record)
                         .unwrap()
                 } else {
-                    FieldsOffsets::default()
+                    FieldsOffsets
                         .encode(&mut buffer, delta, &record.record)
                         .unwrap()
                 };
@@ -169,11 +169,11 @@ impl Bencher {
                             TestTermRecord::new(100, test.field_mask, 1, test.term_offsets.clone());
 
                         let grew_size = if self.wide {
-                            FieldsOffsetsWide::default()
+                            FieldsOffsetsWide
                                 .encode(&mut buffer, test.delta, &record.record)
                                 .unwrap()
                         } else {
-                            FieldsOffsets::default()
+                            FieldsOffsets
                                 .encode(&mut buffer, test.delta, &record.record)
                                 .unwrap()
                         };
@@ -212,7 +212,7 @@ impl Bencher {
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
                         let result = if self.wide {
-                            FieldsOffsetsWide::default()
+                            FieldsOffsetsWide
                                 .decode_new(buffer, 100)
                                 .unwrap()
                         } else {

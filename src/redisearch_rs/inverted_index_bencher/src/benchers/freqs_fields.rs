@@ -79,11 +79,11 @@ impl Bencher {
 
                 let mut buffer = Cursor::new(Vec::new());
                 let _grew_size = if wide {
-                    FreqsFieldsWide::default()
+                    FreqsFieldsWide
                         .encode(&mut buffer, delta, &record)
                         .unwrap()
                 } else {
-                    FreqsFields::default()
+                    FreqsFields
                         .encode(&mut buffer, delta, &record)
                         .unwrap()
                 };
@@ -174,11 +174,11 @@ impl Bencher {
                             .frequency(test.freq);
 
                         let grew_size = if self.wide {
-                            FreqsFieldsWide::default()
+                            FreqsFieldsWide
                                 .encode(&mut buffer, test.delta, &record)
                                 .unwrap()
                         } else {
-                            FreqsFields::default()
+                            FreqsFields
                                 .encode(&mut buffer, test.delta, &record)
                                 .unwrap()
                         };
@@ -217,11 +217,11 @@ impl Bencher {
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
                         if self.wide {
-                            let decoder = FreqsFieldsWide::default();
+                            let decoder = FreqsFieldsWide;
                             let result = decoder.decode_new(buffer, 100).unwrap();
                             let _ = black_box(result);
                         } else {
-                            let decoder = FreqsFields::default();
+                            let decoder = FreqsFields;
                             let result = decoder.decode_new(buffer, 100).unwrap();
                             let _ = black_box(result);
                         }

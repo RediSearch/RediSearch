@@ -26,6 +26,12 @@ pub struct Bencher {
     test_values: Vec<BenchGroup>,
 }
 
+impl Default for Bencher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Bencher {
     const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
     const WARMUP_TIME: Duration = Duration::from_millis(200);

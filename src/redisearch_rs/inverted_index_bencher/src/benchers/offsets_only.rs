@@ -58,7 +58,7 @@ impl Bencher {
                 let record = TestTermRecord::new(100, 0, 1, term_offsets.clone());
                 let mut buffer = Cursor::new(Vec::new());
 
-                let _grew_size = OffsetsOnly::default()
+                let _grew_size = OffsetsOnly
                     .encode(&mut buffer, delta, &record.record)
                     .unwrap();
 
@@ -134,7 +134,7 @@ impl Bencher {
                     for test in &self.test_values {
                         let record = TestTermRecord::new(100, 0, 1, test.term_offsets.clone());
 
-                        let grew_size = OffsetsOnly::default()
+                        let grew_size = OffsetsOnly
                             .encode(&mut buffer, test.delta, &record.record)
                             .unwrap();
 
@@ -171,7 +171,7 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let result = OffsetsOnly::default().decode_new(buffer, 100).unwrap();
+                        let result = OffsetsOnly.decode_new(buffer, 100).unwrap();
 
                         let _ = black_box(result);
                     },
