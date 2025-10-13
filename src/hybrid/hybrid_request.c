@@ -1,4 +1,4 @@
-#include "hybrid/hybrid_request.h"
+hang#include "hybrid/hybrid_request.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "rlookup.h"
@@ -122,7 +122,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
         return REDISMODULE_ERR;
       }
     } else {
-      scoreKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_SCORE, RLOOKUP_F_HIDDEN);
+      scoreKey = RLookup_GetKey_Write(tailLookup, UNDERSCORE_SCORE, RLOOKUP_F_HIDDEN);
     }
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
