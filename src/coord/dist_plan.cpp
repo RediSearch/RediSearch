@@ -592,7 +592,7 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
     // Some testa already have load step at this point
     // tried editing the existing load step if it exists and adding ti when it doesn't
     // it led to tests failing
-    // for now trying to try and preserve old behaviour where the load cluase would be added at the end of the serialized arg list
+    // for now trying to try and preserve old behaviour where the load clause would be added at the end of the serialized arg list
     // weird we have 2 possible load clauses but due to time pressure can't look into this too much
     SerializedSteps_AddStepOnce(&dstp->serialized, PLN_T_INVALID);
     arrayof(char *) *lastStep = &dstp->serialized.steps[PLN_T_INVALID];
