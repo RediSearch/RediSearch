@@ -29,3 +29,4 @@ itertools.workspace = true
 redis_mock.workspace = true
 rqe_iterators.workspace = true
 types_ffi = { path = "../c_entrypoint/types_ffi" }
+value_ffi = { path = "../c_entrypoint/value_ffi" }

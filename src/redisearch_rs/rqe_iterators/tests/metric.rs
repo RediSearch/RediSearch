@@ -8,7 +8,7 @@
 */
 
 #[allow(unused_imports)]
-use crate::c_mocks::{RSValue_NewNumber, get_mock_number_value};
+use crate::c_mocks::get_rs_value_number;
 use ffi::RSValue;
 use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, metric::Metric};
 mod c_mocks;
@@ -70,7 +70,7 @@ fn read() {
             let res = res.unwrap();
             assert_eq!(res.doc_id, expected_id, "Case {i}, element {j}");
             let metric_val: *mut RSValue = unsafe { (*res.metrics.wrapping_add(j)).value };
-            assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[j]);
+            assert_eq!(get_rs_value_number(metric_val).unwrap(), metric_data[j]);
             assert_eq!(it.last_doc_id(), expected_id, "Case {i}, element {j}");
         }
 
@@ -99,7 +99,7 @@ fn skip_to() {
         let first_id = case[0];
         assert_eq!(first_doc.doc_id, first_id, "Case {ci}");
         let metric_val: *mut RSValue = unsafe { (*first_doc.metrics).value };
-        assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[0]);
+        assert_eq!(get_rs_value_number(metric_val).unwrap(), metric_data[0]);
         assert_eq!(it.last_doc_id(), first_id, "Case {ci}");
         assert_eq!(it.at_eof(), Some(&first_id) == case.last(), "Case {ci}");
 
@@ -130,7 +130,7 @@ fn skip_to() {
                 );
                 let metric_val: *mut RSValue =
                     unsafe { (*res.metrics.wrapping_add(probe as usize)).value };
-                assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[j]);
+                assert_eq!(get_rs_value_number(metric_val).unwrap(), metric_data[j]);
                 // Should land on next existing id
                 assert_eq!(
                     it.at_eof(),
@@ -155,7 +155,7 @@ fn skip_to() {
             );
             let metric_val: *mut RSValue =
                 unsafe { (*res.metrics.wrapping_add(probe as usize)).value };
-            assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[j]);
+            assert_eq!(get_rs_value_number(metric_val).unwrap(), metric_data[j]);
             assert_eq!(
                 it.at_eof(),
                 Some(&id) == case.last(),

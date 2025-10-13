@@ -55,27 +55,35 @@ pub extern "C" fn Term_Free(t: *mut RSQueryTerm) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn RSValue_NewNumber(val: f64) -> *mut ffi::RSValue {
-    // Allocate the f64 value and cast the pointer
-    let mock_value = Box::new(val);
-    Box::into_raw(mock_value) as *mut ffi::RSValue
+pub extern "C" fn RSValue_Number(val: f64) -> ffi::RSValue {
+    // Allocate the f64 value on the heap and return a raw pointer to it
+    let rs_val = Box::new(ffi::RSValue {
+        __bindgen_anon_1: ffi::RSValue__bindgen_ty_1 {
+            _numval: val, // Store the number value in the union
+        },
+        _refcount: 1,
+        _bitfield_align_1: [0; 0],
+        _bitfield_1: ffi::__BindgenBitfieldUnit::new([0; 1]),
+    });
+    *rs_val
 }
 
 #[allow(dead_code)]
-pub fn get_mock_number_value(ptr: *const ffi::RSValue) -> Option<f64> {
+pub fn get_rs_value_number(ptr: *const ffi::RSValue) -> Option<f64> {
     if ptr.is_null() {
         return None;
     }
-
-    // Cast back to f64 pointer and read the value
-    unsafe { Some(*(ptr as *const f64)) }
+    unsafe {
+        let v = Some((*ptr).__bindgen_anon_1._numval);
+        v
+    }
 }
 
 #[unsafe(no_mangle)]
 #[allow(unused_assignments)]
 pub extern "C" fn RSYieldableMetric_Concat(
     metrics: *mut *mut ffi::RSYieldableMetric,
-    new_metric: *const ffi::RSYieldableMetric,
+    mut new_metric: *mut ffi::RSYieldableMetric,
 ) {
     if new_metric.is_null() {
         return;
@@ -91,6 +99,7 @@ pub extern "C" fn RSYieldableMetric_Concat(
         ) as *mut ffi::RSYieldableMetric;
 
         // array_clear_func returns a new array pointer, but we don't need to use it in this mock
-        let _ = array_clear_func(new_metric as *mut c_void, elem_sz);
+        new_metric =
+            array_clear_func(new_metric as *mut c_void, elem_sz) as *mut ffi::RSYieldableMetric;
     }
 }
