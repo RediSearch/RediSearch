@@ -339,7 +339,6 @@ static bool in_asm_trim = false;
 static bool in_asm_import = false;
 
 void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-  REDISMODULE_NOT_USED(ctx);
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(data);
 
