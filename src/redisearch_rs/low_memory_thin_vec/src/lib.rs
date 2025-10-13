@@ -292,14 +292,14 @@ impl<T> LowMemoryThinVec<T> {
     // Accessor conveniences
 
     /// Return a reference to the header.
-    fn header_ref(&self) -> &Header {
+    const fn header_ref(&self) -> &Header {
         // SAFETY:
         // Guaranteed by the invariants on the `ptr` field.
         // Check out [`LowMemoryThinVec::ptr`] for more details.
         unsafe { self.ptr.as_ref() }
     }
     /// Return a pointer to the data array located after the header.
-    fn data_raw(&self) -> *mut T {
+    const fn data_raw(&self) -> *mut T {
         let header_field_padding = header_field_padding::<T>();
 
         // Although we ensure the data array is aligned when we allocate,
@@ -338,7 +338,7 @@ impl<T> LowMemoryThinVec<T> {
     /// # Safety
     ///
     /// The header pointer must not point to [`EMPTY_HEADER`].
-    unsafe fn header_mut(&mut self) -> &mut Header {
+    const unsafe fn header_mut(&mut self) -> &mut Header {
         // SAFETY:
         // We know that `self.ptr` can be safely converted to a `&Header`,
         // thanks to the its documented invariants (see [`Self::ptr`] docs).
@@ -359,7 +359,7 @@ impl<T> LowMemoryThinVec<T> {
     /// let a = low_memory_thin_vec![1, 2, 3];
     /// assert_eq!(a.len(), 3);
     /// ```
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.header_ref().len()
     }
 
@@ -376,7 +376,7 @@ impl<T> LowMemoryThinVec<T> {
     /// v.push(1);
     /// assert!(!v.is_empty());
     /// ```
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
@@ -391,7 +391,7 @@ impl<T> LowMemoryThinVec<T> {
     /// let vec: LowMemoryThinVec<i32> = LowMemoryThinVec::with_capacity(10);
     /// assert_eq!(vec.capacity(), 10);
     /// ```
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.header_ref().capacity()
     }
 
@@ -532,7 +532,7 @@ impl<T> LowMemoryThinVec<T> {
     // # Panics
     //
     // Panics if `len` is greater than the current capacity.
-    unsafe fn set_len_non_singleton(&mut self, len: usize) {
+    const unsafe fn set_len_non_singleton(&mut self, len: usize) {
         // SAFETY:
         // Safety requirements have been passed to the caller.
         unsafe { self.header_mut().set_len(len) }
@@ -598,7 +598,7 @@ impl<T> LowMemoryThinVec<T> {
     /// assert_eq!(vec.pop(), Some(3));
     /// assert_eq!(vec, [1, 2]);
     /// ```
-    pub fn pop(&mut self) -> Option<T> {
+    pub const fn pop(&mut self) -> Option<T> {
         let old_len = self.len();
         if old_len == 0 {
             // The vector is empty, so there's nothing to pop.
@@ -960,7 +960,7 @@ impl<T> LowMemoryThinVec<T> {
     /// let buffer = low_memory_thin_vec![1, 2, 3, 5, 8];
     /// io::sink().write(buffer.as_slice()).unwrap();
     /// ```
-    pub fn as_slice(&self) -> &[T] {
+    pub const fn as_slice(&self) -> &[T] {
         // SAFETY:
         // - The pointer is valid and aligned for a vector of `self.len()`
         //  `T` elements, as guaranteed by [`Self::data_raw`].
@@ -984,7 +984,7 @@ impl<T> LowMemoryThinVec<T> {
     /// let mut buffer = vec![0; 3];
     /// io::repeat(0b101).read_exact(buffer.as_mut_slice()).unwrap();
     /// ```
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
+    pub const fn as_mut_slice(&mut self) -> &mut [T] {
         // SAFETY:
         // - The pointer is valid and aligned for a vector of `self.len()`
         //  `T` elements, as guaranteed by [`Self::data_raw`].
