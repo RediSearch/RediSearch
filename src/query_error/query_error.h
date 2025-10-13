@@ -77,6 +77,8 @@ extern "C" {
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
+#define QUERY_WOOM_CLUSTER "One or more shards failed to execute the query due to insufficient memory"
+
 typedef enum {
   QUERY_OK = 0,
 
@@ -94,6 +96,7 @@ typedef struct QueryError {
 
   // warnings
   bool _reachedMaxPrefixExpansions;
+  bool _queryOOM;
 } QueryError;
 
 /**
@@ -210,6 +213,12 @@ bool QueryError_HasReachedMaxPrefixExpansionsWarning(const QueryError *status);
 
 /*** Sets the reached max prefix expansions warning */
 void QueryError_SetReachedMaxPrefixExpansionsWarning(QueryError *status);
+
+/*** Whether the query OOM warning is set */
+bool QueryError_HasQueryOOMWarning(const QueryError *status);
+
+/*** Sets the query OOM warning */
+void QueryError_SetQueryOOMWarning(QueryError *status);
 
 #ifdef __cplusplus
 }
