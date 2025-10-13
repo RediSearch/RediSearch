@@ -61,7 +61,7 @@ extern "C" {
 
 typedef struct {
   uint32_t len;
-  uint16_t cap;
+  uint16_t remain_cap;
   uint16_t elem_sz;
   char buf[];
 } array_hdr_t;
@@ -70,7 +70,7 @@ typedef struct {
 
 typedef void *array_t;
 /* Internal - calculate the array size for allocations */
-#define array_sizeof(hdr) (sizeof(array_hdr_t) + (uint64_t) ((hdr)->len + (hdr)->cap) * (hdr)->elem_sz)
+#define array_sizeof(hdr) (sizeof(array_hdr_t) + (uint64_t) ((hdr)->len + (hdr)->remain_cap) * (hdr)->elem_sz)
 /* Internal - get a pointer to the array header */
 #define array_hdr(arr) ((array_hdr_t *)(((char *)(arr)) - sizeof(array_hdr_t)))
 /* Internal - get a pointer to an element inside the array at a given index */
@@ -80,7 +80,7 @@ static inline uint32_t array_len(array_t arr);
 
 /* Initialize a new array with a given element size and capacity. Should not be used directly - use
  * array_new instead */
-array_t array_new_sz(uint16_t elem_sz, uint16_t cap, uint32_t len);
+array_t array_new_sz(uint16_t elem_sz, uint16_t remain_cap, uint32_t len);
 
 /* Free the array, without dealing with individual elements */
 /* Function declared as a symbol to allow invocation from Rust */
@@ -108,9 +108,9 @@ array_t array_clear_func(array_t arr, uint16_t elem_sz);
 
 static inline array_t array_ensure_cap(array_t arr, uint32_t delta) {
   array_hdr_t *hdr = array_hdr(arr);
-  if (hdr->cap == 0) {
+  if (hdr->remain_cap == 0) {
     uint32_t old_len = hdr->len - delta;
-    hdr->cap = delta > old_len ? 0 : old_len;
+    hdr->remain_cap = delta > old_len ? 0 : old_len;
     hdr = (array_hdr_t *)array_realloc_fn(hdr, array_sizeof(hdr));
   }
   return (array_t)hdr->buf;
@@ -119,7 +119,7 @@ static inline array_t array_ensure_cap(array_t arr, uint32_t delta) {
 /* Ensure capacity for the array to grow by one */
 static inline array_t array_grow(array_t arr, size_t n) {
   array_hdr(arr)->len += n;
-  array_hdr(arr)->cap = MIN(array_hdr(arr)->cap - n, 0);
+  array_hdr(arr)->remain_cap = array_hdr(arr)->remain_cap > n? array_hdr(arr)->remain_cap - n : 0;
   return array_ensure_cap(arr, n);
 }
 
