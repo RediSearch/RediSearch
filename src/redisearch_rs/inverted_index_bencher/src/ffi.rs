@@ -21,6 +21,7 @@ mod bindings {
     #![allow(unsafe_op_in_unsafe_fn)]
     #![allow(improper_ctypes)]
     #![allow(dead_code)]
+    #![allow(clippy::missing_const_for_fn)]
 
     use inverted_index::{NumericFilter, t_docId, t_fieldMask};
 

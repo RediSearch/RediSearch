@@ -291,7 +291,7 @@ impl RedisString {
     /// Safety: The returned pointer is still managed by this object and should only be used with RedisModule functions.
     #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
-    pub unsafe fn as_ptr(&mut self) -> *mut ffi::RedisModuleString {
+    pub const unsafe fn as_ptr(&mut self) -> *mut ffi::RedisModuleString {
         self.str.as_ptr()
     }
 
@@ -599,7 +599,7 @@ impl RedisCallReply {
     /// Safety: The returned pointer should only be used with RedisModule functions.
     #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
-    pub unsafe fn get_ptr(&self) -> *mut ffi::RedisModuleCallReply {
+    pub const unsafe fn get_ptr(&self) -> *mut ffi::RedisModuleCallReply {
         self.0.as_ptr()
     }
 

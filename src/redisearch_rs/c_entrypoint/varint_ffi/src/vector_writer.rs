@@ -61,7 +61,7 @@ pub unsafe extern "C" fn VVW_GetByteData(writer: *const VectorWriter) -> *const 
 /// The following invariants must be upheld when calling this function:
 /// 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn VVW_GetByteLength(writer: *const VectorWriter) -> usize {
+pub const unsafe extern "C" fn VVW_GetByteLength(writer: *const VectorWriter) -> usize {
     if writer.is_null() {
         return 0;
     }
@@ -78,7 +78,7 @@ pub unsafe extern "C" fn VVW_GetByteLength(writer: *const VectorWriter) -> usize
 /// The following invariants must be upheld when calling this function:
 /// 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn VVW_GetCount(writer: *const VectorWriter) -> usize {
+pub const unsafe extern "C" fn VVW_GetCount(writer: *const VectorWriter) -> usize {
     if writer.is_null() {
         return 0;
     }

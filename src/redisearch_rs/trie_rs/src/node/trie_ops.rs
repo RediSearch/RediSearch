@@ -380,7 +380,7 @@ impl<Data> Node<Data> {
     ///
     /// It doesn't include the memory usage of its descendants,
     /// beyond the size of the pointers to its own direct children.
-    pub fn mem_usage(&self) -> usize {
+    pub const fn mem_usage(&self) -> usize {
         self.metadata().layout().size()
     }
 

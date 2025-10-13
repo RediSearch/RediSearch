@@ -202,7 +202,7 @@ impl<Data> Node<Data> {
             ///
             /// `target` will be populated with a placeholder node,
             /// which relies on a dangling pointer.
-            fn new(target: &'a mut Node<Data>) -> (Self, Node<Data>) {
+            const fn new(target: &'a mut Node<Data>) -> (Self, Node<Data>) {
                 let node = std::mem::replace(
                     target,
                     Node {
@@ -218,7 +218,7 @@ impl<Data> Node<Data> {
             }
 
             /// Disarms the guard, putting back a valid value into the `target` slot.
-            fn disarm(&mut self, node: Node<Data>) {
+            const fn disarm(&mut self, node: Node<Data>) {
                 let placeholder = std::mem::replace(self.target, node);
                 std::mem::forget(placeholder);
                 self.active = false;
