@@ -18,8 +18,6 @@ typedef struct {
 } RLShard;
 
 static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
-  RS_ASSERT(sh->node.flags & MRNode_Master);
-
   // New shard
   MRClusterShard csh = MR_NewClusterShard(&sh->node);
   MRClusterTopology_AddShard(t, &csh);
