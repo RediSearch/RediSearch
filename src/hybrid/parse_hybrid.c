@@ -748,6 +748,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   hybridParams->aggregationParams = params;
   hybridParams->synchronize_read_locks = true;
 
+  array_free(prefixes);
+  prefixes = NULL;
+
   return REDISMODULE_OK;
 
 error:
