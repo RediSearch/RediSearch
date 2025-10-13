@@ -90,7 +90,7 @@ void array_free(array_t arr);
 array_t array_ensure_append_n_func(array_t arr, array_t src, uint16_t n, uint16_t elem_sz);
 
 /* Function declared as a symbol to allow invocation from Rust */
-array_t array_clear_func(array_t arr, size_t elem_sz);
+array_t array_clear_func(array_t arr, uint16_t elem_sz);
 
 /* Initialize an array for a given type T with a given capacity and zero length. The array should be
  * case to a pointer to that type. e.g.
