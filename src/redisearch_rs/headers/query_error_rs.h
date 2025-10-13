@@ -7,7 +7,47 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+/**
+ * Set the error code using a custom-formatted string
+ *
+ * Not implemented in Rust as variadic functions are not supported across an FFI boundary.
+ */
+void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char* message, const char *fmt, ...) {
+  char *formatted = NULL;
+  va_list ap;
+  va_start(ap, fmt);
+  rm_vasprintf(&formatted, fmt, ap);
+  va_end(ap);
+
+  char *detail = NULL;
+  rm_asprintf(&detail, "%s%s", message, formatted);
+  rm_free(formatted);
+
+  QueryError_SetError(status, code, message);
+  QueryError_SetDetail(status, detail);
+  rm_free(detail);
+}
+
+/**
+ * Set the error code using a custom-formatted string
+ * Only use this function if you are certain that no user data is leaked in the format string
+ *
+ * Not implemented in Rust as variadic functions are not supported across an FFI boundary.
+ */
+void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
+  char *formatted = NULL;
+  va_list ap;
+  va_start(ap, fmt);
+  rm_vasprintf(&formatted, fmt, ap);
+  va_end(ap);
+
+  QueryError_SetError(status, code, formatted);
+  rm_free(formatted);
+}
+
+
 typedef enum QueryErrorCode {
+  QUERY_ERROR_CODE_NONE,
   QUERY_ERROR_CODE_GENERIC,
   QUERY_ERROR_CODE_SYNTAX,
   QUERY_ERROR_CODE_PARSE_ARGS,
@@ -78,33 +118,37 @@ extern "C" {
 
 struct QueryError QueryError_Default(void);
 
-const char *QueryError_Strerror(enum QueryErrorCode _code);
+const char *QueryError_Strerror(enum QueryErrorCode code);
 
-void QueryError_SetError(struct QueryError *_status,
-                         enum QueryErrorCode _code,
-                         const char *_message);
+void QueryError_SetError(struct QueryError *query_error,
+                         enum QueryErrorCode code,
+                         const char *message);
 
-void QueryError_SetCode(struct QueryError *_status, enum QueryErrorCode _code);
+void QueryError_SetCode(struct QueryError *query_error, enum QueryErrorCode code);
 
-void QueryError_SetMessage(struct QueryError *_status,
-                           enum QueryErrorCode _code,
-                           const char *_message);
+void QueryError_SetDetail(struct QueryError *_status,
+                          enum QueryErrorCode _code,
+                          const char *_detail);
 
-void QueryError_CloneFrom(const struct QueryError *_src, struct QueryError *_dest);
+void QueryError_CloneFrom(const struct QueryError *src, struct QueryError *dest);
 
 const char *QueryError_GetUserError(const struct QueryError *_status);
 
 const char *QueryError_GetDisplayableError(const struct QueryError *_status, bool _obfuscate);
 
-enum QueryErrorCode QueryError_GetCode(const struct QueryError *_status);
+enum QueryErrorCode QueryError_GetCode(const struct QueryError *query_error);
 
-void QueryError_ClearError(struct QueryError *_err);
+void QueryError_ClearError(struct QueryError *query_error);
 
 void QueryError_MaybeSetCode(struct QueryError *_status, enum QueryErrorCode _code);
 
-bool QueryError_HasReachedMaxPrefixExpansionsWarning(const struct QueryError *_status);
+bool QueryError_HasReachedMaxPrefixExpansionsWarning(const struct QueryError *query_error);
 
-void QueryError_SetReachedMaxPrefixExpansionsWarning(struct QueryError *_status);
+void QueryError_SetReachedMaxPrefixExpansionsWarning(struct QueryError *query_error);
+
+bool QueryError_HasQueryOOMWarning(const struct QueryError *query_error);
+
+void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
 
 #ifdef __cplusplus
 }  // extern "C"
