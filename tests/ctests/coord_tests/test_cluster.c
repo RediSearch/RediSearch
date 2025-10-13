@@ -59,6 +59,7 @@ void testEndpoint() {
 static MRClusterTopology *getTopology(size_t numNodes, const char **hosts){
 
   MRClusterTopology *topo = rm_malloc(sizeof(*topo));
+  topo->numShards = numNodes;
   topo->capShards = numNodes;
   topo->shards = rm_calloc(numNodes, sizeof(MRClusterShard));
 
