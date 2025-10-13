@@ -67,7 +67,6 @@ def test_cluster_aggregate_with_shards_timeout(env):
         # Execute pipeline every batch_size docs to avoid memory issues
         if (i + 1) % batch_size == 0:
             pipeline.execute()
-            pipeline = conn.pipeline(transaction=False)
 
     # Execute remaining docs
     pipeline.execute()
