@@ -11,7 +11,7 @@
 use std::cmp::min;
 
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use inverted_index::{CowRSIndexResult, RSIndexResult};
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
@@ -50,19 +50,16 @@ impl IdList {
 }
 
 impl RQEIterator for IdList {
-    fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
+    fn read(&mut self) -> Result<Option<CowRSIndexResult<'_>>, RQEIteratorError> {
         let Some(doc_id) = self.get_current() else {
             return Ok(None);
         };
         self.offset += 1;
         self.result.doc_id = doc_id;
-        Ok(Some(&self.result))
+        Ok(Some(CowRSIndexResult::Borrowed(&self.result)))
     }
 
-    fn skip_to(
-        &mut self,
-        doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
+    fn skip_to(&mut self, doc_id: t_docId) -> Result<Option<SkipToOutcome<'_>>, RQEIteratorError> {
         // Safe to unwrap as we are not at eof + the list must not be empty
         if self.at_eof() || self.ids.last().unwrap() < &doc_id {
             self.offset = self.ids.len(); // Move to EOF
@@ -83,13 +80,17 @@ impl RQEIterator for IdList {
                 let pos = self.offset + pos; // Convert relative to absolute index
                 self.offset = pos + 1;
                 self.result.doc_id = self.ids[pos];
-                Ok(Some(SkipToOutcome::Found(&self.result)))
+                Ok(Some(SkipToOutcome::Found(CowRSIndexResult::Borrowed(
+                    &self.result,
+                ))))
             }
             Err(pos) => {
                 let pos = self.offset + pos; // Convert relative to absolute index
                 self.offset = pos + 1;
                 self.result.doc_id = self.ids[pos];
-                Ok(Some(SkipToOutcome::NotFound(&self.result)))
+                Ok(Some(SkipToOutcome::NotFound(CowRSIndexResult::Borrowed(
+                    &self.result,
+                ))))
             }
         }
     }

@@ -20,8 +20,8 @@ use ffi::{
 };
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
-    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
-    RSResultData, RSResultKind, RSResultKindMask, RSTermRecord,
+    CowRSIndexResult, RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector,
+    RSQueryTerm, RSResultData, RSResultKind, RSResultKindMask, RSTermRecord,
 };
 
 pub mod debug;

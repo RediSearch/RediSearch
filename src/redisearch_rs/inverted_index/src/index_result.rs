@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{alloc::Layout, ffi::c_char, fmt::Debug, marker::PhantomData, ptr};
+use std::{alloc::Layout, ffi::c_char, fmt::Debug, marker::PhantomData, ops::Deref, ptr};
 
 use enumflags2::{BitFlags, bitflags};
 pub use ffi::RSQueryTerm;
@@ -697,6 +697,73 @@ pub struct RSIndexResult<'index> {
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
+}
+
+/// Copy-On-Write version of [`RSIndexResult`].
+///
+/// Used for places where you may wish to share a [`RSIndexResult`]
+/// most of the time until you do not. At which point you would make a copy to write it.
+#[derive(Debug, PartialEq)]
+pub enum CowRSIndexResult<'index> {
+    Borrowed(&'index RSIndexResult<'index>),
+    Owned(RSIndexResult<'static>),
+}
+
+impl Clone for CowRSIndexResult<'_> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Borrowed(arg0) => Self::Borrowed(arg0.to_owned()),
+            Self::Owned(arg0) => Self::Owned(arg0.to_owned()),
+        }
+    }
+}
+
+impl<'index> Deref for CowRSIndexResult<'index> {
+    type Target = RSIndexResult<'index>;
+
+    fn deref(&self) -> &RSIndexResult<'index> {
+        match self {
+            Self::Borrowed(borrowed) => borrowed,
+            Self::Owned(owned) => owned,
+        }
+    }
+}
+
+impl<'index> AsRef<RSIndexResult<'index>> for CowRSIndexResult<'index> {
+    fn as_ref(&self) -> &RSIndexResult<'index> {
+        match *self {
+            CowRSIndexResult::Borrowed(borrowed) => borrowed,
+            CowRSIndexResult::Owned(ref owned) => owned,
+        }
+    }
+}
+
+impl CowRSIndexResult<'_> {
+    /// Create an owned copy of this index result
+    /// if not done already.
+    ///
+    /// Use a shared reference
+    /// if you do not require mutable/exclusive access.
+    pub fn to_mut(&mut self) -> &mut RSIndexResult<'static> {
+        match *self {
+            CowRSIndexResult::Borrowed(borrowed) => {
+                *self = Self::Owned(borrowed.to_owned());
+                match *self {
+                    Self::Borrowed(..) => unreachable!(),
+                    Self::Owned(ref mut owned) => owned,
+                }
+            }
+            CowRSIndexResult::Owned(ref mut owned) => owned,
+        }
+    }
+
+    /// Consume itself as the owned data or a copy of the borrowed data.
+    pub fn into_owned(self) -> RSIndexResult<'static> {
+        match self {
+            CowRSIndexResult::Borrowed(borrowed) => borrowed.to_owned(),
+            CowRSIndexResult::Owned(owned) => owned,
+        }
+    }
 }
 
 impl Default for RSIndexResult<'_> {

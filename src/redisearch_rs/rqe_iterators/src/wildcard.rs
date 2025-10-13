@@ -8,8 +8,9 @@
 */
 
 //! Wildcard iterator implementation
+
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use inverted_index::{CowRSIndexResult, RSIndexResult};
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
@@ -36,20 +37,17 @@ impl<'a> Wildcard<'a> {
 }
 
 impl<'a> RQEIterator for Wildcard<'a> {
-    fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
+    fn read(&mut self) -> Result<Option<CowRSIndexResult<'_>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
         }
 
         self.current_id += 1;
         self.result.doc_id = self.current_id;
-        Ok(Some(&self.result))
+        Ok(Some(CowRSIndexResult::Borrowed(&self.result)))
     }
 
-    fn skip_to(
-        &mut self,
-        doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
+    fn skip_to(&mut self, doc_id: t_docId) -> Result<Option<SkipToOutcome<'_>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
         }
@@ -63,7 +61,9 @@ impl<'a> RQEIterator for Wildcard<'a> {
 
         self.current_id = doc_id;
         self.result.doc_id = doc_id;
-        Ok(Some(SkipToOutcome::Found(&self.result)))
+        Ok(Some(SkipToOutcome::Found(CowRSIndexResult::Borrowed(
+            &self.result,
+        ))))
     }
 
     fn rewind(&mut self) {
