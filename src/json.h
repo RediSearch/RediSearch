@@ -37,7 +37,7 @@ typedef struct {
     struct {
       RedisJSON arr;
       size_t index;
-      RedisJSON value;
+      RedisJSONPtr value_ptr;
     } array;
   };
 } JSONIterable;

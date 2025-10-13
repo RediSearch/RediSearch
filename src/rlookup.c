@@ -455,14 +455,18 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisModuleString *keyName;
       size_t i = 0;
       RedisJSON value;
+      RedisJSONPtr value_ptr = japi->allocJson();
 
       RSValueMap map = RSValueMap_AllocUninit(len);
-      for (; (value = japi->nextKeyValue(iter, &keyName)); ++i) {
+      for (; (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK); ++i) {
+        value = *value_ptr;
         RSValueMap_SetEntry(&map, i, RSValue_NewStolenRedisString(keyName),
           jsonValToValueExpanded(ctx, value));
       }
+      japi->freeJson(value_ptr);
+      value_ptr = NULL;
       japi->freeKeyValuesIter(iter);
-      RS_ASSERT(i == len && !value);
+      RS_ASSERT(i == len);
 
       ret = RSValue_NewMap(map);
     } else {
@@ -473,12 +477,13 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
     japi->getLen(json, &len);
     if (len) {
       RSValue **arr = RSValue_AllocateArray(len);
-      RedisJSON value = japi->allocJson();
+      RedisJSONPtr value_ptr = japi->allocJson();
       for (size_t i = 0; i < len; ++i) {
-        japi->getAt(json, i, value);
+        japi->getAt(json, i, value_ptr);
+        RedisJSON value = *value_ptr;
         arr[i] = jsonValToValueExpanded(ctx, value);
       }
-      japi->freeJson(value);
+      japi->freeJson(value_ptr);
       ret = RSValue_NewArray(arr, len);
     } else {
       // Empty array
@@ -544,14 +549,14 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
     // Second, get the first JSON value
     RedisJSON json = japi->next(iter);
-    RedisJSON json_alloc = NULL; // Used if we need to allocate a new JSON value (e.g if the value is an array)
+    RedisJSONPtr json_alloc = NULL; // Used if we need to allocate a new JSON value (e.g if the value is an array)
     // If the value is an array, we currently try using the first element
     JSONType type = japi->getType(json);
     if (type == JSONType_Array) {
       json_alloc = japi->allocJson();
       // Empty array will return NULL
       if (japi->getAt(json, 0, json_alloc) == REDISMODULE_OK) {
-        json = json_alloc;
+        json = *json_alloc;
       } else {
         json = NULL;
       }

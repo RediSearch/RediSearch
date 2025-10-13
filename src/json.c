@@ -123,7 +123,7 @@ static JSONIterable JSONIterable_FromArr(RedisJSON arr) {
     .type = ITERABLE_ARRAY,
     .array.arr = arr,
     .array.index = 0,
-    .array.value = japi->allocJson(),
+    .array.value_ptr = japi->allocJson(),
   };
 }
 
@@ -223,9 +223,9 @@ static int JSON_getInt8(RedisJSON json, int8_t *val) {
 
 typedef int (*getJSONElementFunc)(RedisJSON, void *);
 int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement, char *target, unsigned char step, QueryError* status) {
-  RedisJSON element = japi->allocJson();
+  RedisJSONPtr element = japi->allocJson();
   for (int i = 0; i < len; ++i) {
-    if (japi->getAt(arr, i, element) != REDISMODULE_OK || getElement(element, target) != REDISMODULE_OK) {
+    if (japi->getAt(arr, i, element) != REDISMODULE_OK || getElement(*element, target) != REDISMODULE_OK) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
       japi->freeJson(element);
       return REDISMODULE_ERR;
@@ -404,10 +404,10 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
     return REDISMODULE_ERR;
   }
 
-  RedisJSON el = japi->allocJson();
-  japi->getAt(arr, 0, el); // We know there is at least one element in the array.
-  JSONType type = japi->getType(el);
-  japi->freeJson(el);
+  RedisJSONPtr ptr = japi->allocJson();
+  japi->getAt(arr, 0, ptr); // We know there is at least one element in the array.
+  JSONType type = japi->getType(*ptr);
+  japi->freeJson(ptr);
 
   switch (type) {
     case JSONType_Int:
@@ -425,8 +425,8 @@ RedisJSON JSONIterable_Next(JSONIterable *iterable) {
       return japi->next(iterable->iter);
 
     case ITERABLE_ARRAY:
-      japi->getAt(iterable->array.arr, iterable->array.index++, iterable->array.value);
-      return iterable->array.value;
+      japi->getAt(iterable->array.arr, iterable->array.index++, iterable->array.value_ptr);
+      return *(iterable->array.value_ptr);
 
     default:
       return NULL;
@@ -436,7 +436,7 @@ RedisJSON JSONIterable_Next(JSONIterable *iterable) {
 void JSONIterable_Clean(JSONIterable *iterable) {
   switch (iterable->type) {
     case ITERABLE_ARRAY:
-      japi->freeJson(iterable->array.value);
+      japi->freeJson(iterable->array.value_ptr);
       break;
     case ITERABLE_ITER:
       break;

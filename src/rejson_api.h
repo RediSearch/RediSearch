@@ -27,6 +27,7 @@ typedef enum JSONType {
 } JSONType;
 
 typedef const void* RedisJSON;
+typedef RedisJSON* RedisJSONPtr;
 typedef const void* JSONResultsIterator;
 typedef const void* JSONPath;
 typedef const void* JSONKeyValuesIterator;
@@ -42,7 +43,6 @@ typedef struct RedisJSONAPI {
   RedisJSON (*openKeyFromStr)(RedisModuleCtx *ctx, const char *path);
 
   JSONResultsIterator (*get)(RedisJSON json, const char *path);
-  int (*getAt)(RedisJSON json, size_t index, RedisJSON value);
 
   RedisJSON (*next)(JSONResultsIterator iter);
   size_t (*len)(JSONResultsIterator iter);
@@ -111,9 +111,6 @@ typedef struct RedisJSONAPI {
 
   // Get an iterator over the key-value pairs of a JSON Object
   JSONKeyValuesIterator (*getKeyValues)(RedisJSON json);
-  // Get the next key-value pair
-  // The caller gains ownership of `key_name`
-  RedisJSON (*nextKeyValue)(JSONKeyValuesIterator iter, RedisModuleString **key_name);
   // Free the iterator
   void (*freeKeyValuesIter)(JSONKeyValuesIterator iter);
 
@@ -126,8 +123,15 @@ typedef struct RedisJSONAPI {
   ////////////////
   // V6 entries //
   ////////////////
-  RedisJSON (*allocJson)();
-  void (*freeJson)(RedisJSON json);
+  RedisJSONPtr (*allocJson)();
+  // The caller must pass 'ptr' which was allocated with allocJson
+  int (*getAt)(RedisJSON json, size_t index, RedisJSONPtr ptr);
+  // Get the next key-value pair
+  // The caller gains ownership of `key_name`
+  // The caller must pass 'ptr' which was allocated with allocJson
+  int (*nextKeyValue)(JSONKeyValuesIterator iter, RedisModuleString **key_name, RedisJSONPtr ptr);
+
+  void (*freeJson)(RedisJSONPtr ptr);
 
 } RedisJSONAPI;
 
