@@ -37,6 +37,9 @@ pub extern "C" fn RSValue_NewNumber(val: f64) -> *mut RSValue {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn RSValue_DecrRef() {}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn RSYieldableMetric_Concat(
     metrics: *mut *mut RSYieldableMetric,
     new_metric: *const RSYieldableMetric,
