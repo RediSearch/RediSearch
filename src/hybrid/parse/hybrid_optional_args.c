@@ -164,6 +164,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     ArgParser_AddStringV(parser, "LOAD", "Load specific fields or all fields",
                          &loadTarget, 1, -1,
                          ARG_OPT_OPTIONAL,
+                         ARG_OPT_REPEATABLE,
                          ARG_OPT_CALLBACK, handleLoad, ctx,
                          ARG_OPT_END);
 
