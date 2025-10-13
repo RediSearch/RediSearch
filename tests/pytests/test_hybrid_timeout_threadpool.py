@@ -142,7 +142,7 @@ def test_timeout_policy_consistency():
                               'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT', '1')
     
     # Should return response with warnings, not error
-    env_retstatic int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {urn.assertTrue(isinstance(response, list), message="Expected list response for RETURN policy")
+    env_return.assertTrue(isinstance(response, list), message="Expected list response for RETURN policy")
     warnings = get_warnings(response)
     env_return.assertTrue(len(warnings) > 0, message="Expected timeout warning for RETURN policy")
     env_return.assertContains('Timeout limit was reached', warnings[0], message="Expected timeout warning message for RETURN policy")
