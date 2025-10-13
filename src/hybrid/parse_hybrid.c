@@ -506,9 +506,9 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
 }
 
 // This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate does not use ArgsCursor
-static bool IsIndexCoherentWithQuery(HybridParseContext *ctx, ArgsCursor *ac, IndexSpec *spec)  {
+static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *spec)  {
 
-  size_t n_prefixes = array_len(ctx->prefixes);
+  size_t n_prefixes = array_len(prefixes);
   if (n_prefixes == 0) {
     // No prefixes in the query --> No validation needed.
     return true;
@@ -528,7 +528,7 @@ static bool IsIndexCoherentWithQuery(HybridParseContext *ctx, ArgsCursor *ac, In
   // index (also in the same order)
   // The prefixes start right after the number
   for (uint i = 0; i < n_prefixes; i++) {
-    if (HiddenUnicodeString_CompareC(spec_prefixes[i], ctx->prefixes[i]) != 0) {
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], prefixes[i]) != 0) {
       // Unmatching prefixes
       return false;
     }
@@ -583,6 +583,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
+  // Prefixes for the index
+  arrayof(const char*) prefixes = array_new(const char*, 0);
+
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ESYNTAX, "SEARCH argument is required");
     goto error;
@@ -607,11 +610,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
-      .prefixes = array_new(HiddenUnicodeString*, 0),
+      .prefixes = prefixes,
   };
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
+    prefixes = hybridParseCtx.prefixes;
     goto error;
   }
+  prefixes = hybridParseCtx.prefixes;
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
   // otherwise, store the vector score in a default key.
@@ -707,10 +712,12 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  if (!IsIndexCoherentWithQuery(&hybridParseCtx, ac, parsedCmdCtx->search->sctx->spec)) {
+  if (!IsIndexCoherentWithQuery(hybridParseCtx.prefixes, parsedCmdCtx->search->sctx->spec)) {
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
     goto error;
   }
+  array_free(hybridParseCtx.prefixes);
+  hybridParseCtx.prefixes = NULL;  // Prevent double-free
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
@@ -742,6 +749,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   return REDISMODULE_OK;
 
 error:
+  array_free(prefixes);
+  prefixes = NULL;
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
   }

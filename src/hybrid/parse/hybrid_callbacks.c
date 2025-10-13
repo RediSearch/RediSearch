@@ -416,6 +416,6 @@ void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) 
       QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for _INDEX_PREFIXES");
       return;
     }
-    array_append(ctx->prefixes, NewHiddenUnicodeString(prefix));
+    array_ensure_append_1(ctx->prefixes, prefix);
   }
 }
