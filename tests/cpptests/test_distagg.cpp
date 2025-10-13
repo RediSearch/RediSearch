@@ -127,7 +127,6 @@ static void testCountDistinct() {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
   AREQ_Free(r);
-  array_free(us.serialized);
 }
 static void testSplit() {
   AREQ *r = AREQ_New();
