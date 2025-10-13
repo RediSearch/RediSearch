@@ -24,6 +24,8 @@ int Dictionary_Del(RedisModuleCtx* ctx, const char* dictName,
 
 void Dictionary_Clear();
 void Dictionary_Free();
+size_t Dictionary_Size();
+void Dictionary_Propagate(RedisModuleCtx* ctx);
 
 void Dictionary_Dump(RedisModuleCtx* ctx, const char* dictName);
 

@@ -378,7 +378,17 @@ void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
       break;
 
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE:
-      // TODO: Serialize and propagate all the schemas using FT._CREATEIFNX
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM migrate module propagate event.");
+      // We need to propagate all auxiliary data (schemas and dictionaries)
+      // If a new type implement `aux_save` and `aux_load` (of any version) we MUST propagate it here too.
+
+      RedisModule_Log(RSDummyContext, "notice", "Propagating %zu schemas.", Indexes_Count());
+      Indexes_Propagate(ctx);
+      RedisModule_Log(RSDummyContext, "notice", "Finished propagating schemas.");
+
+      RedisModule_Log(RSDummyContext, "notice", "Propagating %zu dictionaries.", Dictionary_Size());
+      Dictionary_Propagate(ctx);
+      RedisModule_Log(RSDummyContext, "notice", "Finished propagating dictionaries.");
       break;
   }
 }
