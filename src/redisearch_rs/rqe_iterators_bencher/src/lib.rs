@@ -34,7 +34,6 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_Number(val: f64) -> RSValue {
-    // Allocate the f64 value on the heap and return a raw pointer to it
     let rs_val = Box::new(RSValue {
         __bindgen_anon_1: RSValue__bindgen_ty_1 {
             _numval: val, // Store the number value in the union
@@ -44,6 +43,12 @@ pub extern "C" fn RSValue_Number(val: f64) -> RSValue {
         _bitfield_1: __BindgenBitfieldUnit::new([0; 1]),
     });
     *rs_val
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_NewNumber(val: f64) -> *mut RSValue {
+    let rs_val = RSValue_Number(val);
+    Box::into_raw(Box::new(rs_val))
 }
 
 #[unsafe(no_mangle)]
