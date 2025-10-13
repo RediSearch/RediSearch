@@ -13,6 +13,10 @@ name = "alloc_free"
 harness = false
 
 [[bench]]
+name = "collections"
+harness = false
+
+[[bench]]
 name = "float_parsing"
 harness = false
 

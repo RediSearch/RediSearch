@@ -50,12 +50,12 @@ fn bench_float_parse(c: &mut Criterion) {
         .map(|s| (s.as_ptr(), s.count_bytes()))
         .collect();
 
-    c.bench_function("Float Parse C 100000", |b| {
+    c.bench_function("Float Parse C", |b| {
         b.iter(|| float_parse_c(black_box(&test_cases_c)))
     });
 
     // TODO:
-    // c.bench_function("Float Parse Rust 10000", |b| {
+    // c.bench_function("Float Parse Rust", |b| {
     //     b.iter(|| float_parse_c(black_box(10000)))
     // });
 }
