@@ -58,13 +58,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Add VSIM + COMBINE arguments
   int limit = (params_index == -1 ? argc : params_index);
   for (int i = current_index; i < limit; i++) {
-    if (i == vsim_index + 2 && argv[i] != '$') {
-      MRCommand_AppendRstr(xcmd, argv[i]);
-    } else {
-      size_t len;
-      const char *str = RedisModule_StringPtrLen(argv[i], &len);
-      MRCommand_Append(xcmd, str, len);
-    }
+    MRCommand_AppendRstr(xcmd, argv[i]);
   }
   current_index = limit;
 

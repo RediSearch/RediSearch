@@ -12,21 +12,24 @@ import numpy as np
 # Test vector for similarity search
 query_vector = np.random.rand(128).astype(np.float32).tobytes()
 
-def setup_basic_index(env):
+def setup_basic_index(env, num_docs=10):
+    conn = env.getClusterConnectionIfNeeded()
     """Setup a basic index with text and vector fields for testing"""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 
                'title', 'TEXT', 
                'embedding', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'COSINE').ok()
     
     # Add some test documents
-    for i in range(10):
+    for i in range(num_docs):
         vector = np.random.rand(128).astype(np.float32).tobytes()
-        env.expect('HSET', f'doc:{i}', 'title', f'running gear {i}', 'embedding', vector).ok()
+        conn.execute_command('HSET', f'doc:{i}', 'title', f'running gear {i}', 'embedding', vector)
 
 def get_warnings(response):
     """Extract warnings from hybrid response"""
     if isinstance(response, dict) and 'warning' in response:
         return response['warning']
+    if isinstance(response, list) and 'warnings' in response:
+        return response[response.index('warnings') + 1]
     return []
 
 def get_results_from_hybrid_response(response):
@@ -133,13 +136,14 @@ def test_timeout_policy_consistency():
     
     # Test RETURN policy
     env_return = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
-    setup_basic_index(env_return)
+    setup_basic_index(env_return, 1000)
     
     response = env_return.cmd('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
                               'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT', '1')
     
     # Should return response with warnings, not error
-    env_return.assertTrue(isinstance(response, dict), "Expected dict response for RETURN policy")
+    env_retstatic int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {urn.assertTrue(isinstance(response, list), message="Expected list response for RETURN policy")
     warnings = get_warnings(response)
-    env_return.assertTrue(len(warnings) > 0, "Expected timeout warning for RETURN policy")
+    env_return.assertTrue(len(warnings) > 0, message="Expected timeout warning for RETURN policy")
+    env_return.assertContains('Timeout limit was reached', warnings[0], message="Expected timeout warning message for RETURN policy")
     
