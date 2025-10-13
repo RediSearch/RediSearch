@@ -27,11 +27,17 @@ fn benchmark_wildcard(c: &mut Criterion) {
     bencher.bench(c);
 }
 
+// fn benchmark_optional(c: &mut Criterion) {
+//     let bencher = benchers::optional::Bencher::default();
+//     bencher.bench(c);
+// }
+
 criterion_group!(
     benches,
     benchmark_empty,
     benchmark_id_list,
     benchmark_wildcard,
+    // benchmark_optional,
 );
 
 criterion_main!(benches);
