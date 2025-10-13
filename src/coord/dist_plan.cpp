@@ -180,7 +180,9 @@ static void freeDistStep(PLN_BaseStep *bstp) {
     rm_free(dstp->plan);
     dstp->plan = NULL;
   }
-  SerializedSteps_Clean(&dstp->serialized);
+  if (dstp->serialized) {
+    array_free_ex(dstp->serialized, rm_free(*(char **)ptr));
+  }
   if (dstp->oldSteps) {
     for (size_t ii = 0; ii < array_len(dstp->oldSteps); ++ii) {
       dstp->oldSteps[ii]->base.dtor(&dstp->oldSteps[ii]->base);
@@ -372,6 +374,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
   dstp->base.type = PLN_T_DISTRIBUTE;
   dstp->plan = remote;
+  dstp->serialized = array_new(char *, 1);
   dstp->base.dtor = freeDistStep;
   dstp->base.getLookup = distStepGetLookup;
   BlkAlloc_Init(&dstp->alloc);
@@ -435,9 +438,9 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         // Otherwise (if there was no arrange step), we can move the filter step from local to remote
         current = hadArrange ? PLN_NEXT_STEP(current) : moveStep(remote, src, current);
         break;
-      case PLN_T_VECTOR_NORMALIZER: // normalizing is done in shards
-      case PLN_T_LOAD: // loading is done in shards
-      case PLN_T_APPLY: 
+      case PLN_T_VECTOR_NORMALIZER:
+      case PLN_T_LOAD:
+      case PLN_T_APPLY:
         current = moveStep(remote, src, current);
         break;
       case PLN_T_ARRANGE: {
@@ -554,21 +557,6 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
   AGPLN_Serialize(dstp->plan, &dstp->serialized);
 }
 
-// We want to fillk AREQDIST_UpstreamInfo with the steps from the SerializedSteps struct in the same order
-void SerializedSteps_FillUpstreamInfo(SerializedSteps *serialized, AREQDIST_UpstreamInfo *us) {
-  us->serialized = array_new(const char *, 1);
-  if (!serialized->order) {
-    return;
-  }
-  for (size_t ii = 0; ii < array_len(serialized->order); ++ii) {
-    PLN_StepType st = serialized->order[ii];
-    arrayof(char *) tokens = serialized->steps[st];  
-    for (size_t jj = 0; jj < array_len(tokens); ++jj) {
-      array_ensure_append_1(us->serialized, tokens[jj]);
-    }
-  }
-}
-
 int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
 
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_DISTRIBUTE);
@@ -587,25 +575,19 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
       loadFields.push_back(kk);
     }
   }
-  // If we have any unresolved fields, we need to add a load step
+
   if (!loadFields.empty()) {
-    // Some testa already have load step at this point
-    // tried editing the existing load step if it exists and adding ti when it doesn't
-    // it led to tests failing
-    // for now trying to try and preserve old behaviour where the load clause would be added at the end of the serialized arg list
-    // weird we have 2 possible load clauses but due to time pressure can't look into this too much
-    SerializedSteps_AddStepOnce(&dstp->serialized, PLN_T_INVALID);
-    arrayof(char *) *lastStep = &dstp->serialized.steps[PLN_T_INVALID];
-    array_append(*lastStep, rm_strndup("LOAD", 4));
-    char *count = NULL;
-    rm_asprintf(&count, "%lu", (unsigned long)loadFields.size());
-    array_append(*lastStep, count);
+    auto arr = dstp->serialized;
+    array_append(arr, rm_strndup("LOAD", 4));
+    char *ldsze;
+    rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
+    array_append(arr, ldsze);
     for (auto kk : loadFields) {
-      array_append(*lastStep, rm_strndup(kk->name, kk->name_len));
+      array_append(arr, rm_strndup(kk->name, kk->name_len));
     }
   }
 
   us->lookup = &dstp->lk;
-  SerializedSteps_FillUpstreamInfo(&dstp->serialized, us);
+  us->serialized = dstp->serialized;
   return REDISMODULE_OK;
 }

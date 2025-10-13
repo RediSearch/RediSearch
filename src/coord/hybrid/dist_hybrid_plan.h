@@ -25,7 +25,7 @@ extern "C" {
  * @param[out] lookups array to populate with lookups for each subquery
  * @param status if there is an error
  */
-SerializedSteps *HybridRequest_BuildDistributedPipeline(HybridRequest *hreq, HybridPipelineParams *hybridParams, RLookup **lookups, QueryError *status);
+arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq, HybridPipelineParams *hybridParams, RLookup **lookups, QueryError *status);
 
 #ifdef __cplusplus
 }

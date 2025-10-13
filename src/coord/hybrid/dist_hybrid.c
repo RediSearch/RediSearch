@@ -127,7 +127,8 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, MRCommand *xcmd, SerializedSteps* serialized,
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
+                            MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams) {
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
@@ -166,13 +167,10 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, MRCommand 
     }
   }
 
-  if (SerializedSteps_HasSteps(serialized)) {
-    for (size_t ii = 0; ii < array_len(serialized->order); ++ii) {
-      PLN_StepType st = serialized->order[ii];
-      arrayof(char *) *step = &serialized->steps[st];
-      for (size_t jj = 0; jj < array_len(*step); ++jj) {
-        MRCommand_Append(xcmd, (*step)[jj], strlen((*step)[jj]));
-      }
+  if (serialized) {
+    for (size_t ii = 0; ii < array_len(serialized); ++ii) {
+      const char *token = serialized[ii];
+      MRCommand_Append(xcmd, token, strlen(token));
     }
   }
 
@@ -339,7 +337,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
     RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
 
-    SerializedSteps *serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
+    arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
     if (!serialized) {
       return REDISMODULE_ERR;
     }

@@ -51,30 +51,19 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   return REDISMODULE_OK;
 }
 
-// modifies the load step to include the doc key
-static bool addKeysToLoadStep(SerializedSteps *target, std::vector<const RLookupKey *> &keys) {
-  arrayof(char *) *arr = &target->steps[PLN_T_LOAD];
-  if (SerializedSteps_AddStepOnce(target, PLN_T_LOAD)) {
-    // If we didn't have a load step, fill it up
-    array_append(*arr, rm_strndup("LOAD", 4));
-    char *noCount = NULL;
-    array_append(*arr, noCount);
-  } else if (array_len(*arr) < 2) {
-    return false;
+static void serializeUnresolvedKeys(arrayof(char*) *target, std::vector<const RLookupKey *> &keys) {
+  if (!keys.empty()) {
+    array_append(*target, rm_strndup("LOAD", 4));
+    char *ldsze;
+    rm_asprintf(&ldsze, "%lu", (unsigned long)keys.size());
+    array_append(*target, ldsze);
+    for (auto kk : keys) {
+      array_append(*target, rm_strndup(kk->name, kk->name_len));
+    }
   }
-  
-  size_t count = array_len(*arr) - 2 + keys.size() /* LOAD <count> */;
-  if ((*arr)[1]) {
-    rm_free((*arr)[1]);
-  }
-  rm_asprintf(&(*arr)[1], "%zu", count);
-  for (const RLookupKey *kk : keys) {
-    array_append(*arr, rm_strndup(kk->name, kk->name_len));
-  }
-  return true;
 }
 
-SerializedSteps *HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
+arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     HybridPipelineParams *hybridParams,
     RLookup **lookups,
     QueryError *status) {
@@ -106,7 +95,7 @@ SerializedSteps *HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       }
     }
 
-    SerializedSteps *serialized = NULL;
+    arrayof(char*) serialized = NULL;
     for (int i = 0; i < hreq->nrequests; i++) {
       AREQ *areq = hreq->requests[i];
       auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(areq), NULL, NULL, PLN_T_DISTRIBUTE);
@@ -115,9 +104,9 @@ SerializedSteps *HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
         // Add the unresolved keys to the upstream lookup since we will add them to the LOAD clause
         RLookup_GetKey_Write(&dstp->lk, kk->name, kk->flags & ~RLOOKUP_F_UNRESOLVED);
       }
-      addKeysToLoadStep(&dstp->serialized, unresolvedKeys);
+      serializeUnresolvedKeys(&dstp->serialized, unresolvedKeys);
       lookups[i] = &dstp->lk;
-      serialized = &dstp->serialized;
+      serialized = dstp->serialized;
     }
     return serialized;
 }

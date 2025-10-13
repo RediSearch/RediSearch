@@ -21,7 +21,7 @@ typedef struct PLN_DistributeStep {
   RLookup lk;
   AGGPlan *plan;
   PLN_GroupStep **oldSteps;  // Old step which this distribute breaks down
-  SerializedSteps serialized;
+  arrayof(char*) serialized;
   BlkAlloc alloc;
 } PLN_DistributeStep;
 
@@ -29,13 +29,10 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status);
 
 typedef struct {
   // Arguments to upstream FT.AGGREGATE
-  arrayof(const char *) serialized;
+  arrayof(char*) serialized;
   // The lookup structure containing the fields that are to be received from upstream
   RLookup *lookup;
 } AREQDIST_UpstreamInfo;
-
-// maintains legacy behaviour by filling the AREQDIST_UpstreamInfo serialized array with the steps from the SerializedSteps struct in the same order
-void SerializedSteps_FillUpstreamInfo(SerializedSteps *ss, AREQDIST_UpstreamInfo *us);
 
 /**
  * Builds the static portion of the distributed pipeline

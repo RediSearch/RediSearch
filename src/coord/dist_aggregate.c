@@ -291,7 +291,6 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // Construct the command string
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
-  array_free(us.serialized);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);

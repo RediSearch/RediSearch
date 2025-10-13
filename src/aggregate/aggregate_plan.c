@@ -348,26 +348,24 @@ void AGPLN_Dump(const AGGPlan *pln) {
   }
 }
 
-static inline void append_string(arrayof(char *) *arr, const char *src) {
+typedef char **myArgArray_t;
+
+static inline void append_string(myArgArray_t *arr, const char *src) {
   char *s = rm_strdup(src);
   array_append(*arr, s);
 }
-static inline void append_uint(arrayof(char *) *arr, unsigned long long ll) {
+static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
   char s[64] = {0};
   sprintf(s, "%llu", ll);
   append_string(arr, s);
 }
-static inline void append_ac(arrayof(char *) *arr, const ArgsCursor *ac) {
+static inline void append_ac(myArgArray_t *arr, const ArgsCursor *ac) {
   for (size_t ii = 0; ii < ac->argc; ++ii) {
     append_string(arr, AC_StringArg(ac, ii));
   }
 }
 
-static void serializeMapFilter(SerializedSteps *target, const PLN_BaseStep *stp) {
-  if (!SerializedSteps_AddStepOnce(target, stp->type)) {
-    return;
-  }
-  arrayof(char *) *arr = &target->steps[stp->type];
+static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
   const PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
   if (stp->type == PLN_T_APPLY) {
     append_string(arr, "APPLY");
@@ -381,11 +379,7 @@ static void serializeMapFilter(SerializedSteps *target, const PLN_BaseStep *stp)
   }
 }
 
-static void serializeArrange(SerializedSteps *target, const PLN_BaseStep *stp) {
-  if (!SerializedSteps_AddStepOnce(target, PLN_T_ARRANGE)) {
-    return;
-  }
-  arrayof(char *) *arr = &target->steps[PLN_T_ARRANGE];
+static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
   const PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
   if (astp->limit || astp->offset) {
     append_string(arr, "LIMIT");
@@ -409,11 +403,7 @@ static void serializeArrange(SerializedSteps *target, const PLN_BaseStep *stp) {
   }
 }
 
-static void serializeLoad(SerializedSteps *target, const PLN_BaseStep *stp) {
-  if (!SerializedSteps_AddStepOnce(target, PLN_T_LOAD)) {
-    return;
-  }
-  arrayof(char *) *arr = &target->steps[PLN_T_LOAD];
+static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
   PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
   if (lstp->args.argc) {
     append_string(arr, "LOAD");
@@ -425,11 +415,7 @@ static void serializeLoad(SerializedSteps *target, const PLN_BaseStep *stp) {
   }
 }
 
-static void serializeGroup(SerializedSteps *target, const PLN_BaseStep *stp) {
-  if (!SerializedSteps_AddStepOnce(target, PLN_T_GROUP)) {
-    return;
-  }
-  arrayof(char *) *arr = &target->steps[PLN_T_GROUP];
+static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
   arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
   append_string(arr, "GROUPBY");
@@ -451,34 +437,7 @@ static void serializeGroup(SerializedSteps *target, const PLN_BaseStep *stp) {
   }
 }
 
-bool SerializedSteps_HasSteps(const SerializedSteps *steps) {
-  return steps->order && array_len(steps->order) > 0;
-}
-
-void SerializedSteps_Clean(SerializedSteps *target) {
-  if (!target->order) {
-    return;
-  }
-  for (size_t ii = 0; ii < array_len(target->order); ++ii) {
-    PLN_StepType st = target->order[ii];
-    arrayof(char *) tokens = target->steps[st];
-    RS_ASSERT(tokens);
-    array_free_ex(tokens, rm_free(*(char **)ptr));
-  }
-  array_free(target->order);
-}
-
-bool SerializedSteps_AddStepOnce(SerializedSteps *target, PLN_StepType st) {
-  if (target->steps[st]) {
-    return false;
-  }
-  target->steps[st] = array_new(char *, 1);
-  array_ensure_append_1(target->order, st);
-  return true;
-}
-
- void AGPLN_Serialize(const AGGPlan *pln, SerializedSteps *target) {
-  int16_t order = 0;
+void AGPLN_Serialize(const AGGPlan *pln, arrayof(char*) *target) {
   for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     switch (stp->type) {

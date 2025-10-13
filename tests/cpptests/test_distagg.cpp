@@ -60,13 +60,9 @@ static void testAverage() {
 
   // Serialize it!
   // printf("Printing serialized plan..\n");
-  // AGPLN_Dump(dstp->plan);
-  for (size_t ii = 0; ii < array_len(dstp->serialized.order); ++ii) {
-    PLN_StepType st = dstp->serialized.order[ii];
-    arrayof(char *) *step = &dstp->serialized.steps[st];
-    for (size_t jj = 0; jj < array_len(*step); ++jj) {
-      printf("Serialized[%lu][%lu]: %s\n", ii, jj, (*step)[jj]);
-    }
+  // AGPLN_Dump(dstp->plan)
+  for (size_t ii = 0; ii < array_len(dstp->serialized); ++ii) {
+    printf("Serialized[%lu]: %s\n", ii, dstp->serialized[ii]);
   }
 
   dstp = (PLN_DistributeStep *)AGPLN_FindStep(plan, NULL, NULL, PLN_T_DISTRIBUTE);
