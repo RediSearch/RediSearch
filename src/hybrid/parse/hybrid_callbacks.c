@@ -410,6 +410,12 @@ void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) 
   HybridParseContext *ctx = (HybridParseContext*)user_data;
   ArgsCursor *paramsArgs = (ArgsCursor*)value;
   QueryError *status = ctx->status;
-  size_t numPrefixes = paramsArgs->argc;
-  ctx->prefixesOffset = parser->cursor->offset - numPrefixes - 2; // one is for the offset moving and the other for the number of prefixes
+  while (!AC_IsAtEnd(paramsArgs)) {
+    const char *prefix;
+    if (AC_GetString(paramsArgs, &prefix, NULL, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for _INDEX_PREFIXES");
+      return;
+    }
+    array_append(ctx->prefixes, NewHiddenUnicodeString(prefix));
+  }
 }

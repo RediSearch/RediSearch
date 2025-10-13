@@ -507,29 +507,15 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
 
 // This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate does not use ArgsCursor
 static bool IsIndexCoherentWithQuery(HybridParseContext *ctx, ArgsCursor *ac, IndexSpec *spec)  {
-  if (ctx->prefixesOffset == 0) {
+
+  size_t n_prefixes = array_len(ctx->prefixes);
+  if (n_prefixes == 0) {
     // No prefixes in the query --> No validation needed.
     return true;
   }
 
-  if (ctx->prefixesOffset > 0 && (!spec || !spec->rule || !spec->rule->prefixes)) {
+  if (n_prefixes > 0 && (!spec || !spec->rule || !spec->rule->prefixes)) {
     // Index has no prefixes, but query has prefixes --> Incoherent
-    return false;
-  }
-
-  // Create a slice starting at the prefixes offset to access the number of prefixes
-  ArgsCursor prefixesCursor;
-  if (AC_GetSlice(ac, &prefixesCursor, ac->argc - ctx->prefixesOffset) != AC_OK) {
-    return false;
-  }
-
-  // Advance to the position where the number of prefixes is stored (offset + 1)
-  if (AC_AdvanceBy(&prefixesCursor, 1) != AC_OK) {
-    return false;
-  }
-
-  long long n_prefixes;
-  if (AC_GetLongLong(&prefixesCursor, &n_prefixes, AC_F_GE0) != AC_OK) {
     return false;
   }
 
@@ -542,11 +528,7 @@ static bool IsIndexCoherentWithQuery(HybridParseContext *ctx, ArgsCursor *ac, In
   // index (also in the same order)
   // The prefixes start right after the number
   for (uint i = 0; i < n_prefixes; i++) {
-    const char *arg;
-    if (AC_GetString(&prefixesCursor, &arg, NULL, 0) != AC_OK) {
-      return false;
-    }
-    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], ctx->prefixes[i]) != 0) {
       // Unmatching prefixes
       return false;
     }
@@ -625,7 +607,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
-      .prefixesOffset = 0,
+      .prefixes = array_new(HiddenUnicodeString*, 0),
   };
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
