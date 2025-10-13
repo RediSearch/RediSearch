@@ -107,6 +107,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, lookup);
 
     const char *scoreAlias = params->aggregationParams.common.scoreAlias;
+    const RLookupKey *docKey = RLookup_GetKey_Read(lookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
     const RLookupKey *scoreKey = NULL;
     if (scoreAlias) {
       scoreKey = RLookup_GetKey_Write(lookup, scoreAlias, RLOOKUP_F_NOFLAGS);
@@ -118,7 +119,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     } else {
       scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
     }
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes, lookupCtx);
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 
@@ -163,13 +164,13 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
-    QueryError_Init(&hybridReq->tailPipelineError);
+    hybridReq->tailPipelineError = QueryError_Default();
     Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridReq->tailPipelineError);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        QueryError_Init(&hybridReq->errors[i]);
+        hybridReq->errors[i] = QueryError_Default();
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
     hybridReq->initClock = clock();
@@ -253,14 +254,14 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
     }
 
     // Priority 1: Tail pipeline error (affects final result processing)
-    if (hreq->tailPipelineError.code != QUERY_OK) {
+    if (QueryError_HasError(&hreq->tailPipelineError)) {
         QueryError_CloneFrom(&hreq->tailPipelineError, status);
         return REDISMODULE_ERR;
     }
 
     // Priority 2: Individual AREQ errors (sub-query failures)
     for (size_t i = 0; i < hreq->nrequests; i++) {
-        if (hreq->errors[i].code != QUERY_OK) {
+        if (QueryError_HasError(&hreq->errors[i])) {
             QueryError_CloneFrom(&hreq->errors[i], status);
             return REDISMODULE_ERR;
         }
@@ -299,7 +300,7 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
 }
 
 void AddValidationErrorContext(AREQ *req, QueryError *status) {
-  if (QueryError_GetCode(status) == QUERY_OK) {
+  if (QueryError_IsOk(status)) {
     return;
   }
 

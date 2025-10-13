@@ -18,7 +18,7 @@ static int compare_RSValue(void *privdata, const void *key1, const void *key2) {
   return RSValue_Equal(key1, key2, NULL);
 }
 static void destructor_RSValue(void *privdata, void *key) {
-  RSValue_Decref((RSValue *)key);
+  RSValue_DecrRef((RSValue *)key);
 }
 
 static dictType RSValueSet = {
@@ -43,7 +43,7 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   }
 
   // for non array values we simply add the value to the list */
-  if (v->t != RSValue_Array) {
+  if (!RSValue_IsArray(v)) {
     dictAdd(values, v, NULL);
   } else {  // For array values we add each distinct element to the list
     uint32_t len = RSValue_ArrayLen(v);

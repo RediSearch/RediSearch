@@ -171,7 +171,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
             // fixup in: MOD-10347
             let value = walk_down_rsvalue_ref_chain(&self.values[idx]);
 
-            if value.get_type() == ffi::RSValueType_RSValue_String {
+            if value.get_type() == ffi::RSValueType_RSValueType_String {
                 sz += value.as_str().unwrap().len();
             }
         }

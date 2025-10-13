@@ -789,7 +789,7 @@ TEST_F(IndexTest, testHybridVector) {
                                   .childIt = NULL,
                                   .filterCtx = &filterCtx
   };
-  QueryError err = {QUERY_OK};
+  QueryError err = QueryError_Default();
   QueryIterator *vecIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
@@ -978,7 +978,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
     ASSERT_EQ(IndexResult_NumValue(h), exp_dist);
-    ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
+    ASSERT_EQ(RSValue_Number_Get(h->metrics[0].value), exp_dist);
     count++;
   }
   ASSERT_EQ(count, n_expected_res);
@@ -997,13 +997,13 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(vecIt->lastDocId, lowest_id + 10);
   double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
-  ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
+  ASSERT_EQ(RSValue_Number_Get(vecIt->current->metrics[0].value), exp_dist);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt, n-1), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, n-1);
   exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
-  ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
+  ASSERT_EQ(RSValue_Number_Get(vecIt->current->metrics[0].value), exp_dist);
 
   // Invalid SkipTo
   ASSERT_EQ(vecIt->SkipTo(vecIt, n+1), ITERATOR_EOF);
@@ -1123,7 +1123,7 @@ TEST_F(IndexTest, testIndexSpec) {
                         "text",      "weight", "0.1",   body,       "text",   "weight",
                         "2.0",       foo,      "text",  "sortable", bar,      "numeric",
                         "sortable",  name,     "text",  "nostem"};
-  QueryError err = {QUERY_OK};
+  QueryError err = QueryError_Default();
   const char* spec_name = "idx";
   StrongRef ref = IndexSpec_ParseC(spec_name, args, sizeof(args) / sizeof(const char *), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
@@ -1258,7 +1258,7 @@ TEST_F(IndexTest, testHugeSpec) {
   std::vector<char *> args;
   fillSchema(args, N);
 
-  QueryError err = {QUERY_OK};
+  QueryError err = QueryError_Default();
   StrongRef ref = IndexSpec_ParseC("idx", (const char **)&args[0], args.size(), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -1567,7 +1567,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithEmptyChild) {
     .filterCtx = NULL
   };
 
-  QueryError err = {QUERY_OK};
+  QueryError err = QueryError_Default();
   QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
 
   // Verify the iterator was not created due to NULL child
@@ -1606,7 +1606,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
     .filterCtx = &filterCtx
   };
 
-  QueryError err = {QUERY_OK};
+  QueryError err = QueryError_Default();
   QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
 
   // Verify the iterator was not created due to NULL child

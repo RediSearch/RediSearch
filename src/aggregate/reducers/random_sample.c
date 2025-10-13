@@ -42,7 +42,7 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   } else {
     size_t i = rand() % (sc->seen + 1);
     if (i < r->len) {
-      RSVALUE_REPLACE(&RSVALUE_ARRELEM(sc->samplesArray, i), v);
+      RSValue_Replace(&((sc->samplesArray)->_arrval.vals[i]), v);
     }
   }
   sc->seen++;
@@ -56,7 +56,7 @@ static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
 
 static void sampleFreeInstance(Reducer *rbase, void *p) {
   rsmplCtx *sc = p;
-  RSValue_Decref(sc->samplesArray); // release own reference to the array
+  RSValue_DecrRef(sc->samplesArray); // release own reference to the array
 }
 
 Reducer *RDCRRandomSample_New(const ReducerOptions *options) {

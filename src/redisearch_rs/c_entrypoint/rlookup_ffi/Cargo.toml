@@ -15,5 +15,5 @@ build_utils = { path = "../../build_utils" }
 [dependencies]
 rlookup.workspace = true
 ffi.workspace = true
-value.workspace = true
+value = { workspace = true, features = ["c_ffi_impl"] }
 libc.workspace = true

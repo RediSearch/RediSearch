@@ -24,6 +24,7 @@ members = [
     "rqe_iterators_bencher",
     "varint_bencher",
     "wildcard",
+    "search_result",
 ]
 
 resolver = "3"
@@ -57,7 +58,7 @@ license-file = "../../LICENSE.txt"
 publish = false
 
 [workspace.dependencies]
-ffi = { path = "./ffi" }
+ffi = { path = "./ffi", default-features = false }
 fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
@@ -72,6 +73,7 @@ varint = { path = "./varint" }
 qint = { path = "./qint" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
+search_result = { path = "./search_result" }
 
 cbindgen = "0.29"
 cc = "1"

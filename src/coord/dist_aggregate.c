@@ -56,7 +56,7 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
       newCmd.rootCommand = C_READ;
     }
 
-    newCmd.targetSlot = cmd->targetSlot;
+    newCmd.targetShard = cmd->targetShard;
     newCmd.protocol = cmd->protocol;
     newCmd.forCursor = cmd->forCursor;
     newCmd.forProfiling = cmd->forProfiling;
@@ -191,40 +191,40 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 }
 
 RSValue *MRReply_ToValue(MRReply *r) {
-  if (!r) return RS_NullVal();
+  if (!r) return RSValue_NullStatic();
   RSValue *v = NULL;
   switch (MRReply_Type(r)) {
     case MR_REPLY_STATUS:
     case MR_REPLY_STRING: {
       size_t l;
       const char *s = MRReply_String(r, &l);
-      v = RS_NewCopiedString(s, l);
+      v = RSValue_NewCopiedString(s, l);
       break;
     }
     case MR_REPLY_ERROR: {
       double d = 42;
       MRReply_ToDouble(r, &d);
-      v = RS_NumVal(d);
+      v = RSValue_NewNumber(d);
       break;
     }
     case MR_REPLY_INTEGER:
-      v = RS_NumVal((double)MRReply_Integer(r));
+      v = RSValue_NewNumber((double)MRReply_Integer(r));
       break;
     case MR_REPLY_DOUBLE:
-      v = RS_NumVal(MRReply_Double(r));
+      v = RSValue_NewNumber(MRReply_Double(r));
       break;
     case MR_REPLY_MAP: {
       size_t n = MRReply_Length(r);
       RS_LOG_ASSERT(n % 2 == 0, "map of odd length");
-      RSValue **map = rm_malloc(n * sizeof(*map));
-      for (size_t i = 0; i < n; ++i) {
-        MRReply *e = MRReply_ArrayElement(r, i);
-        if (i % 2 == 0) {
-          RS_LOG_ASSERT(MRReply_Type(e) == MR_REPLY_STRING, "non-string map key");
-        }
-        map[i] = MRReply_ToValue(e);
+      size_t map_len = n / 2;
+      RSValueMap map = RSValueMap_AllocUninit(map_len);
+      for (size_t i = 0; i < map_len; i++) {
+        MRReply *e_k = MRReply_ArrayElement(r, i * 2);
+        RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
+        MRReply *e_v = MRReply_ArrayElement(r, (i * 2) + 1);
+        RSValueMap_SetEntry(&map, i,  MRReply_ToValue(e_k), MRReply_ToValue(e_v));
       }
-      v = RSValue_NewMap(map, n / 2);
+      v = RSValue_NewMap(map);
       break;
     }
     case MR_REPLY_ARRAY: {
@@ -237,10 +237,10 @@ RSValue *MRReply_ToValue(MRReply *r) {
       break;
     }
     case MR_REPLY_NIL:
-      v = RS_NullVal();
+      v = RSValue_NullStatic();
       break;
     default:
-      v = RS_NullVal();
+      v = RSValue_NullStatic();
       break;
   }
   return v;
@@ -290,6 +290,12 @@ static int getNextReply(RPNet *nc) {
   // Check if an error was returned
   if(MRReply_Type(root) == MR_REPLY_ERROR) {
     nc->current.root = root;
+    // If for profiling, clone and append the error
+    if (nc->cmd.forProfiling) {
+      // Clone the error and append it to the profile
+      MRReply *error = MRReply_Clone(root);
+      array_append(nc->shardsProfile, error);
+    }
     return 1;
   }
 
@@ -405,7 +411,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
             if (!strcmp(warning_str, QueryError_Strerror(QUERY_ETIMEDOUT))) {
               timed_out = true;
             } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
-              AREQ_QueryProcessingCtx(nc->areq)->err->reachedMaxPrefixExpansions = true;
+              QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
             }
           }
         }
@@ -442,12 +448,25 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     // If an error was returned, propagate it
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      const char *strErr = MRReply_String(nc->current.root, NULL);
-      if (!strErr
-          || strcmp(strErr, "Timeout limit was reached")
-          || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_EGENERIC, strErr);
+      QueryErrorCode errCode = extractQueryErrorFromReply(nc->current.root);
+      // TODO - use should_return_error after it is changed to support RequestConfig ptr
+      if (errCode == QUERY_EGENERIC ||
+          ((errCode == QUERY_ETIMEDOUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
+          ((errCode == QUERY_EOOM) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
+        // We need to pass the reply string as the error message, since the error code might be generic
+        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, errCode,  MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
+      } else  {
+        // Check if OOM error
+        // Assuming that if we are here, we are under return on OOM policy
+        // Since other policies are already handled before this point
+        if (errCode == QUERY_EOOM) {
+          QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+        }
+        // Free the error reply before we override it and continue
+        MRReply_Free(nc->current.root);
+        // Set it as NULL avoid another free
+        nc->current.root = NULL;
       }
     }
 
@@ -483,7 +502,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
     MRReply *val = MRReply_ArrayElement(fields, i + 1);
     RSValue *v = MRReply_ToValue(val);
-    RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
+    RLookup_WriteOwnKeyByName(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
   }
   return RS_RESULT_OK;
 }
@@ -820,7 +839,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   specialCaseCtx *knnCtx = NULL;
 
   // Check if the index still exists, and promote the ref accordingly
@@ -862,7 +881,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
   if (!debug_req) {
     goto err;
