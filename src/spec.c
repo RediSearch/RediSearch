@@ -3349,7 +3349,7 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
     RedisModuleString *serialized = IndexSpec_Serialize(sp);
     RS_ASSERT(serialized != NULL);
     RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "ls", INDEX_CURRENT_VERSION, serialized);
-    RedisModule_FreeString(ctx, serialized);
+    RedisModule_FreeString(NULL, serialized);
   }
   dictReleaseIterator(iter);
 }
