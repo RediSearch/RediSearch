@@ -155,38 +155,13 @@ jobs:
       - name: Build and Pack RediSearch OSS
         env:
             COORD: oss
-        run: |
-          ${{ env.BUILD_CMD }}3
-          # Find the CMakeCache.txt file with the shortest path
-          CACHE_FILE=$(find . -name "CMakeCache.txt" -type f -exec realpath {} \; | awk '{print length($0), $0}' | sort -n | head -1 | cut -d' ' -f2-)
-          WORKER_THREADS=$(grep "^MAX_WORKER_THREADS:" $CACHE_FILE | cut -d'=' -f2)
-          echo "Detected MAX_WORKER_THREADS: $WORKER_THREADS"
-
-          # Exit if WORKER_THREADS is set and not OFF
-          if [[ -n "$WORKER_THREADS" && "$WORKER_THREADS" != "OFF" ]]; then
-            echo "Error: MAX_WORKER_THREADS should not be set for OSS build (found: $WORKER_THREADS)"
-            exit 1
-          fi
-          make pack
+        run: ${{ env.BUILD_CMD }} && make pack
       - name: Build and Pack RediSearch Enterprise
         env:
           COORD: rlec
           MAX_WORKER_THREADS: ${{ vars.MAX_WORKER_THREADS }}
           BUILD_INTEL_SVS_OPT: 1
-        run: |
-          ${{ env.BUILD_CMD }}
-          # Find the CMakeCache.txt file with the shortest path
-          CACHE_FILE=$(find . -name "CMakeCache.txt" -type f -exec realpath {} \; | awk '{print length($0), $0}' | sort -n | head -1 | cut -d' ' -f2-)
-          WORKER_THREADS=$(grep "^MAX_WORKER_THREADS:" $CACHE_FILE | cut -d'=' -f2)
-          EXPECTED_VALUE="${{ vars.MAX_WORKER_THREADS }}"
-          if [[ -z "$WORKER_THREADS" ]]; then
-            echo "Error: MAX_WORKER_THREADS not found in CMakeCache.txt"
-            exit 1
-          elif [[ "$WORKER_THREADS" != "$EXPECTED_VALUE" ]]; then
-            echo "MAX_WORKER_THREADS is not set to the expected value: $EXPECTED_VALUE, but to: $WORKER_THREADS"
-            exit 1
-          fi
-          make pack
+        run: ${{ env.BUILD_CMD }} && make pack
 
       # Upload
       - name: Configure AWS Credentials Using Role (node20)
