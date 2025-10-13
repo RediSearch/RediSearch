@@ -716,8 +716,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
     goto error;
   }
-  array_free(hybridParseCtx.prefixes);
-  hybridParseCtx.prefixes = NULL;  // Prevent double-free
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
