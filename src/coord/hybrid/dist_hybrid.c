@@ -232,6 +232,14 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     hreq->tailPipeline->qctx.err = status;
 
+    // Initialize timeout for all subqueries BEFORE building pipelines
+    for (int i = 0; i < hreq->nrequests; i++) {
+        AREQ *subquery = hreq->requests[i];
+        RedisSearchCtx *sctx = AREQ_SearchCtx(subquery);
+        SearchCtx_UpdateTime(sctx, subquery->reqConfig.queryTimeoutMS);
+    }
+    SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
+
     // Parse the hybrid command (equivalent to AREQ_Compile)
     HybridPipelineParams hybridParams = {0};
     ParseHybridCommandCtx cmd = {0};
@@ -273,20 +281,13 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     MRCommand xcmd;
     HybridRequest_buildMRCommand(argv, argc, &us, &xcmd, sp, &hybridParams);
     xcmd.protocol = is_resp3(ctx) ? 3 : 2;
-    // xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
-    // xcmd.forProfiling = false;  // No profiling support for hybrid yet
-    // xcmd.rootCommand = C_AGG;   // Response is equivalent to a `CURSOR READ` response
+    xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
+    xcmd.forProfiling = false;  // No profiling support for hybrid yet
+    xcmd.rootCommand = C_READ;
 
     // UPDATED: Use new start function with mappings (no dispatcher needed)
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartWithMappings);
     HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartWithMappings);
-
-    // Add timeout initialization for each subquery after building RPNet chains
-    for (int i = 0; i < hreq->nrequests; i++) {
-        AREQ *subquery = hreq->requests[i];
-        RedisSearchCtx *sctx = AREQ_SearchCtx(subquery);
-        SearchCtx_UpdateTime(sctx, subquery->reqConfig.queryTimeoutMS);
-    }
 
     // Free the command
     MRCommand_Free(&xcmd);
@@ -335,10 +336,10 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     }
 
     // Store mappings in RPNet structures
-    searchRPNet->mappings = searchMappingsRef;
-    vsimRPNet->mappings = vsimMappingsRef;
-    CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
-    CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
+    searchRPNet->mappings = StrongRef_Clone(searchMappingsRef);
+    vsimRPNet->mappings = StrongRef_Clone(vsimMappingsRef);
+    StrongRef_Release(searchMappingsRef);
+    StrongRef_Release(vsimMappingsRef);
 
     bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     if (isCursor) {
@@ -359,8 +360,6 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
             .lastAstp = AGPLN_GetArrangeStep(plan)
         };
         sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
-        StrongRef_Release(searchMappingsRef);
-        StrongRef_Release(vsimMappingsRef);
         HybridRequest_Free(hreq);
     }
     return REDISMODULE_OK;

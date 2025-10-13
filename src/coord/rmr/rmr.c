@@ -77,7 +77,7 @@ typedef struct MRCtx {
 // Data structure to pass iterator and private data to callback
 typedef struct {
   MRIterator *it;
-  void *privateData;
+  WeakRef privateDataRef;
 } IteratorData;
 
 void MR_SetCoordinationStrategy(MRCtx *ctx, bool mastersOnly) {
@@ -674,9 +674,18 @@ void iterStartCb(void *p) {
 void iterCursorMappingCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
-  CursorMappings *vsimOrSearch = (CursorMappings*)data->privateData;
-  // RedisModule_Log(NULL, "warning", "iterCursorMappingCb: mappings is %p, array_len(mappings) is %zu", vsimOrSearch, array_len(vsimOrSearch->mappings));
-  // RS_ASSERT(mappings && array_len(mappings) > 0);
+
+  StrongRef mappingsRef = WeakRef_Promote(data->privateDataRef);
+  WeakRef_Release(data->privateDataRef);
+  CursorMappings *vsimOrSearch = StrongRef_Get(mappingsRef);
+  if (!vsimOrSearch) {
+    // Cursor mappings have been freed - cannot proceed with command dispatch.
+    // Release the iterator to decrement its reference count and trigger cleanup.
+    // This handles the case where we abort before sending commands to any shards.
+    MRIterator_Release(it);
+    rm_free(data);
+    return;
+  }
 
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
   size_t numShards = io_runtime_ctx->topo->numShards;
@@ -715,7 +724,8 @@ void iterCursorMappingCb(void *p) {
     }
   }
 
-  // Clean up the data structure
+  //Clean up the StrongRef and allocated memory
+  StrongRef_Release(mappingsRef);
   rm_free(data);
 }
 
@@ -768,7 +778,7 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
   return MR_IterateWithPrivateData(cmd, cb, NULL, iterStartCb, NULL);
 }
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,void *iterStartCbPrivateData) {
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,StrongRef *iterStartCbPrivateData) {
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
   // The rest of the initialization is done in the iterator start callback.
@@ -800,14 +810,10 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
   // Create data structure with iterator and private data (on heap)
   IteratorData *data = rm_malloc(sizeof(IteratorData));
   data->it = ret;
-  data->privateData = iterStartCbPrivateData;
-  // Itzik changed:
-  // RQ_Push(rq_g, iterStartCb, ret);
-  // --> RQ_Push(rq_g, iterStartCb, data);
-
-  // Guy changed:
-  // RQ_Push(rq_g, iterStartCb, ret);
-  // --> IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, ret);
+  data->privateDataRef = (WeakRef){0};
+  if (iterStartCbPrivateData) {
+    data->privateDataRef = StrongRef_Demote(*iterStartCbPrivateData);
+  }
   IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, data);
   return ret;
 }
