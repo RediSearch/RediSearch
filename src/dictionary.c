@@ -14,6 +14,7 @@
 #include "resp3.h"
 #include "rmutil/rm_assert.h"
 #include "commands.h"
+#include "config.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -179,7 +180,10 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* t) {
   TrieIterator_Free(it);
 
   RS_ASSERT(termsCount == t->size);
-  RedisModule_ClusterPropagateForSlotMigration(ctx, RS_DICT_ADD, "cv", dictName, terms, termsCount);
+  int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_DICT_ADD, "cv", dictName, terms, termsCount);
+  if (rc != REDISMODULE_OK) {
+    RedisModule_Log(ctx, "warning", "Failed to propagate dictionary '%s' during slot migration. errno: %d", RSGlobalConfig.hideUserDataFromLog ? "****" : dictName, errno);
+  }
 
   for (size_t i = 0; i < termsCount; ++i) {
     RedisModule_FreeString(NULL, terms[i]);
