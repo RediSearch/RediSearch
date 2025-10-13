@@ -176,9 +176,9 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* t) {
     terms[termsCount++] = RedisModule_CreateString(NULL, res, termLen);
     rm_free(res);
   }
-  RS_ASSERT(termsCount == t->size);
   TrieIterator_Free(it);
 
+  RS_ASSERT(termsCount == t->size);
   RedisModule_ClusterPropagateForSlotMigration(ctx, RS_DICT_ADD, "cv", dictName, terms, termsCount);
 
   for (size_t i = 0; i < termsCount; ++i) {
