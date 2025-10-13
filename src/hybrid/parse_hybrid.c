@@ -612,6 +612,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .maxResults = &maxHybridResults,
       .prefixes = prefixes,
   };
+  // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     prefixes = hybridParseCtx.prefixes;
     goto error;
@@ -716,6 +717,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
     goto error;
   }
+  array_free(prefixes);
+  prefixes = NULL;
+
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
