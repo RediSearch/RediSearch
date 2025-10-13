@@ -7,14 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Alternative implementations of Redis' functions for heap allocation.
-use std::{
-    alloc::{Layout, alloc, alloc_zeroed, dealloc, realloc},
-    ffi::c_void,
-};
+use std::alloc::{Layout, alloc, alloc_zeroed, dealloc, realloc};
+use std::ffi::c_void;
+use std::ptr;
 
-const HEADER_SIZE: usize = std::mem::size_of::<usize>();
-const ALIGNMENT: usize = std::mem::align_of::<usize>();
+const ALIGNMENT: usize = 2 * std::mem::align_of::<usize>();
+const HEADER_SIZE: usize = 2 * std::mem::size_of::<usize>();
+
+#[inline]
+fn layout_for(total: usize) -> Layout {
+    Layout::from_size_align(total, ALIGNMENT).unwrap()
+}
 
 /// Allocates the required memory of `size` bytes for the caller usage. The caller must invoke `free_shim`
 /// to free the memory when it is no longer needed.
@@ -32,20 +35,38 @@ const ALIGNMENT: usize = std::mem::align_of::<usize>();
 /// 1. The caller must ensure that the pointer returned by this function is freed using `free_shim` and
 ///    not another free function.
 pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
-    // Check if size is zero
     if size == 0 {
-        return std::ptr::null_mut();
+        return ptr::null_mut();
     }
 
-    // Safety:
-    // The caller will have to guarantee that `total_size` is > 0.
-    let alloc_ = |total_size| unsafe {
-        alloc(Layout::from_size_align(total_size, ALIGNMENT).unwrap()) as *mut c_void
+    let alloc_size = match size.checked_add(HEADER_SIZE) {
+        Some(n) => n,
+        None => return ptr::null_mut(),
     };
-    // Safety:
-    // 1. --> We know size > 0
-    // A. total_size = size + HEADER_SIZE (see [generic_shim])
-    unsafe { generic_shim(size, alloc_) }
+
+    // Safety: `alloc` is called with a valid `Layout` of non zero size and returns
+    // a pointer to `alloc_size` bytes aligned to `ALIGNMENT` or null on OOM.
+    let base = unsafe { alloc(layout_for(alloc_size)) };
+    if base.is_null() {
+        return ptr::null_mut();
+    }
+
+    let h0 = base as *mut usize;
+    // Safety: `h0` points into the allocated block and we write exactly one `usize`
+    // that fits within the first `HEADER_SIZE` bytes we reserved for the header.
+    unsafe { *h0 = alloc_size };
+
+    let h1 = base.wrapping_add(std::mem::size_of::<usize>()) as *mut usize;
+    // Safety: `h1` is within the allocated header region and disjoint from `h0`.
+    // Since the header is two words-long, and we only need one word
+    // for required metadata (i.e. the actual allocated space),
+    // we can use the second word to keep track of additional information
+    // that can be handy when troubleshooting, such as the size
+    // requested by the user.
+    unsafe { *h1 = size };
+
+    // Compute user pointer just after the header while preserving alignment.
+    base.wrapping_add(HEADER_SIZE) as *mut c_void
 }
 
 /// Allocates the required memory of `size`*`count` bytes for the caller usage. The caller must invoke `free_shim`
@@ -58,21 +79,38 @@ pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
 /// Safety:
 /// 1. The caller must ensure that pointers returned by this function are freed using `free_shim`.
 pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
-    // Check if size is zero
-    if size == 0 || count == 0 {
-        return std::ptr::null_mut();
+    let req = match count.checked_mul(size) {
+        Some(n) if n > 0 => n,
+        _ => return ptr::null_mut(),
+    };
+
+    let alloc_size = match req.checked_add(HEADER_SIZE) {
+        Some(n) => n,
+        None => return ptr::null_mut(),
+    };
+
+    // Safety: `alloc_zeroed` is called with a valid non zero `Layout` and returns
+    // a zero initialized block aligned to `ALIGNMENT` or null on OOM.
+    let base = unsafe { alloc_zeroed(layout_for(alloc_size)) };
+    if base.is_null() {
+        return ptr::null_mut();
     }
 
-    // ensure no overflow
-    let size_without_header = count.checked_mul(size).unwrap();
-    // Safety:
-    // The caller will have to guarantee that `total_size` is > 0.
-    let alloc_zeroed = |total_size| unsafe {
-        alloc_zeroed(Layout::from_size_align(total_size, ALIGNMENT).unwrap()) as *mut c_void
-    };
-    // Safety:
-    // 1. --> We know count > 0, size > 0 --> size_without_header > 0
-    unsafe { generic_shim(size_without_header, alloc_zeroed) }
+    let h0 = base as *mut usize;
+    // Safety: `h0` is within the allocated header region.
+    unsafe { *h0 = alloc_size };
+
+    let h1 = base.wrapping_add(std::mem::size_of::<usize>()) as *mut usize;
+    // Safety: `h1` is within the allocated header region and disjoint from `h0`.
+    // Since the header is two words-long, and we only need one word
+    // for required metadata (i.e. the actual allocated space),
+    // we can use the second word to keep track of additional information
+    // that can be handy when troubleshooting, such as the size
+    // requested by the user.
+    unsafe { *h1 = req };
+
+    // pointer after header, alignment preserved since HEADER_SIZE is a multiple of ALIGNMENT.
+    base.wrapping_add(HEADER_SIZE) as *mut c_void
 }
 
 /// Frees the memory allocated by the `alloc_shim`, `calloc_shim` or `realloc_shim` functions.
@@ -84,25 +122,21 @@ pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
 ///
 /// Safety:
 /// 1. The caller must ensure that the pointer is valid and was allocated by `alloc_shim`.
-pub extern "C" fn free_shim(ptr: *mut c_void) {
-    if ptr.is_null() {
+pub extern "C" fn free_shim(ptr_user: *mut c_void) {
+    if ptr_user.is_null() {
         return;
     }
 
-    let ptr = ptr as *mut u8;
+    let user = ptr_user as *mut u8;
+    let base = user.wrapping_sub(HEADER_SIZE);
 
-    // Safety:
-    // 1. --> We know the ptr is valid and has `HEADER_SIZE` header slot prefixed because
-    // it was allocated by `alloc_shim`.
-    let ptr = unsafe { ptr.sub(HEADER_SIZE) };
+    let h0 = base as *mut usize;
 
-    // Safety:
-    // We just moved to the begin of the header slot
-    let size = unsafe { *(ptr as *mut usize) };
+    // Safety: `h0` points to the header we wrote at allocation time.
+    let alloc_size = unsafe { *h0 };
 
-    // Safety:
-    // 1. --> We know the pointer is valid because it was allocated by `alloc_shim`.
-    unsafe { dealloc(ptr, Layout::from_size_align(size, ALIGNMENT).unwrap()) }
+    // Safety: We pass the exact `Layout` used to allocate `base`, satisfying the allocator contract.
+    unsafe { dealloc(base, layout_for(alloc_size)) }
 }
 
 /// Reallocates the required memory of `size` bytes for the caller usage. The `ptr` must be created
@@ -126,73 +160,51 @@ pub extern "C" fn free_shim(ptr: *mut c_void) {
 ///
 /// If the pointer is null the function behaves like `alloc_shim`, that means if size is zero
 /// the function returns a null pointer.
-pub extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
-    if ptr.is_null() {
-        return alloc_shim(size);
+pub extern "C" fn realloc_shim(ptr_user: *mut c_void, new_size: usize) -> *mut c_void {
+    if ptr_user.is_null() {
+        return alloc_shim(new_size);
+    }
+    if new_size == 0 {
+        free_shim(ptr_user);
+        return ptr::null_mut();
     }
 
-    if size == 0 {
-        // If size is zero, we free the memory and return a null pointer.
-        free_shim(ptr);
-        return std::ptr::null_mut();
+    let user = ptr_user as *mut u8;
+    let base = user.wrapping_sub(HEADER_SIZE);
+
+    let h0_old = base as *mut usize;
+
+    // Safety: `h0_old` points to the header we wrote for this allocation.
+    let old_alloc_size = unsafe { *h0_old };
+    let old_layout = layout_for(old_alloc_size);
+
+    let new_alloc_size = match new_size.checked_add(HEADER_SIZE) {
+        Some(n) => n,
+        None => return ptr::null_mut(),
+    };
+
+    // Safety: `realloc` is called with the exact old layout and the new total size.
+    // On success it returns a valid pointer to `new_alloc_size` bytes aligned to `ALIGNMENT`.
+    let new_base = unsafe { realloc(base, old_layout, new_alloc_size) };
+    if new_base.is_null() {
+        return ptr::null_mut();
     }
 
-    let ptr = ptr as *mut u8;
+    let h0_new = new_base as *mut usize;
+    // Safety: `h0_new` points to the start of the new header block.
+    unsafe { *h0_new = new_alloc_size };
 
-    // Safety:
-    // 1. --> We know the ptr is valid and has `HEADER_SIZE` header slot prefixed because
-    // it was allocated by `alloc_shim`.
-    let ptr = unsafe { ptr.sub(HEADER_SIZE) };
+    let h1_new = new_base.wrapping_add(std::mem::size_of::<usize>()) as *mut usize;
+    // Safety: `h1_new` is within the allocated header region and disjoint from `h0_new`.
+    // Since the header is two words-long, and we only need one word
+    // for required metadata (i.e. the actual allocated space),
+    // we can use the second word to keep track of additional information
+    // that can be handy when troubleshooting, such as the size
+    // requested by the user.
+    unsafe { *h1_new = new_size };
 
-    // Safety:
-    // We just moved to the begin of the header slot
-    let old_size = unsafe { *(ptr as *mut usize) };
-
-    let old_layout = Layout::from_size_align(old_size, ALIGNMENT).unwrap();
-
-    // Safety:
-    // The caller will have to guarantee that `total_size` is > 0.
-    let realloc_ = |total_size| unsafe { realloc(ptr, old_layout, total_size) as *mut c_void };
-    // SAFETY:
-    // 1. The caller guarantees that the size is greater than 0 (safety requirement #1)
-    unsafe { generic_shim(size, realloc_) }
-}
-
-/// Allocates the required memory plus HEADER_SIZE bytes for a header slot containing the size.
-///
-/// The allocator includes an additional header to keep track of the requested size.
-/// That size information will be required, later on, if reallocating or deallocating the
-/// buffer that this function returns.
-///
-/// The pointer returned by this function points right after the header slot, which is
-/// invisible to the caller.
-///
-/// Safety:
-/// The caller must ensure that the `allocation_func` is a valid function that allocates
-/// and the caller must ensure that the returned pointer is freed using `free_shim`.
-unsafe fn generic_shim<F: FnOnce(usize) -> *mut c_void>(
-    size: usize,
-    allocation_func: F,
-) -> *mut c_void {
-    let size = size + HEADER_SIZE;
-
-    // Safety:
-    // 1 --> We know size > 0
-    // A. allocation_fun is called with size >= HEADER_SIZE + 1
-    let mem: *mut c_void = allocation_func(size);
-    if mem.is_null() {
-        panic!("Allocation of {size} bytes failed, out of memory?");
-    }
-
-    // Safety:
-    // We know the memory is valid because we just allocated it.
-    unsafe {
-        *(mem as *mut usize) = size;
-    }
-
-    // Safety:
-    // 1. --> We know there is at least one byte after the header
-    unsafe { mem.add(HEADER_SIZE) }
+    // pointer just after the header
+    new_base.wrapping_add(HEADER_SIZE) as *mut c_void
 }
 
 #[cfg(test)]
