@@ -84,7 +84,7 @@ impl QueryIterator {
             std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
             std::ptr::copy_nonoverlapping(metric_data.as_ptr(), m_data, len);
         }
-        Self(unsafe { bindings::NewMetricIterator(data, m_data, len , Metric_VECTOR_DISTANCE) })
+        Self(unsafe { bindings::NewMetricIterator(data, m_data, len, Metric_VECTOR_DISTANCE) })
     }
     #[inline(always)]
     pub fn new_wildcard(max_id: u64, num_docs: usize) -> Self {

@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::RSValue;
-use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, metric::Metric};
 #[allow(unused_imports)]
 use crate::c_mocks::{RSValue_NewNumber, get_mock_number_value};
+use ffi::RSValue;
+use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, metric::Metric};
 mod c_mocks;
 
 static CASES: &[&[u64]] = &[
@@ -39,9 +39,8 @@ fn test_metric_creation_panic() {
 fn test_metric_creation() {
     let ids = vec![1, 3, 5, 7, 9];
     let metric_data = vec![0.1, 0.3, 0.5, 0.7, 0.9];
-    
     let metric = Metric::new(ids.clone(), metric_data.clone());
-    
+
     // Test that the metric was created with correct data
     assert_eq!(metric.num_estimated(), ids.len());
 }
@@ -64,15 +63,15 @@ fn read() {
             let res = it.read();
             assert!(res.is_ok(), "Case {i}, element {j}, expected {expected_id}");
             let res = res.unwrap();
-            assert!(res.is_some(), "Case {i}, element {j}, expected {expected_id}");
+            assert!(
+                res.is_some(),
+                "Case {i}, element {j}, expected {expected_id}"
+            );
             let res = res.unwrap();
             assert_eq!(res.doc_id, expected_id, "Case {i}, element {j}");
-            let metric_val: *mut RSValue = unsafe {
-                (*res.metrics.wrapping_add(j)).value
-            };
+            let metric_val: *mut RSValue = unsafe { (*res.metrics.wrapping_add(j)).value };
             assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[j]);
             assert_eq!(it.last_doc_id(), expected_id, "Case {i}, element {j}");
-
         }
 
         assert!(it.at_eof(), "Case {i}");
@@ -99,13 +98,10 @@ fn skip_to() {
         let first_doc = first_res.unwrap();
         let first_id = case[0];
         assert_eq!(first_doc.doc_id, first_id, "Case {ci}");
-        let metric_val: *mut RSValue = unsafe {
-            (*first_doc.metrics).value
-        };
+        let metric_val: *mut RSValue = unsafe { (*first_doc.metrics).value };
         assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[0]);
         assert_eq!(it.last_doc_id(), first_id, "Case {ci}");
         assert_eq!(it.at_eof(), Some(&first_id) == case.last(), "Case {ci}");
-
 
         // Skip to higher than last doc id: expect EOF, last_doc_id unchanged
         let last = *case.last().unwrap();
@@ -132,9 +128,8 @@ fn skip_to() {
                     res.doc_id, id,
                     "Case {ci} probe {probe} expected landing on {id}"
                 );
-                let metric_val: *mut RSValue = unsafe {
-                    (*res.metrics.wrapping_add(probe as usize)).value
-                };
+                let metric_val: *mut RSValue =
+                    unsafe { (*res.metrics.wrapping_add(probe as usize)).value };
                 assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[j]);
                 // Should land on next existing id
                 assert_eq!(
@@ -158,9 +153,8 @@ fn skip_to() {
                 res.doc_id, id,
                 "Case {ci} probe {probe} expected landing on {id}"
             );
-            let metric_val: *mut RSValue = unsafe {
-                (*res.metrics.wrapping_add(probe as usize)).value
-            };
+            let metric_val: *mut RSValue =
+                unsafe { (*res.metrics.wrapping_add(probe as usize)).value };
             assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[j]);
             assert_eq!(
                 it.at_eof(),

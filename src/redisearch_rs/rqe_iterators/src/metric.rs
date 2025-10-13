@@ -9,9 +9,9 @@
 
 //! Metric iterator implementation
 
+use crate::{RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdList};
 use ffi::{RSValue_NewNumber, RSYieldableMetric, t_docId};
 use inverted_index::{RSIndexResult, RSYieldableMetric_Concat};
-use crate::{RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdList};
 
 pub enum MetricType {
     VectorDistance,
@@ -38,7 +38,10 @@ impl Metric {
     fn set_result_metrics(&mut self, val: f64) -> &RSIndexResult<'static> {
         let result = self.base.get_mut_result();
         unsafe {
-            let new_metrics = RSYieldableMetric{key: std::ptr::null_mut(), value: RSValue_NewNumber(val)};
+            let new_metrics = RSYieldableMetric {
+                key: std::ptr::null_mut(),
+                value: RSValue_NewNumber(val),
+            };
             RSYieldableMetric_Concat(&mut result.metrics, &new_metrics);
         }
         result
@@ -50,12 +53,11 @@ impl RQEIterator for Metric {
         if self.base.at_eof() {
             return Ok(None);
         }
-        
+
         self.base.read()?;
-        let val = self.metric_data[self.base.offset()-1];
+        let val = self.metric_data[self.base.offset() - 1];
         let result = self.set_result_metrics(val);
         Ok(Some(result))
-        
     }
 
     fn skip_to(
@@ -63,18 +65,18 @@ impl RQEIterator for Metric {
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
         let skip_outcome = self.base.skip_to(doc_id)?;
-        match skip_outcome{
+        match skip_outcome {
             Some(SkipToOutcome::Found(_)) => {
-                let val = self.metric_data[self.base.offset()-1];
+                let val = self.metric_data[self.base.offset() - 1];
                 let result = self.set_result_metrics(val);
                 Ok(Some(SkipToOutcome::Found(result)))
-            },
+            }
             Some(SkipToOutcome::NotFound(_)) => {
-                let val = self.metric_data[self.base.offset()-1];
+                let val = self.metric_data[self.base.offset() - 1];
                 let result = self.set_result_metrics(val);
                 Ok(Some(SkipToOutcome::NotFound(result)))
-            },
-            None => Ok(None)
+            }
+            None => Ok(None),
         }
     }
 
