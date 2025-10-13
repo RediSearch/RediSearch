@@ -7,126 +7,245 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ffi::CStr;
+use std::fmt::{Debug, Display};
+
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 #[repr(C)]
-#[derive(thiserror::Error, Debug)]
 pub enum QueryErrorCode {
-    #[error("Generic error evaluating the query")]
+    #[default]
+    None,
+
     Generic,
-    #[error("Parsing/Syntax error for query string")]
     Syntax,
-    #[error("Error parsing query/aggregation arguments")]
     ParseArgs,
-    #[error("Error parsing document indexing arguments")]
     AddArgs,
-    #[error("Parsing/Evaluating dynamic expression failed")]
     Expr,
-    #[error("Could not handle query keyword")]
     Keyword,
-    #[error("Query matches no results")]
     NoResults,
-    #[error("Attribute not supported for term")]
     BadAttr,
-    #[error("Could not validate the query nodes (bad attribute?)")]
     Inval,
-    #[error("Could not build plan from query")]
     BuildPlan,
-    #[error("Could not construct query pipeline")]
     ConstructPipeline,
-    #[error("Missing reducer")]
     NoReducer,
-    #[error("Generic reducer error")]
     ReducerGeneric,
-    #[error("Could not plan aggregation request")]
     AggPlan,
-    #[error("Could not allocate a cursor")]
     CursorAlloc,
-    #[error("Could not initialize reducer")]
     ReducerInit,
-    #[error("Bad query string")]
     QString,
-    #[error("Property does not exist in schema")]
     NoPropKey,
-    #[error("Value was not found in result (not a hard error)")]
     NoPropVal,
-    #[error("Document does not exist")]
     NoDoc,
-    #[error("Invalid option")]
     NoOption,
-    #[error("Invalid Redis key")]
     RedisKeyType,
-    #[error("Invalid path")]
     InvalPath,
-    #[error("Index already exists")]
     IndexExists,
-    #[error("Option not supported for current mode")]
     BadOption,
-    #[error("Path with undefined ordering does not support slop/inorder")]
     BadOrderOption,
-    #[error("Limit exceeded")]
     Limit,
-    #[error("Index not found")]
     NoIndex,
-    #[error("Document already exists")]
     DocExists,
-    #[error("Document was not added because condition was unmet")]
     DocNotAdded,
-    #[error("Field was specified twice")]
     DupField,
-    #[error(r#"Invalid lon/lat format. Use "lon lat" or "lon,lat""#)]
     GeoFormat,
-    #[error("Could not distribute the operation")]
     NoDistribute,
-    #[error("Unsupported index type")]
     UnsuppType,
-    #[error("Could not convert value to a number")]
     NotNumeric,
-    #[error("Timeout limit was reached")]
     TimedOut,
-    #[error("Parameter not found")]
     NoParam,
-    #[error("Parameter was specified twice")]
     DupParam,
-    #[error("Invalid value was given")]
     BadVal,
-    #[error("Hybrid query attributes were sent for a non-hybrid query")]
     NonHybrid,
-    #[error("Invalid hybrid policy was given")]
     HybridNonExist,
-    #[error("'Batch size' is irrelevant for 'ADHOC_BF' policy")]
     AdhocWithBatchSize,
-    #[error("'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")]
     AdhocWithEfRuntime,
-    #[error("Range query attributes were sent for a non-range query")]
     NonRange,
-    #[error("'IsMissing' requires field to be defined with 'INDEXMISSING'")]
     Missing,
-    #[error("Index mismatch: Shard index is different than queried index")]
     Mismatch,
-    #[error("Unknown index name")]
     UnknownIndex,
-    #[error("The index was dropped before the query could be executed")]
     DroppedBackground,
-    #[error("Alias conflicts with an existing index name")]
     AliasConflict,
-    #[error("Index background scan did not complete due to OOM")]
     IndexBgOOMFail,
-    #[error("Weight attributes are not allowed")]
     WeightNotAllowed,
-    #[error("Vector queries are not allowed")]
     VectorNotAllowed,
-    #[error("Not enough memory available to execute the query")]
     OutOfMemory,
 }
 
+impl Debug for QueryErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{self}")
+    }
+}
+
+impl Display for QueryErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self.to_cstr().to_str().unwrap())
+    }
+}
+
+// TODO(enricozb): this should be moved to either a thiserror or strum macro.
+// This is done as &'static CStr because we need to provide *const c_char
+// representations of the error codes for FFI into C code.
+impl QueryErrorCode {
+    pub fn to_cstr(self) -> &'static CStr {
+        match self {
+            Self::None => c"Success (not an error)",
+            Self::Generic => c"Generic error evaluating the query",
+            Self::Syntax => c"Parsing/Syntax error for query string",
+            Self::ParseArgs => c"Error parsing query/aggregation arguments",
+            Self::AddArgs => c"Error parsing document indexing arguments",
+            Self::Expr => c"Parsing/Evaluating dynamic expression failed",
+            Self::Keyword => c"Could not handle query keyword",
+            Self::NoResults => c"Query matches no results",
+            Self::BadAttr => c"Attribute not supported for term",
+            Self::Inval => c"Could not validate the query nodes (bad attribute?)",
+            Self::BuildPlan => c"Could not build plan from query",
+            Self::ConstructPipeline => c"Could not construct query pipeline",
+            Self::NoReducer => c"Missing reducer",
+            Self::ReducerGeneric => c"Generic reducer error",
+            Self::AggPlan => c"Could not plan aggregation request",
+            Self::CursorAlloc => c"Could not allocate a cursor",
+            Self::ReducerInit => c"Could not initialize reducer",
+            Self::QString => c"Bad query string",
+            Self::NoPropKey => c"Property does not exist in schema",
+            Self::NoPropVal => c"Value was not found in result (not a hard error)",
+            Self::NoDoc => c"Document does not exist",
+            Self::NoOption => c"Invalid option",
+            Self::RedisKeyType => c"Invalid Redis key",
+            Self::InvalPath => c"Invalid path",
+            Self::IndexExists => c"Index already exists",
+            Self::BadOption => c"Option not supported for current mode",
+            Self::BadOrderOption => c"Path with undefined ordering does not support slop/inorder",
+            Self::Limit => c"Limit exceeded",
+            Self::NoIndex => c"Index not found",
+            Self::DocExists => c"Document already exists",
+            Self::DocNotAdded => c"Document was not added because condition was unmet",
+            Self::DupField => c"Field was specified twice",
+            Self::GeoFormat => cr#"Invalid lon/lat format. Use "lon lat" or "lon,lat""#,
+            Self::NoDistribute => c"Could not distribute the operation",
+            Self::UnsuppType => c"Unsupported index type",
+            Self::NotNumeric => c"Could not convert value to a number",
+            Self::TimedOut => c"Timeout limit was reached",
+            Self::NoParam => c"Parameter not found",
+            Self::DupParam => c"Parameter was specified twice",
+            Self::BadVal => c"Invalid value was given",
+            Self::NonHybrid => c"Hybrid query attributes were sent for a non-hybrid query",
+            Self::HybridNonExist => c"Invalid hybrid policy was given",
+            Self::AdhocWithBatchSize => c"'Batch size' is irrelevant for 'ADHOC_BF' policy",
+            Self::AdhocWithEfRuntime => c"'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy",
+            Self::NonRange => c"Range query attributes were sent for a non-range query",
+            Self::Missing => c"'IsMissing' requires field to be defined with 'INDEXMISSING'",
+            Self::Mismatch => c"Index mismatch: Shard index is different than queried index",
+            Self::UnknownIndex => c"Unknown index name",
+            Self::DroppedBackground => c"The index was dropped before the query could be executed",
+            Self::AliasConflict => c"Alias conflicts with an existing index name",
+            Self::IndexBgOOMFail => c"Index background scan did not complete due to OOM",
+            Self::WeightNotAllowed => c"Weight attributes are not allowed",
+            Self::VectorNotAllowed => c"Vector queries are not allowed",
+            Self::OutOfMemory => c"Not enough memory available to execute the query",
+        }
+    }
+}
+
+impl QueryErrorCode {
+    pub fn is_none(self) -> bool {
+        self == Self::None
+    }
+}
+
+#[derive(Clone, Default)]
 #[repr(C)]
 pub struct QueryError {
     code: QueryErrorCode,
     message: Option<String>,
     detail: Option<String>,
 
+    warnings: Warnings,
+}
+
+impl QueryError {
+    pub fn is_ok(&self) -> bool {
+        self.code.is_none()
+    }
+
+    pub fn code(&self) -> QueryErrorCode {
+        self.code
+    }
+
+    pub fn warnings(&self) -> &Warnings {
+        &self.warnings
+    }
+
+    pub fn warnings_mut(&mut self) -> &mut Warnings {
+        &mut self.warnings
+    }
+
+    pub fn set_code(&mut self, code: QueryErrorCode) {
+        debug_assert!(
+            self.is_ok(),
+            "Call to QueryError::set_code on already-set QueryError"
+        );
+
+        debug_assert!(
+            !code.is_none(),
+            "Call to QueryError::set_code with QueryErrorCode::None"
+        );
+
+        if !self.is_ok() {
+            return;
+        }
+
+        self.code = code;
+    }
+
+    pub fn set_error(&mut self, code: QueryErrorCode, message: Option<String>) {
+        debug_assert!(
+            self.is_ok(),
+            "Call to QueryError::set_error on already-set QueryError"
+        );
+
+        debug_assert!(
+            !code.is_none(),
+            "Call to QueryError::set_code with QueryErrorCode::None"
+        );
+
+        if !self.is_ok() {
+            return;
+        }
+
+        self.code = code;
+        self.message = message;
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct Warnings {
     reached_max_prefix_expansions: bool,
+    out_of_memory: bool,
+}
+
+impl Warnings {
+    pub fn reached_max_prefix_expansions(&self) -> bool {
+        self.reached_max_prefix_expansions
+    }
+
+    pub fn set_reached_max_prefix_expansions(&mut self) {
+        self.reached_max_prefix_expansions = true;
+    }
+
+    pub fn out_of_memory(&self) -> bool {
+        self.out_of_memory
+    }
+
+    pub fn set_out_of_memory(&mut self) {
+        self.out_of_memory = true;
+    }
 }
 
 mimic::impl_mimic!(QueryError);
