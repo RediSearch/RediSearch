@@ -13,6 +13,7 @@
 #include "rdb.h"
 #include "resp3.h"
 #include "rmutil/rm_assert.h"
+#include "commands.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -153,6 +154,49 @@ void Dictionary_Free() {
     Dictionary_Clear();
     dictRelease(spellCheckDicts);
   }
+}
+
+size_t Dictionary_Size() {
+  return dictSize(spellCheckDicts);
+}
+
+static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* t) {
+  size_t termLen;
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+
+  RedisModuleString **terms = rm_malloc(t->size * sizeof(RedisModuleString*));
+  size_t termsCount = 0;
+
+  TrieIterator *it = Trie_Iterate(t, "", 0, 0, 1);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+    char *res = runesToStr(rstr, slen, &termLen);
+    terms[termsCount++] = RedisModule_CreateString(NULL, res, termLen);
+    rm_free(res);
+  }
+  RS_ASSERT(termsCount == t->size);
+  TrieIterator_Free(it);
+
+  RedisModule_ClusterPropagateForSlotMigration(ctx, RS_DICT_ADD, "cv", dictName, terms, termsCount);
+
+  for (size_t i = 0; i < termsCount; ++i) {
+    RedisModule_FreeString(NULL, terms[i]);
+  }
+  rm_free(terms);
+}
+
+void Dictionary_Propagate(RedisModuleCtx* ctx) {
+  dictIterator *iter = dictGetIterator(spellCheckDicts);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    const char *key = dictGetKey(entry);
+    Trie *val = dictGetVal(entry);
+    RS_LOG_ASSERT(val->size != 0, "Empty dictionary should not exist in the dictionary list");
+    Propagate_Dict(ctx, key, val);
+  }
+  dictReleaseIterator(iter);
 }
 
 static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {

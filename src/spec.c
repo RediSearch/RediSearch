@@ -3339,6 +3339,21 @@ int CompareVersions(Version v1, Version v2) {
   return 0;
 }
 
+void Indexes_Propagate(RedisModuleCtx *ctx) {
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+
+    RedisModuleString *serialized = IndexSpec_Serialize(sp);
+    RS_ASSERT(serialized != NULL);
+    RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "ls", INDEX_CURRENT_VERSION, serialized);
+    RedisModule_FreeString(ctx, serialized);
+  }
+  dictReleaseIterator(iter);
+}
+
 // This function is called in case the server is started or
 // when the replica is loading the RDB file from the master.
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
@@ -3547,6 +3562,10 @@ void Indexes_Init(RedisModuleCtx *ctx) {
   specDict_g = dictCreate(&dictTypeHeapHiddenStrings, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();
+}
+
+size_t Indexes_Count() {
+  return dictSize(specDict_g);
 }
 
 SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
