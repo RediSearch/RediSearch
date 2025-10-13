@@ -67,11 +67,10 @@ fn read() {
             assert!(res.is_some(), "Case {i}, element {j}, expected {expected_id}");
             let res = res.unwrap();
             assert_eq!(res.doc_id, expected_id, "Case {i}, element {j}");
-            let val: *mut RSValue = unsafe {
-                let x = (*res.metrics).value;
-                x
+            let metric_val: *mut RSValue = unsafe {
+                (*res.metrics.wrapping_add(j)).value
             };
-            assert_eq!(get_mock_number_value(val).unwrap(), metric_data[j]);
+            assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[j]);
             assert_eq!(it.last_doc_id(), expected_id, "Case {i}, element {j}");
 
         }
@@ -90,7 +89,7 @@ fn read() {
 fn skip_to() {
     for (ci, &case) in CASES.iter().enumerate() {
         let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-        let mut it = Metric::new(case.to_vec(), metric_data);
+        let mut it = Metric::new(case.to_vec(), metric_data.clone());
 
         // Read first element
         let first_res = it.read();
@@ -100,8 +99,13 @@ fn skip_to() {
         let first_doc = first_res.unwrap();
         let first_id = case[0];
         assert_eq!(first_doc.doc_id, first_id, "Case {ci}");
+        let metric_val: *mut RSValue = unsafe {
+            (*first_doc.metrics).value
+        };
+        assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[0]);
         assert_eq!(it.last_doc_id(), first_id, "Case {ci}");
         assert_eq!(it.at_eof(), Some(&first_id) == case.last(), "Case {ci}");
+
 
         // Skip to higher than last doc id: expect EOF, last_doc_id unchanged
         let last = *case.last().unwrap();
@@ -117,7 +121,7 @@ fn skip_to() {
 
         // probe walks all ids from 1 up to last, probing missing and existing ids
         let mut probe = 1u64;
-        for &id in case {
+        for (j, &id) in case.iter().enumerate() {
             // Probe all gaps before this id
             while probe < id {
                 it.rewind();
@@ -128,6 +132,10 @@ fn skip_to() {
                     res.doc_id, id,
                     "Case {ci} probe {probe} expected landing on {id}"
                 );
+                let metric_val: *mut RSValue = unsafe {
+                    (*res.metrics.wrapping_add(probe as usize)).value
+                };
+                assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[j]);
                 // Should land on next existing id
                 assert_eq!(
                     it.at_eof(),
@@ -150,6 +158,10 @@ fn skip_to() {
                 res.doc_id, id,
                 "Case {ci} probe {probe} expected landing on {id}"
             );
+            let metric_val: *mut RSValue = unsafe {
+                (*res.metrics.wrapping_add(probe as usize)).value
+            };
+            assert_eq!(get_mock_number_value(metric_val).unwrap(), metric_data[j]);
             assert_eq!(
                 it.at_eof(),
                 Some(&id) == case.last(),

@@ -84,7 +84,7 @@ pub extern "C" fn RSYieldableMetric_Concat(
         return;
     }
     unsafe {
-        let elem_sz = std::mem::size_of::<ffi::RSYieldableMetric>();
+        let elem_sz = std::mem::size_of::<ffi::RSYieldableMetric>() as u16;
         // array_ensure_append_n_func returns a new array pointer, but we don't need to use it in this mock
         *metrics = array_ensure_append_n_func(
             *metrics as *mut c_void, 
