@@ -10,7 +10,7 @@
 //! Metric iterator implementation
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdList};
-use ffi::{RSValue_NewNumber, RSYieldableMetric, t_docId};
+use ffi::{RSValue_Number, RSYieldableMetric, t_docId};
 use inverted_index::{RSIndexResult, RSYieldableMetric_Concat};
 
 pub enum MetricType {
@@ -37,11 +37,15 @@ impl Metric {
     #[inline(always)]
     fn set_result_metrics(&mut self, val: f64) -> &RSIndexResult<'static> {
         let result = self.base.get_mut_result();
+
+        // SAFETY: calling ffi::RSValue_Number function to allocate a new RSValue
+        let number_value = unsafe { &mut RSValue_Number(val) };
+        let new_metrics = RSYieldableMetric {
+            key: std::ptr::null_mut(),
+            value: number_value,
+        };
+        // SAFETY: calling ffi::RSYieldableMetric_Concat function to concatenate new_metrics to result.metrics array
         unsafe {
-            let new_metrics = RSYieldableMetric {
-                key: std::ptr::null_mut(),
-                value: RSValue_NewNumber(val),
-            };
             RSYieldableMetric_Concat(&mut result.metrics, &new_metrics);
         }
         result

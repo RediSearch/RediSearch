@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ::ffi::{RSValue, RSYieldableMetric, array_clear_func, array_ensure_append_n_func, array_free};
+use ::ffi::{
+    __BindgenBitfieldUnit, RSValue, RSValue__bindgen_ty_1, RSYieldableMetric, array_clear_func,
+    array_ensure_append_n_func, array_free,
+};
 use std::ffi::c_void;
 
 pub mod benchers;
@@ -30,19 +33,27 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn RSValue_NewNumber(val: f64) -> *mut RSValue {
-    // Allocate the f64 value and cast the pointer
-    let mock_value = Box::new(val);
-    Box::into_raw(mock_value) as *mut RSValue
+pub extern "C" fn RSValue_Number(val: f64) -> RSValue {
+    // Allocate the f64 value on the heap and return a raw pointer to it
+    let rs_val = Box::new(RSValue {
+        __bindgen_anon_1: RSValue__bindgen_ty_1 {
+            _numval: val, // Store the number value in the union
+        },
+        _refcount: 1,
+        _bitfield_align_1: [0; 0],
+        _bitfield_1: __BindgenBitfieldUnit::new([0; 1]),
+    });
+    *rs_val
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_DecrRef() {}
 
 #[unsafe(no_mangle)]
+#[allow(unused_assignments)]
 pub extern "C" fn RSYieldableMetric_Concat(
     metrics: *mut *mut RSYieldableMetric,
-    new_metric: *const RSYieldableMetric,
+    mut new_metric: *mut RSYieldableMetric,
 ) {
     if new_metric.is_null() {
         return;
@@ -58,7 +69,7 @@ pub extern "C" fn RSYieldableMetric_Concat(
         ) as *mut RSYieldableMetric;
 
         // array_clear_func returns a new array pointer, but we don't need to use it in this mock
-        let _ = array_clear_func(new_metric as *mut c_void, elem_sz);
+        new_metric = array_clear_func(new_metric as *mut c_void, elem_sz) as *mut RSYieldableMetric;
     }
 }
 
