@@ -3348,7 +3348,10 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
 
     RedisModuleString *serialized = IndexSpec_Serialize(sp);
     RS_ASSERT(serialized != NULL);
-    RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "ls", INDEX_CURRENT_VERSION, serialized);
+    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "ls", INDEX_CURRENT_VERSION , serialized);
+    if (rc != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Failed to propagate index '%s' during slot migration. errno: %d", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), errno);
+    }
     RedisModule_FreeString(NULL, serialized);
   }
   dictReleaseIterator(iter);

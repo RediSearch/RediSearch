@@ -356,8 +356,8 @@ void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED:
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED:
-      should_filter_slots = false;
       in_asm_import = false;
+      should_filter_slots = in_asm_trim;
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       if (!in_asm_trim) {
