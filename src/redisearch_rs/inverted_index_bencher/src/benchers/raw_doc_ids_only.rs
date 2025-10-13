@@ -48,9 +48,7 @@ impl Bencher {
                 let record = RSIndexResult::term().doc_id(100);
 
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = RawDocIdsOnly
-                    .encode(&mut buffer, delta, &record)
-                    .unwrap();
+                let _grew_size = RawDocIdsOnly.encode(&mut buffer, delta, &record).unwrap();
                 let encoded = buffer.into_inner();
 
                 TestValue { delta, encoded }
@@ -93,12 +91,12 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || TestBuffer::with_capacity(buffer_size),
-                |mut buffer| {
+                |buffer| {
                     for test in &self.test_values {
                         let mut record = RSIndexResult::term().doc_id(100);
 
                         let grew_size =
-                            encode_raw_doc_ids_only(&mut buffer, &mut record, test.delta as u64);
+                            encode_raw_doc_ids_only(buffer, &mut record, test.delta as u64);
 
                         black_box(grew_size);
                     }
@@ -139,8 +137,8 @@ impl Bencher {
                         let buffer_ptr = NonNull::new(test.encoded.as_ptr() as *mut _).unwrap();
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
-                    |mut buffer| {
-                        let (_filtered, result) = read_raw_doc_ids_only(&mut buffer, 100);
+                    |buffer| {
+                        let (_filtered, result) = read_raw_doc_ids_only(buffer, 100);
 
                         black_box(result);
                     },

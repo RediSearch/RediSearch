@@ -108,12 +108,12 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || TestBuffer::with_capacity(buffer_size),
-                |mut buffer| {
+                |buffer| {
                     for test in &self.test_values {
                         let mut record = TestTermRecord::new(100, 0, 1, test.term_offsets.clone());
 
                         let grew_size =
-                            encode_offsets_only(&mut buffer, &mut record.record, test.delta as u64);
+                            encode_offsets_only(buffer, &mut record.record, test.delta as u64);
 
                         black_box(grew_size);
                     }
@@ -154,8 +154,8 @@ impl Bencher {
                         let buffer_ptr = NonNull::new(test.encoded.as_ptr() as *mut _).unwrap();
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
-                    |mut buffer| {
-                        let (_filtered, result) = read_offsets_only(&mut buffer, 100);
+                    |buffer| {
+                        let (_filtered, result) = read_offsets_only(buffer, 100);
 
                         black_box(result);
                     },

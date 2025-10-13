@@ -79,13 +79,9 @@ impl Bencher {
 
                 let mut buffer = Cursor::new(Vec::new());
                 let _grew_size = if wide {
-                    FreqsFieldsWide
-                        .encode(&mut buffer, delta, &record)
-                        .unwrap()
+                    FreqsFieldsWide.encode(&mut buffer, delta, &record).unwrap()
                 } else {
-                    FreqsFields
-                        .encode(&mut buffer, delta, &record)
-                        .unwrap()
+                    FreqsFields.encode(&mut buffer, delta, &record).unwrap()
                 };
                 let encoded = buffer.into_inner();
 
@@ -137,19 +133,15 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || TestBuffer::with_capacity(buffer_size),
-                |mut buffer| {
+                |buffer| {
                     for test in &self.test_values {
                         let mut record = RSIndexResult::term()
                             .doc_id(100)
                             .field_mask(test.field_mask)
                             .frequency(test.freq);
 
-                        let grew_size = encode_freqs_fields(
-                            &mut buffer,
-                            &mut record,
-                            test.delta as u64,
-                            self.wide,
-                        );
+                        let grew_size =
+                            encode_freqs_fields(buffer, &mut record, test.delta as u64, self.wide);
 
                         black_box(grew_size);
                     }
@@ -199,8 +191,8 @@ impl Bencher {
                         let buffer_ptr = NonNull::new(test.encoded.as_ptr() as *mut _).unwrap();
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
-                    |mut buffer| {
-                        let (_filtered, result) = read_freqs_flags(&mut buffer, 100, self.wide);
+                    |buffer| {
+                        let (_filtered, result) = read_freqs_flags(buffer, 100, self.wide);
 
                         black_box(result);
                     },

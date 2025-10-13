@@ -136,13 +136,13 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || TestBuffer::with_capacity(buffer_size),
-                |mut buffer| {
+                |buffer| {
                     for test in &self.test_values {
                         let mut record =
                             TestTermRecord::new(100, test.field_mask, 1, test.term_offsets.clone());
 
                         let grew_size = encode_fields_offsets(
-                            &mut buffer,
+                            buffer,
                             &mut record.record,
                             test.delta as u64,
                             self.wide,
@@ -194,8 +194,8 @@ impl Bencher {
                         let buffer_ptr = NonNull::new(test.encoded.as_ptr() as *mut _).unwrap();
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
-                    |mut buffer| {
-                        let (_filtered, result) = read_fields_offsets(&mut buffer, 100, self.wide);
+                    |buffer| {
+                        let (_filtered, result) = read_fields_offsets(buffer, 100, self.wide);
 
                         black_box(result);
                     },
@@ -212,11 +212,9 @@ impl Bencher {
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
                         let result = if self.wide {
-                            FieldsOffsetsWide
-                                .decode_new(buffer, 100)
-                                .unwrap()
+                            FieldsOffsetsWide.decode_new(buffer, 100).unwrap()
                         } else {
-                            FieldsOffsets::default().decode_new(buffer, 100).unwrap()
+                            FieldsOffsets.decode_new(buffer, 100).unwrap()
                         };
 
                         let _ = black_box(result);
