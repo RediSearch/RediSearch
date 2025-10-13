@@ -45,6 +45,6 @@ array_t array_ensure_append_n_func(array_t arr, array_t src, uint16_t n, uint16_
 }
 
 /* Function declared as a symbol to allow invocation from Rust */
-array_t array_clear_func(array_t arr, size_t elem_sz) {
+array_t array_clear_func(array_t arr, uint16_t elem_sz) {
   return array_new_sz(elem_sz, 0, 0);
 }
