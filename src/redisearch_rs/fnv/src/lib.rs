@@ -64,8 +64,8 @@ impl Hasher for Fnv32 {
     fn write(&mut self, bytes: &[u8]) {
         let Fnv32(mut hash) = *self;
 
-        for byte in bytes.iter() {
-            hash ^= *byte as u32;
+        for &byte in bytes {
+            hash ^= byte as u32;
             hash = hash.wrapping_mul(Self::PRIME);
         }
 
@@ -119,8 +119,8 @@ impl Hasher for Fnv64 {
     fn write(&mut self, bytes: &[u8]) {
         let Fnv64(mut hash) = *self;
 
-        for byte in bytes.iter() {
-            hash ^= *byte as u64;
+        for &byte in bytes {
+            hash ^= byte as u64;
             hash = hash.wrapping_mul(Self::PRIME);
         }
 
