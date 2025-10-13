@@ -45,9 +45,9 @@ fn main() {
             redis_modules,
             src,
             deps,
+            value,
             redisearch_rs,
             inverted_index,
-            value,
             vecsim,
             buffer,
         ]
