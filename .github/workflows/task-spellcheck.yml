@@ -28,4 +28,4 @@ jobs:
           pip install -r ./.codespell/requirements.txt
 
       - name: Run codespell on diffs
-        run: git diff --name-only origin/master --diff-filter=AM | xargs -r codespell --config .codespell/.codespellrc
+        run: git diff --name-only origin/8.2 --diff-filter=AM | xargs -r codespell --config .codespell/.codespellrc
