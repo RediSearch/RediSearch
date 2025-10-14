@@ -429,7 +429,7 @@ static QueryIterator* HybridIteratorReducer(HybridIteratorParams *hParams) {
     ret = hParams->childIt;
   } else if (hParams->childIt && IsWildcardIterator(hParams->childIt)) {
     hParams->childIt->Free(hParams->childIt);
-    hParams->qParams.searchMode = VECSIM_STANDARD_KNN;
+    hParams->qParams.searchMode = STANDARD_KNN;
     hParams->childIt = NULL;
   }
   return ret;
