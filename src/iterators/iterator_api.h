@@ -12,7 +12,7 @@
 
 #include <stdint.h>
 #include "redisearch.h"
-#include "index_result.h"
+#include "index_result.h" // IWYU pragma: keep
 
 struct RLookupKey; // Forward declaration
 
