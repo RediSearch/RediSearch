@@ -129,6 +129,13 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
 }
 
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params) {
+
+    for (int i = 0; i < req->nrequests; i++) {
+        AREQ *subquery = req->requests[i];
+        SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), req->reqConfig.queryTimeoutMS);
+    }
+    SearchCtx_UpdateTime(req->sctx, req->reqConfig.queryTimeoutMS);
+
     // Build the depletion pipeline for extracting results from individual search requests
     if (HybridRequest_BuildDepletionPipeline(req, params) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
