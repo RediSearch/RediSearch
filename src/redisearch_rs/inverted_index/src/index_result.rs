@@ -52,7 +52,7 @@ unsafe extern "C" {
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct RSOffsetVector<'index> {
     /// At this point the data ownership is still managed by the caller.
     // TODO: switch to a Cow once the caller code has been ported to Rust.
@@ -145,6 +145,7 @@ impl RSOffsetVector<'_> {
 /// Represents a single record of a document inside a term in the inverted index
 /// cbindgen:prefix-with-name=true
 #[repr(u8)]
+#[derive(Eq)]
 pub enum RSTermRecord<'index> {
     Borrowed {
         /// The term that brought up this record
