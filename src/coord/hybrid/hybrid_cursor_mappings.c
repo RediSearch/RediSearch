@@ -29,14 +29,14 @@ typedef struct {
 
 static void processHybridError(processCursorMappingCallbackContext *ctx, const char *errorMessage) {
     QueryError error = {0};
-    QueryError_Init(&error);
+    QueryError_Default(&error);
     QueryError_SetError(&error, QUERY_EGENERIC, errorMessage);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
 
 static void processHybridUnknownReplyType(processCursorMappingCallbackContext *ctx, int replyType) {
     QueryError error = {0};
-    QueryError_Init(&error);
+    QueryError_Default(&error);
     QueryError_SetWithoutUserDataFmt(&error, QUERY_EUNSUPPTYPE, "Unsupported reply type: %d", replyType);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }

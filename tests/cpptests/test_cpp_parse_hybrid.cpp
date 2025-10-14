@@ -108,7 +108,7 @@ class ParseHybridTest : public ::testing::Test {
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
     int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
-    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
+    EXPECT_EQ(QueryError_GetCode(&status), QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
 
@@ -616,7 +616,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
-  EXPECT_EQ(status.code, QUERY_EPARSEARGS) << "Should fail as external command";
+  EXPECT_EQ(QueryError_GetCode(&status), QUERY_EPARSEARGS) << "Should fail as external command";
   QueryError_ClearError(&status);
 
   // Clean up any partial allocations from the failed parse
@@ -633,15 +633,10 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   QueryError status = {QueryErrorCode(0)};
 
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
-<<<<<<< HEAD
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
-  EXPECT_EQ(status.code, QUERY_OK) << "Should succeed as internal command";
-=======
-  parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
-  ASSERT_TRUE(QueryError_IsOk(&status)) << "Should succeed as internal command";
->>>>>>> b4ef348b52ac912fc51c67039c7b1f4cb76de560
+  EXPECT_EQ(QueryError_GetCode(&status), QUERY_OK) << "Should succeed as internal command";
   QueryError_ClearError(&status);
 
   // Verify _NUM_SSTRING flag is set after parsing
