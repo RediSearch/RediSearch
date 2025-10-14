@@ -41,11 +41,17 @@ fn initial_state() {
 fn read_with_post_call_mutate() {
     // small test to ensure such mutations are possible
     // for iterators which wrap Wildcard.
-    let mut it = Wildcard::new(1);
-    let mut result = it.read().unwrap().unwrap();
-    assert_eq!(result.weight, 0.);
-    result.to_mut().weight = 42.;
-    assert_eq!(result.weight, 42.);
+    let mut it = Wildcard::new(2);
+
+    for _ in 0..2 {
+        let result = it.read().unwrap().unwrap();
+        // we expect this to be 0 by default,
+        // which gives pseudo promises that wildcard always resets its metadata,
+        // of the cached result in between calls.
+        assert_eq!(result.weight, 0.);
+        result.weight += 42.;
+        assert_eq!(result.weight, 42.);
+    }
 }
 
 #[test]

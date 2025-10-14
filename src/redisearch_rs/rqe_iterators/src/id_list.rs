@@ -11,22 +11,22 @@
 use std::cmp::min;
 
 use ffi::t_docId;
-use inverted_index::{CowRSIndexResult, RSIndexResult};
+use inverted_index::RSIndexResult;
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
 /// An iterator that yields results according to an IDs list given on construction.
-pub struct IdList {
+pub struct IdList<'index> {
     /// The list of document IDs to iterate over. Must be sorted, unique, and non-empty.
     ids: Vec<t_docId>,
     /// The current position of the iterator (a.k.a the next document ID to return by `read`).
     /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
     offset: usize,
     /// A reusable result object to avoid allocations on each `read` call.
-    result: RSIndexResult<'static>,
+    result: RSIndexResult<'index>,
 }
 
-impl IdList {
+impl IdList<'_> {
     /// Creates a new ID list iterator. The list of document IDs must be sorted, unique, and non-empty.
     pub fn new(ids: Vec<t_docId>) -> Self {
         debug_assert!(!ids.is_empty());
@@ -42,24 +42,31 @@ impl IdList {
     }
 }
 
-impl IdList {
+impl IdList<'_> {
     #[inline(always)]
     fn get_current(&self) -> Option<t_docId> {
         self.ids.get(self.offset).copied()
     }
 }
 
-impl RQEIterator for IdList {
-    fn read(&mut self) -> Result<Option<CowRSIndexResult<'_>>, RQEIteratorError> {
+impl<'iterator, 'index> RQEIterator<'iterator, 'index> for IdList<'index> {
+    fn read(
+        &'iterator mut self,
+    ) -> Result<Option<&'iterator mut RSIndexResult<'index>>, RQEIteratorError> {
         let Some(doc_id) = self.get_current() else {
             return Ok(None);
         };
         self.offset += 1;
-        self.result.doc_id = doc_id;
-        Ok(Some(CowRSIndexResult::Borrowed(&self.result)))
+
+        self.result.reset_virt_metadata().set_doc_id(doc_id);
+
+        Ok(Some(&mut self.result))
     }
 
-    fn skip_to(&mut self, doc_id: t_docId) -> Result<Option<SkipToOutcome<'_>>, RQEIteratorError> {
+    fn skip_to(
+        &'iterator mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'iterator, 'index>>, RQEIteratorError> {
         // Safe to unwrap as we are not at eof + the list must not be empty
         if self.at_eof() || self.ids.last().unwrap() < &doc_id {
             self.offset = self.ids.len(); // Move to EOF
@@ -79,18 +86,14 @@ impl RQEIterator for IdList {
             Ok(pos) => {
                 let pos = self.offset + pos; // Convert relative to absolute index
                 self.offset = pos + 1;
-                self.result.doc_id = self.ids[pos];
-                Ok(Some(SkipToOutcome::Found(CowRSIndexResult::Borrowed(
-                    &self.result,
-                ))))
+                self.result.reset_virt_metadata().set_doc_id(self.ids[pos]);
+                Ok(Some(SkipToOutcome::Found(&mut self.result)))
             }
             Err(pos) => {
                 let pos = self.offset + pos; // Convert relative to absolute index
                 self.offset = pos + 1;
-                self.result.doc_id = self.ids[pos];
-                Ok(Some(SkipToOutcome::NotFound(CowRSIndexResult::Borrowed(
-                    &self.result,
-                ))))
+                self.result.reset_virt_metadata().set_doc_id(self.ids[pos]);
+                Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
             }
         }
     }

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{alloc::Layout, ffi::c_char, fmt::Debug, marker::PhantomData, ops::Deref, ptr};
+use std::{alloc::Layout, ffi::c_char, fmt::Debug, marker::PhantomData, ptr};
 
 use enumflags2::{BitFlags, bitflags};
 pub use ffi::RSQueryTerm;
@@ -699,73 +699,6 @@ pub struct RSIndexResult<'index> {
     pub weight: f64,
 }
 
-/// Copy-On-Write version of [`RSIndexResult`].
-///
-/// Used for places where you may wish to share a [`RSIndexResult`]
-/// most of the time until you do not. At which point you would make a copy to write it.
-#[derive(Debug, PartialEq)]
-pub enum CowRSIndexResult<'index> {
-    Borrowed(&'index RSIndexResult<'index>),
-    Owned(RSIndexResult<'static>),
-}
-
-impl Clone for CowRSIndexResult<'_> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Borrowed(arg0) => Self::Borrowed(arg0.to_owned()),
-            Self::Owned(arg0) => Self::Owned(arg0.to_owned()),
-        }
-    }
-}
-
-impl<'index> Deref for CowRSIndexResult<'index> {
-    type Target = RSIndexResult<'index>;
-
-    fn deref(&self) -> &RSIndexResult<'index> {
-        match self {
-            Self::Borrowed(borrowed) => borrowed,
-            Self::Owned(owned) => owned,
-        }
-    }
-}
-
-impl<'index> AsRef<RSIndexResult<'index>> for CowRSIndexResult<'index> {
-    fn as_ref(&self) -> &RSIndexResult<'index> {
-        match *self {
-            CowRSIndexResult::Borrowed(borrowed) => borrowed,
-            CowRSIndexResult::Owned(ref owned) => owned,
-        }
-    }
-}
-
-impl CowRSIndexResult<'_> {
-    /// Create an owned copy of this index result
-    /// if not done already.
-    ///
-    /// Use a shared reference
-    /// if you do not require mutable/exclusive access.
-    pub fn to_mut(&mut self) -> &mut RSIndexResult<'static> {
-        match *self {
-            CowRSIndexResult::Borrowed(borrowed) => {
-                *self = Self::Owned(borrowed.to_owned());
-                match *self {
-                    Self::Borrowed(..) => unreachable!(),
-                    Self::Owned(ref mut owned) => owned,
-                }
-            }
-            CowRSIndexResult::Owned(ref mut owned) => owned,
-        }
-    }
-
-    /// Consume itself as the owned data or a copy of the borrowed data.
-    pub fn into_owned(self) -> RSIndexResult<'static> {
-        match self {
-            CowRSIndexResult::Borrowed(borrowed) => borrowed.to_owned(),
-            CowRSIndexResult::Owned(owned) => owned,
-        }
-    }
-}
-
 impl Default for RSIndexResult<'_> {
     fn default() -> Self {
         Self::virt()
@@ -784,6 +717,18 @@ impl<'index> RSIndexResult<'index> {
             metrics: ptr::null_mut(),
             weight: 0.0,
         }
+    }
+
+    pub fn reset_virt_metadata(&mut self) -> &mut Self {
+        debug_assert_eq!(self.data, RSResultData::Virtual);
+        debug_assert!(self.dmd.is_null());
+
+        self.weight = 0.;
+        self.metrics = std::ptr::null_mut();
+        self.freq = 0;
+        self.field_mask = 0;
+
+        self
     }
 
     /// Create a new numeric index result with the given number
@@ -867,6 +812,13 @@ impl<'index> RSIndexResult<'index> {
         self
     }
 
+    /// Set the document ID of this record
+    pub fn set_doc_id(&mut self, doc_id: t_docId) -> &mut Self {
+        self.doc_id = doc_id;
+
+        self
+    }
+
     /// Set the field mask of this record
     pub fn field_mask(mut self, field_mask: FieldMask) -> Self {
         self.field_mask = field_mask;
@@ -877,6 +829,13 @@ impl<'index> RSIndexResult<'index> {
     /// Set the weight of this record
     pub fn weight(mut self, weight: f64) -> Self {
         self.weight = weight;
+
+        self
+    }
+
+    /// Set the frequency of this record
+    pub fn set_frequency(&mut self, frequency: u32) -> &mut Self {
+        self.freq = frequency;
 
         self
     }
