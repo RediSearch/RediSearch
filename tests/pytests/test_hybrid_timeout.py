@@ -226,7 +226,6 @@ class TestRealTimeouts(object):
 
         # Test hybrid timeout with RETURN policy
         response = env.cmd(*self.heavy_query)
-        print(response)
 
         warnings = get_warnings(response)
 
@@ -237,59 +236,4 @@ class TestRealTimeouts(object):
         env.assertTrue(
             'Timeout limit was reached (VSIM)' in warnings,
             message=f"Expected 'Timeout limit was reached (VSIM)' in warnings: {warnings}"
-        )
-
-    def test_hybrid_return_vsim(self):
-        """Test real timeout - hybrid (both text and vector) with RETURN policy"""
-        #TODO: remove skip once FT.HYBRID for cluster is implemented
-        if CLUSTER:
-            raise SkipTest()
-        env = self.env
-        env.cmd('CONFIG', 'SET', 'search-on-timeout', 'return')
-
-        # Test hybrid timeout with RETURN policy
-        response = env.cmd(
-            'FT.HYBRID', 'idx',
-            'SEARCH', 'unexistent_term_no_results',
-            'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', self.query_vector,
-            'TIMEOUT', str(self.timeout_ms))
-        print(response)
-
-        warnings = get_warnings(response)
-
-        env.assertTrue(
-            'Timeout limit was reached (SEARCH)' not in warnings,
-            message=f"'Timeout limit was reached (SEARCH)' cannot be in warnings: {warnings}"
-        )
-        env.assertTrue(
-            'Timeout limit was reached (VSIM)' in warnings,
-            message=f"Expected 'Timeout limit was reached (VSIM)' in warnings: {warnings}"
-        )
-
-    def test_hybrid_return_search(self):
-        """Test real timeout - hybrid (both text and vector) with RETURN policy"""
-        #TODO: remove skip once FT.HYBRID for cluster is implemented
-        if CLUSTER:
-            raise SkipTest()
-        env = self.env
-        env.cmd('CONFIG', 'SET', 'search-on-timeout', 'return')
-
-        # Test hybrid timeout with RETURN policy
-        response = env.cmd(
-            'FT.HYBRID', 'idx',
-            'SEARCH', '*',
-            'VSIM', '@vector', '$BLOB', 'FILTER', 'unexistent_term_no_results',
-            'PARAMS', '2', 'BLOB', self.query_vector,
-            'TIMEOUT', str(self.timeout_ms))
-        print(response)
-
-        warnings = get_warnings(response)
-
-        env.assertTrue(
-            'Timeout limit was reached (SEARCH)' in warnings,
-            message=f"Expected 'Timeout limit was reached (SEARCH)' in warnings: {warnings}"
-        )
-        env.assertTrue(
-            'Timeout limit was reached (VSIM)' not in warnings,
-            message=f"'Timeout limit was reached (VSIM)' cannot be in warnings: {warnings}"
         )

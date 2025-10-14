@@ -124,7 +124,6 @@ def read_cursor_completely(env, index_name, cursor_id, batch_callback=None):
         return read_cursor_completely_resp3(env, index_name, cursor_id, batch_callback)
 
 
-# @skip(cluster=True)
 def test_basic_hybrid_internal_withcursor(env):
     """Test basic _FT.HYBRID command with WITHCURSOR functionality
 
