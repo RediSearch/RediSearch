@@ -11,7 +11,7 @@
 
 use ffi::t_docId;
 use inverted_index::{
-    DecodedBy, Decoder, IndexReader, IndexReaderCore, RSIndexResult, full::Full, numeric::Numeric,
+    DecodedBy, Decoder, IndexReader, IndexReaderCore, RSIndexResult, TermDecoder, numeric::Numeric,
 };
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
@@ -198,15 +198,29 @@ impl<'index> RQEIterator for NumericFull<'index> {
 /// This iterator provides full index scan to all document IDs in a term inverted index.
 /// It is not suitable for queries.
 ///
+/// Note that 'full' is this context refers to the iterator being used for a full index scan.
+/// It is not directly related to the ['inverted_inndex::full::Full'] encoder/decoder as
+/// any decoder producing term results can be used with this iterator.
+///
 /// # Type Parameters
 ///
 /// * `'index` - The lifetime of the index being iterated over.
-pub struct TermFull<'index> {
-    it: FullIterator<'index, Full, Full>,
+/// * `E` - The encoder type used to encode the inverted index.
+/// * `D` - The decoder type used to decode the inverted index.
+pub struct TermFull<'index, E, D>
+where
+    E: DecodedBy<Decoder = D>,
+    D: TermDecoder,
+{
+    it: FullIterator<'index, E, D>,
 }
 
-impl<'index> TermFull<'index> {
-    pub fn new(reader: IndexReaderCore<'index, Full, Full>) -> Self {
+impl<'index, E, D> TermFull<'index, E, D>
+where
+    E: DecodedBy<Decoder = D>,
+    D: TermDecoder,
+{
+    pub fn new(reader: IndexReaderCore<'index, E, D>) -> Self {
         let result = RSIndexResult::term();
         Self {
             it: FullIterator::new(reader, result),
@@ -214,7 +228,11 @@ impl<'index> TermFull<'index> {
     }
 }
 
-impl<'index> RQEIterator for TermFull<'index> {
+impl<'index, E, D> RQEIterator for TermFull<'index, E, D>
+where
+    E: DecodedBy<Decoder = D>,
+    D: TermDecoder,
+{
     fn read<'it>(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
         self.it.read()
     }
