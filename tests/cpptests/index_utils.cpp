@@ -66,14 +66,13 @@ RefManager *createSpec(RedisModuleCtx *ctx, const char **prefixes, int nprefixes
 
     SchemaRuleArgs args = {0};
     args.type = "HASH";
-
-    if (prefixes && nprefixes > 0) {
+    const char *empty_prefix = "";
+    if (prefixes != nullptr && nprefixes > 0) {
         args.prefixes = prefixes;
         args.nprefixes = nprefixes;
     } else {
         // Default to empty prefix if none provided
-        const char *pref = "";
-        args.prefixes = &pref;
+        args.prefixes = &empty_prefix;
         args.nprefixes = 1;
     }
 
