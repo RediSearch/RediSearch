@@ -80,7 +80,7 @@ def import_middle_slot_range(dest: Redis, source: Redis) -> str:
     return dest.execute_command('CLUSTER', 'MIGRATION', 'IMPORT', slot_range.start, slot_range.end)
 
 def is_migration_complete(conn: Redis, task_id: str) -> bool:
-    migration_status = conn.execute_command("CLUSTER", "MIGRATION", "STATUS", "ID", task_id)
+    (migration_status,) = conn.execute_command("CLUSTER", "MIGRATION", "STATUS", "ID", task_id)
     return to_dict(migration_status)["state"] == "completed"
 
 def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
@@ -100,14 +100,17 @@ def test_import_slot_range(env: Env):
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
 
-    query = ('FT.SEARCH', 'idx', '@n:[69 420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
+    query = ('FT.SEARCH', 'idx', '@n:[69 1420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
     expected = env.cmd(*query)
 
     shards = env.getOSSMasterNodesConnectionList()
 
     def query_all_shards():
         results = [shard.execute_command(*query) for shard in shards]
-        for idx, res in enumerate(results):
+        for idx, res in enumerate(results, start=1):
+            docs = res[1::2]
+            dups = set(doc for doc in docs if docs.count(doc) > 1)
+            env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate document IDs", depth=1)
             env.assertEqual(res, expected, message=f"shard {idx} returned unexpected results", depth=1)
 
     # Sanity check - all shards should return the same results
