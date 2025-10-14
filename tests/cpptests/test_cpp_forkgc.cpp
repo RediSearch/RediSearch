@@ -21,6 +21,7 @@
 #include "info/global_stats.h"
 #include "redis_index.h"
 #include "index_utils.h"
+#include "notifications.h"
 extern "C" {
 #include "util/dict.h"
 }
@@ -88,6 +89,7 @@ class FGCTest : public ::testing::Test {
   pthread_t thread;
 
   void SetUp() override {
+    Initialize_KeyspaceNotifications();
     ism = createSpec(ctx, nullptr, 0);
     RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
     RSGlobalStats.totalStats.logically_deleted = 0;
