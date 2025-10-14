@@ -319,8 +319,8 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
     }
   } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
 
-  // The last return code should be RS_RESULT_ERROR, as the upstream last returned.
-  ASSERT_EQ(rc, RS_RESULT_ERROR);
+  // The last return code should be RS_RESULT_EOF, as the upstream last returned.
+  ASSERT_EQ(rc, RS_RESULT_EOF);
 
   SearchResult_Destroy(&res);
   depleter->Free(depleter);

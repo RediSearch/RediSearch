@@ -1499,7 +1499,9 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   // Depleting thread is done, it's safe to return the results.
   if (self->cur_idx == array_len(self->results)) {
     // We've reached the end of the array, return the last code from the upstream.
-    return self->last_rc;
+    int rc = self->last_rc;
+    self->last_rc = RS_RESULT_EOF;
+    return rc;
   }
   // Return the next result in the array.
   SearchResult *current = self->results[self->cur_idx];
