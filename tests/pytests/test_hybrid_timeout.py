@@ -192,6 +192,9 @@ class TestRealTimeouts(object):
         self._create_index(self.env)
         self._populate_vectors(self.env)
         self._populate_text(self.env)
+        self.heavy_query = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                   '@vector', '$BLOB', 'KNN', '2', 'K', '10000', 'COMBINE', 'RRF', '2', 'WINDOW', '10000', 'PARAMS', '2', 'BLOB', self.query_vector,
+                   'TIMEOUT', str(self.timeout_ms)]
 
     def tearDown(self):
         """Cleanup after each test"""
@@ -218,9 +221,7 @@ class TestRealTimeouts(object):
         env.cmd('CONFIG', 'SET', 'search-on-timeout', 'fail')
 
         # Test hybrid timeout with FAIL policy
-        env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
-                   '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', self.query_vector,
-                   'TIMEOUT', str(self.timeout_ms)).error().contains('Timeout limit was reached')
+        env.expect(*self.heavy_query).error().contains('Timeout limit was reached')
 
     def test_hybrid_return(self):
         """Test real timeout - hybrid (both text and vector) with RETURN policy"""
@@ -228,9 +229,7 @@ class TestRealTimeouts(object):
         env.cmd('CONFIG', 'SET', 'search-on-timeout', 'return')
 
         # Test hybrid timeout with RETURN policy
-        response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
-                           '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', self.query_vector,
-                           'TIMEOUT', str(self.timeout_ms))
+        response = env.cmd(*self.heavy_query)
 
         warnings = get_warnings(response)
 
