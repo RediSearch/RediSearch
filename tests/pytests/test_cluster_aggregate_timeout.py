@@ -7,11 +7,11 @@ def configure_shards_with_different_timeout_policies(env):
 
         if shard_id == 1:
             # First shard uses RETURN policy
-            conn.execute_command('CONFIG', 'SET', 'search-on-timeout', 'return')
+            conn.execute_command(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN')
         else:
             # All other shards use FAIL policy
-            conn.execute_command('CONFIG', 'SET', 'search-on-timeout', 'fail')
-            conn.execute_command('CONFIG', 'SET', 'search-timeout', '1')
+            conn.execute_command(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL')
+            conn.execute_command(config_cmd(), 'set', 'TIMEOUT', '1')
 
 @skip(cluster=False)
 def test_cluster_aggregate_with_shards_timeout(env):
