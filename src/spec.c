@@ -2966,7 +2966,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
 }
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status) {
-  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
   size_t len = strlen(rawName);
   HiddenString* specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
@@ -3056,6 +3056,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
 
 cleanup:
   StrongRef_Release(spec_ref);
+cleanup_no_index:
   QueryError_SetError(status, QUERY_EPARSEARGS, "while reading an index");
   return NULL;
 }
@@ -3232,7 +3233,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
   size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
@@ -3373,7 +3374,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
 
   if(spec->scan_failed_OOM) {
     QueryError_SetWithoutUserDataFmt(&status, QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM. New documents will not be indexed.");

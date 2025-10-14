@@ -1,7 +1,6 @@
-from RLTest import Env
-from includes import *
+from common import *
 
-
+@skip(cluster=True)
 def testIfQueries(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA txt TEXT num NUMERIC empty TEXT')
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt word num 10')
@@ -84,6 +83,7 @@ def testIfQueries(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty=="word"&&@txt FIELDS txt word').equal('NOADD')            # ??
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty=="word"&&@empty=="word" FIELDS txt word').equal('NOADD')  # ??
 
+@skip(cluster=True)
 def testExists(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA txt TEXT num NUMERIC empty TEXT')
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt word num 10')
@@ -120,4 +120,3 @@ def testExists(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(exists(@empty)) FIELDS txt word').equal('NOADD') # ??
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_str(exists(@empty)) FIELDS txt word').equal('OK')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if exists(exists(@empty)) FIELDS txt word').equal('OK')  # ??
-

@@ -1821,6 +1821,12 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
       if (consumed[i]) {
         continue;
       }
+      size_t window;
+      if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+        window = self->hybridScoringCtx->rrfCtx.window;
+      } else {
+        window = self->hybridScoringCtx->linearCtx.window;
+      }
       int rc = hybridMergerConsumeFromUpstream(self, window, self->upstreams[i], i);
 
       if (rc == RS_RESULT_DEPLETING) {

@@ -51,13 +51,13 @@ class ParseHybridTest : public ::testing::Test {
     index_name = std::string("test_index_") + test_info->test_case_name() + "_" + test_info->name();
 
     // Create a simple index for testing
-    QueryError qerr = {QueryErrorCode(0)};
+    QueryError qerr = QueryError_Default();
     RMCK::ArgvList args(ctx, "FT.CREATE", index_name.c_str(), "ON", "HASH",
                         "SCHEMA", "title", "TEXT", "content", "TEXT", "vector", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
     spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
     if (!spec) {
       printf("Failed to create index '%s': code=%d, detail='%s'\n",
-             index_name.c_str(), qerr.code, qerr.detail ? qerr.detail : "NULL");
+             index_name.c_str(), QueryError_GetCode(&qerr), QueryError_GetUserError(&qerr));
       QueryError_ClearError(&qerr);
     }
     ASSERT_TRUE(spec);
@@ -633,10 +633,15 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   QueryError status = {QueryErrorCode(0)};
 
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
+<<<<<<< HEAD
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
   EXPECT_EQ(status.code, QUERY_OK) << "Should succeed as internal command";
+=======
+  parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
+  ASSERT_TRUE(QueryError_IsOk(&status)) << "Should succeed as internal command";
+>>>>>>> b4ef348b52ac912fc51c67039c7b1f4cb76de560
   QueryError_ClearError(&status);
 
   // Verify _NUM_SSTRING flag is set after parsing
@@ -682,15 +687,15 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
 
 // Helper function to test error cases with less boilerplate
 void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail) {
-  QueryError status = {QueryErrorCode(0)};
+  QueryError status = QueryError_Default();
 
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
-  ASSERT_EQ(status.code, expected_code) << "parsing error: " << QueryError_GetUserError(&status);
-  ASSERT_STREQ(status.detail, expected_detail) << "parsing error: " << QueryError_GetUserError(&status);
+  ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
+  ASSERT_STREQ(QueryError_GetUserError(&status), expected_detail) << "parsing error: " << QueryError_GetUserError(&status);
 
   // Clean up
   QueryError_ClearError(&status);
