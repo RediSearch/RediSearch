@@ -67,8 +67,8 @@ def test_depleter_timeout_return():
     
     # Should return partial results with timeout warning
     warnings = get_warnings(response)
-    env.assertTrue(len(warnings) > 0, "Expected timeout warning")
-    env.assertTrue(any('SEARCH' in warning for warning in warnings), "Expected SEARCH timeout in warnings")
+    env.assertTrue(len(warnings) > 0, message='Expected timeout warning')
+    env.assertTrue(any('SEARCH' in warning for warning in warnings), message='Expected SEARCH timeout in warnings')
 
 # Test HybridMerger timeout handling
 @skip(cluster=True)
@@ -95,7 +95,7 @@ def test_hybrid_merger_timeout_return():
     
     # Should return partial results with timeout warning
     warnings = get_warnings(response)
-    env.assertTrue(len(warnings) > 0, "Expected timeout warning")
+    env.assertTrue(len(warnings) > 0, message='Expected timeout warning')
 
 # Test timeout policy consistency
 @skip(cluster=True)
