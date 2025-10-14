@@ -239,8 +239,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // but after the parsing to know the timeout values
     for (int i = 0; i < hreq->nrequests; i++) {
         AREQ *subquery = hreq->requests[i];
-        RedisSearchCtx *sctx = AREQ_SearchCtx(subquery);
-        SearchCtx_UpdateTime(sctx, subquery->reqConfig.queryTimeoutMS);
+        SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
     }
     SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
 

@@ -124,7 +124,7 @@ def read_cursor_completely(env, index_name, cursor_id, batch_callback=None):
         return read_cursor_completely_resp3(env, index_name, cursor_id, batch_callback)
 
 
-@skip(cluster=True)
+# @skip(cluster=True)
 def test_basic_hybrid_internal_withcursor(env):
     """Test basic _FT.HYBRID command with WITHCURSOR functionality
 
@@ -158,7 +158,7 @@ def test_basic_hybrid_internal_withcursor(env):
     env.assertTrue(isinstance(search_cursor, (int, str)))
 
 
-@skip(cluster=True)
+# @skip(cluster=True)
 def test_hybrid_internal_with_count_parameter(env):
     """Test _FT.HYBRID with WITHCURSOR and COUNT parameter"""
     setup_hybrid_test_data(env)
@@ -244,7 +244,7 @@ def test_hybrid_internal_cursor_interaction(env):
         env.assertEqual(cursor_results['VSIM'], expected_vector_docs)
 
 
-@skip(cluster=True)
+# @skip(cluster=True)
 def test_hybrid_internal_cursor_with_scores():
     """Test reading from both VSIM and SEARCH cursors with WITHSCORES and compare with equivalent FT.SEARCH commands"""
     env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
@@ -322,7 +322,7 @@ def test_hybrid_internal_with_params(env):
     env.assertEqual(cursor_results['VSIM'], expected_vector_docs)
 
 
-@skip(cluster=True)
+# @skip(cluster=True)
 def test_hybrid_internal_error_cases(env):
     """Test error cases with _FT.HYBRID (without WITHCURSOR)"""
     setup_hybrid_test_data(env)
@@ -337,7 +337,7 @@ def test_hybrid_internal_error_cases(env):
                'VSIM', '@nonexistent', query_vec.tobytes()).error().contains('Unknown field `nonexistent`')
 
 
-@skip(cluster=True)
+# @skip(cluster=True)
 def test_hybrid_internal_cursor_limit(env):
     """Test _FT.HYBRID cursor limit per shard
 
@@ -355,7 +355,7 @@ def test_hybrid_internal_cursor_limit(env):
                'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR').error().contains('INDEX_CURSOR_LIMIT of 1 has been reached for an index')
 
 
-@skip(cluster=True)
+# @skip(cluster=True)
 def test_hybrid_internal_empty_search_results(env):
     """Test _FT.HYBRID when search subquery returns no results
 
