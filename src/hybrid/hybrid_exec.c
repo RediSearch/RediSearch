@@ -362,7 +362,6 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     arrayof(Cursor*) cursors = array_new(Cursor*, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
-      SearchCtx_UpdateTime(AREQ_SearchCtx(areq), req->reqConfig.queryTimeoutMS);
       if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
          break;
       }
@@ -377,7 +376,6 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       areq->cursor_id = cursor->id;
       array_ensure_append_1(cursors, cursor);
     }
-    SearchCtx_UpdateTime(req->sctx, req->reqConfig.queryTimeoutMS);
 
     if (array_len(cursors) != req->nrequests) {
       array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));

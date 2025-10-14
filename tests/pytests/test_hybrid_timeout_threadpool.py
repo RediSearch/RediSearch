@@ -42,32 +42,6 @@ def get_results_from_hybrid_response(response):
         return results
     return {}
 
-# Test thread pool timeout detection
-@skip(cluster=True)
-def test_thread_pool_timeout_fail():
-    """Test that thread pool timeout is detected with FAIL policy"""
-    env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
-    setup_basic_index(env)
-    
-    # Use a very short timeout to trigger thread pool timeout
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
-               'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT', '1').error().contains('Timeout')
-
-@skip(cluster=True)
-def test_thread_pool_timeout_return():
-    """Test that thread pool timeout returns partial results with RETURN policy"""
-    env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
-    setup_basic_index(env)
-    
-    # Use a very short timeout to trigger thread pool timeout
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
-                       'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT', '1')
-    
-    # Should return partial results with timeout warning
-    warnings = get_warnings(response)
-    env.assertTrue(len(warnings) > 0, "Expected timeout warning")
-    env.assertTrue(any('Timeout' in warning for warning in warnings), "Expected timeout in warnings")
-
 # Test RPDepleter timeout handling
 @skip(cluster=True)
 def test_depleter_timeout_fail():
@@ -125,25 +99,23 @@ def test_hybrid_merger_timeout_return():
 
 # Test timeout policy consistency
 @skip(cluster=True)
-def test_timeout_policy_consistency():
+def test_timeout_policy_consistency(env):
     """Test that timeout policies work consistently across all components"""
     # Test FAIL policy
-    env_fail = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
-    setup_basic_index(env_fail)
+    env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').ok()
+    setup_basic_index(env, 1000)
     
-    env_fail.expect('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
-                    'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT', '1').error().contains('Timeout')
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
+               'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT', '1').error().contains('Timeout')
     
     # Test RETURN policy
-    env_return = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
-    setup_basic_index(env_return, 1000)
-    
-    response = env_return.cmd('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
-                              'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT', '1')
+    env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').ok()
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
+                       'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT', '1')
     
     # Should return response with warnings, not error
-    env_return.assertTrue(isinstance(response, list), message="Expected list response for RETURN policy")
+    env.assertTrue(isinstance(response, list), message="Expected list response for RETURN policy")
     warnings = get_warnings(response)
-    env_return.assertTrue(len(warnings) > 0, message="Expected timeout warning for RETURN policy")
-    env_return.assertContains('Timeout limit was reached', warnings[0], message="Expected timeout warning message for RETURN policy")
+    env.assertTrue(len(warnings) > 0, message="Expected timeout warning for RETURN policy")
+    env.assertContains('Timeout limit was reached', warnings[0], message="Expected timeout warning message for RETURN policy")
     
