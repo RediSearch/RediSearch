@@ -308,15 +308,6 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearch
         .lastAstp = AGPLN_GetArrangeStep(plan)
     };
 
-#if 0
-    for (int i = 0; i < hreq->nrequests; i++) {
-        AREQ *subquery = hreq->requests[i];
-        RedisSearchCtx *sctx = AREQ_SearchCtx(subquery);
-        SearchCtx_UpdateTime(sctx, subquery->reqConfig.queryTimeoutMS);
-    }
-    SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
-#endif
-
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
     RedisModule_EndReply(reply);
@@ -553,16 +544,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
-
-#if 0
-  // Initialize timeout for all subqueries BEFORE building pipelines
-  for (int i = 0; i < hybridRequest->nrequests; i++) {
-    AREQ *subquery = hybridRequest->requests[i];
-    RedisSearchCtx *sctx = AREQ_SearchCtx(subquery);
-    SearchCtx_UpdateTime(sctx, subquery->reqConfig.queryTimeoutMS);
-  }
-  SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
-#endif
 
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
