@@ -218,14 +218,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     hreq->tailPipeline->qctx.err = status;
 
-    // Initialize timeout for all subqueries BEFORE building pipelines
-    for (int i = 0; i < hreq->nrequests; i++) {
-        AREQ *subquery = hreq->requests[i];
-        RedisSearchCtx *sctx = AREQ_SearchCtx(subquery);
-        SearchCtx_UpdateTime(sctx, subquery->reqConfig.queryTimeoutMS);
-    }
-    SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
-
     // Parse the hybrid command (equivalent to AREQ_Compile)
     HybridPipelineParams hybridParams = {0};
     ParseHybridCommandCtx cmd = {0};
@@ -242,6 +234,14 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // we only need parse the combine and what comes after it
     // we can manually create the subqueries pipelines (depleter -> sorter(window)-> RPNet(shared dispatcher ))
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+
+    // Initialize timeout for all subqueries BEFORE building pipelines
+    // but after the parsing to know the timeout values
+    for (int i = 0; i < hreq->nrequests; i++) {
+        AREQ *subquery = hreq->requests[i];
+        SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
+    }
+    SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
 
     // // Set request flags from hybridParams
     // hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
