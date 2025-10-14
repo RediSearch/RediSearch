@@ -249,6 +249,8 @@ pub trait Decoder {
 
 /// Marker trait for decoders producing numeric results.
 pub trait NumericDecoder: Decoder {}
+/// Marker trait for decoders producing term results.
+pub trait TermDecoder: Decoder {}
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
@@ -1162,8 +1164,17 @@ pub trait IndexReader<'index> {
 /// Marker trait for readers producing numeric values.
 pub trait NumericReader<'index>: IndexReader<'index> {}
 
+/// Marker trait for readers producing term values.
+pub trait TermReader<'index>: IndexReader<'index> {}
+
 // Automatically implemented if the IndexReaderCore uses a NumericDecoder.
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + NumericDecoder> NumericReader<'index>
+    for IndexReaderCore<'index, E, D>
+{
+}
+
+/// Automatically implemented if the IndexReaderCore uses a TermDecoder.
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + TermDecoder> TermReader<'index>
     for IndexReaderCore<'index, E, D>
 {
 }
@@ -1452,6 +1463,12 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
     pub const fn internal_index(&self) -> &InvertedIndex<E> {
         self.inner.internal_index()
     }
+}
+
+/// Automatically implemented if the IndexReaderCore uses a TermDecoder.
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + TermDecoder> TermReader<'index>
+    for FilterMaskReader<IndexReaderCore<'index, E, D>>
+{
 }
 
 /// A reader that filters out records that do not match a given numeric filter. It is used to
