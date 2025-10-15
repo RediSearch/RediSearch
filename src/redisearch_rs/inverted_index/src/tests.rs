@@ -1767,6 +1767,8 @@ fn ii_apply_gc_last_block_updated() {
 
     let delta = GcScanDelta {
         last_block_idx: 1,
+        // We want to simulate a scenario where new entries were added to the last block. Hence why
+        // this is less than the actual number of entries in the last block.
         last_block_num_entries: 2,
         deltas: gc_result,
     };
