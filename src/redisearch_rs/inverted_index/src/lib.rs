@@ -682,16 +682,6 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         let mut results = Vec::new();
 
         for (i, block) in self.blocks.iter().enumerate() {
-            if block.num_entries == 0 {
-                results.push(BlockGcScanResult {
-                    index: i,
-                    repair: RepairType::Delete {
-                        n_unique_docs_removed: 0,
-                    },
-                });
-                continue;
-            }
-
             let encoder = self.encoder.clone();
 
             let repair = block.repair(&doc_exist, &mut repair, encoder)?;
