@@ -53,6 +53,12 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
         RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
         ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
+
+        // Ensure timeout is set on the depleting thread context for standalone case
+        SearchCtx_UpdateTime(depletingThread, req->reqConfig.queryTimeoutMS);
+        RedisModule_Log(NULL, "warning", "nafraf: [STANDALONE] Set timeout on depleting thread context: %lld ms, context ptr: %p",
+                        req->reqConfig.queryTimeoutMS, (void*)depletingThread);
+
         QITR_PushRP(qctx, depleter);
     }
 

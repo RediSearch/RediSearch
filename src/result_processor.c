@@ -1433,7 +1433,16 @@ static void RPDepleter_Free(ResultProcessor *base) {
 
 // Helper function for RPDepleter_Deplete that does the actual work of locking, depleting, and unlocking
 static void RPDepleter_Deplete_Inner(RPDepleter *self, DepleterSync *sync) {
-  RPStatus rc;
+  RedisModule_Log(NULL, "warning", "nafraf: RPDepleter_Deplete_Inner: Starting depleting, context ptr: %p", (void*)self->depletingThreadCtx);
+
+  // Debug: Check timeout value
+  struct timespec current_time;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &current_time);
+  long timeout_ms = (self->depletingThreadCtx->time.timeout.tv_sec - current_time.tv_sec) * 1000 +
+                    (self->depletingThreadCtx->time.timeout.tv_nsec - current_time.tv_nsec) / 1000000;
+  RedisModule_Log(NULL, "warning", "nafraf: RPDepleter timeout remaining: %ld ms", timeout_ms);
+
+  int rc = RS_RESULT_OK;
 
   if (sync->take_index_lock) {
     // Lock the index for read
@@ -1445,6 +1454,12 @@ static void RPDepleter_Deplete_Inner(RPDepleter *self, DepleterSync *sync) {
   // Deplete the pipeline into the `self->results` array.
   SearchResult *r = rm_calloc(1, sizeof(*r));
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
+    // Check for timeout during depletion process
+    if (TimedOut(&self->depletingThreadCtx->time.timeout) == TIMED_OUT) {
+      RedisModule_Log(NULL, "warning", "nafraf: RPDepleter_Deplete_Inner: Timed out detected while depleting");
+      rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
   }
@@ -1516,7 +1531,7 @@ static bool mock_thread_pool_should_fail = false;
 void Test_SetThreadPoolFailure(bool should_fail) {
     mock_thread_pool_should_fail = should_fail;
 }
-  
+
 // Adds a depletion job to the depleters thread pool
 static inline bool RPDepleter_StartDepletionThread(RPDepleter *self) {
   if (RS_IsMock && mock_thread_pool_should_fail) {
@@ -1594,7 +1609,7 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   // The first call to next will start the depleting thread, and return `RS_RESULT_DEPLETING`.
   if (self->first_call) {
     self->first_call = false;
-    
+
     // Check timeout before attempting to start thread
     if (TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
       return RS_RESULT_TIMEDOUT;

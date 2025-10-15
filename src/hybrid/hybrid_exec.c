@@ -29,6 +29,7 @@
 #include "pipeline/pipeline.h"
 #include "util/units.h"
 #include "value.h"
+#include "result_processor.h"
 
 #include <time.h>
 
@@ -545,9 +546,26 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   for (int i = 0; i < hybridRequest->nrequests; i++) {
     AREQ *subquery = hybridRequest->requests[i];
-    SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);
+    RedisSearchCtx *sctx_sub = AREQ_SearchCtx(subquery);
+    RedisModule_Log(NULL, "warning", "nafraf: Before SearchCtx_UpdateTime - subquery %d, timeoutMS: %lld, context ptr: %p", i, hybridRequest->reqConfig.queryTimeoutMS, (void*)sctx_sub);
+    SearchCtx_UpdateTime(sctx_sub, hybridRequest->reqConfig.queryTimeoutMS);
+
+    // Debug: Check if timeout was actually set
+    struct timespec current_time;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &current_time);
+    long timeout_ms = (sctx_sub->time.timeout.tv_sec - current_time.tv_sec) * 1000 +
+                      (sctx_sub->time.timeout.tv_nsec - current_time.tv_nsec) / 1000000;
+    RedisModule_Log(NULL, "warning", "nafraf: After SearchCtx_UpdateTime - subquery %d timeout remaining: %ld ms", i, timeout_ms);
   }
+  RedisModule_Log(NULL, "warning", "nafraf: Before SearchCtx_UpdateTime - main sctx, timeoutMS: %lld", hybridRequest->reqConfig.queryTimeoutMS);
   SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
+
+  // Debug: Check main context timeout
+  struct timespec current_time;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &current_time);
+  long main_timeout_ms = (hybridRequest->sctx->time.timeout.tv_sec - current_time.tv_sec) * 1000 +
+                         (hybridRequest->sctx->time.timeout.tv_nsec - current_time.tv_nsec) / 1000000;
+  RedisModule_Log(NULL, "warning", "nafraf: After SearchCtx_UpdateTime - main sctx timeout remaining: %ld ms", main_timeout_ms);
 
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);

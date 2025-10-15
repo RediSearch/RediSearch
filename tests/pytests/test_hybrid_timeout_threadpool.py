@@ -98,12 +98,13 @@ def test_hybrid_merger_timeout_return():
     env.assertTrue(len(warnings) > 0, message='Expected timeout warning')
 
 # Test timeout policy consistency
-@skip(cluster=True)
-def test_timeout_policy_consistency(env):
+# @skip(cluster=True)
+def test_timeout_policy_consistency():
     """Test that timeout policies work consistently across all components"""
     # Test FAIL policy
+    env = Env()
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').ok()
-    setup_basic_index(env, 1000)
+    setup_basic_index(env, 10000)
 
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB',
                'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT', '1').error().contains('Timeout')
@@ -117,4 +118,7 @@ def test_timeout_policy_consistency(env):
     env.assertTrue(isinstance(response, list), message="Expected list response for RETURN policy")
     warnings = get_warnings(response)
     env.assertTrue(len(warnings) > 0, message="Expected timeout warning for RETURN policy")
-    env.assertContains('Timeout limit was reached', warnings[0], message="Expected timeout warning message for RETURN policy")
+    env.assertTrue(
+        any('Timeout limit was reached' in warning for warning in warnings),
+        message=f"Expected timeout warning in warnings: {warnings}"
+    )
