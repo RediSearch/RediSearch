@@ -718,6 +718,30 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             blocks_ignored: 0,
         };
 
+        // Check if the last block has changed since the scan was performed
+        let last_block_changed = self
+            .blocks
+            .get(last_block_idx)
+            .map_or(false, |b| b.num_entries != last_block_num_entries);
+
+        // If the last block has changed, then we need to ignore any deltas that refer to it
+        let deltas = if last_block_changed {
+            deltas
+                .into_iter()
+                .filter(|d| {
+                    if d.index == last_block_idx {
+                        // The last block has changed since the scan, so we ignore this delta
+                        info.blocks_ignored += 1;
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect()
+        } else {
+            deltas
+        };
+
         let mut tmp_blocks = Vec::with_capacity(self.blocks.len());
         std::mem::swap(&mut self.blocks, &mut tmp_blocks);
 
@@ -725,15 +749,6 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
         for (block_index, block) in tmp_blocks.into_iter().enumerate() {
             match deltas.peek() {
-                Some(delta)
-                    if delta.index == block_index
-                        && delta.index == last_block_idx
-                        && block.num_entries != last_block_num_entries =>
-                {
-                    // The last block has changed since the scan, so we ignore this delta
-                    info.blocks_ignored += 1;
-                    self.blocks.push(block);
-                }
                 Some(delta) if delta.index == block_index => {
                     // This block needs to be repaired
                     let delta = deltas.next().expect("we just peeked it");
