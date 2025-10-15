@@ -21,6 +21,12 @@
 extern "C" {
 #endif
 
+static void pushDepleter(QueryProcessingCtx *qctx, ResultProcessor *depleter) {
+  depleter->upstream = qctx->endProc;
+  depleter->parent = qctx;
+  qctx->endProc = depleter;
+}
+
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
@@ -53,7 +59,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
         RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
         ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
-        QITR_PushRP(qctx, depleter);
+        pushDepleter(qctx, depleter);
     }
 
     // Release the sync reference as depleters now hold their own references
@@ -92,7 +98,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridLookupContext *lo
     // the doc key is only relevant in coordinator mode, in standalone we can simply use the dmd
     // InitializeHybridLookupContext copied all the rlookup keys from the upstreams to the tail lookup
     // we open the docKey as hidden in case the user didn't request it, if it already exists it will stay as it was
-    // if it didn't then it will be marked as unresolved 
+    // if it didn't then it will be marked as unresolved
     const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
