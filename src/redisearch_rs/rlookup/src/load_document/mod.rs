@@ -391,12 +391,12 @@ impl LoadDocumentContext<RSValueFFI> for LoadDocumentContextImpl {
 
     fn hval_get_all_scan(
         &self,
-        _lookup: &mut RLookup,
-        _dst_row: &mut RLookupRow<'_, RSValueFFI>,
-        _options: &LoadDocumentOptions,
-        _key_str: RedisString,
+        lookup: &mut RLookup,
+        dst_row: &mut RLookupRow<'_, RSValueFFI>,
+        options: &LoadDocumentOptions,
+        key_str: RedisString,
     ) -> Result<(), LoadDocumentError> {
-        unimplemented!("in followup PR")
+        hash::get_all_scan(lookup, dst_row, options, key_str)
     }
 
     fn hval_get_all_fallback(
