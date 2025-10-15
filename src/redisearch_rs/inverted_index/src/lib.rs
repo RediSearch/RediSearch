@@ -648,16 +648,16 @@ pub struct BlockGcScanResult {
 #[derive(Debug, Eq, PartialEq)]
 pub struct GcApplyInfo {
     /// The number of bytes that were freed
-    bytes_freed: usize,
+    pub bytes_freed: usize,
 
     /// The number of bytes that were allocated
-    bytes_allocated: usize,
+    pub bytes_allocated: usize,
 
     /// The number of entries that were removed from the index including duplicates
-    entries_removed: usize,
+    pub entries_removed: usize,
 
     /// The number of blocks that were ignored because the index changed since the scan was performed
-    blocks_ignored: usize,
+    pub blocks_ignored: usize,
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
