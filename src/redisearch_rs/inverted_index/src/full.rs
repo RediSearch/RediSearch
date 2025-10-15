@@ -125,6 +125,7 @@ pub fn decode_term_record_offsets<'index>(
 }
 
 impl Decoder for Full {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -234,6 +235,7 @@ impl DecodedBy for FullWide {
 }
 
 impl Decoder for FullWide {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
