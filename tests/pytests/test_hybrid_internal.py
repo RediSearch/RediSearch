@@ -402,7 +402,7 @@ def test_hybrid_internal_withcursor_with_load():
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                      'VSIM', '@embedding', query_vec.tobytes(),
-                     'LOAD', '2', '__key', 'description',
+                     'LOAD', '2', '@__key', 'description',
                      'WITHCURSOR')
 
     # Should return a map with VSIM and SEARCH cursor IDs

@@ -76,7 +76,7 @@ def test_hybrid_filter_behavior():
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', query_vector,
-        "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "__key", "category", "FILTER", "@category==\"fruit\"",
+        "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "@__key", "category", "FILTER", "@category==\"fruit\"",
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(set(results.keys()), {"doc:1", "doc:2"})
@@ -85,7 +85,7 @@ def test_hybrid_filter_behavior():
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', query_vector,
-        'FILTER', '@category:{"vegetable"}', "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "__key", "category", "FILTER", "@category==\"fruit\"",
+        'FILTER', '@category:{"vegetable"}', "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "@__key", "category", "FILTER", "@category==\"fruit\"",
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(results, {})
@@ -94,7 +94,7 @@ def test_hybrid_filter_behavior():
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', query_vector,
-        'FILTER', '@category:{"vegetable"}', "LOAD", 2, "__key", "category", "FILTER", "@category==\"clothing\"",
+        'FILTER', '@category:{"vegetable"}', "LOAD", 2, "@__key", "category", "FILTER", "@category==\"clothing\"",
     )
     results, _ = get_results_from_hybrid_response(response)
     env.assertEqual(set(results.keys()), {"doc:3"})
