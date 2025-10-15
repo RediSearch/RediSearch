@@ -188,11 +188,11 @@ def test_acl_key_permissions_validation(env):
     # and one that it can access
     no_perm_index = 'noPermIdx'
     perm_index = 'permIdx'
-    env.expect('FT.CREATE', no_perm_index, 'SCHEMA', 'n', 'NUMERIC')
-    env.expect('FT.CREATE', perm_index, 'PREFIXES', 1, 'h:','SCHEMA', 'n', 'NUMERIC')
+    env.expect('FT.CREATE', no_perm_index, 'SCHEMA', 'n', 'NUMERIC').ok()
+    env.expect('FT.CREATE', perm_index, 'PREFIX', '1', 'h:','SCHEMA', 'n', 'NUMERIC').ok()
 
     # Create another index an alias for it, that will soon be dropped.
-    env.expect('FT.CREATE', 'index_to_drop', 'SCHEMA', 'n', 'NUMERIC')
+    env.expect('FT.CREATE', 'index_to_drop', 'SCHEMA', 'n', 'NUMERIC').ok()
 
     # Authenticate as the user
     env.expect('AUTH', 'test', '123').true()
@@ -233,6 +233,7 @@ def test_acl_key_permissions_validation(env):
         ['FT.DICTADD', 'dict', 'hello'],
         ['FT.DICTDEL', 'dict', 'hello'],
         ['FT.DICTDUMP', 'dict'],
+        ['FT.ALIASADD', 'myAlias', perm_index], # Added so we can call `ALAISDEL`
         ['FT.ALIASDEL', 'myAlias'],
         ['FT.SUGADD', 'h:sug', 'hello', '1'],
         ['FT.SUGDEL', 'h:sug', 'hello'],
@@ -240,16 +241,13 @@ def test_acl_key_permissions_validation(env):
         ['FT.SUGLEN', 'h:sug']
     ]
     for command in non_index_commands:
-        try:
-            conn.execute_command(*command)
-        except Exception as e:
-            # Should not fail on permissions
-            env.assertNotContains("User does not have the required permissions", str(e))
+        env.expect(*command).noError() # We don't expect any errors
+
+    # Modify the `DROPINDEX` command that does not have the same index
+    index_commands[-1][1] = perm_index
 
     # The `test` user should also be able to access the index it has permissions
     # to access.
-    # Modify the `DROPINDEX` command that does not have the same index
-    index_commands[-1][1] = perm_index
     for command in index_commands:
         # Switch the index name to the one the user has permissions to access
         if no_perm_index in command:
