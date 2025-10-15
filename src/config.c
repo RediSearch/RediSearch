@@ -202,21 +202,19 @@ int set_default_scorer_config(const char *name, RedisModuleString *val, void *pr
     size_t len;
     const char *newScorerName = RedisModule_StringPtrLen(val, &len);
 
-    // Allocate temporary storage for the new scorer name
-    char *tempScorer = rm_strndup(newScorerName, len);
-
     if (Extensions_InitDone()) {
-      // Validate the scorer name against registered scorers only when the extension system is initialized. By default trust the default value
-      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, tempScorer);
+      // Validate the scorer name against registered scorers only when the extension system is initialized
+      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, newScorerName);
       if (scoreCtx == NULL) {
-          rm_free(tempScorer);
           if (err) {
               *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
           }
           return REDISMODULE_ERR;
       }
     }
-    // Validation passed, now apply it to RSGlobalConfig
+
+    // Validation passed, now allocate and apply it to RSGlobalConfig
+    char *tempScorer = rm_strndup(newScorerName, len);
     char **ptr = (char **)privdata;
     if (*ptr) {
         rm_free(*ptr);
