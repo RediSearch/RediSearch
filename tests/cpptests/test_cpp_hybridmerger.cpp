@@ -50,7 +50,6 @@ struct MockUpstream : public ResultProcessor {
   int depletionCount = 0;
   int counter = 0;
   std::vector<RSDocumentMetadata*> documentMetadata;
-  std::vector<std::string> keyStrings;
 
   // Simplified constructor with just the essentials
   MockUpstream(int timeoutAfterCount = 0,
@@ -82,10 +81,18 @@ struct MockUpstream : public ResultProcessor {
         size_t entryIndex = depletionCount + i;
 
         documentMetadata[entryIndex] = static_cast<RSDocumentMetadata*>(rm_calloc(1, sizeof(RSDocumentMetadata)));
+        DMD_Incref(documentMetadata[entryIndex]);
 
         std::string str = "doc" + std::to_string(docIds[i]);
         documentMetadata[entryIndex]->keyPtr = sdsnewlen(str.data(), str.length());
       }
+    }
+  }
+
+  ~MockUpstream() {
+    // clean up RSDocumentMetadatas allocated above
+    for (auto dmd : documentMetadata) {
+      DMD_Return(dmd);
     }
   }
 
