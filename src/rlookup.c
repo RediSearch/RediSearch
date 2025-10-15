@@ -455,14 +455,18 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisModuleString *keyName;
       size_t i = 0;
       RedisJSON value;
- 
+      RedisJSONPtr value_ptr = japi->allocJson();
+
       RSValueMap map = RSValueMap_AllocUninit(len);
-      for (; (value = japi->nextKeyValue(iter, &keyName)); ++i) {
+      for (; (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK); ++i) {
+        value = *value_ptr;
         RSValueMap_SetEntry(&map, i, RSValue_NewStolenRedisString(keyName),
           jsonValToValueExpanded(ctx, value));
       }
+      japi->freeJson(value_ptr);
+      value_ptr = NULL;
       japi->freeKeyValuesIter(iter);
-      RS_ASSERT(i == len && !value);
+      RS_ASSERT(i == len);
 
       ret = RSValue_NewMap(map);
     } else {
@@ -473,10 +477,13 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
     japi->getLen(json, &len);
     if (len) {
       RSValue **arr = RSValue_AllocateArray(len);
+      RedisJSONPtr value_ptr = japi->allocJson();
       for (size_t i = 0; i < len; ++i) {
-        RedisJSON value = japi->getAt(json, i);
+        japi->getAt(json, i, value_ptr);
+        RedisJSON value = *value_ptr;
         arr[i] = jsonValToValueExpanded(ctx, value);
       }
+      japi->freeJson(value_ptr);
       ret = RSValue_NewArray(arr, len);
     } else {
       // Empty array
@@ -522,7 +529,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
   int res = REDISMODULE_ERR;
   RedisModuleString *serialized = NULL;
 
-  if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST || japi_ver < 3) {
+  if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) {
     // Preserve single value behavior for backward compatibility
     RedisJSON json = japi->next(iter);
     if (!json) {
@@ -542,21 +549,31 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
     // Second, get the first JSON value
     RedisJSON json = japi->next(iter);
+    RedisJSONPtr json_alloc = NULL; // Used if we need to allocate a new JSON value (e.g if the value is an array)
     // If the value is an array, we currently try using the first element
     JSONType type = japi->getType(json);
     if (type == JSONType_Array) {
+      json_alloc = japi->allocJson();
       // Empty array will return NULL
-      json = japi->getAt(json, 0);
+      if (japi->getAt(json, 0, json_alloc) == REDISMODULE_OK) {
+        json = *json_alloc;
+      } else {
+        json = NULL;
+      }
     }
 
     if (json) {
       RSValue *val = jsonValToValue(ctx, json);
       RSValue *otherval = RSValue_NewStolenRedisString(serialized);
-      RSValue *expand = japi_ver >= 4 ? jsonIterToValueExpanded(ctx, iter) : RSValue_NullStatic();
+      RSValue *expand = jsonIterToValueExpanded(ctx, iter);
       *rsv = RSValue_NewTrio(val, otherval, expand);
       res = REDISMODULE_OK;
     } else if (serialized) {
       RedisModule_FreeString(ctx, serialized);
+    }
+
+    if (json_alloc) {
+      japi->freeJson(json_alloc);
     }
   }
 
@@ -673,16 +690,14 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
   // In this case, the flag must be obtained from JSON
   RedisModuleCtx *ctx = options->sctx->redisCtx;
-  char *keyPtr = options->dmd ? options->dmd->keyPtr : (char *)options->keyPtr;
+  const bool keyPtrFromDMD = options->dmd != NULL;
+  char *keyPtr = keyPtrFromDMD ? options->dmd->keyPtr : (char *)options->keyPtr;
   if (!*keyobj) {
 
-    if (japi_ver >= 5) {
-      RedisModuleString* keyName = RedisModule_CreateString(ctx, keyPtr, strlen(keyPtr));
-      *keyobj = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
-      RedisModule_FreeString(ctx, keyName);
-    } else {
-      *keyobj = japi->openKeyFromStr(ctx, keyPtr);
-    }
+    RedisModuleString* keyName = RedisModule_CreateString(ctx, keyPtr, keyPtrFromDMD ? sdslen(keyPtr) : strlen(keyPtr));
+    *keyobj = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+    RedisModule_FreeString(ctx, keyName);
+
     if (!*keyobj) {
       QueryError_SetCode(options->status, QUERY_ENODOC);
       return REDISMODULE_ERR;
@@ -698,7 +713,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
     if (!strcmp(kk->path, UNDERSCORE_KEY)) {
-      rsv = RSValue_NewString(rm_strdup(keyPtr), strlen(keyPtr));
+      rsv = RSValue_NewString(rm_strdup(keyPtr), keyPtrFromDMD ? sdslen(keyPtr) : strlen(keyPtr));
     } else {
       return REDISMODULE_OK;
     }
@@ -880,14 +895,10 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
 
   JSONResultsIterator jsonIter = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
-  RedisJSON jsonRoot;
-  if (japi_ver >= 5) {
-    RedisModuleString* keyName = RedisModule_CreateString(ctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr));
-    jsonRoot = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
-    RedisModule_FreeString(ctx, keyName);
-  } else {
-    jsonRoot = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
-  }
+
+  RedisModuleString* keyName = RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
+  RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+  RedisModule_FreeString(ctx, keyName);
   if (!jsonRoot) {
     goto done;
   }
