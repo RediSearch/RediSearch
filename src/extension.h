@@ -19,6 +19,9 @@ void Extensions_Init();
 /* clear the extensions list */
 void Extensions_Free();
 
+/* Check if the extensions have been initialized */
+bool Extensions_InitDone();
+
 /* Context for saving a scoring function and its private data and free */
 typedef struct {
   RSScoringFunction sf;

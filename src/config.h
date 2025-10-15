@@ -321,7 +321,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define RS_DEFAULT_CONFIG {                                                    \
     .extLoad = NULL,                                                           \
     .frisoIni = NULL,                                                          \
-    .defaultScorer = DEFAULT_SCORER_NAME,                                      \
+    .defaultScorer = NULL,                                                     \
     .gcConfigParams.enableGC = 1,                                              \
     .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,            \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \

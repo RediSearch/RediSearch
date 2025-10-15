@@ -31,6 +31,10 @@ void Extensions_Init() {
   }
 }
 
+bool Extensions_InitDone() {
+  return scorers_g != NULL;
+}
+
 static void freeExpanderCb(void *p) {
   rm_free(p);
 }

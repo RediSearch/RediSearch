@@ -3935,6 +3935,10 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     rm_free((void *)RSGlobalConfig.frisoIni);
     RSGlobalConfig.frisoIni = NULL;
   }
+  if (RSGlobalConfig.defaultScorer) {
+    rm_free((void *)RSGlobalConfig.defaultScorer);
+    RSGlobalConfig.defaultScorer = NULL;
+  }
 
   SearchDisk_Close();
 
