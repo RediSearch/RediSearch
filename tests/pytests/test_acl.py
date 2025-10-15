@@ -1,7 +1,7 @@
 from common import *
 
-READ_SEARCH_COMMANDS = ['FT.SEARCH', 'FT.AGGREGATE', 'FT.CURSOR', 'FT.CURSOR',
-                 'FT.PROFILE', 'FT.SUGGET', 'FT.SUGLEN']
+READ_SEARCH_COMMANDS = ['FT.SEARCH', 'FT.AGGREGATE', 'FT.CURSOR',
+                 'FT.PROFILE', 'FT.SUGGET', 'FT.SUGLEN', 'FT.HYBRID']
 WRITE_SEARCH_COMMANDS = ['FT.DROPINDEX', 'FT.SUGADD', 'FT.SUGDEL']
 
 def test_acl_category(env):
@@ -188,11 +188,23 @@ def test_acl_key_permissions_validation(env):
     # and one that it can access
     no_perm_index = 'noPermIdx'
     perm_index = 'permIdx'
-    env.expect('FT.CREATE', no_perm_index, 'SCHEMA', 'n', 'NUMERIC').ok()
-    env.expect('FT.CREATE', perm_index, 'PREFIX', '1', 'h:','SCHEMA', 'n', 'NUMERIC').ok()
+    no_perm_index_to_drop = 'index_to_drop'
+    def create_index(env, index_name, prefixes=None):
+        if prefixes:
+            env.expect(
+                'FT.CREATE', index_name, 'PREFIX', len(prefixes), *prefixes,\
+                'SCHEMA', 'n', 'NUMERIC', 'embedding', 'VECTOR', 'FLAT', 6,\
+                'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2'
+            ).ok()
+        else:
+            env.expect('FT.CREATE', index_name, 'SCHEMA', 'n', 'NUMERIC',\
+                'embedding', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,\
+                'DISTANCE_METRIC', 'L2').ok()
+    create_index(env, no_perm_index)
+    create_index(env, perm_index, ['h:'])
 
     # Create another index an alias for it, that will soon be dropped.
-    env.expect('FT.CREATE', 'index_to_drop', 'SCHEMA', 'n', 'NUMERIC').ok()
+    create_index(env, no_perm_index_to_drop)
 
     # Authenticate as the user
     env.expect('AUTH', 'test', '123').true()
@@ -203,6 +215,8 @@ def test_acl_key_permissions_validation(env):
         ['FT.AGGREGATE', no_perm_index, '*'],
         ['FT.INFO', no_perm_index],
         ['FT.SEARCH', no_perm_index, '*'],
+        # ['FT.HYBRID', no_perm_index, 'SEARCH', '*', 'VSIM' ,'@embedding', '$BLOB',\
+        #  'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"],
         ['FT.PROFILE', no_perm_index, 'AGGREGATE', 'QUERY', '*'],
         ['FT.PROFILE', no_perm_index, 'SEARCH', 'QUERY', '*'],
         ['FT.CURSOR', 'READ', no_perm_index, '555'],
@@ -219,7 +233,7 @@ def test_acl_key_permissions_validation(env):
         ['FT.ADD', no_perm_index, 'h:doc1', '1.0', 'FIELDS', 'n', '5'],
         ['FT.GET', no_perm_index, 'h:doc1'],
         ['FT.DEL', no_perm_index, 'h:doc1'],
-        ['FT.DROPINDEX', 'index_to_drop'],
+        ['FT.DROPINDEX', no_perm_index_to_drop],
     ]
     for command in index_commands:
         env.expect(*command).error().contains("User does not have the required permissions to query the index")
@@ -233,7 +247,7 @@ def test_acl_key_permissions_validation(env):
         ['FT.DICTADD', 'dict', 'hello'],
         ['FT.DICTDEL', 'dict', 'hello'],
         ['FT.DICTDUMP', 'dict'],
-        ['FT.ALIASADD', 'myAlias', perm_index], # Added so we can call `ALAISDEL`
+        ['FT.ALIASADD', 'myAlias', perm_index], # Added so we can call `ALIASDEL`
         ['FT.ALIASDEL', 'myAlias'],
         ['FT.SUGADD', 'h:sug', 'hello', '1'],
         ['FT.SUGDEL', 'h:sug', 'hello'],
@@ -257,11 +271,11 @@ def test_acl_key_permissions_validation(env):
         except Exception as e:
             env.assertNotContains("User does not have the required permissions", str(e))
 
+    # Re-create the index that was dropped
+    create_index(env, perm_index, ['h:'])
+
     # For completeness, we verify that the default user, which has permissions
     # to access all keys, can access the index
     env.expect('AUTH', 'default', 'nopass').true()
     for command in index_commands + non_index_commands:
-        try:
-            env.execute_command(*command)
-        except Exception as e:
-            env.assertNotContains("User does not have the required permissions", str(e))
+        env.execute_command(*command)
