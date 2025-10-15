@@ -70,6 +70,9 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   // Get the input key..
   if (*s == '@') {
     s++;
+  } else if (options->strict) {
+    QueryError_SetWithUserDataFmt(options->status, QUERY_EPARSEARGS, "Missing @ prefix for field name in REDUCE", ": %s, field: (%s)", options->name, s);
+    return 0;
   }
   *out = RLookup_GetKey_Read(options->srclookup, s, RLOOKUP_F_HIDDEN);
   if (!*out) {

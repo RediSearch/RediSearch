@@ -136,6 +136,8 @@ typedef struct {
     ArgsCursor args;
   } * reducers;
   int idx;
+  // Whether we should fail if a key is not prefixed with an @ sign
+  bool strict;
 } PLN_GroupStep;
 
  /**
@@ -144,7 +146,7 @@ typedef struct {
   * @param strict Whether we should fail if a key is not prefixed with an @ sign
   * @return Pointer to the newly created group step
   */
-PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref);
+PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, bool strict);
 
 /**
  * Gets the properties array from a group step (via StrongRef)
@@ -159,7 +161,7 @@ arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp);
  *  here as well.
  */
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
-                            QueryError *status, bool strict);
+                            QueryError *status);
 
 PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
 
