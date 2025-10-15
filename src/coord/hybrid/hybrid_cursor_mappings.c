@@ -90,6 +90,10 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     // TODO: add response validation (see netCursorCallback)
     // TODO implement error handling
     processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
+    if (!cb_ctx) {
+        RedisModule_Log(NULL, "error", "processCursorMappingCallback: cb_ctx is NULL");
+        return;
+    }
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
     const int replyType = MRReply_Type(rep);
@@ -120,9 +124,12 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
 static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     pthread_mutex_destroy(ctx->mutex);
     pthread_cond_destroy(ctx->completionCond);
+    rm_free(ctx->mutex);
+    rm_free(ctx->completionCond);
     StrongRef_Release(ctx->searchMappings);
     StrongRef_Release(ctx->vsimMappings);
     array_free_ex(ctx->errors, QueryError_ClearError((QueryError*)ptr));
+    rm_free(ctx);
 }
 
 bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status) {
@@ -130,46 +137,51 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
 
-    // Initialize synchronization primitives
-    pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-    pthread_cond_t completionCond = PTHREAD_COND_INITIALIZER;
+    // Allocate callback context on heap (since MR_IterateWithPrivateData is asynchronous)
+    processCursorMappingCallbackContext *ctx = rm_malloc(sizeof(processCursorMappingCallbackContext));
+
+    // Initialize synchronization primitives on heap
+    ctx->mutex = rm_malloc(sizeof(pthread_mutex_t));
+    ctx->completionCond = rm_malloc(sizeof(pthread_cond_t));
+    pthread_mutex_init(ctx->mutex, NULL);
+    pthread_cond_init(ctx->completionCond, NULL);
 
     // Setup callback context
-    processCursorMappingCallbackContext ctx = {
+    *ctx = (processCursorMappingCallbackContext){
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
         .errors = array_new(QueryError, numShards),
         .responseCount = 0,
-        .mutex = &mutex,
-        .completionCond = &completionCond,
+        .mutex = ctx->mutex,
+        .completionCond = ctx->completionCond,
         .numShards = numShards
     };
 
     // Start iteration
-    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, &ctx, iterStartCb, NULL);
+    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to communicate with shards");
-        cleanupCtx(&ctx);
+        cleanupCtx(ctx);
         return false;
     }
 
     // Wait for all callbacks to complete
-    pthread_mutex_lock(&mutex);
+    pthread_mutex_lock(ctx->mutex);
     // initialize count with response counts in case some shards already sent a response
-    for (size_t count = ctx.responseCount; count < numShards; count = ctx.responseCount) {
-        pthread_cond_wait(&completionCond, &mutex);
+    for (size_t count = ctx->responseCount; count < numShards; count = ctx->responseCount) {
+        pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
-    pthread_mutex_unlock(&mutex);
+    pthread_mutex_unlock(ctx->mutex);
     bool success = true;
-    if (array_len(ctx.errors)) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process shard responses, first error: %s, total error count: %zu", QueryError_GetUserError(&ctx.errors[0]), array_len(ctx.errors));
+    if (array_len(ctx->errors)) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process shard responses, first error: %s, total error count: %zu", QueryError_GetUserError(&ctx->errors[0]), array_len(ctx->errors));
         success = false;
     }
 
     // Cleanup
     MRIterator_Release(it);
-    cleanupCtx(&ctx);
+    cleanupCtx(ctx);
 
     return success;
 }
