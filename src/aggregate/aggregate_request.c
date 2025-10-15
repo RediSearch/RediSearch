@@ -64,7 +64,6 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
  * Initialize basic AREQ structure with search options and aggregation plan.
  */
 void initializeAREQ(AREQ *req) {
-  req->prefixesOffset = 0;
   AGPLN_Init(AREQ_AGGPlan(req));
   RSSearchOptions_Init(&req->searchopts);
 }
@@ -954,6 +953,7 @@ AREQ *AREQ_New(void) {
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
+  req->prefixesOffset = 0;
   return req;
 }
 

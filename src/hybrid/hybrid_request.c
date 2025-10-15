@@ -343,9 +343,6 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   extern size_t NumShards;  // Declared in module.c
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
-  // Prefixes validation will be done w.r.t Hybrid Request
-  search->prefixesOffset = 0;
-  vector->prefixesOffset = 0;
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
   search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
   vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
