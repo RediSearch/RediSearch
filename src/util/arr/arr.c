@@ -17,16 +17,16 @@ void array_free(array_t arr) {
 
 /* Initialize a new array with a given element size and capacity. Should not be used directly - use
  * array_new instead */
-array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len) {
-  array_hdr_t *hdr = (array_hdr_t *)array_alloc_fn(sizeof(array_hdr_t) + (uint64_t)cap * elem_sz);
-  hdr->cap = cap;
+array_t array_new_sz(uint16_t elem_sz, uint16_t remain_cap, uint32_t len) {
+  array_hdr_t *hdr = (array_hdr_t *)array_alloc_fn(sizeof(array_hdr_t) + (uint64_t) (len + remain_cap) * elem_sz);
+  hdr->remain_cap = remain_cap;
   hdr->elem_sz = elem_sz;
   hdr->len = len;
   return (array_t)(hdr->buf);
 }
 
 /* Function declared as a symbol to allow invocation from Rust */
-array_t array_ensure_append_n_func(array_t arr, array_t src, uint32_t n, uint32_t elem_sz) {
+array_t array_ensure_append_n_func(array_t arr, array_t src, uint16_t n, uint16_t elem_sz) {
   if (!arr) {
     arr = array_new_sz(elem_sz, n, 0);
   }
@@ -45,7 +45,7 @@ array_t array_ensure_append_n_func(array_t arr, array_t src, uint32_t n, uint32_
 }
 
 /* Function declared as a symbol to allow invocation from Rust */
-array_t array_clear_func(array_t arr, uint32_t elem_sz) {
+array_t array_clear_func(array_t arr, uint16_t elem_sz) {
   if (!arr) {
     arr = array_new_sz(elem_sz, 1, 0);
   } else {
