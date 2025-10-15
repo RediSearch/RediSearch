@@ -432,12 +432,6 @@ fn reading_over_empty_blocks() {
             last_doc_id: 10,
         },
         IndexBlock {
-            buffer: vec![],
-            num_entries: 0,
-            first_doc_id: 20,
-            last_doc_id: 20,
-        },
-        IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 30,
@@ -1479,12 +1473,6 @@ fn ii_scan_gc() {
     let encoder = Dummy;
     let blocks = vec![
         IndexBlock {
-            buffer: vec![],
-            num_entries: 0,
-            first_doc_id: 5,
-            last_doc_id: 5,
-        },
-        IndexBlock {
             buffer: encode_ids!(encoder, 10, 11),
             num_entries: 2,
             first_doc_id: 10,
@@ -1523,23 +1511,17 @@ fn ii_scan_gc() {
     assert_eq!(
         gc_result,
         GcScanDelta {
-            last_block_idx: 4,
+            last_block_idx: 3,
             last_block_num_entries: 1,
             deltas: vec![
                 BlockGcScanResult {
                     index: 0,
                     repair: RepairType::Delete {
-                        n_unique_docs_removed: 0
-                    },
-                },
-                BlockGcScanResult {
-                    index: 1,
-                    repair: RepairType::Delete {
                         n_unique_docs_removed: 2
                     },
                 },
                 BlockGcScanResult {
-                    index: 2,
+                    index: 1,
                     repair: RepairType::Replace {
                         blocks: smallvec![IndexBlock {
                             buffer: encode_ids!(Dummy, 21, 22),
@@ -1597,12 +1579,6 @@ fn ii_apply_gc() {
     let encoder = Dummy;
     let blocks = vec![
         IndexBlock {
-            buffer: vec![],
-            num_entries: 0,
-            first_doc_id: 5,
-            last_doc_id: 5,
-        },
-        IndexBlock {
             buffer: encode_ids!(encoder, 10, 11),
             num_entries: 2,
             first_doc_id: 10,
@@ -1630,29 +1606,22 @@ fn ii_apply_gc() {
     let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
 
     // Inverted index is 48 bytes base
-    // 1st index block is 40 bytes + 8 bytes for the buffer capacity
-    // 2nd index block is 40 bytes + 16 bytes for the buffer capacity
-    // 3rd index block is 40 bytes + 24 bytes for the buffer capacity
-    // 4th index block is 40 bytes + 16 bytes for the buffer capacity
-    // 5th index block is 40 bytes + 24 bytes for the buffer capacity
-    // So total memory size is 336 bytes
-    assert_eq!(ii.memory_usage(), 336);
+    // 1st index block is 40 bytes + 16 bytes for the buffer capacity
+    // 2nd index block is 40 bytes + 24 bytes for the buffer capacity
+    // 3rd index block is 40 bytes + 16 bytes for the buffer capacity
+    // 4th index block is 40 bytes + 24 bytes for the buffer capacity
+    // So total memory size is 288 bytes
+    assert_eq!(ii.memory_usage(), 288);
 
     let gc_result = vec![
         BlockGcScanResult {
             index: 0,
             repair: RepairType::Delete {
-                n_unique_docs_removed: 0,
-            },
-        },
-        BlockGcScanResult {
-            index: 1,
-            repair: RepairType::Delete {
                 n_unique_docs_removed: 2,
             },
         },
         BlockGcScanResult {
-            index: 2,
+            index: 1,
             repair: RepairType::Replace {
                 blocks: smallvec![IndexBlock {
                     buffer: encode_ids!(Dummy, 21),
@@ -1664,7 +1633,7 @@ fn ii_apply_gc() {
             },
         },
         BlockGcScanResult {
-            index: 4,
+            index: 3,
             repair: RepairType::Replace {
                 blocks: smallvec![
                     IndexBlock {
@@ -1738,8 +1707,8 @@ fn ii_apply_gc() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // The first, second, third and fifth block was removed totaling 232 bytes
-            bytes_freed: 232,
+            // The first, second and fourth block was removed totaling 184 bytes
+            bytes_freed: 184,
             // The third and fifth block was split making 168 new bytes
             bytes_allocated: 168,
             entries_removed: 5,

@@ -1087,9 +1087,8 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     for IndexReaderCore<'index, E, D>
 {
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
-        // Check if the current buffer is empty. The GC might clean out a block so we have to
-        // continue checking until we find a block with data.
-        while self.current_buffer.fill_buf()?.is_empty() {
+        // Check if the current buffer is empty
+        if self.current_buffer.fill_buf()?.is_empty() {
             if self.current_block_idx + 1 >= self.ii.blocks.len() {
                 // No more blocks to read from
                 return Ok(false);
