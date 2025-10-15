@@ -164,7 +164,6 @@ static void testSplit() {
   for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
-  array_free(us.serialized);
   AREQ_Free(r);
 }
 
