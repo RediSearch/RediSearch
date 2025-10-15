@@ -683,6 +683,7 @@ RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
   if (*ptr && strlen(*ptr) > 0) {
     return RedisModule_CreateString(NULL, *ptr, strlen(*ptr));
   }
+  return NULL;
 }
 
 // DEFAULT_SCORER
@@ -696,6 +697,10 @@ CONFIG_SETTER(setDefaultScorer) {
       QueryError_SetError(status, QUERY_EBADVAL, "Invalid default scorer value");
       return REDISMODULE_ERR;
     }
+    // Free the old scorer name before assigning the new one
+    if (config->defaultScorer) {
+      rm_free((void *)config->defaultScorer);
+    }
     config->defaultScorer = rm_strdup(scorerName);
   }
   RETURN_STATUS(acrc);
@@ -705,6 +710,8 @@ CONFIG_GETTER(getDefaultScorer) {
   RS_ASSERT(config->defaultScorer != NULL);
   if (config->defaultScorer && strlen(config->defaultScorer) > 0) {
     return sdsnew(config->defaultScorer);
+  } else {
+    return NULL;
   }
 }
 
