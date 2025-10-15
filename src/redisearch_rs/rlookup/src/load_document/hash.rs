@@ -11,7 +11,9 @@ use std::{borrow::Cow, ffi::CStr, ptr::NonNull};
 
 use enumflags2::make_bitflags;
 use redis_module::{
-    CallOptionResp, CallOptionsBuilder, CallReply, CallResult, Context, RedisString,
+    CallOptionResp, CallOptionsBuilder, CallReply, CallResult, Context, KeyType, RedisString,
+    ScanKeyCursor,
+    key::{KeyFlags, RedisKey},
 };
 use value::RSValueFFI;
 
@@ -139,6 +141,68 @@ pub(super) fn get_all_fallback(
             },
         );
     }
+
+    Ok(())
+}
+
+pub(super) fn get_all_scan(
+    lookup: &mut RLookup<'_>,
+    dst_row: &mut RLookupRow<'_, RSValueFFI>,
+    options: &LoadDocumentOptions<'_>,
+    key_str: RedisString,
+) -> Result<(), LoadDocumentError> {
+    // 1. Open the key
+    let key = RedisKey::open_with_flags(
+        options.context.as_ptr(),
+        &key_str,
+        KeyFlags::NOEFFECTS | KeyFlags::NOEXPIRE | KeyFlags::ACCESS_EXPIRED,
+    );
+
+    // Check if the key is a hash
+    if key.key_type() != KeyType::Hash {
+        return Err(LoadDocumentError::key_is_no_hash(Some(key_str.to_string())));
+    }
+
+    // 2. Create a scan cursor
+    let scan_cursor = ScanKeyCursor::new(key);
+
+    // Iterator over cursor
+    scan_cursor.for_each(|_key, field, value| {
+        let (raw_field_cstr, _field_len) = field.as_cstr_ptr_and_len();
+
+        // Safety: We crate a CStr from the bytes we received from Redis SCAN API:
+        let field_cstr = unsafe { CStr::from_ptr(raw_field_cstr) };
+
+        with_or_create_key(
+            lookup,
+            field_cstr,
+            |key| !key.flags.contains(RLookupKeyFlag::QuerySrc),
+            |key| {
+                // Decide on the coerce type
+                let mut coerce_type = RLookupCoerceType::Str;
+                if !options.force_string && key.flags.contains(RLookupKeyFlag::Numeric) {
+                    coerce_type = RLookupCoerceType::Dbl;
+                }
+
+                // This function will retain the value if it's a string. This is thread-safe because
+                // the value was created just before calling this callback and will be freed right after
+                // the callback returns, so this is a thread-local operation that will take ownership of
+                // the string value.
+                dst_row.write_key(key, {
+                    // Safety: value is a valid RedisModuleString provided by the scan cursor API.
+                    let inner = unsafe {
+                        ffi::hvalToValue(value.inner.cast(), coerce_type as ffi::RLookupCoerceType)
+                    };
+                    // Safety: We assume that `hvalToValue` returns a valid pointer.
+                    unsafe {
+                        RSValueFFI::from_raw(
+                            NonNull::new(inner).expect("hvalToValue returned a null pointer"),
+                        )
+                    }
+                });
+            },
+        );
+    });
 
     Ok(())
 }
