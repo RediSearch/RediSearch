@@ -83,6 +83,18 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, RedisModul
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params);
 
 /**
+ * Open the score key in the tail lookup for writing the final score.
+ * If a score alias is provided, create a new key with that alias.
+ * Otherwise, use the default score key.
+ *
+ * @param tailLookup The tail lookup to open the score key in
+ * @param scoreAlias The alias to use for the score key, or NULL to use the default
+ * @param status Query error status to report any errors
+ * @return Pointer to the opened score key, or NULL on error
+ */
+const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias, QueryError *status);
+
+/**
  * Build the merge pipeline for hybrid search processing.
  * This function constructs the second part of the hybrid search pipeline that:
  * 1. Sets up a hybrid merger to combine and score results from all depleter processors
@@ -95,10 +107,11 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
  * Depleter3 /
  *
  * @param req The HybridRequest containing the tail pipeline for merging
+ * @param scoreKey The score key to use for writing the final score, could be null - won't write score in this case to the rlookup
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params);
 
 /**
  * Build the complete hybrid search pipeline.

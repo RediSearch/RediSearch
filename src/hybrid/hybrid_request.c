@@ -88,7 +88,21 @@ static HybridLookupContext *InitializeHybridLookupContext(arrayof(AREQ*) request
     return lookupCtx;
 }
 
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params) {
+const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias, QueryError *status) {
+    const RLookupKey *scoreKey = NULL;
+    if (scoreAlias) {
+      scoreKey = RLookup_GetKey_Write(tailLookup, scoreAlias, RLOOKUP_F_NOFLAGS);
+      if (!scoreKey) {
+        QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", ", score alias: %s", scoreAlias);
+        return NULL;
+      }
+    } else {
+      scoreKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
+    }
+    return scoreKey;
+}
+
+int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params) {
     // Array to collect depleter processors from each individual request pipeline
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -111,19 +125,6 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     // we open the docKey as hidden in case the user didn't request it, if it already exists it will stay as it was
     // if it didn't then it will be marked as unresolved 
     const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
-
-    const char *scoreAlias = params->aggregationParams.common.scoreAlias;
-    const RLookupKey *scoreKey = NULL;
-    if (scoreAlias) {
-      scoreKey = RLookup_GetKey_Write(tailLookup, scoreAlias, RLOOKUP_F_NOFLAGS);
-      if (!scoreKey) {
-        array_free(depleters);
-        QueryError_SetWithUserDataFmt(&req->tailPipelineError, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", ", score alias: %s", scoreAlias);
-        return REDISMODULE_ERR;
-      }
-    } else {
-      scoreKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
-    }
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
@@ -142,8 +143,14 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     // Init lookup since we dont call buildQueryPart
     RLookup_Init(tailLookup, IndexSpec_GetSpecCache(req->sctx->spec));
+
+    const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, params->aggregationParams.common.scoreAlias, &req->tailPipelineError);
+    if (QueryError_HasError(&req->tailPipelineError)) {
+      return REDISMODULE_ERR;
+    }
+
     // Build the merge pipeline for combining and processing results from the depletion pipeline
-    return HybridRequest_BuildMergePipeline(req, params);
+    return HybridRequest_BuildMergePipeline(req, scoreKey, params);
 }
 
 /**

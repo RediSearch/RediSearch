@@ -83,8 +83,12 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
     if (rc != REDISMODULE_OK) return NULL;
 
+    // Open the key outside the RLOOKUP_OPT_UNRESOLVED_OK scope so it won't be marked as unresolved
+    const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, hybridParams->aggregationParams.common.scoreAlias, status);
+    if (QueryError_HasError(status)) return NULL;
+
     tailLookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
-    rc = HybridRequest_BuildMergePipeline(hreq, hybridParams);
+    rc = HybridRequest_BuildMergePipeline(hreq, scoreKey, hybridParams);
     tailLookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
     if (rc != REDISMODULE_OK) return NULL;
 
