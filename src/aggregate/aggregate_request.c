@@ -783,6 +783,7 @@ PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, bool strict) {
   gstp->base.dtor = groupStepFree;
   gstp->base.getLookup = groupStepGetLookup;
   gstp->base.type = PLN_T_GROUP;
+  gstp->strict = strict;
   return gstp;
 }
 

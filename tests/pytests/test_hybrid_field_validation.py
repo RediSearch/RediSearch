@@ -235,3 +235,101 @@ def test_hybrid_special_fields_work(env):
         'PARAMS', '2', 'query_vec', query_vector,
         'LOAD', '1', '@__score'  # Special field without @ prefix
     ).noError()
+
+# TODO: remove skip once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
+def test_hybrid_groupby_requires_at_prefix(env):
+    """Test that FT.HYBRID GROUPBY requires @ prefix for field names"""
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    # Test GROUPBY with missing @ prefix - should fail
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$query_vec',
+        'PARAMS', '2', 'query_vec', query_vector,
+        'LOAD', '1', '@category',
+        'GROUPBY', '1', 'category', 'REDUCE', 'COUNT', '0', 'AS', 'count'  # Missing @ prefix
+    ).error().contains('Bad arguments for GROUPBY: Unknown property `category`. Did you mean `@category`?')
+
+    # Test GROUPBY with @ prefix - should succeed
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$query_vec',
+        'PARAMS', '2', 'query_vec', query_vector,
+        'LOAD', '1', '@category',
+        'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count'  # With @ prefix
+    ).noError()
+
+    # Test GROUPBY with multiple fields, one missing @ prefix - should fail
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$query_vec',
+        'PARAMS', '2', 'query_vec', query_vector,
+        'LOAD', '2', '@category', '@price',
+        'GROUPBY', '2', '@category', 'price', 'REDUCE', 'COUNT', '0', 'AS', 'count'  # Second field missing @ prefix
+    ).error().contains('Bad arguments for GROUPBY: Unknown property `price`. Did you mean `@price`?')
+
+    # Test GROUPBY with multiple fields, all with @ prefix - should succeed
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$query_vec',
+        'PARAMS', '2', 'query_vec', query_vector,
+        'LOAD', '2', '@category', '@price',
+        'GROUPBY', '2', '@category', '@price', 'REDUCE', 'COUNT', '0', 'AS', 'count'  # Both with @ prefix
+    ).noError()
+
+# TODO: remove skip once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
+def test_hybrid_groupby_reduce_requires_at_prefix(env):
+    """Test that FT.HYBRID GROUPBY REDUCE requires @ prefix for field references"""
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    # Test REDUCE with missing @ prefix in field reference - should fail
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$query_vec',
+        'PARAMS', '2', 'query_vec', query_vector,
+        'LOAD', '1', '@price',
+        'GROUPBY', '1', '@category', 'REDUCE', 'SUM', '1', 'price', 'AS', 'total_price'  # Missing @ prefix in REDUCE
+    ).error().contains('Missing @ prefix for field name in REDUCE: SUM, field: (price)')
+
+    # Test REDUCE with @ prefix in field reference - should succeed
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$query_vec',
+        'PARAMS', '2', 'query_vec', query_vector,
+        'LOAD', '1', '@price',
+        'GROUPBY', '1', '@category', 'REDUCE', 'SUM', '1', '@price', 'AS', 'total_price'  # With @ prefix in REDUCE
+    ).noError()
+
+    # Test REDUCE with multiple operations, one missing @ prefix - should fail
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$query_vec',
+        'PARAMS', '2', 'query_vec', query_vector,
+        'LOAD', '1', '@price',
+        'GROUPBY', '1', '@category',
+        'REDUCE', 'COUNT', '0', 'AS', 'count',
+        'REDUCE', 'AVG', '1', 'price', 'AS', 'avg_price'  # Missing @ prefix in second REDUCE
+    ).error().contains('Missing @ prefix for field name in REDUCE: AVG, field: (price)')
+
+    # Test REDUCE with multiple operations, all with @ prefix - should succeed
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$query_vec',
+        'PARAMS', '2', 'query_vec', query_vector,
+        'LOAD', '1', '@price',
+        'GROUPBY', '1', '@category',
+        'REDUCE', 'COUNT', '0', 'AS', 'count',
+        'REDUCE', 'AVG', '1', '@price', 'AS', 'avg_price'  # With @ prefix in both REDUCE operations
+    ).noError()
