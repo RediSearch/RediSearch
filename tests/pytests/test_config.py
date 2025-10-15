@@ -1880,17 +1880,14 @@ def testDefaultScorerConfig(env):
     env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
     env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
 
-    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'TFIDF').equal('OK')
-    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
-    env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'TFIDF'])
-
-    env.expect('CONFIG', 'SET', 'search-default-scorer', 'BM25').equal('OK')
-    env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25'])
-    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25']])
-
-    valid_scorers = ['TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
     for scorer in valid_scorers:
         env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', scorer).equal('OK')
+        env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+        env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', scorer])
+
+    for scorer in valid_scorers:
+        env.expect('CONFIG', 'set', 'search-default-scorer', scorer).equal('OK')
         env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
         env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', scorer])
 
@@ -1902,6 +1899,3 @@ def testDefaultScorerConfig(env):
     env.expect('CONFIG', 'SET', 'search-default-scorer', 'NOTHING2').error().contains('Invalid default scorer value')
 
     env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
-
-    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'BM25STD').equal('OK')
-    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
