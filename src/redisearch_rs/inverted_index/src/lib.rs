@@ -363,7 +363,7 @@ impl IndexBlock {
         encoder: E,
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
-        let mut last_doc_id = None;
+        let mut last_read_doc_id = None;
         let decoder = E::decoder();
         let mut result = D::base_result();
         let mut unique_read = 0;
@@ -372,7 +372,7 @@ impl IndexBlock {
         let mut tmp_inverted_index = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, encoder);
 
         while !cursor.fill_buf()?.is_empty() {
-            let base = D::base_id(self, last_doc_id.unwrap_or(self.first_doc_id));
+            let base = D::base_id(self, last_read_doc_id.unwrap_or(self.first_doc_id));
             decoder.decode(&mut cursor, base, &mut result)?;
 
             if doc_exist(result.doc_id) {
@@ -380,16 +380,16 @@ impl IndexBlock {
 
                 tmp_inverted_index.add_record(&result)?;
 
-                if last_doc_id.is_none_or(|id| id != result.doc_id) {
+                if last_read_doc_id.is_none_or(|id| id != result.doc_id) {
                     unique_write += 1;
                 }
             }
 
-            if last_doc_id.is_none_or(|id| id != result.doc_id) {
+            if last_read_doc_id.is_none_or(|id| id != result.doc_id) {
                 unique_read += 1;
             }
 
-            last_doc_id = Some(result.doc_id);
+            last_read_doc_id = Some(result.doc_id);
         }
 
         if tmp_inverted_index.blocks.is_empty() {
