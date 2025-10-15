@@ -254,7 +254,7 @@ protected:
 
   void SetUp() override {
     RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec = 3000000;
-    index = createSpec(ctx, nullptr, 0);
+    index = createSpec(ctx);
   }
 
   void TearDown() override {

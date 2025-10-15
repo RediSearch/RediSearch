@@ -90,7 +90,7 @@ class FGCTest : public ::testing::Test {
 
   void SetUp() override {
     Initialize_KeyspaceNotifications();
-    ism = createSpec(ctx, nullptr, 0);
+    ism = createSpec(ctx);
     RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
     RSGlobalStats.totalStats.logically_deleted = 0;
     runGcThread();

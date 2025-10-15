@@ -93,8 +93,7 @@ protected:
 
       // Create ArgvList from input
       RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
-      const char *prefixes[] = {"prefix1", "prefix2"};
-      RefManager *ism = createSpec(ctx, prefixes, 2);
+      RefManager *ism = createSpec(ctx, {"prefix1", "prefix2"});
 
       // Get the IndexSpec from the RefManager
       IndexSpec *sp = get_spec(ism);

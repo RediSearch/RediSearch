@@ -1,3 +1,4 @@
+
 /*
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
@@ -58,7 +59,7 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
     return idx;
 }
 
-RefManager *createSpec(RedisModuleCtx *ctx, const char **prefixes, int nprefixes) {
+RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& prefixes) {
     RSIndexOptions opts = {0};
     opts.gcPolicy = GC_POLICY_FORK;
     auto ism = RediSearch_CreateIndex("idx", &opts);
@@ -67,11 +68,11 @@ RefManager *createSpec(RedisModuleCtx *ctx, const char **prefixes, int nprefixes
     SchemaRuleArgs args = {0};
     args.type = "HASH";
     const char *empty_prefix = "";
-    if (prefixes != nullptr && nprefixes > 0) {
-        args.prefixes = prefixes;
-        args.nprefixes = nprefixes;
+
+    if (!prefixes.empty()) {
+        args.prefixes = const_cast<const char**>(prefixes.data());
+        args.nprefixes = static_cast<int>(prefixes.size());
     } else {
-        // Default to empty prefix if none provided
         args.prefixes = &empty_prefix;
         args.nprefixes = 1;
     }
