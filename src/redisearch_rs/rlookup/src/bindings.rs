@@ -65,6 +65,17 @@ pub enum DocumentType {
     Unsupported = 2,
 }
 
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
+pub enum RLookupCoerceType {
+    Str = 0,
+    #[allow(dead_code)]
+    Int = 1,
+    Dbl = 2,
+    #[allow(dead_code)]
+    Bool = 3,
+}
+
 // TODO [MOD-10333] remove once FieldSpec is ported to Rust
 #[bitflags]
 #[repr(u32)] // should be c_unit
