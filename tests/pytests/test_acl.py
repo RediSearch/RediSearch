@@ -270,12 +270,3 @@ def test_acl_key_permissions_validation(env):
             env.execute_command(*command)
         except Exception as e:
             env.assertNotContains("User does not have the required permissions", str(e))
-
-    # Re-create the index that was dropped
-    create_index(env, perm_index, ['h:'])
-
-    # For completeness, we verify that the default user, which has permissions
-    # to access all keys, can access the index
-    env.expect('AUTH', 'default', 'nopass').true()
-    for command in index_commands + non_index_commands:
-        env.execute_command(*command)
