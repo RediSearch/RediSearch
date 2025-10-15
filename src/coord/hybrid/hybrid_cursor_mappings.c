@@ -90,10 +90,7 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     // TODO: add response validation (see netCursorCallback)
     // TODO implement error handling
     processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
-    if (!cb_ctx) {
-        RedisModule_Log(NULL, "error", "processCursorMappingCallback: cb_ctx is NULL");
-        return;
-    }
+    RS_ASSERT(cb_ctx);
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
     const int replyType = MRReply_Type(rep);

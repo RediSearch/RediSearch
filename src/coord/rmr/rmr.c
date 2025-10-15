@@ -666,6 +666,7 @@ void iterStartCb(void *p) {
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[i].cmd.targetShard = i;
+    it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   }
 
   // This implies that every connection to each shard will work inside a single IO thread
