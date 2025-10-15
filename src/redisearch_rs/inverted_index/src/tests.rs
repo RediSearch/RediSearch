@@ -1317,12 +1317,12 @@ fn index_block_repair_delta_too_big() {
     #[derive(Clone)]
     struct SmallDeltaDummy;
 
-    struct U5Delta(u32);
+    struct U5Delta(u8);
 
     impl IdDelta for U5Delta {
         fn from_u64(delta: u64) -> Option<Self> {
             if delta < 32 {
-                Some(Self(delta as u32))
+                Some(Self(delta as u8))
             } else {
                 None
             }
@@ -1344,7 +1344,7 @@ fn index_block_repair_delta_too_big() {
         ) -> std::io::Result<usize> {
             writer.write_all(&delta.0.to_be_bytes())?;
 
-            Ok(8)
+            Ok(1)
         }
     }
 
@@ -1363,10 +1363,10 @@ fn index_block_repair_delta_too_big() {
             base: t_docId,
             result: &mut RSIndexResult<'index>,
         ) -> std::io::Result<()> {
-            let mut buffer = [0; 4];
+            let mut buffer = [0; 1];
             cursor.read_exact(&mut buffer)?;
 
-            let delta = u32::from_be_bytes(buffer);
+            let delta = u8::from_be_bytes(buffer);
             result.doc_id = base + (delta as u64);
 
             Ok(())
