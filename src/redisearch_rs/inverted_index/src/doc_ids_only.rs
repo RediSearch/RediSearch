@@ -43,6 +43,7 @@ impl DecodedBy for DocIdsOnly {
 }
 
 impl Decoder for DocIdsOnly {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,

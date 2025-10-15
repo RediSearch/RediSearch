@@ -57,6 +57,7 @@ impl DecodedBy for OffsetsOnly {
 }
 
 impl Decoder for OffsetsOnly {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
