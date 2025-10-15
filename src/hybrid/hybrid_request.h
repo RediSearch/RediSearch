@@ -107,11 +107,12 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
  * Depleter3 /
  *
  * @param req The HybridRequest containing the tail pipeline for merging
+ * @param lookupCtx The lookup context for field merging
  * @param scoreKey The score key to use for writing the final score, could be null - won't write score in this case to the rlookup
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridLookupContext *lookupCtx, const RLookupKey *scoreKey, HybridPipelineParams *params);
 
 /**
  * Build the complete hybrid search pipeline.

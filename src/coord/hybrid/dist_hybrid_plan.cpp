@@ -9,6 +9,8 @@
 
 #include "dist_hybrid_plan.h"
 #include "hybrid/hybrid_request.h"
+#include "hybrid/hybrid_lookup_context.h"
+
 
 // should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
 int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
@@ -83,12 +85,13 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
     if (rc != REDISMODULE_OK) return NULL;
 
+    HybridLookupContext *lookupCtx = InitializeHybridLookupContext(hreq->requests, tailLookup);
     // Open the key outside the RLOOKUP_OPT_UNRESOLVED_OK scope so it won't be marked as unresolved
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, hybridParams->aggregationParams.common.scoreAlias, status);
     if (QueryError_HasError(status)) return NULL;
 
     tailLookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
-    rc = HybridRequest_BuildMergePipeline(hreq, scoreKey, hybridParams);
+    rc = HybridRequest_BuildMergePipeline(hreq, lookupCtx, scoreKey, hybridParams);
     tailLookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
     if (rc != REDISMODULE_OK) return NULL;
 

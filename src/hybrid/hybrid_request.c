@@ -61,33 +61,6 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
     return REDISMODULE_OK;
 }
 
-/**
- * Initialize unified lookup schema and hybrid lookup context for field merging.
- *
- * @param requests Array of AREQ pointers containing source lookups (non-null)
- * @param tailLookup The destination lookup to populate with unified schema (non-null)
- * @return HybridLookupContext* to an initialized HybridLookupContext
- */
-static HybridLookupContext *InitializeHybridLookupContext(arrayof(AREQ*) requests, RLookup *tailLookup) {
-    RS_ASSERT(requests && tailLookup);
-    size_t nrequests = array_len(requests);
-
-    // Build lookup context for field merging
-    HybridLookupContext *lookupCtx = rm_calloc(1, sizeof(HybridLookupContext));
-    lookupCtx->tailLookup = tailLookup;
-    lookupCtx->sourceLookups = array_newlen(const RLookup*, nrequests);
-
-    // Add keys from all source lookups to create unified schema
-    for (size_t i = 0; i < nrequests; i++) {
-        RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
-        RS_ASSERT(srcLookup);
-        RLookup_AddKeysFrom(srcLookup, tailLookup, RLOOKUP_F_NOFLAGS);
-        lookupCtx->sourceLookups[i] = srcLookup;
-    }
-
-    return lookupCtx;
-}
-
 const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias, QueryError *status) {
     const RLookupKey *scoreKey = NULL;
     if (scoreAlias) {
@@ -102,7 +75,7 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
     return scoreKey;
 }
 
-int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params) {
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridLookupContext *lookupCtx, const RLookupKey *scoreKey, HybridPipelineParams *params) {
     // Array to collect depleter processors from each individual request pipeline
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -115,10 +88,6 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     }
 
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-
-    // a lookup construct to help us translate an upstream rlookup to the tail lookup
-    // Assumes all upstreams have non-null lookups
-    HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, tailLookup);
 
     // the doc key is only relevant in coordinator mode, in standalone we can simply use the dmd
     // InitializeHybridLookupContext copied all the rlookup keys from the upstreams to the tail lookup
@@ -144,13 +113,17 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     // Init lookup since we dont call buildQueryPart
     RLookup_Init(tailLookup, IndexSpec_GetSpecCache(req->sctx->spec));
 
+    // a lookup construct to help us translate an upstream rlookup to the tail lookup
+    // Assumes all upstreams have non-null lookups
+    HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, tailLookup);
+
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, params->aggregationParams.common.scoreAlias, &req->tailPipelineError);
     if (QueryError_HasError(&req->tailPipelineError)) {
       return REDISMODULE_ERR;
     }
 
     // Build the merge pipeline for combining and processing results from the depletion pipeline
-    return HybridRequest_BuildMergePipeline(req, scoreKey, params);
+    return HybridRequest_BuildMergePipeline(req, lookupCtx, scoreKey, params);
 }
 
 /**
