@@ -66,6 +66,7 @@ impl DecodedBy for FieldsOffsets {
 }
 
 impl Decoder for FieldsOffsets {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -173,6 +174,7 @@ impl DecodedBy for FieldsOffsetsWide {
 }
 
 impl Decoder for FieldsOffsetsWide {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
