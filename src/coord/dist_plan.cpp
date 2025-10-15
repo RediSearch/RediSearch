@@ -58,7 +58,7 @@ struct ReducerDistCtx {
   }
 
   bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status, ArgsCursor *cargs) {
-    if (PLNGroupStep_AddReducer(gstp, name, cargs, status, false) != REDISMODULE_OK) {
+    if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
     if (alias) {
@@ -108,8 +108,8 @@ reducerDistributionFunc getDistributionFunc(const char *key);
 static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
                                 PLN_DistributeStep *dstp, QueryError *status) {
   PLN_GroupStep *gr = (PLN_GroupStep *)step;
-  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
-  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
+  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->strict);
+  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->strict);
 
   size_t nreducers = array_len(gr->reducers);
   grLocal->reducers = array_new(PLN_Reducer, nreducers);

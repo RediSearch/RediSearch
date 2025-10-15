@@ -271,7 +271,7 @@ void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
 
     // Number of fields.. now let's see the reducers
     StrongRef properties_ref = StrongRef_New((void *)properties, (RefManager_Free)array_free);
-    PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref);
+    PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref, true);
     AGPLN_AddStep(ctx->plan, &gstp->base);
 
     ArgsCursor *reduce = parser->cursor;
@@ -282,7 +282,7 @@ void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
             QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for REDUCE", ": %s", AC_Strerror(rv));
             return;
         }
-        if (PLNGroupStep_AddReducer(gstp, name, reduce, status, true) != REDISMODULE_OK) {
+        if (PLNGroupStep_AddReducer(gstp, name, reduce, status) != REDISMODULE_OK) {
             return;
         }
     }
