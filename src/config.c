@@ -197,6 +197,9 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
 
 int set_default_scorer_config(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err) {
     REDISMODULE_NOT_USED(name);
+    if (RSGlobalConfig.defaultScorer == NULL) {
+      RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
+    }
 
     // Get the scorer name from the Redis module string
     size_t len;
@@ -686,6 +689,7 @@ RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
 
 // DEFAULT_SCORER
 CONFIG_SETTER(setDefaultScorer) {
+  RS_ASSERT(Extensions_InitDone());
   const char *scorerName;
   int acrc = AC_GetString(ac, &scorerName, NULL, 0);
   if (acrc == AC_OK) {
@@ -1672,7 +1676,6 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 
 
 int RegisterModuleConfig(RedisModuleCtx *ctx) {
-  RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
   // Numeric parameters
   RM_TRY(
     RedisModule_RegisterNumericConfig(
