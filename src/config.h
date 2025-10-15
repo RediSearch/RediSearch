@@ -223,6 +223,7 @@ extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
 extern RedisModuleString *config_ext_load;
 extern RedisModuleString *config_friso_ini;
+extern RedisModuleString *config_default_scorer;
 
 /**
  * Add new configuration options to the chain of already recognized options

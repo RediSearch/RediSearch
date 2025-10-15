@@ -678,13 +678,15 @@ RedisModuleString * get_friso_ini(const char *name, void *privdata) {
 }
 
 RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
-  REDISMODULE_NOT_USED(name);
-  char **ptr = (char **)privdata;
-  RS_ASSERT(ptr != NULL);
-  if (*ptr && strlen(*ptr) > 0) {
-    return RedisModule_CreateString(NULL, *ptr, strlen(*ptr));
+  char *str = *(char **)privdata;
+  if (str == NULL) {
+    return NULL;
   }
-  return NULL;
+  if (config_default_scorer) {
+    RedisModule_FreeString(NULL, config_default_scorer);
+  }
+  config_default_scorer = RedisModule_CreateString(NULL, str, strlen(str));
+  return config_default_scorer;
 }
 
 // DEFAULT_SCORER
