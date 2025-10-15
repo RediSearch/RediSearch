@@ -505,7 +505,8 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     return implicitLoadStep;
 }
 
-// This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate does not use ArgsCursor
+// This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate request parses prefixes differently.
+// Unifying would require some refactor on the aggregate flow.
 static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *spec)  {
 
   size_t n_prefixes = array_len(prefixes);
@@ -610,14 +611,12 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
-      .prefixes = prefixes,
+      .prefixes = &prefixes,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
-    prefixes = hybridParseCtx.prefixes;
     goto error;
   }
-  prefixes = hybridParseCtx.prefixes;
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
   // otherwise, store the vector score in a default key.
@@ -713,13 +712,12 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  if (!IsIndexCoherentWithQuery(hybridParseCtx.prefixes, parsedCmdCtx->search->sctx->spec)) {
+  if (!IsIndexCoherentWithQuery(*hybridParseCtx.prefixes, parsedCmdCtx->search->sctx->spec)) {
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
     goto error;
   }
   array_free(prefixes);
   prefixes = NULL;
-
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
