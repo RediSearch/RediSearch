@@ -13,6 +13,8 @@
 #include "rdb.h"
 #include "resp3.h"
 #include "rmutil/rm_assert.h"
+#include "commands.h"
+#include "config.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -25,14 +27,10 @@ Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode) {
   return t;
 }
 
-int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len,
-                   char **err) {
+int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len) {
   int valuesAdded = 0;
   Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE);
-  if (t == NULL) {
-    *err = "could not open dict key";
-    return -1;
-  }
+  RS_LOG_ASSERT_ALWAYS(t != NULL, "Failed to open dictionary in write mode");
 
   for (int i = 0; i < len; ++i) {
     valuesAdded += Trie_Insert(t, values[i], 1, 1, NULL);
@@ -51,7 +49,7 @@ int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   for (int i = 0; i < len; ++i) {
     size_t valLen;
     const char *val = RedisModule_StringPtrLen(values[i], &valLen);
-    valuesDeleted += Trie_Delete(t, (char *)val, valLen);
+    valuesDeleted += Trie_Delete(t, val, valLen);
   }
 
   // Delete the dictionary if it's empty
@@ -88,7 +86,6 @@ void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
 }
 
 int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  char *err = NULL;
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
@@ -100,7 +97,6 @@ int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  char *err = NULL;
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -115,20 +111,15 @@ int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  char *err = NULL;
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
 
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
-  char *error;
-  int retVal = Dictionary_Add(ctx, dictName, argv + 2, argc - 2, &error);
-  if (retVal < 0) {
-    RedisModule_ReplyWithError(ctx, error);
-  } else {
-    RedisModule_ReplyWithLongLong(ctx, retVal);
-  }
+  int retVal = Dictionary_Add(ctx, dictName, argv + 2, argc - 2);
+
+  RedisModule_ReplyWithLongLong(ctx, retVal);
 
   RedisModule_ReplicateVerbatim(ctx);
 
@@ -153,6 +144,52 @@ void Dictionary_Free() {
     Dictionary_Clear();
     dictRelease(spellCheckDicts);
   }
+}
+
+size_t Dictionary_Size() {
+  return dictSize(spellCheckDicts);
+}
+
+static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie) {
+  size_t termLen;
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+
+  RedisModuleString **terms = rm_malloc(trie->size * sizeof(RedisModuleString*));
+  size_t termsCount = 0;
+
+  TrieIterator *it = Trie_Iterate(trie, "", 0, 0, 1);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+    char *res = runesToStr(rstr, slen, &termLen);
+    terms[termsCount++] = RedisModule_CreateString(NULL, res, termLen);
+    rm_free(res);
+  }
+  TrieIterator_Free(it);
+
+  RS_ASSERT(termsCount == trie->size);
+  RS_LOG_ASSERT(trie->size != 0, "Empty dictionary should not exist in the dictionary list");
+  int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_DICT_ADD, "cv", dictName, terms, termsCount);
+  if (rc != REDISMODULE_OK) {
+    RedisModule_Log(ctx, "warning", "Failed to propagate dictionary '%s' during slot migration. errno: %d", RSGlobalConfig.hideUserDataFromLog ? "****" : dictName, errno);
+  }
+
+  for (size_t i = 0; i < termsCount; ++i) {
+    RedisModule_FreeString(NULL, terms[i]);
+  }
+  rm_free(terms);
+}
+
+void Dictionary_Propagate(RedisModuleCtx* ctx) {
+  dictIterator *iter = dictGetIterator(spellCheckDicts);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    const char *dictName = dictGetKey(entry);
+    Trie *trie = dictGetVal(entry);
+    Propagate_Dict(ctx, dictName, trie);
+  }
+  dictReleaseIterator(iter);
 }
 
 static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {

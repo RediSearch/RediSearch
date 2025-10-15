@@ -14,6 +14,7 @@
 #include "rdb.h"
 #include "module.h"
 #include "util/workers.h"
+#include "dictionary.h"
 
 #define JSON_LEN 5 // length of string "json."
 
@@ -34,6 +35,7 @@ typedef enum {
   rename_from_cmd,
   rename_to_cmd,
   trimmed_cmd,
+  key_trimmed_cmd,
   restore_cmd,
   expire_cmd,
   persist_cmd,
@@ -77,7 +79,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
   static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0, *hincrby_event = 0,
                     *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
-                    *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
+                    *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0, *key_trimmed_event = 0,
                     *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
                     *loaded_event = 0, *copy_to_event = 0, *hexpire_event = 0, *hexpired_event = 0,
                     *expire_event = 0, *hpersist_event = 0, *persist_event = 0;
@@ -95,6 +97,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(rename_from)
   else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(trimmed)
+  else CHECK_CACHED_EVENT(key_trimmed)
   else CHECK_CACHED_EVENT(restore)
   else CHECK_CACHED_EVENT(hexpired)
   else CHECK_CACHED_EVENT(expire)
@@ -122,6 +125,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_from)
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(trimmed)
+    else CHECK_AND_CACHE_EVENT(key_trimmed)
     else CHECK_AND_CACHE_EVENT(restore)
     else CHECK_AND_CACHE_EVENT(hexpire)
     else CHECK_AND_CACHE_EVENT(hexpired)
@@ -172,6 +176,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case del_cmd:
     case set_cmd:
     case trimmed_cmd:
+    case key_trimmed_cmd:
     case expired_cmd:
     case evicted_cmd:
       Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
@@ -330,6 +335,99 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   }
 }
 
+static bool in_asm_trim = false;
+static bool in_asm_import = false;
+
+void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(data);
+
+  switch (subevent) {
+
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED:
+      in_asm_import = true;
+      should_filter_slots = true;
+      // if we are not already in asm trim, we need to notify the thread pool
+      if (!in_asm_trim) {
+        workersThreadPool_OnEventStart();
+      }
+      const char *workers_state = in_asm_trim ? "Workers already in event mode due to ASM trim" : "Workers set to event mode";
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM import started event. %s.", workers_state);
+      break;
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED:
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED:
+      in_asm_import = false;
+      should_filter_slots = in_asm_trim;
+      // Since importing is done in a part-time job while redis is running other commands, we notify
+      // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
+      if (!in_asm_trim) {
+        workersThreadPool_OnEventEnd(false);
+      }
+      const char *subevent_str = subevent == REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED ? "failed" : "completed";
+      const char *workers_state_end = in_asm_trim ? "Workers still in event mode due to ASM trim" : "Workers exited event mode";
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event. %s.", subevent_str, workers_state_end);
+      break;
+
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED:
+      // We can do something here in the future
+      break;
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED:
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED:
+      // We can do something here in the future
+      break;
+
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE:
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM migrate module propagate event.");
+      // We need to propagate all auxiliary data (schemas and dictionaries)
+      // If a new type implement `aux_save` and `aux_load` (of any version) we MUST propagate it here too.
+
+      RedisModule_Log(RSDummyContext, "notice", "Propagating %zu schemas.", Indexes_Count());
+      Indexes_Propagate(ctx);
+      RedisModule_Log(RSDummyContext, "notice", "Finished propagating schemas.");
+
+      RedisModule_Log(RSDummyContext, "notice", "Propagating %zu dictionaries.", Dictionary_Size());
+      Dictionary_Propagate(ctx);
+      RedisModule_Log(RSDummyContext, "notice", "Finished propagating dictionaries.");
+      break;
+  }
+}
+
+void ClusterASMTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(ctx);
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(data);
+
+  switch (subevent) {
+
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_STARTED:
+      in_asm_trim = true;
+      should_filter_slots = true;
+      // if we are not already in asm import, we need to notify the thread pool
+      if (!in_asm_import) {
+        workersThreadPool_OnEventStart();
+      }
+      const char *workers_state = in_asm_import ? "Workers already in event mode due to ASM import" : "Workers set to event mode";
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM trim started event. %s.", workers_state);
+      break;
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_COMPLETED:
+      in_asm_trim = false;
+      should_filter_slots = in_asm_import;
+      // Since trimming is done in a part-time job while redis is running other commands, we notify
+      // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
+      if (!in_asm_import) {
+        workersThreadPool_OnEventEnd(false);
+      }
+      const char *workers_state_end = in_asm_import ? "Workers still in event mode due to ASM import" : "Workers exited event mode";
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM trim completed event. %s.", workers_state_end);
+      break;
+
+    case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND:
+      // We can do something here in the future
+      break;
+  }
+}
+
+
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
   RediSearch_CleanupModule();
@@ -376,7 +474,7 @@ void Initialize_KeyspaceNotifications() {
   if (!RS_KeyspaceEvents_Initialized) {
     RedisModule_SubscribeToKeyspaceEvents(RSDummyContext,
       REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
-      REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_STRING |
+      REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_KEY_TRIMMED | REDISMODULE_NOTIFY_STRING |
       REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
       REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
       HashNotificationCallback);
@@ -405,6 +503,10 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
 
   RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
+
+  RedisModule_Log(ctx, "notice", "%s", "Subscribe to cluster ASM events");
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterAsm, ClusterASMEvent);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterAsmTrim, ClusterASMTrimEvent);
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {

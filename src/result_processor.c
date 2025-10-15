@@ -143,6 +143,15 @@ validate_current:
         continue;
       }
     }
+    if (should_filter_slots) {
+      RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
+      int slot = RedisModule_ClusterKeySlot(key);
+      RedisModule_FreeString(NULL, key);
+      if (!RedisModule_ClusterCanAccessKeysInSlot(slot)) {
+        DMD_Return(dmd);
+        continue;
+      }
+    }
 
     // Increment the total results barring deleted results
     base->parent->totalResults++;
