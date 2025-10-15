@@ -722,7 +722,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         let last_block_changed = self
             .blocks
             .get(last_block_idx)
-            .map_or(false, |b| b.num_entries != last_block_num_entries);
+            .is_some_and(|b| b.num_entries != last_block_num_entries);
 
         // If the last block has changed, then we need to ignore any deltas that refer to it
         let deltas = if last_block_changed {
