@@ -50,8 +50,6 @@ def test_debug_timeout_fail_search():
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout limit was reached')
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_debug_timeout_fail_vsim():
     """Test FAIL policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
@@ -83,8 +81,6 @@ def test_debug_timeout_return_search():
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2')
     env.assertTrue(['Timeout limit was reached (SEARCH)'] == get_warnings(response))
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_debug_timeout_return_vsim():
     """Test RETURN policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
