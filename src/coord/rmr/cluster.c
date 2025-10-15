@@ -33,8 +33,10 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
 MRClusterShard *_MRCluster_FindShard(MRClusterTopology *topo, unsigned slot) {
   // TODO: Switch to binary search
   for (int i = 0; i < topo->numShards; i++) {
-    if (topo->shards[i].startSlot <= slot && topo->shards[i].endSlot >= slot) {
-      return &topo->shards[i];
+    for (int r = 0; r < topo->shards[i].numRanges; r++) {
+      if (topo->shards[i].ranges[r].start <= slot && topo->shards[i].ranges[r].end >= slot) {
+        return &topo->shards[i];
+      }
     }
   }
   return NULL;
@@ -44,12 +46,8 @@ MRClusterShard *_MRCluster_FindShard(MRClusterTopology *topo, unsigned slot) {
 MRClusterNode *_MRClusterShard_SelectNode(MRClusterShard *sh, bool mastersOnly) {
   // if we only want masters - find the master of this shard
   if (mastersOnly) {
-    for (int i = 0; i < sh->numNodes; i++) {
-      if (sh->nodes[i].flags & MRNode_Master) {
-        return &sh->nodes[i];
-      }
-    }
-    return NULL;
+    RS_ASSERT(sh->nodes[0].flags & MRNode_Master); // Master should always be first
+    return &sh->nodes[0];
   }
   // if we don't care - select a random node
   return &sh->nodes[rand() % sh->numNodes];
@@ -101,11 +99,6 @@ static const char *MRGetShardKey(const MRCommand *cmd, size_t *len) {
 
 
 static mr_slot_t getSlotByCmd(const MRCommand *cmd, const MRClusterTopology *topo) {
-
-  if(cmd->targetSlot >= 0){
-    return cmd->targetSlot;
-  }
-
   size_t len;
   const char *k = MRGetShardKey(cmd, &len);
   if (!k) return 0;
@@ -118,12 +111,22 @@ MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *
 
   if (!ioRuntime->topo) return NULL;
 
-  /* Get the cluster slot from the sharder */
-  unsigned slot = getSlotByCmd(cmd, ioRuntime->topo);
+  MRClusterShard *sh;
+  if (cmd->targetShard != INVALID_SHARD && cmd->targetShard < ioRuntime->topo->numShards) {
+    /* Get the shard directly by the targetShard field */
+    sh = &ioRuntime->topo->shards[cmd->targetShard];
 
-  /* Get the shard from the slot map */
-  MRClusterShard *sh = _MRCluster_FindShard(ioRuntime->topo, slot);
-  if (!sh) return NULL;
+  } else {
+    if (ioRuntime->topo->numShards <= cmd->targetShard) {
+      RedisModule_Log(RSDummyContext, "warning", "Command targetShard %d is out of bounds (numShards=%zu)", cmd->targetShard, ioRuntime->topo->numShards);
+    }
+    /* Get the cluster slot from the sharder */
+    unsigned slot = getSlotByCmd(cmd, ioRuntime->topo);
+
+    /* Get the shard from the slot map */
+    sh = _MRCluster_FindShard(ioRuntime->topo, slot);
+    if (!sh) return NULL;
+  }
 
   MRClusterNode *node = _MRClusterShard_SelectNode(sh, mastersOnly);
   if (!node) return NULL;

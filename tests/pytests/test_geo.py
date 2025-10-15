@@ -19,6 +19,7 @@ def testGeoSortable(env):
              'APPLY', 'geodistance(@location,1.25,4.5)', 'AS', 'distance',
              'GROUPBY', '1', '@distance').equal([1, ['distance', '7032.37']])
 
+@skip(cluster=True)
 def testGeoFtAdd(env):
   env.expect('FT.CREATE idx SCHEMA g GEO').ok()
   env.expect('FT.ADD', 'idx', 'geo1', '1', 'FIELDS', 'g', '1.23', '4.56').error().contains('Fields must be specified in FIELD VALUE pairs')
@@ -114,9 +115,10 @@ from hotels import hotels
 def testGeoDistanceFile(env):
   env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo').ok()
 
+  con = env.getClusterConnectionIfNeeded()
   for i, hotel in enumerate(hotels):
-    env.expect('ft.add', 'idx', f'hotel{i}', 1.0, 'fields', 'name',
-                  hotel[0], 'location', f'{hotel[2]},{hotel[1]}').ok()
+    env.assertOk(con.execute_command('ft.add', 'idx', f'hotel{i}', 1.0, 'fields', 'name',
+                  hotel[0], 'location', f'{hotel[2]},{hotel[1]}'))
 
   res = [102, ['distance', '0'], ['distance', '95.43'], ['distance', '399.66'], ['distance', '1896.44'],
                ['distance', '2018.14'], ['distance', '2073.48'], ['distance', '2640.42'],

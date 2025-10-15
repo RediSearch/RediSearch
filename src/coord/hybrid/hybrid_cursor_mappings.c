@@ -28,15 +28,13 @@ typedef struct {
 } processCursorMappingCallbackContext;
 
 static void processHybridError(processCursorMappingCallbackContext *ctx, const char *errorMessage) {
-    QueryError error = {0};
-    QueryError_Init(&error);
+    QueryError error = QueryError_Default();
     QueryError_SetError(&error, QUERY_EGENERIC, errorMessage);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
 
 static void processHybridUnknownReplyType(processCursorMappingCallbackContext *ctx, int replyType) {
-    QueryError error = {0};
-    QueryError_Init(&error);
+    QueryError error = QueryError_Default();
     QueryError_SetWithoutUserDataFmt(&error, QUERY_EUNSUPPTYPE, "Unsupported reply type: %d", replyType);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
@@ -45,7 +43,7 @@ static void processHybridUnknownReplyType(processCursorMappingCallbackContext *c
 static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply *rep, MRCommand *cmd) {
     for (size_t i = 0; i < INTERNAL_HYBRID_RESP2_LENGTH; i += 2) {
         CursorMapping mapping = {0};
-        mapping.targetSlot = cmd->targetSlot;
+        mapping.targetShard = cmd->targetShard;
 
         MRReply *key_reply = MRReply_ArrayElement(rep, i);
         MRReply *value_reply = MRReply_ArrayElement(rep, i + 1);
@@ -77,7 +75,7 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
         RS_ASSERT(cursorId);
 
         CursorMapping mapping = {0};
-        mapping.targetSlot = cmd->targetSlot;
+        mapping.targetShard = cmd->targetShard;
         long long cid;
         MRReply_ToInteger(cursorId, &cid);
         mapping.cursorId = cid;

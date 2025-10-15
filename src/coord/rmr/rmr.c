@@ -443,15 +443,21 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
     RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
 
     if (!topo) {
-      RedisModule_ReplyKV_Null(reply, "slots");
+      RedisModule_ReplyKV_Null(reply, "shards");
     } else {
-      RedisModule_ReplyKV_Array(reply, "slots"); // >slots
+      RedisModule_ReplyKV_Array(reply, "shards"); // >shards
       for (int i = 0; i < topo->numShards; i++) {
         MRClusterShard *sh = &topo->shards[i];
+        RedisModule_Reply_Map(reply); // >>(shard)
 
-        RedisModule_Reply_Map(reply); // >>(shards)
-        RedisModule_ReplyKV_LongLong(reply, "start", sh->startSlot);
-        RedisModule_ReplyKV_LongLong(reply, "end", sh->endSlot);
+        RedisModule_ReplyKV_Array(reply, "slots"); // >>>slots
+        for (uint32_t r = 0; r < sh->numRanges; r++) {
+          RedisModule_Reply_Map(reply); // >>>>(slot range)
+          RedisModule_ReplyKV_LongLong(reply, "start", sh->ranges[r].start);
+          RedisModule_ReplyKV_LongLong(reply, "end", sh->ranges[r].end);
+          RedisModule_Reply_MapEnd(reply); // >>>>(slot range)
+        }
+        RedisModule_Reply_ArrayEnd(reply); // >>>slots
 
         RedisModule_ReplyKV_Array(reply, "nodes"); // >>>nodes
         for (int j = 0; j < sh->numNodes; j++) {
@@ -461,17 +467,17 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
           REPLY_KVSTR_SAFE("id", node->id);
           REPLY_KVSTR_SAFE("host", node->endpoint.host);
           RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
-          RedisModule_ReplyKV_SimpleStringf(reply, "role", "%s%s",                        // TODO: move the space to "self"
-                                      node->flags & MRNode_Master ? "master " : "slave ", // "master" : "slave",
-                                      node->flags & MRNode_Self ? "self" : "");           // " self" : ""
+          RedisModule_ReplyKV_SimpleStringf(reply, "role", "%s%s",
+                                      node->flags & MRNode_Master ? "master" : "replica",
+                                      node->flags & MRNode_Self ? " self" : "");
 
           RedisModule_Reply_MapEnd(reply); // >>>>(node)
         }
         RedisModule_Reply_ArrayEnd(reply); // >>>nodes
 
-        RedisModule_Reply_MapEnd(reply); // >>(shards)
+        RedisModule_Reply_MapEnd(reply); // >>(shard)
       }
-      RedisModule_Reply_ArrayEnd(reply); // >slots
+      RedisModule_Reply_ArrayEnd(reply); // >shards
     }
 
     RedisModule_Reply_MapEnd(reply); // root
@@ -489,7 +495,7 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
     // Report topology
     RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
 
-    RedisModule_Reply_SimpleString(reply, "slots");
+    RedisModule_Reply_SimpleString(reply, "shards");
 
     if (!topo) {
       RedisModule_Reply_Null(reply);
@@ -498,17 +504,22 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
         MRClusterShard *sh = &topo->shards[i];
         RedisModule_Reply_Array(reply); // >shards
 
-        RedisModule_Reply_LongLong(reply, sh->startSlot);
-        RedisModule_Reply_LongLong(reply, sh->endSlot);
+        RedisModule_Reply_Array(reply); // >>>slots
+        for (uint32_t r = 0; r < sh->numRanges; r++) {
+          RedisModule_Reply_LongLong(reply, sh->ranges[r].start);
+          RedisModule_Reply_LongLong(reply, sh->ranges[r].end);
+        }
+        RedisModule_Reply_ArrayEnd(reply); // >>>slots
+
         for (int j = 0; j < sh->numNodes; j++) {
           MRClusterNode *node = &sh->nodes[j];
           RedisModule_Reply_Array(reply); // >>node
             REPLY_SIMPLE_SAFE(node->id);
             REPLY_SIMPLE_SAFE(node->endpoint.host);
             RedisModule_Reply_LongLong(reply, node->endpoint.port);
-            RedisModule_Reply_SimpleStringf(reply, "%s%s",                                // TODO: move the space to "self"
-                                      node->flags & MRNode_Master ? "master " : "slave ", // "master" : "slave",
-                                      node->flags & MRNode_Self ? "self" : "");           // " self" : ""
+            RedisModule_Reply_SimpleStringf(reply, "%s%s",
+                                      node->flags & MRNode_Master ? "master" : "replica",
+                                      node->flags & MRNode_Self ? " self" : "");
           RedisModule_Reply_ArrayEnd(reply); // >>node
         }
 
@@ -611,9 +622,9 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   // Mark the command of the context as depleted (so we won't send another command to the shard)
   RS_DEBUG_LOG_FMT(
       "depleted(should be false): %d, Pending: (%d), inProcess: %d, itRefCount: %d, channel size: "
-      "%zu, shard_slot: %d",
+      "%zu, target_idx: %d",
       ctx->cmd.depleted, ctx->it->ctx.pending, ctx->it->ctx.inProcess, ctx->it->ctx.itRefCount,
-      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetSlot);
+      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShard);
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   RS_ASSERT(pending >= 0);
@@ -649,13 +660,12 @@ void iterStartCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  cmd->targetSlot = io_runtime_ctx->topo->shards[0].startSlot; // Set the first command to target the first shard
+  cmd->targetShard = 0; // Set the first command to target the first shard
   for (size_t i = 1; i < numShards; i++) {
     it->cbxs[i].it = it;
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
-    it->cbxs[i].cmd.targetSlot = io_runtime_ctx->topo->shards[i].startSlot;
-    it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    it->cbxs[i].cmd.targetShard = i;
   }
 
   // This implies that every connection to each shard will work inside a single IO thread
@@ -696,7 +706,7 @@ void iterCursorMappingCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  cmd->targetSlot = vsimOrSearch->mappings[0].targetSlot;
+  cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
   char buf[128];
   sprintf(buf, "%lld", vsimOrSearch->mappings[0].cursorId);
   MRCommand_Append(cmd, buf, strlen(buf));
@@ -709,7 +719,7 @@ void iterCursorMappingCb(void *p) {
 
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
 
-    it->cbxs[i].cmd.targetSlot = vsimOrSearch->mappings[i].targetSlot;
+    it->cbxs[i].cmd.targetShard = vsimOrSearch->mappings[i].targetShard;
     it->cbxs[i].cmd.num = 4;
     char buf[128];
     sprintf(buf, "%lld", vsimOrSearch->mappings[i].cursorId);
@@ -854,7 +864,7 @@ void MRIterator_Release(MRIterator *it) {
     for (size_t i = 0; i < it->len; i++) {
       MRCommand *cmd = &it->cbxs[i].cmd;
       if (!cmd->depleted) {
-        RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %d", cmd->strs[1], cmd->targetSlot);
+        RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %d", cmd->strs[1], cmd->targetShard);
         RS_LOG_ASSERT_FMT(cmd->rootCommand != C_DEL, "DEL command should be sent only once to a shard. pending = %d", it->ctx.pending);
         cmd->rootCommand = C_DEL;
         strcpy(cmd->strs[1], "DEL");

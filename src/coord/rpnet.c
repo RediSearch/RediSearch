@@ -262,7 +262,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
             if (!strcmp(warning_str, QueryError_Strerror(QUERY_ETIMEDOUT))) {
               timed_out = true;
             } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
-              AREQ_QueryProcessingCtx(nc->areq)->err->reachedMaxPrefixExpansions = true;
+              QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
             }
           }
         }
