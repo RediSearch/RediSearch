@@ -395,6 +395,9 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
           || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
         QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, strErr);
         return RS_RESULT_ERROR;
+      } else {
+        MRReply_Free(nc->current.root);
+        RPNet_resetCurrent(nc);
       }
     }
 
