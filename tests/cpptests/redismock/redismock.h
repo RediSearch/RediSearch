@@ -13,6 +13,8 @@
 // Forward declarations for C++
 #ifdef __cplusplus
 #include <vector>
+#include <map>
+#include <string>
 #include <cstdint>
 
 struct RedisModuleIO {
@@ -20,6 +22,8 @@ struct RedisModuleIO {
   size_t read_pos = 0;
   bool error_flag = false;
 };
+
+std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx *ctx);
 
 extern "C" {
 #else

@@ -3345,10 +3345,10 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
-
+    RS_ASSERT(sp != NULL);
     RedisModuleString *serialized = IndexSpec_Serialize(sp);
     RS_ASSERT(serialized != NULL);
-    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION , serialized);
+    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(ctx, "warning", "Failed to propagate index '%s' during slot migration. errno: %d", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), errno);
     }
