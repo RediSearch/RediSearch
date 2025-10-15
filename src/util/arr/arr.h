@@ -232,6 +232,7 @@ static inline void *array_trimm(array_t arr, uint32_t new_len) {
   RS_LOG_ASSERT(new_len >= 0, "trimming len is negative");
   RS_LOG_ASSERT((new_len <= arr_hdr->len), "trimming len is greater then current len");
   arr_hdr->len = new_len;
+  arr_hdr->remain_cap += arr_hdr->len - new_len;
   return arr_hdr->buf;
 }
 
@@ -243,7 +244,9 @@ static inline void *array_trimm(array_t arr, uint32_t new_len) {
     if (!arr) {                             \
       arr = array_new(__typeof__(*arr), 1); \
     } else {                                \
-      array_hdr(arr)->len = 0;              \
+      hdr = array_hdr(arr);                 \
+      hdr->remain_cap += hdr->len;          \
+      hdr->len = 0;              \
     }                                       \
     arr;                                    \
   })
@@ -278,6 +281,7 @@ static inline void *array_trimm(array_t arr, uint32_t new_len) {
 #define array_pop(arr)                  \
   ({                                    \
     RS_ASSERT(array_hdr(arr)->len > 0); \
+    ++array_hdr(arr)->remain_cap;       \
     arr[--(array_hdr(arr)->len)];       \
   })
 
@@ -288,6 +292,7 @@ static inline void *array_trimm(array_t arr, uint32_t new_len) {
     if (array_len(arr) - 1 > ix) {                                                \
       memcpy(arr + ix, arr + ix + 1, sizeof(*arr) * (array_len(arr) - (ix + 1))); \
     }                                                                             \
+    ++array_hdr(arr)->remain_cap;                                                 \
     --array_hdr(arr)->len;                                                        \
     arr;                                                                          \
   })
@@ -298,6 +303,7 @@ static inline void *array_trimm(array_t arr, uint32_t new_len) {
     if (array_len(arr) > 1) {            \
       arr[ix] = arr[array_len(arr) - 1]; \
     }                                    \
+    ++array_hdr(arr)->remain_cap;        \
     --array_hdr(arr)->len;               \
     arr;                                 \
   })
