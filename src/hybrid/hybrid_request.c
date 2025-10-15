@@ -122,11 +122,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
         return REDISMODULE_ERR;
       }
     } else {
-      // We don't want this key to be unresolved, on the other hand if it exists we get back null.
-      scoreKey = RLookup_GetKey_Write(tailLookup, UNDERSCORE_SCORE, RLOOKUP_F_HIDDEN);
-      if (!scoreKey) {
-        scoreKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
-      }
+      scoreKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
     }
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
