@@ -742,6 +742,11 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             deltas
         };
 
+        // There is no point in moving everything to a new vector if there are no deltas
+        if deltas.is_empty() {
+            return info;
+        }
+
         let mut tmp_blocks = Vec::with_capacity(self.blocks.len());
         std::mem::swap(&mut self.blocks, &mut tmp_blocks);
 
