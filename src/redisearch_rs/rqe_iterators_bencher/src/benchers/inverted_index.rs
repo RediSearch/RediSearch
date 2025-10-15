@@ -9,14 +9,16 @@
 
 //! Benchmark inverted index iterator.
 
-use std::time::Duration;
+use std::{marker::PhantomData, time::Duration};
 
 use ::ffi::RSQueryTerm;
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use inverted_index::{InvertedIndex, RSIndexResult, full::Full, numeric::Numeric};
+use inverted_index::{
+    DecodedBy, Encoder, InvertedIndex, RSIndexResult, TermDecoder, numeric::Numeric,
+};
 use rqe_iterators::{
     RQEIterator, SkipToOutcome,
     inverted_index::{NumericFull, TermFull},
@@ -238,15 +240,34 @@ impl NumericFullBencher {
     }
 }
 
-pub struct TermFullBencher {
+pub struct TermFullBencher<E> {
+    /// Name of the benchmark group
+    group_name: String,
+    /// Inverted index flags to use for the benchmark
+    ii_flags: u32,
     /// The offsets used in records, need to be kept alive for the duration of the benchmark
     offsets: Vec<u8>,
     /// The term used in records, need to be kept alive for the duration of the benchmark
     term: *mut RSQueryTerm,
+    /// Needed to carry the encoder used by the benchmark.
+    _phantom_enc: PhantomData<E>,
 }
 
-impl Default for TermFullBencher {
-    fn default() -> Self {
+impl<E> Drop for TermFullBencher<E> {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = Box::from_raw(self.term);
+        }
+    }
+}
+
+impl<E> TermFullBencher<E>
+where
+    E: Encoder + DecodedBy + Default,
+    E::Decoder: TermDecoder,
+{
+    pub fn new(decoder_name: &str, ii_flags: u32) -> Self {
+        let group_name = format!("TermFull - {decoder_name}");
         const TEST_STR: &str = "term";
         let test_str_ptr = TEST_STR.as_ptr() as *mut _;
         let term = Box::new(RSQueryTerm {
@@ -260,21 +281,14 @@ impl Default for TermFullBencher {
         let term = Box::into_raw(term);
 
         Self {
+            group_name,
+            ii_flags,
             offsets: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
             term,
+            _phantom_enc: PhantomData,
         }
     }
-}
 
-impl Drop for TermFullBencher {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = Box::from_raw(self.term);
-        }
-    }
-}
-
-impl TermFullBencher {
     pub fn bench(&self, c: &mut Criterion) {
         self.read_dense(c);
         self.read_sparse(c);
@@ -283,39 +297,35 @@ impl TermFullBencher {
     }
 
     fn read_dense(&self, c: &mut Criterion) {
-        let mut group = benchmark_group(c, "TermFull", "Read Dense");
+        let mut group = benchmark_group(c, &self.group_name, "Read Dense");
         self.c_read_dense(&mut group);
         self.rust_read_dense(&mut group);
         group.finish();
     }
 
     fn read_sparse(&self, c: &mut Criterion) {
-        let mut group = benchmark_group(c, "TermFull", "Read Sparse");
+        let mut group = benchmark_group(c, &self.group_name, "Read Sparse");
         self.c_read_sparse(&mut group);
         self.rust_read_sparse(&mut group);
         group.finish();
     }
 
     fn skip_to_dense(&self, c: &mut Criterion) {
-        let mut group = benchmark_group(c, "TermFull", "SkipTo Dense");
+        let mut group = benchmark_group(c, &self.group_name, "SkipTo Dense");
         self.c_skip_to_dense(&mut group);
         self.rust_skip_to_dense(&mut group);
         group.finish();
     }
 
     fn skip_to_sparse(&self, c: &mut Criterion) {
-        let mut group = benchmark_group(c, "TermFull", "SkipTo Sparse");
+        let mut group = benchmark_group(c, &self.group_name, "SkipTo Sparse");
         self.c_skip_to_sparse(&mut group);
         self.rust_skip_to_sparse(&mut group);
         group.finish();
     }
 
     fn c_index(&self, sparse: bool) -> ffi::InvertedIndex {
-        let flags = ffi::IndexFlags_Index_StoreFreqs
-            | ffi::IndexFlags_Index_StoreTermOffsets
-            | ffi::IndexFlags_Index_StoreFieldFlags
-            | ffi::IndexFlags_Index_StoreByteOffsets;
-        let ii = ffi::InvertedIndex::new(flags);
+        let ii = ffi::InvertedIndex::new(self.ii_flags);
 
         let delta = if sparse { SPARSE_DELTA } else { 1 };
         for doc_id in 1..INDEX_SIZE {
@@ -325,12 +335,8 @@ impl TermFullBencher {
         ii
     }
 
-    fn rust_index(&self, sparse: bool) -> InvertedIndex<Full> {
-        let flags = ffi::IndexFlags_Index_StoreFreqs
-            | ffi::IndexFlags_Index_StoreTermOffsets
-            | ffi::IndexFlags_Index_StoreFieldFlags
-            | ffi::IndexFlags_Index_StoreByteOffsets;
-        let mut ii = InvertedIndex::new(flags, Full::default());
+    fn rust_index(&self, sparse: bool) -> InvertedIndex<E> {
+        let mut ii = InvertedIndex::new(self.ii_flags, E::default());
 
         let delta = if sparse { SPARSE_DELTA } else { 1 };
         for doc_id in 1..INDEX_SIZE {
