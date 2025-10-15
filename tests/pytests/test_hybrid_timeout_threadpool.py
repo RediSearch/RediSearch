@@ -15,10 +15,10 @@ query_vector = np.random.rand(128).astype(np.float32).tobytes()
 def setup_basic_index(env, num_docs=10):
     conn = env.getClusterConnectionIfNeeded()
     """Setup a basic index with text and vector fields for testing"""
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 
-               'title', 'TEXT', 
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'title', 'TEXT',
                'embedding', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'COSINE').ok()
-    
+
     # Add some test documents
     for i in range(num_docs):
         vector = np.random.rand(128).astype(np.float32).tobytes()
@@ -48,10 +48,10 @@ def test_depleter_timeout_fail():
     """Test RPDepleter timeout detection with FAIL policy"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
-    
+
     # Use debug parameters to simulate timeout
-    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
-               'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB',
+               'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1',
                'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout')
 
 @skip(cluster=True)
@@ -59,12 +59,12 @@ def test_depleter_timeout_return():
     """Test RPDepleter timeout detection with RETURN policy"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_basic_index(env)
-    
+
     # Use debug parameters to simulate timeout
-    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
-                       'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 
+    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB',
+                       'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1',
                        'DEBUG_PARAMS_COUNT', '2')
-    
+
     # Should return partial results with timeout warning
     warnings = get_warnings(response)
     env.assertTrue(len(warnings) > 0, message='Expected timeout warning')
@@ -76,10 +76,10 @@ def test_hybrid_merger_timeout_fail():
     """Test HybridMerger timeout handling with FAIL policy"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
-    
+
     # Use debug parameters to simulate timeout in tail pipeline
-    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
-               'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1', 
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB',
+               'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1',
                'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout')
 
 @skip(cluster=True)
@@ -87,12 +87,12 @@ def test_hybrid_merger_timeout_return():
     """Test HybridMerger timeout handling with RETURN policy"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_basic_index(env)
-    
+
     # Use debug parameters to simulate timeout in tail pipeline
-    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
-                       'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1', 
+    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB',
+                       'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1',
                        'DEBUG_PARAMS_COUNT', '2')
-    
+
     # Should return partial results with timeout warning
     warnings = get_warnings(response)
     env.assertTrue(len(warnings) > 0, message='Expected timeout warning')
@@ -104,18 +104,17 @@ def test_timeout_policy_consistency(env):
     # Test FAIL policy
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').ok()
     setup_basic_index(env, 1000)
-    
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
+
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB',
                'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT', '1').error().contains('Timeout')
-    
+
     # Test RETURN policy
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').ok()
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB',
                        'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT', '1')
-    
+
     # Should return response with warnings, not error
     env.assertTrue(isinstance(response, list), message="Expected list response for RETURN policy")
     warnings = get_warnings(response)
     env.assertTrue(len(warnings) > 0, message="Expected timeout warning for RETURN policy")
     env.assertContains('Timeout limit was reached', warnings[0], message="Expected timeout warning message for RETURN policy")
-    
