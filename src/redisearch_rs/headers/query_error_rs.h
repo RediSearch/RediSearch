@@ -104,12 +104,12 @@ typedef enum QueryErrorCode {
 } QueryErrorCode;
 
 /**
- * A type with a size of `64` bytes and alignment `8`.
+ * A type with a size of `48` bytes and alignment `8`.
  */
-typedef struct Size64Align8 Size64Align8;
+typedef struct Size48Align8 Size48Align8;
 
 typedef struct QueryError {
-  struct Size64Align8 _0;
+  struct Size48Align8 _0;
 } QueryError;
 
 #ifdef __cplusplus
@@ -126,15 +126,13 @@ void QueryError_SetError(struct QueryError *query_error,
 
 void QueryError_SetCode(struct QueryError *query_error, enum QueryErrorCode code);
 
-void QueryError_SetDetail(struct QueryError *_status,
-                          enum QueryErrorCode _code,
-                          const char *_detail);
+void QueryError_SetDetail(struct QueryError *query_error, const char *detail);
 
 void QueryError_CloneFrom(const struct QueryError *src, struct QueryError *dest);
 
-const char *QueryError_GetUserError(const struct QueryError *_status);
+const char *QueryError_GetUserError(const struct QueryError *query_error);
 
-const char *QueryError_GetDisplayableError(const struct QueryError *_status, bool _obfuscate);
+const char *QueryError_GetDisplayableError(const struct QueryError *query_error, bool obfuscate);
 
 enum QueryErrorCode QueryError_GetCode(const struct QueryError *query_error);
 

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::fmt::{Debug, Display};
 
 /// cbindgen:prefix-with-name
@@ -159,8 +159,10 @@ impl QueryErrorCode {
 #[repr(C)]
 pub struct QueryError {
     code: QueryErrorCode,
-    message: Option<String>,
-    detail: Option<String>,
+    // FIXME: once QueryError is no longer depended on by C code, these CString
+    // members should be using the traditional String.
+    public_info: Option<CString>,
+    private_info: Option<CString>,
 
     warnings: Warnings,
 }
@@ -172,6 +174,26 @@ impl QueryError {
 
     pub fn code(&self) -> QueryErrorCode {
         self.code
+    }
+
+    pub fn has_private_info(&self) -> bool {
+        self.private_info.is_some()
+    }
+
+    pub fn public_info(&self) -> &CStr {
+        if let Some(public_info) = &self.public_info {
+            public_info.as_c_str()
+        } else {
+            self.code.to_cstr()
+        }
+    }
+
+    pub fn private_info(&self) -> &CStr {
+        if let Some(private_info) = &self.private_info {
+            private_info.as_c_str()
+        } else {
+            self.code.to_cstr()
+        }
     }
 
     pub fn warnings(&self) -> &Warnings {
@@ -200,7 +222,7 @@ impl QueryError {
         self.code = code;
     }
 
-    pub fn set_error(&mut self, code: QueryErrorCode, message: Option<String>) {
+    pub fn set_info(&mut self, code: QueryErrorCode, info: Option<CString>) {
         debug_assert!(
             self.is_ok(),
             "Call to QueryError::set_error on already-set QueryError"
@@ -216,7 +238,12 @@ impl QueryError {
         }
 
         self.code = code;
-        self.message = message;
+        self.public_info = info.clone();
+        self.private_info = info;
+    }
+
+    pub fn set_private_info(&mut self, private_info: Option<CString>) {
+        self.private_info = private_info
     }
 
     pub fn clear(&mut self) {

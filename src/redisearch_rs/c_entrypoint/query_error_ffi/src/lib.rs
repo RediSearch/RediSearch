@@ -11,11 +11,11 @@ use query_error::QueryError;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 
-pub use mimic::Size64Align8;
+pub use mimic::Size48Align8;
 pub use query_error::QueryErrorCode;
 
 #[repr(C)]
-pub struct QueryErrorMimic(Size64Align8);
+pub struct QueryErrorMimic(Size48Align8);
 
 impl From<QueryErrorMimic> for QueryError {
     fn from(QueryErrorMimic(size_and_align): QueryErrorMimic) -> Self {
@@ -68,19 +68,17 @@ pub unsafe extern "C" fn QueryError_SetError(
     let message = if message.is_null() {
         None
     } else {
-        Some(
-            unsafe { CStr::from_ptr(message) }
-                .to_str()
-                .expect("message has non-utf8 chars")
-                .to_string(),
-        )
+        Some(unsafe { CStr::from_ptr(message) }.to_owned())
     };
 
-    query_error.set_error(code, message);
+    query_error.set_info(code, message);
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryError_SetCode(query_error: *mut QueryErrorMimic, code: QueryErrorCode) {
+pub unsafe extern "C" fn QueryError_SetCode(
+    query_error: *mut QueryErrorMimic,
+    code: QueryErrorCode,
+) {
     let query_error: &mut QueryError = unsafe { query_error.as_mut() }
         .expect("query_error is null")
         .into();
@@ -90,15 +88,26 @@ pub unsafe extern "C" fn QueryError_SetCode(query_error: *mut QueryErrorMimic, c
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_SetDetail(
-    _status: *mut QueryErrorMimic,
-    _code: QueryErrorCode,
-    _detail: *const c_char,
+    query_error: *mut QueryErrorMimic,
+    detail: *const c_char,
 ) {
-    todo!()
+    let query_error: &mut QueryError = unsafe { query_error.as_mut() }
+        .expect("query_error is null")
+        .into();
+    let detail = if detail.is_null() {
+        None
+    } else {
+        Some(unsafe { CStr::from_ptr(detail) }.to_owned())
+    };
+
+    query_error.set_private_info(detail)
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryError_CloneFrom(src: *const QueryErrorMimic, dest: *mut QueryErrorMimic) {
+pub unsafe extern "C" fn QueryError_CloneFrom(
+    src: *const QueryErrorMimic,
+    dest: *mut QueryErrorMimic,
+) {
     let src_query_error: &QueryError = unsafe { src.as_ref() }.expect("src is null").into();
     let query_error = src_query_error.clone();
     let query_error_mimic = query_error.into();
@@ -107,16 +116,30 @@ pub unsafe extern "C" fn QueryError_CloneFrom(src: *const QueryErrorMimic, dest:
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryError_GetUserError(_status: *const QueryErrorMimic) -> *const c_char {
-    todo!()
+pub unsafe extern "C" fn QueryError_GetUserError(
+    query_error: *const QueryErrorMimic,
+) -> *const c_char {
+    let query_error: &QueryError = unsafe { query_error.as_ref() }
+        .expect("query_error is null")
+        .into();
+
+    query_error.private_info().as_ptr()
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_GetDisplayableError(
-    _status: *const QueryErrorMimic,
-    _obfuscate: bool,
+    query_error: *const QueryErrorMimic,
+    obfuscate: bool,
 ) -> *const c_char {
-    todo!()
+    let query_error: &QueryError = unsafe { query_error.as_ref() }
+        .expect("query_error is null")
+        .into();
+
+    if obfuscate || !query_error.has_private_info() {
+        query_error.public_info().as_ptr()
+    } else {
+        query_error.private_info().as_ptr()
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -138,7 +161,10 @@ pub unsafe extern "C" fn QueryError_ClearError(query_error: *mut QueryErrorMimic
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryError_MaybeSetCode(_status: *mut QueryErrorMimic, _code: QueryErrorCode) {
+pub unsafe extern "C" fn QueryError_MaybeSetCode(
+    _status: *mut QueryErrorMimic,
+    _code: QueryErrorCode,
+) {
     todo!()
 }
 
@@ -167,7 +193,9 @@ pub unsafe extern "C" fn QueryError_SetReachedMaxPrefixExpansionsWarning(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryError_HasQueryOOMWarning(query_error: *const QueryErrorMimic) -> bool {
+pub unsafe extern "C" fn QueryError_HasQueryOOMWarning(
+    query_error: *const QueryErrorMimic,
+) -> bool {
     let query_error: &QueryError = unsafe { query_error.as_ref() }
         .expect("query_error is null")
         .into();
