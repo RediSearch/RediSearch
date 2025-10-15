@@ -244,9 +244,9 @@ static inline void *array_trimm(array_t arr, uint32_t new_len) {
     if (!arr) {                             \
       arr = array_new(__typeof__(*arr), 1); \
     } else {                                \
-      hdr = array_hdr(arr);                 \
-      hdr->remain_cap += hdr->len;          \
-      hdr->len = 0;              \
+      array_hdr_t *arr_hdr = array_hdr(arr);\
+      arr_hdr->remain_cap += arr_hdr->len;  \
+      arr_hdr->len = 0;                     \
     }                                       \
     arr;                                    \
   })
