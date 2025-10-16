@@ -205,6 +205,7 @@ int set_default_scorer_config(const char *name, RedisModuleString *val, void *pr
     size_t len;
     const char *newScorerName = RedisModule_StringPtrLen(val, &len);
 
+    // If Extension is not yet initialized, we will validate the defaultScorer after initialization for validation
     if (Extensions_InitDone()) {
       // Validate the scorer name against registered scorers only when the extension system is initialized
       ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, newScorerName);

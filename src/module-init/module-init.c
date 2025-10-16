@@ -195,6 +195,12 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     return REDISMODULE_ERR;
   }
 
+  ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, RSGlobalConfig.defaultScorer);
+  if (scoreCtx == NULL) {
+    DO_LOG("warning", "default scorer %s not a valid scorer", RSGlobalConfig.defaultScorer);
+    return REDISMODULE_ERR;
+  }
+
   // Register to Info function
   if (RedisModule_RegisterInfoFunc && RedisModule_RegisterInfoFunc(ctx, RS_moduleInfoFunc) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
