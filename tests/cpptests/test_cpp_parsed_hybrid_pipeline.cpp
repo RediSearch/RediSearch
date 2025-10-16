@@ -350,6 +350,55 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
   EXPECT_STREQ(UNDERSCORE_SCORE, scoreKey->name) << "scoreKey should point to UNDERSCORE_SCORE field";
 }
 
+
+TEST_F(HybridRequestParseTest, testHybridRequestMultipleLoads) {
+  // Create a hybrid query with SEARCH and VSIM subqueries, plus multiple LOAD clauses
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_multiple_loads",
+                      "SEARCH", "machine",
+                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "LOAD", "2", "@__score", "@title",
+                      "LOAD", "1", "@__key");
+
+  HYBRID_TEST_SETUP("test_multiple_loads", args);
+
+  // Verify that the tail plan should have no LOAD steps remaining (they should all be moved to subqueries)
+  const PLN_BaseStep *tailLoadStep = AGPLN_FindStep(&hybridReq->tailPipeline->ap, NULL, NULL, PLN_T_LOAD);
+  EXPECT_EQ(nullptr, tailLoadStep) << "Tail pipeline should have no LOAD steps after distribution";
+
+  // Verify that each subquery received ALL the load steps (not just one)
+  for (size_t i = 0; i < hybridReq->nrequests; i++) {
+    AREQ *areq = hybridReq->requests[i];
+
+    // Count the number of LOAD steps in this subquery - should be 2 (one for each original LOAD clause)
+    int loadStepCount = 0;
+    PLN_LoadStep *loadStep;
+    while ((loadStep = (PLN_LoadStep *)AGPLN_FindStep(&areq->pipeline.ap, NULL, NULL, PLN_T_LOAD)) != nullptr) {
+      loadStepCount++;
+      AGPLN_PopStep(&loadStep->base);  // Pop it so we can find the next one
+      loadStep->base.dtor(&loadStep->base);  // Clean up the popped step
+    }
+    EXPECT_EQ(2, loadStepCount) << "Request " << i << " should have 2 LOAD steps (cloned from both original LOAD clauses)";
+
+    // Verify the lookup contains all expected fields
+    RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    ASSERT_NE(nullptr, lookup);
+
+    // Check for presence of all expected loaded fields
+    std::vector<std::string> expectedFields = {"__score", "title", "__key"};
+    for (const std::string& expectedField : expectedFields) {
+      bool foundField = false;
+      for (RLookupKey *key = lookup->head; key != nullptr; key = key->next) {
+        if (key->name && strcmp(key->name, expectedField.c_str()) == 0) {
+          foundField = true;
+          break;
+        }
+      }
+      EXPECT_TRUE(foundField) << "Request " << i << " should contain field " << expectedField;
+    }
+  }
+}
+
+
 // Test explicit LOAD preservation: verify existing LOAD steps are not modified by implicit logic
 TEST_F(HybridRequestParseTest, testHybridRequestExplicitLoadPreserved) {
   // Create a hybrid query with SEARCH and VSIM subqueries, plus explicit LOAD clause
