@@ -90,7 +90,6 @@ class FGCTest : public ::testing::Test {
 
   void SetUp() override {
     Initialize_KeyspaceNotifications();
-    // Initialize default scorer for search operations
     ism = createSpec(ctx);
     RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
     RSGlobalStats.totalStats.logically_deleted = 0;
