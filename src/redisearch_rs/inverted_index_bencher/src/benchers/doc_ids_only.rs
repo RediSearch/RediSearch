@@ -48,9 +48,7 @@ impl Bencher {
                 let record = RSIndexResult::term().doc_id(100);
 
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = DocIdsOnly::default()
-                    .encode(&mut buffer, delta, &record)
-                    .unwrap();
+                let _grew_size = DocIdsOnly.encode(&mut buffer, delta, &record).unwrap();
                 let encoded = buffer.into_inner();
 
                 TestValue { delta, encoded }
@@ -93,12 +91,11 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || TestBuffer::with_capacity(buffer_size),
-                |mut buffer| {
+                |buffer| {
                     for test in &self.test_values {
                         let mut record = RSIndexResult::term().doc_id(100);
 
-                        let grew_size =
-                            encode_doc_ids_only(&mut buffer, &mut record, test.delta as u64);
+                        let grew_size = encode_doc_ids_only(buffer, &mut record, test.delta as u64);
 
                         black_box(grew_size);
                     }
@@ -119,9 +116,8 @@ impl Bencher {
                     for test in &self.test_values {
                         let record = RSIndexResult::term().doc_id(100);
 
-                        let grew_size = DocIdsOnly::default()
-                            .encode(&mut buffer, test.delta, &record)
-                            .unwrap();
+                        let grew_size =
+                            DocIdsOnly.encode(&mut buffer, test.delta, &record).unwrap();
 
                         black_box(grew_size);
                     }
@@ -139,8 +135,8 @@ impl Bencher {
                         let buffer_ptr = NonNull::new(test.encoded.as_ptr() as *mut _).unwrap();
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
-                    |mut buffer| {
-                        let (_filtered, result) = read_doc_ids_only(&mut buffer, 100);
+                    |buffer| {
+                        let (_filtered, result) = read_doc_ids_only(buffer, 100);
 
                         black_box(result);
                     },
@@ -156,7 +152,7 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let decoder = DocIdsOnly::default();
+                        let decoder = DocIdsOnly;
                         let result = decoder.decode_new(buffer, 100).unwrap();
 
                         let _ = black_box(result);
