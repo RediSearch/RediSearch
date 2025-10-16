@@ -26,7 +26,7 @@ pub struct Wildcard<'a> {
 }
 
 impl<'a> Wildcard<'a> {
-    pub fn new(top_id: t_docId) -> Self {
+    pub const fn new(top_id: t_docId) -> Self {
         Wildcard {
             top_id,
             current_id: 0,

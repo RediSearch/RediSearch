@@ -167,7 +167,7 @@ impl CorpusType {
     /// Returns the url of the corpus.
     ///
     /// Information for remote files can be found in the folder: git_root/tests/benchmarks/
-    fn get_url(&self) -> &str {
+    const fn get_url(&self) -> &str {
         match self {
             CorpusType::RedisBench1kWiki => {
                 "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/enwiki_abstract-hashes-contains/enwiki_abstract-hashes-contains.redisearch.commands.SETUP.csv"
@@ -180,7 +180,7 @@ impl CorpusType {
     }
 
     /// Returns the checksum for the downloaded files.
-    fn get_checksum(&self) -> Option<u32> {
+    const fn get_checksum(&self) -> Option<u32> {
         match self {
             CorpusType::RedisBench1kWiki => Some(0x65ed64eb),
             CorpusType::RedisBench10kNumerics => Some(0x3c18690f),

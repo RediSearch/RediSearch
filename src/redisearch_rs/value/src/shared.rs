@@ -48,7 +48,7 @@ impl Drop for SharedRsValue {
 
 impl SharedRsValue {
     /// Create an undefined [`SharedRsValue`].
-    pub fn undefined() -> Self {
+    pub const fn undefined() -> Self {
         Self {
             ptr: ptr::null_mut(),
         }
@@ -73,7 +73,7 @@ impl SharedRsValue {
     /// Get a reference to the [`RsValueInternal`] that is
     /// held by this value if it is defined. Returns `None` if
     /// the value is undefined.
-    pub fn internal(&self) -> Option<&RsValueInternal> {
+    pub const fn internal(&self) -> Option<&RsValueInternal> {
         if self.ptr.is_null() {
             return None;
         }

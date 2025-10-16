@@ -26,7 +26,7 @@ pub mod value_type;
 /// Creates a stack-allocated, undefined `RsValue`.
 /// @returns a stack-allocated `RsValue` of type `RsValueType_Undef`
 #[unsafe(no_mangle)]
-pub extern "C" fn RsValue_Undefined() -> RsValue {
+pub const extern "C" fn RsValue_Undefined() -> RsValue {
     RsValue::undefined()
 }
 
@@ -35,7 +35,7 @@ pub extern "C" fn RsValue_Undefined() -> RsValue {
 /// @param n The numeric value to wrap
 /// @return A stack-allocated `RsValue` of type `RsValueType_Number`
 #[unsafe(no_mangle)]
-pub extern "C" fn RsValue_Number(n: c_double) -> RsValue {
+pub const extern "C" fn RsValue_Number(n: c_double) -> RsValue {
     RsValue::number(n)
 }
 

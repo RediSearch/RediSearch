@@ -25,7 +25,7 @@ pub struct BufferReader<'a> {
 
 impl<'a> BufferReader<'a> {
     /// Create a new cursor, reading from the beginning of the buffer.
-    pub fn new(buffer: &'a Buffer) -> Self {
+    pub const fn new(buffer: &'a Buffer) -> Self {
         Self {
             buffer,
             position: 0,
@@ -49,17 +49,17 @@ impl<'a> BufferReader<'a> {
     }
 
     /// The current position of the reader.
-    pub fn position(&self) -> usize {
+    pub const fn position(&self) -> usize {
         self.position
     }
 
     /// A reference to the buffer we're reading from.
-    pub fn buffer(&self) -> &Buffer {
+    pub const fn buffer(&self) -> &Buffer {
         self.buffer
     }
 
     /// Cast to a raw pointer on [`ffi::BufferReader`].
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::BufferReader {
+    pub const fn as_mut_ptr(&mut self) -> *mut ffi::BufferReader {
         // Safety: `BufferReader` has the same memory layout as [`ffi::BufferReader`]
         // so we can safely cast one into the other.
         self as *const _ as *mut _

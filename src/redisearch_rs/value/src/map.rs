@@ -154,7 +154,7 @@ impl RsValueMap {
     }
 
     /// Create a non-consuming iterator over the map's entries.
-    pub fn iter(&self) -> Iter<'_> {
+    pub const fn iter(&self) -> Iter<'_> {
         Iter { map: self, i: 0 }
     }
 
