@@ -345,36 +345,25 @@ void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
   switch (subevent) {
 
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED:
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM import started event.");
       in_asm_import = true;
       should_filter_slots = true;
-      // if we are not already in asm trim, we need to notify the thread pool
-      if (!in_asm_trim) {
-        workersThreadPool_OnEventStart();
-      }
-      const char *workers_state = in_asm_trim ? "Workers already in event mode due to ASM trim" : "Workers set to event mode";
-      RedisModule_Log(RSDummyContext, "notice", "Got ASM import started event. %s.", workers_state);
+      workersThreadPool_OnEventStart();
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED:
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED:
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED ? "failed" : "completed");
       in_asm_import = false;
       should_filter_slots = in_asm_trim;
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
-      if (!in_asm_trim) {
-        workersThreadPool_OnEventEnd(false);
-      }
-      const char *subevent_str = subevent == REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED ? "failed" : "completed";
-      const char *workers_state_end = in_asm_trim ? "Workers still in event mode due to ASM trim" : "Workers exited event mode";
-      RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event. %s.", subevent_str, workers_state_end);
+      workersThreadPool_OnEventEnd(false);
       break;
 
-    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED:
-      // We can do something here in the future
-      break;
-    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED:
-    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED:
-      // We can do something here in the future
-      break;
+      // Sub-events we currently don't care about:
+    // case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED:
+    // case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED:
+    // case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED:
 
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM migrate module propagate event.");
@@ -402,28 +391,19 @@ void ClusterASMTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t sub
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_STARTED:
       in_asm_trim = true;
       should_filter_slots = true;
-      // if we are not already in asm import, we need to notify the thread pool
-      if (!in_asm_import) {
-        workersThreadPool_OnEventStart();
-      }
-      const char *workers_state = in_asm_import ? "Workers already in event mode due to ASM import" : "Workers set to event mode";
-      RedisModule_Log(RSDummyContext, "notice", "Got ASM trim started event. %s.", workers_state);
+      workersThreadPool_OnEventStart();
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM trim started event.");
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_COMPLETED:
       in_asm_trim = false;
       should_filter_slots = in_asm_import;
       // Since trimming is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
-      if (!in_asm_import) {
-        workersThreadPool_OnEventEnd(false);
-      }
-      const char *workers_state_end = in_asm_import ? "Workers still in event mode due to ASM import" : "Workers exited event mode";
-      RedisModule_Log(RSDummyContext, "notice", "Got ASM trim completed event. %s.", workers_state_end);
+      workersThreadPool_OnEventEnd(false);
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM trim completed event.");
       break;
 
-    case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND:
-      // We can do something here in the future
-      break;
+    // case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND:
   }
 }
 
