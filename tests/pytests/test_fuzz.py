@@ -35,11 +35,12 @@ def generate_random_doc(env, num_tokens=100):
 def createIndex(env, r):
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text').ok()
     waitForIndex(r, 'idx')
+    con = env.getClusterConnectionIfNeeded()
 
     for i in range(1000):
         did, tokens = generate_random_doc(env)
 
-        r.execute_command('ft.add', 'idx', did,
+        con.execute_command('ft.add', 'idx', did,
                           1.0, 'fields', 'txt', ' '.join(tokens))
 
     # print r.execute_command('ft.info', 'idx')
