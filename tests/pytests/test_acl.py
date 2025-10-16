@@ -279,6 +279,7 @@ def test_acl_key_permissions_validation(env):
             env.cmd(*command)
         except Exception as e:
             # Assert that the error is one of the expected errors
+            # What we DON'T want to see is a permissions error
             possible_errors = [
                 "Cursor not found",
                 "Cursor does not exist",
