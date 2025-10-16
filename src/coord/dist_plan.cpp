@@ -589,11 +589,12 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
 
   if (!loadFields.empty()) {
     array_append(dstp->serialized, rm_strndup("LOAD", 4));
-    char *ldsze;
-    rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
-    array_append(dstp->serialized, ldsze);
+    char *buffer;
+    rm_asprintf(&buffer, "%lu", (unsigned long)loadFields.size());
+    array_append(dstp->serialized, buffer);
     for (auto kk : loadFields) {
-      array_append(dstp->serialized, rm_strndup(kk->name, kk->name_len));
+      rm_asprintf(&buffer, "@%.*s", (int)kk->name_len, kk->name);
+      array_append(dstp->serialized, buffer);
     }
   }
 

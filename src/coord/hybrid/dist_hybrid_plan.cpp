@@ -62,11 +62,12 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
 static void serializeUnresolvedKeys(arrayof(char*) *target, std::vector<const RLookupKey *> &keys) {
   if (!keys.empty()) {
     array_append(*target, rm_strndup("LOAD", 4));
-    char *ldsze;
-    rm_asprintf(&ldsze, "%lu", (unsigned long)keys.size());
-    array_append(*target, ldsze);
+    char *buffer;
+    rm_asprintf(&buffer, "%lu", (unsigned long)keys.size());
+    array_append(*target, buffer);
     for (auto kk : keys) {
-      array_append(*target, rm_strndup(kk->name, kk->name_len));
+      rm_asprintf(&buffer, "@%.*s", (int)kk->name_len, kk->name);
+      array_append(*target, buffer);
     }
   }
 }
