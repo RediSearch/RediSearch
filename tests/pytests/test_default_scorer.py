@@ -25,6 +25,7 @@ def test_default_scorer_behavior():
 
     # Wait for indexing
     waitForIndex(env, 'idx')
+    search_default_bm25std_without_config_set = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT') # Default scorer is BM25STD from start
 
     default_scorer = env.cmd('FT.CONFIG', 'GET', 'DEFAULT_SCORER')
     env.assertEqual(default_scorer, [['DEFAULT_SCORER', 'BM25STD']])
@@ -32,6 +33,7 @@ def test_default_scorer_behavior():
     search_default_bm25std = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT')
     search_explicit_bm25std = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'BM25STD', 'WITHSCORES', 'NOCONTENT')
     env.assertEqual(search_default_bm25std, search_explicit_bm25std)
+    env.assertEqual(search_default_bm25std, search_default_bm25std_without_config_set)
 
     search_tfidf_in_query = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TFIDF', 'WITHSCORES', 'NOCONTENT')
     env.assertNotEqual(search_default_bm25std[2], search_tfidf_in_query[2])  # First document score should differ
