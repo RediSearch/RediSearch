@@ -74,6 +74,14 @@ def test_debug_timeout_fail_tail():
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
+def test_debug_timeout_return_tail():
+    """Test FAIL policy with tail timeout using debug parameters"""
+    env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
+    setup_basic_index(env)
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout limit was reached')
+
+#TODO: remove skip once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
 def test_debug_timeout_return_search():
     """Test RETURN policy with search timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
