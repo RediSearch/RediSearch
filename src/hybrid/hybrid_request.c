@@ -53,7 +53,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
         RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
         ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
-        QITR_PushRP(&qctx, depleter);
+        QITR_PushRP(qctx, depleter);
     }
 
     // Release the sync reference as depleters now hold their own references
