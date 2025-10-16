@@ -62,19 +62,18 @@ void RDCR_RegisterBuiltins(void) {
 int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   ArgsCursor *ac = options->args;
   const char *s;
-  if (AC_GetString(ac, &s, NULL, 0) != AC_OK) {
+  size_t len;
+  if (AC_GetString(ac, &s, &len, 0) != AC_OK) {
     QueryError_SetWithUserDataFmt(options->status, QUERY_EPARSEARGS, "Missing arguments", " for %s", options->name);
     return 0;
   }
 
   // Get the input key..
-  if (*s == '@') {
-    s++;
-  } else if (options->strict) {
-    QueryError_SetWithUserDataFmt(options->status, QUERY_EPARSEARGS, "Missing @ prefix for field name in REDUCE", ": %s, field: (%s)", options->name, s);
+  const char *keyName = RLookup_ExtractKeyName(s, &len, options->status, options->strictPrefix, options->name);
+  if (!keyName) {
     return 0;
   }
-  *out = RLookup_GetKey_Read(options->srclookup, s, RLOOKUP_F_HIDDEN);
+  *out = RLookup_GetKey_Read(options->srclookup, keyName, RLOOKUP_F_HIDDEN);
   if (!*out) {
     if (options->loadKeys) {
       *out = RLookup_GetKey_Load(options->srclookup, s, s, RLOOKUP_F_HIDDEN);
