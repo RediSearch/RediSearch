@@ -221,6 +221,20 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Numeric responses are encoded as simple strings.
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
+  if (sp && sp->rule && sp->rule->prefixes && array_len(sp->rule->prefixes) > 0) {
+    MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
+    arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
+    char *n_prefixes;
+    rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+    MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
+    rm_free(n_prefixes);
+
+    for (uint i = 0; i < array_len(prefixes); i++) {
+      size_t len;
+      const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
+      MRCommand_Append(xcmd, prefix, len);
+    }
+  }
 }
 
 // UPDATED: Set RPNet types when creating them

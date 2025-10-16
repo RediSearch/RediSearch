@@ -405,3 +405,17 @@ void handleNumSString(ArgParser *parser, const void *value, void *user_data) {
     ctx->specifiedArgs |= SPECIFIED_ARG_NUM_SSTRING;
 }
 
+// _INDEX_PREFIXES callback - implements EXACT original logic from handleIndexPrefixes
+void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) {
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  ArgsCursor *paramsArgs = (ArgsCursor*)value;
+  QueryError *status = ctx->status;
+  while (!AC_IsAtEnd(paramsArgs)) {
+    const char *prefix;
+    if (AC_GetString(paramsArgs, &prefix, NULL, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for _INDEX_PREFIXES");
+      return;
+    }
+    array_ensure_append_1(*ctx->prefixes, prefix);
+  }
+}
