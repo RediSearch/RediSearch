@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::time::Duration;
+
 use criterion::{
     BatchSize, BenchmarkGroup, BenchmarkId, Criterion, criterion_group, criterion_main,
     measurement::WallTime,
@@ -16,6 +18,8 @@ use inverted_index::{InvertedIndex, RSIndexResult, numeric};
 
 fn benchmark_garbage_collection(c: &mut Criterion) {
     let mut group = c.benchmark_group("GC");
+    group.measurement_time(Duration::from_millis(500));
+    group.warm_up_time(Duration::from_millis(200));
 
     for total_records in [1_000, 100_000, 10_000_000] {
         // Random deletion pattern - 30% of documents deleted based on hash
