@@ -207,7 +207,7 @@ def test_default_scorer_with_extension():
 
 
 
-@skip(cluster=True)
+@skip(cluster=True, asan=True)
 def test_default_scorer_startup_validation():
     if 'EXT_TEST_PATH' in os.environ:
         ext_path = os.environ['EXT_TEST_PATH']

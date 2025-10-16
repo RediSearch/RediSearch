@@ -199,9 +199,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, RSGlobalConfig.defaultScorer);
   if (scoreCtx == NULL) {
     DO_LOG("warning", "default scorer '%s' is not a valid scorer", RSGlobalConfig.defaultScorer);
-    // Free the invalid scorer name, in tests OnUnload is not called
-    rm_free((void *)RSGlobalConfig.defaultScorer);
-    RSGlobalConfig.defaultScorer = NULL;
     return REDISMODULE_ERR;
   }
 
