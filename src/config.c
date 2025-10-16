@@ -218,13 +218,11 @@ int set_default_scorer_config(const char *name, RedisModuleString *val, void *pr
     }
 
     // Validation passed, now allocate and apply it to RSGlobalConfig
-    char *tempScorer = rm_strndup(newScorerName, len);
     char **ptr = (char **)privdata;
     if (*ptr) {
         rm_free(*ptr);   // Free the existing default scorer string
     }
-    *ptr = tempScorer;  // Transfer ownership
-
+    *ptr = rm_strndup(newScorerName, len);;  // Transfer ownership
     return REDISMODULE_OK;
 }
 
