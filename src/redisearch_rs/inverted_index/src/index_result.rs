@@ -725,6 +725,7 @@ impl<'index> RSIndexResult<'index> {
     /// [`RSDocumentMetadata`] embedded in it.
     ///
     /// [`Virtual`]: RSResultData::Virtual
+    #[inline(always)]
     pub fn reset_virt_metadata(&mut self) -> &mut Self {
         debug_assert_eq!(self.data, RSResultData::Virtual);
         debug_assert!(self.dmd.is_null());
@@ -829,6 +830,7 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// Set the document ID of this record
+    #[inline(always)]
     pub fn set_doc_id(&mut self, doc_id: t_docId) -> &mut Self {
         self.doc_id = doc_id;
 
@@ -850,6 +852,7 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// Set the frequency of this record
+    #[inline(always)]
     pub fn set_frequency(&mut self, frequency: u32) -> &mut Self {
         self.freq = frequency;
 
