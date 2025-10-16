@@ -12,6 +12,12 @@
 #include "hybrid/hybrid_lookup_context.h"
 
 
+static void pushDepleter(QueryProcessingCtx *qctx, ResultProcessor *depleter) {
+  depleter->upstream = qctx->endProc;
+  depleter->parent = qctx;
+  qctx->endProc = depleter;
+}
+
 // should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
 int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
   // Create synchronization context for coordinating depleter processors
@@ -45,7 +51,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
       RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
       ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
-      QITR_PushRP(qctx, depleter);
+      pushDepleter(qctx, depleter);
   }
 
   // Release the sync reference as depleters now hold their own references
@@ -77,7 +83,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(searchReq), NULL, NULL, PLN_T_DISTRIBUTE);
       RLookup_GetKey_Write(&dstp->lk, searchReq->searchopts.scoreAlias, RLOOKUP_F_NOFLAGS);
     }
-    
+
     RLookup *tailLookup = AGPLN_GetLookup(HybridRequest_TailAGGPlan(hreq), NULL, AGPLN_GETLOOKUP_FIRST);
     // Init lookup since we dont call buildQueryPart
     RLookup_Init(tailLookup, IndexSpec_GetSpecCache(hreq->sctx->spec));
