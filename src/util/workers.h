@@ -20,6 +20,7 @@
 int workersThreadPool_CreatePool(size_t worker_count);
 
 // Set the number of workers according to the configuration and server state
+// Should only be called from the main thread
 void workersThreadPool_SetNumWorkers(void);
 
 // return number of currently working threads
@@ -44,8 +45,10 @@ void workersThreadPool_Destroy(void);
 void workersThreadPool_OnEventStart(void);
 
 /** Configure the thread pool for operation end according to module configuration.
- * @param wait - if true, the function will wait for all pending jobs to finish. */
-void workersThreadPool_OnEventEnd(bool wait);
+ * @param wait - if true, the function will wait for all pending jobs to finish.
+ * @return REDISMODULE_ERR if `wait` is true but another event is already in progress, REDISMODULE_OK otherwise.
+ */
+int workersThreadPool_OnEventEnd(bool wait);
 
 /********************************************* for debugging **********************************/
 
