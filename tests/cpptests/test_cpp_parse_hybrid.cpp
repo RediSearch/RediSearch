@@ -40,7 +40,6 @@ class ParseHybridTest : public ::testing::Test {
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(NULL);
-    RSGlobalConfig.defaultScorer = DEFAULT_SCORER_NAME;
     RMCK::flushdb(ctx);
 
     // Initialize pointers to NULL
@@ -900,7 +899,7 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
 
   parseCommand(args);
   // No explicit scorer should be set; the default scorer will be used
-  ASSERT_EQ(result.search->searchopts.scorerName, DEFAULT_SCORER_NAME);
+  ASSERT_STREQ(result.search->searchopts.scorerName, DEFAULT_SCORER_NAME);
 }
 
 TEST_F(ParseHybridTest, testExplicitTextScorerForLinear) {
@@ -919,7 +918,7 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForRRF) {
   parseCommand(args);
 
   // No explicit scorer should be set; the default scorer will be used
-  ASSERT_EQ(result.search->searchopts.scorerName, DEFAULT_SCORER_NAME);
+  ASSERT_STREQ(result.search->searchopts.scorerName, DEFAULT_SCORER_NAME);
 }
 
 TEST_F(ParseHybridTest, testExplicitTextScorerForRRF) {

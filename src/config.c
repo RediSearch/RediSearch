@@ -692,15 +692,16 @@ RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
 
 // DEFAULT_SCORER
 CONFIG_SETTER(setDefaultScorer) {
-  RS_ASSERT(Extensions_InitDone());
   const char *scorerName;
   int acrc = AC_GetString(ac, &scorerName, NULL, 0);
   if (acrc == AC_OK) {
     // Validate scorer name against registered scorers
-    ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, scorerName);
-    if (scoreCtx == NULL) {
-      QueryError_SetError(status, QUERY_EBADVAL, "Invalid default scorer value");
-      return REDISMODULE_ERR;
+    if (Extensions_InitDone()) {
+      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, scorerName);
+      if (scoreCtx == NULL) {
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid default scorer value");
+        return REDISMODULE_ERR;
+      }
     }
     // Free the old scorer name before assigning the new one
     if (config->defaultScorer) {
