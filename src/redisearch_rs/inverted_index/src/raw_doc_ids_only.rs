@@ -11,7 +11,7 @@ use std::io::{Cursor, Seek, Write};
 
 use ffi::t_docId;
 
-use crate::{DecodedBy, Decoder, Encoder, IndexBlock, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, IndexBlock, RSIndexResult, TermDecoder};
 
 /// Encode and decode only the raw document ID delta without any compression.
 ///
@@ -49,6 +49,7 @@ impl DecodedBy for RawDocIdsOnly {
 }
 
 impl Decoder for RawDocIdsOnly {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -124,3 +125,5 @@ impl Decoder for RawDocIdsOnly {
         RSIndexResult::term()
     }
 }
+
+impl TermDecoder for RawDocIdsOnly {}

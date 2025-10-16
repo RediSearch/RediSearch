@@ -42,6 +42,7 @@ impl DecodedBy for FreqsOnly {
 }
 
 impl Decoder for FreqsOnly {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,

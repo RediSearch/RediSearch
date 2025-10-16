@@ -228,6 +228,9 @@ pub trait Decoder {
     }
 }
 
+/// Marker trait for decoders producing term results.
+pub trait TermDecoder: Decoder {}
+
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
 pub struct InvertedIndex<E> {
