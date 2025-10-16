@@ -54,7 +54,7 @@ void QOptimizer_Parse(AREQ *req) {
     opt->scorerType = SCORER_TYPE_NONE;
   } else {
     const char *scorer = req->searchopts.scorerName;
-    if (!scorer) {      // default is BM25STD
+    if (!scorer || !strcmp(scorer, BM25_STD_SCORER_NAME)) {      // default is BM25STD
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, TFIDF_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;

@@ -1145,6 +1145,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
       return REDISMODULE_ERR;
     }
+  } else {
+    opts->scorerName = RSGlobalConfig.defaultScorer;
   }
 
   bool resp3 = req->protocol == 3;
