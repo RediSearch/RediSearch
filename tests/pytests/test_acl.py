@@ -190,16 +190,12 @@ def test_acl_key_permissions_validation(env):
     perm_index = 'permIdx'
     no_perm_index_to_drop = 'index_to_drop'
     def create_index(env, index_name, prefixes=None):
-        if prefixes:
-            env.expect(
-                'FT.CREATE', index_name, 'PREFIX', len(prefixes), *prefixes,\
-                'SCHEMA', 'n', 'NUMERIC', 'embedding', 'VECTOR', 'FLAT', 6,\
-                'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2'
-            ).ok()
-        else:
-            env.expect('FT.CREATE', index_name, 'SCHEMA', 'n', 'NUMERIC',\
-                'embedding', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,\
-                'DISTANCE_METRIC', 'L2').ok()
+        prefix_clause = ['PREFIX', len(prefixes), *prefixes] if prefixes else []
+        env.expect(
+            'FT.CREATE', index_name, *prefix_clause,\
+            'SCHEMA', 'n', 'NUMERIC', 'embedding', 'VECTOR', 'FLAT', 6,\
+            'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2'
+        ).ok()
     create_index(env, no_perm_index)
     create_index(env, perm_index, ['h:'])
 
@@ -215,8 +211,8 @@ def test_acl_key_permissions_validation(env):
         ['FT.AGGREGATE', no_perm_index, '*'],
         ['FT.INFO', no_perm_index],
         ['FT.SEARCH', no_perm_index, '*'],
-        # ['FT.HYBRID', no_perm_index, 'SEARCH', '*', 'VSIM' ,'@embedding', '$BLOB',\
-        #  'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"],
+        ['FT.HYBRID', no_perm_index, 'SEARCH', '*', 'VSIM' ,'@embedding', '$BLOB',\
+         'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"],
         ['FT.PROFILE', no_perm_index, 'AGGREGATE', 'QUERY', '*'],
         ['FT.PROFILE', no_perm_index, 'SEARCH', 'QUERY', '*'],
         ['FT.CURSOR', 'READ', no_perm_index, '555'],
@@ -236,7 +232,7 @@ def test_acl_key_permissions_validation(env):
         ['FT.DROPINDEX', no_perm_index_to_drop],
     ]
     for command in index_commands:
-        env.expect(*command).error().contains("User does not have the required permissions to query the index")
+        env.expect(*command).error().contains("User does not have the required permissions")
 
     # the `test` user should be able to execute all commands that do not refer to a
     # specific index
@@ -247,15 +243,19 @@ def test_acl_key_permissions_validation(env):
         ['FT.DICTADD', 'dict', 'hello'],
         ['FT.DICTDEL', 'dict', 'hello'],
         ['FT.DICTDUMP', 'dict'],
-        ['FT.ALIASADD', 'myAlias', perm_index], # Added so we can call `ALIASDEL`
+        ['FT.ALIASADD', 'myAlias', perm_index], # Added so we can call `ALIASDEL` next
         ['FT.ALIASDEL', 'myAlias'],
-        ['FT.SUGADD', 'h:sug', 'hello', '1'],
-        ['FT.SUGDEL', 'h:sug', 'hello'],
-        ['FT.SUGGET', 'h:sug', 'hello'],
-        ['FT.SUGLEN', 'h:sug']
+        # (Comfort hack) We use the hash tag {3} so we are able to use `env.cmd`
+        # since we will not be able to use the cluster connection for the config
+        # commands.
+        ['FT.SUGADD', 'h:sug{3}', 'hello', '1'],
+        ['FT.SUGDEL', 'h:sug{3}', 'hello'],
+        ['FT.SUGGET', 'h:sug{3}', 'hello'],
+        ['FT.SUGLEN', 'h:sug{3}']
     ]
     for command in non_index_commands:
-        env.expect(*command).noError() # We don't expect any errors
+        # We expect no errors, and don't care about the return value.
+        env.expect(*command).noError()
 
     # Modify the `DROPINDEX` command that does not have the same index
     index_commands[-1][1] = perm_index
@@ -267,6 +267,13 @@ def test_acl_key_permissions_validation(env):
         if no_perm_index in command:
             command[command.index(no_perm_index)] = perm_index
         try:
-            env.execute_command(*command)
+            env.cmd(*command)
         except Exception as e:
-            env.assertNotContains("User does not have the required permissions", str(e))
+            # Assert that the error is one of the expected errors
+            # What we DON'T want to see is a permissions error
+            possible_errors = [
+                "Cursor not found",
+                "Cursor does not exist",
+                "Document already exists",
+            ]
+            env.assertTrue(any([err in str(e) for err in possible_errors]))
