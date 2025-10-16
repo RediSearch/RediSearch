@@ -118,8 +118,8 @@ static inline array_t array_ensure_cap(array_t arr, uint32_t delta) {
 
 /* Ensure capacity for the array to grow by one */
 static inline array_t array_grow(array_t arr, size_t n) {
-  array_hdr(arr)->len += n;
   array_hdr(arr)->remain_cap = array_hdr(arr)->remain_cap > n? array_hdr(arr)->remain_cap - n : 0;
+  array_hdr(arr)->len += n;
   return array_ensure_cap(arr, n);
 }
 
@@ -231,8 +231,8 @@ static inline void *array_trimm(array_t arr, uint32_t new_len) {
   array_hdr_t *arr_hdr = array_hdr(arr);
   RS_LOG_ASSERT(new_len >= 0, "trimming len is negative");
   RS_LOG_ASSERT((new_len <= arr_hdr->len), "trimming len is greater then current len");
-  arr_hdr->len = new_len;
   arr_hdr->remain_cap += arr_hdr->len - new_len;
+  arr_hdr->len = new_len;
   return arr_hdr->buf;
 }
 
