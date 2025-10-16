@@ -38,13 +38,16 @@ pub enum RQEIteratorError {
     IoError(#[from] std::io::Error),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 /// The status of the iterator after a call to `revalidate`
-pub enum RQEValidateStatus {
+pub enum RQEValidateStatus<'iterator, 'index> {
     /// The iterator is still valid and at the same position.
     Ok,
     /// The iterator is still valid but its internal state has changed.
-    Moved,
+    Moved {
+        /// The new current current document the iterator is at, or `None` if the iterator is at EOF.
+        current: Option<&'iterator RSIndexResult<'index>>,
+    },
     /// The iterator is no longer valid, and should not be used or rewound. Should be dropped.
     Aborted,
 }
@@ -73,9 +76,9 @@ pub trait RQEIterator {
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
     /// The iterator should check if it is still valid.
-    fn revalidate(&mut self) -> RQEValidateStatus {
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, '_>, RQEIteratorError> {
         // Default implementation does nothing.
-        RQEValidateStatus::Ok
+        Ok(RQEValidateStatus::Ok)
     }
 
     ///Rewind the iterator to the beginning and reset its properties.
