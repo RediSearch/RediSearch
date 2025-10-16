@@ -9,7 +9,6 @@
 
 #include "optional_iterator.h"
 #include "wildcard_iterator.h"
-#include "inverted_index_iterator.h"
 #include "empty_iterator.h"
 
 static void OI_Free(QueryIterator *base) {
