@@ -33,9 +33,8 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                          REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
+    RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
     return RediSearch_InitModuleInternal(ctx, argv, argc);
-}
-
 }
 
 void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19937 rng,

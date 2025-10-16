@@ -83,6 +83,7 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'BM25STD').equal('OK')
     if MT_BUILD:
         env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
         env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
@@ -138,6 +139,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXAGGREGATERESULTS'][0], 'unlimited')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
+    env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'BM25STD')
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
     if MT_BUILD:
         env.assertEqual(res_dict['WORKERS'][0], '0')
