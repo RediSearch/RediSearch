@@ -77,7 +77,7 @@ RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& pref
         args.nprefixes = 1;
     }
 
-    QueryError status = {};
+    QueryError status = QueryError_Default();
 
     get_spec(ism)->rule = SchemaRule_Create(&args, {ism}, &status);
     Spec_AddToDict(ism);

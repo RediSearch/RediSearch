@@ -889,10 +889,9 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     env.addShardToClusterIfExists()
     new_shard_conn = env.getConnection(shardId=initial_shards_count+1)
     verify_shard_init(new_shard_conn)
-    # Expect that the cluster will be aware of the new shard, but for redisearch coordinator, the new shard isn't
-    # considered part of the partition yet as it does not contain any slots.
+    # Expect that the cluster will be aware of the new shard.
     env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
-    env.assertEqual(new_shard_conn.execute_command("search.clusterinfo")[:2], ['num_partitions', int(initial_shards_count)])
+    env.assertEqual(new_shard_conn.execute_command("search.clusterinfo")[:2], ['num_partitions', int(initial_shards_count) + 1])
 
     # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
     new_shard_id = new_shard_conn.execute_command('CLUSTER MYID')
@@ -906,23 +905,24 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # for the cluster refresh to occur and acknowledged by all shards)
     with TimeLimit(40, "fail to acknowledge topology"):
         while True:
-            time.sleep(0.5)
             cluster_info = new_shard_conn.execute_command("search.clusterinfo")
-            if cluster_info[:2] == ['num_partitions', int(initial_shards_count+1)]:
+            shards_idx = cluster_info.index('shards') + 1
+            if any([range[0] == [0, 0] for range in cluster_info[shards_idx:]]):
                 break
+            time.sleep(0.5)
     # search.clusterinfo response format is the following:
-    # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'slots',
-    # [0, 0, ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
-    # [1, 5461, ['60cdcb85a8f73f87ac6cc831ee799b75752aace3', '127.0.0.1', 6379, 'master ']],
-    # [5462, 10923, ['6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', '127.0.0.1', 6381, 'master ']],
-    # [10924, 16383, ['4e51033405651441a4be6ddfb46cd85d0c54af6f', '127.0.0.1', 6383, 'master ']]]
-    unique_shards = set(shard[2][0] for shard in cluster_info[9:])
+    # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'shards',
+    # [[0, 0], ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
+    # [[1, 5461], ['60cdcb85a8f73f87ac6cc831ee799b75752aace3', '127.0.0.1', 6379, 'master']],
+    # [[5462, 10923], ['6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', '127.0.0.1', 6381, 'master']],
+    # [[10924, 16383], ['4e51033405651441a4be6ddfb46cd85d0c54af6f', '127.0.0.1', 6383, 'master']]]
+    unique_shards = set(shard[1][0] for shard in cluster_info[shards_idx:])
     env.assertEqual(len(unique_shards), initial_shards_count+1, message=f"cluster info is {cluster_info}")
 
     # Verify that slot 0 moved to the new shard,
-    shards_with_slot_0 = [shard for shard in cluster_info[9:] if shard[0] == 0]
+    shards_with_slot_0 = [shard for shard in cluster_info[shards_idx:] if shard[0][0] == 0]
     env.assertEqual(len(shards_with_slot_0), 1, message=f"cluster info is {cluster_info}")
-    env.assertEqual(shards_with_slot_0[0][2][0], new_shard_id, message=f"cluster info is {cluster_info}")
+    env.assertEqual(shards_with_slot_0[0][1][0], new_shard_id, message=f"cluster info is {cluster_info}")
 
 @skip(cluster=True)
 def test_mod5910(env):

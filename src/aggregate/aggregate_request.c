@@ -231,10 +231,6 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
       QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format is only supported with JSON");
       return REDISMODULE_ERR;
     }
-    if (japi_ver < 4) {
-      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format requires a newer RedisJSON (with API version RedisJSON_V4)");
-      return REDISMODULE_ERR;
-    }
   }
   return REDISMODULE_OK;
 }
@@ -1427,7 +1423,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     Pipeline_BuildQueryPart(&req->pipeline, &params);
-    if (status->code != QUERY_OK) {
+    if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;
     }
   }

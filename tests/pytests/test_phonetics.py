@@ -6,7 +6,8 @@ from common import getConnectionByEnv, toSortedFlatList, waitForIndex, skip
 def testBasicPoneticCase(env):
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'text', 'TEXT', 'PHONETIC', 'dm:en', 'SORTABLE'))
-    env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command(
+                           'ft.add', 'idx', 'doc1', 1.0, 'fields',
                            'text', 'morfix'))
 
     env.assertEqual(env.cmd('ft.search', 'idx', 'morphix'), [1, 'doc1', ['text', 'morfix']])
@@ -31,7 +32,7 @@ def testBasicPoneticWrongDeclaration(env):
 def testPoneticOnNonePhoneticField(env):
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'text', 'TEXT', 'PHONETIC', 'dm:en', 'SORTABLE', 'text1', 'TEXT', 'SORTABLE'))
-    env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                            'text', 'morfix',
                            'text1', 'phonetic'))
 
@@ -48,7 +49,7 @@ def testPoneticOnNonePhoneticField(env):
 def testPoneticWithAggregation(env):
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'text', 'TEXT', 'PHONETIC', 'dm:en', 'SORTABLE', 'text1', 'TEXT', 'SORTABLE'))
-    env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                            'text', 'morfix',
                            'text1', 'phonetic'))
 
@@ -70,7 +71,7 @@ def testPoneticWithSchemaAlter(env):
                          'schema', 'text', 'TEXT', 'PHONETIC', 'dm:en', 'SORTABLE', 'text1', 'TEXT', 'SORTABLE'))
     env.assertOk(env.cmd('ft.alter', 'idx', 'SCHEMA', 'ADD', 'text2', 'TEXT', 'PHONETIC', 'dm:en'))
 
-    env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                            'text', 'morfix',
                            'text1', 'check',
                            'text2', 'phonetic'))
@@ -85,8 +86,9 @@ def testPoneticWithSmallTerm(env):
     env.assertOk(env.cmd('ft.create', 'complainants', 'ON', 'HASH',
                          'SCHEMA', 'name', 'text', 'PHONETIC', 'dm:en', 'almamater', 'text', 'PHONETIC', 'dm:en'))
 
-    env.assertOk(env.cmd('ft.add', 'complainants', 'foo64', 1.0, 'FIELDS', 'name', 'jon smith', 'almamater', 'Trent'))
-    env.assertOk(env.cmd('ft.add', 'complainants', 'foo65', 1.0, 'FIELDS', 'name', 'john jones', 'almamater', 'Toronto'))
+    con = env.getClusterConnectionIfNeeded()
+    env.assertOk(con.execute_command('ft.add', 'complainants', 'foo64', 1.0, 'FIELDS', 'name', 'jon smith', 'almamater', 'Trent'))
+    env.assertOk(con.execute_command('ft.add', 'complainants', 'foo65', 1.0, 'FIELDS', 'name', 'john jones', 'almamater', 'Toronto'))
 
     res = env.cmd('ft.search', 'complainants', '@name:(john=>{$phonetic:true})')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'foo64', ['name', 'jon smith', 'almamater', 'Trent'], 'foo65', ['name', 'john jones', 'almamater', 'Toronto']]))
@@ -94,8 +96,9 @@ def testPoneticWithSmallTerm(env):
 def testPoneticOnNumbers(env):
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'SCHEMA', 'test', 'TEXT', 'PHONETIC', 'dm:en'))
-    env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'test', 'this is 2015 test'))
-    env.assertOk(env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'test', 'this is 04 test'))
+    con = env.getClusterConnectionIfNeeded()
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'test', 'this is 2015 test'))
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'test', 'this is 04 test'))
     res = env.cmd('ft.search', 'idx', '04')
     env.assertEqual(res, [1, 'doc2', ['test', 'this is 04 test']])
 
@@ -123,4 +126,3 @@ def testIssue3836(env):
     ]
     res = env.cmd(*poc)
     env.assertEqual(res, [0])
-

@@ -63,7 +63,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp, specialCaseCtx *knnCtx) {
   // We need to prepend the array with the command, index, and query that
   // we want to use.
-  const char **tmparr = array_new(const char *, us->nserialized);
+  const char **tmparr = array_new(const char *, array_len(us->serialized));
 
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -121,7 +121,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     array_append(tmparr, "VERBATIM");
   }
 
-  for (size_t ii = 0; ii < us->nserialized; ++ii) {
+  for (size_t ii = 0; ii < array_len(us->serialized); ++ii) {
     array_append(tmparr, us->serialized[ii]);
   }
 
@@ -349,7 +349,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   specialCaseCtx *knnCtx = NULL;
 
   // Check if the index still exists, and promote the ref accordingly
@@ -391,7 +391,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
   if (!debug_req) {
     goto err;

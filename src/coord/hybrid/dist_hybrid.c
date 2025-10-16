@@ -19,68 +19,199 @@
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
 
+// We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
+#define HYBRID_RESP_PROTOCOL_VERSION 3
+
+/**
+ * Appends all SEARCH-related arguments to MR command.
+ * This includes SEARCH keyword, query, and optional SCORER and YIELD_SCORE_AS parameters
+ * that come immediately after the query in sequence.
+ *
+ * @param argv - source command arguments array
+ * @param argc - total argument count
+ * @param xcmd - destination MR command to append arguments to
+ * @param searchOffset - offset where SEARCH keyword appears
+ */
+static void HybridRequest_appendSearch(RedisModuleString **argv, int argc, MRCommand *xcmd, int searchOffset) {
+  // Add SEARCH keyword and query
+  MRCommand_AppendRstr(xcmd, argv[searchOffset]);     // SEARCH
+  MRCommand_AppendRstr(xcmd, argv[searchOffset + 1]); // query
+
+  // Process optional parameters sequentially right after the query
+  int currentOffset = searchOffset + 2; // Start after SEARCH "query"
+
+  // Process SCORER and YIELD_SCORE_AS in any order, but they must be sequential
+  while (currentOffset < argc) {
+    const char *argStr = RedisModule_StringPtrLen(argv[currentOffset], NULL);
+
+    if (strcmp(argStr, "SCORER") == 0 && currentOffset < argc - 1) {
+      // Found SCORER - append it and its argument
+      MRCommand_AppendRstr(xcmd, argv[currentOffset]);     // SCORER
+      MRCommand_AppendRstr(xcmd, argv[currentOffset + 1]); // scorer name
+      currentOffset += 2;
+    } else if (strcmp(argStr, "YIELD_SCORE_AS") == 0 && currentOffset < argc - 1) {
+      // Found YIELD_SCORE_AS - append it and its argument
+      MRCommand_AppendRstr(xcmd, argv[currentOffset]);     // YIELD_SCORE_AS
+      MRCommand_AppendRstr(xcmd, argv[currentOffset + 1]); // score alias
+      currentOffset += 2;
+    } else {
+      // Not a SEARCH parameter - we've reached the end of SEARCH section
+      break;
+    }
+  }
+}
+
+/**
+ * Appends all VSIM-related arguments to MR command.
+ * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER if present.
+ *
+ * @param argv - source command arguments array
+ * @param argc - total argument count
+ * @param xcmd - destination MR command to append arguments to
+ * @param vsimOffset - offset where VSIM keyword appears
+ */
+static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRCommand *xcmd, int vsimOffset) {
+  // Add VSIM keyword and field
+  MRCommand_AppendRstr(xcmd, argv[vsimOffset]);     // VSIM
+  MRCommand_AppendRstr(xcmd, argv[vsimOffset + 1]); // field
+
+  // Add vector data (handle parameter placeholders vs raw data)
+  size_t paramLen;
+  const char *paramStr = RedisModule_StringPtrLen(argv[vsimOffset + 2], &paramLen);
+  if (paramLen > 0 && paramStr[0] == '$') {
+    // It's a parameter placeholder - forward as is
+    MRCommand_AppendRstr(xcmd, argv[vsimOffset + 2]);
+  } else {
+    // It's raw data - forward as binary
+    MRCommand_Append(xcmd, paramStr, paramLen);
+  }
+
+  // Find and add KNN/RANGE method and its arguments
+  long long methodNargs = 0;
+  int vectorMethodOffset = -1;
+
+  int argOffset = RMUtil_ArgIndex("KNN", argv + vsimOffset, argc - vsimOffset);
+  if (argOffset == -1) {
+    argOffset = RMUtil_ArgIndex("RANGE", argv + vsimOffset, argc - vsimOffset);
+  }
+
+  if (argOffset != -1) {
+    vectorMethodOffset = argOffset + vsimOffset;
+    if (vectorMethodOffset < argc - 2) {
+      RedisModule_StringToLongLong(argv[vectorMethodOffset + 1], &methodNargs);
+
+      // Append method name, argument count, and all method arguments
+      for (int i = 0; i < methodNargs + 2; ++i) {
+        MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);
+      }
+    }
+  }
+
+  // Add VSIM FILTER if present at expected position
+  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] FILTER <expression>
+  int expectedFilterOffset = vsimOffset + 3; // VSIM + field + vector
+  if (vectorMethodOffset != -1) {
+    expectedFilterOffset += 2 + methodNargs; // method + count + args
+  }
+
+  int actualFilterOffset = RMUtil_ArgIndex("FILTER", argv + vsimOffset, argc - vsimOffset);
+  actualFilterOffset = actualFilterOffset != -1 ? actualFilterOffset + vsimOffset : -1;
+
+  if (actualFilterOffset == expectedFilterOffset && actualFilterOffset < argc - 1) {
+    // This is a VSIM FILTER - append it to the command
+    MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
+    MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
+  }
+}
 
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd,
+                            MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams) {
+  int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
   // Build _FT.HYBRID command (no profiling support)
   *xcmd = MR_NewCommand(2, "_FT.HYBRID", index_name);
 
-  // Find the indices of the hybrid query components
-  // SEARCH and VSIM are mandatory, COMBINE and PARAMS are optional
-  int search_index = RMUtil_ArgIndex("SEARCH", argv + 2, argc - 2) + 2;
-  int vsim_index = RMUtil_ArgIndex("VSIM", argv + search_index, argc - search_index) + search_index;
+  // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
+  int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
+  HybridRequest_appendSearch(argv, argc, xcmd, searchOffset);
 
-  // PARAMS is optional, but if present, it must come after VSIM + 2
-  int params_index = RMUtil_ArgIndex("PARAMS", argv + vsim_index + 2, argc - (vsim_index + 2) );
-  if (params_index != -1) {
-    params_index += vsim_index + 2;
-  }
-  long long nparams;
-  if (params_index == -1) {
-    nparams = 0;
-  } else {
-    RedisModule_StringToLongLong(argv[params_index + 1], &nparams);
-  }
+  // Add all VSIM-related arguments (VSIM, field, vector, methods, filter)
+  int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
+  HybridRequest_appendVsim(argv, argc, xcmd, vsimOffset);
 
-  // Add SEARCH arguments
-  int current_index = 2; // Skip the command and index name
-  for (int i = current_index; i < vsim_index + 2; i++) {
-    MRCommand_AppendRstr(xcmd, argv[i]);
-  }
-  current_index = vsim_index + 2;
+  int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
+  combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
+  bool hasCombine = combineOffset != -1;
 
-  // Add VSIM + COMBINE arguments
-  int limit = (params_index == -1 ? argc : params_index);
-  for (int i = current_index; i < limit; i++) {
-    if (i == vsim_index + 2 && argv[i] != '$') {
-      MRCommand_AppendRstr(xcmd, argv[i]);
-    } else {
-      size_t len;
-      const char *str = RedisModule_StringPtrLen(argv[i], &len);
-      MRCommand_Append(xcmd, str, len);
+  // Add COMBINE
+  if (combineOffset != -1) {
+    MRCommand_AppendRstr(xcmd, argv[combineOffset]);
+    // Add RRF/LINEAR and its arguments
+    argOffset = RMUtil_ArgIndex("RRF", argv + vsimOffset, argc - vsimOffset);
+    if (argOffset == -1) {
+      argOffset = RMUtil_ArgIndex("LINEAR", argv + vsimOffset, argc - vsimOffset);
+    }
+    argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
+    if (argOffset != -1 && argOffset < argc - 2) {
+      long long nargs;
+      RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
+
+      for (int i = 0; i < nargs + 2; ++i) {
+        MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
+      }
     }
   }
-  current_index = limit;
+
+  if (serialized) {
+    for (size_t ii = 0; ii < array_len(serialized); ++ii) {
+      const char *token = serialized[ii];
+      MRCommand_Append(xcmd, token, strlen(token));
+    }
+  }
 
   // Add PARAMS arguments if present
-  if (params_index != -1) {
-    for (int i = params_index; i < params_index + nparams + 2; i++) {
-      MRCommand_AppendRstr(xcmd, argv[i]);
+  argOffset = RMUtil_ArgIndex("PARAMS", argv + vsimOffset, argc - vsimOffset);
+  argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
+  if (argOffset != -1) {
+    long long nargs;
+    int rc = RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
+
+    // PARAMS keyword and count - treat as string
+    MRCommand_AppendRstr(xcmd, argv[argOffset]);
+    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
+
+    // append params string including PARAMS keyword and nargs
+    for (int i = 2; i < nargs + 2; ++i) {
+      if (i % 2 == 0) {
+        // Parameter name - treat as string
+        MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
+      } else {
+        // Parameter value - could be binary, treat as binary
+        size_t valueLen;
+        const char *valueData = RedisModule_StringPtrLen(argv[argOffset + i], &valueLen);
+        MRCommand_Append(xcmd, valueData, valueLen);
+      }
     }
-    current_index = params_index + nparams + 2;
   }
 
-  // Add the remaining arguments (TIMEOUT, DIALECT, FILTER, etc.)
-  for (int i = current_index; i < argc; i++) {
-    size_t len;
-    const char *str = RedisModule_StringPtrLen(argv[i], &len);
-    MRCommand_Append(xcmd, str, len);
+  // check for timeout argument and append it to the command.
+  // If TIMEOUT exists, it was already validated at AREQ_Compile.
+  argOffset = RMUtil_ArgIndex("TIMEOUT", argv, argc);
+  if (argOffset != -1) {
+    MRCommand_AppendRstr(xcmd, argv[argOffset]);
+    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
+  }
+
+  // Add DIALECT arguments if present
+  argOffset = RMUtil_ArgIndex("DIALECT", argv, argc);
+  if (argOffset != -1) {
+    MRCommand_AppendRstr(xcmd, argv[argOffset]);
+    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
   }
 
   // Add WITHCURSOR
@@ -109,7 +240,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 // UPDATED: Set RPNet types when creating them
 // NOTE: Caller should clone the dispatcher_ref before calling this function
 static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
-                          AREQDIST_UpstreamInfo *us,
+                          RLookup *lookup,
                           int (*nextFunc)(ResultProcessor *, SearchResult *)) {
   // Establish our root processor, which is the distributed processor
   MRCommand cmd = MRCommand_Copy(xcmd);
@@ -118,7 +249,7 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   rpRoot->base.parent = qctx;
-  rpRoot->lookup = us->lookup;
+  rpRoot->lookup = lookup;
   rpRoot->areq = r;
 
   ResultProcessor *rpProfile = NULL;
@@ -153,68 +284,17 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
   }
 }
 
-// should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
-int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
-  // Create synchronization context for coordinating depleter processors
-  // This ensures thread-safe access when multiple depleters read from their pipelines
-  StrongRef sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
+static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorRequest, HybridPipelineParams *hybridParams) {
+  const size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
 
-  // Build individual pipelines for each search request
-  for (size_t i = 0; i < req->nrequests; i++) {
-      AREQ *areq = req->requests[i];
+  // TODO: would be better to look for a vector node (recursive search on the ast) and decide according to its query type (knn/range)
+  const bool isKNN = vectorRequest->ast.root->type == QN_VECTOR;
+  const size_t K = isKNN ? vectorRequest->ast.root->vn.vq->knn.k : 0;
 
-      // areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
-      AREQ_AddRequestFlags(areq,QEXEC_F_BUILDPIPELINE_NO_ROOT);
-
-      int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
-      if (rc != REDISMODULE_OK) {
-          StrongRef_Release(sync_ref);
-          return REDISMODULE_ERR;
-      }
-
-      // Obtain the query processing context for the current AREQ
-      QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
-      // Set the result limit for the current AREQ - hack for now, should use window value
-      if (IsHybridVectorSubquery(areq)){
-        qctx->resultLimit = areq->maxAggregateResults;
-      } else if (IsHybridSearchSubquery(areq)) {
-        qctx->resultLimit = areq->maxSearchResults;
-      }
-      // Create a depleter processor to extract results from this pipeline
-      // The depleter will feed results to the hybrid merger
-      RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
-      RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-      ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
-      QITR_PushRP(qctx, depleter);
-
-      // RPNet *rpNet = RPNet_New(xcmd, rpnetNext_StartWithMappings);
-      // RPNet_SetDispatcher(rpNet, dispatcher);
-      // QITR_PushRP(qctx, &rpNet->base);
-  }
-
-  // Release the sync reference as depleters now hold their own references
-  StrongRef_Release(sync_ref);
-  return REDISMODULE_OK;
-}
-
-static void hybridRequestSetupCoordinatorSubqueriesRequests(HybridRequest *hreq, const HybridPipelineParams *hybridParams) {
-  RS_ASSERT(hybridParams->scoringCtx);
-  size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
-
-  bool isKNN = hreq->requests[VECTOR_INDEX]->ast.root->type == QN_VECTOR;
-  size_t K = isKNN ? hreq->requests[VECTOR_INDEX]->ast.root->vn.vq->knn.k : 0;
-
-  array_free_ex(hreq->requests, AREQ_Free(*(AREQ**)ptr));
-  hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
-  hreq->nrequests = array_len(hreq->requests);
-
-  AREQ_AddRequestFlags(hreq->requests[SEARCH_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
-  AREQ_AddRequestFlags(hreq->requests[VECTOR_INDEX], QEXEC_F_IS_HYBRID_COORDINATOR_SUBQUERY);
-
-  PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[SEARCH_INDEX]));
+  PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(searchRequest));
   searchArrangeStep->limit = window;
 
-  PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[VECTOR_INDEX]));
+  PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(vectorRequest));
   if (isKNN) {
     // Vector subquery is a KNN query
     // Heapsize should be min(window, KNN K)
@@ -224,7 +304,6 @@ static void hybridRequestSetupCoordinatorSubqueriesRequests(HybridRequest *hreq,
     // its range, limit = window
     vectorArrangeStep->limit = window;
   }
-
 }
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
@@ -247,7 +326,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     int rc = parseHybridCommand(ctx, &ac, hreq->sctx, &cmd, status, false);
     // we only need parse the combine and what comes after it
     // we can manually create the subqueries pipelines (depleter -> sorter(window)-> RPNet(shared dispatcher ))
-    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+    if (rc != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
 
     // Initialize timeout for all subqueries BEFORE building pipelines
     // but after the parsing to know the timeout values
@@ -260,34 +341,33 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // // Set request flags from hybridParams
     // hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
 
-    // TODO: Do we need a different AGGPLN_Hybrid_Distribute()?
-    // by now I'm reusing AGGPLN_Distribute()
-    rc = AGGPLN_Distribute(HybridRequest_TailAGGPlan(hreq), status);
-    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+        AREQ *areq = hreq->requests[i];
+        if (AGGPLN_Distribute(AREQ_AGGPlan(areq), status) != REDISMODULE_OK) {
+            return REDISMODULE_ERR;
+        }
+    }
+    // apply the sorting changes after the distribute phase
+    setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
+    RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
 
-    AREQDIST_UpstreamInfo us = {NULL};
-
-    hybridRequestSetupCoordinatorSubqueriesRequests(hreq, &hybridParams);
-
-    rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, &hybridParams);
-    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
-
-    // AREQ_AddRequestFlags(hreq somehow,QEXEC_F_BUILDPIPELINE_NO_ROOT);
-
-    rc = HybridRequest_BuildMergePipeline(hreq, &hybridParams);
-    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+    arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
+    if (!serialized) {
+      return REDISMODULE_ERR;
+    }
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, &us, &xcmd, sp, &hybridParams);
-    xcmd.protocol = is_resp3(ctx) ? 3 : 2;
+    HybridRequest_buildMRCommand(argv, argc, &xcmd, serialized, sp, &hybridParams);
+
+    xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     xcmd.forProfiling = false;  // No profiling support for hybrid yet
     xcmd.rootCommand = C_READ;
 
     // UPDATED: Use new start function with mappings (no dispatcher needed)
-    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartWithMappings);
-    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartWithMappings);
+    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext_StartWithMappings);
+    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, lookups[1], rpnetNext_StartWithMappings);
 
     // Free the command
     MRCommand_Free(&xcmd);
@@ -308,12 +388,6 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     QueryProcessingCtx *vsimQctx = AREQ_QueryProcessingCtx(hreq->requests[1]);
     RPNet *searchRPNet = (RPNet *)searchQctx->rootProc;
     RPNet *vsimRPNet = (RPNet *)vsimQctx->rootProc;
-    RLookup *searchLookup = AGPLN_GetLookup(AREQ_AGGPlan(hreq->requests[0]), NULL, AGPLN_GETLOOKUP_FIRST);
-    RLookup *vsimLookup = AGPLN_GetLookup(AREQ_AGGPlan(hreq->requests[1]), NULL, AGPLN_GETLOOKUP_FIRST);
-    RLookup_Init(searchLookup, NULL);
-    RLookup_Init(vsimLookup, NULL);
-    searchRPNet->lookup = searchLookup;
-    vsimRPNet->lookup = vsimLookup;
 
     CursorMappings *search = rm_calloc(1, sizeof(CursorMappings));
     CursorMappings *vsim = rm_calloc(1, sizeof(CursorMappings));

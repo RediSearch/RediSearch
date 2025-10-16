@@ -10,11 +10,12 @@ def testWideSchema(env):
         schema.extend(('field_%d' % i, 'TEXT'))
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', *schema))
     N = 10
+    con = env.getClusterConnectionIfNeeded()
     for n in range(N):
         fields = []
         for i in range(FIELDS):
             fields.extend(('field_%d' % i, 'hello token_%d' % i))
-        env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields', *fields).ok()
+        env.assertOk(con.execute_command('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields', *fields))
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         for i in range(FIELDS):

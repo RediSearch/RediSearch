@@ -198,8 +198,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsHybridTail(&params->common) || IsHybridSearchSubquery(&params->common) ||
-               IsHybridCoordinatorSubquery(&params->common) ||
+    } else if (IsHybrid(&params->common) ||
                IsSearch(&params->common) && !IsOptimized(&params->common) ||
                HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
@@ -555,7 +554,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         // Process the complete LOAD step
         rp = processLoadStep(lstp, curLookup, params->common.sctx, params->common.reqflags,
                             loadFlags, forceLoad, outStateFlags, status);
-        if (status->code != QUERY_OK) {
+        if (QueryError_HasError(status)) {
           return REDISMODULE_ERR;
         }
         if (rp) {
