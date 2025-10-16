@@ -1,5 +1,5 @@
 from common import *
-from vecsim_utils import get_unique_vector, set_up_database_with_vectors
+from vecsim_utils import set_up_database_with_vectors, create_random_np_array_typed
 
 def calculate_effective_k(original_k, ratio, num_shards):
     """Calculate effective K using the PRD formula: max(top_k/#shards, ceil(top_k × ratio))"""
@@ -51,7 +51,7 @@ def test_shard_k_ratio_parameter_validation():
     datatype = 'FLOAT32'
     set_up_database_with_vectors(env, dim, num_docs=1, index_name='idx', datatype='FLOAT32')
 
-    query_vec = get_unique_vector(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, datatype)
 
     # Test invalid ratio values
     invalid_ratios = [0.0, -0.1, 1.1, 2.0, 0, 7, "invalid"]
@@ -89,7 +89,7 @@ def test_ft_profile_shard_result_validation_scenarios():
     num_docs = k * env.shardsCount * 3 # ensure we always have enough results in each shard
     set_up_database_with_vectors(env, dim, num_docs=num_docs, index_name='idx', datatype='FLOAT32')
 
-    query_vec = get_unique_vector(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, datatype)
 
     # Test scenarios with different characteristics
     # effectiveK = max(top_k/#shards, ceil(top_k × ratio))
@@ -129,7 +129,7 @@ def test_k_0():
     datatype = 'FLOAT32'
     set_up_database_with_vectors(env, dim, num_docs=10, index_name='idx', datatype='FLOAT32')
 
-    query_vec = get_unique_vector(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, datatype)
 
     k = 0
     ratio = 0.5
@@ -158,7 +158,7 @@ def test_query():
     for i in range(1, num_docs + 1):
         conn.execute_command('HSET', f'doc{i}', 'n', i)
 
-    query_vec = get_unique_vector(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, datatype)
 
     min_shard_ratio = 1 / float(env.shardsCount)
     ratios = [min_shard_ratio, 0.01, 0.9, 1.0]  # Valid ratios
@@ -233,7 +233,7 @@ def test_insufficient_docs_per_shard():
     # Set up database with 10 documents initially
     num_initial_docs = 20
     set_up_database_with_vectors(env, dim, num_initial_docs, 'idx', datatype)
-    query_vec = get_unique_vector(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, datatype)
 
     # The database contains k(5) results in total.
     # However, since in this case effectiveK = 2, some shards won't have enough results,

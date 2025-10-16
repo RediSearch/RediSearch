@@ -8,6 +8,7 @@ from includes import *
 from random import randrange
 from redis import ResponseError
 import distro
+from vecsim_utils import *
 
 '''************* Helper methods for vecsim tests ************'''
 EPSILONS = {'FLOAT32': 1E-6, 'FLOAT64': 1E-9, 'FLOAT16': 1E-2, 'BFLOAT16': 1E-2}
@@ -21,15 +22,6 @@ def assert_query_results(env: Env, expected_res, actual_res, error_msg=None, dat
         # For each result, assert its id and its distance (use float equality)
         env.assertEqual(expected_res[i], actual_res[i], depth=1, message=error_msg)
         env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), EPSILONS[data_type], depth=1, message=error_msg)
-
-
-def get_vecsim_memory(env, index_key, field_name):
-    return float(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))["MEMORY"])/0x100000
-
-
-def get_vecsim_index_size(env, index_key, field_name):
-    return int(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))["INDEX_SIZE"])
-
 
 def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors, data_type='FLOAT32'):
     id_vec_list = []
@@ -2511,49 +2503,3 @@ def test_vector_index_ptr_valid(env):
     # Server will reply OK but crash afterwards, so a PING is required to verify
     env.expect('FLUSHALL').noError()
     env.expect('PING').noError()
-
-@skip(cluster=True)
-def test_svs_vamana_info_with_compression():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    dim = 16
-    data_type = 'FLOAT32'
-
-    # Simple platform-agnostic check for Intel CPU.
-    import platform
-    def is_intel_cpu():
-        if platform.system() != 'Linux' or platform.machine() != 'x86_64':
-            return False
-        # Check CPU vendor in /proc/cpuinfo on Linux
-        try:
-            with open('/proc/cpuinfo', 'r') as f:
-                cpuinfo = f.read().lower()
-                if 'vendor_id' in cpuinfo and 'genuineintel' in cpuinfo:
-                    return True
-        except (IOError, FileNotFoundError):
-            return False
-
-    def is_alpine():
-        return distro.name().lower() == 'alpine linux'
-
-    # Create SVS VAMANA index with all compression flavors (except for global SQ8).
-    for compression_type in ['NO_COMPRESSION', 'LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']:
-        cmd_params = ['TYPE', data_type,
-                    'DIM', dim, 'DISTANCE_METRIC', 'L2']
-        if compression_type != 'NO_COMPRESSION':
-            cmd_params.extend(['COMPRESSION', compression_type])
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', len(cmd_params), *cmd_params).ok()
-
-        # Validate that ft.info returns the default params for SVS VAMANA, along with compression
-        # compression in runtime is LVQ8 if we are running on intel machine and GlobalSQ otherwise.
-        is_intel_opt_supported = is_intel_cpu() and not is_alpine()
-        compression_runtime = compression_type if (is_intel_opt_supported and BUILD_INTEL_SVS_OPT) or compression_type == 'NO_COMPRESSION' else 'GlobalSQ8'
-        expected_info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
-                          'data_type', 'FLOAT32', 'dim', 16, 'distance_metric', 'L2', 'graph_max_degree', 32,
-                          'construction_window_size', 200, 'compression', compression_runtime]]
-        if compression_type != 'NO_COMPRESSION':
-            expected_info[0].extend(['training_threshold', 10240])
-        if compression_type == 'LeanVec4x8' or compression_type == 'LeanVec8x8':
-            expected_info[0].extend(['reduced_dim', dim // 2])
-        assertInfoField(env, 'idx', 'attributes',
-                        expected_info)
-        env.expect('FT.DROPINDEX', 'idx').ok()
