@@ -10,6 +10,7 @@ from common import (
     index_info,
     to_dict,
     get_redis_memory_in_mb,
+    config_cmd,
 )
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
 SVS_COMPRESSION_TYPES = ['NO_COMPRESSION', 'LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']
@@ -242,8 +243,7 @@ and verifies that vector is returned as the top result.
 Distance verification is skipped since some compression types would require larger training thresholds
 and vector dimension, making the test prohibitively slow.
 '''
-def test_sanity():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+def sanity(env):
     dim = 128
     training_threshold = DEFAULT_BLOCK_SIZE
     score_title = f'__{DEFAULT_FIELD_NAME}_score'
@@ -287,3 +287,58 @@ def test_sanity():
                 env.assertEqual(res[1], f'doc{training_threshold}', message=message)
 
             env.execute_command('FLUSHALL')
+
+def test_sanity():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    sanity(env)
+def test_sanity_async():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4')
+    sanity(env)
+
+def empty_index(env):
+    env.execute_command(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '1000000')
+    dim = 4
+    data_type = 'FLOAT32'
+    training_threshold = DEFAULT_BLOCK_SIZE
+    compression_params = [None, ['COMPRESSION', 'LVQ8', 'TRAINING_THRESHOLD', training_threshold]]
+    score_title = f'__{DEFAULT_FIELD_NAME}_score'
+    k = 10
+    query = create_random_np_array_typed(dim, data_type)
+    query_cmd = ['FT.SEARCH', DEFAULT_INDEX_NAME, f'*=>[KNN {k} @v $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'RETURN', 1, score_title]
+
+    for compression_params in compression_params:
+        message_prefix = f"compression_params: {compression_params}"
+        create_vector_index(env, dim, index_name=DEFAULT_INDEX_NAME, datatype=data_type, alg='SVS-VAMANA', additional_vec_params=compression_params)
+
+        # Scenario 1: Query uninitialized index
+        res = env.execute_command(*query_cmd)
+        env.assertEqual(res, [0], message=f"{message_prefix}")
+
+        # Scenario 2: adding less than training threshold vectors (index is created, but no vectors in svs yet)
+        populate_with_vectors(env, dim=dim, num_docs=training_threshold - 1, datatype=data_type)
+        env.assertEqual(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 0, message=f"{message_prefix}")
+        res = env.execute_command(*query_cmd)
+        env.assertEqual(res[0], k, message=f"{message_prefix}")
+
+        # Scenario 3: Querying svs index after in was initialized and emptied
+        populate_with_vectors(env, dim=dim, num_docs=100, datatype=data_type, initial_doc_id=training_threshold)
+        expected_index_size = training_threshold - 1 + 100
+        wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=message_prefix)
+        env.assertEqual(get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], training_threshold - 1 + 100, message=f"{message_prefix}")
+
+        for i in range(expected_index_size):
+            env.execute_command('DEL', f'{DEFAULT_DOC_NAME_PREFIX}{i+1}')
+        env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], 0, message=f"{message_prefix}")
+        env.assertEqual(get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 0, message=f"{message_prefix}")
+        res = env.execute_command(*query_cmd)
+        env.assertEqual(res, [0], message=f"{message_prefix}")
+
+        env.execute_command('FLUSHALL')
+
+def test_empty_index():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    empty_index(env)
+
+def test_empty_index_async():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4')
+    empty_index(env)

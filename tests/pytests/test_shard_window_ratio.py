@@ -1,5 +1,5 @@
 from common import *
-from vecsim_utils import set_up_database_with_vectors, create_random_np_array_typed
+from vecsim_utils import set_up_database_with_vectors
 
 def calculate_effective_k(original_k, ratio, num_shards):
     """Calculate effective K using the PRD formula: max(top_k/#shards, ceil(top_k × ratio))"""
