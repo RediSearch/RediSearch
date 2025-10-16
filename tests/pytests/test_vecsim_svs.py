@@ -227,7 +227,7 @@ def test_memory_info():
                                          f"{message_prefix}. after adding {added_vectors + training_threshold - 1} vectors, to trigger transition to the backend index")
             index_size = get_vecsim_index_size(env, index_key, vector_field)
             env.assertEqual(index_size, training_threshold - 1 + added_vectors, message=message_prefix)
-            # we have at leat training_threshold in the backend index
+            # we have at least training_threshold in the backend index
             env.assertGreaterEqual(get_tiered_backend_debug_info(env, index_key, vector_field)['INDEX_SIZE'], training_threshold, message=f"{message_prefix}, total index size: {index_size}")
             verify_mem(f"{message_prefix}. after adding more than training threshold vectors")
 
