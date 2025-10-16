@@ -45,12 +45,7 @@ impl<'iterator, 'index> RQEIterator<'iterator, 'index> for Wildcard<'index> {
         }
 
         self.current_id += 1;
-
-        self.result
-            .reset_virt_metadata()
-            .set_frequency(1)
-            .set_doc_id(self.current_id);
-
+        self.result.doc_id = self.current_id;
         Ok(Some(&mut self.result))
     }
 
@@ -70,12 +65,7 @@ impl<'iterator, 'index> RQEIterator<'iterator, 'index> for Wildcard<'index> {
         }
 
         self.current_id = doc_id;
-
-        self.result
-            .reset_virt_metadata()
-            .set_frequency(1)
-            .set_doc_id(self.current_id);
-
+        self.result.doc_id = self.current_id;
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
     }
 

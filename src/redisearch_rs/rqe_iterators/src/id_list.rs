@@ -58,8 +58,7 @@ impl<'iterator, 'index> RQEIterator<'iterator, 'index> for IdList<'index> {
         };
         self.offset += 1;
 
-        self.result.reset_virt_metadata().set_doc_id(doc_id);
-
+        self.result.doc_id = doc_id;
         Ok(Some(&mut self.result))
     }
 
@@ -86,13 +85,13 @@ impl<'iterator, 'index> RQEIterator<'iterator, 'index> for IdList<'index> {
             Ok(pos) => {
                 let pos = self.offset + pos; // Convert relative to absolute index
                 self.offset = pos + 1;
-                self.result.reset_virt_metadata().set_doc_id(self.ids[pos]);
+                self.result.doc_id = self.ids[pos];
                 Ok(Some(SkipToOutcome::Found(&mut self.result)))
             }
             Err(pos) => {
                 let pos = self.offset + pos; // Convert relative to absolute index
                 self.offset = pos + 1;
-                self.result.reset_virt_metadata().set_doc_id(self.ids[pos]);
+                self.result.doc_id = self.ids[pos];
                 Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
             }
         }

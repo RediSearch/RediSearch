@@ -43,14 +43,15 @@ fn read_with_post_call_mutate() {
     // for iterators which wrap Wildcard.
     let mut it = Wildcard::new(2);
 
-    for _ in 0..2 {
+    for step in 1..=2 {
         let result = it.read().unwrap().unwrap();
-        // we expect this to be 0 by default,
-        // which gives pseudo promises that wildcard always resets its metadata,
-        // of the cached result in between calls.
-        assert_eq!(result.weight, 0.);
+        // iterators do not reset between calls
+        // so important to not do something like this test,
+        // where you accumulate!!! Instead you want to assign these properties (always)
+        // such that they have the value you expect. Here be dragons.
+        assert_eq!(result.weight, if step == 1 { 0. } else { 42. });
         result.weight += 42.;
-        assert_eq!(result.weight, 42.);
+        assert_eq!(result.weight, if step == 1 { 42. } else { 84. });
     }
 }
 
