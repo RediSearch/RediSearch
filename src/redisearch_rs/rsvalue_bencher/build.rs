@@ -12,22 +12,17 @@ use build_utils::{generate_c_bindings, git_root, link_static_libraries};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Always link the static libraries, independent of bindgen
     link_static_libraries(&[
-        ("src/inverted_index", "inverted_index"),
-        ("src/buffer", "buffer"),
-        ("src/util/arr", "arr"),
+        ("hiredis", "hiredis"),
+        ("src/query_error", "query_error"),
+        ("deps/fast_float", "fast_float_strtod_static"),
+        ("src/util/mempool", "mempool"),
+        ("src/value", "value"),
     ]);
 
     // Generate C bindings - fail build if this doesn't work
     let root = git_root().expect("Could not find git root");
-    let ii_header = root
-        .join("src")
-        .join("inverted_index")
-        .join("inverted_index.h");
-    generate_c_bindings(
-        vec![ii_header],
-        ".*/inverted_index.h",
-        [root.join("src").join("value")],
-    )?;
+    let ii_header = root.join("src").join("value").join("value.h");
+    generate_c_bindings(vec![ii_header], ".*/value.h", [])?;
 
     Ok(())
 }
