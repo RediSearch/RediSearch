@@ -374,6 +374,3 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
   return RS_RESULT_OK;
 }
-
-
-
