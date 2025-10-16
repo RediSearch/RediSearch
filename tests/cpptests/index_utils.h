@@ -31,7 +31,7 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with=
  * To get the spec object (not safe), call get_spec(ism);
  * To free the spec and its resources, call freeSpec;
  */
-RefManager *createSpec(RedisModuleCtx *ctx);
+RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& prefixes = {});
 
 void freeSpec(RefManager *ism);
 

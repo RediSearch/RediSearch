@@ -204,7 +204,7 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
  * @param limit Maximum number of results to return
  * @param cv Cached variables for result processing
  */
-static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
+void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
@@ -549,9 +549,18 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
 
-  if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status, internal) != REDISMODULE_OK) {
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
+
+  if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
+
+  for (int i = 0; i < hybridRequest->nrequests; i++) {
+    AREQ *subquery = hybridRequest->requests[i];
+    SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);
+  }
+  SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
 
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);

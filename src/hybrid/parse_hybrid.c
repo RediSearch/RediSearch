@@ -505,6 +505,39 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     return implicitLoadStep;
 }
 
+// This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate request parses prefixes differently.
+// Unifying would require some refactor on the aggregate flow.
+static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *spec)  {
+
+  size_t n_prefixes = array_len(prefixes);
+  if (n_prefixes == 0) {
+    // No prefixes in the query --> No validation needed.
+    return true;
+  }
+
+  if (n_prefixes > 0 && (!spec || !spec->rule || !spec->rule->prefixes)) {
+    // Index has no prefixes, but query has prefixes --> Incoherent
+    return false;
+  }
+
+  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
+  if (n_prefixes != array_len(spec_prefixes)) {
+    return false;
+  }
+
+  // Validate that the prefixes in the arguments are the same as the ones in the
+  // index (also in the same order)
+  // The prefixes start right after the number
+  for (uint i = 0; i < n_prefixes; i++) {
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], prefixes[i]) != 0) {
+      // Unmatching prefixes
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
@@ -512,15 +545,15 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
  *                  [COMBINE <method> [params]] [aggregation_options]
  *
  * @param ctx Redis module context
- * @param argv Command arguments array (starting with "FT.HYBRID")
- * @param argc Number of arguments in argv
+ * @param ac ArgsCursor for parsing command arguments - should start after the index name
  * @param sctx Search context for the index (takes ownership)
- * @param indexname Name of the index to search
+ * @param parsedCmdCtx Parsed command context containing AREQs and pipeline parameters
  * @param status Output parameter for error reporting
- * @return HybridRequest* on success, NULL on error
+ * @param internal Whether the request is internal (not exposed to the user)
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                       RedisSearchCtx *sctx, const char *indexname, ParseHybridCommandCtx *parsedCmdCtx,
+int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
+                       RedisSearchCtx *sctx, ParseHybridCommandCtx *parsedCmdCtx,
                        QueryError *status, bool internal) {
   HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
@@ -551,18 +584,19 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
-  ArgsCursor ac;
-  ArgsCursor_InitRString(&ac, argv + 2, argc - 2);
-  if (AC_IsAtEnd(&ac) || !AC_AdvanceIfMatch(&ac, "SEARCH")) {
+  // Prefixes for the index
+  arrayof(const char*) prefixes = array_new(const char*, 0);
+
+  if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ESYNTAX, "SEARCH argument is required");
     goto error;
   }
 
-  if (parseSearchSubquery(&ac, searchRequest, status) != REDISMODULE_OK) {
+  if (parseSearchSubquery(ac, searchRequest, status) != REDISMODULE_OK) {
     goto error;
   }
 
-  if (parseVectorSubquery(&ac, vectorRequest, status) != REDISMODULE_OK) {
+  if (parseVectorSubquery(ac, vectorRequest, status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -577,8 +611,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
+      .prefixes = &prefixes,
   };
-  if (HybridParseOptionalArgs(&hybridParseCtx, &ac, internal) != REDISMODULE_OK) {
+  // may change prefixes in internal array_ensure_append_1
+  if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -651,7 +687,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
   }
 
-
   // We need a load step, implicit or an explicit one
   PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
   if (!loadStep) {
@@ -676,6 +711,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
+
+  if (!IsIndexCoherentWithQuery(*hybridParseCtx.prefixes, parsedCmdCtx->search->sctx->spec)) {
+    QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
+    goto error;
+  }
+  array_free(prefixes);
+  prefixes = NULL;
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
@@ -707,6 +749,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   return REDISMODULE_OK;
 
 error:
+  array_free(prefixes);
+  prefixes = NULL;
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
   }

@@ -3236,6 +3236,44 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                                                StrongRef_Demote(spec_ref));
 }
 
+void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                      struct ConcurrentCmdCtx *cmdCtx);
+
+int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (NumShards == 0) {
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // Coord callback
+  ConcurrentCmdHandler dist_callback = RSExecDistHybrid;
+
+  // Prepare the spec ref for the background thread
+  const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+  IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
+  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp) {
+    return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
+  }
+
+  // Check ACL permissions
+  if (!ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
+  if (NumShards == 1) {
+    return RSClientHybridCommand(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+
+  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CMDCTX_NO_GIL,
+                                               dist_callback, ctx, argv, argc,
+                                               StrongRef_Demote(spec_ref));
+}
+
 static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
   RSCursorCommand(ctx, argv, argc);
 }
@@ -3853,8 +3891,13 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
            SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read", false))
   }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID",
-    SafeCmd(RSClientHybridCommand), "readonly", 0, 0, -1, "read", false))
+  if (clusterConfig.type == ClusterType_RedisLabs) {
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID",
+           SafeCmd(DistHybridCommand), "readonly", 0, 1, -2, "read", false))
+  } else {
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID",
+           SafeCmd(DistHybridCommand), "readonly", 0, 0, -1, "read", false))
+  }
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read", false))
