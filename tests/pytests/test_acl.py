@@ -278,4 +278,10 @@ def test_acl_key_permissions_validation(env):
         try:
             env.cmd(*command)
         except Exception as e:
-            env.assertNotContains("User does not have the required permissions", str(e))
+            # Assert that the error is one of the expected errors
+            possible_errors = [
+                "Cursor not found",
+                "Cursor does not exist",
+                "Document already exists",
+            ]
+            env.assertTrue(any([err in str(e) for err in possible_errors]))
