@@ -27,22 +27,22 @@ The test data creates a 2D vector space with 4 documents positioned as follows:
 
 # Test data with deterministic vectors
 test_data = {
-    'doc:1{hash_tag}': {
+    'doc:1': {
         'description': "red shoes",
         'embedding': np.array([0.0, 0.0]).astype(np.float32).tobytes(),
         'category': "shoes"
     },
-    'doc:2{hash_tag}': {
+    'doc:2': {
         'description': "red running shoes",
         'embedding': np.array([1.0, 0.0]).astype(np.float32).tobytes(),
         'category': "shoes"
     },
-    'doc:3{hash_tag}': {
+    'doc:3': {
         'description': "running gear",
         'embedding': np.array([0.0, 1.0]).astype(np.float32).tobytes(),
         'category': "gear"
     },
-    'doc:4{hash_tag}': {
+    'doc:4': {
         'description': "blue shoes",
         'embedding': np.array([1.0, 1.0]).astype(np.float32).tobytes(),
         'category': "shoes"
@@ -132,10 +132,10 @@ def test_simple_query():
     resp3_expected = {
         'total_results': 4,
         'results': [
-            {'__key': 'doc:4{hash_tag}', '__score': ANY, 'description': 'blue shoes'},
-            {'__key': 'doc:2{hash_tag}', '__score': ANY, 'description': 'red running shoes'},
-            {'__key': 'doc:1{hash_tag}', '__score': ANY, 'description': 'red shoes'},
-            {'__key': 'doc:3{hash_tag}', '__score': ANY, 'description': 'running gear'}
+            {'__key': 'doc:4', '__score': ANY, 'description': 'blue shoes'},
+            {'__key': 'doc:2', '__score': ANY, 'description': 'red running shoes'},
+            {'__key': 'doc:1', '__score': ANY, 'description': 'red shoes'},
+            {'__key': 'doc:3', '__score': ANY, 'description': 'running gear'}
         ],
         'warnings': [],
         'execution_time': ANY
@@ -195,10 +195,10 @@ def test_query_with_yield_score_as():
     resp3_expected = {
         'total_results': 4,
         'results': [
-            {'__key': 'doc:4{hash_tag}', '__score': ANY, 'vector_score': ANY, 'description': 'blue shoes'},
-            {'__key': 'doc:2{hash_tag}', '__score': ANY, 'vector_score': ANY, 'description': 'red running shoes'},
-            {'__key': 'doc:1{hash_tag}', '__score': ANY, 'vector_score': ANY, 'description': 'red shoes'},
-            {'__key': 'doc:3{hash_tag}', '__score': ANY, 'vector_score': ANY, 'description': 'running gear'}
+            {'__key': 'doc:4', '__score': ANY, 'vector_score': ANY, 'description': 'blue shoes'},
+            {'__key': 'doc:2', '__score': ANY, 'vector_score': ANY, 'description': 'red running shoes'},
+            {'__key': 'doc:1', '__score': ANY, 'vector_score': ANY, 'description': 'red shoes'},
+            {'__key': 'doc:3', '__score': ANY, 'vector_score': ANY, 'description': 'running gear'}
         ],
         'warnings': [],
         'execution_time': ANY
