@@ -9,7 +9,7 @@ publish.workspace = true
 ffi.workspace = true
 libc.workspace = true
 sorting_vector.workspace = true
-value.workspace = true
+value = { workspace = true, features = ["c_ffi_impl"] }
 
 [build-dependencies]
 cbindgen.workspace = true
