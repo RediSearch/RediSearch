@@ -28,8 +28,8 @@ def test_default_scorer_behavior():
     waitForIndex(env, 'idx')
     search_default_bm25std_without_config_set = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT') # Default scorer is BM25STD from start
 
-    default_scorer = env.cmd('FT.CONFIG', 'GET', 'DEFAULT_SCORER')
-    env.assertEqual(default_scorer, [['DEFAULT_SCORER', 'BM25STD']])
+    default_scorer = env.cmd('CONFIG', 'GET', 'search-default-scorer')
+    env.assertEqual(default_scorer, ['search-default-scorer', 'BM25STD'])
 
     search_default_bm25std = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT')
     search_explicit_bm25std = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'BM25STD', 'WITHSCORES', 'NOCONTENT')

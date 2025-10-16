@@ -221,7 +221,7 @@ int set_default_scorer_config(const char *name, RedisModuleString *val, void *pr
     char *tempScorer = rm_strndup(newScorerName, len);
     char **ptr = (char **)privdata;
     if (*ptr) {
-        rm_free(*ptr);
+        rm_free(*ptr);   // Free the existing default scorer string
     }
     *ptr = tempScorer;  // Transfer ownership
 
@@ -680,9 +680,7 @@ RedisModuleString * get_friso_ini(const char *name, void *privdata) {
 
 RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
   char *str = *(char **)privdata;
-  if (str == NULL) {
-    return NULL;
-  }
+  RS_ASSERT(str != NULL);
   if (config_default_scorer) {
     RedisModule_FreeString(NULL, config_default_scorer);
   }

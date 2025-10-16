@@ -31,6 +31,8 @@ void Extensions_Init() {
   }
 }
 
+/* Only used for assertions, initialization happens in main thread so no thread
+synchronization is needed*/
 bool Extensions_InitDone() {
   return scorers_g != NULL;
 }
