@@ -79,7 +79,6 @@ typedef enum {
 
 struct ResultProcessor;
 struct RLookup;
-typedef struct RPDepleter RPDepleter;
 
 // Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
 /// <div rustbindgen hide></div>
@@ -284,12 +283,6 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
 * @return RS_RESULT_OK if all depleters completed successfully, otherwise an error code
 */
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
-
-/**
- * Clear RPDepleter results array and reset index
- * @param self The RPDepleter instance to clear
- */
-void RPDepleter_ClearResults(RPDepleter *self);
 
 /**
 * Creates a new shared synchronization object for coordinating multiple RPDepleter processors.

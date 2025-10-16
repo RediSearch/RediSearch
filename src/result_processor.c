@@ -1345,7 +1345,7 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
  *  NOTE: Currently the recommended number of upstreams is 2. Using more may
  *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
-struct RPDepleter {
+typedef struct {
   ResultProcessor base;                // Base result processor struct
   // We require separate contexts because we have different threads.
   // Each thread may use the redis context in the search context and in order for things to be thread safe we need a context for each thread
@@ -1353,11 +1353,11 @@ struct RPDepleter {
   RedisSearchCtx *nextThreadCtx;       // Downstream search context - used by the thread calling Next
   arrayof(SearchResult *) results;     // Array of pointers to SearchResult, filled by the depleting thread
   bool done_depleting;                 // Set to `true` when depleting is finished (under lock)
-  size_t cur_idx;                      // Current index for yielding results
+  size_t cur_idx;                        // Current index for yielding results
   RPStatus last_rc;                    // Last return code from upstream
   bool first_call;                     // Whether the first call to Next has been made
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
-};
+} RPDepleter;
 
 /*
  * Shared synchronization object for all RPDepleter instances of a pipeline.
@@ -1375,9 +1375,9 @@ typedef struct {
   pthread_cond_t cond;
   pthread_mutex_t mutex;
   unsigned int num_depleters;      // Number of depleters to sync
-  atomic_int num_locked;   // Number of depleters that have locked the index
-  bool index_released;     // Whether or not the index-spec has been released by the pipeline thread yet
-  bool take_index_lock;    // Whether or not the depleter should take the index lock
+  atomic_int num_locked;        // Number of depleters that have locked the index
+  bool index_released;         // Whether or not the index-spec has been released by the pipeline thread yet
+  bool take_index_lock;       // Whether or not the depleter should take the index lock
 } DepleterSync;
 
 // Free function for DepleterSync
@@ -1401,10 +1401,9 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock) {
 /**
  * Clear RPDepleter results array
  */
-void RPDepleter_ClearResults(RPDepleter *self) {
-  array_foreach(self->results, sr, srDtor(sr));
-  // Reset array length to 0 without deallocating the array itself
-  array_clear(self->results);
+static void RPDepleter_ClearResults(RPDepleter *self) {
+  array_free_ex(self->results, srDtor(*(SearchResult**)ptr));
+  self->results = array_new(SearchResult*, 0);
   self->cur_idx = 0;
 }
 
@@ -1425,14 +1424,13 @@ static inline void RPDepleter_SignalDone(RPDepleter *self, DepleterSync *sync) {
  */
 static void RPDepleter_Free(ResultProcessor *base) {
   RPDepleter *self = (RPDepleter *)base;
-  RPDepleter_ClearResults(self);
-  array_free(self->results);
+  array_free_ex(self->results, srDtor(*(SearchResult**)ptr));
   StrongRef_Release(self->sync_ref);
   rm_free(self);
 }
 
 // Helper function for RPDepleter_Deplete that does the actual work of locking, depleting, and unlocking
-static void RPDepleter_Deplete_Inner(RPDepleter *self, DepleterSync *sync) {
+static void RPDepleter_DepleteFromUpstream(RPDepleter *self, DepleterSync *sync) {
   RPStatus rc;
 
   if (sync->take_index_lock) {
@@ -1477,7 +1475,7 @@ static void RPDepleter_Deplete(void *arg) {
 
   // Check if timeout was exceeded before starting execution
   if (TimedOut(&self->depletingThreadCtx->time.timeout) == NOT_TIMED_OUT) {
-    RPDepleter_Deplete_Inner(self, sync);
+    RPDepleter_DepleteFromUpstream(self, sync);
   } else {
     // No need to do actual work, but still update the lock counter to be in sync
     self->last_rc = RS_RESULT_TIMEDOUT;
@@ -1511,22 +1509,12 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   self->cur_idx++;
   return RS_RESULT_OK;
 }
-
-static bool mock_thread_pool_should_fail = false;
-void Test_SetThreadPoolFailure(bool should_fail) {
-    mock_thread_pool_should_fail = should_fail;
-}
   
 // Adds a depletion job to the depleters thread pool
-static inline bool RPDepleter_StartDepletionThread(RPDepleter *self) {
-  if (RS_IsMock && mock_thread_pool_should_fail) {
-    return false;
-  }
-
+static inline void RPDepleter_StartDepletionThread(RPDepleter *self) {
   // Submit the job to the thread pool
   int rc = redisearch_thpool_add_work(depleterPool, RPDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
-  // Return true if successfully added to queue
-  return __builtin_expect(rc == 0, 1);
+  RS_ASSERT_ALWAYS(rc == 0);
 }
 
 // Can only succeed once, if called after RE_RESULT_OK was returned an error will be returned
@@ -1597,24 +1585,12 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
     
     // Check timeout before attempting to start thread
     if (TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
-      return RS_RESULT_TIMEDOUT;
+      base->Next = RPDepleter_Next_Yield;
+      self->last_rc = RS_RESULT_TIMEDOUT;
+      return base->Next(base, r);
     }
 
-    // Try to start the depletion thread
-    if (!RPDepleter_StartDepletionThread(self)) {
-      // Thread pool submission failed (not timeout)
-      // Need to increment lock counter as if depleter started depleting
-      DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
-      if (sync->take_index_lock) {
-        atomic_fetch_add(&sync->num_locked, 1);
-      }
-
-      // Signal completion as if depleter is finished
-      RPDepleter_SignalDone(self, sync);
-
-      return RS_RESULT_ERROR;
-    }
-
+    RPDepleter_StartDepletionThread(self);
     return RS_RESULT_DEPLETING;
   }
 
@@ -1693,32 +1669,17 @@ int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
     return RS_RESULT_ERROR;
   }
 
-  // Check timeout before attempting to start threads
-  if (TimedOut(&searchCtx->time.timeout) == TIMED_OUT) {
-    return RS_RESULT_TIMEDOUT;
-  }
+  // TODO: Check timeout before attempting to start threads
+  // This would lead to returning an error from one of the shards, maybe failing the entire command
+  // (which is not the expected behavior when ON_TIMEOUT is set to RETURN)
 
   const size_t count = array_len(depleters);
-  bool failedStartThread = false;
   // Start all depleting threads
   for (size_t i = 0; i < count; i++) {
     RPDepleter* depleter = (RPDepleter*)depleters[i];
     depleter->first_call = false;
     // Try to start the depletion thread
-    if (!RPDepleter_StartDepletionThread(depleter)) {
-      // Thread pool submission failed (not timeout)
-      // Need to fail gracefully without endlessly waiting for this thread to start depleting
-      depleter->last_rc = RS_RESULT_ERROR;
-      if (sync->take_index_lock) {
-        atomic_fetch_add(&sync->num_locked, 1);
-      }
-      failedStartThread = true;
-    }
-  }
-
-  // If any thread failed to start, return error immediately
-  if (failedStartThread) {
-    return RS_RESULT_ERROR;
+   RPDepleter_StartDepletionThread(depleter);
   }
 
   // Wait for depleting to start with configurable interval and timeout
