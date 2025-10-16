@@ -76,7 +76,7 @@ fn test_inverted_index_usage() {
         assert!(!reader.next_record(&mut result).unwrap(), "no more records");
     }
 
-    // Remove the documens in the last block
+    // Remove the documents in the last block
     let delta = ii
         .scan_gc(|doc_id| doc_id < 99_000, |_, _| {})
         .unwrap()
