@@ -19,8 +19,6 @@ def setup_json_index(env):
 LOAD_ERROR_MSG = 'Missing field symbol prefix for field name in LOAD'
 
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_load_requires_at_prefix(env):
     """Test that FT.HYBRID LOAD requires @ prefix for field names"""
     setup_basic_index(env)
@@ -62,8 +60,7 @@ def test_hybrid_load_requires_at_prefix(env):
         'LOAD', '2', '@description', '@category'  # Both with @ prefix
     ).noError()
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_load_allows_dollar_for_json_paths(env):
     """Test that FT.HYBRID LOAD allows $ prefix for JSON paths"""
     setup_json_index(env)
@@ -96,8 +93,7 @@ def test_hybrid_load_allows_dollar_for_json_paths(env):
         'LOAD', '1', '$.price'  # Nested JSON path
     ).noError()
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_apply_requires_at_prefix(env):
     """Test that FT.HYBRID APPLY requires @ prefix for field references"""
     setup_basic_index(env)
@@ -123,8 +119,7 @@ def test_hybrid_apply_requires_at_prefix(env):
         'APPLY', '@price * 2', 'AS', 'double_price'  # With @ prefix in expression
     ).noError()
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_filter_requires_at_prefix(env):
     """Test that FT.HYBRID FILTER requires @ prefix for field references"""
     setup_basic_index(env)
@@ -150,8 +145,7 @@ def test_hybrid_filter_requires_at_prefix(env):
         'FILTER', '@price > 120'  # With @ prefix in expression
     ).noError()
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_sortby_requires_at_prefix(env):
     """Test that FT.HYBRID SORTBY requires @ prefix for field names"""
     setup_basic_index(env)
@@ -177,8 +171,7 @@ def test_hybrid_sortby_requires_at_prefix(env):
         'SORTBY', '2', '@price', 'DESC'  # With @ prefix
     ).noError()
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_load_star_works(env):
     """Test that FT.HYBRID LOAD * works without field validation"""
     setup_basic_index(env)
@@ -193,8 +186,7 @@ def test_hybrid_load_star_works(env):
         'LOAD', '*'  # Load all fields
     ).noError()
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_special_fields_work(env):
     """Test that FT.HYBRID works with special fields like __key and __score"""
     setup_basic_index(env)
@@ -236,8 +228,7 @@ def test_hybrid_special_fields_work(env):
         'LOAD', '1', '@__score'  # Special field without @ prefix
     ).noError()
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_groupby_requires_at_prefix(env):
     """Test that FT.HYBRID GROUPBY requires @ prefix for field names"""
     setup_basic_index(env)
@@ -283,8 +274,7 @@ def test_hybrid_groupby_requires_at_prefix(env):
         'GROUPBY', '2', '@category', '@price', 'REDUCE', 'COUNT', '0', 'AS', 'count'  # Both with @ prefix
     ).noError()
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_groupby_reduce_requires_at_prefix(env):
     """Test that FT.HYBRID GROUPBY REDUCE requires @ prefix for field references"""
     setup_basic_index(env)
