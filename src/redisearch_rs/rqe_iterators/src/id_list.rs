@@ -47,6 +47,13 @@ impl IdList {
     fn get_current(&self) -> Option<t_docId> {
         self.ids.get(self.offset).copied()
     }
+    #[inline(always)]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+    pub fn get_mut_result(&mut self) -> &mut RSIndexResult<'static> {
+        &mut self.result
+    }
 }
 
 impl RQEIterator for IdList {

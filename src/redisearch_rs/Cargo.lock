@@ -1473,10 +1473,13 @@ dependencies = [
 name = "rqe_iterators"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "inverted_index",
  "pretty_assertions",
  "proptest",
+ "redis_mock",
+ "value_ffi",
 ]
 
 [[package]]
@@ -1493,6 +1496,7 @@ dependencies = [
  "redis_mock",
  "rqe_iterators",
  "types_ffi",
+ "value_ffi",
 ]
 
 [[package]]

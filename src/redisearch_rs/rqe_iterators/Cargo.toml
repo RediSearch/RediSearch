@@ -4,10 +4,16 @@ version.workspace = true
 edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
+build = "build.rs"
 
 [dependencies]
 ffi.workspace = true
 inverted_index.workspace = true
+redis_mock.workspace = true
+value_ffi = { path = "../c_entrypoint/value_ffi" }
+
+[build-dependencies]
+build_utils = { path = "../build_utils" }
 
 [dev-dependencies]
 pretty_assertions.workspace = true
