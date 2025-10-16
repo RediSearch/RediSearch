@@ -63,7 +63,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp, specialCaseCtx *knnCtx) {
   // We need to prepend the array with the command, index, and query that
   // we want to use.
-  const char **tmparr = array_new(const char *, us->nserialized);
+  const char **tmparr = array_new(const char *, array_len(us->serialized));
 
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -121,7 +121,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     array_append(tmparr, "VERBATIM");
   }
 
-  for (size_t ii = 0; ii < us->nserialized; ++ii) {
+  for (size_t ii = 0; ii < array_len(us->serialized); ++ii) {
     array_append(tmparr, us->serialized[ii]);
   }
 

@@ -100,16 +100,12 @@ double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringConte
 }
 
 /**
- * Merge field data from multiple source SearchResults into destination RLookupRow.
- * Initializes destination row and writes fields from each source using RLookupRow_WriteFieldsFrom.
+ * Merge field data from multiple source SearchResults into target SearchResult's rowdata.
  */
-static void merge_rlookuprows(HybridSearchResult *hybridResult,
+static void mergeRLookupRowsFromSourcesIntoTarget(HybridSearchResult *hybridResult,
                             HybridLookupContext *lookupCtx,
-                            RLookupRow *destination) {
-  RS_ASSERT(hybridResult && lookupCtx && destination);
-
-  // Initialize destination row
-  RLookupRow_Wipe(destination);
+                            SearchResult *targetResult) {
+  RS_ASSERT(hybridResult && lookupCtx);
 
   // Write fields from each source SearchResult
   for (size_t i = 0; i < hybridResult->numSources; i++) {
@@ -117,9 +113,8 @@ static void merge_rlookuprows(HybridSearchResult *hybridResult,
       SearchResult *sourceResult = hybridResult->searchResults[i];
       RS_ASSERT(sourceResult);
 
-      // Write fields from source row to destination row
-      RLookupRow_WriteFieldsFrom(SearchResult_GetRowData(sourceResult), lookupCtx->sourceLookups[i],
-                                destination, lookupCtx->tailLookup);
+      // move fields from source row to destination row
+      RLookupRow_Move(lookupCtx->tailLookup, SearchResult_GetRowDataMut(sourceResult), SearchResult_GetRowDataMut(targetResult));
     }
   }
 }
@@ -161,18 +156,11 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
       SearchResult_MergeFlags(primary, hybridResult->searchResults[i]);
     }
   }
-  // Merge field data into primary result's rowdata
-  // Create temporary row for merging (avoids modifying primary while reading from it)
-  RLookupRow tempRow = {0};  // Stack allocation, zero-initialized
-  merge_rlookuprows(hybridResult, lookupCtx, &tempRow);
-
-  // Prepare primary row and move merged data from temporary row
-  RLookupRow_Wipe(SearchResult_GetRowDataMut(primary));  // Clear primary row
-  RLookupRow_Move(lookupCtx->tailLookup, &tempRow, SearchResult_GetRowDataMut(primary));  // Move temp → primary
-  RLookupRow_Reset(&tempRow);
   // Transfer ownership: Remove primary result from HybridSearchResult to prevent double-free
   hybridResult->searchResults[targetIndex] = NULL;
   hybridResult->hasResults[targetIndex] = false;
-
+  // Merge field data into primary result's rowdata
+  // Create temporary row for merging (avoids modifying primary while reading from it)
+  mergeRLookupRowsFromSourcesIntoTarget(hybridResult, lookupCtx, primary);
   return primary;
 }

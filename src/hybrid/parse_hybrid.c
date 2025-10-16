@@ -505,6 +505,76 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     return implicitLoadStep;
 }
 
+// This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate request parses prefixes differently.
+// Unifying would require some refactor on the aggregate flow.
+static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *spec)  {
+
+  size_t n_prefixes = array_len(prefixes);
+  if (n_prefixes == 0) {
+    // No prefixes in the query --> No validation needed.
+    return true;
+  }
+
+  if (n_prefixes > 0 && (!spec || !spec->rule || !spec->rule->prefixes)) {
+    // Index has no prefixes, but query has prefixes --> Incoherent
+    return false;
+  }
+
+  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
+  if (n_prefixes != array_len(spec_prefixes)) {
+    return false;
+  }
+
+  // Validate that the prefixes in the arguments are the same as the ones in the
+  // index (also in the same order)
+  // The prefixes start right after the number
+  for (uint i = 0; i < n_prefixes; i++) {
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], prefixes[i]) != 0) {
+      // Unmatching prefixes
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Handle load step distribution for hybrid search pipelines.
+ *
+ * This function  finds all existing load steps in the tail plan and clones them to search and vector pipelines.
+ * If no load steps are found, it creates an implicit one.
+ *
+ * @param tailPlan The tail aggregation plan that may contain load steps
+ * @param searchPlan The search subquery aggregation plan
+ * @param vectorPlan The vector subquery aggregation plan
+ */
+static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AGGPlan *searchPlan, AGGPlan *vectorPlan) {
+    PLN_LoadStep *loadStep;
+    bool foundAnyLoadStep = false;
+
+    // Move all load steps found in the tail plan to the search and vector pipelines
+    while ((loadStep = (PLN_LoadStep *)AGPLN_FindStep(tailPlan, NULL, NULL, PLN_T_LOAD)) != NULL) {
+        foundAnyLoadStep = true;
+        // Pop the load step from the tail plan
+        AGPLN_PopStep(&loadStep->base);
+        // Clone it to both search and vector pipelines
+        AGPLN_AddStep(searchPlan, &PLNLoadStep_Clone(loadStep)->base);
+        AGPLN_AddStep(vectorPlan, &PLNLoadStep_Clone(loadStep)->base);
+        // Free the source load step
+        loadStep->base.dtor(&loadStep->base);
+    }
+
+    // If no load steps were found, create an implicit one
+    if (!foundAnyLoadStep) {
+
+        loadStep = createImplicitLoadStep();
+        AGPLN_AddStep(searchPlan, &PLNLoadStep_Clone(loadStep)->base);
+        AGPLN_AddStep(vectorPlan, &PLNLoadStep_Clone(loadStep)->base);
+        // Free the source load step
+        loadStep->base.dtor(&loadStep->base);
+    }
+}
+
 /**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
@@ -551,6 +621,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
+  // Prefixes for the index
+  arrayof(const char*) prefixes = array_new(const char*, 0);
+
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ESYNTAX, "SEARCH argument is required");
     goto error;
@@ -575,7 +648,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
+      .prefixes = &prefixes,
   };
+  // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
   }
@@ -649,23 +724,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
   }
 
-
-  // We need a load step, implicit or an explicit one
-  PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
-  if (!loadStep) {
-    // TBH don't think we need this implicit step, added to somehow affect the resulting response format
-    // We wanted that by default the key and score would be returned to the user
-    // This should probably be done in the hybrid send chunk where we decide on the response format.
-    // For now keeping it as is - due to time constraints
-    loadStep = createImplicitLoadStep();
-  } else {
-    AGPLN_PopStep(&loadStep->base);
-  }
-  AGPLN_AddStep(&searchRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
-  AGPLN_AddStep(&vectorRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
-  // Free the source load step
-  loadStep->base.dtor(&loadStep->base);
-  loadStep = NULL;
+  // Handle load step distribution for hybrid pipelines
+  handleLoadStepForHybridPipelines(parsedCmdCtx->tailPlan, &searchRequest->pipeline.ap, &vectorRequest->pipeline.ap);
 
   if (!(*mergeReqflags & QEXEC_F_NO_SORT)) {
     // No SORTBY 0 - add implicit sort-by-score
@@ -674,6 +734,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
+
+  if (!IsIndexCoherentWithQuery(*hybridParseCtx.prefixes, parsedCmdCtx->search->sctx->spec)) {
+    QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
+    goto error;
+  }
+  array_free(prefixes);
+  prefixes = NULL;
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
@@ -705,6 +772,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   return REDISMODULE_OK;
 
 error:
+  array_free(prefixes);
+  prefixes = NULL;
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
   }

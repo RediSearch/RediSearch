@@ -1002,7 +1002,7 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
 }
 
 void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-                               RLookupRow *destRow, const RLookup *destLookup) {
+                               RLookupRow *destRow, RLookup *destLookup) {
   RS_ASSERT(srcRow && srcLookup);
   RS_ASSERT(destRow && destLookup);
 
@@ -1023,7 +1023,6 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
     // Find corresponding key in destination lookup
     RLookupKey *dest_key = RLookup_FindKey(destLookup, src_key->name, src_key->name_len);
     RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
-
     // Write fields to destination (increments refcount, shares ownership)
     RLookup_WriteKey(dest_key, destRow, value);
   }
