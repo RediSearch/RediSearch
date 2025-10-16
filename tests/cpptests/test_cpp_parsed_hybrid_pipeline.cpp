@@ -155,6 +155,18 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     .cursorConfig = &cursorConfig
   };
 
+  // Add _INDEX_PREFIXES if the spec has prefixes
+  if (spec && spec->rule && spec->rule->prefixes && array_len(spec->rule->prefixes) > 0) {
+    arrayof(HiddenUnicodeString*) prefixes = spec->rule->prefixes;
+    args.append("_INDEX_PREFIXES");
+    args.append(std::to_string(array_len(prefixes)).c_str());
+
+    for (uint i = 0; i < array_len(prefixes); i++) {
+      size_t len;
+      const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
+      args.append(prefix);
+    }
+  }
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridReq, &ac, args, args.size());
   // Parse the hybrid command - this fills out hybridParams

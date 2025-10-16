@@ -87,6 +87,11 @@ class ArgvList {
   }
   ArgvList(ArgvList &) = delete;
 
+  void append(const char *s) {
+    RedisModuleString *ss = RedisModule_CreateString(m_ctx, s, strlen(s));
+    m_list.push_back(ss);
+  }
+
   void clear() {
     for (auto ss : m_list) {
       RedisModule_FreeString(m_ctx, ss);

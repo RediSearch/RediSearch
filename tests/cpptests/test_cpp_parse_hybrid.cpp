@@ -106,7 +106,20 @@ class ParseHybridTest : public ::testing::Test {
   int parseCommandInternal(RMCK::ArgvList& args) {
     QueryError status = {QueryErrorCode(0)};
     ArgsCursor ac = {0};
+    // Add _INDEX_PREFIXES if the spec has prefixes
+    if (spec && spec->rule && spec->rule->prefixes && array_len(spec->rule->prefixes) > 0) {
+      arrayof(HiddenUnicodeString*) prefixes = spec->rule->prefixes;
+      args.append("_INDEX_PREFIXES");
+      args.append(std::to_string(array_len(prefixes)).c_str());
+
+      for (uint i = 0; i < array_len(prefixes); i++) {
+        size_t len;
+        const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
+        args.append(prefix);
+      }
+    }
     HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
+
     int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
     EXPECT_EQ(QueryError_GetCode(&status), QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
@@ -634,6 +647,18 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
 
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
   ArgsCursor ac = {0};
+  // Add _INDEX_PREFIXES if the spec has prefixes
+  if (spec && spec->rule && spec->rule->prefixes && array_len(spec->rule->prefixes) > 0) {
+    arrayof(HiddenUnicodeString*) prefixes = spec->rule->prefixes;
+    args.append("_INDEX_PREFIXES");
+    args.append(std::to_string(array_len(prefixes)).c_str());
+
+    for (uint i = 0; i < array_len(prefixes); i++) {
+      size_t len;
+      const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
+      args.append(prefix);
+    }
+  }
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_OK) << "Should succeed as internal command";
@@ -686,8 +711,9 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
 
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
+  // Add _INDEX_PREFIXES if the spec has prefixes
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
+  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_STREQ(QueryError_GetUserError(&status), expected_detail) << "parsing error: " << QueryError_GetUserError(&status);

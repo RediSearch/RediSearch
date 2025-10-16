@@ -78,9 +78,25 @@ protected:
     cmd.hybridParams = &hybridParams;
     cmd.reqConfig = &result->reqConfig;
     cmd.cursorConfig = &result->cursorConfig;
+    IndexSpec *spec = result->sctx->spec;
 
     ArgsCursor ac = {0};
+
+    // Add _INDEX_PREFIXES if the spec has prefixes
+    if (spec && spec->rule && spec->rule->prefixes && array_len(spec->rule->prefixes) > 0) {
+      arrayof(HiddenUnicodeString*) prefixes = spec->rule->prefixes;
+      args.append("_INDEX_PREFIXES");
+      args.append(std::to_string(array_len(prefixes)).c_str());
+
+      for (uint i = 0; i < array_len(prefixes); i++) {
+        size_t len;
+        const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
+        args.append(prefix);
+      }
+    }
+
     HybridRequest_InitArgsCursor(result, &ac, args, args.size());
+
     int rc =  parseHybridCommand(ctx, &ac, result->sctx, &cmd, &status, true);
     if (rc != REDISMODULE_OK) {
       HybridRequest_Free(result);
