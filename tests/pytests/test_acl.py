@@ -190,17 +190,12 @@ def test_acl_key_permissions_validation(env):
     perm_index = 'permIdx'
     no_perm_index_to_drop = 'index_to_drop'
     def create_index(env, index_name, prefixes=None):
-        if prefixes:
-            env.expect(
-                'FT.CREATE', index_name, 'PREFIX', len(prefixes), *prefixes,\
-                'SCHEMA', 'n', 'NUMERIC', 'embedding', 'VECTOR', 'FLAT', 6,\
-                'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2'
-            ).ok()
-        else:
-            env.expect('FT.CREATE', index_name, 'SCHEMA', 'n', 'NUMERIC',\
-                'embedding', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,\
-                'DISTANCE_METRIC', 'L2'
-            ).ok()
+        prefix_clause = ['PREFIX', len(prefixes), *prefixes] if prefixes else []
+        env.expect(
+            'FT.CREATE', index_name, *prefix_clause,\
+            'SCHEMA', 'n', 'NUMERIC', 'embedding', 'VECTOR', 'FLAT', 6,\
+            'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2'
+        ).ok()
     create_index(env, no_perm_index)
     create_index(env, perm_index, ['h:'])
 
@@ -237,11 +232,7 @@ def test_acl_key_permissions_validation(env):
         ['FT.DROPINDEX', no_perm_index_to_drop],
     ]
     for command in index_commands:
-        try:
-            env.cmd(*command)
-            env.assertTrue(False) # We expect a permissions error
-        except Exception as e:
-            env.assertContains("User does not have the required permissions", str(e))
+        env.expect(*command).error().contains("User does not have the required permissions")
 
     # the `test` user should be able to execute all commands that do not refer to a
     # specific index
@@ -264,7 +255,7 @@ def test_acl_key_permissions_validation(env):
     ]
     for command in non_index_commands:
         # We expect no errors, and don't care about the return value.
-        env.cmd(*command)
+        env.expect(*command).noError()
 
     # Modify the `DROPINDEX` command that does not have the same index
     index_commands[-1][1] = perm_index
