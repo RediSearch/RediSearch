@@ -26,7 +26,7 @@ def test_acl_search_commands(env):
         'FT._ALIASDELIFX', 'FT._CREATEIFNX', 'FT._ALIASADDIFNX', 'FT._ALTERIFNX',
         'FT._DROPINDEXIFX', 'FT.DROPINDEX', 'FT.TAGVALS', 'FT._DROPIFX',
         'FT.DROP', 'FT.GET', 'FT.SYNADD', 'FT.ADD', 'FT.MGET', 'FT.DEL',
-        '_FT.CONFIG', '_FT.DEBUG', '_FT.SAFEADD'
+        '_FT.CONFIG', '_FT.DEBUG', 'FT.SAFEADD'
     ]
     if not env.isCluster():
         commands.append('FT.CONFIG')
@@ -215,6 +215,10 @@ def test_acl_key_permissions_validation(env):
         ['FT.EXPLAIN', no_perm_index, '*'],
         ['FT.EXPLAINCLI', no_perm_index, '*'],
         ['FT.INFO', no_perm_index],
+        ['FT.SAFEADD', no_perm_index, 'h:doc1', '1.0', 'FIELDS', 'n', '5'],
+        ['FT.ADD', no_perm_index, 'h:doc1', '1.0', 'FIELDS', 'n', '5'],
+        ['FT.GET', no_perm_index, 'h:doc1'],
+        ['FT.DEL', no_perm_index, 'h:doc1'],
         ['FT.DROPINDEX', 'index_to_drop'],
     ]
     for command in index_commands:

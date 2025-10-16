@@ -91,7 +91,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
                                       .childIt = ui,
                                       .filterCtx = &filterCtx,
       };
-      QueryError err = {QUERY_OK};
+      QueryError err = QueryError_Default();
       QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
       assert(!QueryError_HasError(&err));
 
