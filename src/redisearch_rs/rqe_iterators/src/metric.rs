@@ -10,9 +10,7 @@
 //! Metric iterator implementation
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdList};
-use ffi::{
-    IndexResult_SetNumValue, RSValue_Number, RSYieldableMetric, array_ensure_append_n_func, t_docId,
-};
+use ffi::{RSValue_Number, RSYieldableMetric, t_docId};
 use inverted_index::{RSIndexResult, RSYieldableMetric_Concat};
 
 pub enum MetricType {
@@ -40,25 +38,15 @@ impl Metric {
     fn set_result_metrics(&mut self, val: f64) -> &RSIndexResult<'static> {
         let result = self.base.get_mut_result();
 
-        // SAFETY: set the numeric value of the result
-        unsafe {
-            let x = result.as_numeric_unchecked_mut();
-            *x = val;
-        }
-
-        let new_metrics: *const RSYieldableMetric = &RSYieldableMetric {
+        // SAFETY: calling ffi::RSValue_Number function to allocate a new RSValue
+        let number_value = unsafe { &mut RSValue_Number(val) };
+        let new_metrics = RSYieldableMetric {
             key: std::ptr::null_mut(),
-            // SAFETY: calling ffi::RSValue_Number function to allocate a new RSValue
-            value: unsafe { &mut RSValue_Number(val) },
+            value: number_value,
         };
         // SAFETY: calling ffi::RSYieldableMetric_Concat function to concatenate new_metrics to result.metrics array
         unsafe {
-            array_ensure_append_n_func(
-                result.metrics as *mut std::ffi::c_void,
-                new_metrics as *mut std::ffi::c_void,
-                1,
-                std::mem::size_of::<RSYieldableMetric>() as u16,
-            );
+            RSYieldableMetric_Concat(&mut result.metrics, &new_metrics);
         }
         result
     }
