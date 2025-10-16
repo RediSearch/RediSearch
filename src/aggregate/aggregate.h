@@ -312,7 +312,7 @@ void initializeAREQ(AREQ *req);
  *
  * Note that this function consumes a refcount even if it fails!
  */
-int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
+int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status, bool checkIndexCoherence);
 
 /**
  * Constructs the pipeline objects needed to actually start processing

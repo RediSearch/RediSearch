@@ -1122,15 +1122,10 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
 }
 
 static bool IsIndexCoherent(AREQ *req) {
-  if (req->prefixesOffset == 0) {
-    // No prefixes in the query --> No validation needed.
-    return true;
-  }
-
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   IndexSpec *spec = sctx->spec;
   sds *args = req->args;
-  long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
+  long long n_prefixes = req->prefixesOffset == 0 ? 0 : strtoll(args[req->prefixesOffset + 1], NULL, 10);
 
   arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
   if (n_prefixes != array_len(spec_prefixes)) {
@@ -1215,13 +1210,13 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
+int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status, bool checkIndexCoherence) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
 
-  if (!IsIndexCoherent(req)) {
+  if (checkIndexCoherence && !IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
     return REDISMODULE_ERR;
   }

@@ -510,11 +510,6 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
 static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *spec)  {
 
   size_t n_prefixes = array_len(prefixes);
-  if (n_prefixes == 0) {
-    // No prefixes in the query --> No validation needed.
-    return true;
-  }
-
   if (n_prefixes > 0 && (!spec || !spec->rule || !spec->rule->prefixes)) {
     // Index has no prefixes, but query has prefixes --> Incoherent
     return false;
@@ -712,7 +707,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  if (!IsIndexCoherentWithQuery(*hybridParseCtx.prefixes, parsedCmdCtx->search->sctx->spec)) {
+  if (internal && !IsIndexCoherentWithQuery(*hybridParseCtx.prefixes, parsedCmdCtx->search->sctx->spec)) {
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
     goto error;
   }
@@ -720,11 +715,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   prefixes = NULL;
 
   // Apply context to each request
-  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
+  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status, false) != REDISMODULE_OK) {
     AddValidationErrorContext(searchRequest, status);
     goto error;
   }
-  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
+  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status, false) != REDISMODULE_OK) {
     AddValidationErrorContext(vectorRequest, status);
     goto error;
   }

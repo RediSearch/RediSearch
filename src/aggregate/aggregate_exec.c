@@ -857,8 +857,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
-
-  rc = AREQ_ApplyContext(*r, sctx, status);
+  rc = AREQ_ApplyContext(*r, sctx, status, AREQ_RequestFlags(*r) & QEXEC_F_INTERNAL);
   thctx = NULL;
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {
