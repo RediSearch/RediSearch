@@ -757,7 +757,11 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             match deltas.peek() {
                 Some(delta) if delta.index == block_index => {
                     // This block needs to be repaired
-                    let delta = deltas.next().expect("we just peeked it");
+                    let Some(delta) = deltas.next() else {
+                        unreachable!(
+                            "we are in the `Some` case and therefore know the next value exists"
+                        )
+                    };
 
                     match delta.repair {
                         RepairType::Delete {
