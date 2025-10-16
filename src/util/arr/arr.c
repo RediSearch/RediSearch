@@ -20,8 +20,8 @@ void array_free(array_t arr) {
 array_t array_new_sz(uint16_t elem_sz, uint16_t remain_cap, uint32_t len) {
   array_hdr_t *hdr = (array_hdr_t *)array_alloc_fn(sizeof(array_hdr_t) + (uint64_t) (len + remain_cap) * elem_sz);
   hdr->remain_cap = remain_cap;
-  hdr->elem_sz = elem_sz;
   hdr->len = len;
+  hdr->elem_sz = elem_sz;
   return (array_t)(hdr->buf);
 }
 
@@ -49,6 +49,7 @@ array_t array_clear_func(array_t arr, uint16_t elem_sz) {
   if (!arr) {
     arr = array_new_sz(elem_sz, 1, 0);
   } else {
+    array_hdr(arr)->remain_cap += array_hdr(arr)->len;
     array_hdr(arr)->len = 0;
   }
   return arr;
