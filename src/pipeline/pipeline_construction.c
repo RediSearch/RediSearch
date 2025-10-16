@@ -225,8 +225,9 @@ end:
 static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const RLookupKey *scoreKey, const QueryPipelineParams *params) {
   const char *scorer = params->scorerName;
   if (!scorer) {
-    scorer = DEFAULT_SCORER_NAME;
+    scorer = RSGlobalConfig.defaultScorer;
   }
+  RS_LOG_ASSERT(scorer, "No scorer name");
   ScoringFunctionArgs scargs = {0};
   if (params->common.reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
