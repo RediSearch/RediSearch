@@ -18,17 +18,6 @@
 #include "spec.h"
 #include "config.h"
 
-/* increasing the ref count of the given dmd */
-/*
- * This macro is atomic and fits for single writer and multiple readers as it is used only
- * after we locked the index spec (R/W) and we either have a writer alone or multiple readers.
- */
-#define DMD_Incref(md)                                                        \
-  ({                                                                          \
-    uint16_t count = __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED); \
-    RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
-  })
-
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
   DocTable ret = {
