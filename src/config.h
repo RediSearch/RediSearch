@@ -95,6 +95,8 @@ typedef struct {
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
+  // Default scorer name to use when no scorer is specified (default: BM25STD)
+  const char *defaultScorer;
 
   IteratorsConfig iteratorsConfigParams;
 
@@ -259,6 +261,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define RS_DEFAULT_CONFIG {                                                                                           \
     .concurrentMode = 0,                                                                                              \
     .extLoad = NULL,                                                                                                  \
+    .frisoIni = NULL,                                                     \
+    .defaultScorer = NULL ,                                        \
     .gcConfigParams.enableGC = 1,                                                                                                    \
     .iteratorsConfigParams.minTermPrefix = 2,                                                                                               \
     .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                                       \

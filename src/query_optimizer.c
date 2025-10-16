@@ -45,13 +45,13 @@ void QOptimizer_Parse(AREQ *req) {
     opt->scorerType = SCORER_TYPE_NONE;
   } else {
     const char *scorer = req->searchopts.scorerName;
-    if (!scorer) {      // default is TFIDF
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DEFAULT_SCORER_NAME)) {  // TFIDF
+    if (!scorer || !strcmp(scorer, DEFAULT_SCORER_NAME)) {      // default is TFIDF
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, TFIDF_DOCNORM_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, DISMAX_SCORER_NAME)) {
+      opt->scorerType = SCORER_TYPE_TERM;
+    } else if (!strcmp(scorer, BM25_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, BM25_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
