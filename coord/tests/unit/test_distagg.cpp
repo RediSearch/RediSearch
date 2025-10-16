@@ -3,6 +3,7 @@
 #include "dist_plan.h"
 #include "aggregate/aggregate.h"
 #include "tests/cpptests/redismock/util.h"
+#include "ext/default.h"
 
 #include <vector>
 
@@ -11,6 +12,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (RedisModule_Init(ctx, "dummy", 0, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
+  RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
   return REDISMODULE_OK;
 }
 }
@@ -133,6 +135,8 @@ int main(int, char **) {
   RMCK::init();
   testAverage();
   testCountDistinct();
+  rm_free((void *)RSGlobalConfig.defaultScorer);
+  RSGlobalConfig.defaultScorer = NULL;
 }
 
 //REDISMODULE_INIT_SYMBOLS();

@@ -79,6 +79,7 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect('ft.config', 'set', '_MAX_RESULTS_TO_UNSORTED_MODE', 1).equal('OK')
     env.expect('ft.config', 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').equal('OK')
 
 def testSetConfigOptionsErrors(env):
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 'str').equal('Not modifiable at runtime')
@@ -106,6 +107,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXAGGREGATERESULTS'][0], 'unlimited')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
+    env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'TFIDF')
     env.assertIn(res_dict['TIMEOUT'][0], ['500', '0'])
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
@@ -210,7 +212,6 @@ def testInitConfig(env):
 
 @skip(cluster=True)
 def testImmutable(env):
-
     env.expect('ft.config', 'set', 'EXTLOAD').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SAFEMODE').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'CONCURRENT_WRITE_MODE').error().contains('Not modifiable at runtime')

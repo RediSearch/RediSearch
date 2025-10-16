@@ -47,9 +47,10 @@ typedef struct {
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
+  // Default scorer name to use when no scorer is specified (default: BM25STD)
+  const char *defaultScorer;
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   int enableGC;
-
   // The minimal number of characters we allow expansion for in a prefix search. Default: 2
   long long minTermPrefix;
 
@@ -207,7 +208,8 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
   {                                                                                               \
-    .concurrentMode = 0, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                      \
+    .concurrentMode = 0, .extLoad = NULL, .frisoIni = NULL, .defaultScorer = NULL,                \
+    .gcConfigParams.enableGC = 1, .minTermPrefix = 2,                                             \
     .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return,     \
     .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,   \
     .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                        \
