@@ -213,25 +213,22 @@ def test_default_scorer_startup_validation():
         ext_path = os.environ['EXT_TEST_PATH']
     else:
         ext_path = 'tests/ctests/ext-example/libexample_extension.so'
+    try:
+        env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER example_scorer2')
+        assert not env.isUp()
+    except Exception as e:
+        # It sometimes captures the error of it not being up (PID dead and sometimes not). We cannot have a false positive that env.isUp but we still pass the test
+        assert not isinstance(e, AssertionError)
 
     try:
-        _ = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER example_scorer2')
-        assert False, "Expected environment to fail loading with invalid default scorer"
+        env = Env(moduleArgs=f'DEFAULT_SCORER example_scorer')
+        assert not env.isUp()
     except Exception as e:
-        error_msg = str(e)
-        assert "example_scorer2" in error_msg or "scorer" in error_msg.lower(), f"Expected error about invalid scorer, got: {error_msg}"
-
-
-    try:
-        _ = Env(moduleArgs=f'DEFAULT_SCORER example_scorer')
-        assert False, "Expected environment to fail loading with invalid default scorer"
-    except Exception as e:
-        error_msg = str(e)
-        assert "example_scorer" in error_msg or "scorer" in error_msg.lower(), f"Expected error about invalid scorer, got: {error_msg}"
-
+        # It sometimes captures the error of it not being up (PID dead and sometimes not). We cannot have a false positive that env.isUp but we still pass the test
+        assert not isinstance(e, AssertionError)
 
     env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER example_scorer')
-    assert env is not None, "Failed to load environment with valid default scorer"
+    assert env.isUp()
 
-    env2 = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER TFIDF')
-    assert env2 is not None, "Failed to load environment with valid default scorer"
+    env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER TFIDF')
+    assert env.isUp()
