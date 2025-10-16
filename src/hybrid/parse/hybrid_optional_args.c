@@ -123,7 +123,11 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                           ARG_OPT_CALLBACK, handleNumSString, ctx,
                           ARG_OPT_OPTIONAL, ARG_OPT_END);
 
-        //TODO : add INDEX_PREFIXES
+        ArgParser_AddSubArgsV(parser, "_INDEX_PREFIXES", "Index prefixes",
+                             &subArgs, 1, -1,
+                             ARG_OPT_OPTIONAL,
+                             ARG_OPT_CALLBACK, handleIndexPrefixes, ctx,
+                             ARG_OPT_END);
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",
