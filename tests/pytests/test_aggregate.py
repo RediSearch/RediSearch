@@ -14,7 +14,7 @@ def add_values(env, number_of_iterations=1):
                         'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
                         'description', 'TEXT', 'price', 'NUMERIC',
                         'categories', 'TAG')
-
+    con = env.getClusterConnectionIfNeeded()
     for i in range(number_of_iterations):
         fp = bz2.BZ2File(GAMES_JSON, 'r')
         for line in fp:
@@ -26,7 +26,7 @@ def add_values(env, number_of_iterations=1):
             cmd = ['FT.ADD', 'games', id, 1, 'FIELDS', ] + \
                 [str(x) if x is not None else '' for x in itertools.chain(
                     *obj.items())]
-            env.cmd(*cmd)
+            con.execute_command(*cmd)
         fp.close()
 
 
@@ -760,8 +760,9 @@ def grouper(iterable, n, fillvalue=None):
 def testAggregateGroupByOnEmptyField(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'f', 'TEXT', 'SORTABLE', 'test', 'TEXT', 'SORTABLE')
-    env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f', 'field', 'test', 'test1,test2,test3')
-    env.cmd('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f', 'field', 'test', '')
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f', 'field', 'test', 'test1,test2,test3')
+    con.execute_command('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f', 'field', 'test', '')
     res = env.cmd('ft.aggregate', 'idx', 'field', 'APPLY', 'split(@test)', 'as', 'check',
                   'GROUPBY', '1', '@check', 'REDUCE', 'COUNT', '0', 'as', 'count')
 
@@ -838,8 +839,9 @@ def testGroupbyNoReduce(env):
             'SCHEMA', 'primaryName', 'TEXT', 'SORTABLE',
             'birthYear', 'NUMERIC', 'SORTABLE')
 
+    con = env.getClusterConnectionIfNeeded()
     for x in range(10):
-        env.cmd('ft.add', 'idx', f'doc{x}', 1, 'fields',
+        con.execute_command('ft.add', 'idx', f'doc{x}', 1, 'fields',
             'primaryName', f'sarah number{x}')
 
     rv = env.cmd('ft.aggregate', 'idx', 'sarah', 'groupby', 1, '@primaryName')
