@@ -9,6 +9,7 @@ from functools import wraps
 import signal
 import platform
 import itertools
+import threading
 from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
@@ -876,9 +877,9 @@ def allShards_getIsRPPaused(env):
         results.append(result)
     return results
 
-def allShards_setPauseRPResume(env):
+def allShards_setPauseRPResume(env, start_shard=1):
     results = []
-    for shardId in range(1, env.shardsCount + 1):
+    for shardId in range(start_shard, env.shardsCount + 1):
         result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
         results.append(result)
     return results
@@ -1036,3 +1037,15 @@ def populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345, offset=0):
 
     # Execute remaining docs
     pipeline.execute()
+
+
+def call_and_store(fn, args, out_list):
+    """
+    Helper function for threading: calls a function and stores its return value in a list.
+
+    Args:
+        fn: Function to call
+        args: Tuple of arguments to pass to the function
+        out_list: List to append the function's return value to
+    """
+    out_list.append(fn(*args))
