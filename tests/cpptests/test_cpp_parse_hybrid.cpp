@@ -104,7 +104,7 @@ class ParseHybridTest : public ::testing::Test {
    * @return REDISMODULE_OK if parsing succeeded, REDISMODULE_ERR otherwise
    */
   int parseCommandInternal(RMCK::ArgvList& args) {
-    QueryError status = {QueryErrorCode(0)};
+    QueryError status = QueryError_Default();
     ArgsCursor ac = {0};
     // Add _INDEX_PREFIXES if the spec has prefixes
     if (spec && spec->rule && spec->rule->prefixes && array_len(spec->rule->prefixes) > 0) {
@@ -625,7 +625,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
         "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
 
-  QueryError status = {QueryErrorCode(0)};
+  QueryError status = QueryError_Default();
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
@@ -643,7 +643,7 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
         "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
 
-  QueryError status = {QueryErrorCode(0)};
+  QueryError status = QueryError_Default();
 
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
   ArgsCursor ac = {0};

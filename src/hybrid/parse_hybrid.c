@@ -534,43 +534,6 @@ static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *s
 }
 
 /**
- * Handle load step distribution for hybrid search pipelines.
- *
- * This function  finds all existing load steps in the tail plan and clones them to search and vector pipelines.
- * If no load steps are found, it creates an implicit one.
- *
- * @param tailPlan The tail aggregation plan that may contain load steps
- * @param searchPlan The search subquery aggregation plan
- * @param vectorPlan The vector subquery aggregation plan
- */
-static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AGGPlan *searchPlan, AGGPlan *vectorPlan) {
-    PLN_LoadStep *loadStep;
-    bool foundAnyLoadStep = false;
-
-    // Move all load steps found in the tail plan to the search and vector pipelines
-    while ((loadStep = (PLN_LoadStep *)AGPLN_FindStep(tailPlan, NULL, NULL, PLN_T_LOAD)) != NULL) {
-        foundAnyLoadStep = true;
-        // Pop the load step from the tail plan
-        AGPLN_PopStep(&loadStep->base);
-        // Clone it to both search and vector pipelines
-        AGPLN_AddStep(searchPlan, &PLNLoadStep_Clone(loadStep)->base);
-        AGPLN_AddStep(vectorPlan, &PLNLoadStep_Clone(loadStep)->base);
-        // Free the source load step
-        loadStep->base.dtor(&loadStep->base);
-    }
-
-    // If no load steps were found, create an implicit one
-    if (!foundAnyLoadStep) {
-
-        loadStep = createImplicitLoadStep();
-        AGPLN_AddStep(searchPlan, &PLNLoadStep_Clone(loadStep)->base);
-        AGPLN_AddStep(vectorPlan, &PLNLoadStep_Clone(loadStep)->base);
-        // Free the source load step
-        loadStep->base.dtor(&loadStep->base);
-    }
-}
-
-/**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
  * Expected format: FT.HYBRID <index> SEARCH <query> [SCORER <scorer>] VSIM <vector_args>
@@ -719,8 +682,22 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
   }
 
-  // Handle load step distribution for hybrid pipelines
-  handleLoadStepForHybridPipelines(parsedCmdCtx->tailPlan, &searchRequest->pipeline.ap, &vectorRequest->pipeline.ap);
+  // We need a load step, implicit or an explicit one
+  PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
+  if (!loadStep) {
+    // TBH don't think we need this implicit step, added to somehow affect the resulting response format
+    // We wanted that by default the key and score would be returned to the user
+    // This should probably be done in the hybrid send chunk where we decide on the response format.
+    // For now keeping it as is - due to time constraints
+    loadStep = createImplicitLoadStep();
+  } else {
+    AGPLN_PopStep(&loadStep->base);
+  }
+  AGPLN_AddStep(&searchRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
+  AGPLN_AddStep(&vectorRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
+  // Free the source load step
+  loadStep->base.dtor(&loadStep->base);
+  loadStep = NULL;
 
   if (!(*mergeReqflags & QEXEC_F_NO_SORT)) {
     // No SORTBY 0 - add implicit sort-by-score
