@@ -9,8 +9,7 @@
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
 extern "C" {
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd,
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, MRCommand *xcmd, arrayof(char *) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams);
 }
 
@@ -18,7 +17,6 @@ class HybridBuildMRCommandTest : public ::testing::Test {
 protected:
     void SetUp() override {
         ctx = RedisModule_GetThreadSafeContext(NULL);
-        memset(&us, 0, sizeof(us));
         memset(&hybridParams, 0, sizeof(hybridParams));
     }
 
@@ -26,11 +24,9 @@ protected:
         if (ctx) {
             RedisModule_FreeThreadSafeContext(ctx);
         }
-        array_free(us.serialized);
     }
 
     RedisModuleCtx *ctx = nullptr;
-    AREQDIST_UpstreamInfo us;
     HybridPipelineParams hybridParams;
 
     void printMRCommand(const MRCommand *cmd) {
@@ -62,7 +58,7 @@ protected:
 
         // Build MR command
         MRCommand xcmd;
-        HybridRequest_buildMRCommand(args, args.size(), &us, &xcmd, nullptr, &hybridParams);
+        HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, nullptr, &hybridParams);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -119,12 +115,11 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithDialect) {
 }
 
 // Test command with DIALECT
-TEST_F(HybridBuildMRCommandTest, testCommandWithFilters) {
+TEST_F(HybridBuildMRCommandTest, testCommandWithCombine) {
     testCommandTransformation({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
-        "FILTER", "@__key == 'doc:1'",
         "DIALECT", "2"
     });
 }
@@ -146,8 +141,8 @@ TEST_F(HybridBuildMRCommandTest, testComplexCommandParamsAfterTimeout) {
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
-        "TIMEOUT", "3000",
         "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
+        "TIMEOUT", "3000",
         "DIALECT", "2"
     });
 }

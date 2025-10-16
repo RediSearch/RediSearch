@@ -22,7 +22,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
 // For testing purposes
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd,
+                            MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams);
 
 #ifdef __cplusplus

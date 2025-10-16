@@ -649,7 +649,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
   }
 
-
   // We need a load step, implicit or an explicit one
   PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
   if (!loadStep) {
