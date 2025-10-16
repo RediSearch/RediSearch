@@ -126,7 +126,7 @@ typedef struct {
   QueryError *status;
 
   // Whether to enforce strict parsing of arguments
-  bool strict;
+  bool strictPrefix;
 } ReducerOptions;
 
 /**

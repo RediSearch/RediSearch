@@ -777,13 +777,13 @@ arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp) {
   return (arrayof(const char*))StrongRef_Get(gstp->properties_ref);
 }
 
-PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, bool strict) {
+PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, bool strictPrefix) {
   PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
   gstp->properties_ref = properties_ref;
   gstp->base.dtor = groupStepFree;
   gstp->base.getLookup = groupStepGetLookup;
   gstp->base.type = PLN_T_GROUP;
-  gstp->strict = strict;
+  gstp->strictPrefix = strictPrefix;
   return gstp;
 }
 
