@@ -368,6 +368,7 @@ impl IndexBlock {
         let mut result = D::base_result();
         let mut unique_read = 0;
         let mut unique_write = 0;
+        let mut block_changed = false;
 
         let mut tmp_inverted_index = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, encoder);
 
@@ -383,6 +384,8 @@ impl IndexBlock {
                 if last_read_doc_id.is_none_or(|id| id != result.doc_id) {
                     unique_write += 1;
                 }
+            } else {
+                block_changed = true;
             }
 
             if last_read_doc_id.is_none_or(|id| id != result.doc_id) {
@@ -396,15 +399,13 @@ impl IndexBlock {
             Ok(Some(RepairType::Delete {
                 n_unique_docs_removed: unique_read,
             }))
-        } else if tmp_inverted_index.blocks.len() == 1
-            && tmp_inverted_index.blocks[0].num_entries == self.num_entries
-        {
-            Ok(None)
-        } else {
+        } else if block_changed {
             Ok(Some(RepairType::Replace {
                 blocks: tmp_inverted_index.blocks.into(),
                 n_unique_docs_removed: unique_read - unique_write,
             }))
+        } else {
+            Ok(None)
         }
     }
 }
