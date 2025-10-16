@@ -8,6 +8,7 @@
 */
 
 //! Empty iterator implementation
+
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
@@ -19,15 +20,17 @@ use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 #[derive(Default)]
 pub struct Empty;
 
-impl RQEIterator for Empty {
-    fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
+impl<'iterator, 'index> RQEIterator<'iterator, 'index> for Empty {
+    fn read(
+        &'iterator mut self,
+    ) -> Result<Option<&'iterator mut RSIndexResult<'index>>, RQEIteratorError> {
         Ok(None)
     }
 
     fn skip_to(
-        &mut self,
+        &'iterator mut self,
         _doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'iterator, 'index>>, RQEIteratorError> {
         Ok(None)
     }
 

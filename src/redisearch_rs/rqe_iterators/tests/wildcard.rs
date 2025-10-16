@@ -38,17 +38,31 @@ fn initial_state() {
 }
 
 #[test]
+fn read_with_post_call_mutate() {
+    // small test to ensure such mutations are possible
+    // for iterators which wrap Wildcard.
+    let mut it = Wildcard::new(2);
+
+    for step in 1..=2 {
+        let result = it.read().unwrap().unwrap();
+        // iterators do not reset between calls
+        // so important to not do something like this test,
+        // where you accumulate!!! Instead you want to assign these properties (always)
+        // such that they have the value you expect. Here be dragons.
+        assert_eq!(result.weight, if step == 1 { 0. } else { 42. });
+        result.weight += 42.;
+        assert_eq!(result.weight, if step == 1 { 42. } else { 84. });
+    }
+}
+
+#[test]
 fn read_sequential() {
     let mut it = Wildcard::new(5);
 
     // Read all documents sequentially
     for expected_id in 1..=5 {
         let result = it.read();
-        assert!(result.is_ok());
-
         let result = result.unwrap();
-        assert!(result.is_some());
-
         let doc = result.unwrap();
         assert_eq!(doc.doc_id, expected_id);
         assert_eq!(it.last_doc_id(), expected_id);
@@ -59,15 +73,13 @@ fn read_sequential() {
     }
 
     // After reading all docs, next read should return None
-    let result = it.read();
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_none());
+    let result = it.read().unwrap();
+    assert!(result.is_none());
     assert!(it.at_eof());
 
     // Reading again should still return None
-    let result = it.read();
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_none());
+    let result = it.read().unwrap();
+    assert!(result.is_none());
 }
 
 #[test]
@@ -92,16 +104,14 @@ fn skip_to_beyond_range() {
     let mut it = Wildcard::new(10);
 
     let result = it.skip_to(11); // Beyond range
-    assert!(result.is_ok());
 
     let outcome = result.unwrap();
     assert!(outcome.is_none());
     assert!(it.at_eof());
 
     // Subsequent reads should return None
-    let read_result = it.read();
-    assert!(read_result.is_ok());
-    assert!(read_result.unwrap().is_none());
+    let result = it.read().unwrap();
+    assert!(result.is_none());
 }
 
 #[test]
@@ -110,9 +120,8 @@ fn rewind() {
 
     // Read some documents
     for _i in 1..=3 {
-        let result = it.read();
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_some());
+        let result = it.read().unwrap();
+        assert!(result.is_some());
     }
 
     assert_eq!(it.last_doc_id(), 3);
@@ -125,13 +134,9 @@ fn rewind() {
     assert!(!it.at_eof());
 
     // Should be able to read from beginning again
-    let result = it.read();
-    assert!(result.is_ok());
-
-    let result = result.unwrap();
-    assert!(result.is_some());
-
+    let result = it.read().unwrap();
     let doc = result.unwrap();
+
     assert_eq!(doc.doc_id, 1);
     assert_eq!(it.last_doc_id(), 1);
 }
@@ -147,21 +152,16 @@ fn read_after_skip() {
 
     // Continue reading sequentially from 6 to 10
     for expected_id in 6..=10 {
-        let result = it.read();
-        assert!(result.is_ok());
-
-        let result = result.unwrap();
-        assert!(result.is_some());
-
+        let result = it.read().unwrap();
         let doc = result.unwrap();
+
         assert_eq!(doc.doc_id, expected_id);
         assert_eq!(it.last_doc_id(), expected_id);
     }
 
     // After reading all remaining docs, should return EOF
-    let result = it.read();
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_none());
+    let result = it.read().unwrap();
+    assert!(result.is_none());
     assert!(it.at_eof());
 }
 
@@ -176,8 +176,6 @@ fn skip_to_after_eof() {
 
     // Try to skip to a valid target while at EOF
     let result = it.skip_to(5);
-    assert!(result.is_ok());
-
     let outcome = result.unwrap();
     assert!(outcome.is_none());
     assert!(it.at_eof());
@@ -194,18 +192,15 @@ fn zero_documents() {
 
     // Read should return None
     let result = it.read();
-    assert!(result.is_ok(), "read() should succeed");
-    assert!(
-        result.unwrap().is_none(),
-        "read() should return None for empty iterator"
-    );
+    let outcome = result.unwrap();
+    assert!(outcome.is_none());
 
     // Skip should return None
     let result = it.skip_to(1);
-    assert!(result.is_ok(), "skip_to(1) should succeed");
+    let outcome = result.expect("skip_to(1) should succeed");
     assert!(
-        result.unwrap().is_none(),
-        "skip_to(1) should return None for empty iterator"
+        outcome.is_none(),
+        "skip_to(1) should return Ok(None) for empty iterator"
     );
 }
 
