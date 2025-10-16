@@ -7,6 +7,7 @@
 #-----------------------------------------------------------------------------
 
 .NOTPARALLEL:
+.EXPORT_ALL_VARIABLES:
 
 MAKEFLAGS += --no-print-directory
 

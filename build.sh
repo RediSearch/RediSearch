@@ -717,7 +717,7 @@ run_python_tests() {
 
   # Run the tests from the ROOT directory with the requested params
   cd "$ROOT"
-  $TESTS_SCRIPT
+  . $TESTS_SCRIPT
 
   # Check test results
   PYTHON_TEST_RESULT=$?
