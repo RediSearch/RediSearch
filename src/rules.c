@@ -118,10 +118,12 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     rule->lang_default = DEFAULT_LANGUAGE;
   }
 
-  rule->prefixes = array_new(HiddenUnicodeString*, args->nprefixes);
-  for (int i = 0; i < args->nprefixes; ++i) {
-    HiddenUnicodeString* p = NewHiddenUnicodeString(args->prefixes[i]);
-    array_append(rule->prefixes, p);
+  if (args->nprefixes > 0) {
+    rule->prefixes = array_new(HiddenUnicodeString*, args->nprefixes);
+    for (int i = 0; i < args->nprefixes; ++i) {
+      HiddenUnicodeString* p = NewHiddenUnicodeString(args->prefixes[i]);
+      array_append(rule->prefixes, p);
+    }
   }
 
   if (rule->filter_exp_str) {
@@ -380,11 +382,15 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   args.type = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
 
   args.nprefixes = LoadUnsigned_IOError(rdb, goto cleanup);
-  if (args.nprefixes <= RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK) {
-    args.prefixes = (const char **)prefixes;
-    memset(args.prefixes, 0, args.nprefixes * sizeof(*args.prefixes));
+  if (args.nprefixes == 0) {
+    args.prefixes = NULL;
   } else {
-    args.prefixes = rm_calloc(args.nprefixes, sizeof(*args.prefixes));
+    if (args.nprefixes <= RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK) {
+      args.prefixes = (const char **)prefixes;
+      memset(args.prefixes, 0, args.nprefixes * sizeof(*args.prefixes));
+    } else {
+      args.prefixes = rm_calloc(args.nprefixes, sizeof(*args.prefixes));
+    }
   }
 
   for (size_t i = 0; i < args.nprefixes; ++i) {

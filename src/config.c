@@ -921,9 +921,8 @@ CONFIG_SETTER(setUpgradeIndex) {
       rule->prefixes[i] = rm_strdup(RedisModule_StringPtrLen(rule_prefixes.objs[i], NULL));
     }
   } else {
-    rule->nprefixes = 1;
-    rule->prefixes = rm_malloc(sizeof(char *));
-    rule->prefixes[0] = rm_strdup("");
+    rule->nprefixes = 0;
+    rule->prefixes = NULL;
   }
 
   // duplicate all rule arguments so it will leave after this function finish

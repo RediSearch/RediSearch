@@ -1583,9 +1583,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     rule_args.nprefixes = rule_prefixes.argc;
     rule_args.prefixes = (const char **)rule_prefixes.objs;
   } else {
-    rule_args.nprefixes = 1;
-    static const char *empty_prefix[] = {""};
-    rule_args.prefixes = empty_prefix;
+    rule_args.nprefixes = 0;
+    rule_args.prefixes = NULL;
   }
 
   spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
