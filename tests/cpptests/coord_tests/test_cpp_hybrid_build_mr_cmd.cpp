@@ -66,7 +66,7 @@ protected:
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
 
-        // Verify all other original args are preserved (except first)
+        // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
         for (size_t i = 1; i < inputArgs.size(); i++) {
             EXPECT_STREQ(xcmd.strs[i], inputArgs[i]) << "Argument at index " << i << " should be preserved";
         }
@@ -75,8 +75,6 @@ protected:
         EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "WITHCURSOR") << "WITHCURSOR should be fifth to last";
         EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "WITHSCORES") << "WITHSCORES should be fourth to last";
         EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "_NUM_SSTRING") << "_NUM_SSTRING should be third to last";
-        printArgvList(args, args.size());
-        printMRCommand(&xcmd);
 
         MRCommand_Free(&xcmd);
     }
@@ -96,18 +94,17 @@ protected:
       ASSERT_NE(sp, nullptr) << "IndexSpec should be accessible from RefManager";
       ASSERT_NE(sp->rule, nullptr) << "IndexSpec should have a rule";
       ASSERT_NE(sp->rule->prefixes, nullptr) << "IndexSpec rule should have prefixes";
+      ASSERT_EQ(array_len(sp->rule->prefixes), 2) << "IndexSpec rule should have 2 prefixes";
 
       // Build MR command
       MRCommand xcmd;
-      HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, nullptr, &hybridParams);
+      HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, sp, &hybridParams);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
-
-      // Verify all other original args are preserved (except first)
+        // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
       for (size_t i = 1; i < inputArgs.size(); i++) {
           EXPECT_STREQ(xcmd.strs[i], inputArgs[i]) << "Argument at index " << i << " should be preserved";
       }
-
       // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, _INDEX_PREFIXES, and prefix count are added at the end
       EXPECT_STREQ(xcmd.strs[xcmd.num - 7], "WITHCURSOR") << "WITHCURSOR should be seventh to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 6], "WITHSCORES") << "WITHSCORES should be sixth to last";
@@ -116,8 +113,6 @@ protected:
       EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "2") << "Prefix count should be third to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "prefix1") << "First prefix should be second to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "prefix2") << "Second prefix should be last";
-      printArgvList(args, args.size());
-      printMRCommand(&xcmd);
 
       // Clean up
       MRCommand_Free(&xcmd);
@@ -212,8 +207,8 @@ TEST_F(HybridBuildMRCommandTest, testComplexCommandParamsAfterTimeout) {
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
-        "TIMEOUT", "3000",
         "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
+        "TIMEOUT", "3000",
         "DIALECT", "2"
     });
     testCommandTransformationWithIndexSpec({
