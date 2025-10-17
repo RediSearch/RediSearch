@@ -190,6 +190,10 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     DO_LOG("notice", "Loaded RediSearch extension '%s'", RSGlobalConfig.extLoad);
   }
 
+  if (RSGlobalConfig.defaultScorer == NULL) {
+    RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
+  }
+
   // Register the default hard coded extension
   if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
     DO_LOG("warning", "Could not register default extension");

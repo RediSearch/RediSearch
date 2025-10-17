@@ -49,7 +49,7 @@ def test_default_scorer_behavior():
     # Change default scorer to BM25STD
     env.cmd('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'BM25STD')
     new_default = env.cmd('FT.CONFIG', 'GET', 'DEFAULT_SCORER')
-    env.assertEqual(new_default, [['DEFAULT_SCORER', 'TFIDF']])
+    env.assertEqual(new_default, [['DEFAULT_SCORER', 'BM25STD']])
 
     search_default_bm25std = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT')
     env.assertEqual(search_default_bm25std, search_bm25std_in_query)
