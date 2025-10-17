@@ -39,12 +39,15 @@ def test_default_scorer_behavior():
     search_bm25std_in_query = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'BM25STD', 'WITHSCORES', 'NOCONTENT')
     env.assertNotEqual(search_default_tfidf[2], search_bm25std_in_query[2])  # First document score should differ
 
-    agg_default_tfidf = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC')
-    agg_explicit_tfidf = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'TFIDF', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC')
+    # Test FT.AGGREGATE with default scorer using WITHSCORES
+    agg_default_tfidf = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'WITHSCORES')
+    agg_explicit_tfidf = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'TFIDF', 'WITHSCORES')
     env.assertEqual(agg_default_tfidf, agg_explicit_tfidf)
 
-    agg_bm25std_in_query = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'BM25STD', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC')
-    env.assertNotEqual(agg_default_tfidf[1][1], agg_bm25std_in_query[1][1])  # First document score should differ
+    agg_bm25std_in_query = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'BM25STD', 'WITHSCORES')
+    # First document score should differ between TFIDF and BM25STD
+    # Format: [count, score1, fields1, score2, fields2, ...]
+    env.assertNotEqual(float(agg_default_tfidf[1]), float(agg_bm25std_in_query[1]))  # Compare first document scores
 
     # Change default scorer to BM25STD
     env.cmd('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'BM25STD')
@@ -56,10 +59,11 @@ def test_default_scorer_behavior():
     search_tfidf_in_query = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TFIDF', 'WITHSCORES', 'NOCONTENT')
     env.assertEqual(search_default_tfidf, search_tfidf_in_query)
 
-    agg_default_bm25std = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC')
+    # Test FT.AGGREGATE with new default scorer using WITHSCORES
+    agg_default_bm25std = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'WITHSCORES')
     env.assertEqual(agg_default_bm25std, agg_bm25std_in_query)
 
-    agg_tfidf_in_query = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'TFIDF', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC')
+    agg_tfidf_in_query = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'TFIDF', 'WITHSCORES')
     env.assertEqual(agg_default_tfidf, agg_tfidf_in_query)
 
 
@@ -125,13 +129,14 @@ def test_default_scorer_with_extension():
     search_explicit_tfidf_after = env.cmd('FT.SEARCH', 'idx', 'hello', 'SCORER', 'TFIDF', 'WITHSCORES', 'NOCONTENT')
     env.assertEqual(search_explicit_tfidf_after, search_default_tfidf)
 
-    # Test FT.AGGREGATE with extension scorer as default
-    agg_default_example = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC')
-    agg_explicit_example = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'example_scorer', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC')
+    # Test FT.AGGREGATE with extension scorer as default using WITHSCORES
+    agg_default_example = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'WITHSCORES')
+    agg_explicit_example = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'example_scorer', 'WITHSCORES')
     env.assertEqual(agg_default_example, agg_explicit_example)
     # All documents should have score 3.141
-    env.assertEqual(float(agg_default_example[1][1]), 3.141)  # First document score
-    env.assertEqual(float(agg_default_example[2][1]), 3.141)  # Second document score
+    # Format: [count, score1, fields1, score2, fields2, ...]
+    env.assertEqual(float(agg_default_example[1]), 3.141)  # First document score
+    env.assertEqual(float(agg_default_example[3]), 3.141)  # Second document score
 
 
 @skip(cluster=True, asan=True)
