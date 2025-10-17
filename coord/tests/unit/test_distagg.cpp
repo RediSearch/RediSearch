@@ -137,6 +137,7 @@ int main(int, char **) {
   RMCK::init();
   testAverage();
   testCountDistinct();
+  // RMCK_Shutdown() is causing a segfault, but I need to remove the scorer before exiting to avoid sanitizer errors
   rm_free((void *)RSGlobalConfig.defaultScorer);
   RSGlobalConfig.defaultScorer = NULL;
 }

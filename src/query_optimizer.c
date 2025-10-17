@@ -53,7 +53,7 @@ void QOptimizer_Parse(AREQ *req) {
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, BM25_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, BM25_SCORER_NAME)) {
+    } else if (!strcmp(scorer, BM25_STD_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, DOCSCORE_SCORER)) {
       opt->scorerType = SCORER_TYPE_DOC;
