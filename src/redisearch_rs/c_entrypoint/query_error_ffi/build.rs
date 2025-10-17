@@ -10,5 +10,5 @@
 use build_utils::run_cbinden;
 
 fn main() {
-    run_cbinden("../../headers/query_error_rs.h").unwrap();
+    run_cbinden("../../headers/query_error.h").unwrap();
 }
