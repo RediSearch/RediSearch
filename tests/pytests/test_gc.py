@@ -116,6 +116,53 @@ def testTagGC(env):
             env.assertTrue(r2 % 2 == 0 or r2 > 100)
 
 @skip(cluster=True)
+def testTagCompleteGCAndRepopulation(env):
+    """Test that after deleting all docs used for a tag index through GC that the index is still usable"""
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't', 'tag'))
+    waitForIndex(env, 'idx')
+
+    # Phase 1: Add initial documents
+    InitialDocs = 100
+    for i in range(InitialDocs):
+        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields', 't', 'tag1'))
+
+    # Verify initial state
+    res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+    env.assertEqual(len(res), 1)
+    env.assertEqual(res[0][0], 'tag1')
+    env.assertEqual(len(res[0][1]), InitialDocs)
+
+    # Phase 2: Delete all documents and run GC
+    for i in range(InitialDocs):
+        env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
+
+    forceInvokeGC(env, 'idx')
+
+    # Verify tag index is empty
+    res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+    env.assertEqual(res, [])
+
+    # Verify search returns no results
+    search_res = env.cmd('ft.search', 'idx', '@t:{tag1}')
+    env.assertEqual(search_res[0], 0)
+
+    # Phase 3: Re-add documents with the same tag
+    NewDocs = 50
+    for i in range(NewDocs):
+        env.assertOk(env.cmd('ft.add', 'idx', 'newdoc%d' % i, 1.0, 'fields', 't', 'tag1'))
+
+    # Verify new documents are indexed
+    res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+    env.assertEqual(len(res), 1)
+    env.assertEqual(res[0][0], 'tag1')
+    env.assertEqual(len(res[0][1]), NewDocs)
+
+    # Verify search works
+    search_res = env.cmd('ft.search', 'idx', '@t:{tag1}')
+    env.assertEqual(search_res[0], NewDocs)
+
+@skip(cluster=True)
 def testDeleteEntireBlock(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
