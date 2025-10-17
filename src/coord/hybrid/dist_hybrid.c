@@ -465,7 +465,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
     RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
     if (!sctx) {
-        QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
+        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
         // return QueryError_ReplyAndClear(ctx, &status);
         goto err;
     }
@@ -474,7 +474,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpec *sp = StrongRef_Get(strong_ref);
     if (!sp) {
-        QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+        QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
         goto err;
     }
 

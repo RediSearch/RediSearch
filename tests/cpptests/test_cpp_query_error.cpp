@@ -16,12 +16,12 @@ class QueryErrorTest : public ::testing::Test {};
 
 TEST_F(QueryErrorTest, testQueryErrorStrerror) {
   // Test error code to string conversion
-  ASSERT_STREQ(QueryError_Strerror(QUERY_OK), "Success (not an error)");
-  ASSERT_STREQ(QueryError_Strerror(QUERY_ESYNTAX), "Parsing/Syntax error for query string");
-  ASSERT_STREQ(QueryError_Strerror(QUERY_EGENERIC), "Generic error evaluating the query");
-  ASSERT_STREQ(QueryError_Strerror(QUERY_EPARSEARGS), "Error parsing query/aggregation arguments");
-  ASSERT_STREQ(QueryError_Strerror(QUERY_ENORESULTS), "Query matches no results");
-  ASSERT_STREQ(QueryError_Strerror(QUERY_EBADATTR), "Attribute not supported for term");
+  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_NONE), "Success (not an error)");
+  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_SYNTAX), "Parsing/Syntax error for query string");
+  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_GENERIC), "Generic error evaluating the query");
+  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_PARSE_ARGS), "Error parsing query/aggregation arguments");
+  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_NO_RESULTS), "Query matches no results");
+  ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_BAD_ATTR), "Attribute not supported for term");
 
   // Test unknown error code
   ASSERT_STREQ(QueryError_Strerror((QueryErrorCode)9999), "Unknown status code");
@@ -31,16 +31,16 @@ TEST_F(QueryErrorTest, testQueryErrorSetError) {
   QueryError err = QueryError_Default();
 
   // Test setting error with custom message
-  QueryError_SetError(&err, QUERY_ESYNTAX, "Custom syntax error message");
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ESYNTAX);
+  QueryError_SetError(&err, QUERY_ERROR_CODE_SYNTAX, "Custom syntax error message");
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
   ASSERT_TRUE(QueryError_HasError(&err));
   ASSERT_STREQ(QueryError_GetUserError(&err), "Custom syntax error message");
 
   QueryError_ClearError(&err);
 
   // Test setting error without custom message (should use default)
-  QueryError_SetError(&err, QUERY_EGENERIC, NULL);
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_EGENERIC);
+  QueryError_SetError(&err, QUERY_ERROR_CODE_GENERIC, NULL);
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_GENERIC);
   ASSERT_TRUE(QueryError_HasError(&err));
   ASSERT_STREQ(QueryError_GetUserError(&err), "Generic error evaluating the query");
 
@@ -51,8 +51,8 @@ TEST_F(QueryErrorTest, testQueryErrorSetCode) {
   QueryError err = QueryError_Default();
 
   // Test setting error code only
-  QueryError_SetCode(&err, QUERY_EPARSEARGS);
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_EPARSEARGS);
+  QueryError_SetCode(&err, QUERY_ERROR_CODE_PARSE_ARGS);
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_PARSE_ARGS);
   ASSERT_TRUE(QueryError_HasError(&err));
   ASSERT_STREQ(QueryError_GetUserError(&err), "Error parsing query/aggregation arguments");
 
@@ -63,18 +63,18 @@ TEST_F(QueryErrorTest, testQueryErrorNoOverwrite) {
   QueryError err = QueryError_Default();
 
   // Set first error
-  QueryError_SetError(&err, QUERY_ESYNTAX, "First error");
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ESYNTAX);
+  QueryError_SetError(&err, QUERY_ERROR_CODE_SYNTAX, "First error");
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
   ASSERT_STREQ(QueryError_GetUserError(&err), "First error");
 
   // Try to set second error - should not overwrite
-  QueryError_SetError(&err, QUERY_EGENERIC, "Second error");
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ESYNTAX);  // Should still be first error
+  QueryError_SetError(&err, QUERY_ERROR_CODE_GENERIC, "Second error");
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);  // Should still be first error
   ASSERT_STREQ(QueryError_GetUserError(&err), "First error");
 
   // Try to set code only - should not overwrite
-  QueryError_SetCode(&err, QUERY_EPARSEARGS);
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ESYNTAX);  // Should still be first error
+  QueryError_SetCode(&err, QUERY_ERROR_CODE_PARSE_ARGS);
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);  // Should still be first error
 
   QueryError_ClearError(&err);
 }
@@ -83,9 +83,9 @@ TEST_F(QueryErrorTest, testQueryErrorClear) {
   QueryError err = QueryError_Default();
 
   // Set an error
-  QueryError_SetError(&err, QUERY_ESYNTAX, "Test error");
+  QueryError_SetError(&err, QUERY_ERROR_CODE_SYNTAX, "Test error");
   ASSERT_TRUE(QueryError_HasError(&err));
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ESYNTAX);
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
 
   // Clear the error
   QueryError_ClearError(&err);
@@ -99,8 +99,8 @@ TEST_F(QueryErrorTest, testQueryErrorGetCode) {
 
   ASSERT_TRUE(QueryError_IsOk(&err));
 
-  QueryError_SetError(&err, QUERY_ESYNTAX, "Test error");
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ESYNTAX);
+  QueryError_SetError(&err, QUERY_ERROR_CODE_SYNTAX, "Test error");
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
 
   QueryError_ClearError(&err);
 }
@@ -109,8 +109,8 @@ TEST_F(QueryErrorTest, testQueryErrorWithUserDataFmt) {
   QueryError err = QueryError_Default();
 
   // Test formatted error with user data
-  QueryError_SetWithUserDataFmt(&err, QUERY_ESYNTAX, "Syntax error", " at offset %d near %s", 10, "hello");
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ESYNTAX);
+  QueryError_SetWithUserDataFmt(&err, QUERY_ERROR_CODE_SYNTAX, "Syntax error", " at offset %d near %s", 10, "hello");
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
   ASSERT_TRUE(QueryError_HasError(&err));
   ASSERT_STREQ(QueryError_GetUserError(&err), "Syntax error at offset 10 near hello");
 
@@ -121,8 +121,8 @@ TEST_F(QueryErrorTest, testQueryErrorWithoutUserDataFmt) {
   QueryError err = QueryError_Default();
 
   // Test formatted error without user data
-  QueryError_SetWithoutUserDataFmt(&err, QUERY_EGENERIC, "Generic error with code %d", 42);
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_EGENERIC);
+  QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC, "Generic error with code %d", 42);
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_GENERIC);
   ASSERT_TRUE(QueryError_HasError(&err));
   ASSERT_STREQ(QueryError_GetUserError(&err), "Generic error with code 42");
 
@@ -134,19 +134,19 @@ TEST_F(QueryErrorTest, testQueryErrorCloneFrom) {
   QueryError dest = QueryError_Default();
 
   // Set error in source
-  QueryError_SetError(&src, QUERY_ESYNTAX, "Source error message");
+  QueryError_SetError(&src, QUERY_ERROR_CODE_SYNTAX, "Source error message");
 
   // Clone to destination
   QueryError_CloneFrom(&src, &dest);
-  ASSERT_EQ(QueryError_GetCode(&dest), QUERY_ESYNTAX);
+  ASSERT_EQ(QueryError_GetCode(&dest), QUERY_ERROR_CODE_SYNTAX);
   ASSERT_STREQ(QueryError_GetUserError(&dest), "Source error message");
 
   // Test that destination already has error - should not overwrite
   QueryError src2 = QueryError_Default();
-  QueryError_SetError(&src2, QUERY_EGENERIC, "Second error");
+  QueryError_SetError(&src2, QUERY_ERROR_CODE_GENERIC, "Second error");
 
   QueryError_CloneFrom(&src2, &dest);  // Should not overwrite
-  ASSERT_EQ(QueryError_GetCode(&dest), QUERY_ESYNTAX);  // Should still be original error
+  ASSERT_EQ(QueryError_GetCode(&dest), QUERY_ERROR_CODE_SYNTAX);  // Should still be original error
   ASSERT_STREQ(QueryError_GetUserError(&dest), "Source error message");
 
   QueryError_ClearError(&src);
@@ -158,7 +158,7 @@ TEST_F(QueryErrorTest, testQueryErrorGetDisplayableError) {
   QueryError err = QueryError_Default();
 
   // Test with user data formatting
-  QueryError_SetWithUserDataFmt(&err, QUERY_ESYNTAX, "Syntax error", " at position %d", 42);
+  QueryError_SetWithUserDataFmt(&err, QUERY_ERROR_CODE_SYNTAX, "Syntax error", " at position %d", 42);
 
   // Test non-obfuscated (should show full detail)
   const char *full_error = QueryError_GetDisplayableError(&err, false);
@@ -172,7 +172,7 @@ TEST_F(QueryErrorTest, testQueryErrorGetDisplayableError) {
   ASSERT_FALSE(QueryError_HasError(&err));
 
   // Test with error that has no custom message
-  QueryError_SetCode(&err, QUERY_EGENERIC);
+  QueryError_SetCode(&err, QUERY_ERROR_CODE_GENERIC);
   const char *default_error = QueryError_GetDisplayableError(&err, true);
   ASSERT_STREQ(default_error, "Generic error evaluating the query");
 
@@ -183,17 +183,17 @@ TEST_F(QueryErrorTest, testQueryErrorMaybeSetCode) {
   QueryError err = QueryError_Default();
 
   // Test with no detail set - should not set code
-  QueryError_MaybeSetCode(&err, QUERY_ESYNTAX);
+  QueryError_MaybeSetCode(&err, QUERY_ERROR_CODE_SYNTAX);
   ASSERT_TRUE(QueryError_IsOk(&err));
 
   // Manually set detail (simulating external function setting it)
   err._detail = rm_strdup("Some detail");
-  QueryError_MaybeSetCode(&err, QUERY_ESYNTAX);
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ESYNTAX);
+  QueryError_MaybeSetCode(&err, QUERY_ERROR_CODE_SYNTAX);
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
 
   // Try to set again - should not overwrite
-  QueryError_MaybeSetCode(&err, QUERY_EGENERIC);
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ESYNTAX);
+  QueryError_MaybeSetCode(&err, QUERY_ERROR_CODE_GENERIC);
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
 
   QueryError_ClearError(&err);
 }
@@ -201,19 +201,19 @@ TEST_F(QueryErrorTest, testQueryErrorMaybeSetCode) {
 TEST_F(QueryErrorTest, testQueryErrorAllErrorCodes) {
   // Test that all error codes have valid string representations
   QueryErrorCode codes[] = {
-    QUERY_OK,
-    QUERY_EGENERIC,
-    QUERY_ESYNTAX,
-    QUERY_EPARSEARGS,
-    QUERY_EADDARGS,
-    QUERY_EEXPR,
-    QUERY_EKEYWORD,
-    QUERY_ENORESULTS,
-    QUERY_EBADATTR,
-    QUERY_ENOOPTION,
-    QUERY_EBADVAL,
-    QUERY_ENOPARAM,
-    QUERY_EDUPPARAM
+    QUERY_ERROR_CODE_NONE,
+    QUERY_ERROR_CODE_GENERIC,
+    QUERY_ERROR_CODE_SYNTAX,
+    QUERY_ERROR_CODE_PARSE_ARGS,
+    QUERY_ERROR_CODE_ADD_ARGS,
+    QUERY_ERROR_CODE_EXPR,
+    QUERY_ERROR_CODE_KEYWORD,
+    QUERY_ERROR_CODE_NO_RESULTS,
+    QUERY_ERROR_CODE_BAD_ATTR,
+    QUERY_ERROR_CODE_NO_OPTION,
+    QUERY_ERROR_CODE_BAD_VAL,
+    QUERY_ERROR_CODE_NO_PARAM,
+    QUERY_ERROR_CODE_DUP_PARAM
   };
 
   for (size_t i = 0; i < sizeof(codes) / sizeof(codes[0]); i++) {
@@ -233,8 +233,8 @@ TEST_F(QueryErrorTest, testQueryErrorEdgeCases) {
   QueryError err = QueryError_Default();
 
   // Test empty string message
-  QueryError_SetError(&err, QUERY_ESYNTAX, "");
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ESYNTAX);
+  QueryError_SetError(&err, QUERY_ERROR_CODE_SYNTAX, "");
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
   ASSERT_STREQ(QueryError_GetUserError(&err), "");
   QueryError_ClearError(&err);
 
@@ -243,13 +243,13 @@ TEST_F(QueryErrorTest, testQueryErrorEdgeCases) {
   memset(long_msg, 'A', sizeof(long_msg) - 1);
   long_msg[sizeof(long_msg) - 1] = '\0';
 
-  QueryError_SetError(&err, QUERY_EGENERIC, long_msg);
-  ASSERT_EQ(QueryError_GetCode(&err), QUERY_EGENERIC);
+  QueryError_SetError(&err, QUERY_ERROR_CODE_GENERIC, long_msg);
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_GENERIC);
   ASSERT_STREQ(QueryError_GetUserError(&err), long_msg);
   QueryError_ClearError(&err);
 
   // Test multiple clears (should be safe)
-  QueryError_SetError(&err, QUERY_ESYNTAX, "Test");
+  QueryError_SetError(&err, QUERY_ERROR_CODE_SYNTAX, "Test");
   QueryError_ClearError(&err);
   QueryError_ClearError(&err);  // Second clear should be safe
   ASSERT_TRUE(QueryError_IsOk(&err));

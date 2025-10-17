@@ -236,7 +236,7 @@ int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, Qu
     if (fm & ((t_fieldMask)1 << ii)) {
       const FieldSpec *fs = spec->fields + ii;
       if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsUndefinedOrder(fs))) {
-        QueryError_SetWithUserDataFmt(status, QUERY_EBADORDEROPTION,
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
                                "slop/inorder are not supported for field with undefined ordering", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
         return 0;
       }
@@ -525,7 +525,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
   setMemoryInfo(ctx);
   if (checkIfSpecExists(rawSpecName)) {
-    QueryError_SetCode(status, QUERY_EINDEXEXISTS);
+    QueryError_SetCode(status, QUERY_ERROR_CODE_INDEX_EXISTS);
     return NULL;
   }
   size_t nameLen;
@@ -674,7 +674,7 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
   params->algoParams.hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
   if (params->algoParams.hnswParams.blockSize == 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Vector index element size",
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
       " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
     return 0;
   }
@@ -694,7 +694,7 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
   params->algoParams.bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
   if (params->algoParams.bfParams.blockSize == 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Vector index element size",
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
       " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
     return 0;
   }
@@ -719,7 +719,7 @@ static int parseVectorField_validate_svs(VecSimParams *params, QueryError *statu
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
   index_size_estimation += elementSize * params->algoParams.svsParams.blockSize;
   if (params->algoParams.svsParams.blockSize == 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Vector index element size",
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
       " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
     return 0;
   }
@@ -757,10 +757,10 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
   // Get number of parameters
   size_t expNumParam, numParam = 0;
   if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for vector similarity number of parameters: %s", AC_Strerror(rc));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity number of parameters: %s", AC_Strerror(rc));
     return 0;
   } else if (expNumParam % 2) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ESYNTAX, "Bad number of arguments for vector similarity index: got %d but expected even number (as algorithm parameters should be submitted as named arguments)", expNumParam);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad number of arguments for vector similarity index: got %d but expected even number (as algorithm parameters should be submitted as named arguments)", expNumParam);
     return 0;
   } else {
     expNumParam /= 2;
@@ -811,13 +811,13 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
         return 0;
       }
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
       return 0;
     }
     numParam++;
   }
   if (expNumParam > numParam) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
     return 0;
   }
   if (!mandtype) {
@@ -849,10 +849,10 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
   // Get number of parameters
   size_t expNumParam, numParam = 0;
   if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for vector similarity number of parameters: %s", AC_Strerror(rc));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity number of parameters: %s", AC_Strerror(rc));
     return 0;
   } else if (expNumParam % 2) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad number of arguments for vector similarity index", ": got %d but expected even number as algorithm parameters (should be submitted as named arguments)", expNumParam);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad number of arguments for vector similarity index", ": got %d but expected even number as algorithm parameters (should be submitted as named arguments)", expNumParam);
     return 0;
   } else {
     expNumParam /= 2;
@@ -888,13 +888,13 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
         return 0;
       }
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_BF, AC_GetStringNC(ac, NULL));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_BF, AC_GetStringNC(ac, NULL));
       return 0;
     }
     numParam++;
   }
   if (expNumParam > numParam) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
     return 0;
   }
   if (!mandtype) {
@@ -931,7 +931,7 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
     QERR_MKBADARGS_AC(status, "vector similarity number of parameters", rc);
     return 0;
   } else if (expNumParam % 2) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad number of arguments for vector similarity index:", " got %d but expected even number as algorithm parameters (should be submitted as named arguments)", expNumParam);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad number of arguments for vector similarity index:", " got %d but expected even number as algorithm parameters (should be submitted as named arguments)", expNumParam);
     return 0;
   } else {
     expNumParam /= 2;
@@ -944,7 +944,7 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
         return 0;
       } else if (params->algoParams.svsParams.type != VecSimType_FLOAT16 &&
                  params->algoParams.svsParams.type != VecSimType_FLOAT32){
-            QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Not supported data type is given. ", "Expected: FLOAT16, FLOAT32");
+            QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Not supported data type is given. ", "Expected: FLOAT16, FLOAT32");
             return 0;
       }
       mandtype = true;
@@ -995,17 +995,17 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_TRAINING_THRESHOLD), rc);
         return 0;
       } else if (tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold < DEFAULT_BLOCK_SIZE) {
-           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Invalid TRAINING_THRESHOLD: cannot be lower than DEFAULT_BLOCK_SIZE ", "(%d)", DEFAULT_BLOCK_SIZE);
+           QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid TRAINING_THRESHOLD: cannot be lower than DEFAULT_BLOCK_SIZE ", "(%d)", DEFAULT_BLOCK_SIZE);
           return 0;
       }
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_SVS, AC_GetStringNC(ac, NULL));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_SVS, AC_GetStringNC(ac, NULL));
       return 0;
     }
     numParam++;
   }
   if (expNumParam > numParam) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
     return 0;
   }
   if (!mandtype) {
@@ -1021,11 +1021,11 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
     return 0;
   }
   if (params->algoParams.svsParams.quantBits == 0 && tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold > 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "TRAINING_THRESHOLD is irrelevant when compression was not requested", "");
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "TRAINING_THRESHOLD is irrelevant when compression was not requested", "");
     return 0;
   }
   if (!VecSim_IsLeanVecCompressionType(params->algoParams.svsParams.quantBits) && params->algoParams.svsParams.leanvec_dim > 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "REDUCE is irrelevant when compression is not of type LeanVec", "");
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "REDUCE is irrelevant when compression is not of type LeanVec", "");
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
@@ -1049,7 +1049,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
       double d;
       if ((rc = AC_GetDouble(ac, &d, 0)) != AC_OK) {
-        QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for weight: %s", AC_Strerror(rc));
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for weight: %s", AC_Strerror(rc));
         return 0;
       }
       fs->ftWeight = d;
@@ -1057,7 +1057,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
       if (AC_IsAtEnd(ac)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_PHONETIC_STR " requires an argument");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPEC_PHONETIC_STR " requires an argument");
         return 0;
       }
 
@@ -1069,7 +1069,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       // in the future we will support more algorithms and more languages
       if (!checkPhoneticAlgorithmAndLang(matcher)) {
         QueryError_SetError(
-            status, QUERY_EINVAL,
+            status, QUERY_ERROR_CODE_INVAL,
             "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
             "double metaphone (dm). Supported languages: English (en), French (fr), "
             "Portuguese (pt) and Spanish (es)");
@@ -1098,13 +1098,13 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
         if (AC_IsAtEnd(ac)) {
-          QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
+          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
           rc = 0;
           break;
         }
         const char *sep = AC_GetStringNC(ac, NULL);
         if (strlen(sep) != 1) {
-          QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS,
+          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
                                 "Tag separator must be a single character. Got `%s`", sep);
           rc = 0;
           break;
@@ -1156,7 +1156,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   int rc;
   int result;
   if ((rc = AC_GetString(ac, &algStr, &len, 0)) != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(rc));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(rc));
     return 0;
   }
   VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
@@ -1211,7 +1211,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     }
 
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(AC_ERR_ENOENT));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(AC_ERR_ENOENT));
     return 0;
   }
 
@@ -1249,7 +1249,7 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
 static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
 
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Field", " `%s` does not have a type", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Field", " `%s` does not have a type", HiddenString_GetUnsafe(fs->fieldName, NULL));
     return 0;
   }
 
@@ -1280,7 +1280,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       fs->options |= FieldSpec_IndexMissing;
     }
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Invalid field type for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid field type for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
 
@@ -1303,14 +1303,14 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   // We don't allow both NOINDEX and INDEXMISSING, since the missing values will
   // not contribute and thus this doesn't make sense.
   if (!FieldSpec_IsIndexable(fs) && FieldSpec_IndexesMissing(fs)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "'Field cannot be defined with both `NOINDEX` and `INDEXMISSING`", " `%s` '", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "'Field cannot be defined with both `NOINDEX` and `INDEXMISSING`", " `%s` '", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
   return 1;
 
 error:
   if (!QueryError_HasError(status)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Could not parse schema for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
   }
   return 0;
 }
@@ -1334,7 +1334,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
                                        QueryError *status, int isNew) {
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Fields arguments are missing");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Fields arguments are missing");
     return 0;
   }
 
@@ -1344,7 +1344,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
   while (!AC_IsAtEnd(ac)) {
     if (sp->numFields == SPEC_MAX_FIELDS) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Schema is limited to %d fields",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is limited to %d fields",
                              SPEC_MAX_FIELDS);
       goto reset;
     }
@@ -1355,7 +1355,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     const char *fieldName = fieldPath;
     if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
       if (AC_IsAtEnd(ac)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPEC_AS_STR " requires an argument");
         goto reset;
       }
       fieldName = AC_GetStringNC(ac, &namelen);
@@ -1367,13 +1367,13 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     }
 
     if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Duplicate field in schema", " - %s", fieldName);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Duplicate field in schema", " - %s", fieldName);
       goto reset;
     }
 
     FieldSpec *fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
     if (!fs) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Schema is currently limited", " to %d fields",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is currently limited", " to %d fields",
                              sp->numFields);
       goto reset;
     }
@@ -1384,23 +1384,23 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     if (sp->diskSpec)
     {
       if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support non-TEXT fields");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT fields");
         goto reset;
       }
       if (fs->options & FieldSpec_NotIndexable) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support NOINDEX fields");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support NOINDEX fields");
         goto reset;
       }
       if (fs->options & FieldSpec_Sortable) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support SORTABLE fields");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support SORTABLE fields");
         goto reset;
       }
       if (fs->options & FieldSpec_IndexMissing) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support INDEXMISSING fields");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support INDEXMISSING fields");
         goto reset;
       }
       if (fs->options & FieldSpec_IndexEmpty) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support INDEXEMPTY fields");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support INDEXEMPTY fields");
         goto reset;
       }
     }
@@ -1408,7 +1408,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {
       int textId = IndexSpec_CreateTextId(sp, fs->index);
       if (textId < 0) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Schema is limited to %d TEXT fields",
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is limited to %d TEXT fields",
                                SPEC_MAX_FIELD_ID);
         goto reset;
       }
@@ -1420,7 +1420,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
           sp->flags |= Index_WideSchema;
         } else if ((sp->flags & Index_WideSchema) == 0) {
           QueryError_SetError(
-              status, QUERY_ELIMIT,
+              status, QUERY_ERROR_CODE_LIMIT,
               "Cannot add more fields. Declare index with wide fields to allow adding "
               "unlimited fields");
           goto reset;
@@ -1461,14 +1461,14 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       }
 
       if (fs->options & FieldSpec_Dynamic) {
-        QueryError_SetWithUserDataFmt(status, QUERY_EBADOPTION,
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_OPTION,
                                "Cannot set dynamic field to sortable - %s", fieldName);
         goto reset;
       }
 
       fs->sortIdx = sp->numSortableFields++;
       if (fs->sortIdx == -1) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Schema is limited to %d Sortable fields",
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is limited to %d Sortable fields",
                                SPEC_MAX_FIELDS);
         goto reset;
       }
@@ -1604,9 +1604,9 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(&ac)) {
       const char *badarg = AC_GetStringNC(&ac, NULL);
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s`", badarg);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
     } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "No schema found");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
     }
     goto failure;
   }
@@ -2990,7 +2990,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver) != REDISMODULE_OK) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Failed to load index field", " %d", i);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load index field", " %d", i);
       goto cleanup;
     }
     if (fs->ftId != RS_INVALID_FIELD_ID) {
@@ -3012,7 +3012,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
   if (SchemaRule_RdbLoad(spec_ref, rdb, encver, status) != REDISMODULE_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to load schema rule");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load schema rule");
     goto cleanup;
   }
 
@@ -3057,7 +3057,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
 cleanup:
   StrongRef_Release(spec_ref);
 cleanup_no_index:
-  QueryError_SetError(status, QUERY_EPARSEARGS, "while reading an index");
+  QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
   return NULL;
 }
 
@@ -3377,7 +3377,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   QueryError status = QueryError_Default();
 
   if(spec->scan_failed_OOM) {
-    QueryError_SetWithoutUserDataFmt(&status, QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM. New documents will not be indexed.");
+    QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_INDEX_BG_OOM_FAIL, "Index background scan did not complete due to OOM. New documents will not be indexed.");
     IndexError_AddQueryError(&spec->stats.indexError, &status, key);
     QueryError_ClearError(&status);
     return REDISMODULE_ERR;
