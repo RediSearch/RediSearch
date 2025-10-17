@@ -618,7 +618,9 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
     // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*idx };
 
-    let deltas = ii_dispatch!(ii, scan_gc, doc_exists, repair).unwrap();
+    let Ok(deltas) = ii_dispatch!(ii, scan_gc, doc_exists, repair) else {
+        return false;
+    };
 
     let Some(deltas) = deltas else {
         return false;
