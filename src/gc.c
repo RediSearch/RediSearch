@@ -58,7 +58,9 @@ static long long getNextPeriod(GCContext* gc) {
 }
 
 static RedisModuleTimerID scheduleNext(GCContext *gc) {
+  #ifdef RS_UNIT_TESTS
   if (RS_IsMock) return 0;
+  #endif // RS_UNIT_TESTS
 
   long long period = getNextPeriod(gc);
   return RedisModule_CreateTimer(RSDummyContext, period, timerCallback, gc);
