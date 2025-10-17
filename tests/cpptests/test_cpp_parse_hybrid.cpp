@@ -17,7 +17,7 @@
 #include "src/hybrid/vector_query_utils.h"
 #include "src/spec.h"
 #include "src/search_ctx.h"
-#include "src/query_error.h"
+#include "query_error.h"
 #include "src/rmalloc.h"
 // #include "src/index.h"
 #include "src/aggregate/aggregate.h"

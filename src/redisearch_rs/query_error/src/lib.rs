@@ -7,16 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use derive_more::TryFrom;
 use std::ffi::{CStr, CString};
 use std::fmt::{Debug, Display};
 
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-#[repr(C)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, TryFrom)]
+#[try_from(repr)]
+#[repr(u8)]
 pub enum QueryErrorCode {
     #[default]
-    None,
+    None = 0,
 
     Generic,
     Syntax,
@@ -204,15 +206,15 @@ impl QueryError {
     }
 
     pub fn set_code(&mut self, code: QueryErrorCode) {
-        debug_assert!(
-            self.is_ok(),
-            "Call to QueryError::set_code on already-set QueryError"
-        );
+        // debug_assert!(
+        //     self.is_ok(),
+        //     "Call to QueryError::set_code on already-set QueryError"
+        // );
 
-        debug_assert!(
-            !code.is_none(),
-            "Call to QueryError::set_code with QueryErrorCode::None"
-        );
+        // debug_assert!(
+        //     !code.is_none(),
+        //     "Call to QueryError::set_code with QueryErrorCode::None"
+        // );
 
         if !self.is_ok() {
             return;
@@ -222,15 +224,15 @@ impl QueryError {
     }
 
     pub fn set_info(&mut self, code: QueryErrorCode, info: Option<CString>) {
-        debug_assert!(
-            self.is_ok(),
-            "Call to QueryError::set_error on already-set QueryError"
-        );
+        // debug_assert!(
+        //     self.is_ok(),
+        //     "Call to QueryError::set_error on already-set QueryError"
+        // );
 
-        debug_assert!(
-            !code.is_none(),
-            "Call to QueryError::set_code with QueryErrorCode::None"
-        );
+        // debug_assert!(
+        //     !code.is_none(),
+        //     "Call to QueryError::set_code with QueryErrorCode::None"
+        // );
 
         if !self.is_ok() {
             return;

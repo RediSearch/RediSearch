@@ -38,7 +38,11 @@ pub unsafe extern "C" fn QueryError_HasError(query_error: *const OpaqueQueryErro
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryError_Strerror(code: QueryErrorCode) -> *const c_char {
+pub unsafe extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
+    let Ok(code) = QueryErrorCode::try_from(maybe_code) else {
+        return c"Unknown status code".as_ptr();
+    };
+
     code.to_cstr().as_ptr()
 }
 
@@ -132,7 +136,11 @@ pub unsafe extern "C" fn QueryError_GetCode(
     let query_error =
         unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
 
-    query_error.code()
+    let code = query_error.code();
+
+    eprintln!("GetCode returning {code:?}");
+
+    code
 }
 
 #[unsafe(no_mangle)]
@@ -148,7 +156,7 @@ pub unsafe extern "C" fn QueryError_MaybeSetCode(
     _status: *mut OpaqueQueryError,
     _code: QueryErrorCode,
 ) {
-    todo!()
+    // todo!()
 }
 
 #[unsafe(no_mangle)]

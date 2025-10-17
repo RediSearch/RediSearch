@@ -37,8 +37,12 @@
 #define QUERY_WOOM_CLUSTER "One or more shards failed to execute the query due to insufficient memory"
 
 
-typedef enum QueryErrorCode {
-  QUERY_ERROR_CODE_NONE,
+enum QueryErrorCode
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  QUERY_ERROR_CODE_NONE = 0,
   QUERY_ERROR_CODE_GENERIC,
   QUERY_ERROR_CODE_SYNTAX,
   QUERY_ERROR_CODE_PARSE_ARGS,
@@ -92,7 +96,10 @@ typedef enum QueryErrorCode {
   QUERY_ERROR_CODE_WEIGHT_NOT_ALLOWED,
   QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED,
   QUERY_ERROR_CODE_OUT_OF_MEMORY,
-} QueryErrorCode;
+};
+#ifndef __cplusplus
+typedef uint8_t QueryErrorCode;
+#endif // __cplusplus
 
 /**
  * A type with size `N`.
@@ -118,13 +125,11 @@ bool QueryError_IsOk(const struct QueryError *query_error);
 
 bool QueryError_HasError(const struct QueryError *query_error);
 
-const char *QueryError_Strerror(enum QueryErrorCode code);
+const char *QueryError_Strerror(uint8_t maybe_code);
 
-void QueryError_SetError(struct QueryError *query_error,
-                         enum QueryErrorCode code,
-                         const char *message);
+void QueryError_SetError(struct QueryError *query_error, QueryErrorCode code, const char *message);
 
-void QueryError_SetCode(struct QueryError *query_error, enum QueryErrorCode code);
+void QueryError_SetCode(struct QueryError *query_error, QueryErrorCode code);
 
 void QueryError_SetDetail(struct QueryError *query_error, const char *detail);
 
@@ -134,11 +139,11 @@ const char *QueryError_GetUserError(const struct QueryError *query_error);
 
 const char *QueryError_GetDisplayableError(const struct QueryError *query_error, bool obfuscate);
 
-enum QueryErrorCode QueryError_GetCode(const struct QueryError *query_error);
+QueryErrorCode QueryError_GetCode(const struct QueryError *query_error);
 
 void QueryError_ClearError(struct QueryError *query_error);
 
-void QueryError_MaybeSetCode(struct QueryError *_status, enum QueryErrorCode _code);
+void QueryError_MaybeSetCode(struct QueryError *_status, QueryErrorCode _code);
 
 bool QueryError_HasReachedMaxPrefixExpansionsWarning(const struct QueryError *query_error);
 
@@ -152,26 +157,16 @@ void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
 }  // extern "C"
 #endif  // __cplusplus
 
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
 /**
  * Set the error code using a custom-formatted string
  *
  * Not implemented in Rust as variadic functions are not supported across an FFI boundary.
  */
-void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char* message, const char *fmt, ...) {
-  char *formatted = NULL;
-  va_list ap;
-  va_start(ap, fmt);
-  rm_vasprintf(&formatted, fmt, ap);
-  va_end(ap);
-
-  char *detail = NULL;
-  rm_asprintf(&detail, "%s%s", message, formatted);
-  rm_free(formatted);
-
-  QueryError_SetError(status, code, message);
-  QueryError_SetDetail(status, detail);
-  rm_free(detail);
-}
+void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char* message, const char *fmt, ...);
 
 /**
  * Set the error code using a custom-formatted string
@@ -179,26 +174,13 @@ void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, cons
  *
  * Not implemented in Rust as variadic functions are not supported across an FFI boundary.
  */
-void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
-  char *formatted = NULL;
-  va_list ap;
-  va_start(ap, fmt);
-  rm_vasprintf(&formatted, fmt, ap);
-  va_end(ap);
+void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
 
-  QueryError_SetError(status, code, formatted);
-  rm_free(formatted);
-}
+/**
+ * Not implemented in Rust yet as mocking ArgsCursor would be a large lift.
+ */
+void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name);
 
-void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name) {
-  RS_LOG_ASSERT(!AC_IsAtEnd(ac), "cursor should not be at the end");
-  const char *s;
-  size_t n;
-  if (AC_GetString(ac, &s, &n, AC_F_NOADVANCE) != AC_OK) {
-    s = "Unknown (FIXME)";
-    n = strlen(s);
-  }
-
-  QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%.*s` at position %lu for %s",
-                         (int)n, s, ac->offset, name);
-}
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus
