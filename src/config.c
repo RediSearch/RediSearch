@@ -331,16 +331,6 @@ CONFIG_GETTER(getFrisoINI) {
   return config->frisoIni ? sdsnew(config->frisoIni) : NULL;
 }
 
-RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
-  char *str = *(char **)privdata;
-  RS_ASSERT(str != NULL);
-  if (config_default_scorer) {
-    RedisModule_FreeString(NULL, config_default_scorer);
-  }
-  config_default_scorer = RedisModule_CreateString(NULL, str, strlen(str));
-  return config_default_scorer;
-}
-
 // DEFAULT_SCORER
 CONFIG_SETTER(setDefaultScorer) {
   const char *scorerName;
