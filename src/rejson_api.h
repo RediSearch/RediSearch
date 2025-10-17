@@ -2,10 +2,11 @@
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
+
 #pragma once
 
 #include "redismodule.h"
@@ -26,6 +27,7 @@ typedef enum JSONType {
 } JSONType;
 
 typedef const void* RedisJSON;
+typedef RedisJSON* RedisJSONPtr;
 typedef const void* JSONResultsIterator;
 typedef const void* JSONPath;
 typedef const void* JSONKeyValuesIterator;
@@ -41,12 +43,10 @@ typedef struct RedisJSONAPI {
   RedisJSON (*openKeyFromStr)(RedisModuleCtx *ctx, const char *path);
 
   JSONResultsIterator (*get)(RedisJSON json, const char *path);
-  
+
   RedisJSON (*next)(JSONResultsIterator iter);
   size_t (*len)(JSONResultsIterator iter);
   void (*freeIter)(JSONResultsIterator iter);
-
-  RedisJSON (*getAt)(RedisJSON json, size_t index);
 
   /* RedisJSON value functions
    * Return REDISMODULE_OK if RedisJSON is of the correct JSONType,
@@ -89,7 +89,7 @@ typedef struct RedisJSONAPI {
 
   // Free a parsed JSONPath
   void (*pathFree)(JSONPath);
-  
+
   // Query a parsed JSONPath
   int (*pathIsSingle)(JSONPath);
   int (*pathHasDefinedOrder)(JSONPath);
@@ -111,9 +111,6 @@ typedef struct RedisJSONAPI {
 
   // Get an iterator over the key-value pairs of a JSON Object
   JSONKeyValuesIterator (*getKeyValues)(RedisJSON json);
-  // Get the next key-value pair
-  // The caller gains ownership of `key_name`
-  RedisJSON (*nextKeyValue)(JSONKeyValuesIterator iter, RedisModuleString **key_name);
   // Free the iterator
   void (*freeKeyValuesIter)(JSONKeyValuesIterator iter);
 
@@ -123,10 +120,22 @@ typedef struct RedisJSONAPI {
 
   RedisJSON (*openKeyWithFlags)(RedisModuleCtx *ctx, RedisModuleString *key_name, int flags);
 
+  ////////////////
+  // V6 entries //
+  ////////////////
+  RedisJSONPtr (*allocJson)();
+  // The caller must pass 'ptr' which was allocated with allocJson
+  int (*getAt)(RedisJSON json, size_t index, RedisJSONPtr ptr);
+  // Get the next key-value pair
+  // The caller gains ownership of `key_name`
+  // The caller must pass 'ptr' which was allocated with allocJson
+  int (*nextKeyValue)(JSONKeyValuesIterator iter, RedisModuleString **key_name, RedisJSONPtr ptr);
+
+  void (*freeJson)(RedisJSONPtr ptr);
+
 } RedisJSONAPI;
 
-#define RedisJSONAPI_LATEST_API_VER 5
+#define RedisJSONAPI_LATEST_API_VER 6
 #ifdef __cplusplus
 }
 #endif
-

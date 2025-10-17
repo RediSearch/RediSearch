@@ -19,6 +19,10 @@ void Extensions_Init();
 /* clear the extensions list */
 void Extensions_Free();
 
+/* Check if the extensions have been initialized. Only used for assertions, initialization happens in main thread so no thread
+synchronization is needed */
+bool Extensions_InitDone();
+
 /* Context for saving a scoring function and its private data and free */
 typedef struct {
   RSScoringFunction sf;

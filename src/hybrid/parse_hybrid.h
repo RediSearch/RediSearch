@@ -37,10 +37,9 @@ typedef struct ParseHybridCommandCtx {
 } ParseHybridCommandCtx;
 
 // Function for parsing hybrid command arguments - exposed for testing
-int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                  RedisSearchCtx *sctx, const char* indexname,
-                                  ParseHybridCommandCtx *parsedCmdCtx,
-                                  QueryError *status, bool internal);
+int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
+                       RedisSearchCtx *sctx, ParseHybridCommandCtx *parsedCmdCtx,
+                       QueryError *status, bool internal);
 
 #ifdef __cplusplus
 }

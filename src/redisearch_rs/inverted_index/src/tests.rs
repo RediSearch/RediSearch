@@ -11,20 +11,23 @@ use core::panic;
 use std::{
     io::{Cursor, Read},
     ptr,
+    sync::atomic,
 };
 
 use crate::{
-    DecodedBy, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
-    FilterMaskReader, FilterNumericReader, IdDelta, IndexBlock, InvertedIndex, NumericFilter,
-    RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
+    BlockGcScanResult, DecodedBy, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex,
+    FilterGeoReader, FilterMaskReader, FilterNumericReader, GcApplyInfo, GcScanDelta, IdDelta,
+    IndexBlock, IndexReader, InvertedIndex, NumericFilter, RSAggregateResult, RSIndexResult,
+    RSResultData, RSResultKind, RSTermRecord, RepairType,
     debug::{BlockSummary, Summary},
 };
-use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
+use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, t_docId};
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
 };
 use pretty_assertions::assert_eq;
+use smallvec::smallvec;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
@@ -44,6 +47,7 @@ pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
 }
 
 /// Dummy encoder which allows defaults for testing, encoding only the delta
+#[derive(Clone)]
 struct Dummy;
 
 impl Encoder for Dummy {
@@ -65,12 +69,12 @@ impl Encoder for Dummy {
 fn memory_usage() {
     let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 40);
+    assert_eq!(ii.memory_usage(), 48);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 40 + mem_growth);
+    assert_eq!(ii.memory_usage(), 48 + mem_growth);
 }
 
 #[test]
@@ -134,6 +138,7 @@ fn adding_same_record_twice() {
     assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
     /// Dummy encoder which allows duplicates for testing
+    #[derive(Clone)]
     struct AllowDupsDummy;
 
     impl Encoder for AllowDupsDummy {
@@ -185,6 +190,7 @@ fn adding_same_record_twice() {
 #[test]
 fn adding_creates_new_blocks_when_entries_is_reached() {
     /// Dummy encoder which only allows 2 entries per block for testing
+    #[derive(Clone)]
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
@@ -288,13 +294,13 @@ fn adding_big_delta_makes_new_block() {
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 48);
+    assert_eq!(ii.memory_usage(), 56);
     assert_eq!(ii.number_of_entries(), 0);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 48 + mem_growth);
+    assert_eq!(ii.memory_usage(), 56 + mem_growth);
     assert_eq!(ii.number_of_entries(), 1);
 
     let record = RSIndexResult::default().doc_id(10);
@@ -307,7 +313,7 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::new(IndexFlags_Index_StoreFieldFlags, Dummy);
 
-    assert_eq!(ii.memory_usage(), 56);
+    assert_eq!(ii.memory_usage(), 64);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::default().doc_id(10).field_mask(0b101);
@@ -344,14 +350,20 @@ impl Decoder for Dummy {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         prev_doc_id: u64,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let mut buffer = [0; 4];
         cursor.read_exact(&mut buffer)?;
 
         let delta = u32::from_be_bytes(buffer);
         let doc_id = prev_doc_id + (delta as u64);
 
-        Ok(RSIndexResult::virt().doc_id(doc_id))
+        result.doc_id = doc_id;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::default()
     }
 }
 
@@ -382,32 +394,30 @@ fn reading_records() {
     ];
     let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
     let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(10));
-    drop(record);
-
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(11));
-    drop(record);
-
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(100));
-    drop(record);
-
-    let record = ir
-        .next_record()
+    let found = ir
+        .next_record(&mut result)
         .expect("to be able to read from the buffer");
-    assert_eq!(record, None);
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(11));
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(100));
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(!found);
 }
 
 #[test]
@@ -422,12 +432,6 @@ fn reading_over_empty_blocks() {
             last_doc_id: 10,
         },
         IndexBlock {
-            buffer: vec![],
-            num_entries: 0,
-            first_doc_id: 20,
-            last_doc_id: 20,
-        },
-        IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 30,
@@ -436,29 +440,29 @@ fn reading_over_empty_blocks() {
     ];
     let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
     let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(10));
-    drop(record);
-
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(30));
-    drop(record);
-
-    let record = ir
-        .next_record()
+    let found = ir
+        .next_record(&mut result)
         .expect("to be able to read from the buffer");
-    assert!(record.is_none(), "should not return any more records");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(30));
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(!found, "should not return any more records");
 }
 
 #[test]
 fn read_using_the_first_block_id_as_the_base() {
+    #[derive(Clone)]
     struct FirstBlockIdDummy;
 
     impl Encoder for FirstBlockIdDummy {
@@ -479,14 +483,21 @@ fn read_using_the_first_block_id_as_the_base() {
             &self,
             cursor: &mut Cursor<&'index [u8]>,
             prev_doc_id: u64,
-        ) -> std::io::Result<RSIndexResult<'index>> {
+            result: &mut RSIndexResult<'index>,
+        ) -> std::io::Result<()> {
             let mut buffer = [0; 4];
             cursor.read_exact(&mut buffer)?;
 
             let delta = u32::from_be_bytes(buffer);
             let doc_id = prev_doc_id + (delta as u64);
 
-            Ok(RSIndexResult::virt().doc_id(doc_id))
+            result.doc_id = doc_id;
+
+            Ok(())
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            RSIndexResult::default()
         }
 
         fn base_id(block: &IndexBlock, _last_doc_id: ffi::t_docId) -> ffi::t_docId {
@@ -511,26 +522,25 @@ fn read_using_the_first_block_id_as_the_base() {
     }];
     let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, FirstBlockIdDummy);
     let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(10));
-    drop(record);
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(10));
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(11));
-    drop(record);
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(11));
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(12));
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(12));
 }
 
 #[test]
@@ -553,36 +563,41 @@ fn seeking_records() {
 
     let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
     let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
 
-    let record = ir
-        .seek_record(101)
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
+    let found = ir
+        .seek_record(101, &mut result)
+        .expect("to be able to read from the buffer");
 
-    assert_eq!(record, RSIndexResult::virt().doc_id(101));
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(101));
 
-    let record = ir
-        .seek_record(105)
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
+    let found = ir
+        .seek_record(105, &mut result)
+        .expect("to be able to read from the buffer");
 
+    assert!(found);
     assert_eq!(
-        record,
+        result,
         RSIndexResult::virt().doc_id(108),
         "should seek to the next highest ID"
     );
 
-    let record = ir
-        .seek_record(200)
+    let found = ir
+        .seek_record(200, &mut result)
         .expect("to be able to read from the buffer");
-    assert_eq!(record, None);
+    assert!(!found);
 }
 
 #[test]
-#[should_panic(expected = "IndexReader should not be created with an empty inverted index")]
 fn index_reader_construction_with_no_blocks() {
     let ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
-    let _ir = ii.reader();
+    let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
+
+    assert_eq!(ir.next_record(&mut result).unwrap(), false);
+    ir.reset();
+    assert_eq!(ir.seek_record(5, &mut result).unwrap(), false);
 }
 
 #[test]
@@ -686,28 +701,45 @@ fn reader_reset() {
     ];
     let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
     let mut ir = ii.reader();
+    let mut result = RSIndexResult::default();
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(10));
-    drop(record);
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(10));
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(11));
-    drop(record);
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(11));
+
+    assert_eq!(ir.gc_marker, 0);
+    ii.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
 
     ir.reset();
 
-    let record = ir
-        .next_record()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(10));
+    assert_eq!(ir.gc_marker, 1);
+
+    let found = ir
+        .next_record(&mut result)
+        .expect("to be able to read from the buffer");
+    assert!(found);
+    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+}
+
+#[test]
+fn reader_needs_revalidation() {
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+
+    let ir = ii.reader();
+
+    assert!(!ir.needs_revalidation(), "index was not modified yet");
+
+    ii.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
+    assert!(ir.needs_revalidation(), "index was modified");
 }
 
 #[test]
@@ -735,6 +767,7 @@ fn reader_unique_docs() {
 #[test]
 fn reader_has_duplicates() {
     /// Dummy encoder which allows duplicates for testing
+    #[derive(Clone)]
     struct AllowDupsDummy;
 
     impl Encoder for AllowDupsDummy {
@@ -759,8 +792,13 @@ fn reader_has_duplicates() {
             &self,
             _cursor: &mut Cursor<&'index [u8]>,
             _base: ffi::t_docId,
-        ) -> std::io::Result<RSIndexResult<'index>> {
+            _result: &mut RSIndexResult<'index>,
+        ) -> std::io::Result<()> {
             panic!("This test won't decode anything")
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            RSIndexResult::default()
         }
     }
 
@@ -812,6 +850,26 @@ fn reader_is_index() {
     assert!(!ir.is_index(&ii2));
 }
 
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for I {
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
+        match self.next() {
+            Some(r) => {
+                *result = r;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    fn seek_record(
+        &mut self,
+        _doc_id: ffi::t_docId,
+        _result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        unimplemented!("This tests won't seek anything")
+    }
+}
+
 #[test]
 fn reading_filter_based_on_field_mask() {
     // Make an iterator with three records having different field masks. The second record will be
@@ -822,15 +880,21 @@ fn reading_filter_based_on_field_mask() {
         RSIndexResult::default().doc_id(12).field_mask(0b0100),
     ];
 
-    let reader = FilterMaskReader::new(0b0101 as _, iter.into_iter());
-    let records = reader.collect::<Vec<_>>();
+    let mut reader = FilterMaskReader::new(0b0101 as _, iter.into_iter());
+    let mut result = RSIndexResult::default();
 
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
     assert_eq!(
-        records,
-        vec![
-            RSIndexResult::default().doc_id(10).field_mask(0b0001),
-            RSIndexResult::default().doc_id(12).field_mask(0b0100),
-        ]
+        result,
+        RSIndexResult::default().doc_id(10).field_mask(0b0001)
+    );
+
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
+    assert_eq!(
+        result,
+        RSIndexResult::default().doc_id(12).field_mask(0b0100)
     );
 }
 
@@ -856,16 +920,16 @@ fn reading_filter_based_on_numeric_filter() {
         offset: 0,
     };
 
-    let reader = FilterNumericReader::new(&filter, iter.into_iter());
-    let records = reader.collect::<Vec<_>>();
+    let mut reader = FilterNumericReader::new(&filter, iter.into_iter());
+    let mut result = RSIndexResult::numeric(0.0);
 
-    assert_eq!(
-        records,
-        vec![
-            RSIndexResult::numeric(5.0).doc_id(10),
-            RSIndexResult::numeric(15.0).doc_id(12),
-        ]
-    );
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
+    assert_eq!(result, RSIndexResult::numeric(5.0).doc_id(10));
+
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
+    assert_eq!(result, RSIndexResult::numeric(15.0).doc_id(12));
 }
 
 #[test]
@@ -912,16 +976,16 @@ fn reading_filter_based_on_geo_filter() {
         offset: 0,
     };
 
-    let reader = FilterGeoReader::new(&filter, iter.into_iter());
-    let records = reader.collect::<Vec<_>>();
+    let mut reader = FilterGeoReader::new(&filter, iter.into_iter());
+    let mut result = RSIndexResult::numeric(0.0);
 
-    assert_eq!(
-        records,
-        vec![
-            RSIndexResult::numeric(1.0).doc_id(10),
-            RSIndexResult::numeric(3.0).doc_id(11),
-        ]
-    );
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
+    assert_eq!(result, RSIndexResult::numeric(1.0).doc_id(10));
+
+    let found = reader.next_record(&mut result).unwrap();
+    assert!(found);
+    assert_eq!(result, RSIndexResult::numeric(3.0).doc_id(11));
 }
 
 #[test]
@@ -1031,7 +1095,7 @@ fn summary_store_numeric() {
             last_doc_id: 10,
             flags: IndexFlags_Index_StoreNumeric as _,
             number_of_blocks: 1,
-            block_efficiency: 1.0,
+            block_efficiency: 2.0,
             has_efficiency: true,
         }
     );
@@ -1040,6 +1104,7 @@ fn summary_store_numeric() {
 #[test]
 fn blocks_summary() {
     /// Dummy encoder which only allows 2 entries per block for testing
+    #[derive(Clone)]
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
@@ -1094,6 +1159,7 @@ fn blocks_summary() {
 #[test]
 fn blocks_summary_store_numeric() {
     /// Dummy encoder which only allows 2 entries per block for testing
+    #[derive(Clone)]
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
@@ -1142,5 +1208,721 @@ fn blocks_summary_store_numeric() {
                 number_of_entries: 1,
             }
         ]
+    );
+}
+
+/// Helper macro to encode a series of doc IDs using the provided encoder. The first ID is encoded
+/// as a delta from 0, and each subsequent ID is encoded as a delta from the previous ID.
+macro_rules! encode_ids {
+    ($encoder:expr, $first_id:expr $(, $doc_id:expr)* ) => {
+        {
+            let mut writer = Cursor::new(Vec::new());
+            $encoder.encode(&mut writer, 0, &RSIndexResult::default().doc_id($first_id)).unwrap();
+
+            let mut _last_id = $first_id;
+            $(
+                let delta = $doc_id - _last_id;
+                $encoder.encode(&mut writer, delta, &RSIndexResult::default().doc_id($doc_id)).unwrap();
+                _last_id = $doc_id;
+            )*
+            writer.into_inner()
+        }
+    };
+}
+
+#[test]
+fn index_block_repair_delete() {
+    // Make a block with three entries (two duplicates) which will be deleted
+    let encoder = Dummy;
+    let block = IndexBlock {
+        buffer: encode_ids!(encoder, 10, 11, 11),
+        num_entries: 3,
+        first_doc_id: 10,
+        last_doc_id: 11,
+    };
+
+    fn cb(doc_id: t_docId) -> bool {
+        ![10, 11].contains(&doc_id)
+    }
+
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let repair_status = block.repair(cb, repair, encoder).unwrap();
+
+    assert_eq!(
+        repair_status,
+        Some(RepairType::Delete {
+            n_unique_docs_removed: 2
+        })
+    );
+}
+
+#[test]
+fn index_block_repair_unchanged() {
+    // Create an index block with two entries. None of which were deleted
+    let encoder = Dummy;
+    let block = IndexBlock {
+        buffer: encode_ids!(encoder, 10, 11),
+        num_entries: 2,
+        first_doc_id: 10,
+        last_doc_id: 11,
+    };
+
+    fn cb(_doc_id: t_docId) -> bool {
+        true
+    }
+
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let repair_status = block.repair(cb, repair, encoder).unwrap();
+
+    assert_eq!(repair_status, None);
+}
+
+#[test]
+fn index_block_repair_some_deletions() {
+    // Create an index block with three entries. The second one will not be deleted
+    let encoder = Dummy;
+    let block = IndexBlock {
+        buffer: encode_ids!(encoder, 10, 11, 12),
+        num_entries: 3,
+        first_doc_id: 10,
+        last_doc_id: 12,
+    };
+
+    fn cb(doc_id: t_docId) -> bool {
+        [11].contains(&doc_id)
+    }
+
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let repair_status = block.repair(cb, repair, encoder).unwrap();
+
+    assert_eq!(
+        repair_status,
+        Some(RepairType::Replace {
+            blocks: smallvec![IndexBlock {
+                first_doc_id: 11,
+                last_doc_id: 11,
+                num_entries: 1,
+                buffer: encode_ids!(Dummy, 11),
+            }],
+            n_unique_docs_removed: 2
+        })
+    );
+}
+
+#[test]
+fn index_block_repair_delta_too_big() {
+    #[derive(Clone)]
+    struct SmallDeltaDummy;
+
+    struct U5Delta(u8);
+
+    impl IdDelta for U5Delta {
+        fn from_u64(delta: u64) -> Option<Self> {
+            if delta < 32 {
+                Some(Self(delta as u8))
+            } else {
+                None
+            }
+        }
+
+        fn zero() -> Self {
+            Self(0)
+        }
+    }
+
+    impl Encoder for SmallDeltaDummy {
+        type Delta = U5Delta;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            mut writer: W,
+            delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&delta.0.to_be_bytes())?;
+
+            Ok(1)
+        }
+    }
+
+    impl DecodedBy for SmallDeltaDummy {
+        type Decoder = Self;
+
+        fn decoder() -> Self::Decoder {
+            Self
+        }
+    }
+
+    impl Decoder for SmallDeltaDummy {
+        fn decode<'index>(
+            &self,
+            cursor: &mut Cursor<&'index [u8]>,
+            base: t_docId,
+            result: &mut RSIndexResult<'index>,
+        ) -> std::io::Result<()> {
+            let mut buffer = [0; 1];
+            cursor.read_exact(&mut buffer)?;
+
+            let delta = u8::from_be_bytes(buffer);
+            result.doc_id = base + (delta as u64);
+
+            Ok(())
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            RSIndexResult::default()
+        }
+    }
+
+    // Create an index block with three entries - the middle entry will be deleted creating a delta that is too big
+    let mut writer = Cursor::new(Vec::new());
+    let encoder = SmallDeltaDummy;
+    encoder
+        .encode(
+            &mut writer,
+            U5Delta(0),
+            &RSIndexResult::default().doc_id(10),
+        )
+        .unwrap();
+    encoder
+        .encode(
+            &mut writer,
+            U5Delta(31),
+            &RSIndexResult::default().doc_id(41),
+        )
+        .unwrap();
+    encoder
+        .encode(
+            &mut writer,
+            U5Delta(1),
+            &RSIndexResult::default().doc_id(42),
+        )
+        .unwrap();
+
+    let block = IndexBlock {
+        buffer: writer.into_inner(),
+        num_entries: 3,
+        first_doc_id: 10,
+        last_doc_id: 42,
+    };
+
+    fn cb(doc_id: t_docId) -> bool {
+        ![41].contains(&doc_id)
+    }
+
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let repair_status = block.repair(cb, repair, encoder).unwrap();
+
+    assert_eq!(
+        repair_status,
+        Some(RepairType::Replace {
+            blocks: smallvec![
+                IndexBlock {
+                    buffer: {
+                        let mut writer = Cursor::new(Vec::new());
+                        let encoder = SmallDeltaDummy;
+                        encoder
+                            .encode(
+                                &mut writer,
+                                U5Delta(0),
+                                &RSIndexResult::default().doc_id(10),
+                            )
+                            .unwrap();
+
+                        writer.into_inner()
+                    },
+                    num_entries: 1,
+                    first_doc_id: 10,
+                    last_doc_id: 10,
+                },
+                IndexBlock {
+                    buffer: {
+                        let mut writer = Cursor::new(Vec::new());
+                        let encoder = SmallDeltaDummy;
+                        encoder
+                            .encode(
+                                &mut writer,
+                                U5Delta(0),
+                                &RSIndexResult::default().doc_id(42),
+                            )
+                            .unwrap();
+
+                        writer.into_inner()
+                    },
+                    num_entries: 1,
+                    first_doc_id: 42,
+                    last_doc_id: 42,
+                }
+            ],
+            n_unique_docs_removed: 1
+        })
+    );
+}
+
+#[test]
+fn ii_scan_gc() {
+    // Create 5 blocks:
+    // - One which is empty
+    // - One which will be completely deleted
+    // - One which will be partially deleted
+    // - Two which will be unchanged
+    let encoder = Dummy;
+    let blocks = vec![
+        IndexBlock {
+            buffer: encode_ids!(encoder, 10, 11),
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: encode_ids!(encoder, 20, 21, 22),
+            num_entries: 3,
+            first_doc_id: 20,
+            last_doc_id: 22,
+        },
+        IndexBlock {
+            buffer: encode_ids!(encoder, 30),
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
+        IndexBlock {
+            buffer: encode_ids!(encoder, 40),
+            num_entries: 1,
+            first_doc_id: 40,
+            last_doc_id: 40,
+        },
+    ];
+
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
+
+    fn cb(doc_id: t_docId) -> bool {
+        [21, 22, 30, 40].contains(&doc_id)
+    }
+
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let gc_result = ii.scan_gc(cb, repair).unwrap().unwrap();
+
+    assert_eq!(
+        gc_result,
+        GcScanDelta {
+            last_block_idx: 3,
+            last_block_num_entries: 1,
+            deltas: vec![
+                BlockGcScanResult {
+                    index: 0,
+                    repair: RepairType::Delete {
+                        n_unique_docs_removed: 2
+                    },
+                },
+                BlockGcScanResult {
+                    index: 1,
+                    repair: RepairType::Replace {
+                        blocks: smallvec![IndexBlock {
+                            buffer: encode_ids!(Dummy, 21, 22),
+                            num_entries: 2,
+                            first_doc_id: 21,
+                            last_doc_id: 22,
+                        }],
+                        n_unique_docs_removed: 1
+                    },
+                },
+            ]
+        }
+    );
+}
+
+#[test]
+fn ii_scan_gc_no_change() {
+    // Create 2 blocks which will be unchanged
+    let encoder = Dummy;
+    let blocks = vec![
+        IndexBlock {
+            buffer: encode_ids!(encoder, 10, 11),
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: encode_ids!(encoder, 30),
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
+    ];
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
+
+    fn cb(_doc_id: t_docId) -> bool {
+        true
+    }
+
+    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
+
+    let gc_result = ii.scan_gc(cb, repair).unwrap();
+
+    assert_eq!(gc_result, None, "there should be no changes");
+}
+
+#[test]
+fn ii_apply_gc() {
+    // Create 5 blocks:
+    // - One which is empty
+    // - One which will be completely deleted
+    // - One which will be partially deleted
+    // - One which will be unchanged
+    // - One which will be split into multiple blocks
+    let encoder = Dummy;
+    let blocks = vec![
+        IndexBlock {
+            buffer: encode_ids!(encoder, 10, 11),
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: encode_ids!(encoder, 20, 21, 22),
+            num_entries: 3,
+            first_doc_id: 20,
+            last_doc_id: 22,
+        },
+        IndexBlock {
+            buffer: encode_ids!(encoder, 30),
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
+        IndexBlock {
+            buffer: encode_ids!(encoder, 40, 71, 72),
+            num_entries: 3,
+            first_doc_id: 40,
+            last_doc_id: 72,
+        },
+    ];
+    let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
+
+    // Inverted index is 48 bytes base
+    // 1st index block is 40 bytes + 16 bytes for the buffer capacity
+    // 2nd index block is 40 bytes + 24 bytes for the buffer capacity
+    // 3rd index block is 40 bytes + 16 bytes for the buffer capacity
+    // 4th index block is 40 bytes + 24 bytes for the buffer capacity
+    // So total memory size is 288 bytes
+    assert_eq!(ii.memory_usage(), 288);
+
+    let gc_result = vec![
+        BlockGcScanResult {
+            index: 0,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 2,
+            },
+        },
+        BlockGcScanResult {
+            index: 1,
+            repair: RepairType::Replace {
+                blocks: smallvec![IndexBlock {
+                    buffer: encode_ids!(Dummy, 21),
+                    num_entries: 1,
+                    first_doc_id: 21,
+                    last_doc_id: 21,
+                }],
+                n_unique_docs_removed: 2,
+            },
+        },
+        BlockGcScanResult {
+            index: 3,
+            repair: RepairType::Replace {
+                blocks: smallvec![
+                    IndexBlock {
+                        buffer: encode_ids!(Dummy, 40),
+                        num_entries: 1,
+                        first_doc_id: 40,
+                        last_doc_id: 40,
+                    },
+                    IndexBlock {
+                        buffer: encode_ids!(Dummy, 72),
+                        num_entries: 1,
+                        first_doc_id: 72,
+                        last_doc_id: 72,
+                    },
+                ],
+                n_unique_docs_removed: 1,
+            },
+        },
+    ];
+
+    let delta = GcScanDelta {
+        last_block_idx: 4,
+        last_block_num_entries: 3,
+        deltas: gc_result,
+    };
+
+    assert_eq!(ii.gc_marker(), 0);
+
+    let apply_info = ii.apply_gc(delta);
+
+    assert_eq!(ii.gc_marker(), 1);
+
+    // Inverted index is 48 bytes base
+    // 1st index block is 40 bytes + 16 bytes for the buffer capacity
+    // 2nd index block is 40 bytes + 16 bytes for the buffer capacity
+    // 3rd index block is 40 bytes + 16 bytes for the buffer capacity
+    // 4th index block is 40 bytes + 16 bytes for the buffer capacity
+    // So total memory size is 272 bytes
+    assert_eq!(ii.memory_usage(), 272);
+
+    assert_eq!(ii.unique_docs(), 4);
+    assert_eq!(
+        ii.blocks,
+        vec![
+            IndexBlock {
+                buffer: encode_ids!(Dummy, 21),
+                num_entries: 1,
+                first_doc_id: 21,
+                last_doc_id: 21,
+            },
+            IndexBlock {
+                buffer: encode_ids!(Dummy, 30),
+                num_entries: 1,
+                first_doc_id: 30,
+                last_doc_id: 30,
+            },
+            IndexBlock {
+                buffer: encode_ids!(Dummy, 40),
+                num_entries: 1,
+                first_doc_id: 40,
+                last_doc_id: 40,
+            },
+            IndexBlock {
+                buffer: encode_ids!(Dummy, 72),
+                num_entries: 1,
+                first_doc_id: 72,
+                last_doc_id: 72,
+            },
+        ]
+    );
+    assert_eq!(
+        apply_info,
+        GcApplyInfo {
+            // The first, second and fourth block was removed totaling 184 bytes
+            bytes_freed: 184,
+            // The third and fifth block was split making 168 new bytes
+            bytes_allocated: 168,
+            entries_removed: 5,
+            blocks_ignored: 0
+        }
+    );
+}
+
+#[test]
+fn ii_apply_gc_last_block_updated() {
+    // Create 2 blocks where the last block will have new entries since the GC scan
+    let encoder = Dummy;
+    let blocks = vec![
+        IndexBlock {
+            buffer: encode_ids!(encoder, 10, 11),
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: encode_ids!(encoder, 20, 21, 22),
+            num_entries: 3,
+            first_doc_id: 20,
+            last_doc_id: 22,
+        },
+    ];
+
+    let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
+
+    // Inverted index is 48 bytes base
+    // 1st index block is 40 bytes + 16 bytes for the buffer capacity
+    // 2nd index block is 40 bytes + 24 bytes for the buffer capacity
+    // So total memory size is 168 bytes
+    assert_eq!(ii.memory_usage(), 168);
+
+    let gc_result = vec![
+        BlockGcScanResult {
+            index: 0,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 2,
+            },
+        },
+        BlockGcScanResult {
+            index: 1,
+            repair: RepairType::Replace {
+                blocks: smallvec![IndexBlock {
+                    buffer: encode_ids!(Dummy, 21),
+                    num_entries: 1,
+                    first_doc_id: 21,
+                    last_doc_id: 21,
+                }],
+                n_unique_docs_removed: 2,
+            },
+        },
+    ];
+
+    let delta = GcScanDelta {
+        last_block_idx: 1,
+        // We want to simulate a scenario where new entries were added to the last block. Hence why
+        // this is less than the actual number of entries in the last block.
+        last_block_num_entries: 2,
+        deltas: gc_result,
+    };
+
+    assert_eq!(ii.gc_marker(), 0);
+
+    let apply_info = ii.apply_gc(delta);
+
+    assert_eq!(ii.gc_marker(), 1);
+
+    // Inverted index is 48 bytes base
+    // 1st index block is 40 bytes + 24 bytes for the buffer capacity
+    // So total memory size is 112 bytes
+    assert_eq!(ii.memory_usage(), 112);
+
+    assert_eq!(ii.unique_docs(), 3);
+    assert_eq!(
+        ii.blocks,
+        vec![IndexBlock {
+            buffer: encode_ids!(Dummy, 20, 21, 22),
+            num_entries: 3,
+            first_doc_id: 20,
+            last_doc_id: 22,
+        },]
+    );
+    assert_eq!(
+        apply_info,
+        GcApplyInfo {
+            // Freed only the first block
+            bytes_freed: 56,
+            // Nothing new was made in the end
+            bytes_allocated: 0,
+            entries_removed: 2,
+            // Ignored the last block
+            blocks_ignored: 1
+        }
+    );
+}
+
+#[test]
+fn ii_apply_gc_entries_tracking_index() {
+    // Make a dummy encoder which allows duplicates
+    #[derive(Clone)]
+    struct AllowDupsDummy;
+
+    impl Encoder for AllowDupsDummy {
+        type Delta = u32;
+
+        const ALLOW_DUPLICATES: bool = true;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            mut writer: W,
+            delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&delta.to_be_bytes())?;
+
+            Ok(4)
+        }
+    }
+
+    impl Decoder for AllowDupsDummy {
+        fn decode<'index>(
+            &self,
+            cursor: &mut Cursor<&'index [u8]>,
+            prev_doc_id: u64,
+            result: &mut RSIndexResult<'index>,
+        ) -> std::io::Result<()> {
+            let mut buffer = [0; 4];
+            cursor.read_exact(&mut buffer)?;
+
+            let delta = u32::from_be_bytes(buffer);
+            result.doc_id = prev_doc_id + (delta as u64);
+
+            Ok(())
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            RSIndexResult::default()
+        }
+    }
+
+    impl DecodedBy for AllowDupsDummy {
+        type Decoder = Self;
+
+        fn decoder() -> Self::Decoder {
+            Self
+        }
+    }
+
+    // Create entries tracking index with two duplicate records
+    let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_DocIdsOnly, AllowDupsDummy);
+
+    let _ = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
+    let _ = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
+    let _ = ii.add_record(&RSIndexResult::default().doc_id(15)).unwrap();
+    let _ = ii.add_record(&RSIndexResult::default().doc_id(15)).unwrap();
+
+    assert_eq!(ii.number_of_entries(), 4);
+    assert_eq!(ii.unique_docs(), 2);
+
+    let expected_delta = GcScanDelta {
+        last_block_idx: 0,
+        last_block_num_entries: 4,
+        deltas: vec![BlockGcScanResult {
+            index: 0,
+            repair: RepairType::Replace {
+                blocks: smallvec![IndexBlock {
+                    buffer: encode_ids!(AllowDupsDummy, 15, 15),
+                    num_entries: 2,
+                    first_doc_id: 15,
+                    last_doc_id: 15,
+                }],
+                n_unique_docs_removed: 1,
+            },
+        }],
+    };
+
+    let doc_exist = |id| id == 15;
+
+    let mut repaired = Vec::new();
+
+    let repair = |result: &RSIndexResult, _ib: &IndexBlock| repaired.push(result.doc_id);
+
+    assert_eq!(
+        ii.scan_gc(doc_exist, repair).unwrap().unwrap(),
+        expected_delta
+    );
+
+    assert_eq!(ii.gc_marker(), 0);
+
+    let apply_info = ii.apply_gc(expected_delta);
+
+    assert_eq!(ii.gc_marker(), 1);
+    assert_eq!(ii.number_of_entries(), 2);
+    assert_eq!(ii.unique_docs(), 1);
+    assert_eq!(repaired, vec![15, 15]);
+    assert_eq!(
+        ii.index.blocks,
+        vec![IndexBlock {
+            buffer: encode_ids!(AllowDupsDummy, 15, 15),
+            num_entries: 2,
+            first_doc_id: 15,
+            last_doc_id: 15,
+        },]
+    );
+    assert_eq!(
+        apply_info,
+        GcApplyInfo {
+            bytes_freed: 64,
+            bytes_allocated: 56,
+            entries_removed: 2,
+            blocks_ignored: 0
+        }
     );
 }

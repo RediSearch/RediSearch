@@ -10,7 +10,7 @@
 //! This module contains the inverted index implementation for the RediSearch module.
 #![allow(non_upper_case_globals)]
 
-use std::fmt::Debug;
+use std::{ffi::c_char, fmt::Debug};
 
 use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
@@ -20,7 +20,7 @@ use ffi::{
 
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
-    FilterNumericReader, IndexBlock, NumericFilter, RSIndexResult, ReadFilter,
+    FilterNumericReader, IndexBlock, IndexReader as _, NumericFilter, RSIndexResult, ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -226,6 +226,10 @@ pub extern "C" fn NewInvertedIndex_Ex(
             flags,
             Numeric::new().with_float_compression(),
         )),
+        // We generally don't panic in Rust code and would have a match were we cover all the cases.
+        // However, the `flags` value stores more than just the storage flags and it is not clear
+        // that the C code won't call this function without any of the storage flags set.
+        //
         _ => panic!("Unsupported index flags: {flags:?}"),
     };
 
@@ -510,38 +514,164 @@ pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> t_doc
     ii_dispatch!(ii, last_doc_id).unwrap_or(0)
 }
 
+/// Get the garbage collector marker of the inverted index. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcMarker(ii: *const InvertedIndex) -> usize {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+
+    ii_dispatch!(ii, gc_marker)
+}
+
+/// Increment the garbage collector marker of the inverted index. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+
+    ii_dispatch!(ii, gc_marker_inc);
+}
+
+/// Get ID of the first document in the index block. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_FirstId(ib: *const IndexBlock) -> t_docId {
+    debug_assert!(!ib.is_null(), "ib must not be null");
+
+    // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
+    let ib = unsafe { &*ib };
+
+    ib.first_block_id()
+}
+
+/// Get ID of the last document in the index block. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_LastId(ib: *const IndexBlock) -> t_docId {
+    debug_assert!(!ib.is_null(), "ib must not be null");
+
+    // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
+    let ib = unsafe { &*ib };
+
+    ib.last_block_id()
+}
+
+/// Get the number of entries in the index block. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_NumEntries(ib: *const IndexBlock) -> usize {
+    debug_assert!(!ib.is_null(), "ib must not be null");
+
+    // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
+    let ib = unsafe { &*ib };
+
+    ib.num_entries()
+}
+
+/// Get a pointer to the raw data of the index block. This is used by some C tests.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_Data(ib: *const IndexBlock) -> *const c_char {
+    debug_assert!(!ib.is_null(), "ib must not be null");
+
+    // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
+    let ib = unsafe { &*ib };
+
+    ib.data().as_ptr() as *const _
+}
+
 /// An opaque inverted index reader structure. The actual implementation is determined at runtime
 /// based on the index type and filter provided when creating the reader. This allows us to have a
 /// single interface for all index reader types while still being able to optimize the storage
 /// and performance for each index reader type.
-pub enum IndexReader<'index, 'filter> {
-    Full(FilterMaskReader<inverted_index::IndexReader<'index, Full, Full>>),
-    FullWide(FilterMaskReader<inverted_index::IndexReader<'index, FullWide, FullWide>>),
-    FreqsFields(FilterMaskReader<inverted_index::IndexReader<'index, FreqsFields, FreqsFields>>),
-    FreqsFieldsWide(
-        FilterMaskReader<inverted_index::IndexReader<'index, FreqsFieldsWide, FreqsFieldsWide>>,
+pub enum IndexReader<'index_and_filter> {
+    Full(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, Full, Full>>),
+    FullWide(
+        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FullWide, FullWide>>,
     ),
-    FreqsOnly(inverted_index::IndexReader<'index, FreqsOnly, FreqsOnly>),
-    FieldsOnly(FilterMaskReader<inverted_index::IndexReader<'index, FieldsOnly, FieldsOnly>>),
+    FreqsFields(
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<'index_and_filter, FreqsFields, FreqsFields>,
+        >,
+    ),
+    FreqsFieldsWide(
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<'index_and_filter, FreqsFieldsWide, FreqsFieldsWide>,
+        >,
+    ),
+    FreqsOnly(inverted_index::IndexReaderCore<'index_and_filter, FreqsOnly, FreqsOnly>),
+    FieldsOnly(
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<'index_and_filter, FieldsOnly, FieldsOnly>,
+        >,
+    ),
     FieldsOnlyWide(
-        FilterMaskReader<inverted_index::IndexReader<'index, FieldsOnlyWide, FieldsOnlyWide>>,
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<'index_and_filter, FieldsOnlyWide, FieldsOnlyWide>,
+        >,
     ),
     FieldsOffsets(
-        FilterMaskReader<inverted_index::IndexReader<'index, FieldsOffsets, FieldsOffsets>>,
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<'index_and_filter, FieldsOffsets, FieldsOffsets>,
+        >,
     ),
     FieldsOffsetsWide(
-        FilterMaskReader<inverted_index::IndexReader<'index, FieldsOffsetsWide, FieldsOffsetsWide>>,
+        FilterMaskReader<
+            inverted_index::IndexReaderCore<
+                'index_and_filter,
+                FieldsOffsetsWide,
+                FieldsOffsetsWide,
+            >,
+        >,
     ),
-    OffsetsOnly(inverted_index::IndexReader<'index, OffsetsOnly, OffsetsOnly>),
-    FreqsOffsets(inverted_index::IndexReader<'index, FreqsOffsets, FreqsOffsets>),
-    DocumentIdOnly(inverted_index::IndexReader<'index, DocIdsOnly, DocIdsOnly>),
-    RawDocumentIdOnly(inverted_index::IndexReader<'index, RawDocIdsOnly, RawDocIdsOnly>),
-    Numeric(inverted_index::IndexReader<'index, Numeric, Numeric>),
+    OffsetsOnly(inverted_index::IndexReaderCore<'index_and_filter, OffsetsOnly, OffsetsOnly>),
+    FreqsOffsets(inverted_index::IndexReaderCore<'index_and_filter, FreqsOffsets, FreqsOffsets>),
+    DocumentIdOnly(inverted_index::IndexReaderCore<'index_and_filter, DocIdsOnly, DocIdsOnly>),
+    RawDocumentIdOnly(
+        inverted_index::IndexReaderCore<'index_and_filter, RawDocIdsOnly, RawDocIdsOnly>,
+    ),
+    Numeric(inverted_index::IndexReaderCore<'index_and_filter, Numeric, Numeric>),
     NumericFiltered(
-        FilterNumericReader<'filter, inverted_index::IndexReader<'index, Numeric, Numeric>>,
+        FilterNumericReader<
+            'index_and_filter,
+            inverted_index::IndexReaderCore<'index_and_filter, Numeric, Numeric>,
+        >,
     ),
     NumericGeoFiltered(
-        FilterGeoReader<'filter, inverted_index::IndexReader<'index, Numeric, Numeric>>,
+        FilterGeoReader<
+            'index_and_filter,
+            inverted_index::IndexReaderCore<'index_and_filter, Numeric, Numeric>,
+        >,
     ),
 }
 
@@ -761,9 +891,9 @@ pub unsafe extern "C" fn IndexReader_HasSeeker(_ir: *const IndexReader) -> bool 
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 /// - `res` must be a valid pointer to an `RSIndexResult` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Next<'index, 'filter>(
-    ir: *mut IndexReader<'index, 'filter>,
-    res: *mut RSIndexResult<'index>,
+pub unsafe extern "C" fn IndexReader_Next<'index_and_filter>(
+    ir: *mut IndexReader<'index_and_filter>,
+    res: *mut RSIndexResult<'index_and_filter>,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
     debug_assert!(!res.is_null(), "res must not be null");
@@ -771,17 +901,10 @@ pub unsafe extern "C" fn IndexReader_Next<'index, 'filter>(
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let ir = unsafe { &mut *ir };
 
-    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    // SAFETY: The caller must ensure that `res` is a valid pointer to a `RSIndexResult`
     let res = unsafe { &mut *res };
 
-    match ir_dispatch!(ir, next) {
-        Some(new_res) => {
-            *res = new_res;
-
-            true
-        }
-        None => false,
-    }
+    ir_dispatch!(ir, next_record, res).unwrap_or_default()
 }
 
 /// Skip the internal block of the inverted index reader to the block that may contain the given
@@ -814,10 +937,10 @@ pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: t_docI
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 /// - `res` must be a valid pointer to an `RSIndexResult` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Seek<'index, 'filter>(
-    ir: *mut IndexReader<'index, 'filter>,
+pub unsafe extern "C" fn IndexReader_Seek<'index_and_filter>(
+    ir: *mut IndexReader<'index_and_filter>,
     doc_id: t_docId,
-    res: *mut RSIndexResult<'index>,
+    res: *mut RSIndexResult<'index_and_filter>,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
     debug_assert!(!res.is_null(), "res must not be null");
@@ -825,18 +948,10 @@ pub unsafe extern "C" fn IndexReader_Seek<'index, 'filter>(
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let ir = unsafe { &mut *ir };
 
-    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    // SAFETY: The caller must ensure that `res` is a valid pointer to a `RSIndexResult`
     let res = unsafe { &mut *res };
 
-    match ir_dispatch!(ir, seek_record, doc_id) {
-        Ok(Some(new_res)) => {
-            *res = new_res;
-
-            true
-        }
-        Ok(None) => false,
-        Err(_) => false,
-    }
+    ir_dispatch!(ir, seek_record, doc_id, res).unwrap_or_default()
 }
 
 /// Check if the index reader can return multiple entries for the same document ID.
@@ -974,4 +1089,22 @@ pub unsafe extern "C" fn IndexReader_SwapIndex(ir: *mut IndexReader, ii: *const 
         }
         _ => {}
     }
+}
+
+/// Revalidate the index reader against its inverted index. This is only needed if the inverted index
+/// has been modified since the last time the reader was used. The function returns true if the
+/// reader needs revalidation, false otherwise.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_Revalidate(ir: *const IndexReader) -> bool {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let ir = unsafe { &*ir };
+
+    ir_dispatch!(ir, needs_revalidation)
 }

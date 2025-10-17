@@ -32,8 +32,9 @@ def testExt(env):
 
     N = 100
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
+    con = env.getClusterConnectionIfNeeded()
     for i in range(N):
-        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+        env.assertOk(con.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                          'f', 'hello world'))
     res = env.cmd('ft.search', 'idx', 'hello world')
     env.assertEqual(N, res[0])

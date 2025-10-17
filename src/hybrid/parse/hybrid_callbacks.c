@@ -85,19 +85,11 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
 
 #define ASC_BY_DEFAULT true
 
-// SORTBY callback - implements EXACT original logic from lines 298-323
 void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_SORTBY;
-
-    // We managed to get a valid arg cursor
-    if (AC_IsAtEnd(ac)) {
-        // We essentially got SORTBY 0
-        *ctx->reqFlags |= QEXEC_F_NO_SORT;
-        return;
-    }
 
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(ctx->plan);
     // Parse field/direction pairs
@@ -179,7 +171,6 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
         QueryError_SetError(status, QUERY_EADDARGS, "Multiple PARAMS are not allowed. Parameters can be defined only once");
         return;
     }
-    
     // Validate argument count (must be even for key-value pairs)
     if (paramsArgs->argc == 0 || paramsArgs->argc % 2) {
         QueryError_SetError(status, QUERY_EADDARGS, "Parameters must be specified in PARAM VALUE pairs");
@@ -192,26 +183,26 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create parameter dictionary");
         return;
     }
-    
+
     size_t value_len;
     int n = AC_NumArgs(paramsArgs);
     for (int i = 0; i < n; i += 2) {
         const char *param = AC_GetStringNC(paramsArgs, NULL);
         const char *value = AC_GetStringNC(paramsArgs, &value_len);
-        
         if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
             Param_DictFree(params);  // Cleanup on error
             return;
         }
     }
-    
+
     ctx->searchopts->params = params;
 }
 
 // DIALECT callback - implements EXACT original logic from lines 341-349
 void handleDialect(ArgParser *parser, const void *value, void *user_data) {
-    HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ctx->specifiedArgs |= SPECIFIED_ARG_DIALECT;
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  QueryError *status = ctx->status;
+  QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
 }
 
 // FORMAT callback - implements EXACT original logic from lines 359-366
@@ -408,3 +399,23 @@ void handleExplainScore(ArgParser *parser, const void *value, void *user_data) {
     ctx->specifiedArgs |= SPECIFIED_ARG_EXPLAINSCORE;
 }
 
+// _NUM_SSTRING callback - implements EXACT original logic from handleNumSString
+void handleNumSString(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ctx->specifiedArgs |= SPECIFIED_ARG_NUM_SSTRING;
+}
+
+// _INDEX_PREFIXES callback - implements EXACT original logic from handleIndexPrefixes
+void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) {
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  ArgsCursor *paramsArgs = (ArgsCursor*)value;
+  QueryError *status = ctx->status;
+  while (!AC_IsAtEnd(paramsArgs)) {
+    const char *prefix;
+    if (AC_GetString(paramsArgs, &prefix, NULL, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for _INDEX_PREFIXES");
+      return;
+    }
+    array_ensure_append_1(*ctx->prefixes, prefix);
+  }
+}

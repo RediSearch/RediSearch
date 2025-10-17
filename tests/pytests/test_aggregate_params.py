@@ -17,7 +17,7 @@ def add_values(env, number_of_iterations=1):
                         'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
                         'description', 'TEXT', 'price', 'NUMERIC',
                         'categories', 'TAG')
-
+    con = env.getClusterConnectionIfNeeded()
     for i in range(number_of_iterations):
         fp = bz2.BZ2File(GAMES_JSON, 'r')
         for line in fp:
@@ -29,7 +29,7 @@ def add_values(env, number_of_iterations=1):
             cmd = ['FT.ADD', 'games', id_key, 1, 'FIELDS', ] + \
                 [str(x) if x is not None else '' for x in itertools.chain(
                     *obj.items())]
-            env.cmd(*cmd)
+            con.execute_command(*cmd)
         fp.close()
 
 
@@ -90,7 +90,7 @@ def test_apply(env):
                     'REDUCE', 'COUNT', 0, 'AS', 'total')
     env.assertEqual(res1, [1, ['code', 'ca?33-22', 'total', '3']])
     res2 = env.cmd('ft.aggregate', 'idx', '@code:{$p1}',
-                    'PARAMS', '2', 'p1', 'ca?33-22', 
+                    'PARAMS', '2', 'p1', 'ca?33-22',
                     'GROUPBY', '1', '@code',
                     'REDUCE', 'COUNT', 0, 'AS', 'total')
     env.assertEqual(res2, res1)
@@ -100,7 +100,7 @@ def test_apply(env):
                     'REDUCE', 'COUNT', 0, 'AS', 'total')
     env.assertEqual(res1, [1, ['code', 'ca:99-##', 'total', '2']])
     res2 = env.cmd('ft.aggregate', 'idx', "@code:{*$p1}",
-                    'PARAMS', '2', 'p1', ':99-##', 
+                    'PARAMS', '2', 'p1', ':99-##',
                     'GROUPBY', '1', '@code',
                     'REDUCE', 'COUNT', 0, 'AS', 'total')
     env.assertEqual(res2, res1)
@@ -115,7 +115,7 @@ def test_apply(env):
     env.assertEqual(res1, [1, ['code', '*gg-33-22', 'total', '2']])
     # full match, the '*' is part of the PARAM, so it's not escaped
     res2 = env.cmd('ft.aggregate', 'idx', "@code:{$p1}",
-                    'PARAMS', '2', 'p1', '*gg-33-22', 
+                    'PARAMS', '2', 'p1', '*gg-33-22',
                     'GROUPBY', '1', '@code',
                     'REDUCE', 'COUNT', 0, 'AS', 'total')
     env.assertEqual(res2, res1)
@@ -143,5 +143,3 @@ def test_apply(env):
                     'GROUPBY', '1', '@code',
                     'REDUCE', 'COUNT', 0, 'AS', 'total')
     env.assertEqual(res2, res1)
-
-

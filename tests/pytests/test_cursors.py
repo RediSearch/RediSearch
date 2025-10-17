@@ -9,9 +9,10 @@ from cmath import inf
 def loadDocs(env, count=100, idx='idx', text='hello world'):
     env.expect('FT.CREATE', idx, 'ON', 'HASH', 'prefix', 1, idx, 'SCHEMA', 'f1', 'TEXT').ok()
     waitForIndex(env, idx)
+    con = env.getClusterConnectionIfNeeded()
     for x in range(count):
         cmd = ['FT.ADD', idx, f'{idx}_doc{x}', 1.0, 'FIELDS', 'f1', text]
-        env.cmd(*cmd)
+        con.execute_command(*cmd)
     r1 = env.cmd('ft.search', idx, text)
     r2 = list(set(map(lambda x: x[1], filter(lambda x: isinstance(x, list), r1))))
     env.assertEqual([text], r2)
@@ -149,13 +150,7 @@ def testTimeout(env):
         if not rv:
             break
     env.assertEqual(0, rv)
-'''
-def testErrors(env):
-    env.expect('ft.create idx schema name text').equal('OK')
-    #env.expect('ft.add idx hotel 1.0 fields name hilton').equal('OK')
-    env.expect('FT.AGGREGATE idx hilton withcursor').error()       \
-        .contains('Index `idx` does not have cursors enabled')
-'''
+
 def testLeaked(env):
     # Ensure that sanitizer doesn't report memory leak for idle cursors.
     n_docs = env.shardsCount * 1100

@@ -166,18 +166,18 @@ class testHybridSearch:
         }
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
-    # # TODO: Enable this test after adding support for YIELD_DISTANCE_AS in VSIM
-    # def test_knn_yield_distance_as(self):
-    #     """Test hybrid search using KNN + YIELD_DISTANCE_AS parameter"""
-    #     if CLUSTER:
-    #         raise SkipTest()
-    #     scenario = {
-    #         "test_name": "KNN query with parameters",
-    #         "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 4 K 10 YIELD_DISTANCE_AS vector_distance",
-    #         "search_equivalent": "even",
-    #         "vector_equivalent": "*=>[KNN 10 @vector $BLOB]=>{$YIELD_DISTANCE_AS: vector_distance}"
-    #     }
-    #     run_test_scenario(self.env, self.index_name, scenario)
+    # TODO: Enable this test after adding support for YIELD_SCORE_AS in VSIM
+    def test_knn_yield_score_as(self):
+         """Test hybrid search using KNN + YIELD_SCORE_AS parameter"""
+         if CLUSTER:
+             raise SkipTest()
+         scenario = {
+             "test_name": "KNN query with parameters",
+             "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 4 K 10 YIELD_SCORE_AS vector_distance",
+             "search_equivalent": "even",
+             "vector_equivalent": "*=>[KNN 10 @vector $BLOB]=>{$YIELD_DISTANCE_AS: vector_distance}"
+         }
+         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_text_vector_prefilter(self):
         """Test hybrid search using KNN + VSIM text prefilter"""
@@ -404,7 +404,6 @@ class testHybridSearch:
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
-        print(res)
         self.env.assertEqual(res, [
             'total_results', 1,
             'results',
@@ -516,28 +515,24 @@ class testHybridSearch:
         self.env.assertEqual(res, expected_result)
 
         # Use parameters in SEARCH term
-        # TODO: MOD-10970 This requires DIALECT 2
         hybrid_cmd = (
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:($MYTEXT) @number:[4 5]',
             'VSIM', '@vector', self.vector_blob, 'FILTER', '@number:[3 3]',
             'COMBINE', 'RRF', '2', 'CONSTANT', '1',
-            'PARAMS', '2', 'MYTEXT', 'both',
-            'DIALECT', '2'
+            'PARAMS', '2', 'MYTEXT', 'both'
         )
         res = self.env.executeCommand(*hybrid_cmd)
         self.env.assertEqual(res, expected_result)
 
         # Use parameters in VSIM FILTER
-        # TODO: MOD-10970 This requires DIALECT 2
         hybrid_cmd = (
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:(both) @number:[4 5]',
             'VSIM', '@vector', self.vector_blob,
             'FILTER', '@number:[$MYNUMBER 3]',
             'COMBINE', 'RRF', '2', 'CONSTANT', '1',
-            'PARAMS', '2', 'MYNUMBER', '3',
-            'DIALECT', '2'
+            'PARAMS', '2', 'MYNUMBER', '3'
         )
         res = self.env.executeCommand(*hybrid_cmd)
         self.env.assertEqual(res, expected_result)
@@ -549,8 +544,7 @@ class testHybridSearch:
             'VSIM', '@vector', '$MYVECTOR', 'FILTER', '@number:[$THREE $THREE]',
             'COMBINE', 'RRF', 2, 'CONSTANT', 1,
             'PARAMS', 10, 'MYTEXT', 'both', 'MYVECTOR', self.vector_blob,
-            'THREE', 3, 'FOUR', 4, 'FIVE', 5,
-            'DIALECT', 2
+            'THREE', 3, 'FOUR', 4, 'FIVE', 5
         )
         res = self.env.executeCommand(*hybrid_cmd)
         self.env.assertEqual(res, expected_result)
@@ -578,13 +572,13 @@ class testHybridSearch:
         filtered_res = self.env.executeCommand(*hybrid_cmd)
         filtered_dict = to_dict(filtered_res)
 
-        # total_results should be the number of results before filtering.
+        # total_results should be the correct number of results we got
         self.env.assertEqual(unfiltered_dict['total_results'], 3)
-        self.env.assertEqual(filtered_dict['total_results'], 3)
+        self.env.assertEqual(filtered_dict['total_results'], 1)
 
         # But only 1 result is returned by the filtered query:
         expected = [
-            'total_results', 3,
+            'total_results', 1,
             'results',
             [
                 ['__key', 'both_01', '__score', '0.45']
@@ -622,5 +616,3 @@ class testHybridSearch:
     #         "vector_equivalent": "@vector_hnsw:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
     #     }
     #     run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
-
-

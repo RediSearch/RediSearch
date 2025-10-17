@@ -10,6 +10,7 @@ enumflags2.workspace = true
 ffi.workspace = true
 low_memory_thin_vec.workspace = true
 qint.workspace = true
+smallvec = { workspace = true, features = ["union"] }
 varint.workspace = true
 
 [dev-dependencies]
@@ -19,14 +20,3 @@ proptest = { workspace = true, features = ["std"] }
 [lints]
 workspace = true
 
-[target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
-# Statically link to the libclang on aarch64-unknown-linux-musl,
-# necessary on Alpine.
-# See https://github.com/rust-lang/rust-bindgen/issues/2360
-features = ["bindgen-static", "min-redis-compatibility-version-6-0"]
-workspace = true
-default-features = false
-
-[target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
-workspace = true
-default-features = true

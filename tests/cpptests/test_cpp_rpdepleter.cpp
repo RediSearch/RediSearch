@@ -14,6 +14,8 @@
 #include "rmalloc.h"
 #include "common.h"
 #include "redismock/redismock.h"
+#include "search_result.h"
+
 #include <thread>
 #include <chrono>
 #include <atomic>
@@ -35,13 +37,13 @@ protected:
         ::testing::UnitTest::GetInstance()->current_test_info();
       std::string index_name = std::string("test_index_") + test_info->test_case_name() + "_" + test_info->name();
 
-      QueryError err = {};
+      QueryError err = QueryError_Default();
       RedisModuleCtx *ctx = redisContexts[0];
       RMCK::ArgvList argv(ctx, "FT.CREATE", index_name.c_str(), "SKIPINITIALSCAN", "SCHEMA", "field1", "TEXT");
       mockSpec = IndexSpec_CreateNew(ctx, argv, argv.size(), &err);
       if (!mockSpec) {
         printf("Failed to create index spec. Error code: %d, Error message: %s\n",
-               err.code, QueryError_GetUserError(&err));
+               QueryError_GetCode(&err), QueryError_GetUserError(&err));
       }
       ASSERT_NE(mockSpec, nullptr) << "Failed to create index spec. Error: " << QueryError_GetUserError(&err);
       for (size_t i = 0; i < NumberOfContexts; ++i) {
@@ -78,7 +80,7 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
       MockUpstream *self = (MockUpstream *)rp;
       if (self->count >= n_docs) return RS_RESULT_EOF;
-      res->docId = ++self->count;
+      SearchResult_SetDocId(res, ++self->count);
       return RS_RESULT_OK;
     }
     MockUpstream() {
@@ -106,7 +108,7 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
   int resultCount = 0;
   do {
     if (rc == RS_RESULT_OK) {
-      ASSERT_EQ(res.docId, ++resultCount);
+      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount);
       SearchResult_Clear(&res);
     }
   } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
@@ -135,7 +137,7 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
       MockUpstream *self = (MockUpstream *)rp;
       if (self->count >= n_docs) return RS_RESULT_TIMEDOUT;
-      res->docId = ++self->count;
+      SearchResult_SetDocId(res, ++self->count);
       return RS_RESULT_OK;
     }
     MockUpstream() {
@@ -164,7 +166,7 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
   int resultCount = 0;
   do {
     if (rc == RS_RESULT_OK) {
-      ASSERT_EQ(res.docId, ++resultCount);
+      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount);
       SearchResult_Clear(&res);
     }
   } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
@@ -196,7 +198,7 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
       FastUpstream *self = (FastUpstream *)rp;
       if (self->count >= n_docs) return RS_RESULT_EOF;
-      res->docId = ++self->count;
+      SearchResult_SetDocId(res, ++self->count);
       // Sleep so it won't finish so fast
       // We use large times in order to reduce flakiness.
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -217,7 +219,7 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
       // Sleep to simulate much slower operation
       // We use large times in order to reduce flakiness.
       std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-      res->docId = ++self->count + 100;  // Different doc IDs
+      SearchResult_SetDocId(res, ++self->count + 100);  // Different doc IDs
       return RS_RESULT_OK;
     }
     SlowUpstream() {
@@ -263,7 +265,7 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
   int resultCount = 0;
   do {
     if (rc1 == RS_RESULT_OK) {
-      ASSERT_EQ(res.docId, ++resultCount);
+      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount);
       SearchResult_Clear(&res);
     }
   } while ((rc1 = fastDepleter->Next(fastDepleter, &res)) == RS_RESULT_OK);
@@ -276,7 +278,7 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
   resultCount = 0;
   do {
     if (rc2 == RS_RESULT_OK) {
-      ASSERT_EQ(res.docId, ++resultCount + 100);
+      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount + 100);
       SearchResult_Clear(&res);
     }
   } while ((rc2 = slowDepleter->Next(slowDepleter, &res)) == RS_RESULT_OK);
@@ -331,13 +333,13 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
   int resultCount = 0;
   do {
     if (rc == RS_RESULT_OK) {
-      ASSERT_EQ(res.docId, ++resultCount);
+      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount);
       SearchResult_Clear(&res);
     }
   } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
 
-  // The last return code should be RS_RESULT_ERROR, as the upstream last returned.
-  ASSERT_EQ(rc, RS_RESULT_ERROR);
+  // The last return code should be RS_RESULT_EOF, as the upstream last returned.
+  ASSERT_EQ(rc, RS_RESULT_EOF);
 
   SearchResult_Destroy(&res);
   depleter->Free(depleter);

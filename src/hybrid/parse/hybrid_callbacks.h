@@ -63,6 +63,12 @@ void handleFormat(ArgParser *parser, const void *value, void *user_data);
 void handleCombine(ArgParser *parser, const void *value, void *user_data);
 
 /**
+ * _NUM_SSTRING callback - handles _NUM_SSTRING
+ * Sets QEXEC_F_TYPED flag to preserve numeric types in results
+ */
+void handleNumSString(ArgParser *parser, const void *value, void *user_data);
+
+/**
  * GROUPBY callback - handles GROUPBY nproperties property [property ...] [REDUCE function nargs arg [arg ...] [AS alias]] [...]
  * Sets up PLN_GroupStep with grouping properties and reducers
  */
@@ -101,6 +107,12 @@ void handleWithScores(ArgParser *parser, const void *value, void *user_data);
  * EXPLAINSCORE callback - handles EXPLAINSCORE
  */
 void handleExplainScore(ArgParser *parser, const void *value, void *user_data);
+
+/**
+ * _INDEX_PREFIXES callback - handles _INDEX_PREFIXES prefix [prefix ...]
+ * sets index prefix offset for later validation if needed
+ */
+void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data);
 
 #ifdef __cplusplus
 }

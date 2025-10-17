@@ -295,7 +295,8 @@ def testBinaryPayload(env):
 def testDuplicateFields(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE').ok()
-    env.cmd('FT.ADD', 'idx', 'doc', 1.0,
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('FT.ADD', 'idx', 'doc', 1.0,
             'FIELDS', 'txt', 'foo', 'txt', 'bar', 'txt', 'baz')
     env.expect('ft.search', 'idx', 'baz').equal([1, 'doc', ['txt', 'baz']])
     env.expect('ft.search', 'idx', 'foo').equal([0])
@@ -328,7 +329,7 @@ def testReplace(env):
 def testSortable(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
                 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
-    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1'))
 
 def testMissingArgs(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error()

@@ -28,7 +28,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
   // If RedisJSON module is loaded after RediSearch need to get the API exported by RedisJSON
 
   if (!GetJSONAPIs(ctx, 0)) {
-    RedisModule_Log(ctx, "warning", "Detected RedisJSON: failed to acquire ReJSON API");
+    RedisModule_Log(ctx, "warning", "Detected RedisJSON: failed to acquire ReJSON API. Minimum required version is %d", RedisJSONAPI_MIN_API_VER);
   }
 }
 
@@ -37,7 +37,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
     char ver[128];
     // Obtain the newest version of JSON API
-    for (int i = RedisJSONAPI_LATEST_API_VER; i >= 1; --i) {
+    for (int i = RedisJSONAPI_LATEST_API_VER; i >= RedisJSONAPI_MIN_API_VER; --i) {
       sprintf(ver, "RedisJSON_V%d", i);
       japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {
@@ -56,41 +56,7 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 JSONPath pathParse(const HiddenString* path, RedisModuleString **err_msg) {
-  if (japi_ver >= 2) {
-    return japi->pathParse(HiddenString_GetUnsafe(path, NULL), RSDummyContext, err_msg);
-  } else {
-    *err_msg = NULL;
-    return NULL;
-  }
-}
-
-void pathFree(JSONPath jsonpath) {
-  if (japi_ver >= 2) {
-    japi->pathFree(jsonpath);
-  } else {
-    // Should not attempt to free none-null path when the required API to parse is not available
-    RS_ASSERT(jsonpath != NULL);
-  }
-}
-
-int pathIsSingle(JSONPath jsonpath) {
-  if (japi_ver >= 2) {
-    return japi->pathIsSingle(jsonpath);
-  } else {
-    // Should not use none-null path when the required API to parse is not available
-    RS_ASSERT(jsonpath != NULL);
-  }
-  return false;
-}
-
-int pathHasDefinedOrder(JSONPath jsonpath) {
-  if (japi_ver >= 2) {
-    return japi->pathHasDefinedOrder(jsonpath);
-  } else {
-    // Should not use none-null path when the required API to parse is not available
-    RS_ASSERT(jsonpath != NULL);
-  }
-  return false;
+  return japi->pathParse(HiddenString_GetUnsafe(path, NULL), RSDummyContext, err_msg);
 }
 
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *status) {
@@ -152,6 +118,22 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
   return rv;
 }
 
+static JSONIterable JSONIterable_FromArr(RedisJSON arr) {
+  return (JSONIterable) {
+    .type = ITERABLE_ARRAY,
+    .array.arr = arr,
+    .array.index = 0,
+    .array.value_ptr = japi->allocJson(),
+  };
+}
+
+static JSONIterable JSONIterable_FromIter(JSONResultsIterator iter) {
+  return (JSONIterable) {
+    .type = ITERABLE_ITER,
+    .iter = iter,
+  };
+}
+
 // Uncomment when support for more types is added
 // static int JSON_getInt32(RedisJSON json, int32_t *val) {
 //   long long temp;
@@ -179,15 +161,6 @@ static inline uint16_t floatToBF16bits(float input) {
   return (f32 >> 16);
 }
 
-static int JSON_getBFloat16(RedisJSON json, uint16_t *val) {
-  double temp;
-  int ret = japi->getDouble(json, &temp);
-  if (REDISMODULE_OK == ret) {
-    *val = floatToBF16bits((float)temp);
-  }
-  return ret;
-}
-
 // via Fabian "ryg" Giesen.
 // https://gist.github.com/2156668
 // Not handling INF or NaN (we don't expect them, and we don't handle them elsewhere)
@@ -209,41 +182,29 @@ static inline uint16_t floatToFP16bits(float input) {
   return ((f16 >> 13) | (sign >> 16));
 }
 
+static int JSON_getBFloat16(RedisJSON json, uint16_t *val) {
+  double temp;
+  int ret = japi->getDouble(json, &temp);
+  *val = floatToBF16bits((float)temp);
+  return ret;
+}
+
 static int JSON_getFloat16(RedisJSON json, uint16_t *val) {
   double temp;
   int ret = japi->getDouble(json, &temp);
-  if (REDISMODULE_OK == ret) {
-    *val = floatToFP16bits((float)temp);
-  }
+  *val = floatToFP16bits((float)temp);
   return ret;
 }
 
 static int JSON_getFloat32(RedisJSON json, float *val) {
   double temp;
   int ret = japi->getDouble(json, &temp);
-  if (REDISMODULE_OK == ret) {
-    *val = (float)temp;
-    return ret;
-  } else {
-    // On RedisJSON<2.0.9, getDouble can't handle integer values.
-    long long tempInt;
-    ret = japi->getInt(json, &tempInt);
-    *val = (float)tempInt;
-    return ret;
-  }
+  *val = (float)temp;
+  return ret;
 }
 
 static int JSON_getFloat64(RedisJSON json, double *val) {
-  int ret = japi->getDouble(json, val);
-  if (REDISMODULE_OK == ret) {
-    return ret;
-  } else {
-    // On RedisJSON<2.0.9, getDouble can't handle integer values
-    long long temp;
-    ret = japi->getInt(json, &temp);
-    *val = (double)temp;
-    return ret;
-  }
+  return japi->getDouble(json, val);
 }
 
 static int JSON_getUint8(RedisJSON json, uint8_t *val) {
@@ -262,14 +223,16 @@ static int JSON_getInt8(RedisJSON json, int8_t *val) {
 
 typedef int (*getJSONElementFunc)(RedisJSON, void *);
 int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement, char *target, unsigned char step, QueryError* status) {
+  RedisJSONPtr element = japi->allocJson();
   for (int i = 0; i < len; ++i) {
-    RedisJSON json = japi->getAt(arr, i);
-    if (getElement(json, target) != REDISMODULE_OK) {
+    if (japi->getAt(arr, i, element) != REDISMODULE_OK || getElement(*element, target) != REDISMODULE_OK) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
+      japi->freeJson(element);
       return REDISMODULE_ERR;
     }
     target += step;
   }
+  japi->freeJson(element);
   return REDISMODULE_OK;
 }
 
@@ -420,16 +383,17 @@ fail:
 }
 
 int JSON_StoreMultiVectorInDocFieldFromIter(FieldSpec *fs, JSONResultsIterator jsonIter, size_t len, struct DocumentField *df, QueryError *status) {
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
-                                      .iter = jsonIter};
-  return JSON_StoreMultiVectorInDocField(fs, &iter, len, df, status);
+  JSONIterable iter = JSONIterable_FromIter(jsonIter);
+  int ret = JSON_StoreMultiVectorInDocField(fs, &iter, len, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 int JSON_StoreMultiVectorInDocFieldFromArr(FieldSpec *fs, RedisJSON arr, size_t len, struct DocumentField *df, QueryError *status) {
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
-                                      .array.arr = arr,
-                                      .array.index = 0};
-  return JSON_StoreMultiVectorInDocField(fs, &iter, len, df, status);
+  JSONIterable iter = JSONIterable_FromArr(arr);
+  int ret = JSON_StoreMultiVectorInDocField(fs, &iter, len, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df, QueryError *status) {
@@ -440,8 +404,12 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
     return REDISMODULE_ERR;
   }
 
-  RedisJSON el = japi->getAt(arr, 0); // We know there is at least one element in the array.
-  switch (japi->getType(el)) {
+  RedisJSONPtr ptr = japi->allocJson();
+  japi->getAt(arr, 0, ptr); // We know there is at least one element in the array.
+  JSONType type = japi->getType(*ptr);
+  japi->freeJson(ptr);
+
+  switch (type) {
     case JSONType_Int:
     case JSONType_Double:
       return JSON_StoreSingleVectorInDocField(fs, arr, df, status);
@@ -457,10 +425,21 @@ RedisJSON JSONIterable_Next(JSONIterable *iterable) {
       return japi->next(iterable->iter);
 
     case ITERABLE_ARRAY:
-      return japi->getAt(iterable->array.arr, iterable->array.index++);
+      japi->getAt(iterable->array.arr, iterable->array.index++, iterable->array.value_ptr);
+      return *(iterable->array.value_ptr);
 
     default:
       return NULL;
+  }
+}
+
+void JSONIterable_Clean(JSONIterable *iterable) {
+  switch (iterable->type) {
+    case ITERABLE_ARRAY:
+      japi->freeJson(iterable->array.value_ptr);
+      break;
+    case ITERABLE_ITER:
+      break;
   }
 }
 
@@ -499,18 +478,19 @@ error:
 }
 
 int JSON_StoreTextInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df, QueryError *status) {
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
-                                      .iter = jsonIter};
-  return JSON_StoreTextInDocField(len, &iter, df, status);
+  JSONIterable iter = JSONIterable_FromIter(jsonIter);
+  int ret = JSON_StoreTextInDocField(len, &iter, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 int JSON_StoreTextInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, QueryError *status) {
   size_t len;
   japi->getLen(arr, &len);
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
-                                      .array.arr = arr,
-                                      .array.index = 0};
-  return JSON_StoreTextInDocField(len, &iter, df, status);
+  JSONIterable iter = JSONIterable_FromArr(arr);
+  int ret = JSON_StoreTextInDocField(len, &iter, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df, QueryError *status) {
@@ -542,18 +522,19 @@ error:
 }
 
 int JSON_StoreNumericInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df, QueryError *status) {
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
-                                      .iter = jsonIter};
-  return JSON_StoreNumericInDocField(len, &iter, df, status);
+  JSONIterable iter = JSONIterable_FromIter(jsonIter);
+  int ret = JSON_StoreNumericInDocField(len, &iter, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, QueryError *status) {
   size_t len;
   japi->getLen(arr, &len);
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
-                                      .array.arr = arr,
-                                      .array.index = 0};
-  return JSON_StoreNumericInDocField(len, &iter, df, status);
+  JSONIterable iter = JSONIterable_FromArr(arr);
+  int ret = JSON_StoreNumericInDocField(len, &iter, df, status);
+  JSONIterable_Clean(&iter);
+  return ret;
 }
 
 
@@ -672,7 +653,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   // If all is successful up til here,
   // we check whether a multi value is needed to be calculated for SORTABLE (avoiding re-opening the key and re-parsing the path)
   // (requires some API V2 functions to be available)
-  if (rv == REDISMODULE_OK && FieldSpec_IsSortable(fs) && df->unionType == FLD_VAR_T_ARRAY && japi_ver >= 3) {
+  if (rv == REDISMODULE_OK && FieldSpec_IsSortable(fs) && df->unionType == FLD_VAR_T_ARRAY) {
     RSValue *rsv = NULL;
     japi->resetIter(jsonIter);
     // There is no api version (DIALECT) specified during ingestion,

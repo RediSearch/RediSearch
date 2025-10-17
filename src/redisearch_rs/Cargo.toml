@@ -23,6 +23,7 @@ members = [
     "rqe_iterators_bencher",
     "varint_bencher",
     "wildcard",
+    "search_result",
 ]
 
 resolver = "3"
@@ -56,7 +57,7 @@ license-file = "../../LICENSE.txt"
 publish = false
 
 [workspace.dependencies]
-ffi = { path = "./ffi" }
+ffi = { path = "./ffi", default-features = false }
 inverted_index = { path = "./inverted_index" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
@@ -70,6 +71,7 @@ varint = { path = "./varint" }
 qint = { path = "./qint" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
+search_result = { path = "./search_result" }
 
 cbindgen = "0.29"
 cc = "1"
@@ -88,6 +90,7 @@ pretty_assertions = "1.4.1"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
 rand = "0.9.1"
+smallvec = "1.15.1"
 thiserror = "2.0.12"
 ureq = "3.0.10"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }

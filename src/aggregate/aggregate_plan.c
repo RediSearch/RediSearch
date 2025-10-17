@@ -339,6 +339,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
         break;
       }
       case PLN_T_ROOT:
+      case PLN_T_VECTOR_NORMALIZER:
       case PLN_T_DISTRIBUTE:
       case PLN_T_INVALID:
       case PLN_T__MAX:
@@ -436,33 +437,24 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   }
 }
 
-static void serializeVectorNormalizer(myArgArray_t *arr, const PLN_BaseStep *bstp) {
-  const PLN_VectorNormalizerStep *vnStep = (const PLN_VectorNormalizerStep *)bstp;
-  append_string(arr, "VECTOR_NORMALIZER");
-  append_string(arr, vnStep->vectorFieldName);
-}
-
-array_t AGPLN_Serialize(const AGGPlan *pln) {
-  char **arr = array_new(char *, 1);
+void AGPLN_Serialize(const AGGPlan *pln, arrayof(char*) *target) {
   for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     switch (stp->type) {
       case PLN_T_APPLY:
       case PLN_T_FILTER:
-        serializeMapFilter(&arr, stp);
+        serializeMapFilter(target, stp);
         break;
       case PLN_T_ARRANGE:
-        serializeArrange(&arr, stp);
+        serializeArrange(target, stp);
         break;
       case PLN_T_LOAD:
-        serializeLoad(&arr, stp);
-        break;
-      case PLN_T_VECTOR_NORMALIZER:
-        serializeVectorNormalizer(&arr, stp);
+        serializeLoad(target, stp);
         break;
       case PLN_T_GROUP:
-        serializeGroup(&arr, stp);
+        serializeGroup(target, stp);
         break;
+      case PLN_T_VECTOR_NORMALIZER:
       case PLN_T_INVALID:
       case PLN_T_ROOT:
       case PLN_T_DISTRIBUTE:
@@ -470,5 +462,4 @@ array_t AGPLN_Serialize(const AGGPlan *pln) {
         break;
     }
   }
-  return arr;
 }

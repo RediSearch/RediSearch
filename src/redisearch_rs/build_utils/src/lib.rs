@@ -170,16 +170,18 @@ fn link_static_lib(
 /// # Arguments
 /// * `headers` - A vector of paths to C header files to generate bindings for.
 /// * `allowlist_file` - A file path pattern used to filter which files bindgen should generate bindings for.
+/// * `include_inverted_index` - Whether to include the inverted_index directory in the include paths.
 ///
 /// # Generated Output
 /// The function writes the generated bindings to `bindings.rs` in the cargo build output directory.
 pub fn generate_c_bindings(
     headers: Vec<PathBuf>,
     allowlist_file: &str,
+    include_inverted_index: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let root = git_root().expect("Could not find git root for static library linking");
 
-    let includes = [
+    let mut includes = vec![
         root.join("deps").join("RedisModulesSDK"),
         root.join("src"),
         root.join("deps"),
@@ -187,6 +189,10 @@ pub fn generate_c_bindings(
         root.join("deps").join("VectorSimilarity").join("src"),
         root.join("src").join("buffer"),
     ];
+
+    if include_inverted_index {
+        includes.push(root.join("src").join("inverted_index"));
+    }
 
     let headers = headers
         .into_iter()

@@ -7,6 +7,7 @@ include_directories("${gtest_SOURCE_DIR}/include")
 include_directories(${root}/src)
 include_directories(${root}/deps)
 include_directories(${root}/src/coord/rmr)
+include_directories(${root}/src/coord/hybrid)
 include_directories(..)
 include_directories(.)
 
@@ -18,6 +19,7 @@ file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 
 set(COMMON_FILES
   ../common.cpp
+  ../index_utils.cpp
 )
 
 add_executable(rstest_coord ${TEST_SOURCES} ${COMMON_FILES})

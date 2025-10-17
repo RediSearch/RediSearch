@@ -60,6 +60,10 @@ ifneq ($(SAN),)
 	BUILD_ARGS += SAN=$(SAN)
 endif
 
+ifneq ($(MAX_WORKER_THREADS),)
+	BUILD_ARGS += MAX_WORKER_THREADS=$(MAX_WORKER_THREADS)
+endif
+
 ifeq ($(COV),1)
 	BUILD_ARGS += COV=1
 endif

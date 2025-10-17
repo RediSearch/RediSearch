@@ -38,6 +38,9 @@ if [ ! -d "${JSON_MODULE_DIR}" ]; then
     echo "Done"
 else
     echo "RedisJSON already exists in ${JSON_MODULE_DIR}"
+    cd ${JSON_MODULE_DIR}
+    run_command git pull --quiet
+    cd -
 fi
 
 # Navigate to the module directory and checkout the specified branch and its submodules

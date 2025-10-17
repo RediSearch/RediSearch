@@ -16,7 +16,7 @@ use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 
 /// Encode and decode only the delta document ID of a record, without any other data.
 /// The delta is encoded using [varint encoding](varint).
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct DocIdsOnly;
 
 impl Encoder for DocIdsOnly {
@@ -47,10 +47,15 @@ impl Decoder for DocIdsOnly {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let delta = u32::read_as_varint(cursor)?;
 
-        let record = RSIndexResult::term().doc_id(base + delta as t_docId);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }

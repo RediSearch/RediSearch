@@ -41,7 +41,7 @@ struct QOptimizer;
 
 /*
  * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL,
- * QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY, and QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY are mutually exclusive (Only one can be set).
+ * QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY, QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY are mutually exclusive (Only one can be set).
  */
 typedef enum {
   QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command

@@ -3,17 +3,14 @@
 from RLTest import Env
 from includes import *
 from common import *
-import json
-
-def search(env, r, *args):
-    return r.execute_command('ft.search', *args)
 
 def testTagIndex(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag').ok()
     N = 10
+    con = env.getClusterConnectionIfNeeded()
     for n in range(N):
-        env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
-                                       'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n).ok()
+        env.assertOk(con.execute_command('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
+                                         'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n))
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         res = env.cmd('ft.search', 'idx', 'hello world')
@@ -56,8 +53,8 @@ def testSeparator(env):
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'tags', 'tag', 'separator', ':').ok()
 
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                   'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR').ok()
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                   'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR'))
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         for q in ('@tags:{hello world}', '@tags:{fooz bar}', r'@tags:{foo\,bar}', r'@tags:{boo\ far}', '@tags:{x}'):
@@ -87,8 +84,8 @@ def testTagFieldCase(env):
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'TAgs', 'tag').ok()
 
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                   'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR').ok()
+    env.expect(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                   'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR'))
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         env.assertEqual([1, 'doc1'], env.cmd(
@@ -125,6 +122,7 @@ def testTagVals(env):
     env.cmd(
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'tags', 'tag', 'othertags', 'tag')
+    con = env.getClusterConnectionIfNeeded()
 
     N = 100
     alltags = set()
@@ -134,8 +132,8 @@ def testTagVals(env):
         alltags.add(tags[1])
         alltags.add(tags[2])
 
-        env.expect('ft.add', 'idx', f'doc{n}', 1.0, 'fields',
-                   'tags', ','.join(tags), 'othertags', f'baz {int(n // 2)}').ok()
+        env.assertOk(con.execute_command('ft.add', 'idx', f'doc{n}', 1.0, 'fields',
+                   'tags', ','.join(tags), 'othertags', f'baz {int(n // 2)}'))
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         res = env.cmd('ft.tagvals', 'idx', 'tags')
@@ -159,10 +157,12 @@ def testSearchNotExistsTagValue(env):
 
 def testIssue1305(env):
     env.expect('FT.CREATE myIdx ON HASH SCHEMA title TAG').ok()
-    env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "work"').ok()
-    env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "hello"').error()
-    env.expect('FT.ADD myIdx doc3 1.0 FIELDS title "hello"').ok()
-    env.expect('FT.ADD myIdx doc1 1.0 FIELDS title "hello,work"').ok()
+    con = env.getClusterConnectionIfNeeded()
+    env.assertOk(con.execute_command('FT.ADD', 'myIdx', 'doc2', '1.0', 'FIELDS', 'title', '"work"'))
+    with env.assertResponseError():
+        con.execute_command('FT.ADD', 'myIdx', 'doc2', '1.0', 'FIELDS', 'title', '"hello"')
+    env.assertOk(con.execute_command('FT.ADD', 'myIdx', 'doc3', '1.0', 'FIELDS', 'title', '"hello"'))
+    env.assertOk(con.execute_command('FT.ADD', 'myIdx', 'doc1', '1.0', 'FIELDS', 'title', '"hello,work"'))
     expectedRes = {'doc2': ['0', ['title', '"work"']], 'doc3' : ['0', ['title', '"hello"']],
                    'doc1' : ['0', ['title', '"hello,work"']]}
     res = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')[1:]

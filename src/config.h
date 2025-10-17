@@ -13,6 +13,7 @@
 #include "query_error.h"
 #include "reply.h"
 #include "util/config_macros.h"
+#include "ext/default.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -120,6 +121,8 @@ typedef struct {
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
+  // Default scorer name to use when no scorer is specified (default: BM25STD)
+  const char *defaultScorer;
 
   IteratorsConfig iteratorsConfigParams;
 
@@ -220,6 +223,7 @@ extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
 extern RedisModuleString *config_ext_load;
 extern RedisModuleString *config_friso_ini;
+extern RedisModuleString *config_default_scorer;
 
 /**
  * Add new configuration options to the chain of already recognized options
@@ -318,6 +322,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define RS_DEFAULT_CONFIG {                                                    \
     .extLoad = NULL,                                                           \
     .frisoIni = NULL,                                                          \
+    .defaultScorer = NULL,                                                     \
     .gcConfigParams.enableGC = 1,                                              \
     .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,            \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \

@@ -124,8 +124,7 @@ void* hiddenNameKeyDup(void *privdata, const void *key){
 
 void* redisStringsKeyDup(void *privdata, const void *key){
   const RedisModuleString* keyStr = key;
-  RedisModule_RetainString(NULL, (RedisModuleString*)keyStr);
-  return (void*)key;
+  return (void*)RedisModule_HoldString(NULL, (RedisModuleString*)keyStr);
 }
 
 static void stringsListValDestructor(void *privdata, void *val) {

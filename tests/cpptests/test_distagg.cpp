@@ -19,6 +19,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (RedisModule_Init(ctx, "dummy", 0, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
+  RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
   return REDISMODULE_OK;
 }
 }
@@ -60,10 +61,9 @@ static void testAverage() {
 
   // Serialize it!
   // printf("Printing serialized plan..\n");
-  // AGPLN_Dump(dstp->plan);
-  auto &v = *dstp->serialized;
-  for (size_t ii = 0; ii < v.size(); ++ii) {
-    printf("Serialized[%lu]: %s\n", ii, v[ii]);
+  // AGPLN_Dump(dstp->plan)
+  for (size_t ii = 0; ii < array_len(dstp->serialized); ++ii) {
+    printf("Serialized[%lu]: %s\n", ii, dstp->serialized[ii]);
   }
 
   dstp = (PLN_DistributeStep *)AGPLN_FindStep(plan, NULL, NULL, PLN_T_DISTRIBUTE);
@@ -124,7 +124,7 @@ static void testCountDistinct() {
   }
   assert(rc == REDISMODULE_OK);
   AGPLN_Dump(plan2);
-  for (size_t ii = 0; ii < us.nserialized; ++ii) {
+  for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
   AREQ_Free(r);
@@ -162,7 +162,7 @@ static void testSplit() {
   }
   assert(rc == REDISMODULE_OK);
   AGPLN_Dump(plan3);
-  for (size_t ii = 0; ii < us.nserialized; ++ii) {
+  for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
   AREQ_Free(r);

@@ -17,15 +17,6 @@
 #include <assert.h>
 
 /**
- * Merge flags from source into target (in-place).
- * Modifies target by ORing it with source flags.
- */
-void mergeFlags(uint8_t *target_flags, const uint8_t *source_flags) {
-  RS_ASSERT(target_flags && source_flags);
-  *target_flags |= *source_flags;
-}
-
-/**
  * Constructor for HybridSearchResult.
  * Allocates memory for storing SearchResults from numSources sources.
  */
@@ -94,7 +85,7 @@ double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringConte
       RS_ASSERT(hybridResult->searchResults[i]);
       // Note: SearchResult->score contains ranks for RRF, scores for Linear
       // This is set correctly by upstream processors based on scoring type
-      values[i] = hybridResult->searchResults[i]->score;
+      values[i] = SearchResult_GetScore(hybridResult->searchResults[i]);
     } else {
       values[i] = 0.0;  // Default value for missing results
     }
@@ -109,16 +100,12 @@ double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringConte
 }
 
 /**
- * Merge field data from multiple source SearchResults into destination RLookupRow.
- * Initializes destination row and writes fields from each source using RLookupRow_WriteFieldsFrom.
+ * Merge field data from multiple source SearchResults into target SearchResult's rowdata.
  */
-static void merge_rlookuprows(HybridSearchResult *hybridResult,
+static void mergeRLookupRowsFromSourcesIntoTarget(HybridSearchResult *hybridResult,
                             HybridLookupContext *lookupCtx,
-                            RLookupRow *destination) {
-  RS_ASSERT(hybridResult && lookupCtx && destination);
-
-  // Initialize destination row
-  RLookupRow_Wipe(destination);
+                            SearchResult *targetResult) {
+  RS_ASSERT(hybridResult && lookupCtx);
 
   // Write fields from each source SearchResult
   for (size_t i = 0; i < hybridResult->numSources; i++) {
@@ -126,9 +113,8 @@ static void merge_rlookuprows(HybridSearchResult *hybridResult,
       SearchResult *sourceResult = hybridResult->searchResults[i];
       RS_ASSERT(sourceResult);
 
-      // Write fields from source row to destination row
-      RLookupRow_WriteFieldsFrom(&sourceResult->rowdata, lookupCtx->sourceLookups[i],
-                                destination, lookupCtx->tailLookup);
+      // move fields from source row to destination row
+      RLookupRow_Move(lookupCtx->tailLookup, SearchResult_GetRowDataMut(sourceResult), SearchResult_GetRowDataMut(targetResult));
     }
   }
 }
@@ -161,28 +147,20 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
   RS_ASSERT(primary && targetIndex != -1);
 
   // Calculate hybrid score by combining scores from all sources
-  primary->score = calculateHybridScore(hybridResult, scoringCtx);
+  SearchResult_SetScore(primary, calculateHybridScore(hybridResult, scoringCtx));
 
   // Merge flags from all upstreams
   for (size_t i = 0; i < hybridResult->numSources; i++) {
     if (hybridResult->hasResults[i] && i != targetIndex) {
       RS_ASSERT(hybridResult->searchResults[i]);
-      mergeFlags(&primary->flags, &hybridResult->searchResults[i]->flags);
+      SearchResult_MergeFlags(primary, hybridResult->searchResults[i]);
     }
   }
-  // Merge field data into primary result's rowdata
-  // Create temporary row for merging (avoids modifying primary while reading from it)
-  RLookupRow tempRow = {0};  // Stack allocation, zero-initialized
-  merge_rlookuprows(hybridResult, lookupCtx, &tempRow);
-
-  // Prepare primary row and move merged data from temporary row
-  RLookupRow_Wipe(&primary->rowdata);  // Clear primary row
-  RLookupRow_Move(lookupCtx->tailLookup, &tempRow, &primary->rowdata);  // Move temp → primary
-  RLookupRow_Reset(&tempRow);
   // Transfer ownership: Remove primary result from HybridSearchResult to prevent double-free
   hybridResult->searchResults[targetIndex] = NULL;
   hybridResult->hasResults[targetIndex] = false;
-
+  // Merge field data into primary result's rowdata
+  // Create temporary row for merging (avoids modifying primary while reading from it)
+  mergeRLookupRowsFromSourcesIntoTarget(hybridResult, lookupCtx, primary);
   return primary;
 }
-

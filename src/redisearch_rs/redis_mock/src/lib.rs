@@ -24,26 +24,45 @@ pub mod allocator;
 macro_rules! bind_redis_alloc_symbols_to_mock_impl {
     () => {
         #[unsafe(no_mangle)]
-        #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Alloc: Option<
-            unsafe extern "C" fn(bytes: usize) -> *mut c_void,
-        > = Some(redis_mock::allocator::alloc_shim);
+        unsafe extern "C" fn rm_alloc_impl(size: usize) -> *mut c_void {
+            // $crate::__libc::malloc(size)
+            redis_mock::allocator::alloc_shim(size)
+        }
+
+        #[unsafe(no_mangle)]
+        unsafe extern "C" fn rm_calloc_impl(nmemb: usize, size: usize) -> *mut c_void {
+            redis_mock::allocator::calloc_shim(nmemb, size)
+        }
+
+        #[unsafe(no_mangle)]
+        unsafe extern "C" fn rm_realloc_impl(ptr: *mut c_void, size: usize) -> *mut c_void {
+            redis_mock::allocator::realloc_shim(ptr, size)
+        }
+
+        #[unsafe(no_mangle)]
+        unsafe extern "C" fn rm_free_impl(ptr: *mut c_void) {
+            redis_mock::allocator::free_shim(ptr)
+        }
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Realloc: Option<
-            unsafe extern "C" fn(ptr: *mut c_void, bytes: usize) -> *mut c_void,
-        > = Some(redis_mock::allocator::realloc_shim);
+        pub static mut RedisModule_Alloc: unsafe extern "C" fn(usize) -> *mut c_void =
+            rm_alloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Free: Option<unsafe extern "C" fn(ptr: *mut c_void)> =
-            Some(redis_mock::allocator::free_shim);
+        pub static mut RedisModule_Calloc: unsafe extern "C" fn(usize, usize) -> *mut c_void =
+            rm_calloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Calloc: Option<
-            unsafe extern "C" fn(count: usize, size: usize) -> *mut c_void,
-        > = Some(redis_mock::allocator::calloc_shim);
+        pub static mut RedisModule_Realloc: unsafe extern "C" fn(
+            *mut c_void,
+            usize,
+        ) -> *mut c_void = rm_realloc_impl;
+
+        #[unsafe(no_mangle)]
+        #[allow(non_upper_case_globals)]
+        pub static mut RedisModule_Free: unsafe extern "C" fn(*mut c_void) = rm_free_impl;
     };
 }

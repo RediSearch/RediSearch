@@ -6,9 +6,6 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
-
- #pragma once
-
  #include "aggregate_exec_common.h"
  #include "util/timeout.h"
  #include "info/global_stats.h"
@@ -20,9 +17,11 @@
  }
 
  bool ShouldReplyWithError(QueryError *status, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
+   QueryErrorCode code = QueryError_GetCode(status);
+
    return QueryError_HasError(status)
-       && (status->code != QUERY_ETIMEDOUT
-           || (status->code == QUERY_ETIMEDOUT
+       && (code != QUERY_ETIMEDOUT
+           || (code == QUERY_ETIMEDOUT
                && timeoutPolicy == TimeoutPolicy_Fail
                && !isProfile));
  }
@@ -54,7 +53,7 @@
      // Decrement the result limit, now that we got a valid result.
      rp->parent->resultLimit--;
 
-     array_append(results, SearchResult_Copy(&r));
+     array_append(results, SearchResult_AllocateMove(&r));
 
      // clean the search result
      r = (SearchResult){0};
@@ -67,13 +66,12 @@
    return results;
  }
 
- void startPipelineCommon(RSTimeoutPolicy timeoutPolicy, struct timespec *timeout,
-                                ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (timeoutPolicy == TimeoutPolicy_Fail) {
+ void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
+   if (ctx->timeoutPolicy == TimeoutPolicy_Fail || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, rc);
      // Check timeout after aggregation
-     if (TimedOut(timeout) == TIMED_OUT) {
+     if (TimedOut(ctx->timeout) == TIMED_OUT) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {
