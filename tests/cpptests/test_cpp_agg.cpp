@@ -17,6 +17,7 @@
 #include "common.h"
 #include "module.h"
 #include "version.h"
+#include "search_result.h"
 
 #include <vector>
 #include <array>
@@ -31,7 +32,7 @@ using RS::addDocument;
 
 TEST_F(AggTest, testBasic) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  QueryError qerr = {QueryErrorCode(0)};
+  QueryError qerr = QueryError_Default();
 
   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH",
                       "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
@@ -149,12 +150,12 @@ TEST_F(AggTest, testGroupBy) {
     if (p->counter >= NUM_RESULTS) {
       return RS_RESULT_EOF;
     }
-    res->docId = ++p->counter;
+    SearchResult_SetDocId(res, ++p->counter);
 
-    RSValue *sval = RS_ConstStringValC((char *)p->values[p->counter % p->numvals]);
-    RSValue *scoreval = RS_NumVal(p->counter);
-    RLookup_WriteOwnKey(p->rkvalue, &res->rowdata, sval);
-    RLookup_WriteOwnKey(p->rkscore, &res->rowdata, scoreval);
+    RSValue *sval = RSValue_NewConstCString((char *)p->values[p->counter % p->numvals]);
+    RSValue *scoreval = RSValue_NewNumber(p->counter);
+    RLookup_WriteOwnKey(p->rkvalue, SearchResult_GetRowDataMut(res), sval);
+    RLookup_WriteOwnKey(p->rkscore, SearchResult_GetRowDataMut(res), scoreval);
     //* res = * p->res;
     return RS_RESULT_OK;
   };
@@ -224,9 +225,9 @@ TEST_F(AggTest, testGroupSplit) {
   gen.Next = [](ResultProcessor *rp, SearchResult *res) -> int {
     ArrayGenerator *p = static_cast<ArrayGenerator *>(rp);
     if (p->counter >= NUM_RESULTS) return RS_RESULT_EOF;
-    res->docId = ++p->counter;
-    RLookup_WriteOwnKey(p->kvalue, &res->rowdata,
-                        RS_StringArrayT((char **)&p->values[0], p->values.size(), RSString_Const));
+    SearchResult_SetDocId(res, ++p->counter);
+    RLookup_WriteOwnKey(p->kvalue, SearchResult_GetRowDataMut(res),
+                        RSValue_NewStringArrayT((char **)&p->values[0], p->values.size(), RSStringType_Const));
     //* res = * p->res;
     return RS_RESULT_OK;
   };
@@ -234,13 +235,13 @@ TEST_F(AggTest, testGroupSplit) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    RSValue *rv = RLookup_GetItem(val_out, &res.rowdata);
+    RSValue *rv = RLookup_GetItem(val_out, SearchResult_GetRowData(&res));
     ASSERT_FALSE(NULL == rv);
     ASSERT_FALSE(RSValue_IsNull(rv));
     ASSERT_TRUE(RSValue_IsString(rv));
     bool foundValue = false;
     for (auto s : gen.values) {
-      if (!strcmp(rv->strval.str, s)) {
+      if (!strcmp(RSValue_String_Get(rv, NULL), s)) {
         foundValue = true;
         break;
       }
@@ -293,7 +294,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
 
   auto scenario = [&](QEFlags flags, auto... args) -> bool {
-    QueryError qerr = {QueryErrorCode(0)};
+    QueryError qerr = QueryError_Default();
     AREQ *rr = AREQ_New();
     AREQ_AddRequestFlags(rr, flags);
     RMCK::ArgvList aggArgs(ctx, "*", args...);

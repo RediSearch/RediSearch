@@ -185,7 +185,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
         goto done;
       }
     } else {
-      if (status->code == QUERY_ENOPROPVAL) {
+      if (QueryError_GetCode(status) == QUERY_ENOPROPVAL) {
         QueryError_ClearError(status);
         QueryError_SetCode(status, QUERY_EDOCNOTADDED);
       }
@@ -209,7 +209,7 @@ done:
 
 static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
   if (QueryError_HasError(&aCtx->status)) {
-    if (aCtx->status.code == QUERY_EDOCNOTADDED) {
+    if (QueryError_GetCode(&aCtx->status) == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithError(ctx, "NOADD");
     } else {
       RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&aCtx->status));
@@ -231,14 +231,14 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  // On Enterprise, we validate ACL permission to the index
-  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+  // Validate ACL permission to the index
+  if (!ACLUserMayAccessIndex(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
   ArgsCursor ac;
   AddDocumentOptions opts = {.keyStr = argv[2], .scoreStr = argv[3], .donecb = replyCallback};
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
 
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
 
@@ -261,7 +261,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
   if (rv != REDISMODULE_OK) {
-    if (status.code == QUERY_EDOCNOTADDED) {
+    if (QueryError_GetCode(&status) == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithSimpleString(ctx, "NOADD");
     } else {
       RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));

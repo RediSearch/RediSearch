@@ -84,7 +84,7 @@ def l2_from_bytes(a_bytes, b_bytes) -> float:
     b = np.frombuffer(b_bytes, dtype=np.float32)
     return np.linalg.norm(a - b)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
+# TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_groupby_small():
     """Test hybrid search with small result set (3 docs) + groupby"""
@@ -105,7 +105,7 @@ def test_hybrid_groupby_small():
     expected_categories = Counter(doc['category'] for doc in test_docs.values() if l2_from_bytes(doc['embedding'], query_vector)**2 <= radius)
     env.assertEqual(Counter(results), expected_categories)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
+# TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_groupby_medium():
     """Test hybrid search with medium result set (6 docs) + groupby"""
@@ -125,7 +125,7 @@ def test_hybrid_groupby_medium():
     expected_categories = Counter(doc['category'] for doc in test_docs.values() if l2_from_bytes(doc['embedding'], query_vector)**2 <= radius)
     env.assertEqual(Counter(results), expected_categories)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
+# TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_groupby_large():
     """Test hybrid search with large result set (9 docs) + groupby"""
@@ -145,3 +145,49 @@ def test_hybrid_groupby_large():
     # All 9 docs -> automotive(2), clothing(2), footwear(2), food(2), fitness(1)
     expected_categories = Counter(doc['category'] for doc in test_docs.values() if l2_from_bytes(doc['embedding'], query_vector)**2 <= radius)
     env.assertEqual(Counter(results), expected_categories)
+
+# TODO: remove skip once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
+def test_hybrid_groupby_with_filter():
+    """Test hybrid search with groupby + filter to verify result count consistency"""
+    env = Env()
+    test_docs = setup_hybrid_groupby_index(env)
+
+    # Search for text that doesn't appear in any document
+    search_query_with_no_results = "xyznomatch"
+
+    # Query vector at origin [0,0], RADIUS 3**2 returns 9 docs at distances 1-3
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    radius = 3**2
+
+    # Apply filter to only include categories with count > 1 (should exclude fitness which has count=1)
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query_with_no_results,
+                       'VSIM', '@embedding', query_vector, 'RANGE', '2', 'RADIUS', str(radius),
+                       'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                       'FILTER', '@count > 1')
+
+    # Parse the response to get both results and total_results
+    results = parse_hybrid_groupby_response(response)
+
+    # Get total_results from response using the same method as get_results_from_hybrid_response
+    res_count_index = recursive_index(response, 'total_results')
+    res_count_index[-1] += 1
+    total_results = access_nested_list(response, res_count_index)
+
+    # Verify that categories with count > 1 are returned (automotive, clothing, footwear, food)
+    # fitness should be filtered out since it has count=1
+    expected_categories = {
+        'automotive': 2,  # doc:1, doc:2
+        'clothing': 2,    # doc:3, doc:4
+        'footwear': 2,    # doc:5, doc:6
+        'food': 2         # doc:7, doc:8
+    }
+    env.assertEqual(results, expected_categories)
+
+    # Verify that total_results equals the number of filtered groups (4)
+    env.assertEqual(total_results, len(expected_categories))
+
+    # Verify that the sum of individual counts equals the original document count before filtering
+    sum_of_counts = sum(results.values())
+    expected_sum = 8  # 2+2+2+2 (fitness with count=1 is filtered out)
+    env.assertEqual(sum_of_counts, expected_sum)

@@ -768,7 +768,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "qint",
- "redis-module",
+ "smallvec",
  "varint",
 ]
 
@@ -1376,6 +1376,7 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "redis-module",
+ "result_processor_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
@@ -1485,6 +1486,7 @@ version = "0.0.1"
 dependencies = [
  "bindgen 0.72.0",
  "build_utils",
+ "cc",
  "criterion",
  "ffi",
  "inverted_index",
@@ -1591,6 +1593,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "search_result"
+version = "0.0.1"
+dependencies = [
+ "enumflags2",
+ "ffi",
+ "inverted_index",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.219"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1642,6 +1653,12 @@ name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
+name = "smallvec"
+version = "1.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "sorting_vector"
@@ -1990,6 +2007,17 @@ name = "value"
 version = "0.0.1"
 dependencies = [
  "ffi",
+]
+
+[[package]]
+name = "value_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "libc",
+ "redis-module",
+ "value",
 ]
 
 [[package]]

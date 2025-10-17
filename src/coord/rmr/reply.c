@@ -255,3 +255,17 @@ void MRReply_ArrayToMap(MRReply *reply) {
   if (reply->type != MR_REPLY_ARRAY) return;
   reply->type = MR_REPLY_MAP;
 }
+
+// Clone MRReply from another MRReply
+// Currently implements a partial clone, only for the type and string types.
+// Support types - MR_REPLY_STRING, MR_REPLY_ERROR
+MRReply *MRReply_Clone(MRReply *src) {
+  // Assert type
+  RS_ASSERT(src->type == MR_REPLY_STRING || src->type == MR_REPLY_ERROR);
+  // Allocate new reply
+  MRReply *dst = rm_calloc(1, sizeof(MRReply));
+  dst->type = src->type;
+  dst->str = rm_strndup(src->str, src->len);
+  dst->len = src->len;
+  return dst;
+}

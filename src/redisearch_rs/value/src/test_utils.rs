@@ -76,9 +76,9 @@ impl RSValueTrait for RSValueMock {
     fn get_type(&self) -> ffi::RSValueType {
         // Mock implementation, return a dummy type
         match self.0.as_ref() {
-            RSValueMockInner::Null => ffi::RSValueType_RSValue_Null,
-            RSValueMockInner::Number(_) => ffi::RSValueType_RSValue_Number,
-            RSValueMockInner::String(_) => ffi::RSValueType_RSValue_String,
+            RSValueMockInner::Null => ffi::RSValueType_RSValueType_Null,
+            RSValueMockInner::Number(_) => ffi::RSValueType_RSValueType_Number,
+            RSValueMockInner::String(_) => ffi::RSValueType_RSValueType_String,
             RSValueMockInner::Reference(reference) => reference.get_type(),
         }
     }

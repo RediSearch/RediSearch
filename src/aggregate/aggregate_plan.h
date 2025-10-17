@@ -117,7 +117,7 @@ typedef struct {
 typedef struct {
   PLN_BaseStep base;
   const char *vectorFieldName;     // Vector field name (NOT owned - points to parser tokens)
-  const char *distanceFieldAlias; // Distance field alias (owned)
+  const char *distanceFieldAlias;  // Distance field alias (owned)
 } PLN_VectorNormalizerStep;
 
 /* Group step - group by properties and reduce by several reducers */
@@ -197,7 +197,7 @@ struct AGGPlan {
 /* Serialize the plan into an array of string args, to create a command to be sent over the network.
  * The strings need to be freed with free and the array needs to be freed with array_free(). The
  * length can be extracted with array_len */
-array_t AGPLN_Serialize(const AGGPlan *plan);
+void AGPLN_Serialize(const AGGPlan *plan, arrayof(char*) *target);
 
 /* Free the plan resources, not the plan itself */
 void AGPLN_Free(AGGPlan *plan);
