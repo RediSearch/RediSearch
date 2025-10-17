@@ -3,6 +3,7 @@
 #include "module.h"
 #include "version.h"
 #include "common.h"
+#include "ext/default.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
 
