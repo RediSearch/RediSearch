@@ -73,6 +73,56 @@ def testNumericGCIntensive(env):
             env.assertTrue(r2 % 2 == 0 or r2 > 900)
 
 @skip(cluster=True)
+def testNumericCompleteGCAndRepopulation(env):
+    """Test that after deleting all docs used for a numeric index through GC that the index is still usable"""
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id', 'numeric'))
+    waitForIndex(env, 'idx')
+
+    # Phase 1: Add initial documents
+    InitialDocs = 100
+    for i in range(InitialDocs):
+        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields', 'id', str(i)))
+
+    # Verify initial state
+    res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
+    # Numeric indices return nested structure with buckets
+    all_doc_ids = []
+    for bucket in res:
+        all_doc_ids.extend(bucket)
+    env.assertEqual(len(all_doc_ids), InitialDocs)
+
+    # Phase 2: Delete all documents and run GC
+    for i in range(InitialDocs):
+        env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
+
+    forceInvokeGC(env, 'idx')
+
+    # Verify index is empty - might return empty buckets or empty list
+    res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
+    env.assertEqual(res, [[]])
+
+    # Verify search returns no results
+    search_res = env.cmd('ft.search', 'idx', '@id:[0 99]')
+    env.assertEqual(search_res[0], 0)
+
+    # Phase 3: Re-add documents with the same numeric values
+    NewDocs = 50
+    for i in range(NewDocs):
+        env.assertOk(env.cmd('ft.add', 'idx', 'newdoc%d' % i, 1.0, 'fields', 'id', str(i)))
+
+    # Verify new documents are indexed
+    res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
+    all_doc_ids = []
+    for bucket in res:
+        all_doc_ids.extend(bucket)
+    env.assertEqual(len(all_doc_ids), NewDocs)
+
+    # Verify search works
+    search_res = env.cmd('ft.search', 'idx', '@id:[0 49]')
+    env.assertEqual(search_res[0], NewDocs)
+
+@skip(cluster=True)
 def testGeoGCIntensive(env:Env):
     NumberOfDocs = 1000
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
