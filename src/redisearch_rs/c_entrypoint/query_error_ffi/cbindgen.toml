@@ -29,6 +29,8 @@ after_includes = """
   QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for %s: %s", name, \\
                          AC_Strerror(rv))
 
+#define QERR_MKSYNTAXERR(status, message) QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, message)
+
 // String constants to warnings. These should be moved to const functions in rust.
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
