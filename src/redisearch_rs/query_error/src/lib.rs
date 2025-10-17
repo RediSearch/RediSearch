@@ -157,7 +157,7 @@ impl QueryErrorCode {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct QueryError {
     code: QueryErrorCode,
     // FIXME: once QueryError is no longer depended on by C code, these CString
@@ -252,7 +252,7 @@ impl QueryError {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Warnings {
     reached_max_prefix_expansions: bool,
     out_of_memory: bool,

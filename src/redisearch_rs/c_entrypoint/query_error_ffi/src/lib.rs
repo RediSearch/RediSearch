@@ -97,8 +97,18 @@ pub unsafe extern "C" fn QueryError_CloneFrom(
     src: *const OpaqueQueryError,
     dest: *mut OpaqueQueryError,
 ) {
+    {
+        let dest_query_error =
+            unsafe { QueryError::from_opaque_ptr(dest as *const _) }.expect("dest is null");
+
+        if !dest_query_error.is_ok() {
+            return;
+        }
+    }
+
     let src_query_error = unsafe { QueryError::from_opaque_ptr(src) }.expect("src is null");
     let query_error = src_query_error.clone();
+
     let query_error_opaque = query_error.into_opaque();
 
     unsafe { dest.write(query_error_opaque) };
@@ -137,8 +147,6 @@ pub unsafe extern "C" fn QueryError_GetCode(
         unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
 
     let code = query_error.code();
-
-    eprintln!("GetCode returning {code:?}");
 
     code
 }
