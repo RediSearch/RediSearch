@@ -23,6 +23,11 @@
     REDISMODULE_OK;                                                  \
   })
 
+/** Convenience macro to extract the error string of the argument parser */
+#define QERR_MKBADARGS_AC(status, name, rv)                                                     \
+  QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for %s: %s", name, \
+                         AC_Strerror(rv))
+
 // String constants to warnings. These should be moved to const functions in rust.
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
