@@ -156,7 +156,6 @@ impl QueryErrorCode {
 }
 
 #[derive(Clone, Default)]
-#[repr(C)]
 pub struct QueryError {
     code: QueryErrorCode,
     // FIXME: once QueryError is no longer depended on by C code, these CString
@@ -274,5 +273,3 @@ impl Warnings {
         self.out_of_memory = true;
     }
 }
-
-mimic::impl_mimic!(QueryError);

@@ -7,6 +7,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <rmutil/args.h>
+#include "rmalloc.h"
+// Required to ensure that the alignment declared by cbindgen is respected on
+// the C/C++ side.
+#define ALIGNED(n) __attribute__((aligned(n)))
+
 
 typedef enum QueryErrorCode {
   QUERY_ERROR_CODE_NONE,
@@ -66,12 +71,17 @@ typedef enum QueryErrorCode {
 } QueryErrorCode;
 
 /**
- * A type with a size of `48` bytes and alignment `8`.
+ * A type with size `N`.
  */
-typedef struct Size48Align8 Size48Align8;
+typedef uint8_t Size_38[38];
 
-typedef struct QueryError {
-  struct Size48Align8 _0;
+/**
+ * An opaque query error which can be passed by value to C.
+ *
+ * The size and alignment of this struct must match the rust structure exactly.
+ */
+typedef struct ALIGNED(8) QueryError {
+  Size_38 _0;
 } QueryError;
 
 #ifdef __cplusplus
@@ -79,6 +89,10 @@ extern "C" {
 #endif // __cplusplus
 
 struct QueryError QueryError_Default(void);
+
+bool QueryError_IsOk(const struct QueryError *query_error);
+
+bool QueryError_HasError(const struct QueryError *query_error);
 
 const char *QueryError_Strerror(enum QueryErrorCode code);
 
@@ -113,7 +127,6 @@ void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
-
 
 /**
  * Set the error code using a custom-formatted string
