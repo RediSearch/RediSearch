@@ -63,37 +63,6 @@
     RETURN_STATUS(acrc);                                        \
   }
 
-int set_default_scorer_config(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err) {
-    REDISMODULE_NOT_USED(name);
-    if (RSGlobalConfig.defaultScorer == NULL) {
-      RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
-    }
-
-    // Get the scorer name from the Redis module string
-    size_t len;
-    const char *newScorerName = RedisModule_StringPtrLen(val, &len);
-
-    // If Extension is not yet initialized, we will validate the defaultScorer after initialization for validation
-    if (Extensions_InitDone()) {
-      // Validate the scorer name against registered scorers only when the extension system is initialized
-      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, newScorerName);
-      if (scoreCtx == NULL) {
-          if (err) {
-              *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
-          }
-          return REDISMODULE_ERR;
-      }
-    }
-
-    // Validation passed, now allocate and apply it to RSGlobalConfig
-    char **ptr = (char **)privdata;
-    if (*ptr) {
-        rm_free(*ptr);   // Free the existing default scorer string
-    }
-    *ptr = rm_strndup(newScorerName, len);;  // Transfer ownership
-    return REDISMODULE_OK;
-}
-
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
@@ -276,16 +245,6 @@ CONFIG_SETTER(setFrisoINI) {
 }
 CONFIG_GETTER(getFrisoINI) {
   return config->frisoIni ? sdsnew(config->frisoIni) : NULL;
-}
-
-RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
-  char *str = *(char **)privdata;
-  RS_ASSERT(str != NULL);
-  if (config_default_scorer) {
-    RedisModule_FreeString(NULL, config_default_scorer);
-  }
-  config_default_scorer = RedisModule_CreateString(NULL, str, strlen(str));
-  return config_default_scorer;
 }
 
 // DEFAULT_SCORER

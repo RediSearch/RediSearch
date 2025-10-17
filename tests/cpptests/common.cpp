@@ -5,6 +5,7 @@
 #include "common.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
+#include "ext/default.h"
 
 #include "gtest/gtest.h"
 

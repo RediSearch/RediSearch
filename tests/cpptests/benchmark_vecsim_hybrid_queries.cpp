@@ -14,6 +14,7 @@
 #include "src/tokenize.h"
 #include "src/varint.h"
 #include "src/hybrid_reader.h"
+#include "src/ext/default.h"
 
 #include "rmutil/alloc.h"
 #include "index_utils.h"
