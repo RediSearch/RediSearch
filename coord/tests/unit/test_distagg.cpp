@@ -139,6 +139,8 @@ int main(int, char **) {
   RMCK::init();
   testAverage();
   testCountDistinct();
+  rm_free((void *)RSGlobalConfig.defaultScorer);
+  RSGlobalConfig.defaultScorer = NULL;
 }
 
 //REDISMODULE_INIT_SYMBOLS();
