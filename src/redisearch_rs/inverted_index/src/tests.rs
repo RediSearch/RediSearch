@@ -1245,9 +1245,9 @@ fn index_block_repair_delete() {
         ![10, 11].contains(&doc_id)
     }
 
-    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
-
-    let repair_status = block.repair(cb, repair, encoder).unwrap();
+    let repair_status = block
+        .repair(cb, None::<fn(&RSIndexResult, &IndexBlock)>, encoder)
+        .unwrap();
 
     assert_eq!(
         repair_status,
@@ -1272,9 +1272,9 @@ fn index_block_repair_unchanged() {
         true
     }
 
-    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
-
-    let repair_status = block.repair(cb, repair, encoder).unwrap();
+    let repair_status = block
+        .repair(cb, None::<fn(&RSIndexResult, &IndexBlock)>, encoder)
+        .unwrap();
 
     assert_eq!(repair_status, None);
 }
@@ -1294,9 +1294,9 @@ fn index_block_repair_some_deletions() {
         [11].contains(&doc_id)
     }
 
-    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
-
-    let repair_status = block.repair(cb, repair, encoder).unwrap();
+    let repair_status = block
+        .repair(cb, None::<fn(&RSIndexResult, &IndexBlock)>, encoder)
+        .unwrap();
 
     assert_eq!(
         repair_status,
@@ -1413,9 +1413,9 @@ fn index_block_repair_delta_too_big() {
         ![41].contains(&doc_id)
     }
 
-    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
-
-    let repair_status = block.repair(cb, repair, encoder).unwrap();
+    let repair_status = block
+        .repair(cb, None::<fn(&RSIndexResult, &IndexBlock)>, encoder)
+        .unwrap();
 
     assert_eq!(
         repair_status,
@@ -1504,9 +1504,10 @@ fn ii_scan_gc() {
         [21, 22, 30, 40].contains(&doc_id)
     }
 
-    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
-
-    let gc_result = ii.scan_gc(cb, repair).unwrap().unwrap();
+    let gc_result = ii
+        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
         gc_result,
@@ -1561,9 +1562,9 @@ fn ii_scan_gc_no_change() {
         true
     }
 
-    fn repair(_result: &RSIndexResult, _ib: &IndexBlock) {}
-
-    let gc_result = ii.scan_gc(cb, repair).unwrap();
+    let gc_result = ii
+        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .unwrap();
 
     assert_eq!(gc_result, None, "there should be no changes");
 }
@@ -1895,7 +1896,7 @@ fn ii_apply_gc_entries_tracking_index() {
     let repair = |result: &RSIndexResult, _ib: &IndexBlock| repaired.push(result.doc_id);
 
     assert_eq!(
-        ii.scan_gc(doc_exist, repair).unwrap().unwrap(),
+        ii.scan_gc(doc_exist, Some(repair)).unwrap().unwrap(),
         expected_delta
     );
 

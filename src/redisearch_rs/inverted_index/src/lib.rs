@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
     io::{BufRead, Cursor, Seek, Write},
@@ -259,7 +260,7 @@ pub struct InvertedIndex<E> {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -279,7 +280,7 @@ pub struct IndexBlock {
 static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
 
 /// The type of repair needed for a block after a garbage collection scan.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 enum RepairType {
     /// This block can be deleted completely.
     Delete {
@@ -359,7 +360,7 @@ impl IndexBlock {
     fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
-        mut repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
+        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
         encoder: E,
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
@@ -377,7 +378,9 @@ impl IndexBlock {
             decoder.decode(&mut cursor, base, &mut result)?;
 
             if doc_exist(result.doc_id) {
-                repair(&result, self);
+                if let Some(repair) = repair.as_mut() {
+                    repair(&result, self);
+                }
 
                 tmp_inverted_index.add_record(&result)?;
 
@@ -621,7 +624,7 @@ impl<E: Encoder> InvertedIndex<E> {
 }
 
 /// Result of scanning the index for garbage collection
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct GcScanDelta {
     /// The index of the last block in the index at the time of the scan. This is used to ensure
     /// that the index has not changed since the scan was performed.
@@ -635,8 +638,15 @@ pub struct GcScanDelta {
     deltas: Vec<BlockGcScanResult>,
 }
 
+impl GcScanDelta {
+    /// Returns the index of the last block in the index at the time of the scan.
+    pub fn last_block_idx(&self) -> usize {
+        self.last_block_idx
+    }
+}
+
 /// Result of scanning a block for garbage collection
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct BlockGcScanResult {
     /// The index of the block in the inverted index
     index: usize,
@@ -647,6 +657,7 @@ pub struct BlockGcScanResult {
 
 /// Information about the result of applying a garbage collection scan to the index
 #[derive(Debug, Eq, PartialEq)]
+#[repr(C)]
 pub struct GcApplyInfo {
     /// The number of bytes that were freed
     pub bytes_freed: usize,
@@ -678,14 +689,14 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     pub fn scan_gc<'index>(
         &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
-        mut repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
+        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();
 
         for (i, block) in self.blocks.iter().enumerate() {
             let encoder = self.encoder.clone();
 
-            let repair = block.repair(&doc_exist, &mut repair, encoder)?;
+            let repair = block.repair(&doc_exist, repair.as_mut(), encoder)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
@@ -921,7 +932,7 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     pub fn scan_gc<'index>(
         &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
-        repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
+        repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }
@@ -1053,7 +1064,7 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     pub fn scan_gc<'index>(
         &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
-        repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
+        repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }
