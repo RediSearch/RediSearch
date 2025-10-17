@@ -8,45 +8,6 @@
 #include <stdlib.h>
 #include <rmutil/args.h>
 
-/**
- * Set the error code using a custom-formatted string
- *
- * Not implemented in Rust as variadic functions are not supported across an FFI boundary.
- */
-void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char* message, const char *fmt, ...) {
-  char *formatted = NULL;
-  va_list ap;
-  va_start(ap, fmt);
-  rm_vasprintf(&formatted, fmt, ap);
-  va_end(ap);
-
-  char *detail = NULL;
-  rm_asprintf(&detail, "%s%s", message, formatted);
-  rm_free(formatted);
-
-  QueryError_SetError(status, code, message);
-  QueryError_SetDetail(status, detail);
-  rm_free(detail);
-}
-
-/**
- * Set the error code using a custom-formatted string
- * Only use this function if you are certain that no user data is leaked in the format string
- *
- * Not implemented in Rust as variadic functions are not supported across an FFI boundary.
- */
-void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
-  char *formatted = NULL;
-  va_list ap;
-  va_start(ap, fmt);
-  rm_vasprintf(&formatted, fmt, ap);
-  va_end(ap);
-
-  QueryError_SetError(status, code, formatted);
-  rm_free(formatted);
-}
-
-
 typedef enum QueryErrorCode {
   QUERY_ERROR_CODE_NONE,
   QUERY_ERROR_CODE_GENERIC,
@@ -152,3 +113,42 @@ void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
+
+
+/**
+ * Set the error code using a custom-formatted string
+ *
+ * Not implemented in Rust as variadic functions are not supported across an FFI boundary.
+ */
+void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char* message, const char *fmt, ...) {
+  char *formatted = NULL;
+  va_list ap;
+  va_start(ap, fmt);
+  rm_vasprintf(&formatted, fmt, ap);
+  va_end(ap);
+
+  char *detail = NULL;
+  rm_asprintf(&detail, "%s%s", message, formatted);
+  rm_free(formatted);
+
+  QueryError_SetError(status, code, message);
+  QueryError_SetDetail(status, detail);
+  rm_free(detail);
+}
+
+/**
+ * Set the error code using a custom-formatted string
+ * Only use this function if you are certain that no user data is leaked in the format string
+ *
+ * Not implemented in Rust as variadic functions are not supported across an FFI boundary.
+ */
+void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
+  char *formatted = NULL;
+  va_list ap;
+  va_start(ap, fmt);
+  rm_vasprintf(&formatted, fmt, ap);
+  va_end(ap);
+
+  QueryError_SetError(status, code, formatted);
+  rm_free(formatted);
+}
