@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <rmutil/args.h>
+#include <rmutil/rm_assert.h>
 #include "rmalloc.h"
 // Required to ensure that the alignment declared by cbindgen is respected on
 // the C/C++ side.
@@ -25,7 +26,7 @@
 
 /** Convenience macro to extract the error string of the argument parser */
 #define QERR_MKBADARGS_AC(status, name, rv)                                                     \
-  QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for %s: %s", name, \
+  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for %s: %s", name, \
                          AC_Strerror(rv))
 
 // String constants to warnings. These should be moved to const functions in rust.
@@ -185,4 +186,17 @@ void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, c
 
   QueryError_SetError(status, code, formatted);
   rm_free(formatted);
+}
+
+void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name) {
+  RS_LOG_ASSERT(!AC_IsAtEnd(ac), "cursor should not be at the end");
+  const char *s;
+  size_t n;
+  if (AC_GetString(ac, &s, &n, AC_F_NOADVANCE) != AC_OK) {
+    s = "Unknown (FIXME)";
+    n = strlen(s);
+  }
+
+  QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%.*s` at position %lu for %s",
+                         (int)n, s, ac->offset, name);
 }
