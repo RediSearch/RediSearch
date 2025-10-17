@@ -476,7 +476,7 @@ static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
 }
 
 // Field names for implicit LOAD step
-#define HYBRID_IMPLICIT_KEY_FIELDS UNDERSCORE_KEY, UNDERSCORE_SCORE
+#define HYBRID_IMPLICIT_KEY_FIELDS "@" UNDERSCORE_KEY, "@" UNDERSCORE_SCORE
 #define HYBRID_IMPLICIT_KEY_FIELD_COUNT 2
 
 /**

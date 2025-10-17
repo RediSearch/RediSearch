@@ -108,8 +108,8 @@ reducerDistributionFunc getDistributionFunc(const char *key);
 static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
                                 PLN_DistributeStep *dstp, QueryError *status) {
   PLN_GroupStep *gr = (PLN_GroupStep *)step;
-  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
-  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
+  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->strictPrefix);
+  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->strictPrefix);
 
   size_t nreducers = array_len(gr->reducers);
   grLocal->reducers = array_new(PLN_Reducer, nreducers);
@@ -578,11 +578,12 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
 
   if (!loadFields.empty()) {
     array_append(dstp->serialized, rm_strndup("LOAD", 4));
-    char *ldsze;
-    rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
-    array_append(dstp->serialized, ldsze);
+    char *buffer;
+    rm_asprintf(&buffer, "%lu", (unsigned long)loadFields.size());
+    array_append(dstp->serialized, buffer);
     for (auto kk : loadFields) {
-      array_append(dstp->serialized, rm_strndup(kk->name, kk->name_len));
+      rm_asprintf(&buffer, "@%.*s", (int)kk->name_len, kk->name);
+      array_append(dstp->serialized, buffer);
     }
   }
 
