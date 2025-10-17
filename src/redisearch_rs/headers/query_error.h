@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <rmutil/args.h>
 
 /**
  * Set the error code using a custom-formatted string
