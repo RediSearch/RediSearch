@@ -2753,8 +2753,6 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
     MRReply *current = replies[i];
     // Check if reply is error
     if (MRReply_Type(current) == MR_REPLY_ERROR) {
-      // Since we expect this to happen only with OOM, we assert it until this invariant changes.
-      RS_ASSERT(extractQueryErrorFromReply(replies[i]) == QUERY_EOOM);
       MR_ReplyWithMRReply(reply, current);
       continue;
     }
