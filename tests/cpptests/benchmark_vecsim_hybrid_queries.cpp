@@ -37,6 +37,8 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
 
+}
+
 void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19937 rng,
                           std::uniform_real_distribution<> distrib) {
   for (size_t k = 10; k <= 100; k *= 10) {

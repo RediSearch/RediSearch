@@ -19,6 +19,8 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
 
+}
+
 class MyEnvironment : public ::testing::Environment {
   virtual void SetUp() {
     const char *arguments[] = {"NOGC"};
