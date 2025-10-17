@@ -3,7 +3,6 @@
 #include "dist_plan.h"
 #include "aggregate/aggregate.h"
 #include "tests/cpptests/redismock/util.h"
-#include "ext/default.h"
 
 #include <vector>
 
@@ -12,7 +11,6 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (RedisModule_Init(ctx, "dummy", 0, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
-  RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
   return REDISMODULE_OK;
 }
 }
@@ -139,6 +137,7 @@ int main(int, char **) {
   RMCK::init();
   testAverage();
   testCountDistinct();
+  // RMCK_Shutdown() is causing a segfault, but I need to remove the scorer before exiting to avoid sanitizer errors
   rm_free((void *)RSGlobalConfig.defaultScorer);
   RSGlobalConfig.defaultScorer = NULL;
 }
