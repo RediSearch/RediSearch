@@ -1009,9 +1009,14 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     QueryError_SetError(status, QUERY_EINVAL, "No such language");
     return REDISMODULE_ERR;
   }
-  if (opts->scorerName && Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
-    return REDISMODULE_ERR;
+
+  if (opts->scorerName) {
+    if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
+      QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
+      return REDISMODULE_ERR;
+    }
+  } else {
+    opts->scorerName = RSGlobalConfig.defaultScorer;
   }
 
   bool resp3 = req->protocol == 3;
@@ -1273,8 +1278,9 @@ end:
 static ResultProcessor *getScorerRP(AREQ *req) {
   const char *scorer = req->searchopts.scorerName;
   if (!scorer) {
-    scorer = DEFAULT_SCORER_NAME;
+    scorer = RSGlobalConfig.defaultScorer;
   }
+  RS_LOG_ASSERT(scorer, "No scorer name");
   ScoringFunctionArgs scargs = {0};
   if (req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));

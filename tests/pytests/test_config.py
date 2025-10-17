@@ -77,6 +77,8 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
     env.expect('ft.config', 'set', 'INDEX_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SEARCH_THREADS', 1).equal('Not modifiable at runtime')
+    env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'TFIDF').equal('OK')
+
     if MT_BUILD:
         env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'FRISOINI', 1).equal('Not modifiable at runtime')
@@ -119,6 +121,8 @@ def testAllConfig(env):
     env.assertIn(res_dict['TIMEOUT'][0], ['500', '0'])
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
+    env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'TFIDF')
+
     if MT_BUILD:
         env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
         env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_OFF')
