@@ -159,12 +159,25 @@ pub unsafe extern "C" fn QueryError_ClearError(query_error: *mut OpaqueQueryErro
     query_error.clear();
 }
 
+// Set the code if not previously set. This should be used by code which makes
+// use of the ::detail field, and is a placeholder for something like:
+// functionWithCharPtr(&status->_detail);
+// if (status->_detail && status->_code == QUERY_OK) {
+//    status->_code = MYCODE;
+// }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_MaybeSetCode(
-    _status: *mut OpaqueQueryError,
-    _code: QueryErrorCode,
+    query_error: *mut OpaqueQueryError,
+    code: QueryErrorCode,
 ) {
-    // todo!()
+    let query_error =
+        unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
+
+    if !query_error.has_private_info() || !query_error.is_ok() {
+        return;
+    }
+
+    query_error.set_code(code);
 }
 
 #[unsafe(no_mangle)]

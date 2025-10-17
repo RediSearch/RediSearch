@@ -206,16 +206,6 @@ impl QueryError {
     }
 
     pub fn set_code(&mut self, code: QueryErrorCode) {
-        // debug_assert!(
-        //     self.is_ok(),
-        //     "Call to QueryError::set_code on already-set QueryError"
-        // );
-
-        // debug_assert!(
-        //     !code.is_none(),
-        //     "Call to QueryError::set_code with QueryErrorCode::None"
-        // );
-
         if !self.is_ok() {
             return;
         }
@@ -224,16 +214,6 @@ impl QueryError {
     }
 
     pub fn set_info(&mut self, code: QueryErrorCode, info: Option<CString>) {
-        // debug_assert!(
-        //     self.is_ok(),
-        //     "Call to QueryError::set_error on already-set QueryError"
-        // );
-
-        // debug_assert!(
-        //     !code.is_none(),
-        //     "Call to QueryError::set_code with QueryErrorCode::None"
-        // );
-
         if !self.is_ok() {
             return;
         }

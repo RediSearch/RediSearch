@@ -143,7 +143,7 @@ QueryErrorCode QueryError_GetCode(const struct QueryError *query_error);
 
 void QueryError_ClearError(struct QueryError *query_error);
 
-void QueryError_MaybeSetCode(struct QueryError *_status, QueryErrorCode _code);
+void QueryError_MaybeSetCode(struct QueryError *query_error, QueryErrorCode code);
 
 bool QueryError_HasReachedMaxPrefixExpansionsWarning(const struct QueryError *query_error);
 

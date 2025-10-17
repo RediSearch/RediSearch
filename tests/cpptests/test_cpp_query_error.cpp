@@ -187,9 +187,9 @@ TEST_F(QueryErrorTest, testQueryErrorMaybeSetCode) {
   ASSERT_TRUE(QueryError_IsOk(&err));
 
   // Manually set detail (simulating external function setting it)
-  // err._detail = rm_strdup("Some detail");
-  // QueryError_MaybeSetCode(&err, QUERY_ERROR_CODE_SYNTAX);
-  // ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
+  QueryError_SetDetail(&err, "Some detail");
+  QueryError_MaybeSetCode(&err, QUERY_ERROR_CODE_SYNTAX);
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
 
   // Try to set again - should not overwrite
   QueryError_MaybeSetCode(&err, QUERY_ERROR_CODE_GENERIC);
