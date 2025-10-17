@@ -1084,6 +1084,38 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+// Restore an index schema from the given string.
+// Currently behaves as FT._CREATEIFNX (No error if index exists).
+// FT._RESTOREIFNX SCHEMA {encode version} {schema string}
+int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  long long encodeVersion;
+  if (RedisModule_StringToLongLong(argv[2], &encodeVersion) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "ERRBADVAL Invalid encoding version");
+  }
+
+  int rc = IndexSpec_Deserialize(argv[3], encodeVersion);
+
+  if (rc != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "ERRBADVAL Failed to deserialize schema");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+int RegisterRestoreIfNxCommands(RedisModuleCommand *restoreCmd) {
+  int rc;
+
+  const char *schema_flags = IsEnterprise() ? "write "CMD_PROXY_FILTERED : "write "CMD_INTERNAL;
+  rc = RedisModule_CreateSubcommand(restoreCmd, "SCHEMA", RestoreSchema, schema_flags, 0, 0, 0);
+  if (rc != REDISMODULE_OK) return rc;
+
+  return REDISMODULE_OK;
+}
+
 #define RM_TRY_F(f, ...)                                                       \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -1378,6 +1410,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
          "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
+
+  RM_TRY(RMCreateSearchCommand(ctx, RS_RESTORE_IF_NX, NULL,
+         "write", INDEX_ONLY_CMD_ARGS, "", true))
+  RM_TRY_F(RegisterRestoreIfNxCommands, RedisModule_GetCommand(ctx, RS_RESTORE_IF_NX))
 
   // Special cases: Register drop commands which write to arbitrary keys
   RM_TRY(RMCreateArbitraryWriteSearchCommand(ctx, RS_DROP_CMD, DropIndexCommand,
