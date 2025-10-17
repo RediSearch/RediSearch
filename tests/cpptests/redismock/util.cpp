@@ -1,6 +1,8 @@
 #include "util.h"
 #include "internal.h"
 #include "config.h"
+#include "ext/default.h"
+#include "rmalloc.h"
 #include <cstring>
 
 using namespace RMCK;
