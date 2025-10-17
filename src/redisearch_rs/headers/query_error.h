@@ -12,6 +12,17 @@
 // the C/C++ side.
 #define ALIGNED(n) __attribute__((aligned(n)))
 
+/**
+ * Convenience macro to reply the error string to redis and clear the error code.
+ * I'm making this into a C macro so I don't need to include redismodule.h.
+ */
+#define QueryError_ReplyAndClear(rctx, qerr)                         \
+  ({                                                                 \
+    RedisModule_ReplyWithError(rctx, QueryError_GetUserError(qerr)); \
+    QueryError_ClearError(qerr);                                     \
+    REDISMODULE_OK;                                                  \
+  })
+
 
 typedef enum QueryErrorCode {
   QUERY_ERROR_CODE_NONE,
