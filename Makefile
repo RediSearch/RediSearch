@@ -7,6 +7,7 @@
 #-----------------------------------------------------------------------------
 
 .NOTPARALLEL:
+.EXPORT_ALL_VARIABLES:
 
 MAKEFLAGS += --no-print-directory
 
@@ -38,6 +39,10 @@ BUILD_ARGS += COORD=$(COORD)
 # Build flags
 ifeq ($(DEBUG),1)
 	BUILD_ARGS += DEBUG
+endif
+
+ifneq ($(ENABLE_ASSERT),)
+	BUILD_ARGS += ENABLE_ASSERT=$(ENABLE_ASSERT)
 endif
 
 ifeq ($(PROFILE),1)
