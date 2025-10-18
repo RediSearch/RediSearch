@@ -21,7 +21,7 @@ extern "C" {
 
 typedef struct {
   // total bytes collected by the GC
-  size_t totalCollected;
+  ssize_t totalCollected;
   // number of cycle ran
   size_t numCycles;
 
