@@ -10,8 +10,6 @@
 
 #include "iterator_api.h"
 #include "vector_index.h"
-#include "redisearch.h"
-#include "spec.h"
 #include "util/minmax_heap.h"
 #include "util/timeout.h"
 

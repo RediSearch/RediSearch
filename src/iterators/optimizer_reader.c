@@ -8,7 +8,6 @@
 */
 #include "iterators/optimizer_reader.h"
 #include "iterators/empty_iterator.h"
-#include "aggregate/aggregate.h"
 
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
   RSIndexResult *res1 = (RSIndexResult *)v1;
