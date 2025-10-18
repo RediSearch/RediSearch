@@ -608,7 +608,7 @@ void iterCursorMappingCb(void *p) {
 
   // Send commands to all shards
   for (size_t i = 0; i < it->len; i++) {
-    if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
+    if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
