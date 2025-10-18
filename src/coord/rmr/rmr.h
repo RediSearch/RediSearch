@@ -37,10 +37,6 @@ typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block);
 
-int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd);
-
-void MR_SetCoordinationStrategy(struct MRCtx *ctx, bool mastersOnly);
-
 /* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
 void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS);
 

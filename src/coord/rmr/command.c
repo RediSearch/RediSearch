@@ -215,15 +215,6 @@ void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t
   MRCommand_ReplaceArgNoDup(cmd, index, newArg, newArgLen);
 }
 
-// Should only be relevant for _FT.ADD, _FT.GET, _FT.DEL,
-// and _FT.SUG* commands
-int MRCommand_GetShardingKey(const MRCommand *cmd) {
-  // for SUGADD, SUGGET, SUGDEL, SUGLEN, the key is the first argument
-  // for ADD, GET, DEL, the key is the second argument.
-  // Differentiate between the two cases by checking the command length
-  return (cmd->lens[0] == 7) ? 2 : 1;
-}
-
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
   cmd->protocol = is_resp3(ctx) ? 3 : 2;
 }

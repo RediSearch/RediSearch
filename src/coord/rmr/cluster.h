@@ -33,22 +33,12 @@ typedef struct {
 
 /* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy. The
  * return value is the number of nodes we managed to successfully send the command to */
-int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
-                            void *privdata);
-
-/* Get a connected connection according to the cluster, strategy and command.
- * Returns NULL if no fitting connection exists at the moment */
-MRConn *MRCluster_GetConn(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd);
+int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
 
 /* Send a command to its appropriate shard, selecting a node based on the coordination strategy.
  * Returns REDIS_OK on success, REDIS_ERR on failure. Notice that that send is asynchronous so even
  * though we signal for success, the request may fail */
-int MRCluster_SendCommand(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
-                          void *privdata);
-
-/* Asynchronously connect to all nodes in the cluster. This must be called before the io loop is
- * started */
-int MRCluster_ConnectAll(IORuntimeCtx *ioRuntime);
+int MRCluster_SendCommand(IORuntimeCtx *ioRuntime, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
 
 /* Create a new cluster using a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, size_t num_io_threads);
