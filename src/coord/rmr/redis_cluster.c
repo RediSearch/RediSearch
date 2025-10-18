@@ -97,6 +97,20 @@ static bool hasSlots(RedisModuleCallReply *shard) {
   return RedisModule_CallReplyLength(slots) > 0;
 }
 
+// Sort shards by the port of their first node
+static void sortShards(MRClusterTopology *topo) {
+  // Simple insertion sort, we don't expect many shards
+  for (size_t i = 1; i < topo->numShards; i++) {
+    MRClusterShard key = topo->shards[i];
+    size_t j = i;
+    while (j > 0 && topo->shards[j - 1].nodes[0].endpoint.port > key.nodes[0].endpoint.port) {
+      topo->shards[j] = topo->shards[j - 1];
+      j--;
+    }
+    topo->shards[j] = key;
+  }
+}
+
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   RS_AutoMemory(ctx);
 
@@ -172,6 +186,8 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     parseMasterNode(nodes, &topo->shards[i].node);
   }
 
+  // Sort shards by the port of their first node (master), to have a stable order
+  sortShards(topo);
   return topo;
 }
 

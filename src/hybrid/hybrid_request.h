@@ -17,6 +17,12 @@ extern "C" {
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
 typedef struct HybridRequest {
+    /* Arguments converted to sds. Received on input */
+    // We need to copy the arguments so rlookup keys can point to them
+    // in short lifetime of the strings
+    sds *args;
+    size_t nargs;
+
     arrayof(AREQ*) requests;
     size_t nrequests;
     QueryError tailPipelineError;
@@ -52,6 +58,12 @@ typedef struct blockedClientHybridCtx {
 */
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
 
+/*
+* We need to clone the arguments so the objects that rely on them can use them throughout the lifetime of the hybrid request
+* For example lookup keys
+*/
+void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, RedisModuleString **argv, int argc);
+
 /**
  * Build the depletion pipeline for hybrid search processing.
  * This function constructs the first part of the hybrid search pipeline that:
@@ -71,6 +83,18 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params);
 
 /**
+ * Open the score key in the tail lookup for writing the final score.
+ * If a score alias is provided, create a new key with that alias.
+ * Otherwise, use the default score key.
+ *
+ * @param tailLookup The tail lookup to open the score key in
+ * @param scoreAlias The alias to use for the score key, or NULL to use the default
+ * @param status Query error status to report any errors
+ * @return Pointer to the opened score key, or NULL on error
+ */
+const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias, QueryError *status);
+
+/**
  * Build the merge pipeline for hybrid search processing.
  * This function constructs the second part of the hybrid search pipeline that:
  * 1. Sets up a hybrid merger to combine and score results from all depleter processors
@@ -83,10 +107,12 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
  * Depleter3 /
  *
  * @param req The HybridRequest containing the tail pipeline for merging
+ * @param lookupCtx The lookup context for field merging
+ * @param scoreKey The score key to use for writing the final score, could be null - won't write score in this case to the rlookup
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridLookupContext *lookupCtx, const RLookupKey *scoreKey, HybridPipelineParams *params);
 
 /**
  * Build the complete hybrid search pipeline.
@@ -115,6 +141,10 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
  * @param status The query error status to potentially modify with additional context
  */
 void AddValidationErrorContext(AREQ *req, QueryError *status);
+
+inline AGGPlan *HybridRequest_TailAGGPlan(HybridRequest *hreq) {
+  return &hreq->tailPipeline->ap;
+}
 
 #ifdef __cplusplus
 }
