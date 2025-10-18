@@ -290,12 +290,16 @@ class testHybridSearch:
             results[1],
             ['my_key', 'both_04'])
 
-    # # TODO: Enable this test after fixing MOD-10987
+    # # TODO: Enable this test after fixing MOD-11891
     # def test_knn_load_score(self):
     #     """Test hybrid search + LOAD __score"""
     #     if CLUSTER:
     #         raise SkipTest()
-    #     hybrid_query = f"SEARCH '-@text:(both) -@text:(text)' VSIM @vector $BLOB FILTER @tag:{{invalid_tag}} COMBINE RRF 4 K 3 WINDOW 2 LOAD 3 __score AS my_score"
+    #     hybrid_query = (
+    #         "SEARCH '-@text:(both) -@text:(text)' "
+    #         "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
+    #         "COMBINE RRF 4 CONSTANT 3 WINDOW 2 LOAD 3 __score AS my_score"
+    #     )
     #     hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
     #     res = self.env.executeCommand(*hybrid_cmd)
     #     self.env.assertEqual(
@@ -604,15 +608,14 @@ class testHybridSearch:
         }
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
-    # # TODO: Fix MOD-11236: FT.HYBRID + VECTOR_RANGE + HNSW vector field returns less results than expected
-    # def test_range_epsilon(self):
-    #     """Test hybrid search using range with parameters"""
-    #     if CLUSTER:
-    #         raise SkipTest()
-    #     scenario = {
-    #         "test_name": "Range query",
-    #         "hybrid_query": "SEARCH @text:(four|even) VSIM @vector_hnsw $BLOB RANGE 4 RADIUS 5 EPSILON 0.5",
-    #         "search_equivalent": "@text:(four|even)",
-    #         "vector_equivalent": "@vector_hnsw:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
-    #     }
-    #     run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
+    def test_range_epsilon(self):
+        """Test hybrid search using range with parameters"""
+        if CLUSTER:
+            raise SkipTest()
+        scenario = {
+            "test_name": "Range query",
+            "hybrid_query": "SEARCH @text:(four|even) VSIM @vector_hnsw $BLOB RANGE 4 RADIUS 5 EPSILON 0.5",
+            "search_equivalent": "@text:(four|even)",
+            "vector_equivalent": "@vector_hnsw:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
+        }
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
