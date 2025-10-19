@@ -13,12 +13,13 @@
 
 #include <stdatomic.h>
 
+extern RedisModuleCtx *RSDummyContext;
+
 struct SharedSlotRangeArray {
   atomic_uint refcount;
   RedisModuleSlotRangeArray array;
 };
 
-extern RedisModuleCtx *RSDummyContext;
 static SharedSlotRangeArray *localSlots = NULL;
 
 const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
@@ -29,7 +30,7 @@ const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
     localSlots = rm_calloc(1, sizeof(SharedSlotRangeArray) + sizeof(RedisModuleSlotRange) * ranges->num_ranges);
     localSlots->array.num_ranges = ranges->num_ranges;
     memcpy(localSlots->array.ranges, ranges->ranges, sizeof(RedisModuleSlotRange) * ranges->num_ranges);
-    atomic_init(&localSlots->refcount, 1);
+    atomic_init(&localSlots->refcount, 2); // One for the caller, one for the cache
     RedisModule_ClusterFreeSlotRanges(RSDummyContext, ranges);
   } else {
     atomic_fetch_add_explicit(&localSlots->refcount, 1, memory_order_acquire);
