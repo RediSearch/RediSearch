@@ -10,10 +10,17 @@
 #include "slot_ranges.h"
 #include "rmalloc.h"
 
+#include <stdatomic.h>
+
+struct SharedSlotRangeArray {
+  atomic_uint refcount;
+  RedisModuleSlotRangeArray array;
+};
+
 extern RedisModuleCtx *RSDummyContext;
 static SharedSlotRangeArray *localSlots = NULL;
 
-SharedSlotRangeArray *GetLocalSlots(void) {
+const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
   if (!localSlots) {
     RedisModuleSlotRangeArray *ranges = RedisModule_ClusterGetLocalSlotRanges(RSDummyContext);
     if (!ranges) return NULL; // Not in cluster mode
@@ -29,15 +36,26 @@ SharedSlotRangeArray *GetLocalSlots(void) {
   return localSlots;
 }
 
-void FreeLocalSlots(SharedSlotRangeArray *slots) {
-  if (slots && atomic_fetch_sub_explicit(&slots->refcount, 1, memory_order_release) == 1) {
-    rm_free(slots);
+void Slots_FreeLocalSlots(const SharedSlotRangeArray *slots) {
+  SharedSlotRangeArray *slots_ = (SharedSlotRangeArray *)slots; // Cast away constness for refcount management
+  if (slots_ && atomic_fetch_sub_explicit(&slots_->refcount, 1, memory_order_release) == 1) {
+    rm_free(slots_);
     localSlots = NULL;
   }
 }
 
 // Drops the cached local
-void DropCachedLocalSlots(void) {
-  FreeLocalSlots(localSlots);
+void Slots_DropCachedLocalSlots(void) {
+  Slots_FreeLocalSlots(localSlots);
   localSlots = NULL;
+}
+
+inline bool Slots_CanAccessKeysInSlot(const SharedSlotRangeArray *slotRanges, uint16_t slot) {
+  const RedisModuleSlotRange *ranges = slotRanges->array.ranges;
+  for (int i = 0; i < slotRanges->array.num_ranges; i++) {
+    if (ranges[i].start <= slot && slot <= ranges[i].end) {
+      return true;
+    }
+  }
+  return false;
 }

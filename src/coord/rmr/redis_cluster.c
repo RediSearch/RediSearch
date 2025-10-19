@@ -199,7 +199,7 @@ void UpdateTopology(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "debug", "UpdateTopology: Setting number of partitions to %u", topo->numShards);
     NumShards = topo->numShards;
     MR_UpdateTopology(topo);
-    DropCachedLocalSlots(); // Local slots may have changed, drop the cache
+    Slots_DropCachedLocalSlots(); // Local slots may have changed, drop the cache
   }
 }
 

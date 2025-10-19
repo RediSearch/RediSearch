@@ -26,6 +26,7 @@
 #include "vector_normalization.h"
 #include "result_processor_rs.h"
 #include "search_result.h"
+#include "slot_ranges.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -172,7 +173,7 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, RedisSearchCtx *sctx);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const SharedSlotRangeArray *slotRanges, RedisSearchCtx *sctx);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
