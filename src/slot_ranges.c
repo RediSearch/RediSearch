@@ -9,6 +9,7 @@
 
 #include "slot_ranges.h"
 #include "rmalloc.h"
+#include "redismodule.h"
 
 #include <stdatomic.h>
 
