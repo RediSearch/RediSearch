@@ -2052,6 +2052,10 @@
                     "token": "RRF"
                   },
                   {
+                    "name": "count",
+                    "type": "integer"
+                  },
+                  {
                     "name": "constant",
                     "type": "double",
                     "token": "CONSTANT",
@@ -2079,6 +2083,10 @@
                     "name": "linear",
                     "type": "pure-token",
                     "token": "LINEAR"
+                  },
+                  {
+                    "name": "count",
+                    "type": "integer"
                   },
                   {
                     "name": "alpha",
@@ -2156,6 +2164,12 @@
             ]
           }
         ]
+      },
+      {
+        "name": "nosort",
+        "type": "pure-token",
+        "token": "NOSORT",
+        "optional": true
       },
       {
         "name": "params",
