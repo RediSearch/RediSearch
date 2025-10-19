@@ -1967,14 +1967,13 @@
                     "token": "KNN"
                   },
                   {
-                    "name": "num_results",
+                    "name": "count",
                     "type": "integer"
                   },
                   {
                     "name": "k",
                     "type": "integer",
-                    "token": "K",
-                    "optional": true
+                    "token": "K"
                   },
                   {
                     "name": "ef_runtime",
@@ -1998,6 +1997,10 @@
                     "name": "range",
                     "type": "pure-token",
                     "token": "RANGE"
+                  },
+                  {
+                    "name": "count",
+                    "type": "integer"
                   },
                   {
                     "name": "radius",
@@ -2284,7 +2287,69 @@
               },
               {
                 "name": "function",
-                "type": "string"
+                "type": "oneof",
+                "arguments": [
+                  {
+                    "name": "count",
+                    "type": "pure-token",
+                    "token": "COUNT"
+                  },
+                  {
+                    "name": "count_distinct",
+                    "type": "pure-token",
+                    "token": "COUNT_DISTINCT"
+                  },
+                  {
+                    "name": "count_distinctish",
+                    "type": "pure-token",
+                    "token": "COUNT_DISTINCTISH"
+                  },
+                  {
+                    "name": "sum",
+                    "type": "pure-token",
+                    "token": "SUM"
+                  },
+                  {
+                    "name": "min",
+                    "type": "pure-token",
+                    "token": "MIN"
+                  },
+                  {
+                    "name": "max",
+                    "type": "pure-token",
+                    "token": "MAX"
+                  },
+                  {
+                    "name": "avg",
+                    "type": "pure-token",
+                    "token": "AVG"
+                  },
+                  {
+                    "name": "stddev",
+                    "type": "pure-token",
+                    "token": "STDDEV"
+                  },
+                  {
+                    "name": "quantile",
+                    "type": "pure-token",
+                    "token": "QUANTILE"
+                  },
+                  {
+                    "name": "tolist",
+                    "type": "pure-token",
+                    "token": "TOLIST"
+                  },
+                  {
+                    "name": "first_value",
+                    "type": "pure-token",
+                    "token": "FIRST_VALUE"
+                  },
+                  {
+                    "name": "random_sample",
+                    "type": "pure-token",
+                    "token": "RANDOM_SAMPLE"
+                  }
+                ]
               },
               {
                 "name": "nargs",
@@ -2293,11 +2358,10 @@
               {
                 "name": "arg",
                 "type": "string",
-                "multiple": true,
-                "optional": true
+                "multiple": true
               },
               {
-                "name": "alias",
+                "name": "name",
                 "type": "string",
                 "token": "AS",
                 "optional": true
