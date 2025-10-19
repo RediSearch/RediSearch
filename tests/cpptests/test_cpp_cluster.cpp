@@ -22,7 +22,6 @@ protected:
         // Initialize Redis mock
         ctx = RedisModule_GetThreadSafeContext(NULL);
         ASSERT_TRUE(ctx != nullptr);
-        // ASSERT_EQ(DictRegister(ctx), REDISMODULE_OK);
     }
 
     void TearDown() override {

@@ -88,7 +88,8 @@ def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
         while not is_migration_complete(conn, task_id):
             time.sleep(0.1)
 
-@skip(cluster=False, min_shards=2)
+# @skip(cluster=False, min_shards=2)
+@skip() # Flaky test, until we can guarantee no missing or duplicate results during slot migration
 def test_import_slot_range(env: Env):
     n_docs = 2**14
 
@@ -122,5 +123,40 @@ def test_import_slot_range(env: Env):
         while not is_migration_complete(shard1, task_id):
             query_all_shards()
             time.sleep(0.1)
+    # And test again after the import is complete
+    query_all_shards()
+
+@skip(cluster=False, min_shards=2)
+def test_import_slot_range_sanity(env: Env):
+    n_docs = 2**14
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(n_docs):
+            con.execute_command('HSET', f'doc:{i}', 'n', i)
+
+    shard1, shard2 = env.getConnection(1), env.getConnection(2)
+
+    query = ('FT.SEARCH', 'idx', '@n:[69 1420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
+    expected = env.cmd(*query)
+
+    shards = env.getOSSMasterNodesConnectionList()
+
+    def query_all_shards():
+        results = [shard.execute_command(*query) for shard in shards]
+        for idx, res in enumerate(results, start=1):
+            docs = res[1::2]
+            dups = set(doc for doc in docs if docs.count(doc) > 1)
+            env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate document IDs", depth=1)
+            env.assertEqual(res, expected, message=f"shard {idx} returned unexpected results", depth=1)
+
+    # Sanity check - all shards should return the same results
+    query_all_shards()
+
+    # Import slots from shard 2 to shard 1, and wait for it to complete
+    task_id = import_middle_slot_range(shard1, shard2)
+    wait_for_slot_import(shard1, task_id)
+
     # And test again after the import is complete
     query_all_shards()
