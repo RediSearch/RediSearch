@@ -41,12 +41,14 @@ void workersThreadPool_Terminate(void);
 // Destroys thread pool, can be called on uninitialized threadpool.
 void workersThreadPool_Destroy(void);
 
-// Configure the thread pool for operation start according to module configuration.
+/// Configure the thread pool for operation start according to module configuration.
+/// @warning Should only be called from the main thread
 void workersThreadPool_OnEventStart(void);
 
 /** Configure the thread pool for operation end according to module configuration.
  * @param wait - if true, the function will wait for all pending jobs to finish.
  * @return REDISMODULE_ERR if `wait` is true but another event is already in progress, REDISMODULE_OK otherwise.
+ * @warning Should only be called from the main thread
  */
 int workersThreadPool_OnEventEnd(bool wait);
 

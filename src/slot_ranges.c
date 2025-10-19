@@ -20,12 +20,15 @@ struct SharedSlotRangeArray {
   RedisModuleSlotRangeArray array;
 };
 
+// Cached local slots. Initially NULL
+// Set to allocated SharedSlotRangeArray when Slots_GetLocalSlots is called (if NULL)
+// Dropped when Slots_DropCachedLocalSlots is called (when we know local slots have changed)
 static SharedSlotRangeArray *localSlots = NULL;
 
 const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
   if (!localSlots) {
     RedisModuleSlotRangeArray *ranges = RedisModule_ClusterGetLocalSlotRanges(RSDummyContext);
-    if (!ranges) return NULL; // Not in cluster mode
+    RS_ASSERT(ranges != NULL, "Expected non-NULL ranges from ClusterGetLocalSlotRanges in any mode");
 
     localSlots = rm_calloc(1, sizeof(SharedSlotRangeArray) + sizeof(RedisModuleSlotRange) * ranges->num_ranges);
     localSlots->array.num_ranges = ranges->num_ranges;
@@ -46,7 +49,7 @@ void Slots_FreeLocalSlots(const SharedSlotRangeArray *slots) {
   }
 }
 
-// Drops the cached local
+// Drops the cached info - used when we know local slots have changed (or might have changed)
 void Slots_DropCachedLocalSlots(void) {
   Slots_FreeLocalSlots(localSlots);
   localSlots = NULL;
