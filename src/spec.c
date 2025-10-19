@@ -3314,6 +3314,7 @@ RedisModuleString * IndexSpec_Serialize(IndexSpec *sp) {
 */
 int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver) {
   IndexSpec *sp = RedisModule_LoadDataTypeFromStringEncver(serialized, IndexSpecType, encver);
+  if (sp) Initialize_KeyspaceNotifications();
   return IndexSpec_StoreAfterRdbLoad(sp);
 }
 
