@@ -10,6 +10,7 @@
 #include "slot_ranges.h"
 #include "rmalloc.h"
 #include "redismodule.h"
+#include "rmutil/rm_assert.h"
 
 #include <stdatomic.h>
 
@@ -28,7 +29,7 @@ static SharedSlotRangeArray *localSlots = NULL;
 const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
   if (!localSlots) {
     RedisModuleSlotRangeArray *ranges = RedisModule_ClusterGetLocalSlotRanges(RSDummyContext);
-    RS_ASSERT(ranges != NULL, "Expected non-NULL ranges from ClusterGetLocalSlotRanges in any mode");
+    RS_LOG_ASSERT(ranges != NULL, "Expected non-NULL ranges from ClusterGetLocalSlotRanges in any mode");
 
     localSlots = rm_calloc(1, sizeof(SharedSlotRangeArray) + sizeof(RedisModuleSlotRange) * ranges->num_ranges);
     localSlots->array.num_ranges = ranges->num_ranges;
