@@ -182,4 +182,5 @@ TEST_F(ClusterTest, SlotRangesManagement) {
     // Cleanup
     Slots_FreeLocalSlots(ranges);
     Slots_FreeLocalSlots(ranges2);
+    Slots_DropCachedLocalSlots();
 }
