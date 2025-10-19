@@ -1278,6 +1278,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     StopWordList_Ref(sctx->spec->stopwords);
   }
 
+  req->slotRanges = Slots_GetLocalSlots();
+
   SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
 
@@ -1356,6 +1358,8 @@ void AREQ_Free(AREQ *req) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
 
+  Slots_FreeLocalSlots(req->slotRanges);
+
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.
   RedisModuleCtx *thctx = NULL;
@@ -1420,10 +1424,12 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,
+      .slotRanges = req->slotRanges,
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
+    req->slotRanges = NULL; // Ownership of the slot ranges is now with the params.
     Pipeline_BuildQueryPart(&req->pipeline, &params);
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;

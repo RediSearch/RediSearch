@@ -359,13 +359,13 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
-      DropCachedLocalSlots(); // Local slots have changed, drop the cache
+      Slots_DropCachedLocalSlots(); // Local slots have changed, drop the cache
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED:
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED:
-      DropCachedLocalSlots(); // Local slots have changed, drop the cache
+      Slots_DropCachedLocalSlots(); // Local slots have changed, drop the cache
       break;
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
