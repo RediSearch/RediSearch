@@ -120,8 +120,8 @@ jobs:
               'ubuntu:focal': "apt update && apt install -y git",
               'gcc:12-bookworm': "apt update && apt install -y git",
               'gcc:11-bullseye': "apt update && apt install -y git",
-              'rockylinux:8': "yum update -y && yum install -y git",
-              'rockylinux:9': "yum update -y && yum install -y git"
+              'rockylinux:8': "dnf update -y && dnf install -y git",
+              'rockylinux:9': "dnf update -y && dnf install -y git"
           }
 
           # ARM-specific overrides
