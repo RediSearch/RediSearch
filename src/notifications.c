@@ -344,15 +344,15 @@ void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
 
   switch (subevent) {
 
-    case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED:
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import started event.");
       in_asm_import = true;
       should_filter_slots = true;
       workersThreadPool_OnEventStart();
       break;
-    case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED:
-    case REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED:
-      RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED ? "failed" : "completed");
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
       in_asm_import = false;
       should_filter_slots = in_asm_trim;
       // Since importing is done in a part-time job while redis is running other commands, we notify
@@ -361,11 +361,11 @@ void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
       break;
 
       // Sub-events we currently don't care about:
-    // case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED:
-    // case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED:
-    // case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED:
+    // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
+    // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED:
+    // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED:
 
-    case REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE:
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM migrate module propagate event.");
       // We need to propagate all auxiliary data (schemas and dictionaries)
       // If a new type implement `aux_save` and `aux_load` (of any version) we MUST propagate it here too.
@@ -388,13 +388,13 @@ void ClusterASMTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t sub
 
   switch (subevent) {
 
-    case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_STARTED:
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED:
       in_asm_trim = true;
       should_filter_slots = true;
       workersThreadPool_OnEventStart();
       RedisModule_Log(RSDummyContext, "notice", "Got ASM trim started event.");
       break;
-    case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_COMPLETED:
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED:
       in_asm_trim = false;
       should_filter_slots = in_asm_import;
       // Since trimming is done in a part-time job while redis is running other commands, we notify
@@ -403,7 +403,7 @@ void ClusterASMTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t sub
       RedisModule_Log(RSDummyContext, "notice", "Got ASM trim completed event.");
       break;
 
-    // case REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND:
+    // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND:
   }
 }
 
@@ -484,9 +484,9 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
 
-  RedisModule_Log(ctx, "notice", "%s", "Subscribe to cluster ASM events");
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterAsm, ClusterASMEvent);
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterAsmTrim, ClusterASMTrimEvent);
+  RedisModule_Log(ctx, "notice", "%s", "Subscribe to cluster slot migration events");
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterASMEvent);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterASMTrimEvent);
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {
