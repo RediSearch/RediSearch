@@ -16,7 +16,7 @@ def setup_json_index(env):
     env.expect('FT.CREATE json_idx ON JSON SCHEMA $.description AS description TEXT $.embedding AS embedding VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 $.category AS category TAG $.price AS price NUMERIC').noError()
     
 
-LOAD_ERROR_MSG = 'Missing field symbol prefix for field name in LOAD'
+LOAD_ERROR_MSG = 'Missing field symbol prefix for field name'
 
 
 def test_hybrid_load_requires_at_prefix(env):
