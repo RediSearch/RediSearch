@@ -159,7 +159,7 @@ def test_hybrid_sortby_requires_at_prefix(env):
         'PARAMS', '2', 'query_vec', query_vector,
         'LOAD', '1', '@price',
         'SORTBY', '2', 'price', 'DESC'  # Missing @ prefix
-    ).error().contains('Missing @ prefix for field name in SORTBY')
+    ).error().contains('Missing field symbol prefix for field name: price in SORTBY')
 
     # Test SORTBY with @ prefix - should succeed
     env.expect(
@@ -288,7 +288,7 @@ def test_hybrid_groupby_reduce_requires_at_prefix(env):
         'PARAMS', '2', 'query_vec', query_vector,
         'LOAD', '1', '@price',
         'GROUPBY', '1', '@category', 'REDUCE', 'SUM', '1', 'price', 'AS', 'total_price'  # Missing @ prefix in REDUCE
-    ).error().contains('Missing @ prefix for field name in REDUCE: SUM, field: (price)')
+    ).error().contains('Missing field symbol prefix for field name: price in SUM')
 
     # Test REDUCE with @ prefix in field reference - should succeed
     env.expect(
@@ -310,7 +310,7 @@ def test_hybrid_groupby_reduce_requires_at_prefix(env):
         'GROUPBY', '1', '@category',
         'REDUCE', 'COUNT', '0', 'AS', 'count',
         'REDUCE', 'AVG', '1', 'price', 'AS', 'avg_price'  # Missing @ prefix in second REDUCE
-    ).error().contains('Missing @ prefix for field name in REDUCE: AVG, field: (price)')
+    ).error().contains('Missing field symbol prefix for field name: price in AVG')
 
     # Test REDUCE with multiple operations, all with @ prefix - should succeed
     env.expect(
