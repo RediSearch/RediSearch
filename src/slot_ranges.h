@@ -9,8 +9,8 @@
 
 #pragma once
 
+#include <stdint.h>
 #include <stdbool.h>
-#include "redismodule.h"
 
 typedef struct SharedSlotRangeArray SharedSlotRangeArray;
 
