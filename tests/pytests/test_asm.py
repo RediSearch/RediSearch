@@ -160,3 +160,46 @@ def test_import_slot_range_sanity(env: Env):
 
     # And test again after the import is complete
     query_all_shards()
+
+@skip(cluster=False)
+def test_add_shard_and_migrate(env: Env):
+    n_docs = 2**14
+    initial_shards_count = env.shardsCount
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(n_docs):
+            con.execute_command('HSET', f'doc:{i}', 'n', i)
+
+    shard1 = env.getConnection(1)
+
+    query = ('FT.SEARCH', 'idx', '@n:[69 1420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
+    expected = env.cmd(*query)
+
+    shards = env.getOSSMasterNodesConnectionList()
+
+    def query_all_shards():
+        results = [shard.execute_command(*query) for shard in shards]
+        for idx, res in enumerate(results, start=1):
+            docs = res[1::2]
+            dups = set(doc for doc in docs if docs.count(doc) > 1)
+            env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate document IDs", depth=1)
+            env.assertEqual(res, expected, message=f"shard {idx} returned unexpected results", depth=1)
+
+    # Sanity check - all shards should return the same results
+    query_all_shards()
+
+    # Add a new shard
+    env.addShardToClusterIfExists()
+    new_shard = env.getConnection(shardId=initial_shards_count+1)
+    # ...and migrate slots from shard 1 to the new shard
+    task = import_middle_slot_range(new_shard, shard1)
+    wait_for_slot_import(new_shard, task)
+
+    # Expect new shard to have the index schema
+    env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
+
+    # And expect all shards to return the same results, including the new one
+    shards.append(new_shard)
+    query_all_shards()
