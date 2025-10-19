@@ -2137,39 +2137,44 @@
         ]
       },
       {
-        "name": "sortby",
-        "type": "block",
+        "name": "sorting",
+        "type": "oneof",
         "optional": true,
         "arguments": [
           {
             "name": "sortby",
-            "type": "string",
-            "token": "SORTBY"
-          },
-          {
-            "name": "order",
-            "type": "oneof",
-            "optional": true,
+            "type": "block",
             "arguments": [
               {
-                "name": "asc",
-                "type": "pure-token",
-                "token": "ASC"
+                "name": "sortby",
+                "type": "string",
+                "token": "SORTBY"
               },
               {
-                "name": "desc",
-                "type": "pure-token",
-                "token": "DESC"
+                "name": "order",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                  {
+                    "name": "asc",
+                    "type": "pure-token",
+                    "token": "ASC"
+                  },
+                  {
+                    "name": "desc",
+                    "type": "pure-token",
+                    "token": "DESC"
+                  }
+                ]
               }
             ]
+          },
+          {
+            "name": "nosort",
+            "type": "pure-token",
+            "token": "NOSORT"
           }
         ]
-      },
-      {
-        "name": "nosort",
-        "type": "pure-token",
-        "token": "NOSORT",
-        "optional": true
       },
       {
         "name": "params",
