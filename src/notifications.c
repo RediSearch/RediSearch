@@ -15,6 +15,7 @@
 #include "module.h"
 #include "util/workers.h"
 #include "dictionary.h"
+#include "slot_ranges.h"
 
 #define JSON_LEN 5 // length of string "json."
 
@@ -338,7 +339,7 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
 static bool in_asm_trim = false;
 static bool in_asm_import = false;
 
-void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(data);
 
@@ -358,12 +359,14 @@ void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
+      DropCachedLocalSlots(); // Local slots have changed, drop the cache
       break;
 
-      // Sub-events we currently don't care about:
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
-    // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED:
-    // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED:
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED:
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED:
+      DropCachedLocalSlots(); // Local slots have changed, drop the cache
+      break;
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM migrate module propagate event.");
@@ -381,7 +384,7 @@ void ClusterASMEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
   }
 }
 
-void ClusterASMTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(ctx);
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(data);
@@ -389,18 +392,18 @@ void ClusterASMTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t sub
   switch (subevent) {
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED:
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM trim started event.");
       in_asm_trim = true;
       should_filter_slots = true;
       workersThreadPool_OnEventStart();
-      RedisModule_Log(RSDummyContext, "notice", "Got ASM trim started event.");
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED:
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM trim completed event.");
       in_asm_trim = false;
       should_filter_slots = in_asm_import;
       // Since trimming is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
-      RedisModule_Log(RSDummyContext, "notice", "Got ASM trim completed event.");
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND:
@@ -485,8 +488,8 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
 
   RedisModule_Log(ctx, "notice", "%s", "Subscribe to cluster slot migration events");
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterASMEvent);
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterASMTrimEvent);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {
