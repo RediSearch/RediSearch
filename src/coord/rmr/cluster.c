@@ -28,13 +28,14 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
 }
 
 static MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, MRCommand *cmd) {
-  // No topology, no connections
-  if (!ioRuntime->topo) return NULL;
-  // No target shard, or out of range.
+  RS_LOG_ASSERT(cmd->targetShard != INVALID_SHARD, "Command must know its target shard");
+  RS_LOG_ASSERT(ioRuntime->topo != NULL, "IORuntimeCtx must have a valid topology here");
+
+  // No target shard, or out of range (may happen during topology updates)
   if (cmd->targetShard >= ioRuntime->topo->numShards) {
     RedisModule_Log(RSDummyContext, "warning", "Command targetShard %d is out of bounds (numShards=%u)", cmd->targetShard, ioRuntime->topo->numShards);
+    return NULL;
   }
-  if (cmd->targetShard == INVALID_SHARD || cmd->targetShard >= ioRuntime->topo->numShards) return NULL;
 
   /* Get the shard directly by the targetShard field */
   MRClusterShard *sh = &ioRuntime->topo->shards[cmd->targetShard];
