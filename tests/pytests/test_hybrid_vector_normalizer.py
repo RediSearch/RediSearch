@@ -92,7 +92,7 @@ class TestHybridVectorNormalizer:
     """Test class for hybrid vector normalizer functionality"""
 
     def __init__(self):
-        # TODO: remove once FT.HYBRID for cluster is implemented
+        # TODO: remove skip once FT.HYBRID for cluster is implemented
         skipTest(cluster=True)
 
     def setup_index(self, env, algorithm, data_type, metric, index_command, dim=2):
@@ -127,7 +127,7 @@ class TestHybridVectorNormalizer:
         for vector_query in [['KNN', '4', 'K', '10'], ['RANGE', '4', 'RADIUS', '10']]:
             response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
                                 *vector_query, 'YIELD_SCORE_AS', 'vector_score')
-            results = get_results_from_hybrid_response(response)
+            results, _ = get_results_from_hybrid_response(response)
 
             for doc_key in results:
                 doc_result = results[doc_key]

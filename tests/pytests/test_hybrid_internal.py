@@ -24,8 +24,8 @@ def setup_hybrid_test_data(env):
     env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 
 
-def read_cursor_completely(env, index_name, cursor_id, batch_callback=None):
-    """Read all results from a cursor and return them
+def read_cursor_completely_resp3(env, index_name, cursor_id, batch_callback=None):
+    """Read all results from a cursor and return them (RESP 3 format)
 
     Args:
         env: Test environment
@@ -34,7 +34,7 @@ def read_cursor_completely(env, index_name, cursor_id, batch_callback=None):
         batch_callback: Optional function called for each batch with (batch_results, cursor_response)
 
     Returns:
-        list: All results from the cursor as document keys
+        list: All results from the cursor as dicts with '__key' and optionally 'score' fields
     """
     if cursor_id == 0:
         return []
@@ -44,38 +44,86 @@ def read_cursor_completely(env, index_name, cursor_id, batch_callback=None):
 
     while current_cursor != 0:
         cursor_response = env.cmd('FT.CURSOR', 'READ', index_name, current_cursor)
-        validate_cursor_response_format(env, cursor_response)
-
-        # Parse cursor response: [[count, result1, result2, ...], next_cursor_id]
-        results_array = cursor_response[0]
+        # RESP 3 format: [{'results': [...], ...}, cursor_id]
+        results_dict = cursor_response[0]
         current_cursor = cursor_response[1]
-
-        # Extract results (skip the count at index 0)
-        batch_results = results_array[1:]
+        batch_results = results_dict['results']
 
         # Call batch callback if provided
         if batch_callback:
             batch_callback(batch_results, cursor_response)
 
-        # Extract document keys from cursor results
+        # Extract document keys and scores from cursor results
         for result in batch_results:
-            if isinstance(result, list) and len(result) >= 2 and result[0] == '__key':
-                all_results.append(result[1])
+            score = result.get('score')
+            key = result.get('extra_attributes', {}).get('__key', '')
+            all_results.append({
+                        'key': key,
+                        'score': score
+                    })
+
+    return sorted(all_results, key=lambda x: x['key'] if isinstance(x, dict) else x)
+
+
+def read_cursor_completely_resp2(env, index_name, cursor_id, batch_callback=None):
+    """Read all results from a cursor and return them (RESP 2 format)
+
+    Args:
+        env: Test environment
+        index_name: Name of the index
+        cursor_id: Cursor ID to read from
+        batch_callback: Optional function called for each batch with (batch_results, cursor_response)
+
+    Returns:
+        list: All results from the cursor as document key strings (RESP 2 doesn't include scores)
+    """
+    if cursor_id == 0:
+        return []
+
+    all_results = []
+    current_cursor = cursor_id
+
+    while current_cursor != 0:
+        cursor_response = env.cmd('FT.CURSOR', 'READ', index_name, current_cursor)
+
+        # RESP 2 format: [[count, result1, result2, ...], next_cursor_id]
+        results_array = cursor_response[0]
+        current_cursor = cursor_response[1]
+        batch_results = results_array[1:]  # Skip the count at index 0
+
+        # Call batch callback if provided
+        if batch_callback:
+            batch_callback(batch_results, cursor_response)
+
+        # Extract document keys from cursor results (RESP 2 doesn't include scores)
+        for result in batch_results:
+            result_dict = dict(zip(result[::2], result[1::2]))
+            key = result_dict.get('__key')
+            if key is not None:
+                all_results.append(key)
 
     return sorted(all_results)
 
 
-def validate_cursor_response_format(env, cursor_response):
-    """Validate the basic format of a cursor response"""
-    env.assertTrue(isinstance(cursor_response, list))
-    env.assertTrue(len(cursor_response) == 2)  # [results_array, next_cursor_id]
+def read_cursor_completely(env, index_name, cursor_id, batch_callback=None):
+    """Read all results from a cursor and return them (auto-detect RESP format)
 
-    results_array = cursor_response[0]
-    env.assertTrue(isinstance(results_array, list))
-    env.assertTrue(len(results_array) > 0)
+    Args:
+        env: Test environment
+        index_name: Name of the index
+        cursor_id: Cursor ID to read from
+        batch_callback: Optional function called for each batch with (batch_results, cursor_response)
+
+    Returns:
+        list: All results from the cursor as dicts with '__key' and optionally 'score' fields
+    """
+    # Use RESP 3 by default since that's what most tests use
+    if hasattr(env, 'protocol') and env.protocol == 2:
+        return read_cursor_completely_resp2(env, index_name, cursor_id, batch_callback)
+    else:
+        return read_cursor_completely_resp3(env, index_name, cursor_id, batch_callback)
 
 
-@skip(cluster=True)
 def test_basic_hybrid_internal_withcursor(env):
     """Test basic _FT.HYBRID command with WITHCURSOR functionality
 
@@ -109,7 +157,6 @@ def test_basic_hybrid_internal_withcursor(env):
     env.assertTrue(isinstance(search_cursor, (int, str)))
 
 
-@skip(cluster=True)
 def test_hybrid_internal_with_count_parameter(env):
     """Test _FT.HYBRID with WITHCURSOR and COUNT parameter"""
     setup_hybrid_test_data(env)
@@ -129,7 +176,7 @@ def test_hybrid_internal_with_count_parameter(env):
     env.assertIn('SEARCH', result_dict)
 
     # Test reading from cursors with COUNT parameter using callback
-    def validate_batch_size(batch_results, cursor_response):
+    def validate_batch_size(batch_results, _cursor_response):
         """Callback to validate that each batch respects the COUNT parameter"""
         # The key test: number of results in each batch should be <= COUNT parameter
         env.assertTrue(len(batch_results) <= count_param)
@@ -195,6 +242,41 @@ def test_hybrid_internal_cursor_interaction(env):
         env.assertEqual(cursor_results['VSIM'], expected_vector_docs)
 
 
+def test_hybrid_internal_cursor_with_scores():
+    """Test reading from both VSIM and SEARCH cursors with WITHSCORES and compare with equivalent FT.SEARCH commands"""
+    env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+    setup_hybrid_test_data(env)
+
+    # Execute the hybrid command with cursors
+    query_vec = create_np_array_typed([1.0, 0.0], 'FLOAT32')
+    hybrid_cursor_dict = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
+                           'VSIM', '@embedding', '$vec_param', 'KNN', '2', 'K', '10',
+                           'WITHCURSOR', 'WITHSCORES',
+                           'PARAMS', '2', 'vec_param', query_vec.tobytes())
+
+    # Should return a map with cursor IDs
+    env.assertTrue(isinstance(hybrid_cursor_dict, dict))
+
+    # Should have both cursor types
+    env.assertIn('VSIM', hybrid_cursor_dict)
+    env.assertIn('SEARCH', hybrid_cursor_dict)
+
+
+    # Read from cursors and collect results using common function
+    cursor_results = {}
+    for cursor_type, cursor_id in hybrid_cursor_dict.items():
+        cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id)
+
+
+    for cursor_type, cursor_result in cursor_results.items():
+        for result in cursor_result:
+            env.assertIn('key', result)
+            env.assertIn('doc', result['key'])
+            env.assertIn('score', result)
+            env.assertTrue(isinstance(result['score'], (int, float)))
+
+
+
 @skip(cluster=True)
 def test_hybrid_internal_with_params(env):
     """Test _FT.HYBRID with WITHCURSOR and PARAMS functionality"""
@@ -205,7 +287,7 @@ def test_hybrid_internal_with_params(env):
 
     # Execute hybrid command with direct vector specification (keeping text param)
     hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:($term)',
-                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', 'DIALECT', '2',
+                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR',
                            'PARAMS', '2', 'term', 'shoes')
 
     # Should return cursor map
@@ -237,7 +319,6 @@ def test_hybrid_internal_with_params(env):
     env.assertEqual(cursor_results['VSIM'], expected_vector_docs)
 
 
-@skip(cluster=True)
 def test_hybrid_internal_error_cases(env):
     """Test error cases with _FT.HYBRID (without WITHCURSOR)"""
     setup_hybrid_test_data(env)
@@ -252,7 +333,6 @@ def test_hybrid_internal_error_cases(env):
                'VSIM', '@nonexistent', query_vec.tobytes()).error().contains('Unknown field `nonexistent`')
 
 
-@skip(cluster=True)
 def test_hybrid_internal_cursor_limit(env):
     """Test _FT.HYBRID cursor limit per shard
 
@@ -270,7 +350,6 @@ def test_hybrid_internal_cursor_limit(env):
                'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR').error().contains('INDEX_CURSOR_LIMIT of 1 has been reached for an index')
 
 
-@skip(cluster=True)
 def test_hybrid_internal_empty_search_results(env):
     """Test _FT.HYBRID when search subquery returns no results
 
@@ -312,3 +391,39 @@ def test_hybrid_internal_empty_search_results(env):
     # VSIM cursor should return some results
     env.assertTrue(len(cursor_results['VSIM']) > 0)
 
+@skip(cluster=True)
+def test_hybrid_internal_withcursor_with_load():
+    """Test basic _FT.HYBRID command with WITHCURSOR functionality and explicit load of __key and description
+    """
+    env = Env(enableDebugCommand=True)
+    setup_hybrid_test_data(env)
+
+    # Execute _FT.HYBRID command with WITHCURSOR using direct vector specification
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+                     'VSIM', '@embedding', query_vec.tobytes(),
+                     'LOAD', '2', '__key', 'description',
+                     'WITHCURSOR')
+
+    # Should return a map with VSIM and SEARCH cursor IDs
+    env.assertTrue(isinstance(result, list))
+    env.assertTrue(len(result) > 0)
+
+    # Convert list to dict for easier access
+    result_dict = dict(zip(result[::2], result[1::2]))
+
+    # Should have VSIM and SEARCH cursor IDs
+    env.assertIn('VSIM', result_dict)
+    env.assertIn('SEARCH', result_dict)
+
+    # Both cursor IDs should be valid integers
+    vsim_cursor = result_dict['VSIM']
+    search_cursor = result_dict['SEARCH']
+    env.assertTrue(isinstance(vsim_cursor, (int, str)))
+    env.assertTrue(isinstance(search_cursor, (int, str)))
+
+    search_cursor_results = read_cursor_completely(env, 'idx', search_cursor)
+    env.assertEqual(search_cursor_results, ['doc:2', 'doc:3'])
+
+    vsim_cursor_results = read_cursor_completely(env, 'idx', vsim_cursor)
+    env.assertEqual(vsim_cursor_results, ['doc:1', 'doc:2', 'doc:3', 'doc:4'])

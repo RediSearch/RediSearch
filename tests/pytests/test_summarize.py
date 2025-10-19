@@ -10,7 +10,7 @@ def setupGenesis(env):
     txt = open(GENTEXT, 'r').read()
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text').ok()
     waitForIndex(env, 'idx')
-    env.cmd('ft.add', 'idx', 'gen1', 1.0, 'fields', 'txt', txt)
+    env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'gen1', 1.0, 'fields', 'txt', txt)
 
 def testSummarization(env):
     # Load the file
@@ -82,7 +82,7 @@ def testSummarizationMultiField(env):
 
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'txt1', 'TEXT', 'txt2', 'TEXT')
     waitForIndex(env, 'idx')
-    env.cmd('FT.ADD', 'idx', 'redis', 1.0,
+    env.getClusterConnectionIfNeeded().execute_command('FT.ADD', 'idx', 'redis', 1.0,
              'FIELDS', 'txt1', p1, 'txt2', p2)
 
     # Now perform the multi-field search
@@ -105,23 +105,23 @@ def testSummarizationMultiField(env):
 def testSummarizationDisabled(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'NOOFFSETS', 'SCHEMA', 'body', 'TEXT')
     waitForIndex(env, 'idx')
-    env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS', 'body', 'hello world')
-    with env.assertResponseError():
-        res = env.cmd('FT.SEARCH', 'idx', 'hello',
-                       'SUMMARIZE', 'FIELDS', 1, 'body')
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS', 'body', 'hello world')
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'SUMMARIZE', 'FIELDS', 1, 'body').error()
 
     env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'NOHL', 'SCHEMA', 'body', 'TEXT')
     waitForIndex(env, 'idx')
-    env.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'FIELDS', 'body', 'hello world')
-    with env.assertResponseError():
-        res = env.cmd('FT.SEARCH', 'idx2', 'hello',
-                       'SUMMARIZE', 'FIELDS', 1, 'body')
+    con.execute_command('FT.ADD', 'idx2', 'doc2', 1.0, 'FIELDS', 'body', 'hello world')
+
+    env.expect('FT.SEARCH', 'idx2', 'hello', 'SUMMARIZE', 'FIELDS', 1, 'body').error()
 
 @skip()
 def testSummarizationNoSave(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'body', 'TEXT')
     waitForIndex(env, 'idx')
-    env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'NOSAVE',
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('FT.ADD', 'idx', 'doc', 1.0, 'NOSAVE',
              'fields', 'body', 'hello world')
     res = env.cmd('FT.SEARCH', 'idx', 'hello',
                    'SUMMARIZE', 'RETURN', 1, 'body')
@@ -131,7 +131,7 @@ def testSummarizationNoSave(env):
 def testSummarizationMeta(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text', 'bar', 'text', 'baz', 'text')
     waitForIndex(env, 'idx')
-    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'foo',
+    env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields', 'foo',
              'pill', 'bar', 'pillow', 'baz', 'piller')
 
     # Now, return the fields:
@@ -157,7 +157,8 @@ def testOverflow1(env):
             'SCHEMA', 'title', 'TEXT', 'rating', 'TEXT', 'leve', 'TEXT', 'description',
             'TEXT', 'year', 'NUMERIC', 'uscore', 'NUMERIC', 'usize', 'NUMERIC')
     waitForIndex(env, 'netflix')
-    env.cmd('FT.ADD', "netflix", "15ad80086ccc7f", "1.0", "FIELDS", "title", "The Vampire Diaries", "rating", "TV-14", "level",
+    env.getClusterConnectionIfNeeded().execute_command(
+            'FT.ADD', "netflix", "15ad80086ccc7f", "1.0", "FIELDS", "title", "The Vampire Diaries", "rating", "TV-14", "level",
             "Parents strongly cautioned. May be unsuitable for children ages 14 and under.",
             "description", "90", "year", "2017", "uscore", "91", "usize", "80")
     res = env.cmd('ft.search', 'netflix', 'vampire', 'highlight')
@@ -174,11 +175,12 @@ def testIssue364(env):
     # FT.SEARCH testset retail RETURN 1 description SUMMARIZE LIMIT 0 1
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'building_type', 'TEXT', 'description', 'TEXT')
     waitForIndex(env, 'idx')
-    env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS',
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('ft.add', 'idx', 'doc1', '1.0', 'FIELDS',
             'building_type', 'Retail and Shops',
             'description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips)')
 
-    env.cmd('ft.add', 'idx', 'doc2', '1.0', 'FIELDS',
+    con.execute_command('ft.add', 'idx', 'doc2', '1.0', 'FIELDS',
             'building_type', 'Retail and Shops',
             'description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips) at the end')
 
@@ -198,7 +200,8 @@ def testFailedHighlight(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc1',
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT', 'NOINDEX')
     waitForIndex(env, 'idx')
-    env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', 'bar bar bar', 'f3', 'baz baz baz')
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', 'bar bar bar', 'f3', 'baz baz baz')
     env.assertEqual(toSortedFlatList([1, 'doc1', ['f1', 'foo foo foo', 'f2', 'bar bar bar', 'f3', 'baz baz baz']]),
         toSortedFlatList(env.cmd('ft.search idx foo')))
     env.assertEqual(toSortedFlatList([1, 'doc1', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'bar bar bar', 'f3', 'baz baz baz']]),
@@ -212,7 +215,7 @@ def testFailedHighlight(env):
     env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'PREFIX', 1, 'doc2',
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT')
     waitForIndex(env, 'idx')
-    env.cmd('ft.add', 'idx2', 'doc2', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', '', 'f3', 'baz baz baz')
+    con.execute_command('ft.add', 'idx2', 'doc2', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', '', 'f3', 'baz baz baz')
     env.assertEqual(toSortedFlatList([1, 'doc2', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', '', 'f3', 'baz baz baz']]),
         toSortedFlatList(env.cmd('ft.search idx2 foo highlight fields 1 f1')))
     env.assertEqual(toSortedFlatList([1, 'doc2', ['f2', '', 'f1', 'foo foo foo', 'f3', 'baz baz baz']]),
@@ -224,7 +227,7 @@ def testFailedHighlight(env):
     env.cmd('ft.create', 'idx3', 'ON', 'HASH', 'PREFIX', 1, 'doc3',
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT')
     waitForIndex(env, 'idx')
-    env.cmd('ft.add', 'idx3', 'doc3', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', 'not a', 'f3', 'baz baz baz')
+    con.execute_command('ft.add', 'idx3', 'doc3', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', 'not a', 'f3', 'baz baz baz')
     env.assertEqual(toSortedFlatList([1, 'doc3', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'not a', 'f3', 'baz baz baz']]),
         toSortedFlatList(env.cmd('ft.search idx3 foo highlight fields 1 f1')))
     env.assertEqual(toSortedFlatList([1, 'doc3', ['f2', 'not a', 'f1', 'foo foo foo', 'f3', 'baz baz baz']]),

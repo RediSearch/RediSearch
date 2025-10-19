@@ -25,6 +25,8 @@ extern "C" {
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
 
+#define APIVERSION_RETURN_MULTI_CMP_FIRST 3
+
 typedef enum {
   RS_CTX_UNSET,
   RS_CTX_READONLY,

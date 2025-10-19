@@ -33,7 +33,7 @@ typedef enum IndexIteratorType {
 
 class IndexIteratorTest : public ::testing::TestWithParam<std::tuple<IndexIteratorType, bool>> {
 protected:
-    static constexpr size_t n_docs = 2.45 * std::max(INDEX_BLOCK_SIZE, INDEX_BLOCK_SIZE_DOCID_ONLY);
+    static constexpr size_t n_docs = 2.45 * 1000;
     std::array<t_docId, n_docs> resultSet;
     InvertedIndex *idx;
     QueryIterator *it_base;
@@ -322,7 +322,7 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
 
 class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> {
   protected:
-      static constexpr size_t n_docs = std::max(INDEX_BLOCK_SIZE, INDEX_BLOCK_SIZE_DOCID_ONLY);
+      static constexpr size_t n_docs = 1000;
       InvertedIndex *idx;
       QueryIterator *it_base;
       MockQueryEvalCtx q_mock;
@@ -346,6 +346,11 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
               .fieldMask = fieldMask,
               .data = {.term_tag = RSResultData_Term},
           };
+
+          if (flags & Index_StoreNumeric) {
+              res.data.tag = RSResultData_Numeric;
+          }
+
           for (size_t i = 1; i <= n_docs; ++i) {
               res.docId = i;
               InvertedIndex_WriteEntryGeneric(idx, &res);
@@ -610,7 +615,7 @@ private:
     void SetupNumericIndex(bool useQuery) {
         // Create IndexSpec for NUMERIC field
         const char *args[] = {"SCHEMA", "num_field", "NUMERIC"};
-        QueryError err = {QUERY_OK};
+        QueryError err = QueryError_Default();
         StrongRef ref = IndexSpec_ParseC("numeric_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -688,7 +693,7 @@ private:
     void SetupTermIndex(bool useQuery) {
         // Create IndexSpec for TEXT field
         const char *args[] = {"SCHEMA", "text_field", "TEXT"};
-        QueryError err = {QUERY_OK};
+        QueryError err = QueryError_Default();
         StrongRef ref = IndexSpec_ParseC("term_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -738,7 +743,7 @@ private:
     void SetupTagIndex(bool useQuery) {
         // Create IndexSpec for TAG field
         const char *args[] = {"SCHEMA", "tag_field", "TAG"};
-        QueryError err = {QUERY_OK};
+        QueryError err = QueryError_Default();
         StrongRef ref = IndexSpec_ParseC("tag_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -786,7 +791,7 @@ private:
     void SetupWildcardIndex() {
         // Create IndexSpec for TEXT field (wildcard uses existingDocs index)
         const char *args[] = {"SCHEMA", "text_field", "TEXT"};
-        QueryError err = {QUERY_OK};
+        QueryError err = QueryError_Default();
         StrongRef ref = IndexSpec_ParseC("wildcard_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -816,7 +821,7 @@ private:
     void SetupMissingIndex() {
         // Create IndexSpec for TEXT field (missing uses any field type)
         const char *args[] = {"SCHEMA", "text_field", "TEXT"};
-        QueryError err = {QUERY_OK};
+        QueryError err = QueryError_Default();
         StrongRef ref = IndexSpec_ParseC("missing_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -988,7 +993,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
             // Create a dummy index to simulate the "new" index that would be returned
             // by the lookup after GC
             size_t memsize;
-            InvertedIndex *dummyIdx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &memsize);
+            InvertedIndex *dummyIdx = NewInvertedIndex(IndexReader_Flags(invIt->reader), &memsize);
 
             // Temporarily replace the iterator's index pointer
             IndexReader_SwapIndex(invIt->reader, dummyIdx);

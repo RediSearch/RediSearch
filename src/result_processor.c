@@ -27,54 +27,8 @@
 #include "config.h"
 #include "module.h"
 #include "search_disk.h"
-
-/*******************************************************************************************************************
- *  General Result Processor Helper functions
- *******************************************************************************************************************/
-
-// Allocates a new SearchResult, and populates it with `r`'s data (takes
-// ownership as well)
-SearchResult *SearchResult_Copy(SearchResult *r) {
-  SearchResult *ret = rm_malloc(sizeof(*ret));
-  *ret = *r;
-  return ret;
-}
-
-void SearchResult_Clear(SearchResult *r) {
-  // This won't affect anything if the result is null
-  r->score = 0;
-  if (r->scoreExplain) {
-    SEDestroy(r->scoreExplain);
-    r->scoreExplain = NULL;
-  }
-  if (r->indexResult) {
-    // IndexResult_Free(r->indexResult);
-    r->indexResult = NULL;
-  }
-
-  r->flags = 0;
-  RLookupRow_Wipe(&r->rowdata);
-  if (r->dmd) {
-    DMD_Return(r->dmd);
-    r->dmd = NULL;
-  }
-}
-
-/* Free the search result object including the object itself */
-void SearchResult_Destroy(SearchResult *r) {
-  SearchResult_Clear(r);
-  RLookupRow_Reset(&r->rowdata);
-}
-
-// Overwrites the contents of 'dst' with those from 'src'.
-// Ensures proper cleanup of any existing data in 'dst'.
-static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
-  if (!src) return;
-  RLookupRow oldrow = dst->rowdata;
-  *dst = *src;
-  RLookupRow_Reset(&oldrow);
-}
-
+#include "debug_commands.h"
+#include "search_result.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -196,11 +150,11 @@ validate_current:
   }
 
   // set the result data
-  res->docId = it->lastDocId;
-  res->indexResult = it->current;
-  res->score = 0;
-  res->dmd = dmd;
-  RLookupRow_SetSortingVector(&res->rowdata, dmd->sortVector);
+  SearchResult_SetDocId(res, it->lastDocId);
+  SearchResult_SetIndexResult(res, it->current);
+  SearchResult_SetScore(res, 0);
+  SearchResult_SetDocumentMetadata(res, dmd);
+  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), dmd->sortVector);
   return RS_RESULT_OK;
 }
 
@@ -276,14 +230,14 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
     }
 
     // Apply the scoring function
-    res->score = self->scorer(&self->scorerCtx, res->indexResult, res->dmd, base->parent->minScore);
+    SearchResult_SetScore(res, self->scorer(&self->scorerCtx, SearchResult_GetIndexResult(res), SearchResult_GetDocumentMetadata(res), base->parent->minScore));
     if (self->scorerCtx.scrExp) {
-      res->scoreExplain = (RSScoreExplain *)self->scorerCtx.scrExp;
+      SearchResult_SetScoreExplain(res, (RSScoreExplain *)self->scorerCtx.scrExp);
       self->scorerCtx.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
     }
     // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
     // number of results (it's been increased by the upstream processor)
-    if (res->score == RS_SCORE_FILTEROUT) {
+    if (SearchResult_GetScore(res) == RS_SCORE_FILTEROUT) {
       base->parent->totalResults--;
       SearchResult_Clear(res);
       // continue and loop to the next result, since this is excluded by the
@@ -291,7 +245,7 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
       continue;
     }
     if (self->scoreKey) {
-      RLookup_WriteOwnKey(self->scoreKey, &res->rowdata, RS_NumVal(res->score));
+      RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(res), RSValue_NewNumber(SearchResult_GetScore(res)));
     }
 
     break;
@@ -346,9 +300,9 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
     return rc;
   }
 
-  arrayof(RSYieldableMetric) arr = res->indexResult->metrics;
+  arrayof(RSYieldableMetric) arr = SearchResult_GetIndexResult(res)->metrics;
   for (size_t i = 0; i < array_len(arr); i++) {
-    RLookup_WriteKey(arr[i].key, &(res->rowdata), arr[i].value);
+    RLookup_WriteKey(arr[i].key, SearchResult_GetRowDataMut(res), arr[i].value);
   }
 
   return rc;
@@ -467,10 +421,10 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   if (self->pq->count < self->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
-    self->pooledResult->indexResult = NULL;
+    SearchResult_SetIndexResult(self->pooledResult, NULL);
     mmh_insert(self->pq, self->pooledResult);
-    if (self->pooledResult->score < rp->parent->minScore) {
-      rp->parent->minScore = self->pooledResult->score;
+    if (SearchResult_GetScore(self->pooledResult) < rp->parent->minScore) {
+      rp->parent->minScore = SearchResult_GetScore(self->pooledResult);
     }
     // we need to allocate a new result for the next iteration
     self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
@@ -479,13 +433,13 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     SearchResult *minh = mmh_peek_min(self->pq);
 
     // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
-    if (minh->score > rp->parent->minScore) {
-      rp->parent->minScore = minh->score;
+    if (SearchResult_GetScore(minh) > rp->parent->minScore) {
+      rp->parent->minScore = SearchResult_GetScore(minh);
     }
 
     // if needed - pop it and insert a new result
     if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
-      self->pooledResult->indexResult = NULL;
+      SearchResult_SetIndexResult(self->pooledResult, NULL);
       self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
     }
     // clear the result in preparation for the next iteration
@@ -509,12 +463,12 @@ static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
 static inline int cmpByScore(const void *e1, const void *e2, const void *udata) {
   const SearchResult *h1 = e1, *h2 = e2;
 
-  if (h1->score < h2->score) {
+  if (SearchResult_GetScore(h1) < SearchResult_GetScore(h2)) {
     return -1;
-  } else if (h1->score > h2->score) {
+  } else if (SearchResult_GetScore(h1) > SearchResult_GetScore(h2)) {
     return 1;
   }
-  return h1->docId > h2->docId ? -1 : 1;
+  return SearchResult_GetDocId(h1) > SearchResult_GetDocId(h2) ? -1 : 1;
 }
 
 /* Compare results for the heap by sorting key */
@@ -529,8 +483,8 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   }
 
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], &h1->rowdata);
-    const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], &h2->rowdata);
+    const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], SearchResult_GetRowData(h1));
+    const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], SearchResult_GetRowData(h2));
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
@@ -549,7 +503,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     if (rc != 0) return ascending ? -rc : rc;
   }
 
-  int rc = h1->docId < h2->docId ? -1 : 1;
+  int rc = SearchResult_GetDocId(h1) < SearchResult_GetDocId(h2) ? -1 : 1;
   return ascending ? -rc : rc;
 }
 
@@ -681,13 +635,13 @@ typedef struct {
 static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
   if (self->loadopts.sctx->spec->diskSpec) {
     // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
-    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskSpec, r->dmd->id)) {
-      r->flags |= Result_ExpiredDoc;
+    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
+      SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }
   } else {
-    if ((r->dmd->flags & Document_FailedToOpen) || (r->dmd->flags & Document_Deleted)) {
-      r->flags |= Result_ExpiredDoc;
+    if ((SearchResult_GetDocumentMetadata(r)->flags & Document_FailedToOpen) || (SearchResult_GetDocumentMetadata(r)->flags & Document_Deleted)) {
+        SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }
   }
@@ -701,14 +655,14 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
     return;
   }
 
-  self->loadopts.dmd = r->dmd;
+  self->loadopts.dmd = SearchResult_GetDocumentMetadata(r);
   // if loading the document has failed, we keep the row as it was.
   // Error code and message are ignored.
-  if (RLookup_LoadDocument(self->lk, &r->rowdata, &self->loadopts) != REDISMODULE_OK) {
+  if (RLookup_LoadDocument(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts) != REDISMODULE_OK) {
     // mark the document as "failed to open" for later loaders or other threads (optimization)
-    ((RSDocumentMetadata *)(r->dmd))->flags |= Document_FailedToOpen;
+    ((RSDocumentMetadata *)(SearchResult_GetDocumentMetadata(r)))->flags |= Document_FailedToOpen;
     // The result contains an expired document.
-    r->flags |= Result_ExpiredDoc;
+    SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
     QueryError_ClearError(&self->status);
   }
 }
@@ -807,7 +761,7 @@ typedef struct RPSafeLoader {
 
 static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
   // Free the RLookup row before overriding it.
-  RLookupRow_Reset(&result_output->rowdata);
+  RLookupRow_Reset(SearchResult_GetRowDataMut(result_output));
   *result_output = *buffered_result;
 }
 
@@ -1026,8 +980,8 @@ static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
   int rc = base->upstream->Next(base->upstream, res);
   if (RS_RESULT_OK == rc) {
     RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
-    size_t keyLen = sdslen(res->dmd->keyPtr); // keyPtr is an sds
-    RLookup_WriteOwnKey(nl->out, &res->rowdata, RS_NewCopiedString(res->dmd->keyPtr, keyLen));
+    size_t keyLen = sdslen(SearchResult_GetDocumentMetadata(res)->keyPtr); // keyPtr is an sds
+    RLookup_WriteOwnKey(nl->out, SearchResult_GetRowDataMut(res), RSValue_NewCopiedString(SearchResult_GetDocumentMetadata(res)->keyPtr, keyLen));
   }
   return rc;
 }
@@ -1139,6 +1093,15 @@ const char *RPTypeToString(ResultProcessorType type) {
   return RPTypeLookup[type];
 }
 
+ResultProcessorType StringToRPType(const char *str) {
+  for (int i = 0; i < RP_MAX; i++) {
+    if (!strcmp(str, RPTypeLookup[i])) {
+      return i;
+    }
+  }
+  return RP_MAX;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 /// Profile RP                                                               ///
@@ -1190,6 +1153,11 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   return self->profileCount;
 }
 
+void RPProfile_IncrementCount(ResultProcessor *rp) {
+  RPProfile *self = (RPProfile *)rp;
+  self->profileCount++;
+}
+
 void Profile_AddRPs(QueryProcessingCtx *qctx) {
   ResultProcessor *cur = qctx->endProc = RPProfile_New(qctx->endProc, qctx);
   while (cur && cur->upstream && cur->upstream->upstream) {
@@ -1197,179 +1165,6 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
     cur->upstream = RPProfile_New(cur->upstream, qctx);
     cur = cur->upstream;
   }
-}
-
-/*******************************************************************************************************************
- *  Scoring Processor
- *
- * It takes results from upstream, and using a scoring function applies the score to each one.
- *
- * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
- *******************************************************************************************************************/
-
-typedef struct {
-  ResultProcessor base;
-  size_t count;
-} RPCounter;
-
-static int rpcountNext(ResultProcessor *base, SearchResult *res) {
-  int rc;
-  RPCounter *self = (RPCounter *)base;
-
-  while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
-    self->count += 1;
-    SearchResult_Clear(res);
-  }
-
-  // Since this never returns RM_OK, in profile mode, count should be increased
-  // to compensate for EOF
-  if (base->upstream->type == RP_PROFILE) {
-    ((RPProfile *)base->parent->endProc)->profileCount++;
-  }
-
-  return rc;
-}
-
-static void rpcountFree(ResultProcessor *rp) {
-  RPCounter *self = (RPCounter *)rp;
-  rm_free(self);
-}
-
-/* Create a new counter. */
-ResultProcessor *RPCounter_New() {
-  RPCounter *ret = rm_calloc(1, sizeof(*ret));
-  ret->count = 0;
-  ret->base.Next = rpcountNext;
-  ret->base.Free = rpcountFree;
-  ret->base.type = RP_COUNTER;
-  return &ret->base;
-}
-
-/*******************************************************************************************************************
- *  Timeout Processor - DEBUG ONLY
- *
- * returns timeout after N results, N >= 0.
- * If N is larger than the actual results, EOF is returned.
- *******************************************************************************************************************/
-
-typedef struct {
-  ResultProcessor base;
-  uint32_t count;
-  uint32_t remaining;
-  RedisSearchCtx *sctx;
-} RPTimeoutAfterCount;
-
-// Insert the result processor between the last result processor and its downstream result processor
-static void addResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
-  ResultProcessor *cur = qctx->endProc;
-  ResultProcessor dummyHead = { .upstream = cur };
-  ResultProcessor *downstream = &dummyHead;
-
-  // Search for the last result processor
-  while (cur) {
-    if (!cur->upstream) {
-      rp->parent = qctx;
-      downstream->upstream = rp;
-      rp->upstream = cur;
-      break;
-    }
-    downstream = cur;
-    cur = cur->upstream;
-  }
-  // Update the endProc to the new head in case it was changed
-  qctx->endProc = dummyHead.upstream;
-}
-
-/** For debugging purposes
- * Will add a result processor that will return timeout according to the results count specified.
- * @param results_count: number of results to return. should be greater equal 0.
- * The result processor will also change the query timing so further checks down the pipeline will also result in timeout.
- */
-void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count) {
-  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, sctx);
-  addResultProcessor(qctx, RPTimeoutAfterCount);
-}
-
-static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout, RedisSearchCtx *sctx) {
-    // set timeout to now for the RP up the chain to handle
-    static struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-    sctx->time.timeout = now;
-
-    // search upstream for rpQueryItNext to set timeout limiter
-    ResultProcessor *cur = rp_timeout->upstream;
-    while (cur && cur->type != RP_INDEX) {
-        cur = cur->upstream;
-    }
-
-    if (cur) { // This is a shard pipeline
-      RPQueryIterator *rp_index = (RPQueryIterator *)cur;
-      rp_index->timeoutLimiter = TIMEOUT_COUNTER_LIMIT - 1;
-    }
-}
-
-static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
-  RPTimeoutAfterCount *self = (RPTimeoutAfterCount *)base;
-
-  // If we've reached COUNT:
-  if (!self->remaining) {
-
-    RPTimeoutAfterCount_SimulateTimeout(base, self->sctx);
-
-    int rc = base->upstream->Next(base->upstream, r);
-    if (rc == RS_RESULT_TIMEDOUT) {
-      // reset the counter for the next run in cursor mode
-      self->remaining = self->count;
-    }
-
-    return rc;
-  }
-
-  self->remaining--;
-  return base->upstream->Next(base->upstream, r);
-}
-
-static void RPTimeoutAfterCount_Free(ResultProcessor *base) {
-  rm_free(base);
-}
-
-ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx) {
-  RPTimeoutAfterCount *ret = rm_calloc(1, sizeof(RPTimeoutAfterCount));
-  ret->count = count;
-  ret->remaining = count;
-  ret->sctx = sctx;
-  ret->base.type = RP_TIMEOUT;
-  ret->base.Next = RPTimeoutAfterCount_Next;
-  ret->base.Free = RPTimeoutAfterCount_Free;
-
-  return &ret->base;
-}
-
-typedef struct {
-  ResultProcessor base;
-} RPCrash;
-
-static void RPCrash_Free(ResultProcessor *base) {
-  rm_free(base);
-}
-
-static int RPCrash_Next(ResultProcessor *base, SearchResult *r) {
-  RPCrash *self = (RPCrash *)base;
-  abort();
-  return base->upstream->Next(base->upstream, r);
-}
-
-ResultProcessor *RPCrash_New() {
-  RPCrash *ret = rm_calloc(1, sizeof(RPCrash));
-  ret->base.type = RP_CRASH;
-  ret->base.Next = RPCrash_Next;
-  ret->base.Free = RPCrash_Free;
-  return &ret->base;
-}
-
-void PipelineAddCrash(struct AREQ *r) {
-  ResultProcessor *crash = RPCrash_New();
-  addResultProcessor(AREQ_QueryProcessingCtx(r), crash);
 }
 
  /*******************************************************************************************************************
@@ -1415,16 +1210,16 @@ void PipelineAddCrash(struct AREQ *r) {
   SearchResult *poppedResult = array_pop(self->pool);
   SearchResult_Override(r, poppedResult);
   rm_free(poppedResult);
-  double oldScore = r->score;
+  double oldScore = SearchResult_GetScore(r);
   if (self->maxValue != 0) {
-    r->score /= self->maxValue;
+    SearchResult_SetScore(r, SearchResult_GetScore(r) / self->maxValue);
   }
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
   }
-  EXPLAIN(r->scoreExplain,
+  EXPLAIN(SearchResult_GetScoreExplainMut(r),
         "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
-        r->score, oldScore, self->maxValue);
+        SearchResult_GetScore(r), oldScore, self->maxValue);
   return RS_RESULT_OK;
  }
 
@@ -1444,9 +1239,9 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
     return rc;
   }
 
-  self->maxValue = MAX(self->maxValue, self->pooledResult->score);
+  self->maxValue = MAX(self->maxValue, SearchResult_GetScore(self->pooledResult));
   // copy the index result to make it thread safe - but only if it is pushed to the heap
-  self->pooledResult->indexResult = NULL;
+  SearchResult_SetIndexResult(self->pooledResult, NULL);
   array_ensure_append_1(self->pool, self->pooledResult);
 
   // we need to allocate a new result for the next iteration
@@ -1487,7 +1282,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
 typedef struct {
   ResultProcessor base;
   VectorNormFunction normFunc;
-  const RLookupKey *scoreKey;      // Score field to normalize
+  const RLookupKey *scoreKey;   // score field
 } RPVectorNormalizer;
 
 static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
@@ -1501,20 +1296,19 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
 
   // Apply normalization to the score
   double normalizedScore = 0.0;
-  RSValue *scoreValue = RLookup_GetItem(self->scoreKey, &r->rowdata);
-  if (scoreValue) {
+  RSValue *distanceValue = RLookup_GetItem(self->scoreKey, SearchResult_GetRowData(r));
+  if (distanceValue) {
     double originalScore = 0.0;
-    if (RSValue_ToNumber(scoreValue, &originalScore)) {
+    if (RSValue_ToNumber(distanceValue, &originalScore)) {
       normalizedScore = self->normFunc(originalScore);
     }
   }
-  r->score = normalizedScore;
+  SearchResult_SetScore(r, normalizedScore);
 
-  // Update score field if scoreKey is provided
+  // Update distance field
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(normalizedScore));
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(normalizedScore));
   }
-
   return RS_RESULT_OK;
 }
 
@@ -1662,7 +1456,9 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   // Depleting thread is done, it's safe to return the results.
   if (self->cur_idx == array_len(self->results)) {
     // We've reached the end of the array, return the last code from the upstream.
-    return self->last_rc;
+    int rc = self->last_rc;
+    self->last_rc = RS_RESULT_EOF;
+    return rc;
   }
   // Return the next result in the array.
   SearchResult *current = self->results[self->cur_idx];
@@ -1882,13 +1678,15 @@ dictType dictTypeHybridSearchResult = {
  typedef struct {
  ResultProcessor base;
  HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
- ResultProcessor **upstreams;  // Dynamic array of upstream processors
- size_t numUpstreams;         // Number of upstream processors
- dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
- dictIterator *iterator; // Iterator for yielding results
- const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
- RPStatus* upstreamReturnCodes;  // Final return codes from each upstream
+ ResultProcessor **upstreams;     // Dynamic array of upstream processors
+ size_t numUpstreams;             // Number of upstream processors
+ dict *hybridResults;             // keyPtr -> HybridSearchResult mapping
+ dictIterator *iterator;          // Iterator for yielding results
+ const RLookupKey *scoreKey;      // Key for writing score as field when YIELD_SCORE_AS is specified
+ const RLookupKey *docKey;        // Key for reading document key when dmd is not available
+ RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
+
 } RPHybridMerger;
 
 /* Generic helper function to check if any upstream has a specific return code */
@@ -1918,78 +1716,109 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   * @param numUpstreams - the number of upstreams
   * @param score - used to override the result's score
  */
- static void StoreUpstreamResult(SearchResult *r, dict *hybridResults, int upstreamIndex, size_t numUpstreams, double score) {
-   const char *keyPtr = r->dmd->keyPtr;
+ static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
+  // Single shard case - use dmd->keyPtr
+  RLookupRow translated = {0};
+  RLookupRow_WriteFieldsFrom(&r->rowdata, self->lookupCtx->sourceLookups[upstreamIndex], &translated, self->lookupCtx->tailLookup);
+  RLookupRow_Reset(&r->rowdata);
+  r->rowdata = translated;
+  
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
+  const char *keyPtr = dmd ? dmd->keyPtr : NULL;
+  // Coordinator case - no dmd - use docKey in rlookup
+  const bool fallbackToLookup = !keyPtr && self->docKey;
+  if (fallbackToLookup) {
+    RSValue *docKeyValue = RLookup_GetItem(self->docKey, &r->rowdata);
+    if (docKeyValue != NULL) {
+      keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
+    }
+  }
+  if (!keyPtr) {
+    return false;
+  }
 
-   // Check if we've seen this document before
-   HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(hybridResults, keyPtr);
+  // Check if we've seen this document before
+  HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(self->hybridResults, keyPtr);
 
-   if (!hybridResult) {
-     // First time seeing this document - create new hybrid result
-     hybridResult = HybridSearchResult_New(numUpstreams);
-     dictAdd(hybridResults, (void*)keyPtr, hybridResult);
-   }
+  if (!hybridResult) {
+    // First time seeing this document - create new hybrid result
+    hybridResult = HybridSearchResult_New(self->numUpstreams);
+    dictAdd(self->hybridResults, (void*)keyPtr, hybridResult);
+  }
 
-   r->score = score;
+   SearchResult_SetScore(r, score);
    HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
+   return true;
  }
 
  /* Helper function to consume results from a single upstream */
- static int ConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, ResultProcessor *upstream, int upstreamIndex) {
+ static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, size_t upstreamIndex) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
+   ResultProcessor *upstream = self->upstreams[upstreamIndex];
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
-       double score = r->score;
+       double score = SearchResult_GetScore(r);
        consumed++;
        if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
          score = consumed;
        }
-       StoreUpstreamResult(r, self->hybridResults, upstreamIndex, self->numUpstreams, score);
-       r = rm_calloc(1, sizeof(*r));
+       if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
+         r = rm_calloc(1, sizeof(*r));
+       } else {
+         SearchResult_Clear(r);
+         --consumed; // avoid wrong rank in RRF
+       }
    }
    rm_free(r);
    return rc;
  }
 
  /* Yield phase - iterate through results and apply hybrid scoring */
- static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
-   RPHybridMerger *self = (RPHybridMerger *)rp;
+static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
+  RPHybridMerger *self = (RPHybridMerger *)rp;
 
-   RS_ASSERT(self->iterator);
-   // Get next entry from iterator
-   dictEntry *entry = dictNext(self->iterator);
-     if (!entry) {
+  RS_ASSERT(self->iterator);
+  // Get next entry from iterator
+  dictEntry *entry = dictNext(self->iterator);
+  if (!entry) {
     // No more results to yield
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
   }
 
-   // Get the key and value before removing the entry
-   void *key = dictGetKey(entry);
-   HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
-   RS_ASSERT(hybridResult);
+  // Get the key and value before removing the entry
+  void *key = dictGetKey(entry);
+  HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
+  RS_ASSERT(hybridResult);
 
-   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
-   if (!mergedResult) {
-     return RS_RESULT_ERROR;
-   }
+  SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
+  if (!mergedResult) {
+    return RS_RESULT_ERROR;
+  }
 
-   // Override the output result with merged data
-   SearchResult_Override(r, mergedResult);
-   rm_free(mergedResult);
+  // Override the output result with merged data
+  SearchResult_Override(r, mergedResult);
+  rm_free(mergedResult);
 
-   // Add score as field if scoreKey is provided
-   if (self->scoreKey) {
-     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
-   }
+  // Add score as field if scoreKey is provided
+  if (self->scoreKey) {
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
+  }
 
-   return RS_RESULT_OK;
+  return RS_RESULT_OK;
  }
 
  /* Accumulation phase - consume window results from all upstreams */
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
-   RPHybridMerger *self = (RPHybridMerger *)rp;
+  RPHybridMerger *self = (RPHybridMerger *)rp;
+
+  size_t window;
+  if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    window = self->hybridScoringCtx->rrfCtx.window;
+  } else {
+    window = self->hybridScoringCtx->linearCtx.window;
+  }
 
   bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
   size_t numConsumed = 0;
@@ -1999,14 +1828,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
       if (consumed[i]) {
         continue;
       }
-      size_t window;
-      if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-        window = self->hybridScoringCtx->rrfCtx.window;
-      } else {
-        // For LINEAR scoring, consume all results from each upstream
-        window = SIZE_MAX;
-      }
-      int rc = ConsumeFromUpstream(self, window, self->upstreams[i], i);
+      int rc = hybridMergerConsumeFromUpstream(self, window, i);
 
       if (rc == RS_RESULT_DEPLETING) {
         // Upstream is still active but not ready to provide results. Skip to the next.
@@ -2015,7 +1837,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
       // Store the final return code for this upstream
       self->upstreamReturnCodes[i] = rc;
-
       // Currently continues processing other upstreams.
       // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error : MOD-11004
       // Note: This processor might have rp_depleter as an upstream, which currently lacks a mechanism to stop its spawned thread before completion.
@@ -2083,6 +1904,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
+                                    const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
                                     HybridLookupContext *lookupCtx) {
@@ -2095,8 +1917,10 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
   RS_ASSERT(hybridScoringCtx);
   ret->hybridScoringCtx = hybridScoringCtx;
 
-  // Store the scoreKey for writing scores as fields when QEXEC_F_SEND_SCORES_AS_FIELD is set
+  // Store the scoreKey for writing scores as fields when YIELD_SCORE_AS is specified or __score otherwise
   ret->scoreKey = scoreKey;
+
+  ret->docKey = docKey;
 
   // Store reference to the hybrid request's subqueries return codes array
   RS_ASSERT(subqueriesReturnCodes);
@@ -2114,8 +1938,7 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
    if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
      maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
    } else {
-     // For LINEAR scoring, use a reasonable default for dictionary pre-sizing
-     maximalSize = 1000; // Conservative estimate for dictionary sizing
+     maximalSize = hybridScoringCtx->linearCtx.window * numUpstreams;
    }
    // Pre-size the dictionary to avoid multiple resizes during accumulation
    dictExpand(ret->hybridResults, maximalSize);
@@ -2128,3 +1951,273 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
 
    return &ret->base;
  }
+
+ /*******************************************************************************************************************
+ *  Debug only result processors
+ *
+ * *******************************************************************************************************************/
+
+// Insert the result processor between the last result processor and its downstream result processor
+static void addResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
+  ResultProcessor *cur = qctx->endProc;
+  ResultProcessor dummyHead = { .upstream = cur };
+  ResultProcessor *downstream = &dummyHead;
+
+  // Search for the last result processor
+  while (cur) {
+    if (!cur->upstream) {
+      rp->parent = qctx;
+      downstream->upstream = rp;
+      rp->upstream = cur;
+      break;
+    }
+    downstream = cur;
+    cur = cur->upstream;
+  }
+  // Update the endProc to the new head in case it was changed
+  qctx->endProc = dummyHead.upstream;
+}
+
+// Insert the result processor before the first occurrence of a specific RP type in the upstream
+static bool addResultProcessorBeforeType(QueryProcessingCtx *qctx, ResultProcessor *rp, ResultProcessorType target_type) {
+  ResultProcessor *cur = qctx->endProc;
+  ResultProcessor *downstream = NULL;
+
+  // Search for the target result processor type
+  while (cur) {
+    // Change downstream -> cur(type) -> cur->upstream
+    // To: downstream -> rp -> cur(type) -> cur->upstream
+
+    if (cur->type == target_type) {
+      rp->parent = qctx;
+      rp->upstream = cur;
+      // Checking edge case: we are the first RP in the stream
+      if (cur == qctx->endProc) {
+        qctx->endProc = rp;
+      } else {
+        downstream->upstream = rp;
+      }
+      return true;
+    }
+
+    downstream = cur;
+    cur = cur->upstream;
+  }
+
+  return false;
+}
+
+// Insert the result processor after the first occurrence of a specific RP type in the upstream
+// Cannot be the last RP in the stream
+static bool addResultProcessorAfterType(QueryProcessingCtx *qctx, ResultProcessor *rp, ResultProcessorType target_type) {
+  ResultProcessor *cur = qctx->endProc;
+  ResultProcessor *downstream = cur;
+
+  bool found = false;
+
+  // Search for the target result processor type
+  while (cur) {
+    // Change downstream -> cur(type) -> cur->upstream
+    // To: downstream -> cur(type) -> rp-> cur->upstream
+    if (cur->type == target_type) {
+      if (!cur->upstream) {
+        return false;
+      }
+      rp->upstream = cur->upstream;
+      cur->upstream = rp;
+      rp->parent = qctx;
+      return true;
+    }
+    downstream = cur;
+    cur = cur->upstream;
+  }
+
+  return false;
+}
+
+/*******************************************************************************************************************
+ *  Timeout Processor - DEBUG ONLY
+ *
+ * returns timeout after N results, N >= 0.
+ * If N is larger than the actual results, EOF is returned.
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  uint32_t count;
+  uint32_t remaining;
+  RedisSearchCtx *sctx;
+} RPTimeoutAfterCount;
+
+/** For debugging purposes
+ * Will add a result processor that will return timeout according to the results count specified.
+ * @param results_count: number of results to return. should be greater equal 0.
+ * The result processor will also change the query timing so further checks down the pipeline will also result in timeout.
+ */
+void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count) {
+  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, sctx);
+  addResultProcessor(qctx, RPTimeoutAfterCount);
+}
+
+static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout, RedisSearchCtx *sctx) {
+    // set timeout to now for the RP up the chain to handle
+    static struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+    sctx->time.timeout = now;
+
+    // search upstream for rpQueryItNext to set timeout limiter
+    ResultProcessor *cur = rp_timeout->upstream;
+    while (cur && cur->type != RP_INDEX) {
+        cur = cur->upstream;
+    }
+
+    if (cur) { // This is a shard pipeline
+      RPQueryIterator *rp_index = (RPQueryIterator *)cur;
+      rp_index->timeoutLimiter = TIMEOUT_COUNTER_LIMIT - 1;
+    }
+}
+
+static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
+  RPTimeoutAfterCount *self = (RPTimeoutAfterCount *)base;
+
+  // If we've reached COUNT:
+  if (!self->remaining) {
+
+    RPTimeoutAfterCount_SimulateTimeout(base, self->sctx);
+
+    int rc = base->upstream->Next(base->upstream, r);
+    if (rc == RS_RESULT_TIMEDOUT) {
+      // reset the counter for the next run in cursor mode
+      self->remaining = self->count;
+    }
+
+    return rc;
+  }
+
+  self->remaining--;
+  return base->upstream->Next(base->upstream, r);
+}
+
+static void RPTimeoutAfterCount_Free(ResultProcessor *base) {
+  rm_free(base);
+}
+
+ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx) {
+  RPTimeoutAfterCount *ret = rm_calloc(1, sizeof(RPTimeoutAfterCount));
+  ret->count = count;
+  ret->remaining = count;
+  ret->sctx = sctx;
+  ret->base.type = RP_TIMEOUT;
+  ret->base.Next = RPTimeoutAfterCount_Next;
+  ret->base.Free = RPTimeoutAfterCount_Free;
+
+  return &ret->base;
+}
+
+typedef struct {
+  ResultProcessor base;
+} RPCrash;
+
+static void RPCrash_Free(ResultProcessor *base) {
+  rm_free(base);
+}
+
+static int RPCrash_Next(ResultProcessor *base, SearchResult *r) {
+  RPCrash *self = (RPCrash *)base;
+  abort();
+  return base->upstream->Next(base->upstream, r);
+}
+
+ResultProcessor *RPCrash_New() {
+  RPCrash *ret = rm_calloc(1, sizeof(RPCrash));
+  ret->base.type = RP_CRASH;
+  ret->base.Next = RPCrash_Next;
+  ret->base.Free = RPCrash_Free;
+  return &ret->base;
+}
+
+void PipelineAddCrash(struct AREQ *r) {
+  ResultProcessor *crash = RPCrash_New();
+  addResultProcessor(AREQ_QueryProcessingCtx(r), crash);
+}
+
+/*******************************************************************************************************************
+ *  Pause Processor - DEBUG ONLY
+ *
+ * Pauses the query after N results, N >= 0.
+ *******************************************************************************************************************/
+typedef struct {
+  ResultProcessor base;
+  uint32_t count;
+  uint32_t remaining;
+} RPPauseAfterCount;
+
+bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status) {
+  ResultProcessor *RPPauseAfterCount = RPPauseAfterCount_New(results_count);
+
+  if (!RPPauseAfterCount) {
+    // Set query error
+    QueryError_SetError(status, QUERY_EGENERIC, "Failed to create pause RP or another debug RP is already set");
+    return false;
+  }
+
+  bool success = false;
+  if (before) {
+    success = addResultProcessorBeforeType(qctx, RPPauseAfterCount, rp_type);
+  } else {
+    success = addResultProcessorAfterType(qctx, RPPauseAfterCount, rp_type);
+  }
+  // Free if failed
+  if (!success) {
+    RPPauseAfterCount->Free(RPPauseAfterCount);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "%s RP type not found in stream or tried to insert after last RP", RPTypeToString(rp_type));
+  }
+  return success;
+
+}
+
+static void RPPauseAfterCount_Pause(RPPauseAfterCount *self) {
+
+  QueryDebugCtx_SetPause(true);
+  while (QueryDebugCtx_IsPaused()) { // volatile variable
+    usleep(1000);
+  }
+}
+
+static int RPPauseAfterCount_Next(ResultProcessor *base, SearchResult *r) {
+  RPPauseAfterCount *self = (RPPauseAfterCount *)base;
+
+  // If we've reached COUNT:
+  if (!self->remaining) {
+    RPPauseAfterCount_Pause(self);
+  }
+
+  self->remaining--;
+  return base->upstream->Next(base->upstream, r);
+}
+
+static void RPPauseAfterCount_Free(ResultProcessor *base) {
+  RS_LOG_ASSERT(QueryDebugCtx_GetDebugRP() == base, "Freed debug RP tried to change DebugCTX debugRP but it's not the current debug RP");
+  rm_free(base);
+  QueryDebugCtx_SetDebugRP(NULL);
+}
+
+ResultProcessor *RPPauseAfterCount_New(size_t count) {
+
+  // Validate no other debug RP is set
+  // If so, don't set it and return NULL
+  if (QueryDebugCtx_HasDebugRP()) {
+    return NULL;
+  }
+
+  RPPauseAfterCount *ret = rm_calloc(1, sizeof(RPPauseAfterCount));
+  ret->count = count;
+  ret->remaining = count;
+  ret->base.type = RP_PAUSE;
+  ret->base.Next = RPPauseAfterCount_Next;
+  ret->base.Free = RPPauseAfterCount_Free;
+
+  QueryDebugCtx_SetDebugRP(&ret->base);
+
+  return &ret->base;
+}

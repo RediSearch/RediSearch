@@ -76,6 +76,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   // Currently only SCORER is possible in SEARCH. Maybe will add support for SORTBY and others later
   ACArgSpec querySpecs[] = {
     {.name = "SCORER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scorerName},
+    {.name = "YIELD_SCORE_AS", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scoreAlias},
     {NULL}
   };
 
@@ -92,16 +93,25 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
       return REDISMODULE_ERR;
     }
 
-    // AC_ERR_ENOENT - check if it's VSIM or just an unknown argument
+    // AC_ERR_ENOENT - check if it's VSIM or just an unknown argument (special error message for DIALECT)
     const char *cur;
-    if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) == AC_OK && !strcasecmp("VSIM", cur)) {
+    rv = AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE);
+
+    if (rv == AC_OK && !strcasecmp("VSIM", cur)) {
       // Hit VSIM, we're done with search options
-      return REDISMODULE_OK;
+      break;
+    }
+    if (rv == AC_OK && !strcasecmp("DIALECT", cur)) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
+      return REDISMODULE_ERR;
     }
 
     // Unknown argument that's not VSIM - this is an error
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in SEARCH", cur);
     return REDISMODULE_ERR;
+  }
+  if (searchOpts->scoreAlias) {
+    AREQ_AddRequestFlags(sreq, QEXEC_F_SEND_SCORES_AS_FIELD);
   }
 
   return REDISMODULE_OK;
@@ -170,7 +180,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EBADVAL, "Invalid vector score field name");
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_SCORE_AS value");
         return REDISMODULE_ERR;
       }
       // Add as QueryAttribute (for query node processing, not vector-specific)
@@ -260,7 +270,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EBADVAL, "Invalid vector score field name");
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_SCORE_AS value");
         return REDISMODULE_ERR;
       }
       // Add as QueryAttribute (for query node processing, not vector-specific)
@@ -369,6 +379,11 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
   }
 
+  if (AC_AdvanceIfMatch(ac, "DIALECT")) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
+    goto error;
+  }
+
 final:
   if (!vreq->query) {  // meaning there is no filter clause
     vreq->query = "*";
@@ -434,40 +449,6 @@ static bool tailHasExplicitLimitInPlan(AGGPlan *plan) {
 }
 
 /**
- * Apply LIMIT argument fallback logic to KNN K and WINDOW arguments.
- *
- * When LIMIT is explicitly provided but KNN K or WINDOW are not explicitly set,
- * this function applies the LIMIT value as a fallback for those arguments instead of their
- * defaults (unless they have been explicitly set).
- * This ensures consistent behavior where LIMIT acts as a unified size hint
- * for hybrid search operations.
- *
- * @param tailPipeline The pipeline to extract LIMIT from
- * @param pvd The parsed vector data containing KNN arguments
- * @param hybridParams The hybrid parameters containing WINDOW settings
- */
-static void applyLimitParameterFallbacks(AGGPlan *tailPlan,
-                                       ParsedVectorData *pvd,
-                                       HybridPipelineParams *hybridParams) {
-  size_t limitValue = getLimitFromPlan(tailPlan);
-  bool hasExplicitLimit = tailHasExplicitLimitInPlan(tailPlan);
-
-  // Apply LIMIT → KNN K fallback ONLY if K was not explicitly set AND LIMIT was explicitly provided
-  if (pvd && pvd->query->type == VECSIM_QT_KNN &&
-      !pvd->hasExplicitK &&
-      hasExplicitLimit && limitValue > 0) {
-    pvd->query->knn.k = limitValue;
-  }
-
-  // Apply LIMIT → WINDOW fallback ONLY if WINDOW was not explicitly set AND LIMIT was explicitly provided
-  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF &&
-      !hybridParams->scoringCtx->rrfCtx.hasExplicitWindow &&
-      hasExplicitLimit && limitValue > 0) {
-    hybridParams->scoringCtx->rrfCtx.window = limitValue;
-  }
-}
-
-/**
  * Apply KNN K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation.
  *
  * The RRF merger only considers the top WINDOW results from each component,
@@ -480,10 +461,14 @@ static void applyLimitParameterFallbacks(AGGPlan *tailPlan,
  */
 static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
                                  HybridPipelineParams *hybridParams) {
-  // Apply K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation
-  if (pvd && pvd->query->type == VECSIM_QT_KNN &&
-      hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
-    size_t windowValue = hybridParams->scoringCtx->rrfCtx.window;
+  // Apply K = min(K, WINDOW)  prevents wasteful computation
+  if (pvd && pvd->query->type == VECSIM_QT_KNN) {
+    size_t windowValue;
+    if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+      windowValue = hybridParams->scoringCtx->rrfCtx.window;
+    } else { // (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
+      windowValue = hybridParams->scoringCtx->linearCtx.window;
+    }
     if (pvd->query->knn.k > windowValue) {
       pvd->query->knn.k = windowValue;
     }
@@ -520,6 +505,76 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     return implicitLoadStep;
 }
 
+// This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate request parses prefixes differently.
+// Unifying would require some refactor on the aggregate flow.
+static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *spec)  {
+
+  size_t n_prefixes = array_len(prefixes);
+  if (n_prefixes == 0) {
+    // No prefixes in the query --> No validation needed.
+    return true;
+  }
+
+  if (n_prefixes > 0 && (!spec || !spec->rule || !spec->rule->prefixes)) {
+    // Index has no prefixes, but query has prefixes --> Incoherent
+    return false;
+  }
+
+  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
+  if (n_prefixes != array_len(spec_prefixes)) {
+    return false;
+  }
+
+  // Validate that the prefixes in the arguments are the same as the ones in the
+  // index (also in the same order)
+  // The prefixes start right after the number
+  for (uint i = 0; i < n_prefixes; i++) {
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], prefixes[i]) != 0) {
+      // Unmatching prefixes
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Handle load step distribution for hybrid search pipelines.
+ *
+ * This function  finds all existing load steps in the tail plan and clones them to search and vector pipelines.
+ * If no load steps are found, it creates an implicit one.
+ *
+ * @param tailPlan The tail aggregation plan that may contain load steps
+ * @param searchPlan The search subquery aggregation plan
+ * @param vectorPlan The vector subquery aggregation plan
+ */
+static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AGGPlan *searchPlan, AGGPlan *vectorPlan) {
+    PLN_LoadStep *loadStep;
+    bool foundAnyLoadStep = false;
+
+    // Move all load steps found in the tail plan to the search and vector pipelines
+    while ((loadStep = (PLN_LoadStep *)AGPLN_FindStep(tailPlan, NULL, NULL, PLN_T_LOAD)) != NULL) {
+        foundAnyLoadStep = true;
+        // Pop the load step from the tail plan
+        AGPLN_PopStep(&loadStep->base);
+        // Clone it to both search and vector pipelines
+        AGPLN_AddStep(searchPlan, &PLNLoadStep_Clone(loadStep)->base);
+        AGPLN_AddStep(vectorPlan, &PLNLoadStep_Clone(loadStep)->base);
+        // Free the source load step
+        loadStep->base.dtor(&loadStep->base);
+    }
+
+    // If no load steps were found, create an implicit one
+    if (!foundAnyLoadStep) {
+
+        loadStep = createImplicitLoadStep();
+        AGPLN_AddStep(searchPlan, &PLNLoadStep_Clone(loadStep)->base);
+        AGPLN_AddStep(vectorPlan, &PLNLoadStep_Clone(loadStep)->base);
+        // Free the source load step
+        loadStep->base.dtor(&loadStep->base);
+    }
+}
+
 /**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
@@ -527,15 +582,15 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
  *                  [COMBINE <method> [params]] [aggregation_options]
  *
  * @param ctx Redis module context
- * @param argv Command arguments array (starting with "FT.HYBRID")
- * @param argc Number of arguments in argv
+ * @param ac ArgsCursor for parsing command arguments - should start after the index name
  * @param sctx Search context for the index (takes ownership)
- * @param indexname Name of the index to search
+ * @param parsedCmdCtx Parsed command context containing AREQs and pipeline parameters
  * @param status Output parameter for error reporting
- * @return HybridRequest* on success, NULL on error
+ * @param internal Whether the request is internal (not exposed to the user)
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                       RedisSearchCtx *sctx, const char *indexname, ParseHybridCommandCtx *parsedCmdCtx,
+int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
+                       RedisSearchCtx *sctx, ParseHybridCommandCtx *parsedCmdCtx,
                        QueryError *status, bool internal) {
   HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
@@ -545,6 +600,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Don't expect any flag to be on yet
   RS_ASSERT(*mergeReqflags == 0);
   *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
+
+  // Use default dialect if > 1, otherwise use dialect 2
+  if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
+    parsedCmdCtx->reqConfig->dialectVersion = MIN_HYBRID_DIALECT;
+  }
+  parsedCmdCtx->search->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+  parsedCmdCtx->vector->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+
   RSSearchOptions mergeSearchopts = {0};
   RSSearchOptions_Init(&mergeSearchopts);
   size_t maxHybridResults = RSGlobalConfig.maxSearchResults;
@@ -558,18 +621,19 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
-  ArgsCursor ac;
-  ArgsCursor_InitRString(&ac, argv + 2, argc - 2);
-  if (AC_IsAtEnd(&ac) || !AC_AdvanceIfMatch(&ac, "SEARCH")) {
+  // Prefixes for the index
+  arrayof(const char*) prefixes = array_new(const char*, 0);
+
+  if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ESYNTAX, "SEARCH argument is required");
     goto error;
   }
 
-  if (parseSearchSubquery(&ac, searchRequest, status) != REDISMODULE_OK) {
+  if (parseSearchSubquery(ac, searchRequest, status) != REDISMODULE_OK) {
     goto error;
   }
 
-  if (parseVectorSubquery(&ac, vectorRequest, status) != REDISMODULE_OK) {
+  if (parseVectorSubquery(ac, vectorRequest, status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -584,8 +648,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
+      .prefixes = &prefixes,
   };
-  if (HybridParseOptionalArgs(&hybridParseCtx, &ac, internal) != REDISMODULE_OK) {
+  // may change prefixes in internal array_ensure_append_1
+  if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -609,7 +675,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   );
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
-  if (hybridParseCtx.specifiedArgs != 0) {
+  const bool hadArgumentBesidesCombine = (hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0;
+  if (hadArgumentBesidesCombine) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
     if (mergeSearchopts.params) {
       searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
@@ -626,6 +693,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       copyCursorConfig(&searchRequest->cursorConfig, parsedCmdCtx->cursorConfig);
       copyCursorConfig(&vectorRequest->cursorConfig, parsedCmdCtx->cursorConfig);
     }
+    if (*mergeReqflags & QEXEC_F_SEND_SCORES) {
+      searchRequest->reqflags |= QEXEC_F_SEND_SCORES;
+      vectorRequest->reqflags |= QEXEC_F_SEND_SCORES;
+    }
 
     // Copy request configuration using the helper function
     copyRequestConfig(&searchRequest->reqConfig, parsedCmdCtx->reqConfig);
@@ -640,27 +711,21 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
     }
-
-    applyLimitParameterFallbacks(parsedCmdCtx->tailPlan, vectorRequest->parsedVectorData, hybridParams);
   }
 
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
   // This is because the sorter limits the number of results and can reduce the amount of work the loader needs to do
   // So it is important this is done before we add the load step to the subqueries plan
-  AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
-
-  // We need a load step, implicit or an explicit one
-  PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
-  if (!loadStep) {
-    loadStep = createImplicitLoadStep();
+  PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
+  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    arrangeStep->limit = hybridParams->scoringCtx->rrfCtx.window;
   } else {
-    AGPLN_PopStep(&loadStep->base);
+    // hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR
+    arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
   }
-  AGPLN_AddStep(&searchRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
-  AGPLN_AddStep(&vectorRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
-  // Free the source load step
-  loadStep->base.dtor(&loadStep->base);
-  loadStep = NULL;
+
+  // Handle load step distribution for hybrid pipelines
+  handleLoadStepForHybridPipelines(parsedCmdCtx->tailPlan, &searchRequest->pipeline.ap, &vectorRequest->pipeline.ap);
 
   if (!(*mergeReqflags & QEXEC_F_NO_SORT)) {
     // No SORTBY 0 - add implicit sort-by-score
@@ -669,6 +734,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
+
+  if (!IsIndexCoherentWithQuery(*hybridParseCtx.prefixes, parsedCmdCtx->search->sctx->spec)) {
+    QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
+    goto error;
+  }
+  array_free(prefixes);
+  prefixes = NULL;
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
@@ -687,6 +759,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
               .sctx = sctx,  // should be a separate context?
               .reqflags = *mergeReqflags | QEXEC_F_IS_HYBRID_TAIL,
               .optimizer = NULL,  // is it?
+              .scoreAlias = mergeSearchopts.scoreAlias,
           },
       .outFields = NULL,
       .maxResultsLimit = maxHybridResults,
@@ -699,6 +772,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   return REDISMODULE_OK;
 
 error:
+  array_free(prefixes);
+  prefixes = NULL;
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
   }
