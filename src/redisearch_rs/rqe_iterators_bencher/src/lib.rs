@@ -33,6 +33,19 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn ResultMetrics_Reset(metrics: *mut RSYieldableMetric) {
+    if metrics.is_null() {
+        return;
+    }
+    unsafe {
+        array_clear_func(
+            metrics as *mut c_void,
+            std::mem::size_of::<RSYieldableMetric>() as u16,
+        );
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn RSValue_Number(val: f64) -> RSValue {
     let rs_val = Box::new(RSValue {
         __bindgen_anon_1: RSValue__bindgen_ty_1 {

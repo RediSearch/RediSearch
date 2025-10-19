@@ -69,8 +69,8 @@ fn read() {
             );
             let res = res.unwrap();
             assert_eq!(res.doc_id, expected_id, "Case {i}, element {j}");
-            let metric_val: *mut RSValue = unsafe { (*res.metrics.wrapping_add(j)).value };
-            assert_eq!(get_rs_value_number(metric_val).unwrap(), metric_data[j]);
+            let metric_val: RSValue = unsafe { *(*res.metrics).value };
+            assert_eq!(get_rs_value_number(metric_val), metric_data[j]);
             assert_eq!(it.last_doc_id(), expected_id, "Case {i}, element {j}");
         }
 
@@ -98,8 +98,8 @@ fn skip_to() {
         let first_doc = first_res.unwrap();
         let first_id = case[0];
         assert_eq!(first_doc.doc_id, first_id, "Case {ci}");
-        let metric_val: *mut RSValue = unsafe { (*first_doc.metrics).value };
-        assert_eq!(get_rs_value_number(metric_val).unwrap(), metric_data[0]);
+        let metric_val: RSValue = unsafe { *(*first_doc.metrics).value };
+        assert_eq!(get_rs_value_number(metric_val), metric_data[0]);
         assert_eq!(it.last_doc_id(), first_id, "Case {ci}");
         assert_eq!(it.at_eof(), Some(&first_id) == case.last(), "Case {ci}");
 
@@ -128,9 +128,8 @@ fn skip_to() {
                     res.doc_id, id,
                     "Case {ci} probe {probe} expected landing on {id}"
                 );
-                let metric_val: *mut RSValue =
-                    unsafe { (*res.metrics.wrapping_add(probe as usize)).value };
-                assert_eq!(get_rs_value_number(metric_val).unwrap(), metric_data[j]);
+                let metric_val: RSValue = unsafe { *(*res.metrics).value };
+                assert_eq!(get_rs_value_number(metric_val), metric_data[j]);
                 // Should land on next existing id
                 assert_eq!(
                     it.at_eof(),
@@ -153,9 +152,8 @@ fn skip_to() {
                 res.doc_id, id,
                 "Case {ci} probe {probe} expected landing on {id}"
             );
-            let metric_val: *mut RSValue =
-                unsafe { (*res.metrics.wrapping_add(probe as usize)).value };
-            assert_eq!(get_rs_value_number(metric_val).unwrap(), metric_data[j]);
+            let metric_val: RSValue = unsafe { *(*res.metrics).value };
+            assert_eq!(get_rs_value_number(metric_val), metric_data[j]);
             assert_eq!(
                 it.at_eof(),
                 Some(&id) == case.last(),

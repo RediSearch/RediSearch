@@ -1479,6 +1479,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "redis_mock",
+ "types_ffi",
  "value_ffi",
 ]
 

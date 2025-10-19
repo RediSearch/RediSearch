@@ -22,6 +22,7 @@ pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
     RSResultData, RSResultKind, RSResultKindMask, RSTermRecord, RSYieldableMetric_Concat,
+    ResultMetrics_Reset,
 };
 
 pub mod debug;

@@ -35,6 +35,19 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn ResultMetrics_Reset(metrics: *mut ffi::RSYieldableMetric) {
+    if metrics.is_null() {
+        return;
+    }
+    unsafe {
+        array_clear_func(
+            metrics as *mut c_void,
+            std::mem::size_of::<ffi::RSYieldableMetric>() as u16,
+        );
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn IndexResult_ConcatMetrics(
     _parent: *mut RSIndexResult,
     _child: *const RSIndexResult,
@@ -69,12 +82,9 @@ pub extern "C" fn RSValue_Number(val: f64) -> ffi::RSValue {
 }
 
 #[allow(dead_code)]
-pub fn get_rs_value_number(ptr: *const ffi::RSValue) -> Option<f64> {
-    if ptr.is_null() {
-        return None;
-    }
+pub fn get_rs_value_number(rs_val: ffi::RSValue) -> f64 {
     unsafe {
-        let v = Some((*ptr).__bindgen_anon_1._numval);
+        let v = rs_val.__bindgen_anon_1._numval;
         v
     }
 }
