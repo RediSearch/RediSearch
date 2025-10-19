@@ -817,6 +817,21 @@ std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx
   return ctx->propagated_commands;
 }
 
+RedisModuleSlotRangeArray *RMCK_ClusterGetLocalSlotRanges(RedisModuleCtx *ctx) {
+  constexpr RedisModuleSlotRange dummy_ranges[] = {
+      {0, 5460},
+      {10923, 16383},
+  };
+  auto *array = reinterpret_cast<RedisModuleSlotRangeArray *>(RMCK_Alloc(sizeof(RedisModuleSlotRangeArray) + sizeof(dummy_ranges)));
+  array->num_ranges = 2;
+  std::memcpy(array->ranges, dummy_ranges, sizeof(dummy_ranges));
+  return array;
+}
+
+void RMCK_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots) {
+  RMCK_Free(slots);
+}
+
 // Track contexts associated with IO objects
 static std::map<RedisModuleIO*, RedisModuleCtx*> io_contexts;
 static std::mutex io_contexts_mutex;
@@ -1483,6 +1498,8 @@ static void registerApis() {
 
   // Cluster
   REGISTER_API(ClusterPropagateForSlotMigration);
+  REGISTER_API(ClusterGetLocalSlotRanges);
+  REGISTER_API(ClusterFreeSlotRanges);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
