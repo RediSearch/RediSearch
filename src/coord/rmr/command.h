@@ -100,8 +100,6 @@ void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t
 void MRCommand_WriteTaggedKey(MRCommand *cmd, int index, const char *newarg, const char *part,
                               size_t n);
 
-int MRCommand_GetShardingKey(const MRCommand *cmd);
-
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx);
 
 /* Create a copy of a command by duplicating all strings */
