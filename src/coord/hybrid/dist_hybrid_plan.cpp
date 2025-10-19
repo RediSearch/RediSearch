@@ -66,7 +66,12 @@ static void serializeUnresolvedKeys(arrayof(char*) *target, std::vector<const RL
     rm_asprintf(&buffer, "%lu", (unsigned long)keys.size());
     array_append(*target, buffer);
     for (auto kk : keys) {
-      rm_asprintf(&buffer, "@%.*s", (int)kk->name_len, kk->name);
+      // json paths should probably be serialized as is
+      if (kk->name[0] == '$') {
+        rm_asprintf(&buffer, "%.*s", (int)kk->name_len, kk->name);
+      } else {
+        rm_asprintf(&buffer, "@%.*s", (int)kk->name_len, kk->name);
+      }
       array_append(*target, buffer);
     }
   }
