@@ -46,7 +46,6 @@ void Slots_FreeLocalSlots(const SharedSlotRangeArray *slots) {
   SharedSlotRangeArray *slots_ = (SharedSlotRangeArray *)slots; // Cast away constness for refcount management
   if (slots_ && atomic_fetch_sub_explicit(&slots_->refcount, 1, memory_order_release) == 1) {
     rm_free(slots_);
-    localSlots = NULL;
   }
 }
 
