@@ -48,11 +48,11 @@ def test_hybrid_sortby_nosort_conflict():
     
     # Test that SORTBY alone works (should not fail)
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'SORTBY', '1', 'description').ok()
+               'SORTBY', '1', 'description').noError()
     
     # Test that NOSORT alone works (should not fail)
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'NOSORT').ok()
+               'NOSORT').noError()
 
 
 def test_hybrid_sortby_nosort_with_combine():
