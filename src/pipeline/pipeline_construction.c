@@ -198,7 +198,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsHybridTail(&params->common) || IsHybridSearchSubquery(&params->common) ||
+    } else if (IsHybrid(&params->common) ||
                IsSearch(&params->common) && !IsOptimized(&params->common) ||
                HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
@@ -225,8 +225,9 @@ end:
 static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const RLookupKey *scoreKey, const QueryPipelineParams *params) {
   const char *scorer = params->scorerName;
   if (!scorer) {
-    scorer = DEFAULT_SCORER_NAME;
+    scorer = RSGlobalConfig.defaultScorer;
   }
+  RS_LOG_ASSERT(scorer, "No scorer name");
   ScoringFunctionArgs scargs = {0};
   if (params->common.reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));

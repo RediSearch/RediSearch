@@ -18,7 +18,7 @@ extern "C" {
 
 extern RedisJSONAPI *japi;
 extern int japi_ver;
-// extern RedisModuleCtx *RSDummyContext;
+#define RedisJSONAPI_MIN_API_VER 6
 
 #define JSON_ROOT "$"
 
@@ -37,11 +37,13 @@ typedef struct {
     struct {
       RedisJSON arr;
       size_t index;
+      RedisJSONPtr value_ptr;
     } array;
   };
 } JSONIterable;
 
 RedisJSON JSONIterable_Next(JSONIterable *iterable);
+void JSONIterable_Clean(JSONIterable *iterable); // Like free, but does not free the `iterable` pointer itself
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange);
 
@@ -53,9 +55,6 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len, FieldSpec *
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *status);
 
 JSONPath pathParse(const HiddenString* path, RedisModuleString **err_msg);
-void pathFree(JSONPath jsonpath);
-int pathIsSingle(JSONPath jsonpath);
-int pathHasDefinedOrder(JSONPath jsonpath);
 
 void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName);
 

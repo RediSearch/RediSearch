@@ -103,6 +103,7 @@ size_t NumShards = 0;
 // Strings returned by CONFIG GET functions
 RedisModuleString *config_ext_load = NULL;
 RedisModuleString *config_friso_ini = NULL;
+RedisModuleString *config_default_scorer = NULL;
 
 /* ======================= DEBUG ONLY DECLARATIONS ======================= */
 static void DEBUG_DistSearchCommandHandler(void* pd);
@@ -1083,6 +1084,38 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+// Restore an index schema from the given string.
+// Currently behaves as FT._CREATEIFNX (No error if index exists).
+// FT._RESTOREIFNX SCHEMA {encode version} {schema string}
+int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  long long encodeVersion;
+  if (RedisModule_StringToLongLong(argv[2], &encodeVersion) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "ERRBADVAL Invalid encoding version");
+  }
+
+  int rc = IndexSpec_Deserialize(argv[3], encodeVersion);
+
+  if (rc != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "ERRBADVAL Failed to deserialize schema");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+int RegisterRestoreIfNxCommands(RedisModuleCommand *restoreCmd) {
+  int rc;
+
+  const char *schema_flags = IsEnterprise() ? "write "CMD_PROXY_FILTERED : "write "CMD_INTERNAL;
+  rc = RedisModule_CreateSubcommand(restoreCmd, "SCHEMA", RestoreSchema, schema_flags, 0, 0, 0);
+  if (rc != REDISMODULE_OK) return rc;
+
+  return REDISMODULE_OK;
+}
+
 #define RM_TRY_F(f, ...)                                                       \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -1377,6 +1410,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
          "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
+
+  RM_TRY(RMCreateSearchCommand(ctx, RS_RESTORE_IF_NX, NULL,
+         "write", INDEX_ONLY_CMD_ARGS, "", true))
+  RM_TRY_F(RegisterRestoreIfNxCommands, RedisModule_GetCommand(ctx, RS_RESTORE_IF_NX))
 
   // Special cases: Register drop commands which write to arbitrary keys
   RM_TRY(RMCreateArbitraryWriteSearchCommand(ctx, RS_DROP_CMD, DropIndexCommand,
@@ -2752,8 +2789,6 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
     MRReply *current = replies[i];
     // Check if reply is error
     if (MRReply_Type(current) == MR_REPLY_ERROR) {
-      // Since we expect this to happen only with OOM, we assert it until this invariant changes.
-      RS_ASSERT(extractQueryErrorFromReply(replies[i]) == QUERY_EOOM);
       MR_ReplyWithMRReply(reply, current);
       continue;
     }
@@ -3227,6 +3262,44 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return RSAggregateCommand(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+
+  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CMDCTX_NO_GIL,
+                                               dist_callback, ctx, argv, argc,
+                                               StrongRef_Demote(spec_ref));
+}
+
+void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                      struct ConcurrentCmdCtx *cmdCtx);
+
+int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (NumShards == 0) {
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // Coord callback
+  ConcurrentCmdHandler dist_callback = RSExecDistHybrid;
+
+  // Prepare the spec ref for the background thread
+  const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+  IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
+  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp) {
+    return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
+  }
+
+  // Check ACL permissions
+  if (!ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
+  if (NumShards == 1) {
+    return RSClientHybridCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
@@ -3853,8 +3926,13 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
            SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read", false))
   }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID",
-    SafeCmd(RSClientHybridCommand), "readonly", 0, 0, -1, "read", false))
+  if (clusterConfig.type == ClusterType_RedisLabs) {
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID",
+           SafeCmd(DistHybridCommand), "readonly", 0, 1, -2, "read", false))
+  } else {
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID",
+           SafeCmd(DistHybridCommand), "readonly", 0, 0, -1, "read", false))
+  }
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read", false))
@@ -3927,6 +4005,10 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeString(ctx, config_friso_ini);
     config_friso_ini = NULL;
   }
+  if (config_default_scorer) {
+    RedisModule_FreeString(ctx, config_default_scorer);
+    config_default_scorer = NULL;
+  }
   if (RSGlobalConfig.extLoad) {
     rm_free((void *)RSGlobalConfig.extLoad);
     RSGlobalConfig.extLoad = NULL;
@@ -3934,6 +4016,10 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
   if (RSGlobalConfig.frisoIni) {
     rm_free((void *)RSGlobalConfig.frisoIni);
     RSGlobalConfig.frisoIni = NULL;
+  }
+  if (RSGlobalConfig.defaultScorer) {
+    rm_free((void *)RSGlobalConfig.defaultScorer);
+    RSGlobalConfig.defaultScorer = NULL;
   }
 
   SearchDisk_Close();
