@@ -8,7 +8,9 @@
 */
 
 use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
-use inverted_index::{IndexReader, InvertedIndex, RSIndexResult, doc_ids_only::DocIdsOnly};
+use inverted_index::{
+    IndexBlock, IndexReader, InvertedIndex, RSIndexResult, doc_ids_only::DocIdsOnly,
+};
 
 mod c_mocks;
 
@@ -54,7 +56,10 @@ fn test_inverted_index_usage() {
 
     // Remove the first 50_000 documents
     let delta = ii
-        .scan_gc(|doc_id| doc_id >= 50_000, |_, _| {})
+        .scan_gc(
+            |doc_id| doc_id >= 50_000,
+            None::<fn(&RSIndexResult, &IndexBlock)>,
+        )
         .unwrap()
         .unwrap();
     let apply_info = ii.apply_gc(delta);
@@ -78,7 +83,10 @@ fn test_inverted_index_usage() {
 
     // Remove the documents in the last block
     let delta = ii
-        .scan_gc(|doc_id| doc_id < 99_000, |_, _| {})
+        .scan_gc(
+            |doc_id| doc_id < 99_000,
+            None::<fn(&RSIndexResult, &IndexBlock)>,
+        )
         .unwrap()
         .unwrap();
 
@@ -90,7 +98,10 @@ fn test_inverted_index_usage() {
     assert_eq!(ii.unique_docs(), 49_000);
 
     // Remove all the records and check that the index can still be used
-    let delta = ii.scan_gc(|_| false, |_, _| {}).unwrap().unwrap();
+    let delta = ii
+        .scan_gc(|_| false, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .unwrap()
+        .unwrap();
     let apply_info = ii.apply_gc(delta);
 
     assert_eq!(apply_info.entries_removed, 49_000);
@@ -118,7 +129,10 @@ fn test_inverted_index_usage() {
     assert_eq!(ii.number_of_blocks(), 10);
 
     let delta = ii
-        .scan_gc(|doc_id| doc_id % (u32::MAX as t_docId * 2) == 0, |_, _| {})
+        .scan_gc(
+            |doc_id| doc_id % (u32::MAX as t_docId * 2) == 0,
+            None::<fn(&RSIndexResult, &IndexBlock)>,
+        )
         .unwrap()
         .unwrap();
     let apply_info = ii.apply_gc(delta);
