@@ -23,12 +23,9 @@ static char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
 }
 
-static const char *stripAtPrefix(const char *s, size_t *s_len) {
+static const char *stripAtPrefix(const char *s) {
   while (*s && *s == '@') {
     s++;
-    if (s_len) {
-      (*s_len)--;
-    }
   }
   return s;
 }
@@ -101,7 +98,7 @@ struct ReducerDistCtx {
 
   const char *srcarg(size_t n) const {
     auto *s = (const char *)srcReducer->args.objs[n];
-    return stripAtPrefix(s, NULL);
+    return stripAtPrefix(s);
   }
 };
 
@@ -527,14 +524,13 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
 
         // Process all arguments in the ArgsCursor
         while (!AC_IsAtEnd(&ac)) {
-          size_t name_len;
-          const char *name = AC_GetStringNC(&ac, &name_len);
+          const char *name = AC_GetStringNC(&ac, NULL);
 
           // Check for AS alias
           if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
-            name = AC_GetStringNC(&ac, &name_len);
+            name = AC_GetStringNC(&ac, NULL);
           }
-          stripAtPrefix(name, &name_len);
+          name = stripAtPrefix(name);
           RLookup_GetKey_Write(lookup, name, RLOOKUP_F_NOFLAGS);
         }
         break;
@@ -543,7 +539,7 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
         PLN_GroupStep *gstp = (PLN_GroupStep *)cur;
         arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
         for (size_t ii = 0; ii < array_len(properties); ++ii) {
-          const char *propname = stripAtPrefix(properties[ii], NULL);
+          const char *propname = stripAtPrefix(properties[ii]);
           RLookup_GetKey_Write(lookup, propname, RLOOKUP_F_NOFLAGS);
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
