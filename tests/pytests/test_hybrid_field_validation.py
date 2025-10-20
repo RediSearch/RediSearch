@@ -188,7 +188,7 @@ def test_hybrid_load_star_works(env):
 
 
 def test_hybrid_special_fields_work(env):
-    """Test that FT.HYBRID works with special fields like __key and __score"""
+    """Test that FT.HYBRID field prefix validation works with special fields like __key and __score"""
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
