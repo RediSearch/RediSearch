@@ -118,9 +118,7 @@ where
                     if context.has_scan_key_feature() && !context.is_crdt() {
                         hash::get_all_scan(lookup, dst_row, options, key_str, context)?;
                     } else {
-                        todo!(
-                            "hash::get_all_fallback(lookup, dst_row, options, key_str, context)?;"
-                        );
+                        hash::get_all_fallback(lookup, dst_row, options, key_str, context)?;
                     }
                 }
                 DocumentType::Json => {
@@ -176,7 +174,6 @@ pub trait LoadDocumentContext {
 
 pub enum ValueSrc<'a> {
     /// From CALL API (HGETALL reply element)
-    #[expect(unused, reason = "Used in follow-up PRs")]
     ReplyElem(*mut redis_module::RedisModuleCallReply),
     /// From ScanKeyCursor (hval / RedisModuleString)
     HVal(&'a RedisString),
@@ -435,6 +432,9 @@ impl LoadDocumentError {
 }
 
 #[cfg(test)]
+pub mod mock;
+
+#[cfg(test)]
 mod tests {
 
     use super::*;
@@ -505,7 +505,24 @@ mod tests {
 
         fn generate_value(&self, src: ValueSrc, _ct: RLookupCoerceType) -> Self::V {
             match src {
-                ValueSrc::ReplyElem(_) => todo!(),
+                ValueSrc::ReplyElem(reply_ptr) => {
+                    // Convert the RedisModuleCallReply to a string value
+                    let mut len: usize = 0;
+                    let string_ptr = unsafe {
+                        ffi::RedisModule_CallReplyStringPtr.unwrap()(
+                            reply_ptr as *mut ffi::RedisModuleCallReply,
+                            &mut len,
+                        )
+                    };
+                    if string_ptr.is_null() {
+                        RSValueMock::create_string(String::new())
+                    } else {
+                        let slice =
+                            unsafe { std::slice::from_raw_parts(string_ptr as *const u8, len) };
+                        let string = String::from_utf8_lossy(slice).to_string();
+                        RSValueMock::create_string(string)
+                    }
+                }
                 ValueSrc::HVal(redis_string) => {
                     let string = redis_string.to_string();
                     RSValueMock::create_string(string)
@@ -598,6 +615,14 @@ mod tests {
             redis_mock::init_redis_module_mock();
             let mut ctx = LoadDocumentTestContext::default();
             ctx.with_scan_key_feature(true);
+            two_fields_empty_row_and_lookup(&mut ctx)
+        }
+
+        #[test]
+        fn add_two_fields_hash_fallback() -> Result<(), LoadDocumentError> {
+            redis_mock::init_redis_module_mock();
+            let mut ctx = LoadDocumentTestContext::default();
+            ctx.with_scan_key_feature(false);
             two_fields_empty_row_and_lookup(&mut ctx)
         }
     }

@@ -10,7 +10,8 @@
 use std::{borrow::Cow, ffi::CStr, ptr::NonNull};
 
 use redis_module::{
-    KeyType, RedisString, ScanKeyCursor,
+    CallOptionResp, CallOptionsBuilder, CallReply, CallResult, Context, KeyType, RedisString,
+    ScanKeyCursor,
     key::{KeyFlags, RedisKey},
 };
 use value::RSValueFFI;
@@ -72,6 +73,95 @@ impl LoadDocumentContext for LoadDocumentImpl {
     ) -> Result<(), LoadDocumentError> {
         todo!("ccalls::load_individual_keys(lookup, dst_row, options)")
     }
+}
+
+pub(super) fn get_all_fallback<C>(
+    lookup: &mut RLookup<'_>,
+    dst_row: &mut RLookupRow<'_, C::V>,
+    options: &LoadDocumentOptions<'_, C::V>,
+    key_str: RedisString,
+    context: &C,
+) -> Result<(), LoadDocumentError>
+where
+    C: LoadDocumentContext,
+{
+    // generate call options to use CALL API from `redis_module` crate.
+    let call_options = CallOptionsBuilder::new()
+        .script_mode()
+        .resp(CallOptionResp::Resp3)
+        .errors_as_replies()
+        .build();
+
+    // create a context from the RedisModuleCtx
+    let ctx = if let Some(ptr) = options.context {
+        Context::new(ptr.as_ptr())
+    } else {
+        Context::dummy()
+    };
+
+    // call HGETALL using the CALL API with `key_str` as argument
+    let Ok(reply) = ctx.call_ext::<_, CallResult>("HGETALL", &call_options, &[&key_str]) else {
+        return Err(LoadDocumentError::FallbackAPINotAvailable);
+    };
+
+    // Check if the reply is an array and return an error if not
+    let redis_module::CallReply::Array(reply) = reply else {
+        return Err(LoadDocumentError::key_does_not_exist(Some(
+            key_str.to_string(),
+        )));
+    };
+
+    // If the array is empty, the key does not exist
+    let len = reply.len();
+    if len == 0 {
+        return Err(LoadDocumentError::key_does_not_exist(Some(
+            key_str.to_string(),
+        )));
+    }
+
+    // The array must have an even number of elements (field-value pairs)
+    for i in (0..len).step_by(2) {
+        let k = reply.get(i).unwrap().unwrap();
+        let CallReply::String(k) = k else {
+            return Err(LoadDocumentError::invalid_arguments(Some(
+                "Expected a string reply for the key, but got something else".to_string(),
+            )));
+        };
+        let value_call = reply.get(i + 1).unwrap().unwrap();
+        let CallReply::String(_value) = &value_call else {
+            return Err(LoadDocumentError::invalid_arguments(Some(
+                "Expected a string reply for the value, but got something else".to_string(),
+            )));
+        };
+        // the following is like the c strndup function, so we need to add the trailing zero:
+        let key_bytes = k.as_bytes();
+
+        // Safety: We create a CString from null terminated byte slice, which is safe because redis strings have a trailing zero.
+        let field_cstr = unsafe { CStr::from_ptr(key_bytes.as_ptr().cast()) };
+
+        with_or_create_key(
+            lookup,
+            field_cstr,
+            |rlk| !rlk.flags.contains(RLookupKeyFlag::QuerySrc),
+            |rlk| {
+                let mut coerce_type = RLookupCoerceType::Str;
+                if !options.force_string && rlk.flags.contains(RLookupKeyFlag::Numeric) {
+                    coerce_type = RLookupCoerceType::Dbl;
+                }
+
+                let input = value_call.get_raw().unwrap_or(std::ptr::null_mut());
+                let value = context.generate_value(ValueSrc::ReplyElem(input), coerce_type);
+
+                // This function will retain the value if it's a string. This is thread-safe because
+                // the value was created just before calling this callback and will be freed right after
+                // the callback returns, so this is a thread-local operation that will take ownership of
+                // the string value.
+                dst_row.write_key(rlk, value);
+            },
+        );
+    }
+
+    Ok(())
 }
 
 pub(super) fn get_all_scan<C: LoadDocumentContext>(
