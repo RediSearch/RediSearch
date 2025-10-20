@@ -33,8 +33,6 @@ def setup_basic_index(env):
     for doc_id, doc_data in test_data.items():
         conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_search_invalid_query_with_vector():
     """Test that hybrid search subquery fails when it contains vector query"""
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')

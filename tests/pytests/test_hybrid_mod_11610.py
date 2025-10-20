@@ -126,8 +126,6 @@ def setup_bikes_index(env):
                            'description_embeddings', doc_data['embedding'])
 
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_mod_11610():
     """Test FT.SEARCH and FT.HYBRID with increasing parameters to get more than 10 results"""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -192,8 +190,6 @@ def test_hybrid_mod_11610():
     env.assertEqual(len(hybrid_dict['results']), 20)
 
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_limit_with_filter():
     """Test FT.HYBRID with LIMIT and FILTER to ensure filtering is applied before limiting"""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')

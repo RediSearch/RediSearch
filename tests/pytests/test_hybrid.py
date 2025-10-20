@@ -93,8 +93,6 @@ class testHybridSearch:
     ############################################################################
     def test_knn_single_token_search(self):
         """Test hybrid search using KNN + single token search scenario"""
-        if CLUSTER:
-            raise SkipTest()
         scenario = {
             "test_name": "Single token text search",
             "hybrid_query": "SEARCH two VSIM @vector $BLOB LIMIT 0 11",
@@ -106,7 +104,7 @@ class testHybridSearch:
     def test_knn_wildcard_search(self):
         """Test hybrid search using KNN + wildcard search scenario"""
         if CLUSTER:
-            raise SkipTest()
+            raise SkipTest()  # Different ordering in cluster mode
         scenario = {
             "test_name": "Wildcard text search",
             "hybrid_query": "SEARCH * VSIM @vector $BLOB",
@@ -119,7 +117,7 @@ class testHybridSearch:
     def test_knn_custom_k(self):
         """Test hybrid search using KNN with custom k scenario"""
         if CLUSTER:
-            raise SkipTest()
+            raise SkipTest()  # Different score calculations in cluster mode
         scenario = {
             "test_name": "KNN with custom k",
             "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 5",
@@ -131,7 +129,7 @@ class testHybridSearch:
     def test_knn_custom_rrf_constant(self):
         """Test hybrid search using KNN with custom RRF CONSTANT"""
         if CLUSTER:
-            raise SkipTest()
+            raise SkipTest()  # Different score calculations in cluster mode
         scenario = {
             "test_name": "KNN with custom RRF CONSTANT",
             "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 10 COMBINE RRF 2 CONSTANT 50",
@@ -143,8 +141,6 @@ class testHybridSearch:
 
     def test_knn_custom_rrf_window(self):
         """Test hybrid search using KNN with custom RRF WINDOW"""
-        if CLUSTER:
-            raise SkipTest()
         scenario = {
             "test_name": "KNN with custom RRF WINDOW",
             "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 10 COMBINE RRF 2 WINDOW 2",
@@ -157,7 +153,7 @@ class testHybridSearch:
     def test_knn_ef_runtime(self):
         """Test hybrid search using KNN + EF_RUNTIME parameter"""
         if CLUSTER:
-            raise SkipTest()
+            raise SkipTest()  # Different ordering in cluster mode
         scenario = {
             "test_name": "KNN query with parameters",
             "hybrid_query": "SEARCH even VSIM @vector_hnsw $BLOB KNN 4 K 10 EF_RUNTIME 100",
@@ -182,7 +178,7 @@ class testHybridSearch:
     def test_knn_text_vector_prefilter(self):
         """Test hybrid search using KNN + VSIM text prefilter"""
         if CLUSTER:
-            raise SkipTest()
+            raise SkipTest()  # Different ordering in cluster mode
         scenario = {
             "test_name": "KNN with text prefilter",
             "hybrid_query": "SEARCH @text:(even) VSIM @vector $BLOB FILTER @text:(two|four|six)",
@@ -194,7 +190,7 @@ class testHybridSearch:
     def test_knn_numeric_vector_prefilter(self):
         """Test hybrid search using KNN + numeric prefilter"""
         if CLUSTER:
-            raise SkipTest()
+            raise SkipTest()  # Different ordering in cluster mode
         scenario = {
             "test_name": "KNN with numeric prefilter",
             "hybrid_query": "SEARCH @text:even VSIM @vector $BLOB FILTER '@number:[2 5]'",
