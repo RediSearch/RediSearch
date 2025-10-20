@@ -94,7 +94,7 @@ pub unsafe extern "C" fn QueryError_SetError(
         Some(unsafe { CStr::from_ptr(message) }.to_owned())
     };
 
-    query_error.set_code_and_info(code, message);
+    query_error.set_code_and_message(code, message);
 }
 
 /// Sets the [`QueryErrorCode`] for a [`QueryError`].
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn QueryError_SetCode(query_error: *mut OpaqueQueryError, 
     query_error.set_code(code);
 }
 
-/// Always sets the private info message for a [`QueryError`].
+/// Always sets the private message for a [`QueryError`].
 ///
 /// # Safety
 ///
@@ -137,7 +137,7 @@ pub unsafe extern "C" fn QueryError_SetDetail(
         Some(unsafe { CStr::from_ptr(detail) }.to_owned())
     };
 
-    query_error.set_private_info(detail)
+    query_error.set_private_message(detail)
 }
 
 /// Clones the `src` [`QueryError`] into `dest`.
@@ -173,9 +173,9 @@ pub unsafe extern "C" fn QueryError_CloneFrom(
     unsafe { dest.write(query_error_opaque) };
 }
 
-/// Returns the private info message set for a [`QueryError`]. If no private
-/// info is set, this returns the string error message for the code that is
-/// set, like [`QueryError_Strerror`].
+/// Returns the private message set for a [`QueryError`]. If no private message
+/// is set, this returns the string error message for the code that is set,
+/// like [`QueryError_Strerror`].
 ///
 /// # Safety
 ///
@@ -189,17 +189,17 @@ pub unsafe extern "C" fn QueryError_GetUserError(
         unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
 
     query_error
-        .private_info()
+        .private_message()
         .unwrap_or_else(|| query_error.code().to_c_str())
         .as_ptr()
 }
 
-/// Returns an info message of a [`QueryError`].
+/// Returns an message of a [`QueryError`].
 ///
-/// This preferentially returns the private info message if any, of the public
-/// info if any, defaulting to the error code's string error.
+/// This preferentially returns the private message if any, or the public
+/// message if any, lastly defaulting to the error code's string error.
 ///
-/// If `obfuscate` is set, then the private info message is not returned.
+/// If `obfuscate` is set, the private message is not returned.
 ///
 /// # Safety
 ///
@@ -213,13 +213,14 @@ pub unsafe extern "C" fn QueryError_GetDisplayableError(
     let query_error =
         unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
 
-    let info = if obfuscate {
-        query_error.public_info()
+    let message = if obfuscate {
+        query_error.public_message()
     } else {
-        query_error.private_info()
+        query_error.private_message()
     };
 
-    info.unwrap_or_else(|| query_error.code().to_c_str())
+    message
+        .unwrap_or_else(|| query_error.code().to_c_str())
         .as_ptr()
 }
 
@@ -258,9 +259,9 @@ pub unsafe extern "C" fn QueryError_ClearError(query_error: *mut OpaqueQueryErro
 
 /// Sets the [`QueryErrorCode`] for a [`QueryError`].
 ///
-/// This does not mutate `query_error` if it already has an error set, or if
-/// the private info message is set. This differs from [`QueryError_SetCode`],
-/// as that function does not care if the private info message is set.
+/// This does not mutate `query_error` if it already has an error set, or
+/// if the private message is set. This differs from [`QueryError_SetCode`],
+/// as that function does not care if the private message is set.
 ///
 /// # Safety
 ///
@@ -273,7 +274,7 @@ pub unsafe extern "C" fn QueryError_MaybeSetCode(query_error: *mut OpaqueQueryEr
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
     let code = QueryErrorCode::try_from(code).expect("invalid query error code");
 
-    if query_error.private_info().is_none() || !query_error.is_ok() {
+    if query_error.private_message().is_none() || !query_error.is_ok() {
         return;
     }
 

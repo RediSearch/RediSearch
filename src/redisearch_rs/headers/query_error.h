@@ -182,7 +182,7 @@ void QueryError_SetError(struct QueryError *query_error, uint8_t code, const cha
 void QueryError_SetCode(struct QueryError *query_error, uint8_t code);
 
 /**
- * Always sets the private info message for a [`QueryError`].
+ * Always sets the private message for a [`QueryError`].
  *
  * # Safety
  *
@@ -204,9 +204,9 @@ void QueryError_SetDetail(struct QueryError *query_error, const char *detail);
 void QueryError_CloneFrom(const struct QueryError *src, struct QueryError *dest);
 
 /**
- * Returns the private info message set for a [`QueryError`]. If no private
- * info is set, this returns the string error message for the code that is
- * set, like [`QueryError_Strerror`].
+ * Returns the private message set for a [`QueryError`]. If no private message
+ * is set, this returns the string error message for the code that is set,
+ * like [`QueryError_Strerror`].
  *
  * # Safety
  *
@@ -215,12 +215,12 @@ void QueryError_CloneFrom(const struct QueryError *src, struct QueryError *dest)
 const char *QueryError_GetUserError(const struct QueryError *query_error);
 
 /**
- * Returns an info message of a [`QueryError`].
+ * Returns an message of a [`QueryError`].
  *
- * This preferentially returns the private info message if any, of the public
- * info if any, defaulting to the error code's string error.
+ * This preferentially returns the private message if any, or the public
+ * message if any, lastly defaulting to the error code's string error.
  *
- * If `obfuscate` is set, then the private info message is not returned.
+ * If `obfuscate` is set, the private message is not returned.
  *
  * # Safety
  *
@@ -252,9 +252,9 @@ void QueryError_ClearError(struct QueryError *query_error);
 /**
  * Sets the [`QueryErrorCode`] for a [`QueryError`].
  *
- * This does not mutate `query_error` if it already has an error set, or if
- * the private info message is set. This differs from [`QueryError_SetCode`],
- * as that function does not care if the private info message is set.
+ * This does not mutate `query_error` if it already has an error set, or
+ * if the private message is set. This differs from [`QueryError_SetCode`],
+ * as that function does not care if the private message is set.
  *
  * # Safety
  *
