@@ -68,7 +68,7 @@ static void serializeUnresolvedKeys(arrayof(char*) *target, std::vector<const RL
     for (auto kk : keys) {
       // json paths should be serialized as is to avoid weird names
       if (kk->name[0] == '$') {
-        rm_asprintf(&buffer, "%.*s", (int)kk->name_len, kk->name);
+        buffer = rm_strndup(kk->name, kk->name_len);
       } else {
         rm_asprintf(&buffer, "@%.*s", (int)kk->name_len, kk->name);
       }
