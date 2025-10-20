@@ -13,10 +13,11 @@ use std::fmt::{Debug, Display};
 
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
-#[derive(Clone, Copy, PartialEq, Eq, TryFrom)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, TryFrom)]
 #[try_from(repr)]
 #[repr(u8)]
 pub enum QueryErrorCode {
+    #[default]
     Ok = 0,
     Generic,
     Syntax,
@@ -85,10 +86,14 @@ impl Display for QueryErrorCode {
     }
 }
 
-// TODO(enricozb): this should be moved to either a thiserror or strum macro.
-// This is done as &'static CStr because we need to provide *const c_char
-// representations of the error codes for FFI into C code.
 impl QueryErrorCode {
+    pub fn is_ok(self) -> bool {
+        matches!(self, Self::Ok)
+    }
+
+    // TODO(enricozb): this should be moved to either a thiserror or strum macro.
+    // This is done as &'static CStr because we need to provide *const c_char
+    // representations of the error codes for FFI into C code.
     pub fn to_c_str(self) -> &'static CStr {
         match self {
             Self::Ok => c"Success (not an error)",
@@ -151,7 +156,9 @@ impl QueryErrorCode {
 
 #[derive(Clone, Debug, Default)]
 pub struct QueryError {
-    code: Option<QueryErrorCode>,
+    // FIXME: once QueryError is no longer depended on by C code this should be
+    // an Option<QueryErrorCode>.
+    code: QueryErrorCode,
     // FIXME: once QueryError is no longer depended on by C code, these CString
     // members should be using the traditional String.
     public_info: Option<CString>,
@@ -162,14 +169,14 @@ pub struct QueryError {
 
 impl QueryError {
     pub fn is_ok(&self) -> bool {
-        self.code.is_none()
+        self.code.is_ok()
     }
 
-    pub fn code(&self) -> Option<QueryErrorCode> {
+    pub fn code(&self) -> QueryErrorCode {
         self.code
     }
 
-    pub fn set_code(&mut self, code: Option<QueryErrorCode>) {
+    pub fn set_code(&mut self, code: QueryErrorCode) {
         if !self.is_ok() {
             return;
         }
@@ -189,7 +196,7 @@ impl QueryError {
         self.private_info = private_info
     }
 
-    pub fn set_code_and_info(&mut self, code: Option<QueryErrorCode>, info: Option<CString>) {
+    pub fn set_code_and_info(&mut self, code: QueryErrorCode, info: Option<CString>) {
         if !self.is_ok() {
             return;
         }
