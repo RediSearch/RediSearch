@@ -107,7 +107,10 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'TIMEOUT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
-    env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'BM25STD').equal('OK')
+    env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'BM25STD').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'TFIDF').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'TFIDF').ok()
     env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).equal(not_modifiable) # deprecated
     env.expect(config_cmd(), 'set', 'MT_MODE', 1).equal(not_modifiable) # deprecated
     env.expect(config_cmd(), 'set', 'FRISOINI', 1).equal(not_modifiable)
@@ -1847,6 +1850,7 @@ def testConfigIndependence_max_values():
 def testDefaultScorerConfig(env):
     """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
     env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
+    env.expect(config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
     env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
 
     valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
@@ -1868,3 +1872,33 @@ def testDefaultScorerConfig(env):
     env.expect('CONFIG', 'SET', 'search-default-scorer', 'NOTHING2').error().contains('Invalid default scorer value')
 
     env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
+
+@skip(cluster=True)
+def testDefaultScorerConfigDisabled(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
+    env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', scorer).error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+        env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
+        env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
+
+    for scorer in valid_scorers:
+        # Since BM25STD is the default scorer, it is always valid
+        if scorer == 'BM25STD':
+            env.expect('CONFIG', 'set', 'search-default-scorer', scorer).ok()
+        else:
+            env.expect('CONFIG', 'set', 'search-default-scorer', scorer).error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+        env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
+        env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
+
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+
+    env.expect('CONFIG', 'SET', 'search-default-scorer', 'INVALID_SCORER2').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+
+    env.expect('CONFIG', 'SET', 'search-default-scorer', 'NOTHING2').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+
+    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])  # Should still be the last valid value

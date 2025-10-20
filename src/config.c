@@ -196,6 +196,13 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
 
 int set_default_scorer_config(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err) {
     REDISMODULE_NOT_USED(name);
+    bool is_enabled = RSGlobalConfig.defaultScorer == NULL || RSGlobalConfig.enableUnstableFeatures;
+    if (!is_enabled) {
+        if (err) {
+            *err = RedisModule_CreateStringPrintf(NULL, "Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON");
+        }
+        return REDISMODULE_ERR;
+    }
     if (RSGlobalConfig.defaultScorer == NULL) {
       RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
     }
@@ -687,6 +694,10 @@ RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
 
 // DEFAULT_SCORER
 CONFIG_SETTER(setDefaultScorer) {
+  if (!config->enableUnstableFeatures) {
+    QueryError_SetError(status, QUERY_EBADVAL, "Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON");
+    return REDISMODULE_ERR;
+  }
   const char *scorerName;
   int acrc = AC_GetString(ac, &scorerName, NULL, 0);
   if (acrc == AC_OK) {
