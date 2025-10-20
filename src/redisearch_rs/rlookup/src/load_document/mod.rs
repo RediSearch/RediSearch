@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-// Remove in follow-up PRs
-#![allow(unused)]
+mod hash;
 
 use std::ptr::NonNull;
 
@@ -81,11 +80,8 @@ pub fn load_document<'a>(
     dst_row: &mut RLookupRow<'a, RSValueFFI>,
     options: &LoadDocumentOptions<'a>,
 ) -> Result<(), LoadDocumentError> {
-    todo!("in follow-up PRs:");
-    /*
     let context = hash::LoadDocumentImpl;
     load_document_int(lookup, dst_row, options, &context)
-    */
 }
 
 // the following function is only used internally to allow for mocking out the context in tests
@@ -120,7 +116,7 @@ where
                         unsafe { RedisString::from_raw_parts(None, key_ptr.as_ptr(), sds_len) };
 
                     if context.has_scan_key_feature() && !context.is_crdt() {
-                        todo!("hash::get_all_scan(lookup, dst_row, options, key_str, context)?;");
+                        hash::get_all_scan(lookup, dst_row, options, key_str, context)?;
                     } else {
                         todo!(
                             "hash::get_all_fallback(lookup, dst_row, options, key_str, context)?;"
@@ -185,6 +181,7 @@ pub trait LoadDocumentContext {
 
 pub enum ValueSrc<'a> {
     /// From CALL API (HGETALL reply element)
+    #[expect(unused, reason = "Used in follow-up PRs")]
     ReplyElem(*mut redis_module::RedisModuleCallReply),
     /// From ScanKeyCursor (hval / RedisModuleString)
     HVal(&'a RedisString),
@@ -208,6 +205,7 @@ pub struct LoadDocumentOptions<'a, T: RSValueTrait = RSValueFFI> {
     force_string: bool,
 
     /// Temporary C struct provided by C and used when called back in C from Rust
+    #[expect(unused, reason = "Used in follow-up PRs")]
     tmp_cstruct: Option<NonNull<ffi::RLookupLoadOptions>>,
 }
 
@@ -430,12 +428,14 @@ impl LoadDocumentError {
 }
 
 #[cfg(test)]
-pub mod test_utils {
-    use std::ffi::CString;
+mod mock;
 
-    use value::RSValueMock;
+#[cfg(test)]
+mod tests {
 
     use super::*;
+    use std::ffi::CString;
+    use value::RSValueMock;
 
     /// A test context implementation for load document tests, allowing to mock out various features.
     ///
@@ -454,6 +454,7 @@ pub mod test_utils {
     }
 
     impl LoadDocumentTestContext {
+        #[cfg_attr(miri, expect(unused, reason = "no used by tests with miri"))]
         pub fn push(&mut self, field: CString, value: RSValueMock) -> &mut Self {
             self.key_values.push((field, value));
             self
@@ -463,11 +464,13 @@ pub mod test_utils {
             &self.key_values
         }
 
+        #[cfg_attr(miri, expect(unused, reason = "no used by tests with miri"))]
         pub fn with_scan_key_feature(&mut self, has_scan_key_feature: bool) -> &mut Self {
             self.has_scan_key_feature = has_scan_key_feature;
             self
         }
 
+        #[expect(unused, reason = "Used in follow-up PRs")]
         pub fn with_crdt(&mut self, is_crdt: bool) -> &mut Self {
             self.is_crdt = is_crdt;
             self
@@ -523,25 +526,78 @@ pub mod test_utils {
             Ok(())
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
+    #[cfg(not(miri))]
+    mod excluded_from_miri {
 
-    use value::RSValueMock;
+        use super::super::*;
+        use super::*;
 
-    use super::test_utils::LoadDocumentTestContext;
-    use super::*;
+        use value::RSValueMock;
+
+        // write a test that can be used by both scan and call api
+        fn two_fields_empty_row_and_lookup(
+            ctx: &mut LoadDocumentTestContext,
+        ) -> Result<(), LoadDocumentError> {
+            ctx.push(
+                CString::new("field1").unwrap(),
+                RSValueMock::create_string("value1".to_owned()),
+            )
+            .push(
+                CString::new("field2").unwrap(),
+                RSValueMock::create_string("value2".to_owned()),
+            );
+
+            let sv = RSSortingVector::new(0);
+            let key_ptr = c"TestKey";
+            type TOpt<'a> = LoadDocumentOptions<'a, RSValueMock>;
+            let opt: TOpt = LoadDocumentOptionsBuilder::new(
+                ctx as *mut LoadDocumentTestContext as *mut redis_module::raw::RedisModuleCtx,
+                &sv,
+                DocumentType::Hash,
+            )
+            .set_mode(RLookupLoadMode::AllKeys as u32)
+            .with_key_ptr(key_ptr.as_ptr() as *const _)
+            .build()?;
+
+            let mut lookup = RLookup::new();
+            let mut row = RLookupRow::new();
+            load_document_int(&mut lookup, &mut row, &opt, ctx)?;
+
+            assert_eq!(row.len(), 2);
+
+            let cursor = lookup.find_by_name(c"field1").unwrap();
+            let rlk = cursor.current().unwrap();
+            assert_eq!(
+                row.get(rlk),
+                Some(&RSValueMock::create_string("value1".to_owned()))
+            );
+
+            let cursor = lookup.find_by_name(c"field2").unwrap();
+            let rlk = cursor.current().unwrap();
+            assert_eq!(
+                row.get(rlk),
+                Some(&RSValueMock::create_string("value2".to_owned()))
+            );
+
+            Ok(())
+        }
+
+        #[test]
+        fn add_two_fields_hash_scan() -> Result<(), LoadDocumentError> {
+            // Safety: Initialization of function pointers multiple times is idempotent
+            unsafe { mock::init_redis_mock_module() };
+            let mut ctx = LoadDocumentTestContext::default();
+            ctx.with_scan_key_feature(true);
+            two_fields_empty_row_and_lookup(&mut ctx)
+        }
+    }
 
     #[test]
     fn error_invalid_mode() -> Result<(), LoadDocumentError> {
-        let ctx = LoadDocumentTestContext::default();
-
         let sv = RSSortingVector::new(0);
         let key_ptr = c"TestKey";
         type TRes<'a> = Result<LoadDocumentOptions<'a, RSValueMock>, LoadDocumentError>;
-        let res: TRes =
-            LoadDocumentOptionsBuilder::new(std::ptr::null_mut(), &sv, DocumentType::Hash).build();
 
         let invalid_opt: TRes =
             LoadDocumentOptionsBuilder::new(std::ptr::null_mut(), &sv, DocumentType::Hash)
