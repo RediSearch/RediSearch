@@ -13,6 +13,7 @@
 #include "result_processor.h"
 #include <string.h>
 #include <limits.h>
+#include "util/misc.h"
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
@@ -102,7 +103,7 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
         }
 
         // Remove '@' prefix if present (same logic as parseSortby)
-        field = RLookup_ExtractKeyName(field, &fieldLen, status, true, "SORTBY");
+        field = ExtractKeyName(field, &fieldLen, status, true, "SORTBY");
         if (!field) {
             return;
         }

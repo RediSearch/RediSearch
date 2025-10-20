@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "reducer.h"
+#include "util/misc.h"
 
 typedef struct {
   const char *name;
@@ -69,7 +70,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   }
 
   // Get the input key..
-  const char *keyName = RLookup_ExtractKeyName(s, &len, options->status, options->strictPrefix, options->name);
+  const char *keyName = ExtractKeyName(s, &len, options->status, options->strictPrefix, options->name);
   if (!keyName) {
     return 0;
   }

@@ -3,6 +3,7 @@
 #include "query_optimizer.h"
 #include "vector_normalization.h"
 #include "vector_index.h"
+#include "util/misc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -266,7 +267,7 @@ static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t
     const char *name, *path = AC_GetStringNC(ac, &name_len);
 
     // Handle path prefix (@)
-    path = RLookup_ExtractKeyName(path, &name_len, status, loadStep->strictPrefix, "LOAD");
+    path = ExtractKeyName(path, &name_len, status, loadStep->strictPrefix, "LOAD");
     if (!path) {
       return REDISMODULE_ERR;
     }

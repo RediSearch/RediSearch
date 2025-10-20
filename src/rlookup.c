@@ -982,20 +982,6 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   return rv;
 }
 
-const char *RLookup_ExtractKeyName(const char *s, size_t *len, QueryError *status, bool strictPrefix, const char *context) {
-  if (*s == '@') {
-    --*len;
-    return s + 1;
-  } else if (*s == '$') {
-    return s;
-  } else if (strictPrefix) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing field symbol prefix for field name", ": %s in %s", s, context);
-    return NULL;
-  } else {
-    return s;
-  }
-}
-
 void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
   RS_ASSERT(dest && src);
   RS_ASSERT(dest != src);  // Prevent self-addition

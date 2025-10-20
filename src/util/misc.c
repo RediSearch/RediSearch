@@ -21,3 +21,17 @@ int GetRedisErrorCodeLength(const char* error) {
   const char* errorSpace = strchr(error, ' ');
   return errorSpace ? errorSpace - error : 0;
 }
+
+const char *ExtractKeyName(const char *s, size_t *len, QueryError *status, bool strictPrefix, const char *context) {
+  if (*s == '@') {
+    --*len;
+    return s + 1;
+  } else if (*s == '$') {
+    return s;
+  } else if (strictPrefix) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Field name requires prefix: use '@' for regular fields or '$' for JSON paths", ", field: %s in %s", s, context);
+    return NULL;
+  } else {
+    return s;
+  }
+}

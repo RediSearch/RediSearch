@@ -10,13 +10,24 @@
 #define RS_MISC_H
 
 #include "redismodule.h"
+#include "query_error.h"
 
 /**
  * This handler crashes
  */
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value);
 
-//null-unsafe
+// null-unsafe
 int GetRedisErrorCodeLength(const char* error);
+
+/**
+ * Extract the key name from a string, handling prefixes and errors.
+ * @param s The string to extract the key name from
+ * @param len The length of the string
+ * @param status The error status to set in case of error
+ * @param strictPrefix Whether to fail if the key prefix is not supported, currently we support $ for JSON paths and @ for regular fields.
+ * @return The key name, or NULL if an error occurred
+ */
+const char *ExtractKeyName(const char *s, size_t *len, QueryError *status, bool strictPrefix, const char *context);
 
 #endif
