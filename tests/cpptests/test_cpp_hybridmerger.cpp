@@ -15,6 +15,8 @@
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"  // For HybridLookupContext
 #include "search_result.h"
+#include "hiredis/sds.h"
+#include "doc_table.h"
 
 #include <vector>
 #include <string>
@@ -47,8 +49,7 @@ struct MockUpstream : public ResultProcessor {
   uint8_t flags = 0;  // Single flags value for all results
   int depletionCount = 0;
   int counter = 0;
-  std::vector<RSDocumentMetadata> documentMetadata;
-  std::vector<std::string> keyStrings;
+  std::vector<RSDocumentMetadata*> documentMetadata;
 
   // Simplified constructor with just the essentials
   MockUpstream(int timeoutAfterCount = 0,
@@ -61,7 +62,6 @@ struct MockUpstream : public ResultProcessor {
 
     this->Next = NextFn;
     documentMetadata.reserve(50);
-    keyStrings.reserve(50);
 
     // If no custom docIds provided, generate sequential ones
     if (docIds.empty() && !scores.empty()) {
@@ -76,14 +76,24 @@ struct MockUpstream : public ResultProcessor {
     size_t maxEntries = depletionCount + scores.size();
     if (maxEntries > 0) {
       documentMetadata.resize(maxEntries);
-      keyStrings.resize(maxEntries);
 
       // Pre-create key strings for actual documents (not depletion entries)
       for (size_t i = 0; i < docIds.size(); i++) {
         size_t entryIndex = depletionCount + i;
-        keyStrings[entryIndex] = "doc" + std::to_string(docIds[i]);
-        documentMetadata[entryIndex].keyPtr = const_cast<char*>(keyStrings[entryIndex].c_str());
+
+        documentMetadata[entryIndex] = static_cast<RSDocumentMetadata*>(rm_calloc(1, sizeof(RSDocumentMetadata)));
+        DMD_Incref(documentMetadata[entryIndex]);
+
+        std::string str = "doc" + std::to_string(docIds[i]);
+        documentMetadata[entryIndex]->keyPtr = sdsnewlen(str.data(), str.length());
       }
+    }
+  }
+
+  ~MockUpstream() {
+    // clean up RSDocumentMetadatas allocated above
+    for (auto dmd : documentMetadata) {
+      DMD_Return(dmd);
     }
   }
 
@@ -127,7 +137,11 @@ struct MockUpstream : public ResultProcessor {
     SearchResult_SetFlags(res, p->flags);
 
     // Use pre-created document metadata
-    SearchResult_SetDocumentMetadata(res, &p->documentMetadata[p->counter]);
+    // MockUpstream acts as the "DocTable" and this as the "DocTable_Borrow".
+    // Which means we must bump the reference count here by one for the metadata to be correctly
+    // initialized
+    DMD_Incref(p->documentMetadata[p->counter]);
+    SearchResult_SetDocumentMetadata(res, p->documentMetadata[p->counter]);
 
     p->counter++;
     return RS_RESULT_OK;
