@@ -107,7 +107,7 @@ pub unsafe extern "C" fn QueryError_SetError(
 /// - `code` must be a valid variant of [`QueryErrorCode`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_SetCode(query_error: *mut OpaqueQueryError, code: u8) {
-        // Safety: see safety requirement above.
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
     let code = QueryErrorCode::try_from(code).expect("invalid query error code");
