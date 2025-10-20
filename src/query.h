@@ -38,6 +38,17 @@ typedef struct MetricRequest{
   bool isInternal; // Indicates if this metric should be excluded from the response
 } MetricRequest;
 
+// Helper function to safely get the RLookupKey from a MetricRequest array
+// using pointer-to-pointer indirection. This ensures safe access even after
+// array reallocation.
+// Returns NULL if the key is not available or indices are invalid.
+static inline RLookupKey *MetricRequest_GetKey(struct MetricRequest **metricRequestsP, int metricRequestIdx) {
+  if (metricRequestsP && *metricRequestsP && metricRequestIdx >= 0) {
+    return (*metricRequestsP)[metricRequestIdx].key;
+  }
+  return NULL;
+}
+
 // Flags indicating which syntax features are enabled for this query
 typedef enum {
   // All syntax features are enabled

@@ -119,10 +119,7 @@ static void SetYield(QueryIterator *base, double value) {
   MetricIterator *mr = (MetricIterator *)base;
   IndexResult_SetNumValue(base->current, value);
   ResultMetrics_Reset(base->current);
-  RLookupKey *key = NULL;
-  if (mr->metricRequestsP && *mr->metricRequestsP && mr->metricRequestIdx >= 0) {
-    key = (*mr->metricRequestsP)[mr->metricRequestIdx].key;
-  }
+  RLookupKey *key = MetricRequest_GetKey(mr->metricRequestsP, mr->metricRequestIdx);
   if (key) {
     ResultMetrics_Add(base->current, key, RSValue_NewNumber(value));
   }
