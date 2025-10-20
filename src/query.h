@@ -27,10 +27,14 @@
 extern "C" {
 #endif
 
-// Holds a yieldable field name, and the address to write the RLookupKey pointer later.
+// Holds a yieldable field name and key information for deferred initialization.
+// Stores the RLookupKey directly using pointer-to-pointer indirection.
+// The iterator stores a pointer-to-pointer to the MetricRequest array, ensuring
+// safe access even after array reallocation. The key is populated during pipeline
+// construction and accessed by iterators when yielding metric values.
 typedef struct MetricRequest{
   const char *metric_name;
-  RLookupKey **key_ptr;
+  RLookupKey *key; // Store the key directly to avoid use-after-free
   bool isInternal; // Indicates if this metric should be excluded from the response
 } MetricRequest;
 

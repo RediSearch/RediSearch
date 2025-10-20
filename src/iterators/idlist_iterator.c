@@ -8,6 +8,7 @@
 */
 
 #include "idlist_iterator.h"
+#include "../query.h"  // For MetricRequest definition
 
 static inline void setEof(QueryIterator *base, bool value) {
   base->atEOF = value;
@@ -118,7 +119,13 @@ static void SetYield(QueryIterator *base, double value) {
   MetricIterator *mr = (MetricIterator *)base;
   IndexResult_SetNumValue(base->current, value);
   ResultMetrics_Reset(base->current);
-  ResultMetrics_Add(base->current, mr->ownKey, RSValue_NewNumber(value));
+  RLookupKey *key = NULL;
+  if (mr->metricRequestsP && *mr->metricRequestsP && mr->metricRequestIdx >= 0) {
+    key = (*mr->metricRequestsP)[mr->metricRequestIdx].key;
+  }
+  if (key) {
+    ResultMetrics_Add(base->current, key, RSValue_NewNumber(value));
+  }
 }
 
 static IteratorStatus MR_Read(QueryIterator *base) {
@@ -148,6 +155,8 @@ static void MR_Free(QueryIterator *self) {
   IndexResult_Free(base->current);
   rm_free(it->docIds);
   rm_free(mi->metricList);
+  mi->metricRequestIdx = -1;
+  mi->metricRequestsP = NULL;
   rm_free(mi);
 }
 
@@ -158,7 +167,8 @@ QueryIterator *NewMetricIterator(t_docId *docIds, double *metric_list, size_t nu
   ret = &it->base;
   mi->type = metric_type;
   mi->metricList = metric_list;
-  mi->ownKey = NULL;
+  mi->metricRequestIdx = -1;
+  mi->metricRequestsP = NULL;
   it->docIds = docIds;
   it->size = num_results;
   it->offset = 0;

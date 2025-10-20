@@ -147,7 +147,11 @@ void QueryNode_Free(QueryNode *n) {
 
 // Add a new metric request to the metricRequests array. Returns the index of the request
 static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr, bool isInternal) {
-  MetricRequest mr = {metric_name, key_addr, isInternal};
+  MetricRequest mr = {
+    .metric_name = metric_name,
+    .key = NULL,  // Will be set during getAdditionalMetricsRP
+    .isInternal = isInternal
+  };
   array_ensure_append_1(*q->metricRequestsP, mr);
   return array_len(*q->metricRequestsP) - 1;
 }
@@ -999,15 +1003,20 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     }
   }
   QueryIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
-  // If iterator was created successfully, and we have a metric to yield, update the
-  // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
+  // If iterator was created successfully, and we have a metric to yield, store
+  // the index and pointer-to-pointer so the iterator can access the key when needed.
+  // Pointer-to-Pointer Access - Avoid Use-After-Free from Array Reallocation
   if (it && qn->vn.vq->scoreField) {
     if (it->type == HYBRID_ITERATOR) {
       HybridIterator *hybridIt = (HybridIterator *)it;
-      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &hybridIt->ownKey;
+      array_ensure_at(q->metricRequestsP, idx, MetricRequest);
+      hybridIt->metricRequestIdx = idx;
+      hybridIt->metricRequestsP = q->metricRequestsP;
     } else if (it->type == METRIC_ITERATOR) {
+      array_ensure_at(q->metricRequestsP, idx, MetricRequest);
       MetricIterator *metricIt = (MetricIterator *)it;
-      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &metricIt->ownKey;
+      metricIt->metricRequestIdx = idx;
+      metricIt->metricRequestsP = q->metricRequestsP;
     } else {
       // Only reason to get an iterator of type different than HYBRID or METRIC
       // is if the entire iterator was optimized away

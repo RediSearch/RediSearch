@@ -15,6 +15,9 @@
 #include "util/minmax_heap.h"
 #include "util/timeout.h"
 
+// Forward declaration to avoid circular dependency
+typedef struct MetricRequest MetricRequest;
+
 typedef struct {
   RedisSearchCtx *sctx;
   VecSimIndex *index;
@@ -45,13 +48,14 @@ typedef struct {
                                    // (should occur in the first call to Read)
   VecSimQueryReply *reply;
   VecSimQueryReply_Iterator *iter;
-  RLookupKey *ownKey;              // To be used if the iterator has to yield the vector scores
   char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
   mm_heap_t *topResults;           // Sorted by score (min-max heap).
   size_t numIterations;
   bool canTrimDeepResults;         // Ignore the document scores, only vector score matters. No need to deep copy the results from the child iterator.
   TimeoutCtx timeoutCtx;           // Timeout parameters
   FieldFilterContext filterCtx;
+  int metricRequestIdx;            // We store the index and pointer-to-pointer to the array
+  struct MetricRequest **metricRequestsP; // Pointer to the MetricRequest array pointer (not the array itself)
 } HybridIterator;
 
 #ifdef __cplusplus

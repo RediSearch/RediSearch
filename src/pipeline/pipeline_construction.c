@@ -129,9 +129,7 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
     // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
     // that it has no results), but we still want the rest of the pipeline to know about the additional field name,
     // because there is no syntax error and the sorter should be able to "sort" by this field.
-    // If there is a pointer to the node's RLookupKey, write the address.
-    if (requests[i].key_ptr)
-      *requests[i].key_ptr = key;
+    requests[i].key = key;
   }
   return RPMetricsLoader_New();
 }

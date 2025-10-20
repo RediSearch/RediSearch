@@ -11,6 +11,9 @@
 
 #include "iterator_api.h"
 
+// Forward declaration to avoid circular dependency
+typedef struct MetricRequest MetricRequest;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -30,9 +33,11 @@ typedef struct {
   IdListIterator base;
   Metric type;
   double *metricList;    // metric_list[i] is the metric that ids_list[i] yields.
-  // Used if the iterator yields some value.
-  // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
-  struct RLookupKey *ownKey;
+  // We store the index and pointer-to-pointer to the array
+  // This avoids use-after-free when the array is reallocated
+  int metricRequestIdx;
+  // This is a pointer-to-pointer so we always get the current array
+  struct MetricRequest **metricRequestsP;
 } MetricIterator;
 
 /**
