@@ -528,7 +528,8 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
 
           // Check for AS alias
           if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
-            name = AC_GetStringNC(&ac, NULL);
+            RS_ASSERT(!AC_IsAtEnd(&ac));
+            name = AC_GetStringNC(&ac, NULL); // structure is validated earlier, can safely assume it's not at the end
           }
           name = stripAtPrefix(name);
           RLookup_GetKey_Write(lookup, name, RLOOKUP_F_NOFLAGS);
