@@ -23,9 +23,12 @@ static char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
 }
 
-static const char *stripAtPrefix(const char *s) {
+static const char *stripAtPrefix(const char *s, size_t *s_len) {
   while (*s && *s == '@') {
     s++;
+    if (s_len) {
+      (*s_len)--;
+    }
   }
   return s;
 }
@@ -98,7 +101,7 @@ struct ReducerDistCtx {
 
   const char *srcarg(size_t n) const {
     auto *s = (const char *)srcReducer->args.objs[n];
-    return stripAtPrefix(s);
+    return stripAtPrefix(s, NULL);
   }
 };
 
@@ -519,9 +522,20 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
       }
       case PLN_T_LOAD: {
         PLN_LoadStep *lstp = (PLN_LoadStep *)cur;
-        for (size_t ii = 0; ii < AC_NumArgs(&lstp->args); ++ii) {
-          const char *s = stripAtPrefix(AC_StringArg(&lstp->args, ii));
-          RLookup_GetKey_Write(lookup, s, RLOOKUP_F_NOFLAGS);
+        // Use the original ArgsCursor directly
+        ArgsCursor ac = lstp->args;
+
+        // Process all arguments in the ArgsCursor
+        while (!AC_IsAtEnd(&ac)) {
+          size_t name_len;
+          const char *name = AC_GetStringNC(&ac, &name_len);
+
+          // Check for AS alias
+          if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+            name = AC_GetStringNC(&ac, &name_len);
+          }
+          stripAtPrefix(name, &name_len);
+          RLookup_GetKey_Write(lookup, name, RLOOKUP_F_NOFLAGS);
         }
         break;
       }
@@ -529,7 +543,7 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
         PLN_GroupStep *gstp = (PLN_GroupStep *)cur;
         arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
         for (size_t ii = 0; ii < array_len(properties); ++ii) {
-          const char *propname = stripAtPrefix(properties[ii]);
+          const char *propname = stripAtPrefix(properties[ii], NULL);
           RLookup_GetKey_Write(lookup, propname, RLOOKUP_F_NOFLAGS);
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
