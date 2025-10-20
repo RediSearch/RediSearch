@@ -107,3 +107,8 @@ unsafe impl Send for OwnedSds {}
 /// Safety: `OwnedSds` is safe to share across threads because it owns its
 /// backing memory buffer and ensures that no other references exist to it.
 unsafe impl Sync for OwnedSds {}
+
+#[cfg(all(test, not(feature = "unittest")))]
+compile_error!(
+    "When building tests, enable the `unittest` feature to ensure C dependencies get linked"
+);

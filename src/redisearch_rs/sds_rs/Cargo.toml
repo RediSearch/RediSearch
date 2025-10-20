@@ -12,5 +12,13 @@ doctest = false
 ffi.workspace = true
 libc.workspace = true
 
+[build-dependencies]
+build_utils = { path = "../build_utils" }
+
+[features]
+# Enable this feature when building tests,
+# to ensure C dependencies are linked. See build.rs
+unittest = []
+
 [lints]
 workspace = true

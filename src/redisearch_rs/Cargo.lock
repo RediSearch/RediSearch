@@ -1596,6 +1596,7 @@ dependencies = [
 name = "sds_rs"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "libc",
 ]

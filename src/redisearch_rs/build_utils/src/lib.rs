@@ -110,38 +110,17 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
 /// # Panics
 /// Panics if any required static library is not found in the expected location.
 pub fn link_static_libraries(libs: &[(&str, &str)]) {
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
-
     // There may be several symbols exposed by the static library that we are trying to link
     // that we don't actually invoke (either directly or indirectly) in our benchmarks.
     // We will provide a definition for the ones we need (e.g. Redis' allocation functions),
     // but we don't want to be forced to add dummy definitions for the ones we don't rely on.
     // We prefer to fail at runtime if we try to use a symbol that's undefined.
-    if target_os == "macos" {
+    if target_os() == "macos" {
         println!("cargo::rustc-link-arg=-Wl,-undefined,dynamic_lookup");
     } else {
         println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
-
-    let bin_root = if let Ok(bin_root) = std::env::var("BINDIR") {
-        // The directory changes depending on a variety of factors: target architecture, target OS,
-        // optimization level, coverage, etc.
-        // We rely on the top-level build coordinator to give us the correct path, rather
-        // than duplicating the whole layout logic here.
-        PathBuf::from(bin_root)
-    } else {
-        // If one is not provided (e.g. `cargo` has been invoked directly), we look
-        // for a release build of the static library in the conventional location
-        // for the bin directory.
-        let root = git_root().expect("Could not find git root for static library linking");
-        let target_arch = match env::var("CARGO_CFG_TARGET_ARCH").ok().as_deref() {
-            Some("x86_64") | None => "x64".to_owned(),
-            Some(a) => a.to_owned(),
-        };
-        root.join(format!(
-            "bin/{target_os}-{target_arch}-release/search-community/"
-        ))
-    };
+    let bin_root = bin_root();
 
     for &(lib_subdir, lib_name) in libs {
         link_static_lib(&bin_root, lib_subdir, lib_name).unwrap();
@@ -163,6 +142,34 @@ fn link_static_lib(
     } else {
         Err(format!("Static library not found: {}", lib.display()).into())
     }
+}
+
+/// Determines the build output path.
+pub fn bin_root() -> PathBuf {
+    if let Ok(bin_root) = std::env::var("BINDIR") {
+        // The directory changes depending on a variety of factors: target architecture, target OS,
+        // optimization level, coverage, etc.
+        // We rely on the top-level build coordinator to give us the correct path, rather
+        // than duplicating the whole layout logic here.
+        PathBuf::from(bin_root)
+    } else {
+        // If one is not provided (e.g. `cargo` has been invoked directly), we look
+        // for a release build of the static library in the conventional location
+        // for the bin directory.
+        let root = git_root().expect("Could not find git root for static library linking");
+        let target_arch = match env::var("CARGO_CFG_TARGET_ARCH").ok().as_deref() {
+            Some("x86_64") | None => "x64".to_owned(),
+            Some(a) => a.to_owned(),
+        };
+        let target_os = target_os();
+        root.join(format!(
+            "bin/{target_os}-{target_arch}-release/search-community/"
+        ))
+    }
+}
+
+fn target_os() -> String {
+    env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string())
 }
 
 /// Generates Rust FFI bindings from C header files using bindgen.

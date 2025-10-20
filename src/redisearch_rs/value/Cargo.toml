@@ -9,6 +9,11 @@ publish.workspace = true
 ffi = { workspace = true, optional = true }
 sds_rs.workspace = true
 
+[dev-dependencies]
+# Enable the `unittest` feature for the `sds_rs` crate
+# so that its C dependencies are linked correctly.
+sds_rs = { workspace = true, features = ["unittest"] }
+
 [lints]
 workspace = true
 
