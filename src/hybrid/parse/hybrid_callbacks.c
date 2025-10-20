@@ -144,7 +144,7 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
 
 void handleNoSort(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
-    const PLN_ArrangeStep *arng = AGPLN_FindStep(ctx->plan, NULL, NULL, PLN_T_ARRANGE);
+    const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)AGPLN_FindStep(ctx->plan, NULL, NULL, PLN_T_ARRANGE);
     if (arng && arng->sortKeys) {
         fillSortAndNoSortError(ctx->status);
     }
