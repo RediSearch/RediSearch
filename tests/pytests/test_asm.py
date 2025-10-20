@@ -126,8 +126,7 @@ def test_import_slot_range(env: Env):
     # And test again after the import is complete
     query_all_shards()
 
-@skip(cluster=False, min_shards=2)
-def test_import_slot_range_sanity(env: Env):
+def import_slot_range_sanity_test(env: Env):
     n_docs = 2**14
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
@@ -161,8 +160,16 @@ def test_import_slot_range_sanity(env: Env):
     # And test again after the import is complete
     query_all_shards()
 
-@skip(cluster=False)
-def test_add_shard_and_migrate(env: Env):
+@skip(cluster=False, min_shards=2)
+def test_import_slot_range_sanity(env: Env):
+    import_slot_range_sanity_test(env)
+
+@skip(cluster=False, min_shards=2)
+def test_import_slot_range_sanity_BG():
+    env = Env(moduleArgs='WORKERS 2')
+    import_slot_range_sanity_test(env)
+
+def add_shard_and_migrate_test(env: Env):
     n_docs = 2**14
     initial_shards_count = env.shardsCount
 
@@ -203,3 +210,12 @@ def test_add_shard_and_migrate(env: Env):
     # And expect all shards to return the same results, including the new one
     shards.append(new_shard)
     query_all_shards()
+
+@skip(cluster=False)
+def test_add_shard_and_migrate(env: Env):
+    add_shard_and_migrate_test(env)
+
+@skip(cluster=False)
+def test_add_shard_and_migrate_BG():
+    env = Env(moduleArgs='WORKERS 2')
+    add_shard_and_migrate_test(env)
