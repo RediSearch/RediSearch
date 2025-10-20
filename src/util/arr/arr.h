@@ -61,7 +61,7 @@ extern "C" {
 
 typedef struct {
   uint32_t len;
-  uint16_t remain_cap;
+  uint16_t remain_cap; // Remaining capacity of the array
   uint16_t elem_sz;
   char buf[];
 } array_hdr_t;
@@ -78,7 +78,7 @@ typedef void *array_t;
 
 static inline uint32_t array_len(array_t arr);
 
-/* Initialize a new array with a given element size and capacity. Should not be used directly - use
+/* Initialize a new array with a given element size and remaining capacity. Should not be used directly - use
  * array_new instead */
 array_t array_new_sz(uint16_t elem_sz, uint16_t remain_cap, uint32_t len);
 
@@ -106,21 +106,19 @@ array_t array_clear_func(array_t arr, uint16_t elem_sz);
  *  */
 #define array_newlen(T, len) (T *)(array_new_sz(sizeof(T), 0, len))
 
-static inline array_t array_ensure_cap(array_t arr, uint32_t delta) {
-  array_hdr_t *hdr = array_hdr(arr);
-  if (hdr->remain_cap == 0) {
-    uint32_t old_len = hdr->len - delta;
-    hdr->remain_cap = delta > old_len ? 0 : old_len;
-    hdr = (array_hdr_t *)array_realloc_fn(hdr, array_sizeof(hdr));
-  }
-  return (array_t)hdr->buf;
-}
-
-/* Ensure capacity for the array to grow by one */
+/* Ensure capacity for the array to grow by n elements */
 static inline array_t array_grow(array_t arr, size_t n) {
-  array_hdr(arr)->remain_cap = array_hdr(arr)->remain_cap > n? array_hdr(arr)->remain_cap - n : 0;
-  array_hdr(arr)->len += n;
-  return array_ensure_cap(arr, n);
+  array_hdr_t *hdr = array_hdr(arr);
+  uint32_t arr_alloc_len = hdr->len + hdr->remain_cap;
+  hdr->len += n;
+  if (n > hdr->remain_cap) {
+    hdr->remain_cap = MAX(2*arr_alloc_len, hdr->len) - hdr->len;
+    hdr = (array_hdr_t *)array_realloc_fn(hdr, array_sizeof(hdr));
+  } else {
+    hdr->remain_cap -= n;
+  }
+  
+  return (array_t)hdr->buf;
 }
 
 static inline array_t array_ensure_len(array_t arr, size_t len) {
