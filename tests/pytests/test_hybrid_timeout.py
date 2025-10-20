@@ -108,9 +108,8 @@ def test_debug_timeout_return_both():
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_basic_index(env)
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 
-                       'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '0', 'DEBUG_PARAMS_COUNT', '4')
+                       'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '4')
     warnings = get_warnings(response)
-    print(warnings)
     env.assertTrue('Timeout limit was reached (SEARCH)' in get_warnings(response))
     env.assertTrue('Timeout limit was reached (VSIM)' in get_warnings(response))
     # TODO: add test for tail timeout once MOD-11004 is merged
@@ -124,7 +123,7 @@ def test_debug_timeout_return_with_results():
     # VSIM returns doc:2 and doc:4 (without timeout), SEARCH returns doc:3 (without timeout)
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'gear', 'VSIM', \
                        '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, \
-                       'TIMEOUT_AFTER_N_SEARCH', '0', 'TIMEOUT_AFTER_N_VSIM', '0', 'DEBUG_PARAMS_COUNT', '4')
+                       'TIMEOUT_AFTER_N_SEARCH', '1', 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '4')
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
     env.assertTrue('doc:3' in results.keys())

@@ -1733,6 +1733,10 @@ dictType dictTypeHybridSearchResult = {
   *******************************************************************************************************************/
  typedef struct {
  ResultProcessor base;
+ // Timeout handling
+ size_t timeoutCounter;
+ RedisSearchCtx *sctx;
+
  HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
  ResultProcessor **upstreams;     // Dynamic array of upstream processors
  size_t numUpstreams;             // Number of upstream processors
@@ -1841,6 +1845,9 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     // No more results to yield
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
+  } else if (self->sctx && TimedOut_WithCounter(&self->sctx->time.timeout, &self->timeoutCounter) == TIMED_OUT) {
+    // Timed out before we could yield all results
+    return RS_RESULT_TIMEDOUT;
   }
 
   // Get the key and value before removing the entry
@@ -1958,7 +1965,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
  }
 
  /* Create a new Hybrid Merger processor */
-ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
+ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx, 
+                                    HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
                                     const RLookupKey *docKey,
@@ -1967,6 +1975,8 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     HybridLookupContext *lookupCtx) {
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
+  ret->sctx = sctx;
+  ret->timeoutCounter = 0;
   RS_ASSERT(numUpstreams > 0);
   ret->numUpstreams = numUpstreams;
 
@@ -2124,13 +2134,16 @@ static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout, Red
 
     // search upstream for rpQueryItNext to set timeout limiter
     ResultProcessor *cur = rp_timeout->upstream;
-    while (cur && cur->type != RP_INDEX) {
+    while (cur && cur->type != RP_INDEX && cur->type != RP_HYBRID_MERGER) {
         cur = cur->upstream;
     }
 
-    if (cur) { // This is a shard pipeline
+    if (cur && cur->type == RP_INDEX) { // This is a shard pipeline
       RPQueryIterator *rp_index = (RPQueryIterator *)cur;
       rp_index->timeoutLimiter = TIMEOUT_COUNTER_LIMIT - 1;
+    } else if (cur && cur->type == RP_HYBRID_MERGER) {
+      RPHybridMerger *rp_hybrid = (RPHybridMerger *)cur;
+      rp_hybrid->timeoutCounter = TIMEOUT_COUNTER_LIMIT - 1;
     }
 }
 
