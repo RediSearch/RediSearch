@@ -2140,6 +2140,7 @@ static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
   // If we've reached COUNT:
   if (!self->remaining) {
 
+    struct timespec previous = self->sctx->time.timeout;
     RPTimeoutAfterCount_SimulateTimeout(base, self->sctx);
 
     int rc = base->upstream->Next(base->upstream, r);
@@ -2148,6 +2149,8 @@ static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
       self->remaining = self->count;
     }
 
+    // We don't want to affect any timeout checks that will happen after this next is called, so we restore the previous timeout
+    self->sctx->time.timeout = previous;
     return rc;
   }
 

@@ -698,10 +698,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       vectorRequest->reqflags |= QEXEC_F_SEND_SCORES;
     }
 
-    // Copy request configuration using the helper function
-    copyRequestConfig(&searchRequest->reqConfig, parsedCmdCtx->reqConfig);
-    copyRequestConfig(&vectorRequest->reqConfig, parsedCmdCtx->reqConfig);
-
     // Copy max results limits
     searchRequest->maxSearchResults = maxHybridResults;
     searchRequest->maxAggregateResults = maxHybridResults;
@@ -712,6 +708,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       goto error;
     }
   }
+
+  // Copy request configuration using the helper function
+  copyRequestConfig(&searchRequest->reqConfig, parsedCmdCtx->reqConfig);
+  copyRequestConfig(&vectorRequest->reqConfig, parsedCmdCtx->reqConfig);
 
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
   // This is because the sorter limits the number of results and can reduce the amount of work the loader needs to do
