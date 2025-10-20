@@ -84,7 +84,7 @@ def test_debug_timeout_return_tail():
 
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
-# @skip(cluster=True)
+@skip(cluster=True)
 def test_debug_timeout_return_search():
     """Test RETURN policy with search timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
@@ -93,6 +93,8 @@ def test_debug_timeout_return_search():
                        'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2')
     env.assertEqual(['Timeout limit was reached (SEARCH)'], get_warnings(response))
 
+#TODO: remove skip once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
 def test_debug_timeout_return_vsim():
     """Test RETURN policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
