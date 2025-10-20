@@ -16,27 +16,48 @@ use std::os::raw::c_char;
 pub use crate::opaque::{OpaqueQueryError, QueryErrorExt};
 pub use query_error::QueryErrorCode;
 
+/// Returns the default [`QueryError`].
+///
+/// # Safety
+///
+/// `OpaqueQueryError` and `QueryError` must have the same size and alignment.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_Default() -> OpaqueQueryError {
     QueryError::default().into_opaque()
 }
 
+/// Returns true if `query_error` has no error code set.
+///
+/// # Safety
+///
+/// `query_error` must have been created by [`QueryError_Default`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_IsOk(query_error: *const OpaqueQueryError) -> bool {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
 
     query_error.is_ok()
 }
 
+/// Returns true if `query_error` has an error code set.
+///
+/// # Safety
+///
+/// `query_error` must have been created by [`QueryError_Default`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_HasError(query_error: *const OpaqueQueryError) -> bool {
-    let query_error =
-        unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
-
-    !query_error.is_ok()
+    // Safety: see safety requirement above.
+    unsafe { !QueryError_IsOk(query_error) }
 }
 
+/// Returns a human-readable string representing the provided [`QueryErrorCode`].
+///
+/// # Safety
+///
+/// This function should always return without a panic for any value provided.
+/// It is unique among the `QueryError_*` API as the only function which allows
+/// an invalid [`QueryErrorCode`] to be provided.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
     let Ok(code) = QueryErrorCode::try_from(maybe_code) else {
@@ -46,12 +67,22 @@ pub unsafe extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
     code.to_c_str().as_ptr()
 }
 
+/// Sets the [`QueryErrorCode`] and error message for a [`QueryError`].
+///
+/// This does not mutate `query_error` if it already has an error set.
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
+/// - `code` must be a valid variant of [`QueryErrorCode`].
+/// - `message` must be a valid C string or a NULL pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_SetError(
     query_error: *mut OpaqueQueryError,
     code: u8,
     message: *const c_char,
 ) {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
     let code = QueryErrorCode::try_from(code).expect("invalid query error code");
@@ -59,14 +90,24 @@ pub unsafe extern "C" fn QueryError_SetError(
     let message = if message.is_null() {
         None
     } else {
+        // Safety: see safety requirement above.
         Some(unsafe { CStr::from_ptr(message) }.to_owned())
     };
 
     query_error.set_code_and_info(code, message);
 }
 
+/// Sets the [`QueryErrorCode`] for a [`QueryError`].
+///
+/// This does not mutate `query_error` if it already has an error set.
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
+/// - `code` must be a valid variant of [`QueryErrorCode`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_SetCode(query_error: *mut OpaqueQueryError, code: u8) {
+        // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
     let code = QueryErrorCode::try_from(code).expect("invalid query error code");
@@ -74,29 +115,46 @@ pub unsafe extern "C" fn QueryError_SetCode(query_error: *mut OpaqueQueryError, 
     query_error.set_code(code);
 }
 
+/// Always sets the private info message for a [`QueryError`].
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
+/// - `detail` must be a valid C string or a NULL pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_SetDetail(
     query_error: *mut OpaqueQueryError,
     detail: *const c_char,
 ) {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
 
     let detail = if detail.is_null() {
         None
     } else {
+        // Safety: see safety requirement above.
         Some(unsafe { CStr::from_ptr(detail) }.to_owned())
     };
 
     query_error.set_private_info(detail)
 }
 
+/// Clones the `src` [`QueryError`] into `dest`.
+///
+/// This does nothing if `dest` already has an error set.
+///
+/// # Safety
+///
+/// - `src` must have been created by [`QueryError_Default`].
+/// - `dest` must have been created by [`QueryError_Default`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_CloneFrom(
     src: *const OpaqueQueryError,
     dest: *mut OpaqueQueryError,
 ) {
     {
+        // Safety: see safety requirement above.
         let dest_query_error =
             unsafe { QueryError::from_opaque_ptr(dest as *const _) }.expect("dest is null");
 
@@ -105,18 +163,28 @@ pub unsafe extern "C" fn QueryError_CloneFrom(
         }
     }
 
+    // Safety: see safety requirement above.
     let src_query_error = unsafe { QueryError::from_opaque_ptr(src) }.expect("src is null");
     let query_error = src_query_error.clone();
 
     let query_error_opaque = query_error.into_opaque();
 
+    // Safety: see safety requirement above.
     unsafe { dest.write(query_error_opaque) };
 }
 
+/// Returns the private info message set for a [`QueryError`]. If no private
+/// info is set, this returns the string error message for the code that is
+/// set, like [`QueryError_Strerror`].
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_GetUserError(
     query_error: *const OpaqueQueryError,
 ) -> *const c_char {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
 
@@ -126,11 +194,22 @@ pub unsafe extern "C" fn QueryError_GetUserError(
         .as_ptr()
 }
 
+/// Returns an info message of a [`QueryError`].
+///
+/// This preferentially returns the private info message if any, of the public
+/// info if any, defaulting to the error code's string error.
+///
+/// If `obfuscate` is set, then the private info message is not returned.
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_GetDisplayableError(
     query_error: *const OpaqueQueryError,
     obfuscate: bool,
 ) -> *const c_char {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
 
@@ -144,32 +223,52 @@ pub unsafe extern "C" fn QueryError_GetDisplayableError(
         .as_ptr()
 }
 
+/// Returns the [`QueryErrorCode`] set for a [`QueryError`].
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_GetCode(
     query_error: *const OpaqueQueryError,
 ) -> QueryErrorCode {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
 
     query_error.code()
 }
 
+/// Clears any error set on a [`QueryErrorCode`].
+///
+/// This is equivalent to resetting `query_error` to the value returned by
+/// [`QueryError_Default`].
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_ClearError(query_error: *mut OpaqueQueryError) {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
 
     query_error.clear();
 }
 
-// Set the code if not previously set. This should be used by code which makes
-// use of the ::detail field, and is a placeholder for something like:
-// functionWithCharPtr(&status->_detail);
-// if (status->_detail && status->_code == QUERY_OK) {
-//    status->_code = MYCODE;
-// }
+/// Sets the [`QueryErrorCode`] for a [`QueryError`].
+///
+/// This does not mutate `query_error` if it already has an error set, or if
+/// the private info message is set. This differs from [`QueryError_SetCode`],
+/// as that function does not care if the private info message is set.
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
+/// - `code` must be a valid variant of [`QueryErrorCode`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_MaybeSetCode(query_error: *mut OpaqueQueryError, code: u8) {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
     let code = QueryErrorCode::try_from(code).expect("invalid query error code");
@@ -181,20 +280,33 @@ pub unsafe extern "C" fn QueryError_MaybeSetCode(query_error: *mut OpaqueQueryEr
     query_error.set_code(code);
 }
 
+/// Returns whether the [`QueryError`] has the `reached_max_prefix_expansions`
+/// warning set.
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_HasReachedMaxPrefixExpansionsWarning(
     query_error: *const OpaqueQueryError,
 ) -> bool {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
 
     query_error.warnings().reached_max_prefix_expansions()
 }
 
+/// Sets the `reached_max_prefix_expansions` warning on the [`QueryError`].
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_SetReachedMaxPrefixExpansionsWarning(
     query_error: *mut OpaqueQueryError,
 ) {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
 
@@ -203,18 +315,30 @@ pub unsafe extern "C" fn QueryError_SetReachedMaxPrefixExpansionsWarning(
         .set_reached_max_prefix_expansions()
 }
 
+/// Returns whether the [`QueryError`] has the `out_of_memory` warning set.
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_HasQueryOOMWarning(
     query_error: *const OpaqueQueryError,
 ) -> bool {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
 
     query_error.warnings().out_of_memory()
 }
 
+/// Sets the `out_of_memory` warning on the [`QueryError`].
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQueryError) {
+    // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
 
