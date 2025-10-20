@@ -17,7 +17,6 @@
 #include "src/hybrid/vector_query_utils.h"
 #include "src/spec.h"
 #include "src/search_ctx.h"
-#include "src/query_error.h"
 #include "src/rmalloc.h"
 // #include "src/index.h"
 #include "src/aggregate/aggregate.h"
@@ -25,6 +24,7 @@
 #include "VecSim/query_results.h"
 #include "info/global_stats.h"
 #include "src/ext/default.h"
+#include "src/redisearch_rs/headers/query_error.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
