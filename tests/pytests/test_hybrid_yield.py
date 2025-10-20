@@ -251,6 +251,6 @@ def test_hybrid_yield_score_as_all_possible_scores():
     for doc_key, doc_result in results.items():
         env.assertTrue('calculated_score' in doc_result)
         env.assertTrue('fused_score' in doc_result)
-        calculated_score = float(doc_result[f'calculated_score_{doc_key}'])
-        fused_score = float(doc_result[f'fused_score_{doc_key}'])
+        calculated_score = float(doc_result[f'calculated_score'])
+        fused_score = float(doc_result[f'fused_score'])
         env.assertAlmostEqual(calculated_score, fused_score, delta=1e-6)
