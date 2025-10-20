@@ -146,11 +146,13 @@ void QueryNode_Free(QueryNode *n) {
 }
 
 // Add a new metric request to the metricRequests array. Returns the index of the request
-static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr, bool isInternal) {
-  MetricRequest mr = {metric_name, key_addr, isInternal};
+static int addMetricRequest(QueryEvalCtx *q, char *metric_name, bool isInternal) {
+  MetricRequest mr = {metric_name, NULL, isInternal};
   array_ensure_append_1(*q->metricRequestsP, mr);
   return array_len(*q->metricRequestsP) - 1;
 }
+
+
 
 QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = rm_calloc(1, sizeof(QueryNode));
@@ -986,7 +988,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // This function creates the array if it's the first name, and ensure its size is sufficient.
   size_t idx;
   if (qn->vn.vq->scoreField) {
-    idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL, qn->opts.flags & QueryNode_HideVectorDistanceField);
+    idx = addMetricRequest(q, qn->vn.vq->scoreField, qn->opts.flags & QueryNode_HideVectorDistanceField);
   }
 
   QueryIterator *child_it = NULL;
@@ -1002,17 +1004,28 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // If iterator was created successfully, and we have a metric to yield, update the
   // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
   if (it && qn->vn.vq->scoreField) {
+    MetricRequest *request = array_ensure_at(q->metricRequestsP, idx, MetricRequest);
+
+    // Create a handle that points to the iterator's ownKey field
+    RLookupKeyHandle *handle = rm_malloc(sizeof(RLookupKeyHandle));
+    handle->is_valid = true;
+
     if (it->type == HYBRID_ITERATOR) {
       HybridIterator *hybridIt = (HybridIterator *)it;
-      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &hybridIt->ownKey;
+      handle->key_ptr = &hybridIt->ownKey;
+      hybridIt->keyHandle = handle; // Set up back-reference
     } else if (it->type == METRIC_ITERATOR) {
       MetricIterator *metricIt = (MetricIterator *)it;
-      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &metricIt->ownKey;
+      handle->key_ptr = &metricIt->ownKey;
+      metricIt->keyHandle = handle; // Set up back-reference
     } else {
       // Only reason to get an iterator of type different than HYBRID or METRIC
       // is if the entire iterator was optimized away
-      RS_ASSERT(it->type == EMPTY_ITERATOR);
+      rm_free(handle);
+      handle = NULL;
     }
+
+    request->key_handle = handle;
   }
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);
@@ -1545,6 +1558,16 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
+
+  // Free the key handles in metric requests
+  if (q->metricRequests) {
+    for (size_t i = 0; i < array_len(q->metricRequests); i++) {
+      if (q->metricRequests[i].key_handle) {
+        rm_free(q->metricRequests[i].key_handle);
+      }
+    }
+  }
+
   array_free(q->metricRequests);
   q->metricRequests = NULL;
   q->numTokens = 0;
