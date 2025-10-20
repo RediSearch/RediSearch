@@ -208,7 +208,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
       if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseDouble(val, (double*)param->target, param->sign)) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }
@@ -216,7 +216,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
 
     case PARAM_SIZE:
       if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }
@@ -250,15 +250,15 @@ int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status) {
   ArgsCursor paramsArgs = {0};
   int rv = AC_GetVarArgs(ac, &paramsArgs);
   if (rv != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for PARAMS: %s", AC_Strerror(rv));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for PARAMS: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   if (*destParams) {
-    QueryError_SetError(status, QUERY_EADDARGS,"Multiple PARAMS are not allowed. Parameters can be defined only once");
+    QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS,"Multiple PARAMS are not allowed. Parameters can be defined only once");
     return REDISMODULE_ERR;
   }
   if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
-    QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
+    QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS,"Parameters must be specified in PARAM VALUE pairs");
     return REDISMODULE_ERR;
   }
 

@@ -200,7 +200,7 @@ static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
 
 #define CHECK_ARG_COUNT(N)                                                               \
   if (src->args.argc != N) {                                                             \
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid arguments for reducer %s", \
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid arguments for reducer %s", \
                            src->name);                                                   \
     return REDISMODULE_ERR;                                                              \
   }
@@ -208,7 +208,7 @@ static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
 /* Distribute COUNT into remote count and local SUM */
 static int distributeCount(ReducerDistCtx *rdctx, QueryError *status) {
   if (rdctx->srcReducer->args.argc != 0) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Count accepts 0 values only");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Count accepts 0 values only");
     return REDISMODULE_ERR;
   }
   const char *countAlias;

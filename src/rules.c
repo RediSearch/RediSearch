@@ -38,7 +38,7 @@ int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *sta
     *type = DocumentType_Json;
     return REDISMODULE_OK;
   }
-  QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, "Invalid rule type", ": %s", type_str);
+  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid rule type", ": %s", type_str);
   return REDISMODULE_ERR;
 }
 
@@ -99,7 +99,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     char *endptr = {0};
     score = fast_float_strtod(args->score_default, &endptr);
     if (args->score_default == endptr || score < 0 || score > 1) {
-      QueryError_SetError(status, QUERY_EADDARGS, "Invalid score");
+      QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid score");
       goto error;
     }
     rule->score_default = score;
@@ -110,7 +110,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
   if (args->lang_default) {
     RSLanguage lang = RSLanguage_Find(args->lang_default, 0);
     if (lang == RS_LANG_UNSUPPORTED) {
-      QueryError_SetError(status, QUERY_EADDARGS, "Invalid language");
+      QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid language");
       goto error;
     }
     rule->lang_default = lang;
@@ -127,7 +127,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
   if (rule->filter_exp_str) {
     rule->filter_exp = ExprAST_Parse(rule->filter_exp_str, status);
     if (!rule->filter_exp) {
-      QueryError_SetError(status, QUERY_EADDARGS, "Invalid expression");
+      QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid expression");
       goto error;
     }
   }
@@ -139,7 +139,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     } else if (!strcasecmp(args->index_all, "disable")) {
       rule->index_all = false;
     } else {
-      QueryError_SetError(status, QUERY_EADDARGS, "Invalid argument for `INDEXALL`, use ENABLE/DISABLE");
+      QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid argument for `INDEXALL`, use ENABLE/DISABLE");
       goto error;
     }
   }

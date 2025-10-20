@@ -13,15 +13,15 @@
  #include "util/array.h"
 
  bool hasTimeoutError(QueryError *err) {
-   return QueryError_GetCode(err) == QUERY_ETIMEDOUT;
+   return QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT;
  }
 
  bool ShouldReplyWithError(QueryError *status, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
    QueryErrorCode code = QueryError_GetCode(status);
 
    return QueryError_HasError(status)
-       && (code != QUERY_ETIMEDOUT
-           || (code == QUERY_ETIMEDOUT
+       && (code != QUERY_ERROR_CODE_TIMED_OUT
+           || (code == QUERY_ERROR_CODE_TIMED_OUT
                && timeoutPolicy == TimeoutPolicy_Fail
                && !isProfile));
  }
@@ -33,7 +33,7 @@
  }
 
  void ReplyWithTimeoutError(RedisModule_Reply *reply) {
-   RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+   RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
  }
 
  void destroyResults(SearchResult **results) {

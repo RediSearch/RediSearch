@@ -68,7 +68,7 @@
 #define VECSIM_REDUCED_DIM "REDUCE"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
-  QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
+  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
 
 #define VECSIM_KNN_K_TOO_LARGE_ERR_MSG "KNN K parameter is too large"
 

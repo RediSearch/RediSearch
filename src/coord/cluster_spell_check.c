@@ -88,12 +88,12 @@ static bool spellCheckReplySanity_resp2(MRReply *reply, uint64_t *totalDocNum, Q
   int type = MRReply_Type(reply);
 
   if (type == MR_REPLY_ERROR) {
-    QueryError_SetError(qerr, QUERY_EGENERIC, MRReply_String(reply, NULL));
+    QueryError_SetError(qerr, QUERY_ERROR_CODE_GENERIC, MRReply_String(reply, NULL));
     return false;
   }
 
   if (type != MR_REPLY_ARRAY) {
-    QueryError_SetWithoutUserDataFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected array. Got %d",
+    QueryError_SetWithoutUserDataFmt(qerr, QUERY_ERROR_CODE_GENERIC, "wrong reply type. Expected array. Got %d",
                                MRReply_Type(reply));
     return false;
   }
@@ -101,7 +101,7 @@ static bool spellCheckReplySanity_resp2(MRReply *reply, uint64_t *totalDocNum, Q
   MRReply *ndocs = MRReply_ArrayElement(reply, 0);
 
   if (MRReply_Type(ndocs) != MR_REPLY_INTEGER) {
-    QueryError_SetWithoutUserDataFmt(qerr, QUERY_EGENERIC, "Expected first reply as integer. Have %d",
+    QueryError_SetWithoutUserDataFmt(qerr, QUERY_ERROR_CODE_GENERIC, "Expected first reply as integer. Have %d",
                                MRReply_Type(ndocs));
     return false;
   }
@@ -114,12 +114,12 @@ static bool spellCheckReplySanity_resp3(MRReply *reply, uint64_t *totalDocNum, Q
   int type = MRReply_Type(reply);
 
   if (type == MR_REPLY_ERROR) {
-    QueryError_SetError(qerr, QUERY_EGENERIC, MRReply_String(reply, NULL));
+    QueryError_SetError(qerr, QUERY_ERROR_CODE_GENERIC, MRReply_String(reply, NULL));
     return false;
   }
 
   if (type != MR_REPLY_MAP) {
-    QueryError_SetWithoutUserDataFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected map. Got %d",
+    QueryError_SetWithoutUserDataFmt(qerr, QUERY_ERROR_CODE_GENERIC, "wrong reply type. Expected map. Got %d",
                                MRReply_Type(reply));
     return false;
   }
@@ -127,7 +127,7 @@ static bool spellCheckReplySanity_resp3(MRReply *reply, uint64_t *totalDocNum, Q
   MRReply *ndocs = MRReply_MapElement(reply, "total_docs");
 
   if (MRReply_Type(ndocs) != MR_REPLY_INTEGER) {
-    QueryError_SetWithoutUserDataFmt(qerr, QUERY_EGENERIC, "Expected total_docs as integer. Have %d",
+    QueryError_SetWithoutUserDataFmt(qerr, QUERY_ERROR_CODE_GENERIC, "Expected total_docs as integer. Have %d",
                                MRReply_Type(ndocs));
     return false;
   }
