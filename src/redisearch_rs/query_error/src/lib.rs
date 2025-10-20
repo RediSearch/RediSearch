@@ -161,8 +161,8 @@ pub struct QueryError {
     code: QueryErrorCode,
     // FIXME: once QueryError is no longer depended on by C code, these CString
     // members should be using the traditional String.
-    public_info: Option<CString>,
-    private_info: Option<CString>,
+    public_message: Option<CString>,
+    private_message: Option<CString>,
 
     warnings: Warnings,
 }
@@ -184,26 +184,26 @@ impl QueryError {
         self.code = code;
     }
 
-    pub fn public_info(&self) -> Option<&CStr> {
-        self.public_info.as_deref()
+    pub fn public_message(&self) -> Option<&CStr> {
+        self.public_message.as_deref()
     }
 
-    pub fn private_info(&self) -> Option<&CStr> {
-        self.private_info.as_deref()
+    pub fn private_message(&self) -> Option<&CStr> {
+        self.private_message.as_deref()
     }
 
-    pub fn set_private_info(&mut self, private_info: Option<CString>) {
-        self.private_info = private_info
+    pub fn set_private_message(&mut self, private_message: Option<CString>) {
+        self.private_message = private_message
     }
 
-    pub fn set_code_and_info(&mut self, code: QueryErrorCode, info: Option<CString>) {
+    pub fn set_code_and_message(&mut self, code: QueryErrorCode, message: Option<CString>) {
         if !self.is_ok() {
             return;
         }
 
         self.code = code;
-        self.public_info = info.clone();
-        self.private_info = info;
+        self.public_message = message.clone();
+        self.private_message = message;
     }
 
     pub fn warnings(&self) -> &Warnings {
