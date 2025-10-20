@@ -249,8 +249,15 @@ def test_hybrid_yield_score_as_all_possible_scores():
     # Validate the vector_distance and vector_score fields
     env.assertGreater(len(results.keys()), 0)
     for doc_key, doc_result in results.items():
+        # assert at least one subquery score is present
+        env.assertTrue('s_score' in doc_result or 'v_score' in doc_result)
+
+        # assert both calculated and fused scores are present
         env.assertTrue('calculated_score' in doc_result)
         env.assertTrue('fused_score' in doc_result)
+
+        # assert fused_score and the score calculated from the subquery scores using apply are the same
         calculated_score = float(doc_result[f'calculated_score'])
         fused_score = float(doc_result[f'fused_score'])
-        env.assertAlmostEqual(calculated_score, fused_score, delta=1e-6)
+        env.assertGreater(fused_score, 0)
+        env.assertAlmostEqual(calculated_score, fused_score, delta=1e-6, message=f"Fused score and calculated score for {doc_key} do not match")
