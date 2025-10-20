@@ -7,11 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::link_static_libraries;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Link the static libraries that contain our array functions
-    link_static_libraries(&[("src/util/arr", "arr")]);
+    #[cfg(feature = "unittest")]
+    build_utils::link_static_libraries(&[("src/util/arr", "arr")]);
 
     Ok(())
 }
