@@ -21,9 +21,9 @@ use std::{
 
 #[derive(Default, Copy, Clone)]
 #[repr(C)]
-struct UserString {
-    user: *const c_char,
-    length: usize,
+pub(crate) struct UserString {
+    pub(crate) user: *const c_char,
+    pub(crate) length: usize,
 }
 
 /// Mock implementation of `HiddenString_GetUnsafe` from obfuscation/hidden.h for testing purposes
@@ -144,4 +144,37 @@ extern "C" fn sdslen__(s: *const c_char) -> usize {
     } else {
         unsafe { libc::strlen(s) }
     }
+}
+
+/// Mock implementation of RedisModule_CreateString from redismodule.h for testing purposes
+//#[unsafe(no_mangle)]
+#[unsafe(export_name = "_RedisModule_CreateString.1")]
+pub(crate) unsafe extern "C" fn RedisModule_CreateString(
+    _ctx: *mut redis_module::raw::RedisModuleCtx,
+    ptr: *const ::std::os::raw::c_char,
+    len: usize,
+) -> *mut redis_module::raw::RedisModuleString {
+    let val = Box::new(UserString {
+        user: ptr,
+        length: len,
+    });
+    Box::into_raw(val).cast()
+}
+
+pub(crate) unsafe extern "C" fn RedisModule_StringPtrLen(
+    s: *const redis_module::raw::RedisModuleString,
+    len: *mut usize,
+) -> *const ::std::os::raw::c_char {
+    let s = unsafe { &*(s.cast::<UserString>()) };
+    unsafe {
+        *len = s.length;
+    }
+    s.user
+}
+
+pub(crate) unsafe extern "C" fn RedisModule_FreeString(
+    _ctx: *mut redis_module::raw::RedisModuleCtx,
+    s: *mut redis_module::raw::RedisModuleString,
+) {
+    drop(unsafe { Box::from_raw(s.cast::<UserString>()) });
 }

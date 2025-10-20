@@ -10,6 +10,8 @@
 // Remove in follow-up PRs
 #![allow(unused)]
 
+mod hash;
+
 use std::ptr::NonNull;
 
 use redis_module::RedisString;
@@ -115,9 +117,9 @@ where
                     unsafe { RedisString::from_raw_parts(None, key_ptr.as_ptr(), sds_len) };
 
                 if context.has_scan_key_feature() && !context.is_crdt() {
-                    todo!("hash::get_all_scan(lookup, dst_row, options, key_str, context)?;");
+                    hash::get_all_scan(lookup, dst_row, options, key_str, context)?;
                 } else {
-                    todo!("hash::get_all_fallback(lookup, dst_row, options, key_str, context)?;");
+                    todo!("hash::get_all_fallback(lookup, dst_row, options, key_str, context)?");
                 }
             } else {
                 context.load_json(lookup, dst_row, options)?;
@@ -488,12 +490,72 @@ pub mod test_utils {
 }
 
 #[cfg(test)]
+mod mock;
+
+#[cfg(test)]
 mod tests {
+
+    use std::ffi::CString;
 
     use value::RSValueMock;
 
     use super::test_utils::LoadDocumentTestContext;
     use super::*;
+
+    fn two_fields_empty_row_and_lookup(
+        ctx: &mut LoadDocumentTestContext,
+    ) -> Result<(), LoadDocumentError> {
+        ctx.push(
+            CString::new("field1").unwrap(),
+            RSValueMock::create_string("value1".to_owned()),
+        )
+        .push(
+            CString::new("field2").unwrap(),
+            RSValueMock::create_string("value2".to_owned()),
+        );
+
+        let sv = RSSortingVector::new(0);
+        let key_ptr = c"TestKey";
+        type TOpt<'a> = LoadDocumentOptions<'a, RSValueMock>;
+        let opt: TOpt = LoadDocumentOptionsBuilder::new(
+            ctx as *mut LoadDocumentTestContext as *mut redis_module::raw::RedisModuleCtx,
+            &sv,
+            DocumentType::Hash,
+        )
+        .set_mode(RLookupLoadMode::AllKeys)
+        .with_key_ptr(key_ptr.as_ptr() as *const _)
+        .build()?;
+
+        let mut lookup = RLookup::new();
+        let mut row = RLookupRow::new();
+        load_document_int(&mut lookup, &mut row, &opt, ctx)?;
+
+        assert_eq!(row.len(), 2);
+
+        let cursor = lookup.find_by_name(c"field1").unwrap();
+        let rlk = cursor.current().unwrap();
+        assert_eq!(
+            row.get(rlk),
+            Some(&RSValueMock::create_string("value1".to_owned()))
+        );
+
+        let cursor = lookup.find_by_name(c"field2").unwrap();
+        let rlk = cursor.current().unwrap();
+        assert_eq!(
+            row.get(rlk),
+            Some(&RSValueMock::create_string("value2".to_owned()))
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn add_two_fields_hash_scan() -> Result<(), LoadDocumentError> {
+        unsafe { mock::init_redis_mock_module() };
+        let mut ctx = LoadDocumentTestContext::default();
+        ctx.with_scan_key_feature(true);
+        two_fields_empty_row_and_lookup(&mut ctx)
+    }
 
     #[test]
     fn error_invalid_mode() -> Result<(), LoadDocumentError> {
