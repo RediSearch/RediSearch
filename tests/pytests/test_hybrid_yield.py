@@ -117,7 +117,6 @@ def test_hybrid_vsim_range_yield_score_as():
         expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
 
-
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_search_yield_score_as():
@@ -186,7 +185,6 @@ def test_hybrid_vsim_range_both_yield_distance_and_score():
     # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                'RANGE', '6', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
-
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
