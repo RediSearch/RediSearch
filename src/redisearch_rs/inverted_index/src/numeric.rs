@@ -491,12 +491,14 @@ impl Decoder for Numeric {
     }
 }
 
+#[inline(always)]
 fn read_only_u64<R: Read>(reader: &mut R, len: usize) -> std::io::Result<u64> {
     let mut bytes = [0; 8];
     reader.read_exact(&mut bytes[..len])?;
     Ok(u64::from_le_bytes(bytes))
 }
 
+#[inline(always)]
 fn read_u64_and_u64<R: Read>(
     reader: &mut R,
     first_bytes: usize,
@@ -519,6 +521,7 @@ fn read_u64_and_u64<R: Read>(
     Ok((first, second))
 }
 
+#[inline(always)]
 fn read_u64_and_f32<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Result<(u64, f32)> {
     let mut buffer = [0; 12];
     let total_bytes = first_bytes + 4;
@@ -537,6 +540,7 @@ fn read_u64_and_f32<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Res
     Ok((first, second))
 }
 
+#[inline(always)]
 fn read_u64_and_f64<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Result<(u64, f64)> {
     let mut buffer = [0; 16];
     let total_bytes = first_bytes + 8;

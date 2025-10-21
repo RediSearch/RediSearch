@@ -116,6 +116,7 @@ impl NumericFilter {
     }
 
     /// Check if the given value is in the range specified by this filter
+    #[inline(always)]
     pub fn value_in_range(&self, value: f64) -> bool {
         let min_ok = value > self.min || (self.min_inclusive && value == self.min);
         let max_ok = value < self.max || (self.max_inclusive && value == self.max);
@@ -1122,6 +1123,7 @@ pub trait IndexReader<'index> {
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     for IndexReaderCore<'index, E, D>
 {
+    #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         // Check if the current buffer is empty
         if self.current_buffer.fill_buf()?.is_empty() {
@@ -1142,6 +1144,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         Ok(true)
     }
 
+    #[inline(always)]
     fn seek_record(
         &mut self,
         doc_id: t_docId,
@@ -1326,6 +1329,7 @@ impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
 }
 
 impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<IR> {
+    #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
             let success = self.inner.next_record(result)?;
@@ -1340,6 +1344,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
         }
     }
 
+    #[inline(always)]
     fn seek_record(
         &mut self,
         doc_id: t_docId,
@@ -1446,6 +1451,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReade
     /// # Safety
     ///
     /// 1. `result.is_numeric()` must be true when this function is called.
+    #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
             let success = self.inner.next_record(result)?;
@@ -1468,6 +1474,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReade
     /// # Safety
     ///
     /// 1. `result.is_numeric()` must be true when this function is called.
+    #[inline(always)]
     fn seek_record(
         &mut self,
         doc_id: t_docId,
@@ -1599,6 +1606,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'i
     /// # Safety
     ///
     /// 1. `result.is_numeric()` must be true when this function is called.
+    #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
             let success = self.inner.next_record(result)?;
@@ -1624,6 +1632,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'i
     /// # Safety
     ///
     /// 1. `result.is_numeric()` must be true when this function is called.
+    #[inline(always)]
     fn seek_record(
         &mut self,
         doc_id: t_docId,
