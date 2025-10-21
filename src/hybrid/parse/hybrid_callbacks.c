@@ -84,6 +84,11 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
     arng->limit = num;
 }
 
+// Helper function to set error for SORTBY with NOSORT since they are not allowed to go together
+void fillSortAndNoSortError(QueryError *status) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "NOSORT is not allowed with SORTBY");
+}
+
 #define ASC_BY_DEFAULT true
 
 void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
@@ -91,6 +96,11 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_SORTBY;
+
+    if (*ctx->reqFlags & QEXEC_F_NO_SORT) {
+        fillSortAndNoSortError(status);
+        return;
+    }
 
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(ctx->plan);
     // Parse field/direction pairs
@@ -130,6 +140,14 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     }
 
     return;
+}
+
+void handleNoSort(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)AGPLN_FindStep(ctx->plan, NULL, NULL, PLN_T_ARRANGE);
+    if (arng && arng->sortKeys) {
+        fillSortAndNoSortError(ctx->status);
+    }
 }
 
 // WITHCURSOR callback - parses cursor settings directly
