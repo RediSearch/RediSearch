@@ -1482,6 +1482,7 @@ dependencies = [
  "redis_mock",
  "rqe_iterators",
  "types_ffi",
+ "value",
  "value_ffi",
 ]
 

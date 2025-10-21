@@ -17,7 +17,7 @@
 //! mod c_mocks;
 //! ```
 
-use ffi::RSQueryTerm;
+use ffi::{RSQueryTerm, RSValueType_RSValueType_Number};
 use ffi::{array_clear_func, array_ensure_append_n_func, array_free};
 use inverted_index::{RSIndexResult, RSTermRecord};
 use std::ffi::c_void;
@@ -69,25 +69,24 @@ pub extern "C" fn Term_Free(t: *mut RSQueryTerm) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_Number(val: f64) -> ffi::RSValue {
-    // Allocate the f64 value on the heap and return a raw pointer to it
-    let rs_val = Box::new(ffi::RSValue {
+    ffi::RSValue {
         __bindgen_anon_1: ffi::RSValue__bindgen_ty_1 {
             _numval: val, // Store the number value in the union
         },
         _refcount: 1,
         _bitfield_align_1: [0; 0],
-        _bitfield_1: ffi::__BindgenBitfieldUnit::new([0; 1]),
-    });
-    *rs_val
-}
-
-#[allow(dead_code)]
-pub fn get_rs_value_number(rs_val: ffi::RSValue) -> f64 {
-    unsafe {
-        let v = rs_val.__bindgen_anon_1._numval;
-        v
+        _bitfield_1: ffi::__BindgenBitfieldUnit::new([RSValueType_RSValueType_Number as u8; 1]),
     }
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_NewNumber(val: f64) -> *mut ffi::RSValue {
+    let rs_val = RSValue_Number(val);
+    Box::into_raw(Box::new(rs_val))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_DecrRef() {}
 
 #[unsafe(no_mangle)]
 #[allow(unused_assignments)]

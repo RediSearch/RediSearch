@@ -7,10 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#[allow(unused_imports)]
-use crate::c_mocks::get_rs_value_number;
-use ffi::RSValue;
+use std::ptr::NonNull;
+
+use inverted_index::RSResultKind;
 use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, metric::Metric};
+use value::RSValueTrait;
 mod c_mocks;
 
 static CASES: &[&[u64]] = &[
@@ -69,8 +70,22 @@ fn read() {
             );
             let res = res.unwrap();
             assert_eq!(res.doc_id, expected_id, "Case {i}, element {j}");
-            let metric_val: RSValue = unsafe { *(*res.metrics).value };
-            assert_eq!(get_rs_value_number(metric_val), metric_data[j]);
+            assert_eq!(res.kind(), RSResultKind::Metric);
+            assert_eq!(
+                res.as_numeric(),
+                Some(metric_data[j]),
+                "Case {i}, element {j}"
+            );
+
+            let metrics = unsafe { *res.metrics };
+            assert!(metrics.key.is_null());
+
+            let metric_val = unsafe {
+                value::RSValueFFI::from_raw(
+                    NonNull::new(metrics.value).expect("metrics.value is NULL"),
+                )
+            };
+            assert_eq!(metric_val.as_num().unwrap(), metric_data[j]);
             assert_eq!(it.last_doc_id(), expected_id, "Case {i}, element {j}");
         }
 
@@ -98,8 +113,16 @@ fn skip_to() {
         let first_doc = first_res.unwrap();
         let first_id = case[0];
         assert_eq!(first_doc.doc_id, first_id, "Case {ci}");
-        let metric_val: RSValue = unsafe { *(*first_doc.metrics).value };
-        assert_eq!(get_rs_value_number(metric_val), metric_data[0]);
+        assert_eq!(first_doc.kind(), RSResultKind::Metric);
+        assert_eq!(first_doc.as_numeric().unwrap(), metric_data[0]);
+
+        let metrics = unsafe { *first_doc.metrics };
+        assert!(metrics.key.is_null());
+
+        let metric_val = unsafe {
+            value::RSValueFFI::from_raw(NonNull::new(metrics.value).expect("metrics.value is NULL"))
+        };
+        assert_eq!(metric_val.as_num().unwrap(), metric_data[0]);
         assert_eq!(it.last_doc_id(), first_id, "Case {ci}");
         assert_eq!(it.at_eof(), Some(&first_id) == case.last(), "Case {ci}");
 
@@ -128,8 +151,18 @@ fn skip_to() {
                     res.doc_id, id,
                     "Case {ci} probe {probe} expected landing on {id}"
                 );
-                let metric_val: RSValue = unsafe { *(*res.metrics).value };
-                assert_eq!(get_rs_value_number(metric_val), metric_data[j]);
+                assert_eq!(res.kind(), RSResultKind::Metric);
+                assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
+
+                let metrics = unsafe { *res.metrics };
+                assert!(metrics.key.is_null());
+
+                let metric_val = unsafe {
+                    value::RSValueFFI::from_raw(
+                        NonNull::new(metrics.value).expect("metrics.value is NULL"),
+                    )
+                };
+                assert_eq!(metric_val.as_num().unwrap(), metric_data[j]);
                 // Should land on next existing id
                 assert_eq!(
                     it.at_eof(),
@@ -152,8 +185,18 @@ fn skip_to() {
                 res.doc_id, id,
                 "Case {ci} probe {probe} expected landing on {id}"
             );
-            let metric_val: RSValue = unsafe { *(*res.metrics).value };
-            assert_eq!(get_rs_value_number(metric_val), metric_data[j]);
+            assert_eq!(res.kind(), RSResultKind::Metric);
+            assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
+
+            let metrics = unsafe { *res.metrics };
+            assert!(metrics.key.is_null());
+
+            let metric_val = unsafe {
+                value::RSValueFFI::from_raw(
+                    NonNull::new(metrics.value).expect("metrics.value is NULL"),
+                )
+            };
+            assert_eq!(metric_val.as_num().unwrap(), metric_data[j]);
             assert_eq!(
                 it.at_eof(),
                 Some(&id) == case.last(),

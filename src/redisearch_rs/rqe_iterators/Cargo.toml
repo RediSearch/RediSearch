@@ -16,6 +16,7 @@ inverted_index.workspace = true
 redis_mock.workspace = true
 value_ffi = { path = "../c_entrypoint/value_ffi" }
 types_ffi = { path = "../c_entrypoint/types_ffi" }
+value = { workspace = true, features = ["c_ffi_impl"] }
 
 [build-dependencies]
 build_utils = { path = "../build_utils" }

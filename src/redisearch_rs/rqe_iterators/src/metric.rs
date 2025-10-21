@@ -10,8 +10,9 @@
 //! Metric iterator implementation
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdList};
-use ffi::{RSValue_Number, RSYieldableMetric, array_ensure_append_n_func, t_docId};
+use ffi::{RSYieldableMetric, array_ensure_append_n_func, t_docId};
 use inverted_index::{RSIndexResult, ResultMetrics_Reset};
+use value::{RSValueFFI, RSValueTrait};
 
 pub enum MetricType {
     VectorDistance,
@@ -28,27 +29,40 @@ pub struct Metric {
 impl Metric {
     pub fn new(ids: Vec<t_docId>, metric_data: Vec<f64>) -> Self {
         debug_assert!(ids.len() == metric_data.len());
+
+        // Metric iterator returns a metric result while IdList returns a virtual one.
+        let mut base = IdList::new(ids);
+        let res = base.get_mut_result();
+        *res = RSIndexResult::metric();
+
         Metric {
-            base: IdList::new(ids),
+            base,
             metric_data,
             type_: MetricType::VectorDistance,
         }
     }
+
     #[inline(always)]
     fn set_result_metrics(&mut self, val: f64) -> &RSIndexResult<'static> {
         let result = self.base.get_mut_result();
-        // SAFETY: IndexResult_SetNumValue is unsafe because result may be null.
-        unsafe {
-            types_ffi::IndexResult_SetNumValue(result, val);
+
+        if let Some(num) = result.as_numeric_mut() {
+            *num = val;
+        } else {
+            // Safety: we created a metric result, which is numeric, in the constructor
+            panic!("Result is not numeric");
         }
+
         // SAFETY: free the metrics c_array
         unsafe {
             ResultMetrics_Reset(result.metrics);
         }
+
         // SAFETY: calling ffi::RSValue_Number function to allocate a new RSValue
+        let value = RSValueFFI::create_num(val);
         let new_metrics: *const RSYieldableMetric = &RSYieldableMetric {
             key: std::ptr::null_mut(),
-            value: unsafe { &mut RSValue_Number(val) },
+            value: value.as_ptr(),
         };
         // SAFETY: calling ffi::RSYieldableMetric_Concat function to concatenate new_metrics to result.metrics array
         unsafe {
