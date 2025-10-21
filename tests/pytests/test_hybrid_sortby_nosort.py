@@ -40,15 +40,15 @@ def test_hybrid_sortby_nosort_conflict():
     
     # Test SORTBY followed by NOSORT - should fail
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'SORTBY', '1', 'description', 'NOSORT').error().contains('NOSORT is not allowed with SORTBY')
+               'SORTBY', '1', '@description', 'NOSORT').error().contains('NOSORT is not allowed with SORTBY')
     
     # Test NOSORT followed by SORTBY - should fail
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'NOSORT', 'SORTBY', '1', 'description').error().contains('NOSORT is not allowed with SORTBY')
+               'NOSORT', 'SORTBY', '1', '@description').error().contains('NOSORT is not allowed with SORTBY')
     
     # Test that SORTBY alone works (should not fail)
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'SORTBY', '1', 'description').noError()
+               'SORTBY', '1', '@description').noError()
     
     # Test that NOSORT alone works (should not fail)
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
@@ -64,9 +64,9 @@ def test_hybrid_sortby_nosort_with_combine():
     # Test SORTBY followed by NOSORT with COMBINE - should fail
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                'COMBINE', 'RRF', '2', 'CONSTANT', '60',
-               'SORTBY', '1', 'description', 'NOSORT').error().contains('NOSORT is not allowed with SORTBY')
+               'SORTBY', '1', '@description', 'NOSORT').error().contains('NOSORT is not allowed with SORTBY')
     
     # Test NOSORT followed by SORTBY with COMBINE - should fail
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                'COMBINE', 'RRF', '2', 'CONSTANT', '60',
-               'NOSORT', 'SORTBY', '1', 'description').error().contains('NOSORT is not allowed with SORTBY')
+               'NOSORT', 'SORTBY', '1', '@description').error().contains('NOSORT is not allowed with SORTBY')
