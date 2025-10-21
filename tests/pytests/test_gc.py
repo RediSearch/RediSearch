@@ -82,7 +82,7 @@ def testNumericCompleteGCAndRepopulation(env):
     # Phase 1: Add initial documents
     InitialDocs = 100
     for i in range(InitialDocs):
-        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields', 'id', str(i)))
+        env.assertEqual(env.cmd('hset', 'doc%d' % i, 'id', str(i)), 1)
 
     # Verify initial state
     res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
@@ -94,7 +94,7 @@ def testNumericCompleteGCAndRepopulation(env):
 
     # Phase 2: Delete all documents and run GC
     for i in range(InitialDocs):
-        env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
+        env.assertEqual(env.cmd('del', 'doc%d' % i), 1)
 
     forceInvokeGC(env, 'idx')
 
@@ -109,7 +109,7 @@ def testNumericCompleteGCAndRepopulation(env):
     # Phase 3: Re-add documents with the same numeric values
     NewDocs = 50
     for i in range(NewDocs):
-        env.assertOk(env.cmd('ft.add', 'idx', 'newdoc%d' % i, 1.0, 'fields', 'id', str(i)))
+        env.assertEqual(env.cmd('hset', 'newdoc%d' % i, 'id', str(i)), 1)
 
     # Verify new documents are indexed
     res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
@@ -132,7 +132,7 @@ def testNumericMergesTrees(env):
     # Phase 1: Add initial documents
     InitialDocs = 255
     for i in range(InitialDocs):
-        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields', 'id', str(i)))
+        env.assertEqual(env.cmd('hset', 'doc%d' % i, 'id', str(i)), 1)
 
     # Verify initial state
     res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
@@ -142,7 +142,7 @@ def testNumericMergesTrees(env):
 
     # Phase 2: Make the last bucket empty
     for i in range(0, 7):
-        env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
+        env.assertEqual(env.cmd('del', 'doc%d' % i), 1)
 
     forceInvokeGC(env, 'idx')
 
@@ -154,7 +154,7 @@ def testNumericMergesTrees(env):
 
     # Phase 3: Make the second last bucket empty to trigger merge
     for i in range(7, 33):
-        env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
+        env.assertEqual(env.cmd('del', 'doc%d' % i), 1)
 
     forceInvokeGC(env, 'idx')
 
@@ -215,7 +215,7 @@ def testTagCompleteGCAndRepopulation(env):
     # Phase 1: Add initial documents
     InitialDocs = 100
     for i in range(InitialDocs):
-        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields', 't', 'tag1'))
+        env.assertEqual(env.cmd('hset', 'doc%d' % i, 't', 'tag1'), 1)
 
     # Verify initial state
     res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
@@ -225,7 +225,7 @@ def testTagCompleteGCAndRepopulation(env):
 
     # Phase 2: Delete all documents and run GC
     for i in range(InitialDocs):
-        env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
+        env.assertEqual(env.cmd('del', 'doc%d' % i), 1)
 
     forceInvokeGC(env, 'idx')
 
@@ -240,7 +240,7 @@ def testTagCompleteGCAndRepopulation(env):
     # Phase 3: Re-add documents with the same tag
     NewDocs = 50
     for i in range(NewDocs):
-        env.assertOk(env.cmd('ft.add', 'idx', 'newdoc%d' % i, 1.0, 'fields', 't', 'tag1'))
+        env.assertEqual(env.cmd('hset', 'newdoc%d' % i, 't', 'tag1'), 1)
 
     # Verify new documents are indexed
     res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
