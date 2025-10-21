@@ -54,7 +54,7 @@ pub unsafe extern "C" fn QueryError_HasError(query_error: *const OpaqueQueryErro
 /// an invalid [`QueryErrorCode`] to be provided.
 #[unsafe(no_mangle)]
 pub extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
-    let Ok(code) = QueryErrorCode::try_from(maybe_code) else {
+    let Some(code) = QueryErrorCode::from_repr(maybe_code) else {
         return c"Unknown status code".as_ptr();
     };
 
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn QueryError_SetError(
     // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
-    let code = QueryErrorCode::try_from(code).expect("invalid query error code");
+    let code = QueryErrorCode::from_repr(code).expect("invalid query error code");
 
     let message = if message.is_null() {
         None
@@ -110,7 +110,7 @@ pub unsafe extern "C" fn QueryError_SetCode(query_error: *mut OpaqueQueryError, 
     // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
-    let code = QueryErrorCode::try_from(code).expect("invalid query error code");
+    let code = QueryErrorCode::from_repr(code).expect("invalid query error code");
 
     query_error.set_code(code);
 }
@@ -276,7 +276,7 @@ pub unsafe extern "C" fn QueryError_MaybeSetCode(query_error: *mut OpaqueQueryEr
     // Safety: see safety requirement above.
     let query_error =
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
-    let code = QueryErrorCode::try_from(code).expect("invalid query error code");
+    let code = QueryErrorCode::from_repr(code).expect("invalid query error code");
 
     if query_error.private_message().is_none() || !query_error.is_ok() {
         return;
