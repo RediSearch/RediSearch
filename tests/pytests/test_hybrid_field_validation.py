@@ -16,7 +16,7 @@ def setup_json_index(env):
     env.expect('FT.CREATE json_idx ON JSON SCHEMA $.description AS description TEXT $.embedding AS embedding VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 $.category AS category TAG $.price AS price NUMERIC').noError()
     
 
-LOAD_ERROR_MSG = 'Missing field symbol prefix for field name'
+LOAD_ERROR_MSG = 'Missing prefix: name requires \'@\' prefix, JSON path require \'$\' prefix'
 
 
 def test_hybrid_load_requires_at_prefix(env):
@@ -159,7 +159,7 @@ def test_hybrid_sortby_requires_at_prefix(env):
         'PARAMS', '2', 'query_vec', query_vector,
         'LOAD', '1', '@price',
         'SORTBY', '2', 'price', 'DESC'  # Missing @ prefix
-    ).error().contains('Missing field symbol prefix for field name: price in SORTBY')
+    ).error().contains('"Missing prefix: name requires \'@\' prefix, JSON path require \'$\' prefix, got: price in SORTBY"')
 
     # Test SORTBY with @ prefix - should succeed
     env.expect(
@@ -288,7 +288,7 @@ def test_hybrid_groupby_reduce_requires_at_prefix(env):
         'PARAMS', '2', 'query_vec', query_vector,
         'LOAD', '1', '@price',
         'GROUPBY', '1', '@category', 'REDUCE', 'SUM', '1', 'price', 'AS', 'total_price'  # Missing @ prefix in REDUCE
-    ).error().contains('Missing field symbol prefix for field name: price in SUM')
+    ).error().contains('Missing prefix: name requires \'@\' prefix, JSON path require \'$\' prefix, got: price in SUM')
 
     # Test REDUCE with @ prefix in field reference - should succeed
     env.expect(
@@ -310,7 +310,7 @@ def test_hybrid_groupby_reduce_requires_at_prefix(env):
         'GROUPBY', '1', '@category',
         'REDUCE', 'COUNT', '0', 'AS', 'count',
         'REDUCE', 'AVG', '1', 'price', 'AS', 'avg_price'  # Missing @ prefix in second REDUCE
-    ).error().contains('Missing field symbol prefix for field name: price in AVG')
+    ).error().contains('Missing prefix: name requires \'@\' prefix, JSON path require \'$\' prefix, got: price in AVG')
 
     # Test REDUCE with multiple operations, all with @ prefix - should succeed
     env.expect(
