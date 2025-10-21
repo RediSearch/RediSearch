@@ -512,11 +512,9 @@ fn read_u64_and_u64<R: Read>(
     first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
     let first = u64::from_le_bytes(first);
 
-    let second = u64::from_le_bytes(
-        buffer[first_bytes..first_bytes + 8]
-            .try_into()
-            .expect("to convert slice into array"),
-    );
+    let mut second = [0; 8];
+    second[..second_bytes].copy_from_slice(&buffer[first_bytes..first_bytes + second_bytes]);
+    let second = u64::from_le_bytes(second);
 
     Ok((first, second))
 }
@@ -532,11 +530,9 @@ fn read_u64_and_f32<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Res
     first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
     let first = u64::from_le_bytes(first);
 
-    let second = f32::from_le_bytes(
-        buffer[first_bytes..first_bytes + 4]
-            .try_into()
-            .expect("to convert slice into array"),
-    );
+    let mut second = [0; 4];
+    second.copy_from_slice(&buffer[first_bytes..first_bytes + 4]);
+    let second = f32::from_le_bytes(second);
 
     Ok((first, second))
 }
@@ -552,11 +548,9 @@ fn read_u64_and_f64<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Res
     first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
     let first = u64::from_le_bytes(first);
 
-    let second = f64::from_le_bytes(
-        buffer[first_bytes..first_bytes + 8]
-            .try_into()
-            .expect("to convert slice into array"),
-    );
+    let mut second = [0; 8];
+    second.copy_from_slice(&buffer[first_bytes..first_bytes + 8]);
+    let second = f64::from_le_bytes(second);
 
     Ok((first, second))
 }
