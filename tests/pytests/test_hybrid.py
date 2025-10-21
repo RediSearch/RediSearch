@@ -271,11 +271,9 @@ class testHybridSearch:
 
     def test_knn_load_key(self):
         """Test hybrid search + LOAD __key"""
-        if CLUSTER:
-            raise SkipTest()
         hybrid_query = (
-            "SEARCH '@text:(even four)' "
-            "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
+            "SEARCH 'invalid' "
+            "VSIM @vector $BLOB FILTER @tag:{even} "
             "LOAD 3 __key AS my_key"
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob,self.index_name)
@@ -285,10 +283,10 @@ class testHybridSearch:
         results = access_nested_list(res, results_index)
         self.env.assertEqual(
             results[0],
-            ['my_key', 'text_04'])
+            ['my_key', 'both_02'])
         self.env.assertEqual(
             results[1],
-            ['my_key', 'both_04'])
+            ['my_key', 'both_10'])
 
     # # TODO: Enable this test after fixing MOD-11891
     # def test_knn_load_score(self):

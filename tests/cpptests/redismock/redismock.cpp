@@ -753,6 +753,27 @@ int RMCK_IsIOError(RedisModuleIO *io) {
   return result;
 }
 
+void *RMCK_LoadDataTypeFromStringEncver(const RedisModuleString *str,
+                                        const RedisModuleType *mt,
+                                        int encver) {
+  RedisModuleIO io{};
+  io.buffer.insert(io.buffer.end(), str->c_str(), str->c_str() + str->size());
+  return mt->typemeths.rdb_load(&io, encver);
+}
+
+RedisModuleString *RMCK_SaveDataTypeToString(RedisModuleCtx *ctx,
+                                             void *data,
+                                             const RedisModuleType *mt) {
+  RedisModuleIO io{};
+  mt->typemeths.rdb_save(&io, data);
+  if (io.error_flag) {
+    return nullptr;
+  }
+  RedisModuleString *rms = new RedisModuleString(std::string(io.buffer.begin(), io.buffer.end()));
+  if (ctx) ctx->addPointer(rms);
+  return rms;
+}
+
 // Track contexts associated with IO objects
 static std::map<RedisModuleIO*, RedisModuleCtx*> io_contexts;
 static std::mutex io_contexts_mutex;
@@ -1413,6 +1434,9 @@ static void registerApis() {
   REGISTER_API(LoadStringBuffer);
   REGISTER_API(IsIOError);
   REGISTER_API(GetContextFromIO);
+  // Serialization
+  REGISTER_API(LoadDataTypeFromStringEncver);
+  REGISTER_API(SaveDataTypeToString);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
