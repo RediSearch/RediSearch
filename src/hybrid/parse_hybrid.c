@@ -429,25 +429,6 @@ static void copyCursorConfig(CursorConfig *dest, const CursorConfig *src) {
   dest->chunkSize = src->chunkSize;
 }
 
-// Helper function to get LIMIT value from parsed aggregation pipeline
-static size_t getLimitFromPlan(AGGPlan *plan) {
-  RS_ASSERT(plan);
-
-  PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(plan);
-  if (arrangeStep && arrangeStep->isLimited && arrangeStep->limit > 0) {
-    return (size_t)arrangeStep->limit;
-  }
-  return 0;
-}
-
-// Helper function to check if LIMIT was explicitly provided
-static bool tailHasExplicitLimitInPlan(AGGPlan *plan) {
-  if (!plan) return false;
-
-  PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(plan);
-  return (arrangeStep && arrangeStep->isLimited);
-}
-
 /**
  * Apply KNN K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation.
  *
