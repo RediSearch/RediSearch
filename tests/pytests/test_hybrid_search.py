@@ -43,7 +43,9 @@ def setup_basic_index_hnsw(env):
 
     # Load test data
     for doc_id, doc_data in test_data.items():
-        conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
+        conn.execute_command(
+            'HSET', doc_id, 'description', doc_data['description'],
+            'embedding_hnsw', doc_data['embedding'])
 
 
 def test_hybrid_search_invalid_query_with_vector():
@@ -93,7 +95,7 @@ def test_invalid_ef_runtime():
     env.expect(
         'FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes',
         'VSIM' ,'@embedding_hnsw', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
-        'KNN', 4, 'K', 15, 'EF_RUNTIME', 'what?'
+        'KNN', 4, 'K', 15, 'EF_RUNTIME', 'text'
     ).error().contains('Invalid EF_RUNTIME value')
 
 def test_invalid_epsilon():
@@ -103,7 +105,7 @@ def test_invalid_epsilon():
     env.expect(
         'FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes',
         'VSIM' ,'@embedding_hnsw', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
-        'RANGE', 4, 'RADIUS', 1.1, 'EPSILON', 'what?'
+        'RANGE', 4, 'RADIUS', 1.1, 'EPSILON', 'text'
     ).error().contains('Invalid EPSILON value')
 
 def test_hybrid_range_invalid_syntax():
@@ -122,4 +124,9 @@ def test_hybrid_range_invalid_syntax():
         'RANGE', 2, 'EPSILON', 0.1
     ).error().contains('Missing required argument RADIUS')
 
+    env.expect(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
+        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+        'RANGE', 2, 'RADIUS', 'text'
+    ).error().contains('Invalid RADIUS value')
 
