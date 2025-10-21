@@ -1002,11 +1002,13 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
   // If iterator was created successfully, and we have a metric to yield, update the
-  // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
-  if (it && qn->vn.vq->scoreField) {
+  // Only create MetricRequest entries for iterators that actually yield metrics
+  if (it && qn->vn.vq->scoreField &&
+      (it->type == HYBRID_ITERATOR || it->type == METRIC_ITERATOR)) {
     MetricRequest *request = array_ensure_at(q->metricRequestsP, idx, MetricRequest);
 
     // Create a handle that points to the iterator's ownKey field
+    // Both HYBRID_ITERATOR and METRIC_ITERATOR have the same ownKey and keyHandle layout
     RLookupKeyHandle *handle = rm_malloc(sizeof(RLookupKeyHandle));
     handle->is_valid = true;
 
@@ -1014,15 +1016,10 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       HybridIterator *hybridIt = (HybridIterator *)it;
       handle->key_ptr = &hybridIt->ownKey;
       hybridIt->keyHandle = handle; // Set up back-reference
-    } else if (it->type == METRIC_ITERATOR) {
+    } else { // Must be METRIC_ITERATOR due to the condition above
       MetricIterator *metricIt = (MetricIterator *)it;
       handle->key_ptr = &metricIt->ownKey;
       metricIt->keyHandle = handle; // Set up back-reference
-    } else {
-      // Only reason to get an iterator of type different than HYBRID or METRIC
-      // is if the entire iterator was optimized away
-      rm_free(handle);
-      handle = NULL;
     }
 
     request->key_handle = handle;
