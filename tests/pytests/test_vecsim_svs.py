@@ -15,6 +15,7 @@ from common import (
     runDebugQueryCommandPauseBeforeRPAfterN,
     getIsRPPaused,
     setPauseRPResume,
+    forceInvokeGC
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -467,5 +468,75 @@ def test_drop_index_during_query():
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
     env.expect(*query_cmd).error().contains(f"No such index")
 
-# def test_gc():
-#     env = Env(moduleArgs='DEFAULT_DIALECT 2')
+def test_gc():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 2')
+    dim = 4
+    data_type = 'FLOAT32'
+    training_threshold = DEFAULT_BLOCK_SIZE
+    index_size = 3000
+
+    compression_types = ['NO_COMPRESSION', 'LVQ8']
+    if is_intel_opt_enabled():
+        compression_types.append('LeanVec4x8')
+
+    for compression_type in compression_types:
+        compression_params = None
+        if compression_type != 'NO_COMPRESSION':
+            compression_params = ['COMPRESSION', compression_type, 'TRAINING_THRESHOLD', training_threshold]
+        message_prefix = f"compression_params: {compression_params}"
+        set_up_database_with_vectors(env, dim, num_docs=index_size, index_name=DEFAULT_INDEX_NAME, datatype=data_type, alg='SVS-VAMANA', additional_vec_params=compression_params)
+        wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=message_prefix)
+        env.assertGreaterEqual(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], DEFAULT_BLOCK_SIZE, message=f"{message_prefix}")
+
+        memory_before_deletion = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+        size_before = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE']
+
+        # Phase 1: Delete vectors up to (but not exceeding) the marked deletion threshold
+        #
+        # SVS resets marked_deleted when: marked_deleted > 0.5 * current_index_size
+        # This translates to: marked_deleted > size_before / 3
+        #
+        # Delete exactly (size_before // 3 - 1) vectors to stay just below threshold
+        vecs_to_delete = size_before // 3 - 1
+        for i in range (vecs_to_delete):
+            env.execute_command('DEL', f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}')
+        env.assertEqual(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['NUMBER_OF_MARKED_DELETED'],
+                        vecs_to_delete,
+                        message=f"size_before: {size_before}, {message_prefix}")
+
+        total_deleted = vecs_to_delete
+        # Memory should remain unchanged
+        curr_memory = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+        env.assertEqual(curr_memory, memory_before_deletion, message=f"{message_prefix}")
+
+        # Index size should reflect the number of valid vectors
+        size_after = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE']
+        env.assertEqual(total_deleted, size_before - size_after, message=f"{message_prefix}")
+
+        # Phase 2: Delete additional vectors to trigger marked deletion reset
+        #
+        # Delete 3 more vectors to exceed the threshold and trigger counter reset.
+        # After reset, marked_deleted should be reset to a small value (≤ 3)
+        vecs_to_delete = 3
+        for i in range(vecs_to_delete):
+            env.execute_command('DEL', f'{DEFAULT_DOC_NAME_PREFIX}{i + 1 + size_before // 3}')
+
+        marked_deleted_after_reset = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['NUMBER_OF_MARKED_DELETED']
+        env.assertLessEqual(marked_deleted_after_reset,
+                        vecs_to_delete,
+                        message=f"size_before: {size_before}, {message_prefix}")
+        total_deleted += vecs_to_delete
+        # Index size should reflect the number of valid vectors
+        size_after = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE']
+        env.assertEqual(total_deleted, size_before - size_after, message=f"{message_prefix}")
+        # Validate memory remains unchanged
+        curr_memory = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+        env.assertEqual(curr_memory, memory_before_deletion, message=f"{message_prefix}")
+
+        # Phase 3: Force garbage collection to reclaim memory
+        #
+        # Explicit GC should reduce memory usage after marked deletions
+        forceInvokeGC(env, DEFAULT_INDEX_NAME)
+        env.assertLess(get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME), curr_memory, message=f"{message_prefix}")
+
+        env.execute_command('FLUSHALL')
