@@ -7,14 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use derive_more::TryFrom;
 use std::ffi::{CStr, CString};
 use std::fmt::{Debug, Display};
+use strum::FromRepr;
 
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
-#[derive(Clone, Copy, Default, PartialEq, Eq, TryFrom)]
-#[try_from(repr)]
+#[derive(Clone, Copy, Default, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryErrorCode {
     #[default]
