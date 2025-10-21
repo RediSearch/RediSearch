@@ -925,13 +925,8 @@ def test_hybrid_query_batches_mode_with_text_vamana():
 
     # Test explicit BATCHES policy with batch size
     k = 15
-    ret = env.execute_command('FT.SEARCH', 'idx', f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]',
-                         'SORTBY', '__v_score',
-                         'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                         'RETURN', 2, '__v_score', 't', 'LIMIT', 0, k)
-    env.assertEqual(len(ret[1:]) // 2, k)
-    env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
-
+    expected_res[0] = k
+    execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res)
 
 def test_hybrid_query_batches_mode_with_text():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
