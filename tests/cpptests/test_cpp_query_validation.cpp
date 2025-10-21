@@ -54,11 +54,11 @@ bool isInvalidHybridSearch(const char *qt, RedisSearchCtx &ctx,
 
 #define assertValidHybridSearch(qt, ctx) ASSERT_TRUE(isValidAsHybridSearch(qt, ctx))
 #define assertInvalidHybridVectorFilterQuery(qt, ctx) \
-  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, hybridVectorFilterValidationFlags, QUERY_EVECTOR_NOT_ALLOWED))
+  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, hybridVectorFilterValidationFlags, QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED))
 #define assertInvalidHybridVectorFilterWeight(qt, ctx) \
-  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, hybridVectorFilterValidationFlags, QUERY_EWEIGHT_NOT_ALLOWED))
+  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, hybridVectorFilterValidationFlags, QUERY_ERROR_CODE_WEIGHT_NOT_ALLOWED))
 #define assertInvalidHybridSearchQuery(qt, ctx) \
-  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, hybridSearchValidationFlags, QUERY_EVECTOR_NOT_ALLOWED))
+  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, hybridSearchValidationFlags, QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED))
 
 
 TEST_F(QueryValidationTest, testInvalidVectorFilter) {

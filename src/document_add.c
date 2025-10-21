@@ -92,7 +92,7 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
       if (STR_EQCASE(s, narg, "FIELDS")) {
         size_t numRemaining = AC_NumRemaining(ac);
         if (numRemaining % 2 != 0) {
-          QueryError_SetError(status, QUERY_EADDARGS,
+          QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS,
                               "Fields must be specified in FIELD VALUE pairs");
           return REDISMODULE_ERR;
         } else {
@@ -103,20 +103,20 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
         break;
 
       } else {
-        QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)narg, s);
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "Unknown keyword", " `%.*s` provided", (int)narg, s);
         return REDISMODULE_ERR;
       }
       // Argument not found, that's ok. We'll handle it below
     } else {
       char message[1024];
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EADDARGS, "Parsing error for document option %s: %s", errArg->name, AC_Strerror(rv));
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "Parsing error for document option %s: %s", errArg->name, AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
   }
 
   if (!foundFields) {
     // If we've reached here, there is no fields list. This is an error??
-    QueryError_SetError(status, QUERY_EADDARGS, "No field list found");
+    QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "No field list found");
     return REDISMODULE_ERR;
   }
 
@@ -125,7 +125,7 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
     const char *lang = RedisModule_StringPtrLen(opts->languageStr, &len);
     opts->language = RSLanguage_Find(lang, len);
     if (opts->language == RS_LANG_UNSUPPORTED) {
-      QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
+      QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Unsupported language");
       return REDISMODULE_ERR;
     }
   }
@@ -159,17 +159,17 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   }
 
   if (exists == -1) {
-    QueryError_SetCode(status, QUERY_EREDISKEYTYPE);
+    QueryError_SetCode(status, QUERY_ERROR_CODE_REDIS_KEY_TYPE);
     goto done;
   }
 
   if (!exists && (opts->options & DOCUMENT_ADD_NOCREATE)) {
-    QueryError_SetError(status, QUERY_ENODOC, "Document does not exist");
+    QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "Document does not exist");
     goto done;
   }
 
   if (exists && !(opts->options & DOCUMENT_ADD_REPLACE)) {
-    QueryError_SetCode(status, QUERY_EDOCEXISTS);
+    QueryError_SetCode(status, QUERY_ERROR_CODE_DOC_EXISTS);
     goto done;
   }
 
@@ -181,13 +181,13 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     HiddenString_Free(expr, false);
     if (rc == REDISMODULE_OK) {
       if (res == 0) {
-        QueryError_SetCode(status, QUERY_EDOCNOTADDED);
+        QueryError_SetCode(status, QUERY_ERROR_CODE_DOC_NOT_ADDED);
         goto done;
       }
     } else {
-      if (QueryError_GetCode(status) == QUERY_ENOPROPVAL) {
+      if (QueryError_GetCode(status) == QUERY_ERROR_CODE_NO_PROP_VAL) {
         QueryError_ClearError(status);
-        QueryError_SetCode(status, QUERY_EDOCNOTADDED);
+        QueryError_SetCode(status, QUERY_ERROR_CODE_DOC_NOT_ADDED);
       }
       goto done;
     }
@@ -209,7 +209,7 @@ done:
 
 static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
   if (QueryError_HasError(&aCtx->status)) {
-    if (QueryError_GetCode(&aCtx->status) == QUERY_EDOCNOTADDED) {
+    if (QueryError_GetCode(&aCtx->status) == QUERY_ERROR_CODE_DOC_NOT_ADDED) {
       RedisModule_ReplyWithError(ctx, "NOADD");
     } else {
       RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&aCtx->status));
@@ -244,11 +244,11 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   int rv = 0;
   if ((rv = AC_GetDouble(&ac, &opts.score, 0) != AC_OK)) {
-    QueryError_SetError(&status, QUERY_EADDARGS, "Could not parse document score");
+    QueryError_SetError(&status, QUERY_ERROR_CODE_ADD_ARGS, "Could not parse document score");
   } else if (opts.score < 0 || opts.score > 1.0) {
-    QueryError_SetError(&status, QUERY_EADDARGS, "Score must be between 0 and 1");
+    QueryError_SetError(&status, QUERY_ERROR_CODE_ADD_ARGS, "Score must be between 0 and 1");
   } else if (parseDocumentOptions(&opts, &ac, &status) != REDISMODULE_OK) {
-    QueryError_MaybeSetCode(&status, QUERY_EADDARGS);
+    QueryError_MaybeSetCode(&status, QUERY_ERROR_CODE_ADD_ARGS);
   }
 
   if (QueryError_HasError(&status)) {
@@ -261,7 +261,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
   if (rv != REDISMODULE_OK) {
-    if (QueryError_GetCode(&status) == QUERY_EDOCNOTADDED) {
+    if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_DOC_NOT_ADDED) {
       RedisModule_ReplyWithSimpleString(ctx, "NOADD");
     } else {
       RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));

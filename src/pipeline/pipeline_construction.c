@@ -26,13 +26,13 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
       if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetWithUserDataFmt(err, QUERY_ENOPROPKEY, "No such property", " `%s`", fldname);
+        QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", fldname);
         return NULL;
       }
     }
     dstkeys[ii] = RLookup_GetKey_WriteEx(&gstp->lookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
     if (!dstkeys[ii]) {
-      QueryError_SetWithUserDataFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", fldname);
+      QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", fldname);
       return NULL;
     }
   }
@@ -48,7 +48,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     if (!ff) {
       // No such reducer!
       Grouper_Free(grp);
-      QueryError_SetWithUserDataFmt(err, QUERY_ENOREDUCER, "No such reducer", ": %s", pr->name);
+      QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_REDUCER, "No such reducer", ": %s", pr->name);
       return NULL;
     }
     Reducer *rr = ff(&options);
@@ -64,7 +64,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     Grouper_AddReducer(grp, rr, dstkey);
     if (!dstkey) {
       Grouper_Free(grp);
-      QueryError_SetWithUserDataFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", pr->alias);
+      QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", pr->alias);
       return NULL;
     }
   }
@@ -114,7 +114,7 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
     const char *name = requests[i].metric_name;
     size_t name_len = strlen(name);
     if (IndexSpec_GetFieldWithLength(sctx->spec, name, name_len)) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", name);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INDEX_EXISTS, "Property", " `%s` already exists in schema", name);
       return NULL;
     }
     // Set HIDDEN flag for internal metrics
@@ -122,7 +122,7 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
 
     RLookupKey *key = RLookup_GetKey_WriteEx(rl, name, name_len, flags);
     if (!key) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", name);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", name);
       return NULL;
     }
 
@@ -184,7 +184,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
           if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
-            QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in schema", keystr);
+            QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in schema", keystr);
             goto end;
           }
           *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
@@ -276,12 +276,12 @@ static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t
       int rv = AC_GetString(ac, &name, &name_len, 0);
       if (rv != AC_OK) {
         if (status) {
-          QueryError_SetError(status, QUERY_EPARSEARGS, "LOAD path AS name - must be accompanied with NAME");
+          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LOAD path AS name - must be accompanied with NAME");
         }
         return REDISMODULE_ERR;
       } else if (!strcasecmp(name, SPEC_AS_STR)) {
         if (status) {
-          QueryError_SetError(status, QUERY_EPARSEARGS, "Alias for LOAD cannot be `AS`");
+          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Alias for LOAD cannot be `AS`");
         }
         return REDISMODULE_ERR;
       }
@@ -392,7 +392,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
       if (params->common.scoreAlias) {
         scoreKey = RLookup_GetKey_Write(first, params->common.scoreAlias, RLOOKUP_F_NOFLAGS);
         if (!scoreKey) {
-          QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", "%s", params->common.scoreAlias);
+          QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_ERROR_CODE_DUP_FIELD, "Could not create score alias, name already exists in query", "%s", params->common.scoreAlias);
           return;
         }
       } else {
@@ -456,10 +456,10 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
       }
       RLookupKey *kk = RLookup_GetKey_Read(lookup, ff->name, RLOOKUP_F_NOFLAGS);
       if (!kk) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "No such property", " `%s`", ff->name);
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", ff->name);
         goto error;
       } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Property", " `%s` is not in schema", ff->name);
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Property", " `%s` is not in schema", ff->name);
         goto error;
       }
       ff->lookupKey = kk;
@@ -531,7 +531,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
           RLookupKey *dstkey = RLookup_GetKey_Write(curLookup, stp->alias, flags);
           if (!dstkey) {
             // Can only happen if we're in noOverride mode
-            QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", stp->alias);
+            QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", stp->alias);
             goto error;
           }
           rp = RPEvaluator_NewProjector(mstp->parsedExpr, curLookup, dstkey);
@@ -547,7 +547,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
         RLookup *rootLookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_FIRST);
         if (curLookup != rootLookup) {
-          QueryError_SetError(status, QUERY_EINVAL,
+          QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
                               "LOAD cannot be applied after projectors or reducers");
           goto error;
         }
@@ -572,7 +572,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
                                                                      vnStep->vectorFieldName,
                                                                      strlen(vnStep->vectorFieldName));
         if (!vectorField || !FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid vector field for normalization");
+          QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid vector field for normalization");
           goto error;
         }
 

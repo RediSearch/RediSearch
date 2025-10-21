@@ -180,7 +180,7 @@ void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) 
 
   // Something went wrong (number of fields mismatch)
   if (array_len(fields->fieldSpecInfo_arr) != len) {
-    QueryError_SetError(error, QUERY_EBADVAL, "Inconsistent index state");
+    QueryError_SetError(error, QUERY_ERROR_CODE_BAD_VAL, "Inconsistent index state");
     return;
   }
 

@@ -34,7 +34,7 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
   *gf = (LegacyGeoFilter){0};
 
   if (AC_NumRemaining(ac) < 5) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "GEOFILTER requires 5 arguments");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "GEOFILTER requires 5 arguments");
     return REDISMODULE_ERR;
   }
 
@@ -42,11 +42,11 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
   // Store the field name at the field spec pointer, to validate later
   const char *fieldName = NULL;
   if ((rv = AC_GetString(ac, &fieldName, NULL, 0)) != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <geo property>: %s", AC_Strerror(rv));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <geo property>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   if ((rv = AC_GetDouble(ac, &gf->base.lon, AC_F_NOADVANCE) != AC_OK)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <lon>: %s", AC_Strerror(rv));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <lon>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   if (gf->base.lon == 0) {
@@ -55,7 +55,7 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
   AC_Advance(ac);
 
   if ((rv = AC_GetDouble(ac, &gf->base.lat, AC_F_NOADVANCE)) != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <lat>: %s", AC_Strerror(rv));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <lat>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   if (gf->base.lat == 0) {
@@ -64,7 +64,7 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
   AC_Advance(ac);
 
   if ((rv = AC_GetDouble(ac, &gf->base.radius, AC_F_NOADVANCE)) != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <radius>: %s", AC_Strerror(rv));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <radius>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   if (gf->base.radius == 0) {
@@ -74,7 +74,7 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
 
   const char *unitstr = AC_GetStringNC(ac, NULL);
   if ((gf->base.unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown distance unit", " %s", unitstr);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown distance unit", " %s", unitstr);
     return REDISMODULE_ERR;
   }
   // only allocate on the success path

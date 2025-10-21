@@ -23,7 +23,7 @@ extern "C" {
     if (!verifier(dref, varg)) {                                                               \
       RSValueType dref_ty = RSValue_Type(dref);                                                \
       QueryError_SetWithoutUserDataFmt(                                                        \
-          ctx->err, QUERY_EPARSEARGS,                                                          \
+          ctx->err, QUERY_ERROR_CODE_PARSE_ARGS,                                                          \
           "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref_ty, \
           idx, fname, #verifier, #varg);                                                       \
       return EXPR_EVAL_ERR;                                                                    \

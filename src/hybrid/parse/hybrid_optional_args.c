@@ -38,7 +38,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     // Create argument parser
     ArgParser *parser = ArgParser_New(ac, "HybridOptionalArgs");
     if (!parser) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create argument parser");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create argument parser");
         return REDISMODULE_ERR;
     }
 
@@ -191,7 +191,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
         return REDISMODULE_ERR; // ARG_ERROR
     }
     if (!parseResult.success) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
         ArgParser_Free(parser);
         return REDISMODULE_ERR; // ARG_ERROR
     }
@@ -199,7 +199,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     ArgParser_Free(parser);
 
     if ((*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
         return REDISMODULE_ERR;
     }
 

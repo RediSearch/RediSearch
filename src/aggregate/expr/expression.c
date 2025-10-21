@@ -94,7 +94,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   double n1, n2;
   if (!RSValue_ToNumber(&l, &n1) || !RSValue_ToNumber(&r, &n2)) {
 
-    QueryError_SetError(eval->err, QUERY_ENOTNUMERIC, NULL);
+    QueryError_SetError(eval->err, QUERY_ERROR_CODE_NOT_NUMERIC, NULL);
     rc = EXPR_EVAL_ERR;
     goto cleanup;
   }
@@ -225,7 +225,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     // Note: Because this is evaluated for each row potentially, do not assume
     // that query error is present:
     if (eval->err) {
-      QueryError_SetError(eval->err, QUERY_ENOPROPKEY, NULL);
+      QueryError_SetError(eval->err, QUERY_ERROR_CODE_NO_PROP_KEY, NULL);
     }
     return EXPR_EVAL_ERR;
   }
@@ -234,7 +234,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
     if (eval->err) {
-      QueryError_SetWithUserDataFmt(eval->err, QUERY_ENOPROPVAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
+      QueryError_SetWithUserDataFmt(eval->err, QUERY_ERROR_CODE_NO_PROP_VAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
     }
     RSValue_IntoNull(res);
     return EXPR_EVAL_NULL;
@@ -271,7 +271,7 @@ int ExprEval_Eval(ExprEval *evaluator, RSValue *result) {
 int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
 #define RECURSE(v)                                                                                 \
   if (!v) {                                                                                        \
-    QueryError_SetWithUserDataFmt(err, QUERY_EEXPR, "Missing (or badly formatted) value for", " %s", #v); \
+    QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_EXPR, "Missing (or badly formatted) value for", " %s", #v); \
     return EXPR_EVAL_ERR;                                                                          \
   }                                                                                                \
   if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) {                                     \
@@ -282,7 +282,7 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
     case RSExpr_Property:
       expr->property.lookupObj = RLookup_GetKey_Read(lookup, expr->property.key, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
-        QueryError_SetWithUserDataFmt(err, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in pipeline",
+        QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in pipeline",
                                expr->property.key);
         return EXPR_EVAL_ERR;
       }
