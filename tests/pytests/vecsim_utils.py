@@ -76,7 +76,7 @@ def get_vecsim_index_size(env, index_key, field_name):
 def get_redisearch_vector_index_memory(env, index_key):
     return float(index_info(env, index_key)["vector_index_sz_mb"])
 
-def wait_for_background_indexing(env, index_name, field_name, message):
+def wait_for_background_indexing(env, index_name, field_name, message=''):
     with TimeLimit(30, message):
         is_trained = False
         while not is_trained:

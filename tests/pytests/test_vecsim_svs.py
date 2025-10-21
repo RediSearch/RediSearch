@@ -1,6 +1,7 @@
 from RLTest import Env
 import distro
 from includes import *
+import threading
 
 from vecsim_utils import *
 from common import (
@@ -11,7 +12,11 @@ from common import (
     to_dict,
     get_redis_memory_in_mb,
     config_cmd,
+    runDebugQueryCommandPauseBeforeRPAfterN,
+    getIsRPPaused,
+    setPauseRPResume,
 )
+
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
 SVS_COMPRESSION_TYPES = ['NO_COMPRESSION', 'LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']
 
@@ -342,3 +347,115 @@ def test_empty_index():
 def test_empty_index_async():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4')
     empty_index(env)
+
+def change_threads(initial_workers, final_workers):
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    message_prefix = f"initial_workers: {initial_workers}, final_workers: {final_workers}"
+    env.assertEqual(int(env.execute_command(config_cmd(), 'GET', 'WORKERS')[0][1]), initial_workers, message=message_prefix)
+    training_threshold = DEFAULT_BLOCK_SIZE
+    update_threshold = training_threshold
+    dim = 2
+    prev_last_reserved_num_threads = 0
+    def verify_num_threads(expected_num_threads, expected_reserved_num_threads, message):
+        nonlocal prev_last_reserved_num_threads
+        # zero workers is also considered as 1 thread
+        expected_num_threads = 1 if expected_num_threads == 0 else expected_num_threads
+        expected_reserved_num_threads = 1 if expected_reserved_num_threads == 0 else expected_reserved_num_threads
+        tiered_debug_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+        num_threads = tiered_debug_info['NUM_THREADS']
+        last_reserved_num_threads = tiered_debug_info['LAST_RESERVED_NUM_THREADS']
+        env.assertEqual(num_threads, expected_num_threads, message=message)
+        # 0 < last_reserved_num_threads <= expected_reserved_num_threads
+        env.assertGreater(last_reserved_num_threads, 0, message=message)
+        env.assertLessEqual(last_reserved_num_threads, expected_reserved_num_threads, message=message)
+        prev_last_reserved_num_threads = last_reserved_num_threads
+
+    set_up_database_with_vectors(env, dim, num_docs=training_threshold, alg='SVS-VAMANA')
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=message_prefix)
+    verify_num_threads(initial_workers, initial_workers, message=f"{message_prefix}, after training trigger")
+
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
+    env.assertEqual(int(env.execute_command(config_cmd(), 'GET', 'WORKERS')[0][1]), final_workers, message=message_prefix)
+
+    # TODO: new num_threads should be `final_workers` once VecSim gets notified of RediSearch thread pool changes
+    # last_reserved_num_threads should remain the same as we didn't do any operation
+    verify_num_threads(initial_workers, prev_last_reserved_num_threads, message=f"{message_prefix}, after changing workers to {final_workers}")
+
+    # Add more vectors to trigger background indexing
+    populate_with_vectors(env, dim=dim, num_docs=update_threshold, datatype='FLOAT32', initial_doc_id=training_threshold + 1)
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=message_prefix)
+    # Since VecSim doesn't get notified when RediSearch worker count changes, when RediSearch worker count changes
+    # svs index continues to request the original number of threads during operations
+    #
+    # The actual thread reservation will be limited by the current RediSearch worker count
+    # - If workers decreased: requested > actual_workers
+    # - If workers increased: requested < actual_workers
+    #
+    # TODO: Expected behavior after VecSim gets worker change notifications:
+    # - num_threads should reflect the current RediSearch worker count
+    # - last_reserved_num_threads should match the actual threads used in operations
+    expected_last_reserved_num_threads = min(final_workers, initial_workers)
+    verify_num_threads(initial_workers, expected_last_reserved_num_threads,
+                    message=f"{message_prefix}, after changing workers to {final_workers} and triggering another update job")
+
+def test_change_threads_turn_on():
+    change_threads(0, 4)
+def test_change_threads_decrease():
+    change_threads(5, 3)
+def test_change_threads_turn_off():
+    change_threads(4, 0)
+def test_change_threads_increase():
+    change_threads(3, 5)
+
+def test_drop_index():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    training_threshold = DEFAULT_BLOCK_SIZE
+    dim = 64
+
+    set_up_database_with_vectors(env, dim, num_docs=training_threshold, alg='SVS-VAMANA')
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+
+    proc_memory = get_redis_memory_in_mb(env)
+    env.expect('FT.DROPINDEX', DEFAULT_INDEX_NAME).ok()
+
+    # Memory should decrease
+    env.assertLessEqual(get_redis_memory_in_mb(env), proc_memory)
+    # No operations on a dropped index are allowed
+    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
+    query = create_random_np_array_typed(dim, 'FLOAT32')
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param',
+               query.tobytes(), 'NOCONTENT').error().contains(f"No such index")
+
+def test_drop_index_during_query():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1')
+    dim = 2
+    training_threshold = DEFAULT_BLOCK_SIZE
+    set_up_database_with_vectors(env, dim, num_docs=training_threshold, additional_schema_args=['n', 'NUMERIC'])
+
+    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], training_threshold)
+    query = create_random_np_array_typed(dim, 'FLOAT32')
+    query_cmd = ['FT.SEARCH', DEFAULT_INDEX_NAME, f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT']
+    # Build threads
+    t_query = threading.Thread(
+        target=runDebugQueryCommandPauseBeforeRPAfterN,
+        args=(env,query_cmd, 'Metrics Applier', 2),
+        daemon=True
+    )
+
+    # Start the query and the pause-check in parallel
+    t_query.start()
+
+    while getIsRPPaused(env) != 1:
+        time.sleep(0.1)
+
+    # drop the index while query is running
+    env.expect('FT.DROPINDEX', DEFAULT_INDEX_NAME).ok()
+
+    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
+    env.expect(*query_cmd).error().contains(f"No such index")
+    # Resume the query
+    setPauseRPResume(env)
+    t_query.join()
+
+    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
+    env.expect(*query_cmd).error().contains(f"No such index")
