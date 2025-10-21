@@ -6,6 +6,7 @@ members = [
     "ffi",
     "inverted_index",
     "inverted_index_bencher",
+    "fnv",
     "low_memory_thin_vec",
     "qint",
     "redis_mock",
@@ -58,6 +59,7 @@ publish = false
 
 [workspace.dependencies]
 ffi = { path = "./ffi", default-features = false }
+fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
