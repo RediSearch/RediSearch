@@ -143,7 +143,7 @@ typedef struct {
  /**
   * Allocates and initializes a new group step.
   * @param properties_ref StrongRef referencing the properties array (must be cloned by caller)
-  * @param strict Whether we should fail if a key is not prefixed with an @ sign
+  * @param strictPrefix Whether we should fail if a key is not prefixed with an @ sign
   * @return Pointer to the newly created group step
   */
 PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, bool strictPrefix);
