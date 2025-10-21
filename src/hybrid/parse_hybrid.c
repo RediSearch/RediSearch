@@ -728,7 +728,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   handleLoadStepForHybridPipelines(parsedCmdCtx->tailPlan, &searchRequest->pipeline.ap, &vectorRequest->pipeline.ap);
 
   if (!(*mergeReqflags & QEXEC_F_NO_SORT)) {
-    // No SORTBY 0 - add implicit sort-by-score
+    // No NOSORT - add implicit sort-by-score
     AGPLN_GetOrCreateArrangeStep(parsedCmdCtx->tailPlan);
   }
 
