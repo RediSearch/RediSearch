@@ -274,7 +274,7 @@ class testHybridSearch:
         hybrid_query = (
             "SEARCH 'invalid' "
             "VSIM @vector $BLOB FILTER @tag:{even} "
-            "LOAD 3 __key AS my_key"
+            "LOAD 3 @__key AS my_key"
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob,self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
@@ -559,7 +559,7 @@ class testHybridSearch:
             'VSIM', '@vector', self.vector_blob,
             'FILTER', '@text:(both) @number:[1 3]',
             'COMBINE', 'RRF', '2', 'CONSTANT', '3',
-            'LOAD', '2', '__key', '__score',
+            'LOAD', '2', '@__key', '@__score',
         ]
         unfiltered_res = self.env.executeCommand(*hybrid_cmd)
         unfiltered_dict = to_dict(unfiltered_res)

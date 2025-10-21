@@ -126,7 +126,7 @@ def test_simple_query():
         'FT.HYBRID', 'idx',
         'SEARCH', 'red',
         'VSIM' ,'@embedding', np.array([1.2, 0.2]).astype(np.float32).tobytes(),
-        'LOAD', 3, '__key', '__score', '@description',
+        'LOAD', 3, '@__key', '@__score', '@description',
         'SORTBY', 2, '@description', 'ASC'
     ]
     resp3_expected = {
@@ -147,7 +147,7 @@ def test_query_with_groupby():
         'FT.HYBRID', 'idx',
         'SEARCH', '*',
         'VSIM' ,'@embedding', np.array([1.2, 0.2]).astype(np.float32).tobytes(),
-        'LOAD', 2, '__key', '@category',
+        'LOAD', 2, '@__key', '@category',
         'GROUPBY', 1, '@category', 'REDUCE', 'COUNT', 0, 'AS', 'count',
         'SORTBY', 2, '@category', 'ASC'
     ]

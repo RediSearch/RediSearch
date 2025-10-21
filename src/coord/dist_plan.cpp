@@ -108,8 +108,8 @@ reducerDistributionFunc getDistributionFunc(const char *key);
 static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
                                 PLN_DistributeStep *dstp, QueryError *status) {
   PLN_GroupStep *gr = (PLN_GroupStep *)step;
-  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
-  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
+  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->strictPrefix);
+  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->strictPrefix);
 
   size_t nreducers = array_len(gr->reducers);
   grLocal->reducers = array_new(PLN_Reducer, nreducers);
