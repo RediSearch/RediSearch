@@ -85,12 +85,13 @@ def test_hybrid_linear_partial_weights():
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    query_without_combine = ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+                        'KNN', '2', 'K', '10']
 
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'KNN', '2', 'K', '10', 'COMBINE', 'LINEAR', '2', 'ALPHA', '0.5').error().contains('Missing value for BETA')
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'KNN', '2', 'K', '10', 'COMBINE', 'LINEAR', '2', 'BETA', '0.5').error().contains('Missing value for ALPHA')
-
+    env.expect(*query_without_combine ,'COMBINE', 'LINEAR', '2', 'ALPHA', '0.5').error().contains('Missing value for BETA')
+    env.expect(*query_without_combine ,'COMBINE', 'LINEAR', '2', 'BETA', '0.5').error().contains('Missing value for ALPHA')
+    env.expect(*query_without_combine ,'COMBINE', 'LINEAR', '4', 'WINDOW', '10', 'ALPHA', '0.5').error().contains('Missing value for BETA')
+    env.expect(*query_without_combine ,'COMBINE', 'LINEAR', '4', 'WINDOW', '10', 'BETA', '0.5').error().contains('Missing value for ALPHA')
 
 def test_hybrid_linear_explicit_weights():
     env = Env()
