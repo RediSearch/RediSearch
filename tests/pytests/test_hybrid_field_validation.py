@@ -159,7 +159,7 @@ def test_hybrid_sortby_requires_at_prefix(env):
         'PARAMS', '2', 'query_vec', query_vector,
         'LOAD', '1', '@price',
         'SORTBY', '2', 'price', 'DESC'  # Missing @ prefix
-    ).error().contains('"Missing prefix: name requires \'@\' prefix, JSON path require \'$\' prefix, got: price in SORTBY"')
+    ).error().contains('Missing prefix: name requires \'@\' prefix, JSON path require \'$\' prefix, got: price in SORTBY')
 
     # Test SORTBY with @ prefix - should succeed
     env.expect(
