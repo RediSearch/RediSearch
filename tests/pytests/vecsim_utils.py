@@ -37,11 +37,13 @@ def create_vector_index(env: Env, dim, index_name=DEFAULT_INDEX_NAME, field_name
         env.assertTrue(False, message=f"Failed to create index: '{index_name}' {message} with error: {e}", depth=depth+1)
 
 # Will populate the database with hashes doc_name_prefix<doc_id> containing a single vector field
-def populate_with_vectors(env, num_docs, dim, datatype='FLOAT32', field_name=DEFAULT_FIELD_NAME, initial_doc_id=1, doc_name_prefix=DEFAULT_DOC_NAME_PREFIX):
+def populate_with_vectors(env, num_docs, dim, datatype='FLOAT32', field_name=DEFAULT_FIELD_NAME, initial_doc_id=1, doc_name_prefix=DEFAULT_DOC_NAME_PREFIX, normalize=False):
     conn = getConnectionByEnv(env)
     p = conn.pipeline(transaction=False)
     for i in range(num_docs):
         vector = create_random_np_array_typed(dim, datatype)
+        if normalize:
+            vector = vector / np.linalg.norm(vector)
         p.execute_command('HSET', f'{doc_name_prefix}{initial_doc_id + i}', field_name, vector.tobytes())
     p.execute()
 

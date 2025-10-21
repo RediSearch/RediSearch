@@ -19,6 +19,7 @@ GHA = os.getenv('GITHUB_ACTIONS', '') != ''
 TEST_DEBUG = os.getenv('TEST_DEBUG', '0') == '1'
 REJSON = os.getenv('REJSON', '0') == '1'
 BUILD_INTEL_SVS_OPT = os.getenv('BUILD_INTEL_SVS_OPT', '0') in ('1', 'yes')
+EXTENDED_PYTESTS = os.getenv('QUICK', '0') == '0'
 
 system=platform.system()
 OS =  'macos' if system == 'Darwin' else system

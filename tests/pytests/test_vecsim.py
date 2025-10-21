@@ -23,10 +23,10 @@ def assert_query_results(env: Env, expected_res, actual_res, error_msg=None, dat
         env.assertEqual(expected_res[i], actual_res[i], depth=1, message=error_msg)
         env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), EPSILONS[data_type], depth=1, message=error_msg)
 
-def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors, data_type='FLOAT32'):
+def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors, data_type='FLOAT32', initial_id=1):
     id_vec_list = []
     p = con.pipeline(transaction=False)
-    for i in range(1, num_vectors+1):
+    for i in range(initial_id, num_vectors+initial_id):
         vector = create_np_array_typed([i]*dim, data_type)
         p.execute_command('HSET', i, vector_field, vector.tobytes(), 't', 'text value')
         id_vec_list.append((i, vector))
@@ -35,12 +35,12 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors, data
 
 
 def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True, sort_by_non_vector_field=False,
-                         hybrid_mode='HYBRID_BATCHES', scorer='BM25STD'):
+                         hybrid_mode='HYBRID_BATCHES', scorer='BM25STD', limit=10):
     if sort_by_vector:
         ret = env.expect('FT.SEARCH', 'idx', query_string,
                          'SORTBY', '__v_score',
                          'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                         'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, 10)
+                         'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, limit)
 
     else:
 
@@ -48,12 +48,12 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
             ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES', 'SCORER', scorer,
                              'SORTBY', non_vector_field,
                              'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                             'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
+                             'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, limit)
 
         else:
             ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES', 'SCORER', scorer,
                              'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                             'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
+                             'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, limit)
 
     env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], hybrid_mode, depth=1)
     return ret
@@ -846,6 +846,91 @@ def test_memory_info():
         vecsim_memory = cur_vecsim_memory
         #verify vecsim memory == redisearch memory
         env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
+
+# This test validates the SVS-VAMANA hybrid search mode selection heuristic.
+# The heuristic automatically chooses between HYBRID_ADHOC_BF and HYBRID_BATCHES modes
+# based on subset size ratio, index size, and k value using these thresholds:
+# - Small subset (<7% of index): ADHOC_BF if index < 750K
+# - Medium subset (7-21% of index): ADHOC_BF if index < 75K OR k > 12
+# - Large subset (>21% of index): ADHOC_BF only if index < 75K
+# The heuristic is implemented in VectorSimilarity library in SVSIndex::preferAdHocSearch.
+# The test scenarios below demonstrate each heuristic path with detailed explanations.
+def test_hybrid_query_batches_mode_with_text_vamana():
+    # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    initial_index_size = 70_000
+    data_type = 'FLOAT32'
+    compression_params = ['COMPRESSION', 'LVQ8', 'TRAINING_THRESHOLD', DEFAULT_BLOCK_SIZE]
+    create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'],
+                        additional_vec_params=compression_params)
+
+    load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, initial_index_size, data_type)
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+
+    query_data = create_np_array_typed([1] * dim, data_type)
+
+    # Empty filter test
+    # Expect to find no result (internally, build the child iterator as empty iterator).
+    env.expect('FT.SEARCH', 'idx', '(nothing)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
+    env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'EMPTY_MODE')
+
+    # Scenario 1: Large subset (>21%) + small index (<75K) → ADHOC_BF
+    expected_res = [10]
+    for i in range(10):
+        expected_res.append(str(i + 1))
+        expected_res.append(['__v_score', str(dim*i**2), 't', 'text value'])
+    execute_hybrid_query(env, '(@t:(text value))=>[KNN 10 @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
+
+    # Scenario 2: Large subset (>21%) + large index (>75K) → BATCHES
+
+    # To ensure we have at least 75K vectors transferred to VAMANA, we need slightly more to trigger updates.
+    # Since SVS processes vectors in blocks of DEFAULT_BLOCK_SIZE (1024). Adding exactly 75K might not guarantee
+    # all vectors are processed into the VAMANA graph structure.
+    index_size = 75_000 + DEFAULT_BLOCK_SIZE
+    load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, index_size - initial_index_size, data_type, initial_id=initial_index_size+1)
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    execute_hybrid_query(env, '(@t:(text value))=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
+
+    # Scenario 3: Small subset (<7%) + medium index (<750K) → ADHOC_BF
+    # Change small amount of docs (less than 7% of this index size) to 'other'
+    conn.execute_command('HSET', 10, 't', 'other')
+
+    expected_res = [1, '10', ['__v_score', str(dim*(10 - 1)**2), 't', 'other']]
+    execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
+
+    # Scenario 4: Medium subset (7-21%) + large index (>75K) → policy depends on k
+    # Create 10% subset by changing every 10th document (with ids 10, 20, ..., index_size)
+    for i in range(1, int(index_size/10) + 1):
+        conn.execute_command('HSET', 10*i, 't', 'other')
+    env.assertGreater(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 75_000)
+
+    # Expect to get only vector that passes the filter (i.e, has "other" in t field)
+    expected_res = [15]
+    for i in range(15):
+        expected_res.append(str(10*(i + 1)))
+        expected_res.append(['__v_score', str(dim*(10*(i + 1) - 1)**2), 't', 'other'])
+
+    k = 15 # k > 12 → ADHOC_BF
+    execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res)
+    k = 12 # k <= 12 → BATCHES
+    expected_res[0] = k
+    execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_BATCHES', limit = k).equal(expected_res[:k*2+1])
+
+    # Expect empty score for the intersection (disjoint sets of results)
+    # The hybrid policy changes to ad hoc after the first batch
+    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param]', query_data, 't',
+                            hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal([0])
+
+    # Test explicit BATCHES policy with batch size
+    k = 15
+    ret = env.execute_command('FT.SEARCH', 'idx', f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]',
+                         'SORTBY', '__v_score',
+                         'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                         'RETURN', 2, '__v_score', 't', 'LIMIT', 0, k)
+    env.assertEqual(len(ret[1:]) // 2, k)
+    env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
 
 
 def test_hybrid_query_batches_mode_with_text():
@@ -1791,10 +1876,10 @@ def test_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     conn = getConnectionByEnv(env)
     dim = 4
-    n = 100
     per_doc = 5
 
     for data_t in VECSIM_DATA_TYPES:
+        n = 100
         conn.flushall()
 
         args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
@@ -1802,6 +1887,8 @@ def test_index_multi_value_json():
                 '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
         if data_t in ('FLOAT32', 'FLOAT16'):
             args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
+            # Add enough vectors to trigger svs backend index initialization
+            n = DEFAULT_BLOCK_SIZE
 
         env.expect(*args).ok()
 
@@ -1858,6 +1945,7 @@ def test_index_multi_value_json():
             env.assertEqual(sortedResults(flat_res), expected_res_range)
 
             if data_t in ('FLOAT32', 'FLOAT16'):
+                env.assertGreater(get_tiered_backend_debug_info(env, 'idx', 'svs')['INDEX_SIZE'], 0)
                 cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
                 svs_res = conn.execute_command(*cmd_knn)[1:]
                 env.assertEqual(svs_res, expected_res_knn)

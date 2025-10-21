@@ -246,21 +246,24 @@ the training threshold, then adds one more vector to trigger backend training. I
 vectors are transferred to the backend index. It then performs a KNN search using the last added vector
 and verifies that vector is returned as the top result.
 Distance verification is skipped since some compression types would require larger training thresholds
-and vector dimension, making the test prohibitively slow.
+and vector dimension to get an exact match, making the test prohibitively slow.
 '''
-def sanity(env):
-    dim = 128
+
+def queries_sanity(env):
+    dim = 28
     training_threshold = DEFAULT_BLOCK_SIZE
     score_title = f'__{DEFAULT_FIELD_NAME}_score'
 
     # Create SVS VAMANA index with all compression flavors
     # for non intel machines, we only test NO_COMPRESSION and any compression type (will result in GlobalSQ8)
-    compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() else ['NO_COMPRESSION', 'LVQ8']
+
+    compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8']
+    env.debugPrint("Eextended tests: ", EXTENDED_PYTESTS)
     for data_type in VECSIM_SVS_DATA_TYPES:
         for metric in VECSIM_DISTANCE_METRICS:
             message_prefix = f"datatype: {data_type}, metric: {metric}"
 
-            # Create an index for compression type
+            # Create an index for each compression type
             indexes_list = []
             for compression_type in compression_types:
                 index_name = f"idx_{compression_type}"
@@ -273,7 +276,8 @@ def sanity(env):
 
             env.assertEqual(sorted(env.cmd('FT._LIST')), sorted(indexes_list))
             # add vectors with the same field name so they will be indexed in all indexes
-            populate_with_vectors(env, dim=dim, num_docs=training_threshold - 1, datatype=data_type)
+            normalize = metric == 'IP'
+            populate_with_vectors(env, dim=dim, num_docs=training_threshold - 1, datatype=data_type, normalize=normalize)
             for index_name in indexes_list:
                 env.assertEqual(get_tiered_backend_debug_info(env, index_name, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 0, message=f"{message_prefix}, index: {index_name}")
                 env.assertEqual(index_info(env, index_name)['num_docs'], training_threshold - 1, message=f"{message_prefix}")
@@ -288,17 +292,20 @@ def sanity(env):
 
             for index_name in indexes_list:
                 message = f"datatype: {data_type}, metric: {metric}, index: {index_name}"
-                res = env.execute_command('FT.SEARCH', index_name, '*=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
-                env.assertEqual(res[1], f'doc{training_threshold}', message=message)
+                knn_res = env.execute_command('FT.SEARCH', index_name, f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
+                cmd_range = f'@{DEFAULT_FIELD_NAME}:[VECTOR_RANGE 10 $b]=>{{$yield_distance_as:{score_title}}}'
+                range_res = env.execute_command('FT.SEARCH', index_name, cmd_range, 'PARAMS', 2, 'b', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
+                env.assertEqual(knn_res[1], f'doc{training_threshold}', message=str(knn_res) + " " + message)
+                env.assertEqual(range_res[1], f'doc{training_threshold}', message=message)
 
             env.execute_command('FLUSHALL')
 
-def test_sanity():
+def test_queries_sanity():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    sanity(env)
-def test_sanity_async():
+    queries_sanity(env)
+def test_queries_sanity_async():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4')
-    sanity(env)
+    queries_sanity(env)
 
 def empty_index(env):
     env.execute_command(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '1000000')
@@ -459,3 +466,6 @@ def test_drop_index_during_query():
 
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
     env.expect(*query_cmd).error().contains(f"No such index")
+
+# def test_gc():
+#     env = Env(moduleArgs='DEFAULT_DIALECT 2')
