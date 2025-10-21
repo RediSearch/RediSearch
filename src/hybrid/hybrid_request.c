@@ -94,6 +94,8 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridLookupContext *lo
     // we open the docKey as hidden in case the user didn't request it, if it already exists it will stay as it was
     // if it didn't then it will be marked as unresolved
     const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
+    // The search context is the one belonging to the tail
+    // See nextThread variable in HybridRequest_BuildDepletionPipeline
     ResultProcessor *merger = RPHybridMerger_New(params->aggregationParams.common.sctx, 
                                                  params->scoringCtx, depleters, req->nrequests, 
                                                  docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
