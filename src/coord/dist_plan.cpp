@@ -519,9 +519,20 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
       }
       case PLN_T_LOAD: {
         PLN_LoadStep *lstp = (PLN_LoadStep *)cur;
-        for (size_t ii = 0; ii < AC_NumArgs(&lstp->args); ++ii) {
-          const char *s = stripAtPrefix(AC_StringArg(&lstp->args, ii));
-          RLookup_GetKey_Write(lookup, s, RLOOKUP_F_NOFLAGS);
+        // Use the original ArgsCursor directly
+        ArgsCursor ac = lstp->args;
+
+        // Process all arguments in the ArgsCursor
+        while (!AC_IsAtEnd(&ac)) {
+          const char *name = AC_GetStringNC(&ac, NULL);
+
+          // Check for AS alias
+          if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+            RS_ASSERT(!AC_IsAtEnd(&ac));
+            name = AC_GetStringNC(&ac, NULL); // structure is validated earlier, can safely assume it's not at the end
+          }
+          name = stripAtPrefix(name);
+          RLookup_GetKey_Write(lookup, name, RLOOKUP_F_NOFLAGS);
         }
         break;
       }
