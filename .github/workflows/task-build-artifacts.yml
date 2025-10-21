@@ -116,15 +116,39 @@ jobs:
               ;;
           esac
       - name: Setup
-        working-directory: .install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 5
+          retry_wait_seconds: 30
+          command: |
+            cd .install
+            ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Install aws cli
-        working-directory: .install
-        run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 5
+          retry_wait_seconds: 30
+          command: |
+            cd .install
+            ./install_aws.sh ${{ steps.mode.outputs.mode }}
       - name: Setup test dependencies
-        run: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 5
+          retry_wait_seconds: 30
+          command: |
+            .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
-        run: pip install -q -r .install/build_package_requirments.txt
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 5
+          retry_wait_seconds: 30
+          command: |
+            pip install -q -r .install/build_package_requirments.txt
 
       # Get Redis
       - name: Get Redis (node20)
@@ -136,7 +160,12 @@ jobs:
           path: redis
       - name: Get Redis (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        run: |
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 5
+          retry_wait_seconds: 30
+          command: |
             REPO_URL="https://github.com/redis/redis.git"
             DEST_DIR="redis"  # Directory to clone into
 
