@@ -221,7 +221,7 @@ const char *QueryError_GetUserError(const struct QueryError *query_error);
  * message if any, lastly defaulting to the error code's string error.
  *
  * If `obfuscate` is set, the private message is not returned. The public
- * message is returend, if any, defaulting to the error code's string error.
+ * message is returned, if any, defaulting to the error code's string error.
  *
  * # Safety
  *
