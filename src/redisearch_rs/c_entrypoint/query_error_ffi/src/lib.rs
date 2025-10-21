@@ -17,12 +17,8 @@ pub use crate::opaque::{OpaqueQueryError, QueryErrorExt};
 pub use query_error::QueryErrorCode;
 
 /// Returns the default [`QueryError`].
-///
-/// # Safety
-///
-/// `OpaqueQueryError` and `QueryError` must have the same size and alignment.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryError_Default() -> OpaqueQueryError {
+pub extern "C" fn QueryError_Default() -> OpaqueQueryError {
     QueryError::default().into_opaque()
 }
 
@@ -53,13 +49,11 @@ pub unsafe extern "C" fn QueryError_HasError(query_error: *const OpaqueQueryErro
 
 /// Returns a human-readable string representing the provided [`QueryErrorCode`].
 ///
-/// # Safety
-///
 /// This function should always return without a panic for any value provided.
 /// It is unique among the `QueryError_*` API as the only function which allows
 /// an invalid [`QueryErrorCode`] to be provided.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
+pub extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
     let Ok(code) = QueryErrorCode::try_from(maybe_code) else {
         return c"Unknown status code".as_ptr();
     };
@@ -71,10 +65,13 @@ pub unsafe extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
 ///
 /// This does not mutate `query_error` if it already has an error set.
 ///
+/// # Panics
+///
+/// - `code` must be a valid variant of [`QueryErrorCode`].
+///
 /// # Safety
 ///
 /// - `query_error` must have been created by [`QueryError_Default`].
-/// - `code` must be a valid variant of [`QueryErrorCode`].
 /// - `message` must be a valid C string or a NULL pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_SetError(
@@ -101,10 +98,13 @@ pub unsafe extern "C" fn QueryError_SetError(
 ///
 /// This does not mutate `query_error` if it already has an error set.
 ///
+/// # Panics
+///
+/// - `code` must be a valid variant of [`QueryErrorCode`].
+///
 /// # Safety
 ///
 /// - `query_error` must have been created by [`QueryError_Default`].
-/// - `code` must be a valid variant of [`QueryErrorCode`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_SetCode(query_error: *mut OpaqueQueryError, code: u8) {
     // Safety: see safety requirement above.
@@ -199,7 +199,8 @@ pub unsafe extern "C" fn QueryError_GetUserError(
 /// This preferentially returns the private message if any, or the public
 /// message if any, lastly defaulting to the error code's string error.
 ///
-/// If `obfuscate` is set, the private message is not returned.
+/// If `obfuscate` is set, the private message is not returned. The public
+/// message is returend, if any, defaulting to the error code's string error.
 ///
 /// # Safety
 ///
@@ -263,10 +264,13 @@ pub unsafe extern "C" fn QueryError_ClearError(query_error: *mut OpaqueQueryErro
 /// if the private message is set. This differs from [`QueryError_SetCode`],
 /// as that function does not care if the private message is set.
 ///
+/// # Panics
+///
+/// - `code` must be a valid variant of [`QueryErrorCode`].
+///
 /// # Safety
 ///
 /// - `query_error` must have been created by [`QueryError_Default`].
-/// - `code` must be a valid variant of [`QueryErrorCode`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_MaybeSetCode(query_error: *mut OpaqueQueryError, code: u8) {
     // Safety: see safety requirement above.

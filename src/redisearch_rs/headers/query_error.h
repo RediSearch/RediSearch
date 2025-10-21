@@ -120,10 +120,6 @@ extern "C" {
 
 /**
  * Returns the default [`QueryError`].
- *
- * # Safety
- *
- * `OpaqueQueryError` and `QueryError` must have the same size and alignment.
  */
 struct QueryError QueryError_Default(void);
 
@@ -148,8 +144,6 @@ bool QueryError_HasError(const struct QueryError *query_error);
 /**
  * Returns a human-readable string representing the provided [`QueryErrorCode`].
  *
- * # Safety
- *
  * This function should always return without a panic for any value provided.
  * It is unique among the `QueryError_*` API as the only function which allows
  * an invalid [`QueryErrorCode`] to be provided.
@@ -161,10 +155,13 @@ const char *QueryError_Strerror(uint8_t maybe_code);
  *
  * This does not mutate `query_error` if it already has an error set.
  *
+ * # Panics
+ *
+ * - `code` must be a valid variant of [`QueryErrorCode`].
+ *
  * # Safety
  *
  * - `query_error` must have been created by [`QueryError_Default`].
- * - `code` must be a valid variant of [`QueryErrorCode`].
  * - `message` must be a valid C string or a NULL pointer.
  */
 void QueryError_SetError(struct QueryError *query_error, uint8_t code, const char *message);
@@ -174,10 +171,13 @@ void QueryError_SetError(struct QueryError *query_error, uint8_t code, const cha
  *
  * This does not mutate `query_error` if it already has an error set.
  *
+ * # Panics
+ *
+ * - `code` must be a valid variant of [`QueryErrorCode`].
+ *
  * # Safety
  *
  * - `query_error` must have been created by [`QueryError_Default`].
- * - `code` must be a valid variant of [`QueryErrorCode`].
  */
 void QueryError_SetCode(struct QueryError *query_error, uint8_t code);
 
@@ -220,7 +220,8 @@ const char *QueryError_GetUserError(const struct QueryError *query_error);
  * This preferentially returns the private message if any, or the public
  * message if any, lastly defaulting to the error code's string error.
  *
- * If `obfuscate` is set, the private message is not returned.
+ * If `obfuscate` is set, the private message is not returned. The public
+ * message is returend, if any, defaulting to the error code's string error.
  *
  * # Safety
  *
@@ -256,10 +257,13 @@ void QueryError_ClearError(struct QueryError *query_error);
  * if the private message is set. This differs from [`QueryError_SetCode`],
  * as that function does not care if the private message is set.
  *
+ * # Panics
+ *
+ * - `code` must be a valid variant of [`QueryErrorCode`].
+ *
  * # Safety
  *
  * - `query_error` must have been created by [`QueryError_Default`].
- * - `code` must be a valid variant of [`QueryErrorCode`].
  */
 void QueryError_MaybeSetCode(struct QueryError *query_error, uint8_t code);
 
