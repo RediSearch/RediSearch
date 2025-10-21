@@ -5,6 +5,7 @@
 #include "vector_index.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/idlist_iterator.h"
+#include "util/misc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,7 +46,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
-    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err);
+    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err, gstp->strictPrefix);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
@@ -269,9 +270,9 @@ static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t
     const char *name, *path = AC_GetStringNC(ac, &name_len);
 
     // Handle path prefix (@)
-    if (*path == '@') {
-      path++;
-      name_len--;
+    path = ExtractKeyName(path, &name_len, status, loadStep->strictPrefix, "LOAD");
+    if (!path) {
+      return REDISMODULE_ERR;
     }
 
     // Check for AS alias
