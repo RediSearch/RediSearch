@@ -1601,3 +1601,8 @@ def test_mod_8157_RESP2():
 @skip(cluster=False, min_shards=2)
 def test_mod_8157_RESP3():
   _mod_8157(Env(protocol=3))
+
+@skip(cluster=True)
+def test_mod_11975(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.SEARCH', 'idx', '@t:("*")', 'DIALECT', '2').equal([0])
