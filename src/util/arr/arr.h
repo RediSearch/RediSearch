@@ -225,6 +225,11 @@ static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
   return arr ? array_hdr(arr)->len : 0;
 }
 
+/* Get the length of the array */
+static ARR_FORCEINLINE uint16_t array_remain_cap(array_t arr) {
+  return arr ? array_hdr(arr)->remain_cap : 0;
+}
+
 static inline void *array_trimm(array_t arr, uint32_t new_len) {
   array_hdr_t *arr_hdr = array_hdr(arr);
   RS_LOG_ASSERT(new_len >= 0, "trimming len is negative");

@@ -74,12 +74,15 @@ TEST_F(ArrTest, testTrimm) {
   for (i = 0; strs[i] != NULL; i++) {
     array_append(a, strs[i]);
     ASSERT_EQ(i + 1, array_len(a));
+    ASSERT_EQ(array_remain_cap(a), 16-i-1);
     ASSERT_STREQ(strs[i], array_tail(a));
   }
   array_trimm_len(a, 1);
   ASSERT_EQ(array_len(a), 5);
+  ASSERT_EQ(array_remain_cap(a), 11);
   array_trimm_len(a, 3);
   ASSERT_EQ(array_len(a), 2);
+  ASSERT_EQ(array_remain_cap(a), 14);
   array_free(a);
 }
 
