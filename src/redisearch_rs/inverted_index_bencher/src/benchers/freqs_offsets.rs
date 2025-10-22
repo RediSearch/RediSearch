@@ -13,7 +13,9 @@ use criterion::{
     BatchSize, BenchmarkGroup, Criterion, black_box,
     measurement::{Measurement, WallTime},
 };
-use inverted_index::{Decoder, Encoder, freqs_offsets::FreqsOffsets, test_utils::TestTermRecord};
+use inverted_index::{
+    Decoder, Encoder, RSIndexResult, freqs_offsets::FreqsOffsets, test_utils::TestTermRecord,
+};
 use itertools::Itertools;
 
 pub struct Bencher {
@@ -128,11 +130,17 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || Cursor::new(test.encoded.as_ref()),
-                    |buffer| {
-                        let result = FreqsOffsets.decode_new(buffer, 100).unwrap();
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            FreqsOffsets,
+                            RSIndexResult::term(),
+                        )
+                    },
+                    |(cursor, decoder, result)| {
+                        let res = decoder.decode(cursor, 100, result);
 
-                        let _ = black_box(result);
+                        let _ = black_box(res);
                     },
                     BatchSize::SmallInput,
                 );

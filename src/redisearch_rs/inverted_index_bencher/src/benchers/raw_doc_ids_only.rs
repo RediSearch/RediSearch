@@ -106,11 +106,17 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || Cursor::new(test.encoded.as_ref()),
-                    |buffer| {
-                        let result = RawDocIdsOnly.decode_new(buffer, 100).unwrap();
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            RawDocIdsOnly,
+                            RSIndexResult::term(),
+                        )
+                    },
+                    |(cursor, decoder, result)| {
+                        let res = decoder.decode(cursor, 100, result);
 
-                        let _ = black_box(result);
+                        let _ = black_box(res);
                     },
                     BatchSize::SmallInput,
                 );
