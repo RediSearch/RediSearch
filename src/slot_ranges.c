@@ -64,3 +64,57 @@ inline bool Slots_CanAccessKeysInSlot(const SharedSlotRangeArray *slotRanges, ui
   }
   return false;
 }
+
+
+// Helper function to check if a slot is covered by any range in the array
+static inline bool SlotInRanges(const RedisModuleSlotRangeArray *ranges, uint16_t slot) {
+  for (int i = 0; i < ranges->num_ranges; i++) {
+    if (ranges->ranges[i].start <= slot && slot <= ranges->ranges[i].end) {
+      return true;
+    }
+  }
+  return false;
+}
+
+SlotRangesComparisonResult CompareSlotRanges(const RedisModuleSlotRangeArray *ranges_expected,
+                                             const RedisModuleSlotRangeArray *ranges_actual) {
+  RS_ASSERT(ranges_expected)
+  RS_ASSERT(ranges_actual)
+  RS_ASSERT(ranges_expected->num_ranges > 0)
+  RS_ASSERT(ranges_actual->num_ranges > 0)
+
+  bool all_slots_covered = true;
+  bool exact_match = true;
+
+  // Check if all expected ranges are covered by actual ranges
+  for (int i = 0; i < ranges_expected->num_ranges; i++) {
+    const RedisModuleSlotRange *expected_range = &ranges_expected->ranges[i];
+
+    // Check every slot in this expected range
+    for (uint16_t slot = expected_range->start; slot <= expected_range->end; slot++) {
+      if (!SlotInRanges(ranges_actual, slot)) {
+        return SLOT_RANGES_DOES_NOT_INCLUDE;
+      }
+    }
+  }
+
+  // At this point, we know all expected slots are covered by actual ranges
+  // Now check if it's an exact match by verifying actual doesn't have extra slots
+  for (int i = 0; i < ranges_actual->num_ranges; i++) {
+    const RedisModuleSlotRange *actual_range = &ranges_actual->ranges[i];
+
+    // Check every slot in this actual range
+    for (uint16_t slot = actual_range->start; slot <= actual_range->end; slot++) {
+      if (!SlotInRanges(ranges_expected, slot)) {
+        exact_match = false;
+        break;
+      }
+    }
+
+    if (!exact_match) {
+      break;
+    }
+  }
+
+  return exact_match ? SLOT_RANGES_MATCH : SLOT_RANGES_SUBSET;
+}
