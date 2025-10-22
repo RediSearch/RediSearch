@@ -11,6 +11,7 @@ use rlookup::{RLookup, RLookupKey};
 use std::{mem::ManuallyDrop, ptr::NonNull};
 use value::RSValueFFI;
 
+/// cbindgen:no-export
 pub type RLookupRow = rlookup::RLookupRow<'static, RSValueFFI>;
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.

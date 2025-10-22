@@ -11,7 +11,6 @@ typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
 
 // forward declarations for types that are only used as a pointer
-typedef struct RLookupRow RLookupRow;
 typedef struct RSValue RSValue;
 
 
@@ -105,20 +104,6 @@ typedef uint32_t RLookupOption;
 
 typedef struct IndexSpecCache IndexSpecCache;
 
-/**
- * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
- * or from dynamic values stored in the row during processing.
- *
- * The type itself exposes the dynamic values, [`RLookupRow::dyn_values`], as a vector of `Option<T>`, where `T` is the type
- * of the value and it also provides methods to get the length of the dynamic values and check if they are empty.
- *
- * The type `T` is the type of the value stored in the row, which must implement the [`RSValueTrait`].
- * [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
- *
- * The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
- */
-typedef struct RLookupRow RLookupRow;
-
 typedef struct RLookupKey {
   /**
    * Index into the dynamic values array within the associated `RLookupRow`.
@@ -166,8 +151,6 @@ typedef struct KeyList {
 typedef struct RLookup {
   struct KeyList keys;
 } RLookup;
-
-typedef struct RLookupRow RLookupRow;
 
 #ifdef __cplusplus
 extern "C" {
