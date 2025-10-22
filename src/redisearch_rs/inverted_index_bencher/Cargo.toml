@@ -16,6 +16,10 @@ bench = false
 name = "encoding_decoding"
 harness = false
 
+[[bench]]
+name = "garbage_collection"
+harness = false
+
 [build-dependencies]
 bindgen.workspace = true
 build_utils = { path = "../build_utils" }

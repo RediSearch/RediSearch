@@ -58,6 +58,12 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                          ARG_OPT_CALLBACK, handleSortBy, ctx,
                          ARG_OPT_END);
 
+    // NOSORT - disables result sorting
+    ArgParser_AddBitflagV(parser, "NOSORT", "Disables result sorting",
+        ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_NO_SORT,
+        ARG_OPT_CALLBACK, handleNoSort, ctx,
+        ARG_OPT_OPTIONAL, ARG_OPT_END);
+
     // WITHCURSOR [COUNT count] [MAXIDLE maxidle] - enables cursor-based pagination
     ArgParser_AddBitflagV(parser, "WITHCURSOR", "Enable cursor-based pagination",
                          ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_IS_CURSOR,
@@ -117,6 +123,12 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                           ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_TYPED,
                           ARG_OPT_CALLBACK, handleNumSString, ctx,
                           ARG_OPT_OPTIONAL, ARG_OPT_END);
+
+        ArgParser_AddSubArgsV(parser, "_INDEX_PREFIXES", "Index prefixes",
+                             &subArgs, 1, -1,
+                             ARG_OPT_OPTIONAL,
+                             ARG_OPT_CALLBACK, handleIndexPrefixes, ctx,
+                             ARG_OPT_END);
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",
@@ -157,6 +169,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     ArgParser_AddStringV(parser, "LOAD", "Load specific fields or all fields",
                          &loadTarget, 1, -1,
                          ARG_OPT_OPTIONAL,
+                         ARG_OPT_REPEATABLE,
                          ARG_OPT_CALLBACK, handleLoad, ctx,
                          ARG_OPT_END);
 
@@ -172,6 +185,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     // Parse the arguments
     ArgParseResult parseResult = ArgParser_Parse(parser);
+
     // Check for errors from callbacks
     if (QueryError_HasError(status)) {
         ArgParser_Free(parser);

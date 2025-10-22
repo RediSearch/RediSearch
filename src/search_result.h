@@ -29,10 +29,9 @@ typedef struct {
 
   // not all results have score - TBD
   double score;
+  RSScoreExplain *scoreExplain;
 
-  RSScoreExplain* scoreExplain;
-
-  const RSDocumentMetadata* dmd;
+  const RSDocumentMetadata *dmd;
 
   // index result should cover what you need for highlighting,
   // but we will add a method to duplicate index results to make

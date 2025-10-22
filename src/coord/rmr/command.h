@@ -15,7 +15,13 @@
 #include <assert.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2 } MRRootCommand;
+
+#define INVALID_SHARD -1
 
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
@@ -26,8 +32,8 @@ typedef struct {
   /* Number of arguments */
   uint32_t num;
 
-  /* if not -1, this value indicate to which slot the command should be sent */
-  int16_t targetSlot;
+  /* if not -1, this value indicate to which shard the command should be sent */
+  int16_t targetShard;
 
   /* 0 (undetermined), 2, or 3 */
   unsigned char protocol;
@@ -94,9 +100,11 @@ void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t
 void MRCommand_WriteTaggedKey(MRCommand *cmd, int index, const char *newarg, const char *part,
                               size_t n);
 
-int MRCommand_GetShardingKey(const MRCommand *cmd);
-
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx);
 
 /* Create a copy of a command by duplicating all strings */
 MRCommand MRCommand_Copy(const MRCommand *cmd);
+
+#ifdef __cplusplus
+}
+#endif

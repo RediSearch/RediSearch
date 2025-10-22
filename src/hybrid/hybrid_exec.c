@@ -29,6 +29,7 @@
 #include "pipeline/pipeline.h"
 #include "util/units.h"
 #include "value.h"
+#include "module.h"
 
 #include <time.h>
 
@@ -62,7 +63,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   } else if (returnCode == RS_RESULT_ERROR) {
     // Non-fatal error
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
-  } else if (err->reachedMaxPrefixExpansions) {
+  } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
   }
 
@@ -150,9 +151,12 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
 }
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  startPipelineCommon(hreq->reqConfig.timeoutPolicy,
-          &hreq->sctx->time.timeout,
-          rp, results, r, rc);
+  CommonPipelineCtx ctx = {
+    .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
+    .timeout = &hreq->sctx->time.timeout,
+    .oomPolicy = hreq->reqConfig.oomPolicy,
+  };
+  startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
 static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration) {
@@ -164,7 +168,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
 
   // TODO: take to error using HybridRequest_GetError
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-  if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
+  if (QueryError_IsOk(qctx->err) || hasTimeoutError(qctx->err)) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
   }
@@ -200,7 +204,7 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
  * @param limit Maximum number of results to return
  * @param cv Cached variables for result processing
  */
-static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
+void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
@@ -213,7 +217,7 @@ static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    QueryError err = {0};
+    QueryError err = QueryError_Default();
     HybridRequest_GetError(hreq, &err);
     if (ShouldReplyWithError(&err, hreq->reqConfig.timeoutPolicy, false)) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
@@ -512,10 +516,20 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
+  QueryError status = QueryError_Default();
+
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
+    // OOM guardrail
+    if (estimateOOM(ctx)) {
+      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+      QueryError_SetCode(&status, QUERY_EOOM);
+      return QueryError_ReplyAndClear(ctx, &status);
+    }
+  }
+
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError status = {0};
     QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -523,7 +537,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
   CurrentThread_SetIndexSpec(spec_ref);
 
-  QueryError status = {0};
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
   HybridPipelineParams hybridParams = {0};
@@ -536,9 +549,18 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
 
-  if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status, internal) != REDISMODULE_OK) {
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
+
+  if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
+
+  for (int i = 0; i < hybridRequest->nrequests; i++) {
+    AREQ *subquery = hybridRequest->requests[i];
+    SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);
+  }
+  SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
 
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
@@ -580,7 +602,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
 
   StrongRef execution_ref = IndexSpecRef_Promote(BCHCtx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {

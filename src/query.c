@@ -15,6 +15,7 @@
 #include "geo_index.h"
 #include "query.h"
 #include "config.h"
+#include "query_error.h"
 #include "redis_index.h"
 #include "tokenize.h"
 #include "triemap.h"
@@ -145,11 +146,13 @@ void QueryNode_Free(QueryNode *n) {
 }
 
 // Add a new metric request to the metricRequests array. Returns the index of the request
-static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr, bool isInternal) {
-  MetricRequest mr = {metric_name, key_addr, isInternal};
+static int addMetricRequest(QueryEvalCtx *q, char *metric_name, bool isInternal) {
+  MetricRequest mr = {metric_name, NULL, isInternal};
   array_ensure_append_1(*q->metricRequestsP, mr);
   return array_len(*q->metricRequestsP) - 1;
 }
+
+
 
 QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = rm_calloc(1, sizeof(QueryNode));
@@ -585,7 +588,7 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   TrieIterator_Free(it);
 
   if (hasNext && itsSz == q->config->maxPrefixExpansions) {
-    q->status->reachedMaxPrefixExpansions = true;
+    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
   }
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
@@ -773,7 +776,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   if (!RS_IsMock && ctx->nits >= q->config->maxPrefixExpansions) {
-    q->status->reachedMaxPrefixExpansions = true;
+    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     return REDISEARCH_ERR;
   }
   RSToken tok = {0};
@@ -798,7 +801,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   if (ctx->nits >= q->config->maxPrefixExpansions) {
-    q->status->reachedMaxPrefixExpansions = true;
+    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     return REDISEARCH_ERR;
   }
   RSToken tok = {.str = (char *)s, .len = n};
@@ -985,7 +988,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // This function creates the array if it's the first name, and ensure its size is sufficient.
   size_t idx;
   if (qn->vn.vq->scoreField) {
-    idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL, qn->opts.flags & QueryNode_HideVectorDistanceField);
+    idx = addMetricRequest(q, qn->vn.vq->scoreField, qn->opts.flags & QueryNode_HideVectorDistanceField);
   }
 
   QueryIterator *child_it = NULL;
@@ -999,19 +1002,27 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
   // If iterator was created successfully, and we have a metric to yield, update the
-  // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
-  if (it && qn->vn.vq->scoreField) {
+  // Only create MetricRequest entries for iterators that actually yield metrics
+  if (it && qn->vn.vq->scoreField &&
+      (it->type == HYBRID_ITERATOR || it->type == METRIC_ITERATOR)) {
+    MetricRequest *request = array_ensure_at(q->metricRequestsP, idx, MetricRequest);
+
+    // Create a handle that points to the iterator's ownKey field
+    // Both HYBRID_ITERATOR and METRIC_ITERATOR have the same ownKey and keyHandle layout
+    RLookupKeyHandle *handle = rm_malloc(sizeof(RLookupKeyHandle));
+    handle->is_valid = true;
+
     if (it->type == HYBRID_ITERATOR) {
       HybridIterator *hybridIt = (HybridIterator *)it;
-      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &hybridIt->ownKey;
-    } else if (it->type == METRIC_ITERATOR) {
+      handle->key_ptr = &hybridIt->ownKey;
+      hybridIt->keyHandle = handle; // Set up back-reference
+    } else { // Must be METRIC_ITERATOR due to the condition above
       MetricIterator *metricIt = (MetricIterator *)it;
-      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &metricIt->ownKey;
-    } else {
-      // Only reason to get an iterator of type different than HYBRID or METRIC
-      // is if the entire iterator was optimized away
-      RS_ASSERT(it->type == EMPTY_ITERATOR);
+      handle->key_ptr = &metricIt->ownKey;
+      metricIt->keyHandle = handle; // Set up back-reference
     }
+
+    request->key_handle = handle;
   }
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);
@@ -1218,7 +1229,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     }
 
     if (hasNext && itsSz == q->config->maxPrefixExpansions) {
-      q->status->reachedMaxPrefixExpansions = true;
+      QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     }
 
     TrieMapIterator_Free(it);
@@ -1234,7 +1245,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
       for (int j = 0; j < array_len(arr[i]); ++j) {
         size_t jarrlen = array_len(arr[i]);
         if (itsSz >= q->config->maxPrefixExpansions) {
-          q->status->reachedMaxPrefixExpansions = true;
+          QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
           break;
         }
         QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i][j], strlen(arr[i][j]), 1, fieldIndex);
@@ -1285,7 +1296,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     } else {
       for (int i = 0; i < array_len(arr); ++i) {
         if (itsSz >= q->config->maxPrefixExpansions) {
-          q->status->reachedMaxPrefixExpansions = true;
+          QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
           break;
         }
         QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i], strlen(arr[i]), 1, fieldIndex);
@@ -1327,7 +1338,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     }
 
     if (hasNext && itsSz == q->config->maxPrefixExpansions) {
-      q->status->reachedMaxPrefixExpansions = true;
+      QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     }
 
     TrieMapIterator_Free(it);
@@ -1544,6 +1555,16 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
+
+  // Free the key handles in metric requests
+  if (q->metricRequests) {
+    for (size_t i = 0; i < array_len(q->metricRequests); i++) {
+      if (q->metricRequests[i].key_handle) {
+        rm_free(q->metricRequests[i].key_handle);
+      }
+    }
+  }
+
   array_free(q->metricRequests);
   q->metricRequests = NULL;
   q->numTokens = 0;

@@ -7,6 +7,7 @@
 #-----------------------------------------------------------------------------
 
 .NOTPARALLEL:
+.EXPORT_ALL_VARIABLES:
 
 MAKEFLAGS += --no-print-directory
 
@@ -40,6 +41,10 @@ ifeq ($(DEBUG),1)
 	BUILD_ARGS += DEBUG
 endif
 
+ifneq ($(ENABLE_ASSERT),)
+	BUILD_ARGS += ENABLE_ASSERT=$(ENABLE_ASSERT)
+endif
+
 ifeq ($(PROFILE),1)
 	BUILD_ARGS += PROFILE
 endif
@@ -58,6 +63,10 @@ endif
 
 ifneq ($(SAN),)
 	BUILD_ARGS += SAN=$(SAN)
+endif
+
+ifneq ($(MAX_WORKER_THREADS),)
+	BUILD_ARGS += MAX_WORKER_THREADS=$(MAX_WORKER_THREADS)
 endif
 
 ifeq ($(COV),1)

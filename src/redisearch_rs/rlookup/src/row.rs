@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
 use sorting_vector::RSSortingVector;
+use std::{borrow::Cow, ffi::CStr};
 use value::RSValueTrait;
-
-use crate::{RLookupKey, RLookupKeyFlag};
 
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
 /// or from dynamic values stored in the row during processing.
@@ -22,7 +22,7 @@ use crate::{RLookupKey, RLookupKeyFlag};
 /// [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
 ///
 /// The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RLookupRow<'a, T: RSValueTrait> {
     /// Sorting vector attached to document
     sorting_vector: Option<&'a RSSortingVector<T>>,
@@ -36,9 +36,9 @@ pub struct RLookupRow<'a, T: RSValueTrait> {
 }
 
 impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
-    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and
-    /// a [`RLookupRow::sorting_vector`] of the given length.
-    pub fn new() -> Self {
+    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and no
+    /// [`RLookupRow::sorting_vector`].
+    pub const fn new() -> Self {
         Self {
             sorting_vector: None,
             dyn_values: vec![],
@@ -47,12 +47,12 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     }
 
     /// Returns the length of [`RLookupRow::dyn_values`].
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.dyn_values.len()
     }
 
     /// Returns true if the [`RLookupRow::dyn_values`] vector is empty.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.dyn_values.is_empty()
     }
 
@@ -71,18 +71,18 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     }
 
     /// Readonly access to [`RLookupRow::sorting_vector`], it may be `None` if no sorting vector was set.
-    pub fn sorting_vector(&self) -> Option<&RSSortingVector<T>> {
+    pub const fn sorting_vector(&self) -> Option<&RSSortingVector<T>> {
         self.sorting_vector
     }
 
     /// Borrow a sorting vector for the row.
-    pub fn set_sorting_vector(&mut self, sv: &'a RSSortingVector<T>) {
+    pub const fn set_sorting_vector(&mut self, sv: &'a RSSortingVector<T>) {
         self.sorting_vector = Some(sv);
     }
 
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
     /// is not the length of [`RLookupRow::dyn_values`]
-    pub fn num_dyn_values(&self) -> u32 {
+    pub const fn num_dyn_values(&self) -> u32 {
         self.num_dyn_values
     }
 
@@ -125,6 +125,26 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         }
 
         prev
+    }
+
+    /// Write a value to the lookup table *by-name*. This is useful for 'dynamic' keys
+    /// for which it is not necessary to use the boilerplate of getting an explicit
+    /// key.
+    pub fn write_key_by_name(
+        &mut self,
+        rlookup: &mut RLookup<'a>,
+        name: impl Into<Cow<'a, CStr>>,
+        val: T,
+    ) {
+        let name = name.into();
+        let key = if let Some(cursor) = rlookup.find_by_name(&name) {
+            cursor.into_current().expect("the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!")
+        } else {
+            rlookup
+                .get_key_write(name, RLookupKeyFlags::empty())
+                .expect("`RLookup::get_key_write` must never return None for non-existent keys. This is a bug!")
+        };
+        self.write_key(key, val);
     }
 
     /// Wipes the row, retaining its memory but decrementing the ref count of any included instance of `T`.

@@ -124,13 +124,16 @@ typedef struct {
    * NOT NULL, then the error information will be set here.
    */
   QueryError *status;
+
+  // Whether to enforce strict parsing of arguments
+  bool strictPrefix;
 } ReducerOptions;
 
 /**
  * Macro to ensure that we don't skip important initialization steps
  */
-#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_) \
-  { name_, args_, lk_, lkl_, statusp_ }
+#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_) \
+  { name_, args_, lk_, lkl_, statusp_, strict_ }
 
 /**
  * Utility function to read the next argument as a lookup key.

@@ -16,7 +16,7 @@ use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 
 /// Encode and decode only the delta document ID of a record, without any other data.
 /// The delta is encoded using [varint encoding](varint).
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct DocIdsOnly;
 
 impl Encoder for DocIdsOnly {
