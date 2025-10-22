@@ -3718,7 +3718,7 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  RedisModule_Log(ctx, "debug", "SetClusterCommand: Setting number of partitions to %ld", topo->numShards);
+  RedisModule_Log(ctx, "debug", "SetClusterCommand: Setting number of partitions to %u", topo->numShards);
   NumShards = topo->numShards;
 
   // send the topology to the cluster
