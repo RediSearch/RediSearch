@@ -52,7 +52,7 @@ where
     ///   yields virtual [`RSIndexResult`] values without weight until `max_id` is reached.
     /// * `child` [`RQEIterator`] used, can be deallocated early in case of an abort status in
     ///   a call to [`RQEIterator::revalidate`]
-    pub fn new(max_id: t_docId, weight: f64, child: I) -> Self {
+    pub const fn new(max_id: t_docId, weight: f64, child: I) -> Self {
         Self {
             max_doc_id: max_id,
             weight,
