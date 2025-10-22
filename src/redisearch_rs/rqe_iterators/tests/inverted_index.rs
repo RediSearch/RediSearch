@@ -9,6 +9,7 @@
 
 use ::inverted_index::{Encoder, InvertedIndex, RSIndexResult, numeric::Numeric};
 use ffi::{IndexFlags, IndexFlags_Index_StoreNumeric, t_docId};
+use inverted_index::{FilterNumericReader, NumericFilter, NumericReader};
 use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index::NumericFull};
 
 mod c_mocks;
@@ -47,7 +48,10 @@ impl<E: Encoder + Default> BaseTest<E> {
     }
 
     /// test read functionality for a given iterator.
-    fn read<'index>(&self, it: &mut impl for<'a> RQEIterator<'a, 'index>) {
+    fn read<'index, I>(&self, it: &mut I)
+    where
+        I: for<'iterator> RQEIterator<'iterator, 'index>,
+    {
         let expected_record = &*self.expected_record;
         let mut i = 0;
 
@@ -79,7 +83,11 @@ impl<E: Encoder + Default> BaseTest<E> {
     ///
     /// Since the index contains only ODD doc IDs (1, 3, 5, 7, ...), when we skip to an EVEN doc ID,
     /// we expect `NotFound` with the next odd doc ID returned.
-    fn skip_to<'index>(&self, it: &mut impl for<'a> RQEIterator<'a, 'index>) {
+    ///
+    fn skip_to<'index, I>(&self, it: &mut I)
+    where
+        I: for<'iterator> RQEIterator<'iterator, 'index>,
+    {
         // Test skipping to any id between 1 and the last id.
         let expected_record = &*self.expected_record;
         // Test skipping to any id between 1 and the last id
@@ -165,13 +173,13 @@ impl NumericTest {
         }
     }
 
-    fn read(self) {
-        let mut it = NumericFull::new(self.test.ii.reader());
+    fn read<'index, R: NumericReader<'index>>(&self, reader: R) {
+        let mut it = NumericFull::new(reader);
         self.test.read(&mut it);
     }
 
-    fn skip_to(self) {
-        let mut it = NumericFull::new(self.test.ii.reader());
+    fn skip_to<'index, R: NumericReader<'index>>(&self, reader: R) {
+        let mut it = NumericFull::new(reader);
         self.test.skip_to(&mut it);
     }
 }
@@ -179,11 +187,22 @@ impl NumericTest {
 #[test]
 /// test reading from NumericFull iterator
 fn numeric_full_read() {
-    NumericTest::new(100).read();
+    let test = NumericTest::new(100);
+    let reader = test.test.ii.reader();
+    test.read(reader);
+
+    // same but using a passthrough filter
+    let test = NumericTest::new(100);
+    let filter = NumericFilter::default();
+    let reader = test.test.ii.reader();
+    let reader = FilterNumericReader::new(&filter, reader);
+    test.read(reader);
 }
 
 #[test]
 /// test skipping from NumericFull iterator
 fn numeric_full_skip_to() {
-    NumericTest::new(100).skip_to();
+    let test = NumericTest::new(100);
+    let reader = test.test.ii.reader();
+    test.skip_to(reader);
 }

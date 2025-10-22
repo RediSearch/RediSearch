@@ -9,21 +9,25 @@
 
 //! Inverted index iterator implementation
 use ffi::t_docId;
-use inverted_index::{IndexReader, IndexReaderCore, RSIndexResult, numeric::Numeric};
+use inverted_index::{IndexReader, NumericReader, RSIndexResult};
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
-/// An iterator over numeric inverted index entries.
+/// A generic full iterator over inverted index entries.
 ///
-/// This iterator provides full index scan to all document IDs in a numeric inverted index.
+/// This iterator provides full index scan to all document IDs in an inverted index.
 /// It is not suitable for queries.
 ///
 /// # Type Parameters
 ///
 /// * `'index` - The lifetime of the index being iterated over.
-pub struct NumericFull<'index> {
+/// * `R` - The reader type used to read the inverted index.
+struct FullIterator<'index, R>
+where
+    R: IndexReader<'index>,
+{
     /// The reader used to iterate over the inverted index.
-    reader: IndexReaderCore<'index, Numeric, Numeric>,
+    reader: R,
     /// if we reached the end of the index.
     at_eos: bool,
     /// the last document ID read by the iterator.
@@ -32,18 +36,24 @@ pub struct NumericFull<'index> {
     result: RSIndexResult<'index>,
 }
 
-impl<'index> NumericFull<'index> {
-    pub fn new(reader: IndexReaderCore<'index, Numeric, Numeric>) -> Self {
+impl<'index, R> FullIterator<'index, R>
+where
+    R: IndexReader<'index>,
+{
+    fn new(reader: R, result: RSIndexResult<'static>) -> Self {
         Self {
             reader,
             at_eos: false,
             last_doc_id: 0,
-            result: RSIndexResult::numeric(0.0),
+            result,
         }
     }
 }
 
-impl<'iterator, 'index> RQEIterator<'iterator, 'index> for NumericFull<'index> {
+impl<'iterator, 'index, R> RQEIterator<'iterator, 'index> for FullIterator<'index, R>
+where
+    R: IndexReader<'index>,
+{
     // TODO: this a port of InvIndIterator_Read_Default, the simplest read version.
     // The more complex ones will be implemented as part of the next iterators:
     // - InvIndIterator_Read_SkipMulti_CheckExpiration
@@ -121,5 +131,70 @@ impl<'iterator, 'index> RQEIterator<'iterator, 'index> for NumericFull<'index> {
 
     fn at_eof(&self) -> bool {
         self.at_eos
+    }
+}
+
+/// An iterator over numeric inverted index entries.
+///
+/// This iterator provides full index scan to all document IDs in a numeric inverted index.
+/// It is not suitable for queries.
+///
+/// # Type Parameters
+///
+/// * `'index` - The lifetime of the index being iterated over.
+pub struct NumericFull<'index, R>
+where
+    R: NumericReader<'index>,
+{
+    it: FullIterator<'index, R>,
+}
+
+impl<'index, R> NumericFull<'index, R>
+where
+    R: NumericReader<'index>,
+{
+    pub fn new(reader: R) -> Self {
+        let result = RSIndexResult::numeric(0.0);
+        Self {
+            it: FullIterator::new(reader, result),
+        }
+    }
+}
+
+impl<'iterator, 'index, R> RQEIterator<'iterator, 'index> for NumericFull<'index, R>
+where
+    R: NumericReader<'index>,
+{
+    fn read(
+        &'iterator mut self,
+    ) -> Result<Option<&'iterator mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read()
+    }
+
+    fn skip_to(
+        &'iterator mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'iterator, 'index>>, RQEIteratorError> {
+        self.it.skip_to(doc_id)
+    }
+
+    fn rewind(&mut self) {
+        self.it.rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.it.last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        self.it.at_eof()
+    }
+
+    fn revalidate(&mut self) -> crate::RQEValidateStatus {
+        self.it.revalidate()
     }
 }
