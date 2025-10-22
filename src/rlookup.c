@@ -234,34 +234,6 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
   return NULL;
 }
 
-RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_READ, flags);
-}
-
-RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup, const char *name, size_t name_len,
-                                  uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_READ, flags);
-}
-
-RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_WRITE, flags);
-}
-
-RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup, const char *name, size_t name_len,
-                                   uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_WRITE, flags);
-}
-
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name,
-                                uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, strlen(name), field_name, RLOOKUP_M_LOAD, flags);
-}
-
-RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
-                                  const char *field_name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, name_len, field_name, RLOOKUP_M_LOAD, flags);
-}
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFieldIndex,
@@ -297,40 +269,6 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
   }
   RS_LOG_ASSERT(i == lookup->rowlen, "'i' should be equal to lookup len");
   return nfields;
-}
-
-void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
-  memset(lk, 0, sizeof(*lk));
-  lk->spcache = spcache;
-}
-
-void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
-  // Find the pointer to write to ...
-  RSValue **vptr = array_ensure_at(&row->dyn, key->dstidx, RSValue *);
-  if (*vptr) {
-    RSValue_DecrRef(*vptr);
-    row->ndyn--;
-  }
-  *vptr = v;
-  row->ndyn++;
-}
-
-void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
-  RLookup_WriteOwnKey(key, row, RSValue_IncrRef(v));
-}
-
-void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *dst, RSValue *v) {
-  // Get the key first
-  RLookupKey *k = RLookup_FindKey(lookup, name, len);
-  if (!k) {
-    k = RLookup_GetKey_WriteEx(lookup, name, len, RLOOKUP_F_NAMEALLOC);
-  }
-  RLookup_WriteKey(k, dst, v);
-}
-
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
-  RLookup_WriteKeyByName(lookup, name, len, row, value);
-  RSValue_DecrRef(value);
 }
 
 void RLookupRow_Wipe(RLookupRow *r) {
