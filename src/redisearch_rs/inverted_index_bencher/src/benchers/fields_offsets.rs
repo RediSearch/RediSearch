@@ -15,7 +15,7 @@ use criterion::{
 };
 use ffi::t_fieldMask;
 use inverted_index::{
-    Decoder, Encoder,
+    Decoder, Encoder, RSIndexResult,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     test_utils::TestTermRecord,
 };
@@ -158,12 +158,12 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || Cursor::new(test.encoded.as_ref()),
-                    |buffer| {
+                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    |(cursor, result)| {
                         let result = if self.wide {
-                            FieldsOffsetsWide.decode_new(buffer, 100).unwrap()
+                            FieldsOffsetsWide.decode(cursor, 100, result)
                         } else {
-                            FieldsOffsets.decode_new(buffer, 100).unwrap()
+                            FieldsOffsets.decode(cursor, 100, result)
                         };
 
                         let _ = black_box(result);
