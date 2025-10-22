@@ -1117,6 +1117,26 @@ pub trait IndexReader<'index> {
         doc_id: t_docId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool>;
+
+    /// Skip forward to the block containing the given document ID. Returns false if the end of the
+    /// index was reached and true otherwise.
+    fn skip_to(&mut self, doc_id: t_docId) -> bool;
+
+    /// Reset the reader to the beginning of the index.
+    fn reset(&mut self);
+
+    /// Return the number of unique documents in the underlying index.
+    fn unique_docs(&self) -> usize;
+
+    /// Returns true if the underlying index has duplicate document IDs.
+    fn has_duplicates(&self) -> bool;
+
+    /// Get the flags of the underlying index
+    fn flags(&self) -> IndexFlags;
+
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    fn needs_revalidation(&self) -> bool;
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
@@ -1162,36 +1182,8 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
 
         Ok(success)
     }
-}
 
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D> {
-    /// Create a new index reader that reads from the given [`InvertedIndex`].
-    ///
-    /// # Panic
-    /// This function will panic if the inverted index is empty.
-    fn new(ii: &'index InvertedIndex<E>) -> Self {
-        let (current_buffer, last_doc_id) = if let Some(first_block) = ii.blocks.first() {
-            (
-                Cursor::new(first_block.buffer.as_ref()),
-                first_block.first_doc_id,
-            )
-        } else {
-            (Cursor::new(&[] as &[u8]), 0)
-        };
-
-        Self {
-            ii,
-            decoder: E::decoder(),
-            current_buffer,
-            current_block_idx: 0,
-            last_doc_id,
-            gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
-        }
-    }
-
-    /// Skip forward to the block containing the given document ID. Returns false if the end of the
-    /// index was reached and true otherwise.
-    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
+    fn skip_to(&mut self, doc_id: t_docId) -> bool {
         if self.ii.blocks.is_empty() {
             return false;
         }
@@ -1228,8 +1220,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
         true
     }
 
-    /// Reset the reader to the beginning of the index.
-    pub fn reset(&mut self) {
+    fn reset(&mut self) {
         if !self.ii.blocks.is_empty() {
             self.set_current_block(0);
         } else {
@@ -1240,25 +1231,46 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
         self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
     }
 
-    /// Check if the underlying index has been modified since the last time this reader read from it.
-    /// If it has, then the reader should be reset before reading from it again.
-    pub fn needs_revalidation(&self) -> bool {
-        self.gc_marker != self.ii.gc_marker.load(atomic::Ordering::Relaxed)
-    }
-
-    /// Return the number of unique documents in the underlying index.
-    pub const fn unique_docs(&self) -> usize {
+    fn unique_docs(&self) -> usize {
         self.ii.unique_docs()
     }
 
-    /// Returns true if the underlying index has duplicate document IDs.
-    pub const fn has_duplicates(&self) -> bool {
+    fn has_duplicates(&self) -> bool {
         self.ii.flags() & IndexFlags_Index_HasMultiValue > 0
     }
 
-    /// Get the flags of the underlying index
-    pub const fn flags(&self) -> IndexFlags {
+    fn flags(&self) -> IndexFlags {
         self.ii.flags()
+    }
+
+    fn needs_revalidation(&self) -> bool {
+        self.gc_marker != self.ii.gc_marker.load(atomic::Ordering::Relaxed)
+    }
+}
+
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D> {
+    /// Create a new index reader that reads from the given [`InvertedIndex`].
+    ///
+    /// # Panic
+    /// This function will panic if the inverted index is empty.
+    fn new(ii: &'index InvertedIndex<E>) -> Self {
+        let (current_buffer, last_doc_id) = if let Some(first_block) = ii.blocks.first() {
+            (
+                Cursor::new(first_block.buffer.as_ref()),
+                first_block.first_doc_id,
+            )
+        } else {
+            (Cursor::new(&[] as &[u8]), 0)
+        };
+
+        Self {
+            ii,
+            decoder: E::decoder(),
+            current_buffer,
+            current_block_idx: 0,
+            last_doc_id,
+            gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
+        }
     }
 
     /// Check if this reader is reading from the given index
@@ -1357,41 +1369,39 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
             self.next_record(result)
         }
     }
+
+    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        self.inner.skip_to(doc_id)
+    }
+
+    fn reset(&mut self) {
+        self.inner.reset();
+    }
+
+    fn unique_docs(&self) -> usize {
+        self.inner.unique_docs()
+    }
+
+    fn has_duplicates(&self) -> bool {
+        self.inner.has_duplicates()
+    }
+
+    fn flags(&self) -> IndexFlags {
+        self.inner.flags()
+    }
+
+    fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
+    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
     FilterMaskReader<IndexReaderCore<'index, E, D>>
 {
-    /// Skip forward to the block containing the given document ID. Returns false if the end of the
-    /// index was reached and true otherwise.
-    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
-        self.inner.skip_to(doc_id)
-    }
-
-    /// Reset the reader to the beginning of the index.
-    pub fn reset(&mut self) {
-        self.inner.reset();
-    }
-
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.
     pub fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
-    }
-
-    /// Return the number of unique documents in the underlying index.
-    pub const fn unique_docs(&self) -> usize {
-        self.inner.unique_docs()
-    }
-
-    /// Returns true if the underlying index has duplicate document IDs.
-    pub const fn has_duplicates(&self) -> bool {
-        self.inner.has_duplicates()
-    }
-
-    /// Get the flags of the underlying index
-    pub const fn flags(&self) -> IndexFlags {
-        self.inner.flags()
     }
 
     /// Check if this reader is reading from the given index
@@ -1488,41 +1498,39 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReade
             self.next_record(result)
         }
     }
+
+    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        self.inner.skip_to(doc_id)
+    }
+
+    fn reset(&mut self) {
+        self.inner.reset();
+    }
+
+    fn unique_docs(&self) -> usize {
+        self.inner.unique_docs()
+    }
+
+    fn has_duplicates(&self) -> bool {
+        self.inner.has_duplicates()
+    }
+
+    fn flags(&self) -> ffi::IndexFlags {
+        self.inner.flags()
+    }
+
+    fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
+    }
 }
 
 impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
     FilterNumericReader<'filter, IndexReaderCore<'index, E, D>>
 {
-    /// Skip forward to the block containing the given document ID. Returns false if the end of the
-    /// index was reached and true otherwise.
-    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
-        self.inner.skip_to(doc_id)
-    }
-
-    /// Reset the reader to the beginning of the index.
-    pub fn reset(&mut self) {
-        self.inner.reset();
-    }
-
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.
     pub fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
-    }
-
-    /// Return the number of unique documents in the underlying index.
-    pub const fn unique_docs(&self) -> usize {
-        self.inner.unique_docs()
-    }
-
-    /// Returns true if the underlying index has duplicate document IDs.
-    pub const fn has_duplicates(&self) -> bool {
-        self.inner.has_duplicates()
-    }
-
-    /// Get the flags of the underlying index
-    pub const fn flags(&self) -> IndexFlags {
-        self.inner.flags()
     }
 
     /// Check if this reader is reading from the given index
@@ -1647,41 +1655,39 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'i
             self.next_record(result)
         }
     }
+
+    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        self.inner.skip_to(doc_id)
+    }
+
+    fn reset(&mut self) {
+        self.inner.reset();
+    }
+
+    fn unique_docs(&self) -> usize {
+        self.inner.unique_docs()
+    }
+
+    fn has_duplicates(&self) -> bool {
+        self.inner.has_duplicates()
+    }
+
+    fn flags(&self) -> IndexFlags {
+        self.inner.flags()
+    }
+
+    fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
+    }
 }
 
 impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
     FilterGeoReader<'filter, IndexReaderCore<'index, E, D>>
 {
-    /// Skip forward to the block containing the given document ID. Returns false if the end of the
-    /// index was reached and true otherwise.
-    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
-        self.inner.skip_to(doc_id)
-    }
-
-    /// Reset the reader to the beginning of the index.
-    pub fn reset(&mut self) {
-        self.inner.reset();
-    }
-
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.
     pub fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
-    }
-
-    /// Return the number of unique documents in the underlying index.
-    pub const fn unique_docs(&self) -> usize {
-        self.inner.unique_docs()
-    }
-
-    /// Returns true if the underlying index has duplicate document IDs.
-    pub const fn has_duplicates(&self) -> bool {
-        self.inner.has_duplicates()
-    }
-
-    /// Get the flags of the underlying index
-    pub const fn flags(&self) -> IndexFlags {
-        self.inner.flags()
     }
 
     /// Check if this reader is reading from the given index
