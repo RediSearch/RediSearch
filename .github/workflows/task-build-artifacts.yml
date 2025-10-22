@@ -133,14 +133,6 @@ jobs:
           command: |
             cd .install
             ./install_aws.sh ${{ steps.mode.outputs.mode }}
-      - name: Setup test dependencies
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 10
-          max_attempts: 5
-          retry_wait_seconds: 30
-          command: |
-            .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
         uses: nick-fields/retry@v3
         with:
