@@ -333,6 +333,10 @@ CONFIG_GETTER(getFrisoINI) {
 
 // DEFAULT_SCORER
 CONFIG_SETTER(setDefaultScorer) {
+  if (!config->enableUnstableFeatures) {
+    QueryError_SetError(status, QUERY_EBADVAL, "Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON");
+    return REDISMODULE_ERR;
+  }
   const char *scorerName;
   int acrc = AC_GetString(ac, &scorerName, NULL, 0);
   if (acrc == AC_OK) {
@@ -670,6 +674,10 @@ CONFIG_GETTER(getIndexCursorLimit) {
   return sdscatprintf(ss, "%lld", config->indexCursorLimit);
 }
 
+// ENABLE_UNSTABLE_FEATURES
+CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
+CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
+
 // INDEXER_YIELD_EVERY_OPS
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
@@ -1006,6 +1014,10 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "overall estimated number of results instead.",
          .setValue = set_PrioritizeIntersectUnionChildren,
          .getValue = get_PrioritizeIntersectUnionChildren},
+        {.name = "ENABLE_UNSTABLE_FEATURES",
+          .helpText = "Enable unstable features.",
+          .setValue = set_EnableUnstableFeatures,
+          .getValue = get_EnableUnstableFeatures},
         {.name = "INDEXER_YIELD_EVERY_OPS",
          .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
          .setValue = setIndexerYieldEveryOps,

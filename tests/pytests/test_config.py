@@ -77,7 +77,10 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
     env.expect('ft.config', 'set', 'INDEX_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SEARCH_THREADS', 1).equal('Not modifiable at runtime')
-    env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'TFIDF').equal('OK')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'BM25STD').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect('ft.config', 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').ok()
 
     if MT_BUILD:
         env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('Not modifiable at runtime')
@@ -262,3 +265,35 @@ def testImmutable(env):
 @skip(cluster=True)
 def test_setIndexingMemoryLimit_overflow(env):
     env.expect('ft.config', 'set', '_BG_INDEX_MEM_PCT_THR', 101).error().contains("Memory limit for indexing cannot be greater then 100%")
+
+
+@skip(cluster=True)
+def testDefaultScorerConfig(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+    env.expect('FT.CONFIG', 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).equal('OK')
+        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('Invalid default scorer')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('Invalid default scorer value')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
+
+@skip(cluster=True)
+def testDefaultScorerConfigDisabled(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])  # Should still be the last valid value
