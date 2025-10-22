@@ -85,6 +85,8 @@ typedef struct {
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
+  // Default scorer name to use when no scorer is specified (default: BM25STD)
+  const char *defaultScorer;
 
   IteratorsConfig iteratorsConfigParams;
 
@@ -269,6 +271,8 @@ void UpgradeDeprecatedMTConfigs();
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                     \
     .extLoad = NULL,                                                            \
+    .frisoIni = NULL,                                                           \
+    .defaultScorer = NULL,                                                      \
     .gcConfigParams.enableGC = 1,                                               \
     .iteratorsConfigParams.minTermPrefix = 2,                                   \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,             \

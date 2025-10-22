@@ -14,6 +14,7 @@
 #include "src/tokenize.h"
 #include "src/varint.h"
 #include "src/hybrid_reader.h"
+#include "src/ext/default.h"
 
 #include "rmutil/alloc.h"
 #include "index_utils.h"
@@ -33,6 +34,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                          REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
+    RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
     return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
 

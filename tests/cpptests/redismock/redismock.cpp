@@ -1,6 +1,7 @@
 #include "internal.h"
 #include "util.h"
 #include "redismock.h"
+#include "config.h"
 
 #include <string>
 #include <map>
@@ -1050,5 +1051,7 @@ void RMCK_Shutdown(void) {
   Datatype::typemap.clear();
 
   RedisModuleCommand::commands.clear();
+  rm_free((void *)RSGlobalConfig.defaultScorer);
+  RSGlobalConfig.defaultScorer = NULL;
 }
 }
