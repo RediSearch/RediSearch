@@ -421,7 +421,7 @@ void RLookupRow_Reset(RLookupRow *row);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Move(const struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
+void RLookupRow_Move(struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
 
 #ifdef __cplusplus
 }  // extern "C"
