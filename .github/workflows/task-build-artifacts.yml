@@ -189,7 +189,6 @@ jobs:
           echo "Setup test dependencies failed after 5 attempts"
           exit 1
       - name: install build artifacts req
-        shell: bash -l -eo pipefail {0}
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
