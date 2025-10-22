@@ -58,10 +58,10 @@ pub trait RQEIterator<'index> {
     ///
     /// Return `Ok(SkipToOutcome::Found)` if the iterator has found a record with the `docId` and `Ok(SkipToOutcome::NotFound)`
     /// if the iterator found a result greater than `docId`. 'None" will be returned if the iterator has reached the end of the index.
-    fn skip_to<'iterator>(
-        &'iterator mut self,
+    fn skip_to(
+        &mut self,
         doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'iterator, 'index>>, RQEIteratorError>;
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError>;
 
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
