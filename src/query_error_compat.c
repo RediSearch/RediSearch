@@ -59,6 +59,9 @@ void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, c
 
 /**
  * Not implemented in Rust yet as mocking ArgsCursor would be a large lift.
+ *
+ * Once `ArgsCursor` and `QueryError_SetWithUserDataFmt` are ported to Rust,
+ * this should also be ported to Rust.
  */
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name) {
   RS_LOG_ASSERT(!AC_IsAtEnd(ac), "cursor should not be at the end");
