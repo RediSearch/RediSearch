@@ -9,6 +9,17 @@
 
 #pragma once
 
-#include <stdint.h>
+#include "../coord/rmr/rmr.h"
 
-uint16_t crc12(const char *buf, int len);
+#define CURSOR_EOF 0
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep);
+bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx);
+
+#ifdef __cplusplus
+}
+#endif

@@ -8,6 +8,7 @@
 */
 
 //! Wildcard iterator implementation
+
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
@@ -15,18 +16,18 @@ use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
 #[derive(Default)]
-pub struct Wildcard<'a> {
+pub struct Wildcard<'index> {
     // Supposed to be the max id in the index
     top_id: t_docId,
 
     current_id: t_docId,
 
     /// A reusable result object to avoid allocations on each `read` call.
-    result: RSIndexResult<'a>,
+    result: RSIndexResult<'index>,
 }
 
-impl<'a> Wildcard<'a> {
-    pub fn new(top_id: t_docId) -> Self {
+impl Wildcard<'_> {
+    pub const fn new(top_id: t_docId) -> Self {
         Wildcard {
             top_id,
             current_id: 0,
@@ -35,21 +36,23 @@ impl<'a> Wildcard<'a> {
     }
 }
 
-impl<'a> RQEIterator for Wildcard<'a> {
-    fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
+impl<'iterator, 'index> RQEIterator<'iterator, 'index> for Wildcard<'index> {
+    fn read(
+        &'iterator mut self,
+    ) -> Result<Option<&'iterator mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
         }
 
         self.current_id += 1;
         self.result.doc_id = self.current_id;
-        Ok(Some(&self.result))
+        Ok(Some(&mut self.result))
     }
 
     fn skip_to(
-        &mut self,
+        &'iterator mut self,
         doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'iterator, 'index>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
         }
@@ -62,8 +65,8 @@ impl<'a> RQEIterator for Wildcard<'a> {
         }
 
         self.current_id = doc_id;
-        self.result.doc_id = doc_id;
-        Ok(Some(SkipToOutcome::Found(&self.result)))
+        self.result.doc_id = self.current_id;
+        Ok(Some(SkipToOutcome::Found(&mut self.result)))
     }
 
     fn rewind(&mut self) {

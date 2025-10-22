@@ -777,12 +777,13 @@ arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp) {
   return (arrayof(const char*))StrongRef_Get(gstp->properties_ref);
 }
 
-PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref) {
+PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, bool strictPrefix) {
   PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
   gstp->properties_ref = properties_ref;
   gstp->base.dtor = groupStepFree;
   gstp->base.getLookup = groupStepGetLookup;
   gstp->base.type = PLN_T_GROUP;
+  gstp->strictPrefix = strictPrefix;
   return gstp;
 }
 
@@ -818,7 +819,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
 
   // Number of fields.. now let's see the reducers
   StrongRef properties_ref = StrongRef_New((void *)properties, (RefManager_Free)array_free);
-  PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref);
+  PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref, false);
   AGPLN_AddStep(plan, &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
@@ -949,6 +950,7 @@ AREQ *AREQ_New(void) {
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
+  req->prefixesOffset = 0;
   return req;
 }
 
@@ -1263,6 +1265,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
       return REDISMODULE_ERR;
     }
+  } else {
+    opts->scorerName = RSGlobalConfig.defaultScorer;
   }
 
   bool resp3 = req->protocol == 3;

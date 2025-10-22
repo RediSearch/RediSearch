@@ -47,12 +47,12 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     }
 
     /// Returns the length of [`RLookupRow::dyn_values`].
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.dyn_values.len()
     }
 
     /// Returns true if the [`RLookupRow::dyn_values`] vector is empty.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.dyn_values.is_empty()
     }
 
@@ -71,18 +71,18 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     }
 
     /// Readonly access to [`RLookupRow::sorting_vector`], it may be `None` if no sorting vector was set.
-    pub fn sorting_vector(&self) -> Option<&RSSortingVector<T>> {
+    pub const fn sorting_vector(&self) -> Option<&RSSortingVector<T>> {
         self.sorting_vector
     }
 
     /// Borrow a sorting vector for the row.
-    pub fn set_sorting_vector(&mut self, sv: &'a RSSortingVector<T>) {
+    pub const fn set_sorting_vector(&mut self, sv: &'a RSSortingVector<T>) {
         self.sorting_vector = Some(sv);
     }
 
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
     /// is not the length of [`RLookupRow::dyn_values`]
-    pub fn num_dyn_values(&self) -> u32 {
+    pub const fn num_dyn_values(&self) -> u32 {
         self.num_dyn_values
     }
 

@@ -101,6 +101,6 @@ def testTagFuzzy(env):
     env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TAG', 'CASESENSITIVE')
     env.cmd('HSET', 'doc', 't', 'hello world')
     env.expect('FT.SEARCH', 'idx1', '@t:{(%worl%)}').equal([1, 'doc', ['t', 'hello world']]) # codespell:ignore worl
-    env.expect('FT.SEARCH', 'idx1', '@t:{(%wor%)}').equal([0])
+    env.expect('FT.SEARCH', 'idx1', '@t:{(%wor%)}').equal([0]) # codespell:ignore wor
     env.expect('FT.SEARCH', 'idx2', '@t:{(%worl%)}').equal([0]) # codespell:ignore worl
-    env.expect('FT.SEARCH', 'idx2', '@t:{(%wir%)}').equal([0])
+    env.expect('FT.SEARCH', 'idx2', '@t:{(%wir%)}').equal([0]) # codespell:ignore wir

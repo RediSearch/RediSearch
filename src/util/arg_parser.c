@@ -335,6 +335,9 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
             }
             if (rv != AC_OK) {
                 set_error(parser, "Failed to parse the argument count", def->name);
+            } else if (count < def->options.subargs.min_args || (def->options.subargs.max_args != -1 && count > def->options.subargs.max_args)) {
+                set_error(parser, "Invalid argument count", def->name);
+                rv = AC_ERR_ELIMIT;
             } else {
                 // Single argument slice
                 rv = AC_GetSlice(parser->cursor, (ArgsCursor*)def->target, count);

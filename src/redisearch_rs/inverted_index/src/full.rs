@@ -25,7 +25,7 @@ use crate::{DecodedBy, Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResult
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct Full;
 
 /// Return a slice of the offsets vector from a term record.
@@ -34,7 +34,7 @@ pub struct Full;
 ///
 /// record must have `result_type` set to `RSResultType::Term`.
 #[inline(always)]
-pub fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
+pub const fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
     // SAFETY: caller ensured the proper result_type.
     let term = record.as_term().unwrap();
 
@@ -199,7 +199,7 @@ impl Decoder for Full {
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FullWide;
 
 impl Encoder for FullWide {

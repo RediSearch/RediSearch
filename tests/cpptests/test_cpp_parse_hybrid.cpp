@@ -105,8 +105,9 @@ class ParseHybridTest : public ::testing::Test {
    */
   int parseCommandInternal(RMCK::ArgvList& args) {
     QueryError status = QueryError_Default();
-
-    int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
+    ArgsCursor ac = {0};
+    HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
+    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
     EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
@@ -320,9 +321,9 @@ TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
   ASSERT_EQ(vq->knn.k, HYBRID_DEFAULT_KNN_K);
 }
 
-TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
+TEST_F(ParseHybridTest, testNOSORTDisablesImplicitSort) {
   // Test SORTBY 0 to disable implicit sorting
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "0");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "NOSORT");
 
   parseCommand(args);
 
@@ -611,8 +612,10 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
         "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
 
-  QueryError status = {QueryErrorCode(0)};
-  parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, false);
+  QueryError status = QueryError_Default();
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_EPARSEARGS) << "Should fail as external command";
   QueryError_ClearError(&status);
 
@@ -627,11 +630,13 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
         "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
 
-  QueryError status = {QueryErrorCode(0)};
+  QueryError status = QueryError_Default();
 
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
-  parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
-  ASSERT_TRUE(QueryError_IsOk(&status)) << "Should succeed as internal command";
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
+  EXPECT_EQ(QueryError_GetCode(&status), QUERY_OK) << "Should succeed as internal command";
   QueryError_ClearError(&status);
 
   // Verify _NUM_SSTRING flag is set after parsing
@@ -680,7 +685,9 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   QueryError status = QueryError_Default();
 
   // Create a fresh sctx for this test
-  int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
+  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_STREQ(QueryError_GetUserError(&status), expected_detail) << "parsing error: " << QueryError_GetUserError(&status);
@@ -899,7 +906,7 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
 
   parseCommand(args);
   // No explicit scorer should be set; the default scorer will be used
-  ASSERT_EQ(result.search->searchopts.scorerName, nullptr);
+  ASSERT_STREQ(result.search->searchopts.scorerName, DEFAULT_SCORER_NAME);
 }
 
 TEST_F(ParseHybridTest, testExplicitTextScorerForLinear) {
@@ -918,7 +925,7 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForRRF) {
   parseCommand(args);
 
   // No explicit scorer should be set; the default scorer will be used
-  ASSERT_EQ(result.search->searchopts.scorerName, nullptr);
+  ASSERT_STREQ(result.search->searchopts.scorerName, DEFAULT_SCORER_NAME);
 }
 
 TEST_F(ParseHybridTest, testExplicitTextScorerForRRF) {
@@ -1050,7 +1057,7 @@ TEST_F(ParseHybridTest, testParamsOddArgumentCount) {
 TEST_F(ParseHybridTest, testParamsZeroArguments) {
   // Test PARAMS with zero arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "PARAMS", "0");
-  testErrorCode(args, QUERY_EADDARGS, "Parameters must be specified in PARAM VALUE pairs");
+  testErrorCode(args, QUERY_EPARSEARGS, "PARAMS: Invalid argument count");
 }
 
 // WITHCURSOR callback error tests
@@ -1176,4 +1183,15 @@ TEST_F(ParseHybridTest, testCombineLinearZeroWindow) {
   // Test LINEAR with zero WINDOW value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "0");
   testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}
+
+TEST_F(ParseHybridTest, testSortby0InvalidArgumentCount) {
+  // SORTBY requires at least one argument (param count)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "0");
+  testErrorCode(args, QUERY_EPARSEARGS, "SORTBY: Invalid argument count");
+}
+
+TEST_F(ParseHybridTest, testSortbyNotEnoughArguments) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "2", "title");
+  testErrorCode(args, QUERY_EPARSEARGS, "SORTBY: Not enough arguments were provided based on argument count");
 }

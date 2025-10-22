@@ -13,6 +13,7 @@
 #include "result_processor.h"
 #include <string.h>
 #include <limits.h>
+#include "util/misc.h"
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
@@ -83,34 +84,38 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
     arng->limit = num;
 }
 
+// Helper function to set error for SORTBY with NOSORT since they are not allowed to go together
+void fillSortAndNoSortError(QueryError *status) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "NOSORT is not allowed with SORTBY");
+}
+
 #define ASC_BY_DEFAULT true
 
-// SORTBY callback - implements EXACT original logic from lines 298-323
 void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_SORTBY;
 
-    // We managed to get a valid arg cursor
-    if (AC_IsAtEnd(ac)) {
-        // We essentially got SORTBY 0
-        *ctx->reqFlags |= QEXEC_F_NO_SORT;
+    if (*ctx->reqFlags & QEXEC_F_NO_SORT) {
+        fillSortAndNoSortError(status);
         return;
     }
 
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(ctx->plan);
     // Parse field/direction pairs
     while (!AC_IsAtEnd(ac)) {
-        const char *field = AC_GetStringNC(ac, NULL);
+        size_t fieldLen;
+        const char *field = AC_GetStringNC(ac, &fieldLen);
         if (!field) {
             QueryError_SetError(status, QUERY_EPARSEARGS, "Missing field name in SORTBY");
             return;
         }
 
         // Remove '@' prefix if present (same logic as parseSortby)
-        if (*field == '@') {
-            field++;  // Skip the '@' prefix
+        field = ExtractKeyName(field, &fieldLen, status, true, "SORTBY");
+        if (!field) {
+            return;
         }
 
         // Default to ascending
@@ -135,6 +140,14 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     }
 
     return;
+}
+
+void handleNoSort(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)AGPLN_FindStep(ctx->plan, NULL, NULL, PLN_T_ARRANGE);
+    if (arng && arng->sortKeys) {
+        fillSortAndNoSortError(ctx->status);
+    }
 }
 
 // WITHCURSOR callback - parses cursor settings directly
@@ -276,7 +289,7 @@ void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
 
     // Number of fields.. now let's see the reducers
     StrongRef properties_ref = StrongRef_New((void *)properties, (RefManager_Free)array_free);
-    PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref);
+    PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref, true);
     AGPLN_AddStep(ctx->plan, &gstp->base);
 
     ArgsCursor *reduce = parser->cursor;
@@ -361,6 +374,7 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data) {
     PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
     lstp->base.type = PLN_T_LOAD;
     lstp->base.dtor = loadDtor;
+    lstp->strictPrefix = true;  // Enable strict field validation
     if (loadfields.argc > 0) {
         lstp->args = loadfields;
         lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
@@ -413,3 +427,17 @@ void handleNumSString(ArgParser *parser, const void *value, void *user_data) {
     ctx->specifiedArgs |= SPECIFIED_ARG_NUM_SSTRING;
 }
 
+// _INDEX_PREFIXES callback - implements EXACT original logic from handleIndexPrefixes
+void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) {
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  ArgsCursor *paramsArgs = (ArgsCursor*)value;
+  QueryError *status = ctx->status;
+  while (!AC_IsAtEnd(paramsArgs)) {
+    const char *prefix;
+    if (AC_GetString(paramsArgs, &prefix, NULL, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for _INDEX_PREFIXES");
+      return;
+    }
+    array_ensure_append_1(*ctx->prefixes, prefix);
+  }
+}

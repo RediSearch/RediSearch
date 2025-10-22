@@ -1995,6 +1995,35 @@ DEBUG_COMMAND(queryController) {
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
 }
 
+
+/**
+ * FT.DEBUG DUMP_SCHEMA <index>
+ * Dump the schema of the index in a serialized format.
+ * Returns an array with two elements:
+ * 1. The serialized schema string.
+ * 2. The version of the index at the time of serialization.
+ */
+DEBUG_COMMAND(DumpSchema) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2]);
+
+  RedisModuleString *schemaStr = IndexSpec_Serialize(sctx->spec);
+  SearchCtx_Free(sctx);
+
+  if (!schemaStr) return RedisModule_ReplyWithError(ctx, "Failed to serialize schema");
+
+  RedisModule_ReplyWithArray(ctx, 2);
+  RedisModule_ReplyWithString(ctx, schemaStr);
+  RedisModule_ReplyWithLongLong(ctx, INDEX_CURRENT_VERSION);
+  RedisModule_FreeString(NULL, schemaStr);
+  return REDISMODULE_OK;
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -2033,6 +2062,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
+                               {"DUMP_SCHEMA", DumpSchema},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
