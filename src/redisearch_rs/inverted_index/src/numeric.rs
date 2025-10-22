@@ -511,13 +511,8 @@ fn read_u64_and_u64<R: Read>(
     // Use one read since it is faster
     reader.read_exact(&mut buffer[..total_bytes])?;
 
-    let mut first = [0; 8];
-    first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
-    let first = u64::from_le_bytes(first);
-
-    let mut second = [0; 8];
-    second[..second_bytes].copy_from_slice(&buffer[first_bytes..first_bytes + second_bytes]);
-    let second = u64::from_le_bytes(second);
+    let first = u64::from_slice(&buffer[..first_bytes]);
+    let second = u64::from_slice(&buffer[first_bytes..first_bytes + second_bytes]);
 
     Ok((first, second))
 }
@@ -530,13 +525,8 @@ fn read_u64_and_f32<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Res
     // Use one read since it is faster
     reader.read_exact(&mut buffer[..total_bytes])?;
 
-    let mut first = [0; 8];
-    first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
-    let first = u64::from_le_bytes(first);
-
-    let mut second = [0; 4];
-    second.copy_from_slice(&buffer[first_bytes..first_bytes + 4]);
-    let second = f32::from_le_bytes(second);
+    let first = u64::from_slice(&buffer[..first_bytes]);
+    let second = f32::from_slice(&buffer[first_bytes..first_bytes + 4]);
 
     Ok((first, second))
 }
@@ -549,15 +539,49 @@ fn read_u64_and_f64<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Res
     // Use one read since it is faster
     reader.read_exact(&mut buffer[..total_bytes])?;
 
-    let mut first = [0; 8];
-    first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
-    let first = u64::from_le_bytes(first);
-
-    let mut second = [0; 8];
-    second.copy_from_slice(&buffer[first_bytes..first_bytes + 8]);
-    let second = f64::from_le_bytes(second);
+    let first = u64::from_slice(&buffer[..first_bytes]);
+    let second = f64::from_slice(&buffer[first_bytes..first_bytes + 8]);
 
     Ok((first, second))
+}
+
+/// Helper trait to convert from byte slices to various types
+trait FromSlice {
+    /// Creates an instance of Self from a byte slice.
+    fn from_slice(slice: &[u8]) -> Self;
+}
+
+impl FromSlice for u64 {
+    #[inline(always)]
+    fn from_slice(slice: &[u8]) -> Self {
+        debug_assert!(slice.len() <= 8, "Slice length must be at most 8 bytes");
+
+        let mut bytes = [0; 8];
+        bytes[..slice.len()].copy_from_slice(slice);
+        u64::from_le_bytes(bytes)
+    }
+}
+
+impl FromSlice for f32 {
+    #[inline(always)]
+    fn from_slice(slice: &[u8]) -> Self {
+        debug_assert!(slice.len() == 4, "Slice length must be exactly 4 bytes");
+
+        let mut bytes = [0; 4];
+        bytes.copy_from_slice(slice);
+        f32::from_le_bytes(bytes)
+    }
+}
+
+impl FromSlice for f64 {
+    #[inline(always)]
+    fn from_slice(slice: &[u8]) -> Self {
+        debug_assert!(slice.len() == 8, "Slice length must be exactly 8 bytes");
+
+        let mut bytes = [0; 8];
+        bytes.copy_from_slice(slice);
+        f64::from_le_bytes(bytes)
+    }
 }
 
 enum Value {
