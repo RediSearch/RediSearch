@@ -235,6 +235,8 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
       MRCommand_Append(xcmd, prefix, len);
     }
   }
+
+  // TODO(Joan): Add slot information from topology (for FT.HYBRID)
 }
 
 // UPDATED: Set RPNet types when creating them

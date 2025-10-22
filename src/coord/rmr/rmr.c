@@ -667,6 +667,7 @@ void iterStartCb(void *p) {
     // Set each command to target a different shard
     it->cbxs[i].cmd.targetShard = i;
     it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    // TODO(Joan): Maybe is actually here where I need to put the slot information (Here the command is really directed to a shard) (For FT SEARCH and FT HYBRID)
   }
 
   // This implies that every connection to each shard will work inside a single IO thread
@@ -704,7 +705,6 @@ void iterCursorMappingCb(void *p) {
   it->ctx.pending = numShards;
   it->ctx.inProcess = numShards; // Initially all commands are in process
 
-
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
   cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
@@ -712,8 +712,7 @@ void iterCursorMappingCb(void *p) {
   sprintf(buf, "%lld", vsimOrSearch->mappings[0].cursorId);
   MRCommand_Append(cmd, buf, strlen(buf));
 
-
-  // Create FT.CURSOR READ commands for each mapping
+  // Create FT.CURSOR READ commands for each mapping (TODO(Joan): Is this comment accurate?)
   for (size_t i = 1; i < numShards; i++) {
     it->cbxs[i].it = it;
     it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
@@ -725,6 +724,7 @@ void iterCursorMappingCb(void *p) {
     char buf[128];
     sprintf(buf, "%lld", vsimOrSearch->mappings[i].cursorId);
     MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, strlen(buf));
+    // TODO(Joan): Maybe is actually here where I need to put the slot information (Here the command is really directed to a shard) (For FT AGGREGATE)
   }
 
   // Send commands to all shards

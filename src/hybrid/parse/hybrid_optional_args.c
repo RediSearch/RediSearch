@@ -128,6 +128,8 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                              ARG_OPT_OPTIONAL,
                              ARG_OPT_CALLBACK, handleIndexPrefixes, ctx,
                              ARG_OPT_END);
+
+        //TODO(Joan): Here parse the slot information from the coordinator
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",

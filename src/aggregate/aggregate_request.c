@@ -356,7 +356,8 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
     }
-  } else {
+  } //TODO(Joan): Here parse the slot information from the coordinator (for FT SEARCH and FT AGGREGATE)
+  else {
     return ARG_UNKNOWN;
   }
 
