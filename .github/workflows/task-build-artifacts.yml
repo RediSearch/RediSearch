@@ -160,12 +160,7 @@ jobs:
           path: redis
       - name: Get Redis (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 10
-          max_attempts: 5
-          retry_wait_seconds: 30
-          command: |
+        run: |
             REPO_URL="https://github.com/redis/redis.git"
             DEST_DIR="redis"  # Directory to clone into
 
