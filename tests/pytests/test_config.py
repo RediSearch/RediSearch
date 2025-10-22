@@ -274,7 +274,7 @@ def testDefaultScorerConfig(env):
     env.expect('FT.CONFIG', 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
     env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
 
-    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'DISMAX', 'DOCSCORE', 'HAMMING']
     for scorer in valid_scorers:
         env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).equal('OK')
         env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
@@ -289,7 +289,7 @@ def testDefaultScorerConfigDisabled(env):
     env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
     env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
 
-    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'DISMAX', 'DOCSCORE', 'HAMMING']
     for scorer in valid_scorers:
         env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
         env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
