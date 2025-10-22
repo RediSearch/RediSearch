@@ -24,6 +24,8 @@
 #include <iostream>
 #include <cstdarg>
 
+#include "rlookup_rs.h"
+
 class AggTest : public ::testing::Test {};
 using RS::addDocument;
 
