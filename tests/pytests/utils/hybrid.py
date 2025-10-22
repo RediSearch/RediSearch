@@ -381,7 +381,8 @@ def run_test_scenario(env, index_name, scenario, vector_blob):
 
     hybrid_cmd = translate_hybrid_query(
                 scenario['hybrid_query'], vector_blob, index_name)
-    hybrid_results_raw = conn.execute_command(*hybrid_cmd)
+    # Use env.cmd for FT.HYBRID to handle cluster routing properly
+    hybrid_results_raw = env.cmd(*hybrid_cmd)
 
     hybrid_results, ranking_info = _process_hybrid_response(hybrid_results_raw)
     _sort_adjacent_same_scores(hybrid_results)
