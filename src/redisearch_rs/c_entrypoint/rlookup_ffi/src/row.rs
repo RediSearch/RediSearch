@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rlookup::{RLookup, RLookupKey};
+use rlookup::{RLookup, RLookupKey, RLookupKeyFlags};
 use sorting_vector::RSSortingVector;
 use std::{mem::ManuallyDrop, ptr::NonNull};
 use value::RSValueFFI;
@@ -177,6 +177,35 @@ unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
     unsafe {
         dst_row.copy_fields_from(dst_lookup, src_row, src_lookup);
     }
+}
+
+/// Add all on-overridden keys from `src` to `self`.
+///
+/// For each key in src, check if it already exists *by name*.
+/// - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+/// - If it doesn't a new key will ne created.
+///
+/// Flag handling:
+///  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+///  * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+///  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+///  * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+///
+/// # Safety:
+/// 1. `src` must be a [valid], non-null pointer to an [`RLookup`].
+/// 2. `dst` must be a [valid], non-null pointer to an [`RLookup`].
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
+    src: Option<NonNull<RLookup<'a>>>,
+    dst: Option<NonNull<RLookup<'a>>>,
+    flags: u32,
+) {
+    // Safety: ensured by caller (1.)
+    let src = unsafe { src.expect("`src` must not be null").as_ref() };
+    // Safety: ensured by caller (2.)
+    let dst = unsafe { dst.expect("`dst` must not be null").as_mut() };
+
+    dst.add_keys_from(src, RLookupKeyFlags::from_bits_truncate(flags));
 }
 
 /// Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
