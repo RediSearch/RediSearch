@@ -228,6 +228,7 @@ class TestRealTimeouts(object):
         """Populate only text"""
         populate_db_with_faker_text(env, self.num_docs, doc_len=self.doc_len, seed=self.seed)
 
+    @skip(asan=True)
     def test_hybrid_fail(self):
         """Test real timeout - hybrid (both text and vector) with FAIL policy"""
         env = self.env
@@ -236,6 +237,7 @@ class TestRealTimeouts(object):
         # Test hybrid timeout with FAIL policy
         env.expect(*self.heavy_query).error().contains('Timeout limit was reached')
 
+    @skip(asan=True)
     def test_hybrid_return(self):
         """Test real timeout - hybrid (both text and vector) with RETURN policy"""
         env = self.env
