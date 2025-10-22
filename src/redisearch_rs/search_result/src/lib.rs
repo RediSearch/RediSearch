@@ -56,6 +56,7 @@ pub struct SearchResult<'index> {
 
     flags: SearchResultFlags,
 }
+mimic::impl_mimic!(SearchResult<'static>);
 
 impl Drop for SearchResult<'_> {
     fn drop(&mut self) {
