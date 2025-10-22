@@ -109,6 +109,22 @@ pub struct NumericFilter {
     pub offset: usize,
 }
 
+impl Default for NumericFilter {
+    fn default() -> Self {
+        Self {
+            min: 0.0,
+            max: f64::MAX,
+            min_inclusive: true,
+            max_inclusive: true,
+            field_spec: std::ptr::null(),
+            geo_filter: std::ptr::null(),
+            ascending: true,
+            limit: 0,
+            offset: 0,
+        }
+    }
+}
+
 impl NumericFilter {
     /// Check if this is a numeric filter (and not a geo filter)
     pub const fn is_numeric_filter(&self) -> bool {
