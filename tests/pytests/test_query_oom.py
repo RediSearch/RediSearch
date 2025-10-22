@@ -299,7 +299,7 @@ def test_hybrid_oom_standalone(env):
 
 # Test OOM error on coordinator for FT.HYBRID (fail or return)
 # under each policy, test the query fails on the coordinator at the beginning of the query
-# therefor we expect the query to fail with OOM_QUERY_ERROR both fail and return policies
+# therefore we expect the query to fail with OOM_QUERY_ERROR both fail and return policies
 def test_hybrid_oom_cluster_coord_error():
     env = Env(shardsCount=3)
 
