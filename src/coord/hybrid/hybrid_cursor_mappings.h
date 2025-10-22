@@ -10,7 +10,9 @@
 #pragma once
 
 #include "rmr/rmr.h"
+#include "../../query_error.h"
 #include "util/references.h"
+#include "../../config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,7 +37,7 @@ typedef struct {
  * @param status QueryError pointer to store error information on failure
  * @return true on success, false otherwise, on failure status will contain error information
  */
-bool ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status);
+bool ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy);
 
 #ifdef __cplusplus
 }

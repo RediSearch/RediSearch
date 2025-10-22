@@ -579,7 +579,8 @@ void iterCursorMappingCb(void *p) {
   }
 
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
-  size_t numShards = io_runtime_ctx->topo->numShards;
+  size_t numShards = array_len(vsimOrSearch->mappings);
+  RS_ASSERT(numShards > 0);
   it->len = numShards;
   it->ctx.pending = numShards;
   it->ctx.inProcess = numShards; // Initially all commands are in process
@@ -594,7 +595,7 @@ void iterCursorMappingCb(void *p) {
 
 
   // Create FT.CURSOR READ commands for each mapping
-  for (size_t i = 1; i < numShards; i++) {
+  for (size_t i = 1; i < array_len(vsimOrSearch->mappings); i++) {
     it->cbxs[i].it = it;
     it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
 

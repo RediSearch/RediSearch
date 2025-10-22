@@ -185,7 +185,6 @@ def test_query_oom_cluster_shards_error_first_reply():
     # Wait for the query to finish
     t_query.join()
 
-
 # Test OOM error on coordinator (fail or return)
 @skip(cluster=False)
 def test_query_oom_cluster_coord_error():
@@ -246,6 +245,25 @@ def _common_hybrid_test_scenario(env):
     # Change maxmemory to 1 to trigger OOM
     env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
 
+def _common_hybrid_cluster_test_scenario(env):
+    """Common setup for hybrid OOM tests in cluster"""
+    conn = getConnectionByEnv(env)
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+            'description', 'TEXT',
+            'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+
+    n_docs_per_shard = 100
+    n_docs = n_docs_per_shard * env.shardsCount
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{i}', 'description', f'hello{i}', 'embedding', np.array([np.random.rand(), np.random.rand()]).astype(np.float32).tobytes())
+
+    # Change maxmemory to 1
+    env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+    return n_docs
+
 # Test ignore policy for FT.HYBRID
 @skip(cluster=True)
 def test_hybrid_oom_ignore(env):
@@ -278,6 +296,137 @@ def test_hybrid_oom_standalone(env):
     change_oom_policy(env, 'return')
     # Verify hybrid query fails
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
+
+# Test OOM error on coordinator for FT.HYBRID (fail or return)
+# under each policy, test the query fails on the coordinator at the beginning of the query
+# therefor we expect the query to fail with OOM_QUERY_ERROR both fail and return policies
+def test_hybrid_oom_cluster_coord_error():
+    env = Env(shardsCount=3)
+
+    _ = _common_hybrid_cluster_test_scenario(env)
+    # Note: the coord's maxmemory is changed in the function above
+
+    # Test with 'fail' policy on all shards
+    allShards_change_oom_policy(env, 'fail')
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # Verify hybrid query fails
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
+
+    # Test with 'return' policy on all shards
+    allShards_change_oom_policy(env, 'return')
+    # Verify hybrid query fails
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
+
+# Test OOM error returned from shards for FT.HYBRID (only for fail)
+def test_hybrid_oom_cluster_shards_error():
+    env = Env(shardsCount=3)
+
+    # Set OOM policy to fail on all shards
+    allShards_change_oom_policy(env, 'fail')
+
+    _ = _common_hybrid_cluster_test_scenario(env)
+
+    # Change maxmemory on all shards to 1
+    allShards_change_maxmemory_low(env)
+    # Change back coord maxmemory to 0
+    set_unlimited_maxmemory_for_oom(env)
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # Verify hybrid query fails
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000').error().contains(OOM_QUERY_ERROR)
+
+# Test OOM error returned from shards for FT.HYBRID (only for return)
+def test_hybrid_oom_cluster_shards_return():
+    env = Env(shardsCount=3, enableDebugCommand=True)
+
+    # Set OOM policy to return on all shards
+    allShards_change_oom_policy(env, 'return')
+
+    _common_hybrid_cluster_test_scenario(env)
+
+    # Change maxmemory on all shards to 1
+    allShards_change_maxmemory_low(env)
+    # Change back coord maxmemory to 0
+    set_unlimited_maxmemory_for_oom(env)
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # Note - only the coordinator shard will return results
+
+    # Get num keys in coordinator shard
+    n_keys = len(env.cmd('KEYS', '*'))
+
+    # Verify partial results in hybrid search
+    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+    env.assertEqual(res[1] , n_keys)
+
+# Test OOM error returned from shards for FT.HYBRID (enforcing first reply from non-error shard)
+def test_hybrid_oom_cluster_shards_error_first_reply():
+    # Workers is necessary to make sure the query is not finished before we resume the shards
+    env = Env(shardsCount=3, moduleArgs='WORKERS 1', enableDebugCommand=True)
+
+    # enable unstable features so we have the special loader
+    enable_unstable_features(env)
+
+    # Set OOM policy to fail on all shards
+    allShards_change_oom_policy(env, 'fail')
+
+    _ = _common_hybrid_cluster_test_scenario(env)
+
+    # Change maxmemory on all shards to 1
+    allShards_change_maxmemory_low(env)
+    # Change back coord maxmemory to 0
+    set_unlimited_maxmemory_for_oom(env)
+
+    coord_pid = pid_cmd(env.con)
+    shards_pid = list(get_all_shards_pid(env))
+    shards_pid.remove(coord_pid)
+
+    # Pause all shards processes
+    shards_p = [psutil.Process(pid) for pid in shards_pid]
+    for shard_p in shards_p:
+        shard_p.suspend()
+    with TimeLimit(60, 'Timeout while waiting for shards to pause'):
+        while any(shard_p.status() != psutil.STATUS_STOPPED for shard_p in shards_p):
+            time.sleep(0.1)
+
+    # We need to call the queries in MT so the paused query won't block the test
+    query_result = []
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # LOAD @__key to skip the safe loader
+    query_args = ['FT.HYBRID', 'idx', 'SEARCH', 'hello', 'VSIM', '@embedding', query_vector, 'LOAD', 1, '@__key']
+
+    # Build threads
+    t_query = threading.Thread(
+        target=call_and_store,
+        args=(run_cmd_expect_oom,
+            (env, query_args),
+            query_result),
+        daemon=True
+    )
+
+    # Start the query and the pause-check in parallel
+    t_query.start()
+
+    env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+    stats = getWorkersThpoolStats(env)
+    env.assertEqual(stats['totalJobsDone'], 1)
+    # If here, we know the coordinator got the first reply.
+
+    # Let's resume the shards
+    for shard_p in shards_p:
+        shard_p.resume()
+    # consider any non-stopped state as "resumed"
+    with TimeLimit(10, 'Timeout while waiting for shards to resume'):
+        while any(shard_p.status() == psutil.STATUS_STOPPED for shard_p in shards_p):
+            time.sleep(0.1)
+    # Wait for the query to finish
+    t_query.join()
 
 # Test verbosity when partial results are returned for PROFILE and RESP3
 @skip(cluster=False)
