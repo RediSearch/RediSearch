@@ -199,7 +199,7 @@ int set_default_scorer_config(const char *name, RedisModuleString *val, void *pr
     bool is_enabled = RSGlobalConfig.defaultScorer == NULL || RSGlobalConfig.enableUnstableFeatures;
     if (!is_enabled) {
         if (err) {
-            *err = RedisModule_CreateStringPrintf(NULL, "Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON");
+            *err = RedisModule_CreateStringPrintf(NULL, "search-default-scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON");
         }
         return REDISMODULE_ERR;
     }
@@ -228,7 +228,7 @@ int set_default_scorer_config(const char *name, RedisModuleString *val, void *pr
     if (*ptr) {
         rm_free(*ptr);   // Free the existing default scorer string
     }
-    *ptr = rm_strndup(newScorerName, len);;  // Transfer ownership
+    *ptr = rm_strndup(newScorerName, len);  // Transfer ownership
     return REDISMODULE_OK;
 }
 
@@ -695,7 +695,7 @@ RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
 // DEFAULT_SCORER
 CONFIG_SETTER(setDefaultScorer) {
   if (!config->enableUnstableFeatures) {
-    QueryError_SetError(status, QUERY_EBADVAL, "Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON");
+    QueryError_SetError(status, QUERY_EBADVAL, "search-default-scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON");
     return REDISMODULE_ERR;
   }
   const char *scorerName;
