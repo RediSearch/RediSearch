@@ -250,6 +250,9 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
   if (RSGlobalConfig.frisoIni != NULL) {
     RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char *)RSGlobalConfig.frisoIni);
   }
+  if (RSGlobalConfig.defaultScorer != NULL) {
+    RedisModule_InfoAddFieldCString(ctx, "default_scorer", (char *)RSGlobalConfig.defaultScorer);
+  }
   RedisModule_InfoAddFieldCString(ctx, "enableGC",
                                   RSGlobalConfig.gcConfigParams.enableGC ? "ON" : "OFF");
   RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix",
