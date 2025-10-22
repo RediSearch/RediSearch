@@ -13,7 +13,9 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{DecodedBy, Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData};
+use crate::{
+    DecodedBy, Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData, TermDecoder,
+};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -25,7 +27,7 @@ use crate::{DecodedBy, Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResult
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct Full;
 
 /// Return a slice of the offsets vector from a term record.
@@ -34,7 +36,7 @@ pub struct Full;
 ///
 /// record must have `result_type` set to `RSResultType::Term`.
 #[inline(always)]
-pub fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
+pub const fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
     // SAFETY: caller ensured the proper result_type.
     let term = record.as_term().unwrap();
 
@@ -125,6 +127,7 @@ pub fn decode_term_record_offsets<'index>(
 }
 
 impl Decoder for Full {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -199,7 +202,7 @@ impl Decoder for Full {
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FullWide;
 
 impl Encoder for FullWide {
@@ -234,6 +237,7 @@ impl DecodedBy for FullWide {
 }
 
 impl Decoder for FullWide {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -282,3 +286,6 @@ impl Decoder for FullWide {
         Ok(true)
     }
 }
+
+impl TermDecoder for Full {}
+impl TermDecoder for FullWide {}

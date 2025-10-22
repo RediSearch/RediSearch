@@ -8,7 +8,7 @@ extern "C" {
 /** Build the document search and scoring part of the pipeline.
  *  This creates the initial pipeline components that execute the query against
  *  the index to find matching documents and calculate their relevance scores. */
-void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *params);
+void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params);
 
 /** Build the result processing and output formatting part of the pipeline.
  *  This creates pipeline components that process search results through operations

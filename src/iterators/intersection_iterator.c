@@ -292,7 +292,10 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
     }
   } else {
     // Handle edge cases after wildcard removal
-    if (write_idx == 0) {
+    if (current_size == 0) {
+      // No iterators were provided, return an empty iterator
+      ret = NewEmptyIterator();
+    } else if (write_idx == 0) {
       // All iterators were wildcards, return the last one which was not Freed
       ret = its[current_size - 1];
     } else if (write_idx == 1) {
@@ -353,11 +356,11 @@ static ValidateStatus II_Revalidate(QueryIterator *base) {
 }
 
 QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight) {
-  RS_ASSERT(its && num > 0);
   QueryIterator *ret = IntersectionIteratorReducer(its, &num);
   if (ret != NULL) {
     return ret;
   }
+  RS_ASSERT(its && num > 1);
   IntersectionIterator *it = rm_calloc(1, sizeof(*it));
   it->its = its;
   it->num_its = num;

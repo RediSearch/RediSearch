@@ -76,9 +76,9 @@ def testPoneticWithSchemaAlter(env):
                            'text1', 'check',
                            'text2', 'phonetic'))
 
-    env.assertEqual(env.cmd('ft.search', 'idx', 'fonetic'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
-    env.assertEqual(env.cmd('ft.search', 'idx', '@text2:fonetic'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
-    env.assertEqual(env.cmd('ft.search', 'idx', '@text1:fonetic'), [0])
+    env.assertEqual(env.cmd('ft.search', 'idx', 'fonetic'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']]) # codespell:ignore fonetic
+    env.assertEqual(env.cmd('ft.search', 'idx', '@text2:fonetic'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']]) # codespell:ignore fonetic
+    env.assertEqual(env.cmd('ft.search', 'idx', '@text1:fonetic'), [0]) # codespell:ignore fonetic
     env.assertEqual(env.cmd('ft.search', 'idx', '@text2:fonetic=>{$phonetic:false}'), [0]) # codespell:ignore fonetic
     env.assertEqual(env.cmd('ft.search', 'idx', '@text2:fonetic=>{$phonetic:true}'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']]) # codespell:ignore fonetic
 

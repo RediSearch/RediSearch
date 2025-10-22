@@ -20,14 +20,15 @@ use value::{RSValueMock, RSValueTrait};
 
 #[test]
 fn test_insert_without_gap() {
-    let mut row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let rlookup = RLookup::new();
 
+    let mut row: RLookupRow<RSValueMock> = RLookupRow::new(&rlookup);
     assert!(row.is_empty());
     assert_eq!(row.len(), 0);
     assert_eq!(row.num_dyn_values(), 0);
 
     // generate test key at index 0
-    let key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+    let key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
 
     // insert a key at the first position
     row.write_key(&key, RSValueMock::create_num(42.0));
@@ -37,7 +38,7 @@ fn test_insert_without_gap() {
     assert_eq!(row.dyn_values()[0].as_ref().unwrap().as_num(), Some(42.0));
 
     // insert a key at the second position
-    let mut key = RLookupKey::new(c"test2", RLookupKeyFlags::empty());
+    let mut key = RLookupKey::new(&rlookup, c"test2", RLookupKeyFlags::empty());
     key.dstidx = 1;
     row.write_key(&key, RSValueMock::create_num(84.0));
     assert!(!row.is_empty());
@@ -48,13 +49,15 @@ fn test_insert_without_gap() {
 
 #[test]
 fn test_insert_with_gap() {
-    let mut row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let rlookup = RLookup::new();
+
+    let mut row: RLookupRow<RSValueMock> = RLookupRow::new(&rlookup);
     assert!(row.is_empty());
     assert_eq!(row.len(), 0);
     assert_eq!(row.num_dyn_values(), 0);
 
     // generate test key at index 15
-    let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+    let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
     key.dstidx = 15;
     row.write_key(&key, RSValueMock::create_num(42.0));
 
@@ -66,13 +69,15 @@ fn test_insert_with_gap() {
 
 #[test]
 fn test_insert_non_owned() {
-    let mut row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let rlookup = RLookup::new();
+
+    let mut row: RLookupRow<RSValueMock> = RLookupRow::new(&rlookup);
     assert!(row.is_empty());
     assert_eq!(row.len(), 0);
     assert_eq!(row.num_dyn_values(), 0);
 
     // generate test key at index 0
-    let key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+    let key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
 
     // insert a key at the first position
     let mock = RSValueMock::create_num(42.0);
@@ -88,13 +93,15 @@ fn test_insert_non_owned() {
 
 #[test]
 fn insert_overwrite() {
-    let mut row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let rlookup = RLookup::new();
+
+    let mut row: RLookupRow<RSValueMock> = RLookupRow::new(&rlookup);
     assert!(row.is_empty());
     assert_eq!(row.len(), 0);
     assert_eq!(row.num_dyn_values(), 0);
 
     // generate test key at index 0
-    let key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+    let key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
 
     // insert a key at the first position
     let mock_to_be_overwritten = RSValueMock::create_num(42.0);
@@ -125,9 +132,9 @@ struct WriteKeyMock<'a> {
 }
 
 impl<'a> WriteKeyMock<'a> {
-    fn new() -> Self {
+    fn new(rlookup: &RLookup<'_>) -> Self {
         Self {
-            row: RLookupRow::new(),
+            row: RLookupRow::new(&rlookup),
             num_resize: 0,
         }
     }
@@ -157,11 +164,12 @@ impl<'a> DerefMut for WriteKeyMock<'a> {
 
 #[test]
 fn test_wipe() {
-    let mut row = WriteKeyMock::new();
+    let rlookup = RLookup::new();
+    let mut row = WriteKeyMock::new(&rlookup);
 
     // create 10 entries in the row
     for i in 0..10 {
-        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
         key.dstidx = i as u16;
         row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
     }
@@ -179,7 +187,7 @@ fn test_wipe() {
 
     // create the same 10 entries in the row
     for i in 0..10 {
-        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
         key.dstidx = i as u16;
         row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
     }
@@ -195,11 +203,12 @@ fn test_wipe() {
 
 #[test]
 fn test_reset() {
-    let mut row = WriteKeyMock::new();
+    let rlookup = RLookup::new();
+    let mut row = WriteKeyMock::new(&rlookup);
 
     // create 10 entries in the row
     for i in 0..10 {
-        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
         key.dstidx = i as u16;
         row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
     }
@@ -217,7 +226,7 @@ fn test_reset() {
 
     // create the same 10 entries in the row
     for i in 0..10 {
-        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
         key.dstidx = i as u16;
         row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
     }
@@ -233,11 +242,13 @@ fn test_reset() {
 
 #[test]
 fn test_rlookup_get_item_dynamic_values_success() {
-    // Test case 1: Successfully retrieve item from dynamic values
-    let mut row = RLookupRow::new();
+    let rlookup = RLookup::new();
 
-    let key1 = create_test_key(0, 0, RLookupKeyFlags::empty());
-    let key2 = create_test_key(1, 0, RLookupKeyFlags::empty());
+    // Test case 1: Successfully retrieve item from dynamic values
+    let mut row = RLookupRow::new(&rlookup);
+
+    let key1 = create_test_key(&rlookup, 0, 0, RLookupKeyFlags::empty());
+    let key2 = create_test_key(&rlookup, 1, 0, RLookupKeyFlags::empty());
     row.write_key(
         &key1,
         RSValueMock::create_string("dynamic_value_1".to_string()),
@@ -258,17 +269,19 @@ fn test_rlookup_get_item_dynamic_values_success() {
 
 #[test]
 fn test_rlookup_get_item_static_values_success() {
+    let rlookup = RLookup::new();
+
     // Test case 2: Successfully retrieve item from sorting vector
     let sv_value1 = RSValueMock::create_string("static_value_1".to_string());
     let sv_value2 = RSValueMock::create_string("static_value_2".to_string());
     let sv = RSSortingVector::from_iter([sv_value1, sv_value2]);
 
-    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new();
+    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new(&rlookup);
     row.set_sorting_vector(&sv);
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
-    let key = create_test_key(0, 1, flags);
+    let key = create_test_key(&rlookup, 0, 1, flags);
 
     let result = row.get(&key);
     assert!(result.is_some());
@@ -277,14 +290,16 @@ fn test_rlookup_get_item_static_values_success() {
 
 #[test]
 fn test_rlookup_get_item_missing_svsrc_flag() {
+    let rlookup = RLookup::new();
+
     // Test case 3: SvSrc flag missing, should return None
     let sv_value = RSValueMock::create_string("static_value".to_string());
     let sv = RSSortingVector::from_iter([sv_value]);
 
-    let mut row = RLookupRow::new();
+    let mut row = RLookupRow::new(&rlookup);
     row.set_sorting_vector(&sv);
 
-    let key = create_test_key(0, 0, RLookupKeyFlags::empty()); // No SvSrc flag
+    let key = create_test_key(&rlookup, 0, 0, RLookupKeyFlags::empty()); // No SvSrc flag
 
     let result = row.get(&key);
     assert!(result.is_none());
@@ -292,12 +307,14 @@ fn test_rlookup_get_item_missing_svsrc_flag() {
 
 #[test]
 fn test_rlookup_get_item_dynamic_out_of_bounds() {
+    let rlookup = RLookup::new();
+
     // Test case 4: Dynamic values index out of bounds
-    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new();
-    let k1 = create_test_key(0, 0, RLookupKeyFlags::empty());
+    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new(&rlookup);
+    let k1 = create_test_key(&rlookup, 0, 0, RLookupKeyFlags::empty());
     row.write_key(&k1, RSValueMock::create_string("dynamic_value".to_string()));
 
-    let key_out_of_bounds = create_test_key(5, 0, RLookupKeyFlags::empty()); // Out of bounds
+    let key_out_of_bounds = create_test_key(&rlookup, 5, 0, RLookupKeyFlags::empty()); // Out of bounds
 
     let result = row.get(&key_out_of_bounds);
     assert!(result.is_none());
@@ -305,16 +322,18 @@ fn test_rlookup_get_item_dynamic_out_of_bounds() {
 
 #[test]
 fn test_rlookup_get_item_static_out_of_bounds() {
+    let rlookup = RLookup::new();
+
     // Test case 5: Sorting vector index out of bounds
     let sv_value = RSValueMock::create_string("static_value".to_string());
     let sv = RSSortingVector::from_iter([sv_value]);
 
-    let mut row = RLookupRow::new();
+    let mut row = RLookupRow::new(&rlookup);
     row.set_sorting_vector(&sv);
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
-    let key = create_test_key(0, 5, flags); // Out of bounds for sorting vector
+    let key = create_test_key(&rlookup, 0, 5, flags); // Out of bounds for sorting vector
 
     let result = row.get(&key);
     assert!(result.is_none());
@@ -322,12 +341,14 @@ fn test_rlookup_get_item_static_out_of_bounds() {
 
 #[test]
 fn test_rlookup_get_item_no_sorting_vector() {
+    let rlookup = RLookup::new();
+
     // Test case 6: No sorting vector available
-    let row: RLookupRow<'_, RSValueMock> = RLookupRow::new(); // No sorting vector set
+    let row: RLookupRow<'_, RSValueMock> = RLookupRow::new(&rlookup); // No sorting vector set
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
-    let key = create_test_key(0, 0, flags);
+    let key = create_test_key(&rlookup, 0, 0, flags);
 
     let result = row.get(&key);
     assert!(result.is_none());
@@ -335,17 +356,19 @@ fn test_rlookup_get_item_no_sorting_vector() {
 
 #[test]
 fn test_rlookup_get_item_empty_dynamic_valid_static() {
+    let rlookup = RLookup::new();
+
     // Test case 7: Empty dynamic values but valid sorting vector access
     let sv_value = RSValueMock::create_string("static_value".to_string());
     let sv = RSSortingVector::from_iter([sv_value]);
 
-    let mut row = RLookupRow::new();
+    let mut row = RLookupRow::new(&rlookup);
     // No dynamic values added
     row.set_sorting_vector(&sv);
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
-    let key = create_test_key(0, 0, flags); //
+    let key = create_test_key(&rlookup, 0, 0, flags); //
 
     let result = row.get(&key);
     assert!(result.is_some());
@@ -354,13 +377,15 @@ fn test_rlookup_get_item_empty_dynamic_valid_static() {
 
 #[test]
 fn test_rlookup_get_item_dynamic_none_value() {
-    // Test case 8: Dynamic value slot contains None
-    let mut row = RLookupRow::new();
+    let rlookup = RLookup::new();
 
-    let k1 = create_test_key(0, 0, RLookupKeyFlags::empty());
+    // Test case 8: Dynamic value slot contains None
+    let mut row = RLookupRow::new(&rlookup);
+
+    let k1 = create_test_key(&rlookup, 0, 0, RLookupKeyFlags::empty());
     //row.write_key(&k1,); don't write any value, so it remains None
 
-    let k2 = create_test_key(1, 0, RLookupKeyFlags::empty());
+    let k2 = create_test_key(&rlookup, 1, 0, RLookupKeyFlags::empty());
     row.write_key(&k2, RSValueMock::create_string("valid_value".to_string()));
 
     let result = row.get(&k1);
@@ -369,10 +394,12 @@ fn test_rlookup_get_item_dynamic_none_value() {
 
 #[test]
 fn test_rlookup_get_item_priority_dynamic_over_static() {
+    let rlookup = RLookup::new();
+
     // Test case 9: Dynamic values take priority over sorting vector
     let sv = RSSortingVector::from_iter([RSValueMock::create_string("static_value".to_string())]);
-    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new();
-    let key = create_test_key(0, 0, RLookupKeyFlags::empty());
+    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new(&rlookup);
+    let key = create_test_key(&rlookup, 0, 0, RLookupKeyFlags::empty());
     // Index 0 created for both
     row.write_key(
         &key,
@@ -383,7 +410,7 @@ fn test_rlookup_get_item_priority_dynamic_over_static() {
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
 
-    let key = create_test_key(0, 0, flags);
+    let key = create_test_key(&rlookup, 0, 0, flags);
     // asked for static, but dynamic should take priority
     let result = row.get(&key);
     assert!(result.is_some());
@@ -395,7 +422,7 @@ fn test_rlookup_get_item_priority_dynamic_over_static() {
 fn test_write_key_by_name_new_key() {
     // Test case: name is not yet part of the lookup and gets created
     let mut lookup = RLookup::new();
-    let mut row = RLookupRow::new();
+    let mut row = RLookupRow::new(&lookup);
 
     let key_name = CString::new("new_key").unwrap();
     let value = RSValueMock::create_string("test_value".to_string());
@@ -423,7 +450,7 @@ fn test_write_key_by_name_new_key() {
 fn test_write_key_by_name_existing_key_overwrite() {
     // Test case: name is part of the lookup and its value gets overwritten
     let mut lookup = RLookup::new();
-    let mut row = RLookupRow::new();
+    let mut row = RLookupRow::new(&lookup);
 
     let key_name = CString::new("existing_key").unwrap();
     let initial_value = RSValueMock::create_string("initial_value".to_string());
@@ -457,7 +484,7 @@ fn test_write_key_by_name_existing_key_overwrite() {
 fn test_write_multiple_different_keys() {
     // Test case: writing multiple different keys
     let mut lookup = RLookup::new();
-    let mut row = RLookupRow::new();
+    let mut row = RLookupRow::new(&lookup);
 
     let key1_name = CString::new("key1").unwrap();
     let key2_name = CString::new("key2").unwrap();
@@ -825,6 +852,36 @@ fn rlookuprow_write_fields_multiple_sources_full_overlap() {
     assert_eq!(dst_row.num_dyn_values(), 3);
 }
 
+fn create_test_key(
+    rlookup: &RLookup<'_>,
+    dstidx: u16,
+    svidx: u16,
+    flags: RLookupKeyFlags,
+) -> RLookupKey<'static> {
+    let str = format!("mock_key_{}_{}", dstidx, svidx);
+    let cstring = CString::new(str).unwrap();
+    let mut key = RLookupKey::new(rlookup, cstring, flags);
+    key.dstidx = dstidx;
+    key.svidx = svidx;
+
+    key
+}
+
+#[test]
+#[cfg_attr(debug_assertions, should_panic)]
+fn row_panics_on_foreign_lookup() {
+    let rlookup_a = RLookup::new();
+    let rlookup_b = RLookup::new();
+
+    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new(&rlookup_a);
+
+    #[cfg_attr(debug_assertions, allow(unused_mut))]
+    let key = RLookupKey::new(&rlookup_b, c"foo", RLookupKeyFlags::empty());
+
+    // This should panic, key has a different RLookupId that Row!
+    row.write_key(&key, RSValueMock::create_num(42.0));
+}
+
 /// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes
 #[unsafe(no_mangle)]
 extern "C" fn IndexSpecCache_Decref(spcache: Option<NonNull<ffi::IndexSpecCache>>) {
@@ -840,14 +897,4 @@ extern "C" fn IndexSpecCache_Decref(spcache: Option<NonNull<ffi::IndexSpecCache>
     if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
         drop(unsafe { Box::from_raw(spcache.as_ptr()) });
     }
-}
-
-fn create_test_key(dstidx: u16, svidx: u16, flags: RLookupKeyFlags) -> RLookupKey<'static> {
-    let str = format!("mock_key_{}_{}", dstidx, svidx);
-    let cstring = CString::new(str).unwrap();
-    let mut key = RLookupKey::new(cstring, flags);
-    key.dstidx = dstidx;
-    key.svidx = svidx;
-
-    key
 }

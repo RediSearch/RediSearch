@@ -4,6 +4,7 @@ if (NOT TEST_MODULE)
 endif()
 
 include_directories(${root}/src/coord/rmr)
+include_directories(${root}/src/coord/hybrid)
 
 function(RMRTEST name)
   add_executable(${name} ${name}.c)

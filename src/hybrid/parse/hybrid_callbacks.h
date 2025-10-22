@@ -29,8 +29,15 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data);
 /**
  * SORTBY callback - handles SORTBY field [ASC|DESC] [field [ASC|DESC] ...]
  * Sets up PLN_ArrangeStep with sorting configuration
+ * Ensures SORTBY and NOSORT are not used together
  */
 void handleSortBy(ArgParser *parser, const void *value, void *user_data);
+
+/**
+ * NOSORT callback - handles NOSORT
+ * Ensures SORTBY and NOSORT are not used together
+ */
+void handleNoSort(ArgParser *parser, const void *value, void *user_data);
 
 /**
  * WITHCURSOR callback - handles WITHCURSOR [COUNT count] [MAXIDLE maxidle]
@@ -107,6 +114,12 @@ void handleWithScores(ArgParser *parser, const void *value, void *user_data);
  * EXPLAINSCORE callback - handles EXPLAINSCORE
  */
 void handleExplainScore(ArgParser *parser, const void *value, void *user_data);
+
+/**
+ * _INDEX_PREFIXES callback - handles _INDEX_PREFIXES prefix [prefix ...]
+ * sets index prefix offset for later validation if needed
+ */
+void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data);
 
 #ifdef __cplusplus
 }

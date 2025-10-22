@@ -776,7 +776,7 @@ def access_nested_list(lst, index):
         result = result[entry]
     return result
 
-def downloadFile(env, file_name, depth=0):
+def downloadFile(env, file_name, depth=0, max_retries=3):
     path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
     path_dir = os.path.dirname(path)
     os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
@@ -785,24 +785,28 @@ def downloadFile(env, file_name, depth=0):
         try:
             subprocess.run(
                 [
-                    "wget",
-                    "--no-check-certificate",
-                    BASE_RDBS_URL + file_name,
-                    "-O",
-                    path,
-                    "-q",
-                ],
-                check=True,
-            )
+                "wget",
+                "--no-check-certificate",
+                "--tries", str(max_retries + 1),  # wget tries
+                "--waitretry", "2",  # wait 2 seconds between retries
+                "--retry-connrefused",  # retry on connection refused
+                BASE_RDBS_URL + file_name,
+                "-O",
+                path,
+                "-v"  # verbose to get better error info
+            ], check=True, capture_output=True, text=True)
+
         except subprocess.CalledProcessError as e:
-            env.assertTrue(
-                False,
-                message=f"Failed to download {BASE_RDBS_URL + file_name}. Return code: {e.returncode}, output: {e.output}, stderr: {e.stderr}",
-                depth=depth + 1,
-            )
+            env.assertTrue(False,
+                message=f"Failed to download {BASE_RDBS_URL + file_name} after {max_retries + 1} attempts. "
+                       f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}",
+                depth=depth + 1)
+
+            # Clean up partial download
             try:
-                os.remove(path)
-                env.debugPrint(f"Partially downloaded file {path}. Removing it.", force=True)
+                if os.path.exists(path):
+                    os.remove(path)
+                    env.debugPrint(f"Removed partially downloaded file {path}", force=True)
             except OSError:
                 env.debugPrint(f"Failed to remove {path}", force=True)
                 pass
@@ -815,7 +819,6 @@ def downloadFile(env, file_name, depth=0):
         )
         return False
     return True
-
 
 def downloadFiles(env, rdbs=None, depth=0):
     if rdbs is None:
@@ -894,8 +897,9 @@ def shardsConnections(env):
 def waitForIndexFinishScan(env, idx = 'idx'):
     # Wait for the index to finish scan
     # Check if equals 1 for RESP3 support
-    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
+        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+            time.sleep(0.1)
 
 def bgScanCommand():
     return debug_cmd() + ' BG_SCAN_CONTROLLER'
@@ -924,8 +928,9 @@ def set_unlimited_maxmemory_for_oom(env):
 
 
 def waitForIndexStatus(env, status, idx='idx'):
-    while getDebugScannerStatus(env, idx) != status:
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index status'):
+        while getDebugScannerStatus(env, idx) != status:
+            time.sleep(0.1)
 
 def waitForIndexPauseScan(env,idx = 'idx'):
     waitForIndexStatus(env,'PAUSED', idx)
@@ -934,8 +939,9 @@ def shard_getDebugScannerStatus(env, shardId, idx = 'idx'):
     return env.getConnection(shardId).execute_command(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
 
 def shard_waitForIndexStatus(env, shardId, status, idx='idx'):
-    while shard_getDebugScannerStatus(env, shardId, idx) != status:
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index status'):
+        while shard_getDebugScannerStatus(env, shardId, idx) != status:
+            time.sleep(0.1)
 
 def shard_waitForIndexPauseScan(env, shardId, idx = 'idx'):
     shard_waitForIndexStatus(env, shardId, 'PAUSED', idx)
@@ -951,8 +957,9 @@ def allShards_waitForIndexStatus(env, status, idx='idx'):
 def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
     # Wait for the index to finish scan
     # Check if equals 1 for RESP3 support
-    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
+        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+            time.sleep(0.1)
 
 def allShards_waitForIndexFinishScan(env, idx = 'idx'):
     for shardId in range(1, env.shardsCount + 1):
@@ -1008,7 +1015,6 @@ def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
         if '__key' in result:
             key = result['__key']
             results[key] = result
-            
     total_results = access_nested_list(response, res_count_index)
     return results, total_results
 

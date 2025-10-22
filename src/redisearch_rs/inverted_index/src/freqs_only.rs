@@ -16,7 +16,7 @@ use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 
 /// Encode and decode only the delta and frequencies of a record, without any other data.
 /// The delta and frequency are encoded using [qint encoding](qint).
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FreqsOnly;
 
 impl Encoder for FreqsOnly {
@@ -42,6 +42,7 @@ impl DecodedBy for FreqsOnly {
 }
 
 impl Decoder for FreqsOnly {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,

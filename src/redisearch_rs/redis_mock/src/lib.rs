@@ -16,6 +16,72 @@
 //! C code, since it levels the playing field by forcing both to use the same memory allocator.
 
 pub mod allocator;
+pub mod globals;
+pub mod key;
+pub mod scan_key_cursor;
+pub mod string;
+
+use std::ffi::CString;
+
+use key::*;
+use scan_key_cursor::*;
+use string::*;
+
+pub struct TestContext {
+    /// Contains key value pairs to be injected during scan key cursor iterations or
+    /// HGETALL calls.
+    key_value_injections: Vec<(CString, CString)>,
+}
+
+impl TestContext {
+    pub const fn new() -> Self {
+        Self {
+            key_value_injections: vec![],
+        }
+    }
+
+    pub fn set_key_values(&mut self, kvs: Vec<(CString, CString)>) {
+        self.key_value_injections = kvs;
+    }
+
+    pub fn inject_key_value(&mut self, key: CString, value: CString) {
+        self.key_value_injections.push((key, value));
+    }
+
+    pub const fn access_key_values(&self) -> &Vec<(CString, CString)> {
+        &self.key_value_injections
+    }
+}
+
+impl Default for TestContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Initializes the Redis module mock by binding the relevant symbols.
+///
+/// This function must be called before mocks of Redis module API functions
+/// are called by test code.
+#[allow(clippy::undocumented_unsafe_blocks)]
+pub fn init_redis_module_mock() {
+    // register string methods
+    unsafe { redis_module::raw::RedisModule_CreateString = Some(RedisModule_CreateString) };
+    unsafe { redis_module::raw::RedisModule_StringPtrLen = Some(RedisModule_StringPtrLen) };
+    unsafe { redis_module::raw::RedisModule_FreeString = Some(RedisModule_FreeString) };
+
+    // register key methods
+    unsafe { redis_module::raw::RedisModule_OpenKey = Some(RedisModule_OpenKey) };
+    unsafe { redis_module::raw::RedisModule_CloseKey = Some(RedisModule_CloseKey) };
+    unsafe { redis_module::raw::RedisModule_KeyType = Some(RedisModule_KeyType) };
+
+    // register scan key cursor methods
+    unsafe { redis_module::raw::RedisModule_ScanCursorCreate = Some(RedisModule_ScanCursorCreate) };
+    unsafe {
+        redis_module::raw::RedisModule_ScanCursorDestroy = Some(RedisModule_ScanCursorDestroy)
+    };
+    unsafe { redis_module::raw::RedisModule_ScanKey = Some(RedisModule_ScanKey) };
+}
 
 #[macro_export]
 /// A macro to define Redis' allocation symbols in terms of Rust's global allocator.
@@ -24,26 +90,45 @@ pub mod allocator;
 macro_rules! bind_redis_alloc_symbols_to_mock_impl {
     () => {
         #[unsafe(no_mangle)]
-        #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Alloc: Option<
-            unsafe extern "C" fn(bytes: usize) -> *mut c_void,
-        > = Some(redis_mock::allocator::alloc_shim);
+        unsafe extern "C" fn rm_alloc_impl(size: usize) -> *mut c_void {
+            // $crate::__libc::malloc(size)
+            redis_mock::allocator::alloc_shim(size)
+        }
+
+        #[unsafe(no_mangle)]
+        unsafe extern "C" fn rm_calloc_impl(nmemb: usize, size: usize) -> *mut c_void {
+            redis_mock::allocator::calloc_shim(nmemb, size)
+        }
+
+        #[unsafe(no_mangle)]
+        unsafe extern "C" fn rm_realloc_impl(ptr: *mut c_void, size: usize) -> *mut c_void {
+            redis_mock::allocator::realloc_shim(ptr, size)
+        }
+
+        #[unsafe(no_mangle)]
+        unsafe extern "C" fn rm_free_impl(ptr: *mut c_void) {
+            redis_mock::allocator::free_shim(ptr)
+        }
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Realloc: Option<
-            unsafe extern "C" fn(ptr: *mut c_void, bytes: usize) -> *mut c_void,
-        > = Some(redis_mock::allocator::realloc_shim);
+        pub static mut RedisModule_Alloc: unsafe extern "C" fn(usize) -> *mut c_void =
+            rm_alloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Free: Option<unsafe extern "C" fn(ptr: *mut c_void)> =
-            Some(redis_mock::allocator::free_shim);
+        pub static mut RedisModule_Calloc: unsafe extern "C" fn(usize, usize) -> *mut c_void =
+            rm_calloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Calloc: Option<
-            unsafe extern "C" fn(count: usize, size: usize) -> *mut c_void,
-        > = Some(redis_mock::allocator::calloc_shim);
+        pub static mut RedisModule_Realloc: unsafe extern "C" fn(
+            *mut c_void,
+            usize,
+        ) -> *mut c_void = rm_realloc_impl;
+
+        #[unsafe(no_mangle)]
+        #[allow(non_upper_case_globals)]
+        pub static mut RedisModule_Free: unsafe extern "C" fn(*mut c_void) = rm_free_impl;
     };
 }

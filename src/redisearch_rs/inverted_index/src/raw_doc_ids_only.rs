@@ -11,18 +11,18 @@ use std::io::{Cursor, Seek, Write};
 
 use ffi::t_docId;
 
-use crate::{DecodedBy, Decoder, Encoder, IndexBlock, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, IndexBlock, RSIndexResult, TermDecoder};
 
 /// Encode and decode only the raw document ID delta without any compression.
 ///
 /// The delta is encoded as a raw 4-byte value.
 /// This is different from the regular [`crate::doc_ids_only::DocIdsOnly`] encoder which uses varint encoding.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct RawDocIdsOnly;
 
 impl Encoder for RawDocIdsOnly {
     type Delta = u32;
-    const RECOMMENDED_BLOCK_ENTRIES: usize = 1000;
+    const RECOMMENDED_BLOCK_ENTRIES: u16 = 1000;
 
     fn encode<W: Write + Seek>(
         &self,
@@ -49,6 +49,7 @@ impl DecodedBy for RawDocIdsOnly {
 }
 
 impl Decoder for RawDocIdsOnly {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -124,3 +125,5 @@ impl Decoder for RawDocIdsOnly {
         RSIndexResult::term()
     }
 }
+
+impl TermDecoder for RawDocIdsOnly {}

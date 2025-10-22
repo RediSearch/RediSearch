@@ -3,6 +3,9 @@
 #include "query_optimizer.h"
 #include "vector_normalization.h"
 #include "vector_index.h"
+#include "iterators/hybrid_reader.h"
+#include "iterators/idlist_iterator.h"
+#include "util/misc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,7 +46,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
-    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err);
+    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err, gstp->strictPrefix);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
@@ -129,9 +132,10 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
     // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
     // that it has no results), but we still want the rest of the pipeline to know about the additional field name,
     // because there is no syntax error and the sorter should be able to "sort" by this field.
-    // If there is a pointer to the node's RLookupKey, write the address.
-    if (requests[i].key_ptr)
-      *requests[i].key_ptr = key;
+    // If there is a handle to the node's RLookupKey, write the address if the handle is still valid.
+    if (requests[i].key_handle && requests[i].key_handle->is_valid) {
+      *requests[i].key_handle->key_ptr = key;
+    }
   }
   return RPMetricsLoader_New();
 }
@@ -198,7 +202,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsHybridTail(&params->common) || IsHybridSearchSubquery(&params->common) ||
+    } else if (IsHybrid(&params->common) ||
                IsSearch(&params->common) && !IsOptimized(&params->common) ||
                HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
@@ -225,8 +229,9 @@ end:
 static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const RLookupKey *scoreKey, const QueryPipelineParams *params) {
   const char *scorer = params->scorerName;
   if (!scorer) {
-    scorer = DEFAULT_SCORER_NAME;
+    scorer = RSGlobalConfig.defaultScorer;
   }
+  RS_LOG_ASSERT(scorer, "No scorer name");
   ScoringFunctionArgs scargs = {0};
   if (params->common.reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
@@ -265,9 +270,9 @@ static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t
     const char *name, *path = AC_GetStringNC(ac, &name_len);
 
     // Handle path prefix (@)
-    if (*path == '@') {
-      path++;
-      name_len--;
+    path = ExtractKeyName(path, &name_len, status, loadStep->strictPrefix, "LOAD");
+    if (!path) {
+      return REDISMODULE_ERR;
     }
 
     // Check for AS alias
@@ -338,15 +343,16 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
  * This creates the initial pipeline components that find matching documents and calculate
  * their relevance scores, providing the foundation for subsequent aggregation and filtering stages.
  */
-void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *params) {
+void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
   IndexSpecCache *cache = IndexSpec_GetSpecCache(params->common.sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&pipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->common.sctx);
-  ((QueryPipelineParams *)params)->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
+  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->slotRanges, params->common.sctx);
+  params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
+  params->slotRanges = NULL; // Ownership of the slot ranges is now with the pipeline.
   ResultProcessor *rpUpstream = NULL;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = rp;
   PUSH_RP();

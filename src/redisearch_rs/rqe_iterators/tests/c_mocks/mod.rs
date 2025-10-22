@@ -46,8 +46,6 @@ pub extern "C" fn Term_Offset_Data_Free(_tr: *mut RSTermRecord) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Term_Free(t: *mut RSQueryTerm) {
-    if !t.is_null() {
-        panic!("No test created a term record");
-    }
+pub extern "C" fn Term_Free(_t: *mut RSQueryTerm) {
+    // The terms used in tests are managed using Rust memory by the tests directly.
 }

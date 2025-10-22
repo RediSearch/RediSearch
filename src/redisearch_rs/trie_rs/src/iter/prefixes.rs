@@ -22,7 +22,7 @@ pub struct PrefixesIter<'tm, Data> {
 
 impl<'tm, Data> PrefixesIter<'tm, Data> {
     /// Creates a new iterator over the entries of a [`TrieMap`](crate::TrieMap).
-    pub(crate) fn new(root: Option<&'tm Node<Data>>, target: &'tm [u8]) -> Self {
+    pub(crate) const fn new(root: Option<&'tm Node<Data>>, target: &'tm [u8]) -> Self {
         Self {
             current_node: root,
             target,

@@ -21,6 +21,7 @@
 #include "reply.h"
 #include "vector_index.h"
 #include "hybrid/vector_query_utils.h"
+#include "slot_ranges.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -41,7 +42,7 @@ struct QOptimizer;
 
 /*
  * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL,
- * QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY, and QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY are mutually exclusive (Only one can be set).
+ * QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY, QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY are mutually exclusive (Only one can be set).
  */
 typedef enum {
   QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
@@ -199,6 +200,9 @@ typedef struct AREQ {
 
   /** Context, owned by request */
   RedisSearchCtx *sctx;
+
+  /** Local slots info for this request */
+  const SharedSlotRangeArray *slotRanges;
 
   /** Context for iterating over the queries themselves */
   QueryProcessingCtx qiter;

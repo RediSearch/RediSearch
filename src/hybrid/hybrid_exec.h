@@ -39,6 +39,8 @@ void HybridRequest_StartCursor(HybridRequest *req, RedisModuleCtx *ctx, arrayof(
 
 void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx);
 
+void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv);
+
 /**
  * Helper function to get the search context from a hybrid request.
  *
