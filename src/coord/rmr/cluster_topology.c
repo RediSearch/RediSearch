@@ -12,9 +12,10 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 
-MRClusterShard MR_NewClusterShard(MRClusterNode *node) {
+MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges) {
   MRClusterShard ret = (MRClusterShard){
       .node = *node,
+      .slotRanges = slotRanges,
   };
   return ret;
 }
@@ -39,7 +40,7 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
   MRClusterTopology *topo = MR_NewTopology(t->numShards);
   for (int s = 0; s < t->numShards; s++) {
     MRClusterShard *original_shard = &t->shards[s];
-    MRClusterShard new_shard = MR_NewClusterShard(&original_shard->node);
+    MRClusterShard new_shard = MR_NewClusterShard(&original_shard->node, original_shard->slotRanges);
 
     new_shard.node.id = rm_strdup(original_shard->node.id);
     MREndpoint_Copy(&new_shard.node.endpoint, &original_shard->node.endpoint);

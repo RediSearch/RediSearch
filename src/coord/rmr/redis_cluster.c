@@ -185,6 +185,8 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     RS_ASSERT(RedisModule_CallReplyType(nodes) == REDISMODULE_REPLY_ARRAY);
     // parse and store the master
     parseMasterNode(nodes, &topo->shards[i].node);
+
+    //TODO(Joan): Parse slot ranges
   }
 
   // Sort shards by the port of their first node (master), to have a stable order

@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include "endpoint.h"
 #include "node.h"
+#include "redismodule.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,10 +21,11 @@ extern "C" {
 /* A "shard" represents a slot set of the cluster, with its associated node (we keep a single node per shard) */
 typedef struct {
   MRClusterNode node;
+  RedisModuleSlotRangeArray *slotRanges;
 } MRClusterShard;
 
 /* Create a new cluster shard to be added to a topology */
-MRClusterShard MR_NewClusterShard(MRClusterNode *node);
+MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges);
 
 /* A topology is the mapping of slots to shards and nodes */
 typedef struct MRClusterTopology {
