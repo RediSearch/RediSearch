@@ -14,7 +14,7 @@ use inverted_index::RSIndexResult;
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
-/// Iterator that extends a [`Wildcard`] iterator up to a given upper bound
+/// Iterator that extends a [`RQEIterator`] up to a given upper bound
 /// by emitting virtual results after the child iterator is exhausted.
 pub struct Optional<'index, I> {
     /// Inclusive upper bound on document identifiers to iterate over.
@@ -48,9 +48,10 @@ where
     /// * `max_id` is the upper bound of document identifiers visited by
     ///   [`RQEIterator::read`] and [`RQEIterator::skip_to`].
     /// * `weight` is applied to [`RSIndexResult`] values returned by the
-    ///   child [`Wildcard`] iterator. When the child is exhausted, the iterator
+    ///   child [`RQEIterator`]. When the child is exhausted, the iterator
     ///   yields virtual [`RSIndexResult`] values without weight until `max_id` is reached.
-    /// * `wildcard` is the child [`RQEIterator`]. If `None`, an empty child is used.
+    /// * `child` [`RQEIterator`] used, can be deallocated early in case of an abort status in
+    ///   a call to [`RQEIterator::revalidate`]
     pub fn new(max_id: t_docId, weight: f64, child: I) -> Self {
         Self {
             max_doc_id: max_id,
