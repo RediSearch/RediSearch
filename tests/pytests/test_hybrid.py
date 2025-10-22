@@ -271,12 +271,10 @@ class testHybridSearch:
 
     def test_knn_load_key(self):
         """Test hybrid search + LOAD __key"""
-        if CLUSTER:
-            raise SkipTest()
         hybrid_query = (
-            "SEARCH '@text:(even four)' "
-            "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
-            "LOAD 3 __key AS my_key"
+            "SEARCH 'invalid' "
+            "VSIM @vector $BLOB FILTER @tag:{even} "
+            "LOAD 3 @__key AS my_key"
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob,self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
@@ -285,10 +283,10 @@ class testHybridSearch:
         results = access_nested_list(res, results_index)
         self.env.assertEqual(
             results[0],
-            ['my_key', 'text_04'])
+            ['my_key', 'both_02'])
         self.env.assertEqual(
             results[1],
-            ['my_key', 'both_04'])
+            ['my_key', 'both_10'])
 
     # # TODO: Enable this test after fixing MOD-10987
     # def test_knn_load_score(self):
@@ -561,7 +559,7 @@ class testHybridSearch:
             'VSIM', '@vector', self.vector_blob,
             'FILTER', '@text:(both) @number:[1 3]',
             'COMBINE', 'RRF', '2', 'CONSTANT', '3',
-            'LOAD', '2', '__key', '__score',
+            'LOAD', '2', '@__key', '@__score',
         ]
         unfiltered_res = self.env.executeCommand(*hybrid_cmd)
         unfiltered_dict = to_dict(unfiltered_res)

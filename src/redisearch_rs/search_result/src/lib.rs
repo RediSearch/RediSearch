@@ -117,22 +117,22 @@ impl<'index> SearchResult<'index> {
     }
 
     /// Sets the document ID of this search result.
-    pub fn doc_id(&self) -> ffi::t_docId {
+    pub const fn doc_id(&self) -> ffi::t_docId {
         self.doc_id
     }
 
     /// Sets the document ID of this search result.
-    pub fn set_doc_id(&mut self, doc_id: ffi::t_docId) {
+    pub const fn set_doc_id(&mut self, doc_id: ffi::t_docId) {
         self.doc_id = doc_id;
     }
 
     /// Returns the score of this search result.
-    pub fn score(&self) -> f64 {
+    pub const fn score(&self) -> f64 {
         self.score
     }
 
     /// Sets the score of this search result.
-    pub fn set_score(&mut self, score: f64) {
+    pub const fn set_score(&mut self, score: f64) {
         self.score = score;
     }
 
@@ -160,7 +160,7 @@ impl<'index> SearchResult<'index> {
     /// 2. `index_result` must be [valid] for the entire lifetime of `self`.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub unsafe fn set_score_explain(
+    pub const unsafe fn set_score_explain(
         &mut self,
         score_explain: Option<NonNull<ffi::RSScoreExplain>>,
     ) {
@@ -178,32 +178,32 @@ impl<'index> SearchResult<'index> {
     }
 
     /// Returns an immutable reference to the [`ffi::RSIndexResult`] associated with this search result.
-    pub fn index_result(&self) -> Option<&RSIndexResult<'index>> {
+    pub const fn index_result(&self) -> Option<&RSIndexResult<'index>> {
         self.index_result
     }
 
     /// Sets the [`ffi::RSIndexResult`] associated with this search result.
-    pub fn set_index_result(&mut self, index_result: Option<&'index RSIndexResult<'index>>) {
+    pub const fn set_index_result(&mut self, index_result: Option<&'index RSIndexResult<'index>>) {
         self.index_result = index_result;
     }
 
     /// Returns an immutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
-    pub fn row_data(&self) -> &ffi::RLookupRow {
+    pub const fn row_data(&self) -> &ffi::RLookupRow {
         &self.row_data
     }
 
     /// Returns a mutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
-    pub fn row_data_mut(&mut self) -> &mut ffi::RLookupRow {
+    pub const fn row_data_mut(&mut self) -> &mut ffi::RLookupRow {
         &mut self.row_data
     }
 
     /// Returns the [`SearchResultFlags`] of this search result.
-    pub fn flags(&self) -> SearchResultFlags {
+    pub const fn flags(&self) -> SearchResultFlags {
         self.flags
     }
 
     /// Sets the [`SearchResultFlags`] of this search result.
-    pub fn set_flags(&mut self, flags: SearchResultFlags) {
+    pub const fn set_flags(&mut self, flags: SearchResultFlags) {
         self.flags = flags;
     }
 }

@@ -6,6 +6,7 @@ members = [
     "ffi",
     "inverted_index",
     "inverted_index_bencher",
+    "fnv",
     "low_memory_thin_vec",
     "qint",
     "redis_mock",
@@ -49,6 +50,8 @@ undocumented_unsafe_blocks = "warn"
 # We can also more easily track the amount of unsafe operations throughout
 # the codebase.
 multiple_unsafe_ops_per_block = "warn"
+# Ensure const usage to allow for more compile-time optimizations.
+missing_const_for_fn = "warn"
 
 [workspace.package]
 version = "0.0.1"
@@ -58,6 +61,7 @@ publish = false
 
 [workspace.dependencies]
 ffi = { path = "./ffi", default-features = false }
+fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }

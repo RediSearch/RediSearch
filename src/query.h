@@ -27,10 +27,16 @@
 extern "C" {
 #endif
 
+// Smart pointer handle for RLookupKey that can be invalidated when iterator is freed
+typedef struct RLookupKeyHandle {
+  RLookupKey **key_ptr;  // Pointer to the actual RLookupKey* field in the iterator
+  bool is_valid;         // Whether the iterator is still alive
+} RLookupKeyHandle;
+
 // Holds a yieldable field name, and the address to write the RLookupKey pointer later.
 typedef struct MetricRequest{
   const char *metric_name;
-  RLookupKey **key_ptr;
+  RLookupKeyHandle *key_handle; // Handle that can be invalidated when iterator is freed
   bool isInternal; // Indicates if this metric should be excluded from the response
 } MetricRequest;
 
@@ -153,6 +159,8 @@ void QAST_Print(const QueryAST *ast, const IndexSpec *spec);
 
 /* Cleanup a query AST */
 void QAST_Destroy(QueryAST *q);
+
+
 
 QueryNode *RSQuery_ParseRaw_v1(QueryParseCtx *);
 QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *);

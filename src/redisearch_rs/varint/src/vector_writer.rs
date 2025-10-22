@@ -62,13 +62,13 @@ impl VectorWriter {
     }
 
     /// The capacity of the internal byte buffer.
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.buffer.capacity()
     }
 
     /// Get a mutable reference to the internal byte buffer.
     #[inline(always)]
-    pub fn bytes_mut(&mut self) -> &mut Vec<u8> {
+    pub const fn bytes_mut(&mut self) -> &mut Vec<u8> {
         &mut self.buffer
     }
 
@@ -83,13 +83,13 @@ impl VectorWriter {
 
     /// The number of bytes written to the vector.
     #[inline(always)]
-    pub fn bytes_len(&self) -> usize {
+    pub const fn bytes_len(&self) -> usize {
         self.buffer.len()
     }
 
     /// The number of members written to the vector.
     #[inline(always)]
-    pub fn count(&self) -> usize {
+    pub const fn count(&self) -> usize {
         self.n_members
     }
 

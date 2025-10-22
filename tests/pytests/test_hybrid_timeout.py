@@ -171,7 +171,7 @@ def test_tail_property_not_loaded_error():
     setup_basic_index(env)
     response = env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', \
                           '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
-                          query_vector, 'LOAD', '1', '__key', 'APPLY', '2*@__score',\
+                          query_vector, 'LOAD', '1', '@__key', 'APPLY', '2*@__score',\
                           'AS', 'doubled_score').error().contains('Property `__score` not loaded nor in pipeline')
 
 # Real timeout tests - grouped in a class like TestTimeoutReached in test_vecsim.py

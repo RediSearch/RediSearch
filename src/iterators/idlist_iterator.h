@@ -33,6 +33,7 @@ typedef struct {
   // Used if the iterator yields some value.
   // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
   struct RLookupKey *ownKey;
+  struct RLookupKeyHandle *keyHandle; // Back-reference to the handle that points to this iterator's ownKey
 } MetricIterator;
 
 /**

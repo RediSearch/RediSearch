@@ -8,6 +8,7 @@
 */
 
 #include "idlist_iterator.h"
+#include "query.h"
 
 static inline void setEof(QueryIterator *base, bool value) {
   base->atEOF = value;
@@ -145,6 +146,12 @@ static void MR_Free(QueryIterator *self) {
   MetricIterator *mi = (MetricIterator *)self;
   IdListIterator *it = &mi->base;
   QueryIterator *base = &it->base;
+
+  // Invalidate the handle if it exists
+  if (mi->keyHandle) {
+    mi->keyHandle->is_valid = false;
+  }
+
   IndexResult_Free(base->current);
   rm_free(it->docIds);
   rm_free(mi->metricList);
@@ -159,6 +166,7 @@ QueryIterator *NewMetricIterator(t_docId *docIds, double *metric_list, size_t nu
   mi->type = metric_type;
   mi->metricList = metric_list;
   mi->ownKey = NULL;
+  mi->keyHandle = NULL; // Will be set later if this iterator is used for metrics
   it->docIds = docIds;
   it->size = num_results;
   it->offset = 0;

@@ -167,7 +167,7 @@ impl Numeric {
 
     pub const FLOAT_COMPRESSION_THRESHOLD: f64 = 0.01;
 
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             compress_floats: false,
         }
@@ -175,7 +175,7 @@ impl Numeric {
 
     /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
     /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)
-    pub fn with_float_compression(mut self) -> Self {
+    pub const fn with_float_compression(mut self) -> Self {
         self.compress_floats = true;
 
         self
@@ -216,7 +216,7 @@ impl IdDelta for NumericDelta {
 
 impl NumericDelta {
     /// Get the value this delta type is wrapping
-    pub fn inner(&self) -> u64 {
+    pub const fn inner(&self) -> u64 {
         self.0
     }
 }

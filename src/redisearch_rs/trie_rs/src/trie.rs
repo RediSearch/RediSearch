@@ -174,12 +174,12 @@ impl<Data> TrieMap<Data> {
     /// Complexity is O(1), since it returns the memory usage
     /// that's cached in the root node.
     /// That usage is updated every time a new node is added or removed.
-    pub fn mem_usage(&self) -> usize {
+    pub const fn mem_usage(&self) -> usize {
         self.memory_usage
     }
 
     /// The number of unique keys stored in this map.
-    pub fn n_unique_keys(&self) -> usize {
+    pub const fn n_unique_keys(&self) -> usize {
         self.n_unique_keys
     }
 
@@ -197,7 +197,7 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over all trie entries whose key is a prefix of `target`.
-    pub fn prefixes_iter<'a>(&'a self, target: &'a [u8]) -> PrefixesIter<'a, Data> {
+    pub const fn prefixes_iter<'a>(&'a self, target: &'a [u8]) -> PrefixesIter<'a, Data> {
         PrefixesIter::new(self.root.as_ref(), target)
     }
 

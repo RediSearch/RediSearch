@@ -23,6 +23,7 @@ mod bindings {
     #![allow(dead_code)]
     #![allow(clippy::ptr_offset_with_cast)]
     #![allow(clippy::useless_transmute)]
+    #![allow(clippy::missing_const_for_fn)]
 
     use inverted_index::{NumericFilter, t_docId, t_fieldMask};
 
