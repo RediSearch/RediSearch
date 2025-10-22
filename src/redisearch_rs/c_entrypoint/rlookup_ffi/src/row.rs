@@ -111,7 +111,7 @@ unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn RLookupRow_Move(
-    lookup: *const RLookup<'static>,
+    lookup: Option<NonNull<RLookup<'_>>>,
     src: Option<NonNull<RLookupRow>>,
     dst: Option<NonNull<RLookupRow>>,
 ) {
