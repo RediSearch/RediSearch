@@ -168,6 +168,14 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
         return REDISMODULE_ERR;
       }
+      // Validate it's a positive integer
+      char *endptr;
+      errno = 0;
+      long long efValue = strtoll(value, &endptr, 10);
+      if (*endptr != '\0' || efValue <= 0 || errno != 0) {
+        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
+        return REDISMODULE_ERR;
+      }
       // Add directly to VectorQuery params
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, strlen(value));
       hasEF = true;
@@ -240,7 +248,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       }
       if (CheckEnd(ac, "RADIUS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       double radiusValue;
-      if (AC_GetDouble(ac, &radiusValue, 0) != AC_OK) {
+      if (AC_GetDouble(ac, &radiusValue, AC_F_GE0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid RADIUS value");
         return REDISMODULE_ERR;
       }
@@ -255,6 +263,14 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       if (CheckEnd(ac, "EPSILON", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
+        return REDISMODULE_ERR;
+      }
+      // Validate it's a positive double
+      char *endptr;
+      errno = 0;
+      double epsilonValue = fast_float_strtod(value, &endptr);
+      if (*endptr != '\0' || epsilonValue <= 0 || errno != 0) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
         return REDISMODULE_ERR;
       }

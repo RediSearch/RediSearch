@@ -92,21 +92,34 @@ def test_invalid_ef_runtime():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     setup_basic_index_hnsw(env)
 
-    env.expect(
-        'FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes',
-        'VSIM' ,'@embedding_hnsw', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
-        'KNN', 4, 'K', 15, 'EF_RUNTIME', 'text'
-    ).error().contains('Invalid EF_RUNTIME value')
+    for invalid_value in ['text', '-1', '0', '1.5']:
+        env.expect(
+            'FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes',
+            'VSIM' ,'@embedding_hnsw', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+            'KNN', 4, 'K', 15, 'EF_RUNTIME', invalid_value
+        ).error().contains('Invalid EF_RUNTIME value')
 
 def test_invalid_epsilon():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     setup_basic_index_hnsw(env)
 
-    env.expect(
-        'FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes',
-        'VSIM' ,'@embedding_hnsw', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
-        'RANGE', 4, 'RADIUS', 1.1, 'EPSILON', 'text'
-    ).error().contains('Invalid EPSILON value')
+    for invalid_value in ['text', '-1', '-0.1', '0']:
+        env.expect(
+            'FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes',
+            'VSIM' ,'@embedding_hnsw', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+            'RANGE', 4, 'RADIUS', 1.1, 'EPSILON', invalid_value
+        ).error().contains('Invalid EPSILON value')
+
+def test_invalid_radius():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    setup_basic_index(env)
+
+    for invalid_value in ['text', '-1', '-0.1']:
+        env.expect(
+            'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
+            'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+            'RANGE', 2, 'RADIUS', invalid_value
+        ).error().contains('Invalid RADIUS value')
 
 def test_hybrid_range_invalid_syntax():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
@@ -124,9 +137,4 @@ def test_hybrid_range_invalid_syntax():
         'RANGE', 2, 'EPSILON', 0.1
     ).error().contains('Missing required argument RADIUS')
 
-    env.expect(
-        'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
-        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
-        'RANGE', 2, 'RADIUS', 'text'
-    ).error().contains('Invalid RADIUS value')
 
