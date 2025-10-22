@@ -163,21 +163,16 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "EF_RUNTIME", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
+      long long efValue;
+      if (AC_GetLongLong(ac, &efValue, AC_F_GE1 | AC_F_NOADVANCE) != AC_OK) {
+        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
+        return REDISMODULE_ERR;
+      }
       const char *value;
-      if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
-        return REDISMODULE_ERR;
-      }
-      // Validate it's a positive integer
-      char *endptr;
-      errno = 0;
-      long long efValue = strtoll(value, &endptr, 10);
-      if (*endptr != '\0' || efValue <= 0 || errno != 0) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
-        return REDISMODULE_ERR;
-      }
+      size_t valueLen;
+      value = AC_GetStringNC(ac, &valueLen);
       // Add directly to VectorQuery params
-      addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, strlen(value));
+      addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
@@ -261,21 +256,16 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
         return REDISMODULE_ERR;
       }
       if (CheckEnd(ac, "EPSILON", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
+      double epsilonValue;
+      if (AC_GetDouble(ac, &epsilonValue, AC_F_GE0 | AC_F_NOADVANCE) != AC_OK || epsilonValue == 0.0) {
+        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
+        return REDISMODULE_ERR;
+      }
       const char *value;
-      if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
-        return REDISMODULE_ERR;
-      }
-      // Validate it's a positive double
-      char *endptr;
-      errno = 0;
-      double epsilonValue = fast_float_strtod(value, &endptr);
-      if (*endptr != '\0' || epsilonValue <= 0 || errno != 0) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
-        return REDISMODULE_ERR;
-      }
+      size_t valueLen;
+      value = AC_GetStringNC(ac, &valueLen);
       // Add directly to VectorQuery params
-      addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, strlen(value));
+      addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
       hasEpsilon = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {

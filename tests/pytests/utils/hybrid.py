@@ -2,7 +2,7 @@ import re
 from RLTest import Env
 from itertools import groupby
 from utils.rrf import rrf, Result
-from common import getConnectionByEnv, CLUSTER
+from common import getConnectionByEnv
 from typing import List, Tuple, Optional
 
 
@@ -382,10 +382,6 @@ def run_test_scenario(env, index_name, scenario, vector_blob):
     hybrid_cmd = translate_hybrid_query(
                 scenario['hybrid_query'], vector_blob, index_name)
     hybrid_results_raw = env.cmd(*hybrid_cmd)
-    # if CLUSTER:
-    #     hybrid_results_raw = conn.execute_command(*hybrid_cmd, target_nodes=conn.DEFAULT_NODE)
-    # else:
-    #     hybrid_results_raw = conn.execute_command(*hybrid_cmd)
 
     hybrid_results, ranking_info = _process_hybrid_response(hybrid_results_raw)
     _sort_adjacent_same_scores(hybrid_results)
