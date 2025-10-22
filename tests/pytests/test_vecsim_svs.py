@@ -469,7 +469,7 @@ def test_drop_index_during_query():
 
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
     env.expect(*query_cmd).error().contains(f"No such index")
-@skip()
+
 def test_gc():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 2')
     dim = 4
