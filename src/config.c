@@ -358,6 +358,10 @@ CONFIG_GETTER(getFrisoINI) {
 
 // DEFAULT_SCORER
 CONFIG_SETTER(setDefaultScorer) {
+  if (!config->enableUnstableFeatures) {
+    QueryError_SetError(status, QUERY_EBADVAL, "Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON");
+    return REDISMODULE_ERR;
+  }
   const char *scorerName;
   int acrc = AC_GetString(ac, &scorerName, NULL, 0);
   if (acrc == AC_OK) {

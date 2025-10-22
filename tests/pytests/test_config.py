@@ -74,7 +74,6 @@ def testGetConfigOptions(env):
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
-
     env.expect('ft.config', 'set', 'MINPREFIX', 'str').equal('Could not convert argument to expected type')
     env.expect('ft.config', 'set', 'EXTLOAD', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'NOGC', 1).equal(not_modifiable)
@@ -83,7 +82,10 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
-    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').equal('OK')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'BM25STD').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect('ft.config', 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').ok()
     if MT_BUILD:
         env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
         env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
@@ -444,3 +446,34 @@ def testUnstableFeaturesOffByDefault():
 
     # Check the score (only 1 doc..)
     env.assertEqual(round(math.tanh(float(unnormalized_res[2]) / factor), 5), round(float(normalized_res[2]), 5))
+
+@skip(cluster=True)
+def testDefaultScorerConfig(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+    env.expect('FT.CONFIG', 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).equal('OK')
+        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('Invalid default scorer')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('Invalid default scorer value')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
+
+@skip(cluster=True)
+def testDefaultScorerConfigDisabled(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])  # Should still be the last valid value
