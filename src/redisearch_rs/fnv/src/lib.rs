@@ -49,7 +49,7 @@ impl Fnv32 {
     /// [offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
     #[inline]
     #[must_use]
-    pub fn with_offset_basis(offset_basis: u32) -> Fnv32 {
+    pub const fn with_offset_basis(offset_basis: u32) -> Fnv32 {
         Fnv32(offset_basis)
     }
 }
@@ -104,7 +104,7 @@ impl Fnv64 {
     /// [offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
     #[inline]
     #[must_use]
-    pub fn with_offset_basis(offset_basis: u64) -> Fnv64 {
+    pub const fn with_offset_basis(offset_basis: u64) -> Fnv64 {
         Fnv64(offset_basis)
     }
 }
