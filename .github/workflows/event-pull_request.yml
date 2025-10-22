@@ -39,7 +39,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     with:
       test-config: QUICK=1
-      get-redis: e2901278770507652f61c937cb4ca932d537dfbe
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
     secrets: inherit
 
@@ -54,7 +54,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     with:
       coverage: true
-      get-redis: e2901278770507652f61c937cb4ca932d537dfbe
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
       test-config: QUICK=1
     secrets: inherit
@@ -71,7 +71,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     with:
       san: address
-      get-redis: e2901278770507652f61c937cb4ca932d537dfbe
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
       test-config: QUICK=1
 

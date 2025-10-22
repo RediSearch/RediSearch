@@ -218,7 +218,7 @@ include_directories(
     ${root}/src/redisearch_rs/headers
     ${root}/deps/libuv/include
     ${root}/deps
-    # ${root}/deps/RedisModulesSDK
+    ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
     ${BOOST_DIR}
     ${root})
