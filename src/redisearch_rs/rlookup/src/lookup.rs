@@ -1911,6 +1911,14 @@ mod tests {
         );
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
+
+        // cleanup
+        unsafe {
+            ffi::HiddenString_Free(arr[0].fieldName, false);
+        }
+        unsafe {
+            ffi::HiddenString_Free(arr[0].fieldPath, false);
+        }
     }
 
     #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
@@ -1947,6 +1955,14 @@ mod tests {
 
         // we should access the sorting vector instead
         assert!(retrieved_key.is_none());
+
+        // cleanup
+        unsafe {
+            ffi::HiddenString_Free(arr[0].fieldName, false);
+        }
+        unsafe {
+            ffi::HiddenString_Free(arr[0].fieldPath, false);
+        }
     }
 
     #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
@@ -1992,6 +2008,14 @@ mod tests {
         );
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
+
+        // cleanup
+        unsafe {
+            ffi::HiddenString_Free(arr[0].fieldName, false);
+        }
+        unsafe {
+            ffi::HiddenString_Free(arr[0].fieldPath, false);
+        }
     }
 
     // Assert the the cases in which None is returned also the key could be found
@@ -2189,6 +2213,14 @@ mod tests {
              prop_assert_eq!(key._name.as_ref(), name.as_c_str());
              prop_assert_eq!(key.path, path.as_ptr());
              prop_assert_eq!(key._path.as_ref().unwrap().as_ref(), path.as_c_str());
+
+             // cleanup
+             unsafe {
+                 ffi::HiddenString_Free(arr[0].fieldName, false);
+             }
+             unsafe {
+                 ffi::HiddenString_Free(arr[0].fieldPath, false);
+             }
          }
 
         // Assert that, even though there is a key in the list AND a a field space in the cache, we won't load the key
@@ -2229,6 +2261,11 @@ mod tests {
 
              let not_key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty());
              prop_assert!(not_key.is_none());
+
+             // cleanup
+             unsafe {
+                 ffi::HiddenString_Free(arr[0].fieldName, false);
+             }
          }
 
         // Assert that, even though there is a key in the list AND a a field space in the cache, we won't load the key
@@ -2276,6 +2313,11 @@ mod tests {
              prop_assert_eq!(key._name.as_ref(), wrong_name.as_c_str());
              prop_assert_eq!(key.path, wrong_name.as_ptr());
              prop_assert!(key._path.is_none());
+
+             // cleanup
+             unsafe {
+                 ffi::HiddenString_Free(arr[0].fieldName, false);
+             }
         }
     }
 }

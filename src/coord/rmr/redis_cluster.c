@@ -27,18 +27,6 @@
   } while (0)
 #endif
 
-static void parseSlots(RedisModuleCallReply *slots, MRClusterShard *sh) {
-  size_t len = RedisModule_CallReplyLength(slots);
-  RS_ASSERT(len % 2 == 0);
-  sh->numRanges = len / 2;
-  sh->capRanges = sh->numRanges;
-  sh->ranges = rm_malloc(sh->numRanges * sizeof(mr_slot_range_t));
-  for (size_t r = 0; r < sh->numRanges; r++) {
-    sh->ranges[r].start = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(slots, r * 2));
-    sh->ranges[r].end = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(slots, r * 2 + 1));
-  }
-}
-
 static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
   const size_t len = RedisModule_CallReplyLength(node);
   RS_ASSERT(len % 2 == 0);
@@ -56,11 +44,6 @@ static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
     } else if (STR_EQ(key_str, key_len, "endpoint")) {
       const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
       n->endpoint.host = rm_strndup(val_str, val_len);
-    } else if (STR_EQ(key_str, key_len, "role")) {
-      const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
-      if (STR_EQ(val_str, val_len, "master")) {
-        n->flags |= MRNode_Master;
-      }
     } else if (STR_EQ(key_str, key_len, "tls-port")) {
       n->endpoint.port = (int)RedisModule_CallReplyInteger(val); // Prefer tls-port if available
     } else if (STR_EQ(key_str, key_len, "port") && n->endpoint.port == -1) {
@@ -71,6 +54,41 @@ static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
   RS_ASSERT(n->id != NULL);
   RS_ASSERT(n->endpoint.host != NULL);
   RS_ASSERT(n->endpoint.port != -1);
+}
+
+static void parseMasterNode(RedisModuleCallReply *nodes, MRClusterNode *n) {
+  const size_t numNodes = RedisModule_CallReplyLength(nodes);
+
+  for (size_t i = 0; i < numNodes; i++) {
+    RedisModuleCallReply *node = RedisModule_CallReplyArrayElement(nodes, i);
+    RS_ASSERT(RedisModule_CallReplyType(node) == REDISMODULE_REPLY_ARRAY);
+    size_t node_len = RedisModule_CallReplyLength(node);
+    RS_ASSERT(node_len % 2 == 0);
+
+    // Find the "role" key
+    size_t j = 0;
+    for (; j < node_len / 2; j++) {
+      RedisModuleCallReply *key = RedisModule_CallReplyArrayElement(node, j * 2);
+      RS_ASSERT(RedisModule_CallReplyType(key) == REDISMODULE_REPLY_STRING);
+      size_t key_len;
+      const char *key_str = RedisModule_CallReplyStringPtr(key, &key_len);
+      if (STR_EQ(key_str, key_len, "role")) {
+        break;
+      }
+    }
+    // Check if this is a master node
+    ASSERT_KEY(node, j * 2, "role");
+    RedisModuleCallReply *val = RedisModule_CallReplyArrayElement(node, j * 2 + 1);
+    size_t val_len;
+    const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
+    if (STR_EQ(val_str, val_len, "master")) {
+      parseNode(node, n);
+      return;
+    }
+  }
+
+  // We should always find a master node
+  RS_ABORT("No master node found in shard");
 }
 
 static bool hasSlots(RedisModuleCallReply *shard) {
@@ -86,7 +104,7 @@ static void sortShards(MRClusterTopology *topo) {
   for (size_t i = 1; i < topo->numShards; i++) {
     MRClusterShard key = topo->shards[i];
     size_t j = i;
-    while (j > 0 && topo->shards[j - 1].nodes[0].endpoint.port > key.nodes[0].endpoint.port) {
+    while (j > 0 && topo->shards[j - 1].node.endpoint.port > key.node.endpoint.port) {
       topo->shards[j] = topo->shards[j - 1];
       j--;
     }
@@ -96,14 +114,6 @@ static void sortShards(MRClusterTopology *topo) {
 
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   RS_AutoMemory(ctx);
-  RedisModuleCallReply *myID_reply = RedisModule_Call(ctx, "CLUSTER", "c", "MYID");
-  if (myID_reply == NULL || RedisModule_CallReplyType(myID_reply) != REDISMODULE_REPLY_STRING) {
-    RedisModule_Log(ctx, "warning", "Error calling CLUSTER MYID");
-    return NULL;
-  }
-
-  size_t idlen;
-  const char *myID = RedisModule_CallReplyStringPtr(myID_reply, &idlen);
 
   RedisModuleCallReply *cluster_shards = RedisModule_Call(ctx, "CLUSTER", "c", "SHARDS");
   if (cluster_shards == NULL || RedisModule_CallReplyType(cluster_shards) != REDISMODULE_REPLY_ARRAY) {
@@ -155,9 +165,7 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     return NULL;
   }
   MRClusterTopology *topo = rm_calloc(1, sizeof(MRClusterTopology));
-  topo->hashFunc = MRHashFunc_CRC16;
 
-  topo->numSlots = 16384;
   topo->numShards = numShards;
   topo->shards = rm_calloc(numShards, sizeof(MRClusterShard));
 
@@ -169,35 +177,14 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
 
     // Handle slots
     ASSERT_KEY(currShard, 0, "slots");
-    parseSlots(RedisModule_CallReplyArrayElement(currShard, 1), &topo->shards[i]);
+    // We don't actually use the slots, as we don't handle slot-level routing ourselves
 
     // Handle nodes
     ASSERT_KEY(currShard, 2, "nodes");
     RedisModuleCallReply *nodes = RedisModule_CallReplyArrayElement(currShard, 3);
     RS_ASSERT(RedisModule_CallReplyType(nodes) == REDISMODULE_REPLY_ARRAY);
-    topo->shards[i].capNodes = RedisModule_CallReplyLength(nodes);
-    topo->shards[i].numNodes = topo->shards[i].capNodes; // we expect all nodes to be valid
-    topo->shards[i].nodes = rm_calloc(topo->shards[i].capNodes, sizeof(MRClusterNode));
-    // parse each node
-    for (size_t n = 0; n < topo->shards[i].numNodes; n++) {
-      parseNode(RedisModule_CallReplyArrayElement(nodes, n), &topo->shards[i].nodes[n]);
-      // Mark the node as self if its ID matches our ID
-      if (STR_EQ(myID, idlen, topo->shards[i].nodes[n].id)) {
-        topo->shards[i].nodes[n].flags |= MRNode_Self;
-      }
-    }
-    // Make sure the first node is the master
-    if (!(topo->shards[i].nodes[0].flags & MRNode_Master)) {
-      for (size_t n = 1; n < topo->shards[i].numNodes; n++) {
-        if (topo->shards[i].nodes[n].flags & MRNode_Master) {
-          MRClusterNode tmp = topo->shards[i].nodes[n];
-          topo->shards[i].nodes[n] = topo->shards[i].nodes[0];
-          topo->shards[i].nodes[0] = tmp;
-          break;
-        }
-      }
-    }
-    RS_ASSERT(topo->shards[i].nodes[0].flags & MRNode_Master);
+    // parse and store the master
+    parseMasterNode(nodes, &topo->shards[i].node);
   }
 
   // Sort shards by the port of their first node (master), to have a stable order
@@ -209,7 +196,7 @@ extern size_t NumShards;
 void UpdateTopology(RedisModuleCtx *ctx) {
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
   if (topo) { // if we didn't get a topology, do nothing. Log was already printed
-    RedisModule_Log(ctx, "debug", "UpdateTopology: Setting number of partitions to %ld", topo->numShards);
+    RedisModule_Log(ctx, "debug", "UpdateTopology: Setting number of partitions to %u", topo->numShards);
     NumShards = topo->numShards;
     MR_UpdateTopology(topo);
     Slots_DropCachedLocalSlots(); // Local slots may have changed, drop the cache

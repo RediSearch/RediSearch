@@ -72,7 +72,7 @@ impl Bencher {
     fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("Rust", |b| {
             b.iter(|| {
-                let mut it = Empty::default();
+                let mut it = Empty;
                 let _ = it.read();
             });
         });
@@ -91,7 +91,7 @@ impl Bencher {
     fn rust_skip_to<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("Rust", |b| {
             b.iter(|| {
-                let mut it = Empty::default();
+                let mut it = Empty;
                 let _ = it.skip_to(0);
             });
         });

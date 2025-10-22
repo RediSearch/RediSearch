@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
     io::{BufRead, Cursor, Seek, Write},
@@ -110,7 +111,7 @@ pub struct NumericFilter {
 
 impl NumericFilter {
     /// Check if this is a numeric filter (and not a geo filter)
-    pub fn is_numeric_filter(&self) -> bool {
+    pub const fn is_numeric_filter(&self) -> bool {
         self.geo_filter.is_null()
     }
 
@@ -259,7 +260,7 @@ pub struct InvertedIndex<E> {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -279,7 +280,7 @@ pub struct IndexBlock {
 static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
 
 /// The type of repair needed for a block after a garbage collection scan.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 enum RepairType {
     /// This block can be deleted completely.
     Delete {
@@ -319,17 +320,17 @@ impl IndexBlock {
     }
 
     /// Get the first document ID in this block. This is only needed for some C tests.
-    pub fn first_block_id(&self) -> t_docId {
+    pub const fn first_block_id(&self) -> t_docId {
         self.first_doc_id
     }
 
     /// Get the last document ID in the block. This is only needed for some C tests.
-    pub fn last_block_id(&self) -> t_docId {
+    pub const fn last_block_id(&self) -> t_docId {
         self.last_doc_id
     }
 
     /// Get the number of entries in this block. This is only needed for some C tests.
-    pub fn num_entries(&self) -> usize {
+    pub const fn num_entries(&self) -> usize {
         self.num_entries
     }
 
@@ -338,7 +339,7 @@ impl IndexBlock {
         &self.buffer
     }
 
-    fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
+    const fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
         let pos = self.buffer.len();
         let mut buffer = Cursor::new(&mut self.buffer);
 
@@ -359,7 +360,7 @@ impl IndexBlock {
     fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
-        mut repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
+        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
         encoder: E,
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
@@ -377,7 +378,9 @@ impl IndexBlock {
             decoder.decode(&mut cursor, base, &mut result)?;
 
             if doc_exist(result.doc_id) {
-                repair(&result, self);
+                if let Some(repair) = repair.as_mut() {
+                    repair(&result, self);
+                }
 
                 tmp_inverted_index.add_record(&result)?;
 
@@ -419,7 +422,7 @@ impl Drop for IndexBlock {
 impl<E: Encoder> InvertedIndex<E> {
     /// Create a new inverted index with the given encoder. The encoder is used to write new
     /// entries to the index.
-    pub fn new(flags: IndexFlags, encoder: E) -> Self {
+    pub const fn new(flags: IndexFlags, encoder: E) -> Self {
         Self {
             blocks: Vec::new(),
             n_unique_docs: 0,
@@ -565,12 +568,12 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 
     /// Returns the number of unique documents in the index.
-    pub fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> usize {
         self.n_unique_docs
     }
 
     /// Returns the flags of this index.
-    pub fn flags(&self) -> IndexFlags {
+    pub const fn flags(&self) -> IndexFlags {
         self.flags
     }
 
@@ -600,7 +603,7 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 
     /// Returns the number of blocks in this index.
-    pub fn number_of_blocks(&self) -> usize {
+    pub const fn number_of_blocks(&self) -> usize {
         self.blocks.len()
     }
 
@@ -621,7 +624,7 @@ impl<E: Encoder> InvertedIndex<E> {
 }
 
 /// Result of scanning the index for garbage collection
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct GcScanDelta {
     /// The index of the last block in the index at the time of the scan. This is used to ensure
     /// that the index has not changed since the scan was performed.
@@ -635,8 +638,15 @@ pub struct GcScanDelta {
     deltas: Vec<BlockGcScanResult>,
 }
 
+impl GcScanDelta {
+    /// Returns the index of the last block in the index at the time of the scan.
+    pub const fn last_block_idx(&self) -> usize {
+        self.last_block_idx
+    }
+}
+
 /// Result of scanning a block for garbage collection
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct BlockGcScanResult {
     /// The index of the block in the inverted index
     index: usize,
@@ -647,6 +657,7 @@ pub struct BlockGcScanResult {
 
 /// Information about the result of applying a garbage collection scan to the index
 #[derive(Debug, Eq, PartialEq)]
+#[repr(C)]
 pub struct GcApplyInfo {
     /// The number of bytes that were freed
     pub bytes_freed: usize,
@@ -678,14 +689,14 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     pub fn scan_gc<'index>(
         &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
-        mut repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
+        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();
 
         for (i, block) in self.blocks.iter().enumerate() {
             let encoder = self.encoder.clone();
 
-            let repair = block.repair(&doc_exist, &mut repair, encoder)?;
+            let repair = block.repair(&doc_exist, repair.as_mut(), encoder)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
@@ -813,7 +824,7 @@ pub struct EntriesTrackingIndex<E> {
 
 impl<E: Encoder> EntriesTrackingIndex<E> {
     /// Create a new entries tracking index with the given encoder.
-    pub fn new(flags: IndexFlags, encoder: E) -> Self {
+    pub const fn new(flags: IndexFlags, encoder: E) -> Self {
         Self {
             index: InvertedIndex::new(flags, encoder),
             number_of_entries: 0,
@@ -839,7 +850,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
 
     /// The total number of entries in the index. This is not the number of unique documents, but
     /// rather the total number of entries added to the index.
-    pub fn number_of_entries(&self) -> usize {
+    pub const fn number_of_entries(&self) -> usize {
         self.number_of_entries
     }
 
@@ -849,12 +860,12 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Returns the number of unique documents in the index.
-    pub fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> usize {
         self.index.unique_docs()
     }
 
     /// Returns the flags of this index.
-    pub fn flags(&self) -> IndexFlags {
+    pub const fn flags(&self) -> IndexFlags {
         self.index.flags()
     }
 
@@ -879,7 +890,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Returns the number of blocks in this index.
-    pub fn number_of_blocks(&self) -> usize {
+    pub const fn number_of_blocks(&self) -> usize {
         self.index.number_of_blocks()
     }
 
@@ -899,7 +910,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Get a reference to the inner inverted index.
-    pub fn inner(&self) -> &InvertedIndex<E> {
+    pub const fn inner(&self) -> &InvertedIndex<E> {
         &self.index
     }
 }
@@ -921,7 +932,7 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     pub fn scan_gc<'index>(
         &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
-        repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
+        repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }
@@ -983,17 +994,17 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     }
 
     /// Returns the number of unique documents in the index.
-    pub fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> usize {
         self.index.unique_docs()
     }
 
     /// Returns the flags of this index.
-    pub fn flags(&self) -> IndexFlags {
+    pub const fn flags(&self) -> IndexFlags {
         self.index.flags()
     }
 
     /// Get the combined field mask of all records in the index.
-    pub fn field_mask(&self) -> t_fieldMask {
+    pub const fn field_mask(&self) -> t_fieldMask {
         self.field_mask
     }
 
@@ -1008,7 +1019,7 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     }
 
     /// Returns the number of blocks in this index.
-    pub fn number_of_blocks(&self) -> usize {
+    pub const fn number_of_blocks(&self) -> usize {
         self.index.number_of_blocks()
     }
 
@@ -1028,7 +1039,7 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     }
 
     /// Get a reference to the inner inverted index.
-    pub fn inner(&self) -> &InvertedIndex<E> {
+    pub const fn inner(&self) -> &InvertedIndex<E> {
         &self.index
     }
 }
@@ -1053,7 +1064,7 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     pub fn scan_gc<'index>(
         &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
-        repair: impl FnMut(&RSIndexResult<'index>, &IndexBlock),
+        repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }
@@ -1236,17 +1247,17 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
     }
 
     /// Return the number of unique documents in the underlying index.
-    pub fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> usize {
         self.ii.unique_docs()
     }
 
     /// Returns true if the underlying index has duplicate document IDs.
-    pub fn has_duplicates(&self) -> bool {
+    pub const fn has_duplicates(&self) -> bool {
         self.ii.flags() & IndexFlags_Index_HasMultiValue > 0
     }
 
     /// Get the flags of the underlying index
-    pub fn flags(&self) -> IndexFlags {
+    pub const fn flags(&self) -> IndexFlags {
         self.ii.flags()
     }
 
@@ -1257,12 +1268,12 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
 
     /// Swap the inverted index of the reader with the supplied index. This is only used by the C
     /// tests to trigger a revalidation.
-    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+    pub const fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
         std::mem::swap(&mut self.ii, index);
     }
 
     /// Get the internal index of the reader. This is only used by some C tests.
-    pub fn internal_index(&self) -> &InvertedIndex<E> {
+    pub const fn internal_index(&self) -> &InvertedIndex<E> {
         self.ii
     }
 
@@ -1309,7 +1320,7 @@ pub struct FilterMaskReader<IR> {
 
 impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
     /// Create a new filter mask reader with the given mask and inner iterator
-    pub fn new(mask: t_fieldMask, inner: IR) -> Self {
+    pub const fn new(mask: t_fieldMask, inner: IR) -> Self {
         Self { mask, inner }
     }
 }
@@ -1369,17 +1380,17 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
     }
 
     /// Return the number of unique documents in the underlying index.
-    pub fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> usize {
         self.inner.unique_docs()
     }
 
     /// Returns true if the underlying index has duplicate document IDs.
-    pub fn has_duplicates(&self) -> bool {
+    pub const fn has_duplicates(&self) -> bool {
         self.inner.has_duplicates()
     }
 
     /// Get the flags of the underlying index
-    pub fn flags(&self) -> IndexFlags {
+    pub const fn flags(&self) -> IndexFlags {
         self.inner.flags()
     }
 
@@ -1390,12 +1401,12 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
 
     /// Swap the inverted index of the reader with the supplied index. This is only used by the C
     /// tests to trigger a revalidation.
-    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+    pub const fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
         self.inner.swap_index(index);
     }
 
     /// Get the internal index of the reader. This is only used by some C tests.
-    pub fn internal_index(&self) -> &InvertedIndex<E> {
+    pub const fn internal_index(&self) -> &InvertedIndex<E> {
         self.inner.internal_index()
     }
 }
@@ -1415,7 +1426,7 @@ pub struct FilterNumericReader<'filter, IR> {
 
 impl<'filter, 'index, IR: IndexReader<'index>> FilterNumericReader<'filter, IR> {
     /// Create a new filter numeric reader with the given filter and inner iterator.
-    pub fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
+    pub const fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
         Self { filter, inner }
     }
 }
@@ -1424,7 +1435,7 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
     FilterNumericReader<'filter, IndexReaderCore<'index, E, D>>
 {
     /// Get the numeric filter used by this reader.
-    pub fn filter(&self) -> &NumericFilter {
+    pub const fn filter(&self) -> &NumericFilter {
         self.filter
     }
 }
@@ -1500,17 +1511,17 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
     }
 
     /// Return the number of unique documents in the underlying index.
-    pub fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> usize {
         self.inner.unique_docs()
     }
 
     /// Returns true if the underlying index has duplicate document IDs.
-    pub fn has_duplicates(&self) -> bool {
+    pub const fn has_duplicates(&self) -> bool {
         self.inner.has_duplicates()
     }
 
     /// Get the flags of the underlying index
-    pub fn flags(&self) -> IndexFlags {
+    pub const fn flags(&self) -> IndexFlags {
         self.inner.flags()
     }
 
@@ -1521,12 +1532,12 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 
     /// Swap the inverted index of the reader with the supplied index. This is only used by the C
     /// tests to trigger a revalidation.
-    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+    pub const fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
         self.inner.swap_index(index);
     }
 
     /// Get the internal index of the reader. This is only used by some C tests.
-    pub fn internal_index(&self) -> &InvertedIndex<E> {
+    pub const fn internal_index(&self) -> &InvertedIndex<E> {
         self.inner.internal_index()
     }
 }
@@ -1577,7 +1588,7 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
     FilterGeoReader<'filter, IndexReaderCore<'index, E, D>>
 {
     /// Get the numeric filter used by this reader.
-    pub fn filter(&self) -> &NumericFilter {
+    pub const fn filter(&self) -> &NumericFilter {
         self.filter
     }
 }
@@ -1659,17 +1670,17 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
     }
 
     /// Return the number of unique documents in the underlying index.
-    pub fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> usize {
         self.inner.unique_docs()
     }
 
     /// Returns true if the underlying index has duplicate document IDs.
-    pub fn has_duplicates(&self) -> bool {
+    pub const fn has_duplicates(&self) -> bool {
         self.inner.has_duplicates()
     }
 
     /// Get the flags of the underlying index
-    pub fn flags(&self) -> IndexFlags {
+    pub const fn flags(&self) -> IndexFlags {
         self.inner.flags()
     }
 
@@ -1680,12 +1691,12 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 
     /// Swap the inverted index of the reader with the supplied index. This is only used by the C
     /// tests to trigger a revalidation.
-    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+    pub const fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
         self.inner.swap_index(index);
     }
 
     /// Get the internal index of the reader. This is only used by some C tests.
-    pub fn internal_index(&self) -> &InvertedIndex<E> {
+    pub const fn internal_index(&self) -> &InvertedIndex<E> {
         self.inner.internal_index()
     }
 }

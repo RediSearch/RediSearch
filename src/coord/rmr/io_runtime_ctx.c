@@ -66,18 +66,10 @@ static void topologyFailureCB(uv_timer_t *timer) {
   triggerPendingItems(io_runtime_ctx);
 }
 
-static int CheckTopologyConnections(const MRClusterTopology *topo,
-                                    IORuntimeCtx *ioRuntime,
-                                    bool mastersOnly) {
+static int CheckTopologyConnections(const MRClusterTopology *topo, IORuntimeCtx *ioRuntime) {
   for (size_t i = 0; i < topo->numShards; i++) {
-    MRClusterShard *sh = &topo->shards[i];
-    for (size_t j = 0; j < sh->numNodes; j++) {
-      if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
-        continue;
-      }
-      if (!MRConn_Get(&ioRuntime->conn_mgr, sh->nodes[j].id)) {
-        return REDIS_ERR;
-      }
+    if (!MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id)) {
+      return REDIS_ERR;
     }
   }
   return REDIS_OK;
@@ -87,7 +79,7 @@ static void topologyTimerCB(uv_timer_t *timer) {
   IORuntimeCtx *io_runtime_ctx = (IORuntimeCtx *)timer->data;
   const MRClusterTopology *topo = io_runtime_ctx->topo;
   // Can we lock the topology? here?
- if (CheckTopologyConnections(topo, io_runtime_ctx, true) == REDIS_OK) {
+ if (CheckTopologyConnections(topo, io_runtime_ctx) == REDIS_OK) {
     // We are connected to all master nodes. We can mark the event loop thread as ready
     io_runtime_ctx->uv_runtime.loop_th_ready = true;
     RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: All nodes connected: IO thread is ready to handle requests", io_runtime_ctx->queue->id);
@@ -191,14 +183,12 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
   dictReleaseIterator(it);
 
   /* Walk the topology and add all nodes in it to the connection manager */
-  for (int sh = 0; sh < topo->numShards; sh++) {
-    for (int n = 0; n < topo->shards[sh].numNodes; n++) {
-      // Update all the conn Manager in each of the runtimes.
-      MRClusterNode *node = &topo->shards[sh].nodes[n];
-      MRConnManager_Add(&ioRuntime->conn_mgr, &ioRuntime->uv_runtime.loop, node->id, &node->endpoint, 0);
-      /* This node is still valid, remove it from the nodes to delete list */
-      dictDelete(nodesToDisconnect, node->id);
-    }
+  for (uint32_t sh = 0; sh < topo->numShards; sh++) {
+    // Update all the conn Manager in each of the runtimes.
+    MRClusterNode *node = &topo->shards[sh].node;
+    MRConnManager_Add(&ioRuntime->conn_mgr, &ioRuntime->uv_runtime.loop, node->id, &node->endpoint, 0);
+    /* This node is still valid, remove it from the nodes to delete list */
+    dictDelete(nodesToDisconnect, node->id);
   }
 
   // if we didn't remove the node from the original nodes map copy, it means it's not in the new topology,

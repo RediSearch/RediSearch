@@ -7,6 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(
+    clippy::undocumented_unsafe_blocks,
+    clippy::missing_safety_doc,
+    clippy::multiple_unsafe_ops_per_block
+)]
+
 use std::ffi::{c_char, c_void};
 
 pub mod benchers;
@@ -23,7 +29,7 @@ pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
 pub static mut RSDummyContext: *const c_void = std::ptr::null();
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RedisModule_Log(
+pub const unsafe extern "C" fn RedisModule_Log(
     _ctx: *mut redis_module::RedisModuleCtx,
     _level: *const c_char,
     _fmt: *const c_char,
@@ -31,6 +37,7 @@ pub unsafe extern "C" fn RedisModule_Log(
 }
 
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
@@ -43,7 +50,7 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Term_Free(_t: *mut ::ffi::RSQueryTerm) {
+pub const extern "C" fn Term_Free(_t: *mut ::ffi::RSQueryTerm) {
     // RSQueryTerm used by the benchers are created on the stack so we don't need to free them.
 }
 

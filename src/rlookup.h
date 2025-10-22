@@ -411,7 +411,6 @@ void RLookupKey_Free(RLookupKey *k);
  */
 int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
 
-
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 
 
@@ -442,6 +441,7 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags);
  */
 void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
                                RLookupRow *destRow, RLookup *destLookup);
+
 
 #ifdef __cplusplus
 }
