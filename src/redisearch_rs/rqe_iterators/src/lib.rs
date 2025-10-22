@@ -18,10 +18,10 @@ use inverted_index::RSIndexResult;
 /// The outcome of [`RQEIterator::skip_to`].
 pub enum SkipToOutcome<'iterator, 'index> {
     /// The iterator has a valid entry for the requested `doc_id`.
-    Found(&'iterator RSIndexResult<'index>),
+    Found(&'iterator mut RSIndexResult<'index>),
 
     /// The iterator doesn't have an entry for the requested `doc_id`, but there are entries with an id greater than the requested one.
-    NotFound(&'iterator RSIndexResult<'index>),
+    NotFound(&'iterator mut RSIndexResult<'index>),
 }
 
 #[derive(Debug)]
@@ -42,13 +42,15 @@ pub enum RQEValidateStatus {
     Aborted,
 }
 
-pub trait RQEIterator {
+pub trait RQEIterator<'iterator, 'index> {
     /// Read the next entry from the iterator.
     ///
     /// On a successful read, the iterator must set its `last_doc_id` property to the new current result id
     /// This function returns Ok with the current result for valid results, or None if the iterator is depleted.
     /// The function will return Err(RQEIteratorError) for any error.
-    fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError>;
+    fn read(
+        &'iterator mut self,
+    ) -> Result<Option<&'iterator mut RSIndexResult<'index>>, RQEIteratorError>;
 
     /// Skip to the next record in the iterator with an ID greater or equal to the given `docId`.
     ///
@@ -59,30 +61,30 @@ pub trait RQEIterator {
     /// Return `Ok(SkipToOutcome::Found)` if the iterator has found a record with the `docId` and `Ok(SkipToOutcome::NotFound)`
     /// if the iterator found a result greater than `docId`. 'None" will be returned if the iterator has reached the end of the index.
     fn skip_to(
-        &mut self,
+        &'iterator mut self,
         doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError>;
+    ) -> Result<Option<SkipToOutcome<'iterator, 'index>>, RQEIteratorError>;
 
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
     /// The iterator should check if it is still valid.
-    fn revalidate(&mut self) -> RQEValidateStatus {
+    fn revalidate(&'iterator mut self) -> RQEValidateStatus {
         // Default implementation does nothing.
         RQEValidateStatus::Ok
     }
 
     ///Rewind the iterator to the beginning and reset its properties.
-    fn rewind(&mut self);
+    fn rewind(&'iterator mut self);
 
     /// Returns an upper-bound estimation for the number of results the iterator is going to yield.
-    fn num_estimated(&self) -> usize;
+    fn num_estimated(&'iterator self) -> usize;
 
     /**************** properties ****************/
 
     /// Returns the last doc id that was read or skipped to.
-    fn last_doc_id(&self) -> t_docId;
+    fn last_doc_id(&'iterator self) -> t_docId;
 
     /// Returns `false` if the iterator can yield more results.
     /// The iterator implementation must ensure that `at_eof` returns `false` when it is sure that the [`RQEIterator::read`] returns `Ok(None)`.
-    fn at_eof(&self) -> bool;
+    fn at_eof(&'iterator self) -> bool;
 }

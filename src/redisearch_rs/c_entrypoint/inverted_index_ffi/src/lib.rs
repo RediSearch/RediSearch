@@ -10,17 +10,24 @@
 //! This module contains the inverted index implementation for the RediSearch module.
 #![allow(non_upper_case_globals)]
 
-use std::{ffi::c_char, fmt::Debug};
+mod fork_gc;
 
-use ffi::{
-    IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
-    IndexFlags_Index_WideSchema, t_docId, t_fieldMask,
+use std::{
+    ffi::{c_char, c_void},
+    fmt::Debug,
 };
 
+use ffi::{
+    DocTable_Exists, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
+    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
+    IndexFlags_Index_WideSchema, RedisSearchCtx, t_docId, t_fieldMask,
+};
+
+use fork_gc::{InvertedIndexGCCallback, InvertedIndexGCReader, InvertedIndexGCWriter};
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
-    FilterNumericReader, IndexBlock, IndexReader as _, NumericFilter, RSIndexResult, ReadFilter,
+    FilterNumericReader, GcApplyInfo, GcScanDelta, IndexBlock, IndexReader as _, NumericFilter,
+    RSIndexResult, ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -33,6 +40,7 @@ use inverted_index::{
     offsets_only::OffsetsOnly,
     raw_doc_ids_only::RawDocIdsOnly,
 };
+use serde::{Deserialize, Serialize};
 
 /// Get the total number of index blocks allocated across all inverted index instances.
 #[unsafe(no_mangle)]
@@ -546,6 +554,181 @@ pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
     ii_dispatch!(ii, gc_marker_inc);
 }
 
+/// Setting to pass to the GC scan function
+#[repr(C)]
+pub struct IndexRepairParams {
+    /// Callback to call for each entry that is still valid
+    pub repair_callback:
+        Option<extern "C" fn(res: *const RSIndexResult, ib: *const IndexBlock, *mut c_void)>,
+
+    /// Argument to pass to the repair callback
+    pub repair_arg: *mut c_void,
+}
+
+/// Scan the inverted index for garbage and write the GC delta to the provided writer. The function
+/// returns true if the scan was successful and false otherwise.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `wr` must be a valid, non NULL, pointer to an `InvertedIndexGCWriter` instance.
+/// - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` instance.
+/// - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+/// - `cb` must be a valid, non NULL, pointer to an `InvertedIndexGCCallback` instance.
+/// - `params` must be a valid, NULLable, pointer to an `IndexRepairParams` instance.
+/// - The `spec` field of the `RedisSearchCtx` must be a valid, non NULL, pointer to an
+///   `IndexSpec` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
+    wr: *mut InvertedIndexGCWriter,
+    sctx: *mut RedisSearchCtx,
+    idx: *mut InvertedIndex,
+    cb: *mut InvertedIndexGCCallback,
+    params: *mut IndexRepairParams,
+) -> bool {
+    debug_assert!(!sctx.is_null(), "sctx must not be null");
+    debug_assert!(!idx.is_null(), "idx must not be null");
+    debug_assert!(!cb.is_null(), "cb must not be null");
+    debug_assert!(!wr.is_null(), "wr must not be null");
+
+    // SAFETY: The caller must ensure `sctx` is a valid pointer to a `RedisSearchCtx`
+    let sctx = unsafe { &*sctx };
+
+    debug_assert!(!sctx.spec.is_null(), "sctx.spec must not be null");
+
+    // SAFETY: The caller must ensure the `spec` field of the `RedisSearchCtx` is a valid
+    // pointer to an `IndexSpec`
+    let spec = unsafe { &*sctx.spec };
+    let doc_table = spec.docs;
+
+    // SAFETY: We know `doc_table` is a valid `DocTable` because it just got it off the spec
+    let doc_exists = |id| unsafe { DocTable_Exists(&doc_table, id) };
+
+    let repair = if params.is_null() {
+        None
+    } else {
+        // SAFETY: The caller must ensure `params` is a valid pointer to a `IndexRepairParams` and
+        // we just checked it is not NULL
+        let params = unsafe { &*params };
+        params
+            .repair_callback
+            .map(|cb| move |res: &RSIndexResult, ib: &IndexBlock| cb(res, ib, params.repair_arg))
+    };
+
+    // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*idx };
+
+    let Ok(deltas) = ii_dispatch!(ii, scan_gc, doc_exists, repair) else {
+        return false;
+    };
+
+    let Some(deltas) = deltas else {
+        return false;
+    };
+
+    // SAFETY: The caller must ensure `cb` is a valid pointer to an `InvertedIndexGCCallback`
+    let cb = unsafe { &*cb };
+    let cb_call = cb.call;
+    cb_call(cb.ctx);
+
+    // SAFETY: The caller must ensure `wr` is a valid pointer to a `InvertedIndexGCWriter`
+    let wr = unsafe { &mut *wr };
+
+    deltas
+        .serialize(&mut rmp_serde::Serializer::new(wr))
+        .is_ok()
+}
+
+/// Read a GC delta from the provided reader. The returned pointer must be freed using
+/// [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGcDelta`].
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `rd` must be a valid, non NULL, pointer to an `InvertedIndexGCReader` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcDelta_Read(
+    rd: *mut InvertedIndexGCReader,
+) -> *mut GcScanDelta {
+    debug_assert!(!rd.is_null(), "rd must not be null");
+
+    // SAFETY: The caller must ensure `rd` is a valid pointer to a `InvertedIndexGCReader`
+    let rt = unsafe { &mut *rd };
+
+    let deltas = GcScanDelta::deserialize(&mut rmp_serde::Deserializer::new(rt)).unwrap();
+
+    let deltas = Box::new(deltas);
+
+    Box::into_raw(deltas)
+}
+
+/// Free the memory associated with a GC delta instance created using [`InvertedIndex_GcDelta_Read`].
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `deltas` must be a valid, non NULL, pointer to a `GcScanDelta` instance created using
+///   [`InvertedIndex_GcDelta_Read`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcDelta_Free(deltas: *mut GcScanDelta) {
+    debug_assert!(!deltas.is_null(), "deltas must not be null");
+
+    // SAFETY: The caller must ensure that `deltas` is a valid pointer to a `GcScanDelta`
+    let _deltas = unsafe { Box::from_raw(deltas) };
+}
+
+/// Apply a GC delta to the inverted index. The output parameter `apply_info` will be set to
+/// information about the applied delta.
+///
+/// This will take ownership of the `deltas` pointer and free it. Therefore, it should not be
+/// used or freed after calling this function.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+/// - `deltas` must be a valid, non NULL, pointer to a `GcScanDelta` instance created using
+///   [`InvertedIndex_GcDelta_Read`].
+/// - `apply_info` must be a valid, non NULL, pointer to a `GcApplyInfo` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_ApplyGcDelta(
+    ii: *mut InvertedIndex,
+    deltas: *mut GcScanDelta,
+    apply_info: *mut GcApplyInfo,
+) {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+    debug_assert!(!deltas.is_null(), "deltas must not be null");
+    debug_assert!(!apply_info.is_null(), "apply_info must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &mut *ii };
+
+    // SAFETY: The caller must ensure `deltas` is a valid pointer to a `GcScanDelta`
+    let deltas = unsafe { Box::from_raw(deltas) };
+    let deltas = *deltas;
+
+    let info = ii_dispatch!(ii, apply_gc, deltas);
+
+    // SAFETY: The caller must ensure `apply_info` is a valid pointer to a `GcApplyInfo`
+    unsafe { *apply_info = info };
+}
+
+/// Get the index of the last block in the GC delta.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `gc_scan_delta` must be a valid, non NULL, pointer to a `GcScanDelta` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GcScanDelta_LastBlockIdx(gc_scan_delta: *const GcScanDelta) -> usize {
+    debug_assert!(!gc_scan_delta.is_null(), "gc_scan_delta must not be null");
+
+    // SAFETY: The caller must ensure `gc_scan_delta` is a valid pointer to a `GcScanDelta`
+    let gc_scan_delta = unsafe { &*gc_scan_delta };
+
+    gc_scan_delta.last_block_idx()
+}
+
 /// Get ID of the first document in the index block. This is used by some C tests.
 ///
 /// # Safety
@@ -876,7 +1059,7 @@ pub unsafe extern "C" fn IndexReader_IsIndex(
 /// The following invariant must be upheld when calling this function:
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_HasSeeker(_ir: *const IndexReader) -> bool {
+pub const unsafe extern "C" fn IndexReader_HasSeeker(_ir: *const IndexReader) -> bool {
     // The Rust `Decoder` implementation has a default seeker for all decoders
     true
 }

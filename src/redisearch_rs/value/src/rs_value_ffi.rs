@@ -73,11 +73,11 @@ impl RSValueFFI {
     /// 1. The `ptr` must be a [valid] pointer to a [`ffi::RSValue`].
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub unsafe fn from_raw(ptr: NonNull<ffi::RSValue>) -> Self {
+    pub const unsafe fn from_raw(ptr: NonNull<ffi::RSValue>) -> Self {
         Self(ptr)
     }
 
-    pub fn as_ptr(&self) -> *mut ffi::RSValue {
+    pub const fn as_ptr(&self) -> *mut ffi::RSValue {
         self.0.as_ptr()
     }
 }

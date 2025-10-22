@@ -125,7 +125,7 @@ impl Context<'_> {
     }
 
     /// Returns the owning [`ffi::QueryProcessingCtx`] of the pipeline.
-    pub fn parent(&mut self) -> Option<&ffi::QueryProcessingCtx> {
+    pub const fn parent(&mut self) -> Option<&ffi::QueryProcessingCtx> {
         // Safety: We trust that this result processor's pointer is valid.
         let query_processing_context_ptr = unsafe { self.ptr.as_ref() }.parent;
 
@@ -143,7 +143,7 @@ pub struct Upstream<'a> {
 }
 
 impl Upstream<'_> {
-    pub fn ty(&self) -> ffi::ResultProcessorType {
+    pub const fn ty(&self) -> ffi::ResultProcessorType {
         // Safety: We have to trust the pointer to this upstream result processor was set correctly.
         unsafe { self.ptr.as_ref().ty }
     }

@@ -54,8 +54,6 @@ def setup_basic_index(env):
     for doc_id, doc_data in test_data.items():
         conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_vector_direct_blob_knn():
     env = Env()
     setup_basic_index(env)
@@ -66,8 +64,6 @@ def test_hybrid_vector_direct_blob_knn():
     env.assertEqual(count, len(results.keys()))
     env.assertTrue(set(results.keys()) == {"doc:2"})
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_vector_direct_blob_knn_with_filter():
     env = Env()
     setup_basic_index(env)
@@ -78,8 +74,6 @@ def test_hybrid_vector_direct_blob_knn_with_filter():
     env.assertEqual(count, len(results.keys()))
     env.assertTrue(set(results.keys()) == {"doc:4"})
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_vector_direct_blob_range():
     env = Env()
     setup_basic_index(env)
@@ -90,8 +84,6 @@ def test_hybrid_vector_direct_blob_range():
     env.assertEqual(count, len(results.keys()))
     env.assertTrue(set(results.keys()) == {"doc:2", "doc:4"})
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_vector_direct_blob_range_with_filter():
     env = Env()
     setup_basic_index(env)
@@ -102,8 +94,6 @@ def test_hybrid_vector_direct_blob_range_with_filter():
     env.assertTrue(set(results.keys()) == {"doc:4"})
     env.assertEqual(count, len(results.keys()))
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_vector_invalid_filter_with_weight():
     """Test that hybrid vector filter fails when it contains weight attribute"""
     env = Env()
@@ -113,8 +103,6 @@ def test_hybrid_vector_invalid_filter_with_weight():
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
                 'KNN', '2', 'K', '2', 'FILTER', '@description:blue => {$weight: 2.0}').error().contains('Weight attributes are not allowed in FT.HYBRID VSIM FILTER')
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_vector_invalid_filter_with_vector():
     """Test that hybrid vector filter fails when it contains vector operations"""
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
