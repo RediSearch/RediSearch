@@ -2092,14 +2092,21 @@
                     "type": "integer"
                   },
                   {
-                    "name": "alpha",
-                    "type": "double",
-                    "token": "ALPHA"
-                  },
-                  {
-                    "name": "beta",
-                    "type": "double",
-                    "token": "BETA"
+                    "name": "weights",
+                    "type": "block",
+                    "optional": true,
+                    "arguments": [
+                      {
+                        "name": "alpha",
+                        "type": "double",
+                        "token": "ALPHA"
+                      },
+                      {
+                        "name": "beta",
+                        "type": "double",
+                        "token": "BETA"
+                      }
+                    ]
                   },
                   {
                     "name": "window",
@@ -2228,32 +2235,22 @@
         "optional": true,
         "arguments": [
           {
-            "name": "load",
-            "type": "pure-token",
+            "name": "count",
+            "type": "string",
             "token": "LOAD"
-          },
-          {
-            "name": "count_or_all",
-            "type": "oneof",
-            "arguments": [
-              {
-                "name": "count",
-                "type": "integer"
-              },
-              {
-                "name": "all",
-                "type": "pure-token",
-                "token": "*"
-              }
-            ]
           },
           {
             "name": "field",
             "type": "string",
-            "multiple": true,
-            "optional": true
+            "multiple": true
           }
         ]
+      },
+      {
+        "name": "loadall",
+        "type": "pure-token",
+        "token": "LOAD *",
+        "optional": true
       },
       {
         "name": "groupby",
