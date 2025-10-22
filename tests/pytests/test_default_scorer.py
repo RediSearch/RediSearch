@@ -141,14 +141,14 @@ def test_default_scorer_startup_validation():
     else:
         ext_path = 'tests/ctests/ext-example/libexample_extension.so'
     try:
-        env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER example_scorer2')
+        env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_SCORER example_scorer2 DEFAULT_DIALECT 2')
         assert not env.isUp()
     except Exception as e:
         # It sometimes captures the error of it not being up (PID dead and sometimes not). We cannot have a false positive that env.isUp but we still pass the test
         assert not isinstance(e, AssertionError)
 
     try:
-        env = Env(moduleArgs=f'DEFAULT_SCORER example_scorer ENABLE_UNSTABLE_FEATURES true')
+        env = Env(moduleArgs=f'ENABLE_UNSTABLE_FEATURES true DEFAULT_SCORER example_scorer')
         assert not env.isUp()
     except Exception as e:
         # It sometimes captures the error of it not being up (PID dead and sometimes not). We cannot have a false positive that env.isUp but we still pass the test
