@@ -140,6 +140,7 @@ jobs:
           max_attempts: 5
           retry_wait_seconds: 30
           command: |
+            source $HOME/.cargo/env
             .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
         uses: nick-fields/retry@v3
