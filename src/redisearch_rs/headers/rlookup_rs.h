@@ -10,6 +10,19 @@
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
 
+typedef struct RLookup {
+  struct RLookupKey *head;
+  struct RLookupKey *tail;
+  // Length of the data row. This is not necessarily the number
+  // of lookup keys
+  uint32_t rowlen;
+  // Flags/options
+  uint32_t options;
+  // If present, then GetKey will consult this list if the value is not found in
+  // the existing list of keys.
+  IndexSpecCache *spcache;
+} RLookup;
+
 typedef struct RLookupRow {
   uint8_t opaque;
 } RLookupRow;
@@ -146,16 +159,6 @@ typedef struct RLookupKey {
   struct RLookupKey *next;
 } RLookupKey;
 
-typedef struct KeyList {
-  struct RLookupKey *head;
-  struct RLookupKey *tail;
-  uint32_t rowlen;
-} KeyList;
-
-typedef struct RLookup {
-  struct KeyList keys;
-} RLookup;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -183,7 +186,7 @@ extern "C" {
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_Read(struct RLookup *lookup, const char *name, uint32_t flags);
+struct RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags);
 
 /**
  * Get a RLookup key for a given name.
@@ -209,7 +212,7 @@ struct RLookupKey *RLookup_GetKey_Read(struct RLookup *lookup, const char *name,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_ReadEx(struct RLookup *lookup,
+struct RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup,
                                          const char *name,
                                          size_t name_len,
                                          uint32_t flags);
@@ -236,7 +239,7 @@ struct RLookupKey *RLookup_GetKey_ReadEx(struct RLookup *lookup,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_Write(struct RLookup *lookup, const char *name, uint32_t flags);
+struct RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags);
 
 /**
  * Get a RLookup key for a given name.
@@ -261,7 +264,7 @@ struct RLookupKey *RLookup_GetKey_Write(struct RLookup *lookup, const char *name
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_WriteEx(struct RLookup *lookup,
+struct RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup,
                                           const char *name,
                                           size_t name_len,
                                           uint32_t flags);
@@ -290,7 +293,7 @@ struct RLookupKey *RLookup_GetKey_WriteEx(struct RLookup *lookup,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_Load(struct RLookup *lookup,
+struct RLookupKey *RLookup_GetKey_Load(RLookup *lookup,
                                        const char *name,
                                        const char *field_name,
                                        uint32_t flags);
@@ -320,7 +323,7 @@ struct RLookupKey *RLookup_GetKey_Load(struct RLookup *lookup,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_LoadEx(struct RLookup *lookup,
+struct RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup,
                                          const char *name,
                                          size_t name_len,
                                          const char *field_name,
@@ -338,7 +341,7 @@ struct RLookupKey *RLookup_GetKey_LoadEx(struct RLookup *lookup,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
+void RLookup_Init(RLookup *lookup, struct IndexSpecCache *spcache);
 
 /**
  * Releases any resources created by this lookup object. Note that if there are
@@ -352,7 +355,7 @@ void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_Cleanup(struct RLookup *lookup);
+void RLookup_Cleanup(RLookup *lookup);
 
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
@@ -421,7 +424,7 @@ void RLookupRow_Reset(RLookupRow *row);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Move(struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
+void RLookupRow_Move(RLookup *lookup, RLookupRow *src, RLookupRow *dst);
 
 /**
  * Write fields from a source row into a destination row, the fields must exist in both lookups (schemas).
@@ -440,9 +443,9 @@ void RLookupRow_Move(struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
  * 4. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
  */
 void RLookupRow_WriteFieldsFrom(RLookupRow *src_row,
-                                struct RLookup *src_lookup,
+                                RLookup *src_lookup,
                                 RLookupRow *dst_row,
-                                struct RLookup *dst_lookup);
+                                RLookup *dst_lookup);
 
 /**
  * Add all on-overridden keys from `src` to `self`.
@@ -461,8 +464,8 @@ void RLookupRow_WriteFieldsFrom(RLookupRow *src_row,
  * 1. `src` must be a [valid], non-null pointer to an [`RLookup`].
  * 2. `dst` must be a [valid], non-null pointer to an [`RLookup`].
  */
-void RLookup_AddKeysFrom(struct RLookup *src,
-                         struct RLookup *dst,
+void RLookup_AddKeysFrom(RLookup *src,
+                         RLookup *dst,
                          uint32_t flags);
 
 /**
