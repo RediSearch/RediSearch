@@ -22,6 +22,7 @@
 #include "resp3.h"
 #include "util/workers.h"
 #include "module.h"
+#include "coord/config.h"
 
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
@@ -382,9 +383,11 @@ CONFIG_SETTER(setWorkThreads) {
   }
   config->numWorkerThreads = newNumThreads;
 
-  workersThreadPool_SetNumWorkers();
-  // Trigger the connection per shard to be updated (only if we are in coordinator mode)
+  // Trigger the connection per shard to be updated FIRST (only if we are in coordinator mode)
+  // This MUST happen before workersThreadPool_SetNumWorkers() to avoid deadlock
   COORDINATOR_TRIGGER();
+  // Then terminate workers (may block waiting for workers to finish)
+  workersThreadPool_SetNumWorkers();
   return REDISMODULE_OK;
 }
 
@@ -396,12 +399,15 @@ CONFIG_GETTER(getWorkThreads) {
 // workers
 int set_workers(const char *name, long long val, void *privdata,
 RedisModuleString **err) {
-  uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
   config->numWorkerThreads = val;
+  // Trigger the connection per shard to be updated FIRST (only if we are in coordinator mode)
+  // This MUST happen before workersThreadPool_SetNumWorkers() to avoid deadlock
+  // Note: We directly call triggerConnPerShard instead of using COORDINATOR_TRIGGER() macro
+  // because this function doesn't receive the externalTriggerId parameter (Redis Module API limitation)
+  triggerConnPerShard(config);
+  // Then terminate workers (may block waiting for workers to finish)
   workersThreadPool_SetNumWorkers();
-  // Trigger the connection per shard to be updated (only if we are in coordinator mode)
-  COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
 
