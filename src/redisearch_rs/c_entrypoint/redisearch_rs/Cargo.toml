@@ -26,6 +26,7 @@ mock_allocator = []
 
 [dependencies]
 buffer = { workspace = true }
+query_error_ffi = { path = "../query_error_ffi" }
 result_processor_ffi = { path = "../result_processor_ffi" }
 triemap_ffi = { path = "../triemap_ffi" }
 types_ffi = { path = "../types_ffi" }

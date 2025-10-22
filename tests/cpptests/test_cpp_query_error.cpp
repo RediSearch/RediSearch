@@ -8,7 +8,7 @@
 */
 
 #include "gtest/gtest.h"
-#include "src/query_error.h"
+#include "src/redisearch_rs/headers/query_error.h"
 #include "src/rmalloc.h"
 #include <string.h>
 
@@ -24,7 +24,7 @@ TEST_F(QueryErrorTest, testQueryErrorStrerror) {
   ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_BAD_ATTR), "Attribute not supported for term");
 
   // Test unknown error code
-  ASSERT_STREQ(QueryError_Strerror((QueryErrorCode)9999), "Unknown status code");
+  ASSERT_STREQ(QueryError_Strerror((QueryErrorCode)-1), "Unknown status code");
 }
 
 TEST_F(QueryErrorTest, testQueryErrorSetError) {
@@ -91,7 +91,8 @@ TEST_F(QueryErrorTest, testQueryErrorClear) {
   QueryError_ClearError(&err);
   ASSERT_FALSE(QueryError_HasError(&err));
   ASSERT_TRUE(QueryError_IsOk(&err));
-  ASSERT_TRUE(err._detail == NULL);
+  // Checks that detail is not set
+  ASSERT_STREQ(QueryError_GetDisplayableError(&err, false), "Success (not an error)");
 }
 
 TEST_F(QueryErrorTest, testQueryErrorGetCode) {
@@ -186,8 +187,8 @@ TEST_F(QueryErrorTest, testQueryErrorMaybeSetCode) {
   QueryError_MaybeSetCode(&err, QUERY_ERROR_CODE_SYNTAX);
   ASSERT_TRUE(QueryError_IsOk(&err));
 
-  // Manually set detail (simulating external function setting it)
-  err._detail = rm_strdup("Some detail");
+  // Simulating detail being set
+  QueryError_SetDetail(&err, "Some detail");
   QueryError_MaybeSetCode(&err, QUERY_ERROR_CODE_SYNTAX);
   ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
 
