@@ -14,7 +14,7 @@ use criterion::{
     measurement::WallTime,
 };
 use ffi::IndexFlags_Index_DocIdsOnly;
-use inverted_index::{InvertedIndex, RSIndexResult, numeric};
+use inverted_index::{IndexBlock, InvertedIndex, RSIndexResult, numeric};
 // Force linking to the library that contains the mock implementations
 #[allow(unused_imports)]
 use inverted_index_bencher;
@@ -65,7 +65,8 @@ fn benchmark_gc_pattern(
             }
 
             b.iter(|| {
-                ii.scan_gc(&doc_exist, |_r, _b| {}).unwrap();
+                ii.scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
+                    .unwrap();
             })
         },
     );
@@ -82,7 +83,10 @@ fn benchmark_gc_pattern(
                         ii.add_record(&RSIndexResult::numeric(doc_id as f64 / 10.0).doc_id(doc_id))
                             .unwrap();
                     }
-                    let scan_deltas = ii.scan_gc(&doc_exist, |_r, _b| {}).unwrap().unwrap();
+                    let scan_deltas = ii
+                        .scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
+                        .unwrap()
+                        .unwrap();
 
                     (ii, scan_deltas)
                 },
@@ -127,7 +131,8 @@ fn benchmark_large_delta_pattern(group: &mut BenchmarkGroup<'_, WallTime>) {
             }
 
             b.iter(|| {
-                ii.scan_gc(&doc_exist, |_r, _b| {}).unwrap();
+                ii.scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
+                    .unwrap();
             })
         },
     );
@@ -145,7 +150,10 @@ fn benchmark_large_delta_pattern(group: &mut BenchmarkGroup<'_, WallTime>) {
                         ii.add_record(&RSIndexResult::numeric(doc_id as f64 / 10.0).doc_id(doc_id))
                             .unwrap();
                     }
-                    let scan_deltas = ii.scan_gc(&doc_exist, |_r, _b| {}).unwrap().unwrap();
+                    let scan_deltas = ii
+                        .scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
+                        .unwrap()
+                        .unwrap();
 
                     (ii, scan_deltas)
                 },

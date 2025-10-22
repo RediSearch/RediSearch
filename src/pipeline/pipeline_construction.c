@@ -3,6 +3,9 @@
 #include "query_optimizer.h"
 #include "vector_normalization.h"
 #include "vector_index.h"
+#include "iterators/hybrid_reader.h"
+#include "iterators/idlist_iterator.h"
+#include "util/misc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,7 +46,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
-    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err);
+    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err, gstp->strictPrefix);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
@@ -129,9 +132,10 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
     // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
     // that it has no results), but we still want the rest of the pipeline to know about the additional field name,
     // because there is no syntax error and the sorter should be able to "sort" by this field.
-    // If there is a pointer to the node's RLookupKey, write the address.
-    if (requests[i].key_ptr)
-      *requests[i].key_ptr = key;
+    // If there is a handle to the node's RLookupKey, write the address if the handle is still valid.
+    if (requests[i].key_handle && requests[i].key_handle->is_valid) {
+      *requests[i].key_handle->key_ptr = key;
+    }
   }
   return RPMetricsLoader_New();
 }
@@ -266,9 +270,9 @@ static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t
     const char *name, *path = AC_GetStringNC(ac, &name_len);
 
     // Handle path prefix (@)
-    if (*path == '@') {
-      path++;
-      name_len--;
+    path = ExtractKeyName(path, &name_len, status, loadStep->strictPrefix, "LOAD");
+    if (!path) {
+      return REDISMODULE_ERR;
     }
 
     // Check for AS alias

@@ -476,7 +476,7 @@ static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
 }
 
 // Field names for implicit LOAD step
-#define HYBRID_IMPLICIT_KEY_FIELDS UNDERSCORE_KEY, UNDERSCORE_SCORE
+#define HYBRID_IMPLICIT_KEY_FIELDS "@" UNDERSCORE_KEY, "@" UNDERSCORE_SCORE
 #define HYBRID_IMPLICIT_KEY_FIELD_COUNT 2
 
 /**
@@ -728,7 +728,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   handleLoadStepForHybridPipelines(parsedCmdCtx->tailPlan, &searchRequest->pipeline.ap, &vectorRequest->pipeline.ap);
 
   if (!(*mergeReqflags & QEXEC_F_NO_SORT)) {
-    // No SORTBY 0 - add implicit sort-by-score
+    // No NOSORT - add implicit sort-by-score
     AGPLN_GetOrCreateArrangeStep(parsedCmdCtx->tailPlan);
   }
 

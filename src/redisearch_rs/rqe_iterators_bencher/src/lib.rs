@@ -7,6 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(
+    clippy::undocumented_unsafe_blocks,
+    clippy::missing_safety_doc,
+    clippy::multiple_unsafe_ops_per_block
+)]
+
 use ::ffi::{
     __BindgenBitfieldUnit, RSValue, RSValue__bindgen_ty_1, RSYieldableMetric, array_clear_func,
     array_ensure_append_n_func, array_free,
@@ -22,6 +28,7 @@ pub use types_ffi::NewVirtualResult;
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
