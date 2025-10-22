@@ -237,5 +237,8 @@ fn skip_between_any_pair() {
 #[test]
 fn revalidate() {
     let mut it = IdList::new(vec![1, 2, 3]);
-    assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    assert_eq!(
+        it.revalidate().expect("revalidate failed"),
+        RQEValidateStatus::Ok
+    );
 }
