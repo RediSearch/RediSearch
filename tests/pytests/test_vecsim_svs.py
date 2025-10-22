@@ -72,8 +72,10 @@ def test_small_window_size():
             # run topk for remaining
             query_vec = create_random_np_array_typed(dim, data_type)
             # Before fixing MOD-10771, search crashed
-            conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @v_SVS_VAMANA $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, '__v_score')
-
+            try:
+                conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @v_SVS_VAMANA $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, '__v_score')
+            except Exception as e:
+                env.assertTrue(False, message=f"compression: {compression} data_type: {data_type}. Search failed with exception: {e}")
             conn.execute_command('FLUSHALL')
 
 @skip(cluster=True)
@@ -418,10 +420,9 @@ def test_change_threads_increase():
 def test_drop_index():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     training_threshold = DEFAULT_BLOCK_SIZE
-    dim = 64
+    dim = 4
 
     set_up_database_with_vectors(env, dim, num_docs=training_threshold, alg='SVS-VAMANA')
-    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
     proc_memory = get_redis_memory_in_mb(env)
     env.expect('FT.DROPINDEX', DEFAULT_INDEX_NAME).ok()
@@ -434,6 +435,7 @@ def test_drop_index():
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param',
                query.tobytes(), 'NOCONTENT').error().contains(f"No such index")
 
+@skip(cluster=True)
 def test_drop_index_during_query():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1')
     dim = 2

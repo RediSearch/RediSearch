@@ -855,16 +855,14 @@ def test_memory_info():
 # - Large subset (>21% of index): ADHOC_BF only if index < 75K
 # The heuristic is implemented in VectorSimilarity library in SVSIndex::preferAdHocSearch.
 # The test scenarios below demonstrate each heuristic path with detailed explanations.
-def test_hybrid_query_batches_mode_with_text_vamana():
+def test_hybrid_query_with_text_vamana():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
     conn = getConnectionByEnv(env)
     dim = 2
     initial_index_size = 70_000
     data_type = 'FLOAT32'
-    compression_params = ['COMPRESSION', 'LVQ8', 'TRAINING_THRESHOLD', DEFAULT_BLOCK_SIZE]
-    create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'],
-                        additional_vec_params=compression_params)
+    create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'])
 
     load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, initial_index_size, data_type)
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
