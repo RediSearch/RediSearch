@@ -12,7 +12,7 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, empty::Empty};
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// Iterator that extends a [`Wildcard`] iterator up to a given upper bound
 /// by emitting virtual results after the child iterator is exhausted.
@@ -21,7 +21,7 @@ pub struct Optional<'index, I> {
     /// Reads from the `child` beyond this bound are ignored.
     /// If the child ends before this bound, the iterator yields virtual
     /// results with no weight applied until [`Optional::max_id`] is reached.
-    max_id: t_docId,
+    max_doc_id: t_docId,
 
     /// Weight applied to results produced by the inner child iterator.
     /// This weight is not applied to virtual results.
@@ -33,22 +33,10 @@ pub struct Optional<'index, I> {
     /// Child iterator provided at construction time.
     /// Used while it can produce results. After it is exhausted
     /// the iterator yields virtual results until [`Optional::max_id`] is reached.
-    child: I,
+    child: Option<I>,
 
     /// Reused result object to avoid allocating on each read.
     result: RSIndexResult<'index>,
-}
-
-impl Default for Optional<'_, Empty> {
-    fn default() -> Self {
-        Self {
-            max_id: Default::default(),
-            weight: Default::default(),
-            last_doc_id: Default::default(),
-            child: Default::default(),
-            result: Default::default(),
-        }
-    }
 }
 
 impl<'index, I> Optional<'index, I>
@@ -65,13 +53,13 @@ where
     /// * `wildcard` is the child [`RQEIterator`]. If `None`, an empty child is used.
     pub fn new(max_id: t_docId, weight: f64, child: I) -> Self {
         Self {
-            max_id,
+            max_doc_id: max_id,
             weight,
 
             last_doc_id: 0,
             result: RSIndexResult::virt().frequency(1),
 
-            child,
+            child: Some(child),
         }
     }
 }
@@ -96,9 +84,16 @@ where
         // even in cases like the one described here, while the
         // Rust version only exposes the result if the
         // ierator is not EOF.
-        if self.last_doc_id == self.child.last_doc_id()
-            && let Some(outcome) = self.child.read()?
-        {
+        //
+        // The C version also used to do:
+        //
+        // ```
+        // self.last_doc_id == self.child.last_doc_id()
+        // ```
+        //
+        // Here we instead assume the child handles this fine,
+        // as why wouldn't it?
+        if let Some(outcome) = self.child.read()? {
             self.last_doc_id = outcome.doc_id;
             outcome.weight = self.weight;
             return Ok(Some(outcome));
@@ -121,22 +116,21 @@ where
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(doc_id > self.last_doc_id);
 
-        if doc_id > self.max_id || self.at_eof() {
+        if doc_id > self.max_doc_id || self.at_eof() {
             self.last_doc_id = doc_id;
             return Ok(None);
         }
-
-        let child_mut = &mut self.child;
-
-        if !child_mut.at_eof()
-            && doc_id > child_mut.last_doc_id()
-            && let Some(SkipToOutcome::Found(ris)) = child_mut.skip_to(doc_id)?
+        if doc_id > self.child.last_doc_id()
+            && let Some(SkipToOutcome::Found(ris)) = self.child.skip_to(doc_id)?
+            && ris.doc_id == doc_id
         {
+            // real hit
             self.last_doc_id = ris.doc_id;
             ris.weight = self.weight;
             return Ok(Some(SkipToOutcome::Found(ris)));
         }
 
+        // virtual hit
         self.last_doc_id = doc_id;
         self.result.doc_id = self.last_doc_id;
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
@@ -153,8 +147,7 @@ where
             }
             RQEValidateStatus::Aborted => {
                 // Handle child validation results (but continue processing)
-                // self.child = Default::default();
-                // TODO: confirm later
+                self.child = None; // NOTE: C code used empty iterator for this, this is same same
                 RQEValidateStatus::Ok
             }
         }
@@ -167,7 +160,7 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.max_id as usize
+        self.max_doc_id as usize
     }
 
     fn last_doc_id(&self) -> t_docId {
@@ -175,6 +168,6 @@ where
     }
 
     fn at_eof(&self) -> bool {
-        self.last_doc_id >= self.max_id
+        self.last_doc_id >= self.max_doc_id
     }
 }

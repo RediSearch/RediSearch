@@ -14,35 +14,6 @@ use rqe_iterators::{
 mod c_mocks;
 
 #[test]
-fn read_default() {
-    let mut it = Optional::default();
-    assert_eq!(it.num_estimated(), 0);
-
-    assert!(it.at_eof());
-
-    assert!(matches!(it.read(), Ok(None)));
-    assert!(it.at_eof());
-
-    assert!(matches!(it.read(), Ok(None)));
-
-    assert_eq!(it.num_estimated(), 0);
-}
-
-#[test]
-fn rewind_default() {
-    let mut it = Optional::default();
-
-    assert!(matches!(it.read(), Ok(None)));
-    assert!(it.at_eof());
-
-    it.rewind();
-    assert!(it.at_eof());
-
-    assert!(matches!(it.read(), Ok(None)));
-    assert!(it.at_eof());
-}
-
-#[test]
 fn read_pure_virtual() {
     let mut it = Optional::new(2, 3., Empty::default());
     assert_eq!(it.num_estimated(), 2);
@@ -124,17 +95,6 @@ fn read_hybrid_virtual() {
     assert!(matches!(it.read(), Ok(None)));
 
     assert_eq!(it.num_estimated(), 5);
-}
-
-#[test]
-fn skip_to_default() {
-    let mut it = Optional::default();
-
-    assert!(matches!(it.skip_to(1), Ok(None)));
-    assert!(it.at_eof());
-
-    assert!(matches!(it.skip_to(42), Ok(None)));
-    assert!(matches!(it.skip_to(1000), Ok(None)));
 }
 
 #[test]
@@ -564,12 +524,6 @@ fn rewind_hybrid_virtual() {
 
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
-}
-
-#[test]
-fn revalidate_default() {
-    let mut it = Optional::default();
-    assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
 }
 
 #[test]
