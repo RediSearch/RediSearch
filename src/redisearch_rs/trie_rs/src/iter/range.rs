@@ -40,7 +40,7 @@ pub struct RangeBoundary<'a> {
 
 impl<'a> RangeBoundary<'a> {
     /// Create a new range boundary that includes its boundary value.
-    pub fn included(value: &'a [u8]) -> Self {
+    pub const fn included(value: &'a [u8]) -> Self {
         Self {
             value,
             is_included: true,
@@ -48,7 +48,7 @@ impl<'a> RangeBoundary<'a> {
     }
 
     /// Create a new range boundary that doesn't include its boundary value.
-    pub fn excluded(value: &'a [u8]) -> Self {
+    pub const fn excluded(value: &'a [u8]) -> Self {
         Self {
             value,
             is_included: false,
@@ -64,7 +64,7 @@ pub struct RangeFilter<'a> {
 
 impl RangeFilter<'_> {
     /// A filter that matches all entries.
-    pub fn all() -> Self {
+    pub const fn all() -> Self {
         Self {
             min: None,
             max: None,

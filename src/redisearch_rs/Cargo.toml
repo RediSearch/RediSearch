@@ -50,6 +50,8 @@ undocumented_unsafe_blocks = "warn"
 # We can also more easily track the amount of unsafe operations throughout
 # the codebase.
 multiple_unsafe_ops_per_block = "warn"
+# Ensure const usage to allow for more compile-time optimizations.
+missing_const_for_fn = "warn"
 
 [workspace.package]
 version = "0.0.1"
