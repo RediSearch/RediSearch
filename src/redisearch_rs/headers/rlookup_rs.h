@@ -445,6 +445,27 @@ void RLookupRow_WriteFieldsFrom(RLookupRow *src_row,
                                 struct RLookup *dst_lookup);
 
 /**
+ * Add all on-overridden keys from `src` to `self`.
+ *
+ * For each key in src, check if it already exists *by name*.
+ * - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+ * - If it doesn't a new key will ne created.
+ *
+ * Flag handling:
+ *  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+ *  * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+ *  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+ *  * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+ *
+ * # Safety:
+ * 1. `src` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. `dst` must be a [valid], non-null pointer to an [`RLookup`].
+ */
+void RLookup_AddKeysFrom(struct RLookup *src,
+                         struct RLookup *dst,
+                         uint32_t flags);
+
+/**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
  * The function first checks for dynamic values, and if not found, it checks the sorting vector
  * if the `SvSrc` flag is set in the key.
