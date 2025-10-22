@@ -116,7 +116,7 @@ jobs:
               ;;
           esac
       - name: Setup
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v2.9.0
         with:
           timeout_minutes: 10
           max_attempts: 5
@@ -125,7 +125,7 @@ jobs:
             cd .install
             ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Install aws cli
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v2.9.0
         with:
           timeout_minutes: 10
           max_attempts: 5
@@ -134,7 +134,7 @@ jobs:
             cd .install
             ./install_aws.sh ${{ steps.mode.outputs.mode }}
       - name: Setup test dependencies
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v2.9.0
         with:
           timeout_minutes: 10
           max_attempts: 5
@@ -143,7 +143,7 @@ jobs:
             source $HOME/.cargo/env
             .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v2.9.0
         with:
           timeout_minutes: 10
           max_attempts: 5

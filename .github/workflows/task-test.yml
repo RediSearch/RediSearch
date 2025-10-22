@@ -145,7 +145,7 @@ jobs:
           echo "Runner Architecture: ${{ runner.arch }}"
           echo "========================"
       - name: Setup
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v2.9.0
         with:
           timeout_minutes: 10
           max_attempts: 5
@@ -154,7 +154,7 @@ jobs:
             cd .install
             ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Setup tests dependencies
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v2.9.0
         with:
           timeout_minutes: 10
           max_attempts: 5
@@ -163,7 +163,7 @@ jobs:
             .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: Install LLVM for sanitizer
         if: inputs.san == 'address'
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v2.9.0
         with:
           timeout_minutes: 10
           max_attempts: 5
