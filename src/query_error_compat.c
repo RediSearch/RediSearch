@@ -17,6 +17,10 @@
  * Not implemented in Rust as variadic functions are not supported across an FFI boundary.
  */
 void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char* message, const char *fmt, ...) {
+  if (QueryError_HasError(status)) {
+    return;
+  }
+
   char *formatted = NULL;
   va_list ap;
   va_start(ap, fmt);
@@ -39,6 +43,10 @@ void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, cons
  * Not implemented in Rust as variadic functions are not supported across an FFI boundary.
  */
 void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
+  if (QueryError_HasError(status)) {
+    return;
+  }
+
   char *formatted = NULL;
   va_list ap;
   va_start(ap, fmt);
