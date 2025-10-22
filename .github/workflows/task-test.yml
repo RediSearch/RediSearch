@@ -150,7 +150,6 @@ jobs:
           timeout_minutes: 10
           max_attempts: 5
           retry_wait_seconds: 30
-          shell: bash -l -eo pipefail {0}
           command: |
             cd .install
             ./install_script.sh ${{ steps.mode.outputs.mode }}
@@ -160,7 +159,6 @@ jobs:
           timeout_minutes: 10
           max_attempts: 5
           retry_wait_seconds: 30
-          shell: bash -l -eo pipefail {0}
           command: |
             .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: Install LLVM for sanitizer
@@ -170,7 +168,6 @@ jobs:
           timeout_minutes: 10
           max_attempts: 5
           retry_wait_seconds: 30
-          shell: bash -l -eo pipefail {0}
           command: |
             cd .install
             ./install_llvm.sh ${{ steps.mode.outputs.mode }}
