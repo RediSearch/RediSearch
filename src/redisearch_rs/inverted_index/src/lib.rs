@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
-    io::{BufRead, Cursor, Seek, Write},
+    io::{Cursor, Seek, Write},
     sync::atomic::{self, AtomicUsize},
 };
 
@@ -374,7 +374,7 @@ impl IndexBlock {
 
         let mut tmp_inverted_index = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, encoder);
 
-        while !cursor.fill_buf()?.is_empty() {
+        while self.buffer.len() as u64 > cursor.position() {
             let base = D::base_id(self, last_read_doc_id.unwrap_or(self.first_doc_id));
             decoder.decode(&mut cursor, base, &mut result)?;
 
@@ -1125,8 +1125,8 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
 {
     #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
-        // Check if the current buffer is empty
-        if self.current_buffer.fill_buf()?.is_empty() {
+        // Check if the current buffer is empty or the end of the buffer has been reached
+        if self.current_buffer.get_ref().len() as u64 <= self.current_buffer.position() {
             if self.current_block_idx + 1 >= self.ii.blocks.len() {
                 // No more blocks to read from
                 return Ok(false);
