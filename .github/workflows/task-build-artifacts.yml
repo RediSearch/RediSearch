@@ -142,10 +142,11 @@ jobs:
               ;;
           esac
       - name: Setup
+        working-directory: .install
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if cd .install && ./install_script.sh ${{ steps.mode.outputs.mode }}; then
+            if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
               echo "Setup succeeded"
               exit 0
             fi
@@ -157,10 +158,11 @@ jobs:
           echo "Setup failed after 5 attempts"
           exit 1
       - name: Install aws cli
+        working-directory: .install
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if cd .install && ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
+            if cd ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
               echo "Install aws cli succeeded"
               exit 0
             fi
@@ -175,7 +177,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if source $HOME/.cargo/env && .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
+            if .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
               echo "Setup test dependencies succeeded"
               exit 0
             fi
