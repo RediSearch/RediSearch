@@ -246,6 +246,9 @@ pub trait Decoder {
     }
 }
 
+/// Marker trait for decoders producing numeric results.
+pub trait NumericDecoder: Decoder {}
+
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
 pub struct InvertedIndex<E> {
@@ -1155,6 +1158,15 @@ pub trait IndexReader<'index> {
     fn needs_revalidation(&self) -> bool;
 }
 
+/// Marker trait for readers producing numeric values.
+pub trait NumericReader<'index>: IndexReader<'index> {}
+
+// Automatically implemented if the IndexReaderCore uses a NumericDecoder.
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + NumericDecoder> NumericReader<'index>
+    for IndexReaderCore<'index, E, D>
+{
+}
+
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     for IndexReaderCore<'index, E, D>
 {
@@ -1450,7 +1462,7 @@ pub struct FilterNumericReader<'filter, IR> {
     inner: IR,
 }
 
-impl<'filter, 'index, IR: IndexReader<'index>> FilterNumericReader<'filter, IR> {
+impl<'filter, 'index, IR: NumericReader<'index>> FilterNumericReader<'filter, IR> {
     /// Create a new filter numeric reader with the given filter and inner iterator.
     pub const fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
         Self { filter, inner }
@@ -1566,6 +1578,9 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
     }
 }
 
+/// A [`FilterNumericReader`] wrapping a [`NumericReader'] is also a [`NumericReader`].
+impl<'index, IR: NumericReader<'index>> NumericReader<'index> for FilterNumericReader<'index, IR> {}
+
 /// A reader that filters out records that do not match a given geo filter. It is used to
 /// filter records in an index based on their geo location, allowing only those that match the
 /// specified geo filter to be returned.
@@ -1584,7 +1599,7 @@ pub struct FilterGeoReader<'filter, IR> {
     inner: IR,
 }
 
-impl<'filter, 'index, IR: IndexReader<'index>> FilterGeoReader<'filter, IR> {
+impl<'filter, 'index, IR: NumericReader<'index>> FilterGeoReader<'filter, IR> {
     /// Create a new filter geo reader with the given numeric filter and inner iterator
     ///
     /// # Safety
@@ -1722,6 +1737,9 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
         self.inner.internal_index()
     }
 }
+
+/// A [`FilterGeoReader`] wrapping a [`NumericReader'] is also a [`NumericReader`].
+impl<'index, IR: NumericReader<'index>> NumericReader<'index> for FilterGeoReader<'index, IR> {}
 
 #[cfg(test)]
 mod tests;
