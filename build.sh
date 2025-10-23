@@ -859,9 +859,64 @@ run_python_tests() {
   # Debug: Disk usage after Python tests (MOD-12008)
   if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
     if [[ "$REDIS_STANDALONE" == "1" ]]; then
-      debug_disk_usage "After Python Flow Tests (Standalone, before coverage capture)"
+      debug_disk_usage "After Python Flow Tests (Standalone, before cleanup)"
     else
-      debug_disk_usage "After Python Flow Tests (Coordinator, before coverage capture)"
+      debug_disk_usage "After Python Flow Tests (Coordinator, before cleanup)"
+    fi
+  fi
+
+  # Clean up test artifacts to free disk space (MOD-12008)
+  # Python tests generate significant amounts of temporary data:
+  # - Redis dump files (dump.rdb) can be hundreds of MB each
+  # - Test logs can accumulate to several GB
+  # - Temporary test data and caches
+  if [[ $COV == 1 ]]; then
+    echo "Cleaning up test artifacts to free disk space..."
+
+    # Clean up Redis dump files
+    DUMP_COUNT=$(find "$ROOT/tests" -name "dump.rdb" 2>/dev/null | wc -l)
+    if [[ $DUMP_COUNT -gt 0 ]]; then
+      echo "  Removing $DUMP_COUNT Redis dump files..."
+      find "$ROOT/tests" -name "dump.rdb" -delete 2>/dev/null || true
+    fi
+
+    # Clean up test log files
+    LOG_COUNT=$(find "$ROOT/tests" -name "*.log" 2>/dev/null | wc -l)
+    if [[ $LOG_COUNT -gt 0 ]]; then
+      echo "  Removing $LOG_COUNT test log files..."
+      find "$ROOT/tests" -name "*.log" -delete 2>/dev/null || true
+    fi
+
+    # Clean up temporary directories
+    TMP_DIRS=$(find "$ROOT/tests" -type d -name "tmp" 2>/dev/null | wc -l)
+    if [[ $TMP_DIRS -gt 0 ]]; then
+      echo "  Removing $TMP_DIRS temporary directories..."
+      find "$ROOT/tests" -type d -name "tmp" -exec rm -rf {} + 2>/dev/null || true
+    fi
+
+    # Clean up Python cache directories
+    PYCACHE_DIRS=$(find "$ROOT/tests" -type d -name "__pycache__" 2>/dev/null | wc -l)
+    if [[ $PYCACHE_DIRS -gt 0 ]]; then
+      echo "  Removing $PYCACHE_DIRS Python cache directories..."
+      find "$ROOT/tests" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    fi
+
+    # Clean up .pyc files
+    PYC_COUNT=$(find "$ROOT/tests" -name "*.pyc" 2>/dev/null | wc -l)
+    if [[ $PYC_COUNT -gt 0 ]]; then
+      echo "  Removing $PYC_COUNT .pyc files..."
+      find "$ROOT/tests" -name "*.pyc" -delete 2>/dev/null || true
+    fi
+
+    echo "Test artifact cleanup complete."
+
+    # Debug: Disk usage after cleanup (MOD-12008)
+    if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+      if [[ "$REDIS_STANDALONE" == "1" ]]; then
+        debug_disk_usage "After Test Artifact Cleanup (Standalone)"
+      else
+        debug_disk_usage "After Test Artifact Cleanup (Coordinator)"
+      fi
     fi
   fi
 
