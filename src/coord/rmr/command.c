@@ -11,6 +11,7 @@
 #include "command.h"
 #include "rmalloc.h"
 #include "resp3.h"
+#include "slot_ranges.h"
 
 #include "version.h"
 
@@ -217,4 +218,48 @@ void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
   cmd->protocol = is_resp3(ctx) ? 3 : 2;
+}
+
+/**
+ * Helper function to add slot range information to a command.
+ * Adds RANGE_SLOTS_BINARY, SIZE_BINARY, and BINARY_DATA arguments.
+ *
+ * @param cmd The command to add slot information to
+ * @param slotArray the slot range array to serialize
+ * @return true on success, false on failure
+ */
+bool MRCommand_AddSlotRangeInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slotArray) {
+  // Calculate required buffer size for binary serialization
+  uint32_t num_ranges = (uint32_t)slotArray->num_ranges;
+  size_t binary_size = RedisModuleSlotRangeArray_SerializedSize_Binary(num_ranges);
+
+  // Allocate buffer for binary data
+  uint8_t *binary_buf = rm_malloc(binary_size);
+  if (!binary_buf) {
+    return false;
+  }
+
+  // Serialize slot ranges to binary format
+  bool serialize_success = RedisModuleSlotRangeArray_SerializeBinary(
+      slotArray, binary_buf, binary_size);
+
+  if (!serialize_success) {
+    rm_free(binary_buf);
+    return false;
+  }
+
+  // Add the slot range arguments to the command
+  MRCommand_Append(cmd, "RANGE_SLOTS_BINARY", strlen("RANGE_SLOTS_BINARY"));
+
+  // Add size as string
+  char size_str[32];
+  snprintf(size_str, sizeof(size_str), "%zu", binary_size);
+  MRCommand_Append(cmd, size_str, strlen(size_str));
+
+  // Add binary data
+  MRCommand_Append(cmd, (const char*)binary_buf, binary_size);
+
+  // Clean up
+  rm_free(binary_buf);
+  return true;
 }

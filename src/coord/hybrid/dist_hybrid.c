@@ -236,7 +236,8 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     }
   }
 
-  // TODO(Joan): Add slot information from topology (for FT.HYBRID)
+  // Add slot information from topology (for FT.HYBRID)
+  // Note: Slot information will be added later in the RMR layer when commands are sent to shards
 }
 
 // UPDATED: Set RPNet types when creating them
