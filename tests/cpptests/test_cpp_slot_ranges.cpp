@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "rmalloc.h"
-#include "src/redismodule.h"
 #include "src/slot_ranges.h"
 
 class SlotRangesTest : public ::testing::Test {
@@ -42,18 +41,6 @@ protected:
 TEST_F(SlotRangesTest, testExactMatch) {
     auto* ranges1 = createSlotRangeArray({{0, 100}, {200, 300}});
     auto* ranges2 = createSlotRangeArray({{0, 100}, {200, 300}});
-
-    SlotRangesComparisonResult result = CompareSlotRanges(ranges1, ranges2);
-    EXPECT_EQ(result, SLOT_RANGES_MATCH);
-
-    freeSlotRangeArray(ranges1);
-    freeSlotRangeArray(ranges2);
-}
-
-// Test exact match with different order
-TEST_F(SlotRangesTest, testExactMatchDifferentOrder) {
-    auto* ranges1 = createSlotRangeArray({{0, 100}, {200, 300}});
-    auto* ranges2 = createSlotRangeArray({{200, 300}, {0, 100}});
 
     SlotRangesComparisonResult result = CompareSlotRanges(ranges1, ranges2);
     EXPECT_EQ(result, SLOT_RANGES_MATCH);
@@ -129,18 +116,6 @@ TEST_F(SlotRangesTest, testSingleSlotSubset) {
 
     SlotRangesComparisonResult result = CompareSlotRanges(expected, actual);
     EXPECT_EQ(result, SLOT_RANGES_SUBSET);
-
-    freeSlotRangeArray(expected);
-    freeSlotRangeArray(actual);
-}
-
-// Test edge case: adjacent ranges (should be considered a match)
-TEST_F(SlotRangesTest, testAdjacentRanges) {
-    auto* expected = createSlotRangeArray({{0, 50}, {51, 100}});
-    auto* actual = createSlotRangeArray({{0, 100}});
-
-    SlotRangesComparisonResult result = CompareSlotRanges(expected, actual);
-    EXPECT_EQ(result, SLOT_RANGES_MATCH);  // Adjacent ranges cover same slots as single range
 
     freeSlotRangeArray(expected);
     freeSlotRangeArray(actual);
@@ -237,18 +212,6 @@ TEST_F(SlotRangesTest, testBoundaryConditions) {
 
     SlotRangesComparisonResult result = CompareSlotRanges(expected, actual);
     EXPECT_EQ(result, SLOT_RANGES_SUBSET);
-
-    freeSlotRangeArray(expected);
-    freeSlotRangeArray(actual);
-}
-
-// Test fragmented vs consolidated ranges
-TEST_F(SlotRangesTest, testFragmentedVsConsolidated) {
-    auto* expected = createSlotRangeArray({{0, 10}, {11, 20}, {21, 30}, {31, 40}});
-    auto* actual = createSlotRangeArray({{0, 40}});
-
-    SlotRangesComparisonResult result = CompareSlotRanges(expected, actual);
-    EXPECT_EQ(result, SLOT_RANGES_MATCH);  // Same slots, different representation
 
     freeSlotRangeArray(expected);
     freeSlotRangeArray(actual);

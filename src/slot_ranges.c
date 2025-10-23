@@ -83,38 +83,46 @@ SlotRangesComparisonResult CompareSlotRanges(const RedisModuleSlotRangeArray *ra
   RS_ASSERT(ranges_expected->num_ranges > 0)
   RS_ASSERT(ranges_actual->num_ranges > 0)
 
-  bool all_slots_covered = true;
-  bool exact_match = true;
-
-  // Check if all expected ranges are covered by actual ranges
-  for (int i = 0; i < ranges_expected->num_ranges; i++) {
-    const RedisModuleSlotRange *expected_range = &ranges_expected->ranges[i];
-
-    // Check every slot in this expected range
-    for (uint16_t slot = expected_range->start; slot <= expected_range->end; slot++) {
-      if (!SlotInRanges(ranges_actual, slot)) {
-        return SLOT_RANGES_DOES_NOT_INCLUDE;
-      }
-    }
+  const uint16_t num_expected = ranges_expected->num_ranges;
+  const uint16_t num_actual = ranges_actual->num_ranges;
+  // Fast path: identical arrays => MATCH
+  if (num_expected == num_actual &&
+      memcmp(ranges_expected->ranges, ranges_actual->ranges,
+             (size_t)ranges_expected->num_ranges * sizeof(RedisModuleSlotRange)) == 0) {
+      return SLOT_RANGES_MATCH;
   }
 
-  // At this point, we know all expected slots are covered by actual ranges
-  // Now check if it's an exact match by verifying actual doesn't have extra slots
-  for (int i = 0; i < ranges_actual->num_ranges; i++) {
-    const RedisModuleSlotRange *actual_range = &ranges_actual->ranges[i];
+  // Coverage check: every ranges_expected[i] must be fully covered by union of ranges_actual
+  uint16_t i = 0; // index in ranges_expected
+  uint16_t j = 0; // index in ranges_actual
 
-    // Check every slot in this actual range
-    for (uint16_t slot = actual_range->start; slot <= actual_range->end; slot++) {
-      if (!SlotInRanges(ranges_expected, slot)) {
-        exact_match = false;
-        break;
+  while (i < num_expected) {
+      const uint16_t expected_start = ranges_expected->ranges[i].start;
+      const uint16_t expected_end   = ranges_expected->ranges[i].end;
+
+      // Move ranges_actual forward until it could cover expected_start
+      while (j < num_actual && ranges_actual->ranges[j].end < expected_start) j++;
+
+      if (j == num_actual || ranges_actual->ranges[j].start > expected_start) {
+          // No ranges_actual range starts at/before expected_start
+          return SLOT_RANGES_DOES_NOT_INCLUDE;
       }
-    }
 
-    if (!exact_match) {
-      break;
-    }
+      // Accumulate coverage from ranges_actual until we reach expected_end
+      uint16_t covered_end = ranges_actual->ranges[j].end;
+      while (covered_end < expected_end) {
+          j++;
+          if (j == num_actual || ranges_actual->ranges[j].start > (uint16_t)(covered_end + 1)) {
+              // Gap before we can extend coverage up to expected_end
+              return SLOT_RANGES_DOES_NOT_INCLUDE;
+          }
+          if (ranges_actual->ranges[j].end > covered_end) covered_end = ranges_actual->ranges[j].end;
+      }
+
+      // ranges_expected[i] fully covered; proceed to next ranges_expected (j stays where last coverage ended)
+      i++;
   }
 
-  return exact_match ? SLOT_RANGES_MATCH : SLOT_RANGES_SUBSET;
+  // All A covered; since we already ruled out exact equality, it's a proper subset
+  return SLOT_RANGES_SUBSET;
 }

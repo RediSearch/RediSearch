@@ -45,7 +45,14 @@ void Slots_DropCachedLocalSlots(void);
 /// @returns true if the slot is in one of the ranges, false otherwise
 bool Slots_CanAccessKeysInSlot(const SharedSlotRangeArray *slotRanges, uint16_t slot);
 
-/// @brief Compare two slot range arrays
+/// @brief Compare two slot range arrays.
+
+/// This has some assumptions:
+///
+/// - The ranges are sorted
+/// - The ranges are non-overlapping
+/// - The ranges come in merged form (adjacent ranges are merged into a single range)
+///
 /// @param ranges1 The slot range array from which we expect the keys to be
 /// @param ranges2 The slot range from which we actually have keys
 /// @returns SLOT_RANGES_MATCH if the ranges are identical, SLOT_RANGES_SUBSET if ranges_expected is a subset of ranges_actual,
