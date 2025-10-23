@@ -72,8 +72,7 @@ def calculate_l2_distance_raw(vec1_bytes, vec2_bytes):
     vec2 = np.frombuffer(vec2_bytes, dtype=np.float32)
     return np.linalg.norm(vec1 - vec2)**2
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_vsim_knn_yield_score_as():
     """Test VSIM KNN with YIELD_SCORE_AS parameter"""
     env = Env()
@@ -94,8 +93,7 @@ def test_hybrid_vsim_knn_yield_score_as():
         expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_vsim_range_yield_score_as():
     """Test VSIM RANGE with YIELD_SCORE_AS parameter"""
     env = Env()
@@ -117,8 +115,7 @@ def test_hybrid_vsim_range_yield_score_as():
         expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_search_yield_score_as():
     """Test SEARCH with YIELD_SCORE_AS parameter"""
     env = Env()
@@ -138,8 +135,7 @@ def test_hybrid_search_yield_score_as():
         search_score = float(doc_result['search_score'])
         env.assertGreater(search_score, 0)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_search_and_vsim_yield_parameters():
     """Test using SEARCH YIELD_SCORE_AS with VSIM YIELD_SCORE_AS together"""
     env = Env()
@@ -161,8 +157,6 @@ def test_hybrid_search_and_vsim_yield_parameters():
         has_vector_distance = 'vector_distance' in doc_result
         env.assertTrue(has_search_score or has_vector_distance)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_vsim_knn_both_yield_distance_and_score():
     """Test VSIM KNN with both YIELD_DISTANCE_AS and YIELD_SCORE_AS together -
     should fail because YIELD_DISTANCE_AS is not supported in VSIM"""
@@ -177,8 +171,6 @@ def test_hybrid_vsim_knn_both_yield_distance_and_score():
         'YIELD_SCORE_AS', 'vector_score')\
             .error().contains('Unknown argument `YIELD_DISTANCE_AS` in KNN')
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_vsim_range_both_yield_distance_and_score():
     """Test VSIM RANGE with both YIELD_DISTANCE_AS and YIELD_SCORE_AS together -
     should fail because YIELD_DISTANCE_AS is not supported in VSIM"""
@@ -196,8 +188,7 @@ def test_hybrid_vsim_range_both_yield_distance_and_score():
             .error().contains('Unknown argument `YIELD_DISTANCE_AS` in RANGE')
 
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_yield_score_as_after_combine_error():
     """Test that YIELD_SCORE_AS after COMBINE keyword fails"""
     env = Env()
@@ -211,8 +202,6 @@ def test_hybrid_yield_score_as_after_combine_error():
         'YIELD_SCORE_AS', 'vector_distance')\
             .error().contains('Unknown argument `COMBINE` in KNN')
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_search_yield_score_as_after_combine():
     """Test that SEARCH YIELD_SCORE_AS after COMBINE keyword works"""
     env = Env()
@@ -234,8 +223,6 @@ def test_hybrid_search_yield_score_as_after_combine():
         search_score = float(doc_result['search_score'])
         env.assertGreater(search_score, 0)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_multiple_yield_after_combine_error():
     """Test that multiple YIELD parameters after COMBINE keyword fail"""
     env = Env()

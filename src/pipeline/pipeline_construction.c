@@ -343,15 +343,16 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
  * This creates the initial pipeline components that find matching documents and calculate
  * their relevance scores, providing the foundation for subsequent aggregation and filtering stages.
  */
-void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *params) {
+void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
   IndexSpecCache *cache = IndexSpec_GetSpecCache(params->common.sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&pipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->common.sctx);
-  ((QueryPipelineParams *)params)->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
+  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->slotRanges, params->common.sctx);
+  params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
+  params->slotRanges = NULL; // Ownership of the slot ranges is now with the pipeline.
   ResultProcessor *rpUpstream = NULL;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = rp;
   PUSH_RP();

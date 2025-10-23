@@ -57,6 +57,7 @@ impl DecodedBy for FreqsOffsets {
 }
 
 impl Decoder for FreqsOffsets {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,

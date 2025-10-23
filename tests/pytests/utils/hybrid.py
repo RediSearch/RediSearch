@@ -2,7 +2,7 @@ import re
 from RLTest import Env
 from itertools import groupby
 from utils.rrf import rrf, Result
-from common import getConnectionByEnv, create_np_array_typed
+from common import getConnectionByEnv
 from typing import List, Tuple, Optional
 
 
