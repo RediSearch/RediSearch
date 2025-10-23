@@ -26,7 +26,7 @@ pub struct IdList<'index> {
     result: RSIndexResult<'index>,
 }
 
-impl IdList<'_> {
+impl<'index> IdList<'index> {
     /// Creates a new ID list iterator. The list of document IDs must be sorted, unique, and non-empty.
     pub fn new(ids: Vec<t_docId>) -> Self {
         debug_assert!(!ids.is_empty());
@@ -42,7 +42,7 @@ impl IdList<'_> {
     }
 }
 
-impl IdList<'_> {
+impl<'index> IdList<'index> {
     #[inline(always)]
     fn get_current(&self) -> Option<t_docId> {
         self.ids.get(self.offset).copied()
@@ -51,7 +51,7 @@ impl IdList<'_> {
     pub fn offset(&self) -> usize {
         self.offset
     }
-    pub fn get_mut_result(&mut self) -> &mut RSIndexResult<'static> {
+    pub fn get_mut_result(&mut self) -> &mut RSIndexResult<'index> {
         &mut self.result
     }
 }

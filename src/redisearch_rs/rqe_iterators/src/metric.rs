@@ -19,14 +19,14 @@ pub enum MetricType {
 }
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
-pub struct Metric {
-    base: IdList,
+pub struct Metric<'index> {
+    base: IdList<'index>,
     metric_data: Vec<f64>,
     #[allow(dead_code)]
     type_: MetricType,
 }
 
-impl Metric {
+impl<'index> Metric<'index> {
     pub fn new(ids: Vec<t_docId>, metric_data: Vec<f64>) -> Self {
         debug_assert!(ids.len() == metric_data.len());
 
@@ -43,9 +43,7 @@ impl Metric {
     }
 
     #[inline(always)]
-    fn set_result_metrics(&mut self, val: f64) -> &RSIndexResult<'static> {
-        let result = self.base.get_mut_result();
-
+    fn set_result_metrics(&mut self, result: &mut RSIndexResult<'index>, val: f64) {
         if let Some(num) = result.as_numeric_mut() {
             *num = val;
         } else {
@@ -73,36 +71,39 @@ impl Metric {
                 std::mem::size_of::<RSYieldableMetric>() as u16,
             ) as *mut RSYieldableMetric;
         }
-        result
     }
 }
 
-impl RQEIterator for Metric {
-    fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
+impl<'index> RQEIterator<'_, 'index> for Metric<'index> {
+    fn read(&'_ mut self) -> Result<Option<&'_ mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.base.at_eof() {
             return Ok(None);
         }
 
-        self.base.read()?;
         let val = self.metric_data[self.base.offset() - 1];
-        let result = self.set_result_metrics(val);
+        let result = self.base.read()?;
+        if result.is_none() {
+            return Ok(None);
+        }
+        let result = result.unwrap();
+        self.set_result_metrics(result, val);
         Ok(Some(result))
     }
 
     fn skip_to(
-        &mut self,
+        &'_ mut self,
         doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         let skip_outcome = self.base.skip_to(doc_id)?;
         match skip_outcome {
-            Some(SkipToOutcome::Found(_)) => {
+            Some(SkipToOutcome::Found(result)) => {
                 let val = self.metric_data[self.base.offset() - 1];
-                let result = self.set_result_metrics(val);
+                self.set_result_metrics(result, val);
                 Ok(Some(SkipToOutcome::Found(result)))
             }
-            Some(SkipToOutcome::NotFound(_)) => {
+            Some(SkipToOutcome::NotFound(result)) => {
                 let val = self.metric_data[self.base.offset() - 1];
-                let result = self.set_result_metrics(val);
+                self.set_result_metrics(result, val);
                 Ok(Some(SkipToOutcome::NotFound(result)))
             }
             None => Ok(None),

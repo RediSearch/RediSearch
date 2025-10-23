@@ -24,7 +24,7 @@ unsafe extern "C" {
     /// # Safety
     /// Both should be valid `RSYieldableMetric` instances.
     #[allow(improper_ctypes)] // The doc_id in `RSIndexResult` might be a u128
-    pub unsafe fn RSYieldableMetric_Concat(
+    unsafe fn RSYieldableMetric_Concat(
         parent: *mut *mut RSYieldableMetric,
         child: *const RSYieldableMetric,
     );
