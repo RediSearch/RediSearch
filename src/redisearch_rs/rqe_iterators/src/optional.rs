@@ -33,6 +33,12 @@ pub struct Optional<'index, I> {
     /// Child iterator provided at construction time.
     /// Used while it can produce results. After it is exhausted
     /// the iterator yields virtual results until [`Optional::max_id`] is reached.
+    ///
+    /// Set to `Some(I)` when creating the [`Optional`] iterator,
+    /// but set to `None` in case the child iterator results in
+    /// [`RQEValidateStatus::Aborted`] during a delegated call
+    /// to [`RQEIterator::revalidate`]. In which case it will
+    /// start acting like an "Empty" iterator.
     child: Option<I>,
 
     /// Reused result object to avoid allocating on each read.
@@ -77,7 +83,7 @@ where
         // The second condition of this if statement is
         // to catch edge cases where the child is only _just_
         // now exhausted while it wasn't before and thus returned
-        // Nothing. This way we still fall back to Virtual results
+        // nothing. This way we still fall back to Virtual results
         // in this case instead of returning None incorrectly.
         //
         // C Version only had the last_doc_id equality check
@@ -148,7 +154,7 @@ where
             }
             RQEValidateStatus::Aborted => {
                 // Handle child validation results (but continue processing)
-                self.child = None; // NOTE: C code used empty iterator for this, this is same same
+                self.child = None; // NOTE: C code used empty iterator for this, this is equivalent;
                 RQEValidateStatus::Ok
             }
         }
