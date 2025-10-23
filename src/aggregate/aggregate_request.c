@@ -589,7 +589,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .cursorConfig = &req->cursorConfig,
         .requiredFields = &req->requiredFields,
         .maxSearchResults = &req->maxSearchResults,
-        .maxAggregateResults = &req->maxAggregateResults
+        .maxAggregateResults = &req->maxAggregateResults,
+        .coordSlotRanges = &req->coordSlotRanges
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -952,6 +953,7 @@ AREQ *AREQ_New(void) {
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
+  req->coordSlotRanges = NULL;
   return req;
 }
 
@@ -1361,6 +1363,7 @@ void AREQ_Free(AREQ *req) {
   }
 
   Slots_FreeLocalSlots(req->slotRanges);
+  rm_free(req->coordSlotRanges);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.
