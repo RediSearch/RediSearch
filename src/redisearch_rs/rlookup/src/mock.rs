@@ -21,9 +21,9 @@ use std::{
 
 #[derive(Default, Copy, Clone)]
 #[repr(C)]
-struct UserString {
-    user: *const c_char,
-    length: usize,
+pub(crate) struct UserString {
+    pub(crate) user: *const c_char,
+    pub(crate) length: usize,
 }
 
 /// Mock implementation of `HiddenString_GetUnsafe` from obfuscation/hidden.h for testing purposes
@@ -144,6 +144,7 @@ extern "C" fn sdslen__(s: *const c_char) -> usize {
     if s.is_null() {
         0
     } else {
+        // Safety: Caller provides valid C string pointer
         unsafe { libc::strlen(s) }
     }
 }

@@ -16,6 +16,72 @@
 //! C code, since it levels the playing field by forcing both to use the same memory allocator.
 
 pub mod allocator;
+pub mod globals;
+pub mod key;
+pub mod scan_key_cursor;
+pub mod string;
+
+use std::ffi::CString;
+
+use key::*;
+use scan_key_cursor::*;
+use string::*;
+
+pub struct TestContext {
+    /// Contains key value pairs to be injected during scan key cursor iterations or
+    /// HGETALL calls.
+    key_value_injections: Vec<(CString, CString)>,
+}
+
+impl TestContext {
+    pub const fn new() -> Self {
+        Self {
+            key_value_injections: vec![],
+        }
+    }
+
+    pub fn set_key_values(&mut self, kvs: Vec<(CString, CString)>) {
+        self.key_value_injections = kvs;
+    }
+
+    pub fn inject_key_value(&mut self, key: CString, value: CString) {
+        self.key_value_injections.push((key, value));
+    }
+
+    pub const fn access_key_values(&self) -> &Vec<(CString, CString)> {
+        &self.key_value_injections
+    }
+}
+
+impl Default for TestContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Initializes the Redis module mock by binding the relevant symbols.
+///
+/// This function must be called before mocks of Redis module API functions
+/// are called by test code.
+#[allow(clippy::undocumented_unsafe_blocks)]
+pub fn init_redis_module_mock() {
+    // register string methods
+    unsafe { redis_module::raw::RedisModule_CreateString = Some(RedisModule_CreateString) };
+    unsafe { redis_module::raw::RedisModule_StringPtrLen = Some(RedisModule_StringPtrLen) };
+    unsafe { redis_module::raw::RedisModule_FreeString = Some(RedisModule_FreeString) };
+
+    // register key methods
+    unsafe { redis_module::raw::RedisModule_OpenKey = Some(RedisModule_OpenKey) };
+    unsafe { redis_module::raw::RedisModule_CloseKey = Some(RedisModule_CloseKey) };
+    unsafe { redis_module::raw::RedisModule_KeyType = Some(RedisModule_KeyType) };
+
+    // register scan key cursor methods
+    unsafe { redis_module::raw::RedisModule_ScanCursorCreate = Some(RedisModule_ScanCursorCreate) };
+    unsafe {
+        redis_module::raw::RedisModule_ScanCursorDestroy = Some(RedisModule_ScanCursorDestroy)
+    };
+    unsafe { redis_module::raw::RedisModule_ScanKey = Some(RedisModule_ScanKey) };
+}
 
 #[macro_export]
 /// A macro to define Redis' allocation symbols in terms of Rust's global allocator.
