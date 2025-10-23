@@ -21,7 +21,7 @@ use crate::{
     bindings::{DocumentType, RLookupCoerceType, RLookupLoadMode},
 };
 
-/// Populate the provided `dst_row` by loading a document (either a [Redis hash] or JSON object).
+/// Populate the provided `dst_row` by loading a either a redis hash or json key (either a [Redis hash] or JSON Document).
 /// Either all keys are loaded or only the individual keys given in `options.keys`.
 ///
 /// If the key given in `options.dmd.keyPtr` does not exist it will be created in the lookup table.
@@ -78,9 +78,7 @@ pub fn load_document<'a>(
 ) -> Result<(), LoadDocumentError> {
     todo!("in follow-up PRs:");
     /*
-    let context = hash::LoadDocumentImpl {
-        ctx: redis_module::Context::dummy(),
-    };
+    let context = hash::LoadDocumentImpl;
     load_document_int(lookup, dst_row, options, &context)
     */
 }
@@ -100,27 +98,38 @@ where
 
     match options.mode {
         RLookupLoadMode::AllKeys => {
-            if options.document_type == DocumentType::Hash {
-                let key_ptr = options
-                    .key_ptr
-                    .ok_or(LoadDocumentError::invalid_arguments(Some(
-                        "Key pointer is null".to_string(),
-                    )))?;
+            match options.document_type {
+                DocumentType::Hash => {
+                    let key_ptr =
+                        options
+                            .key_ptr
+                            .ok_or(LoadDocumentError::invalid_arguments(Some(
+                                "Key pointer is null".to_string(),
+                            )))?;
 
-                // Safety: We assume the caller provided options with a key pointer containing a sds string.
-                let sds_len = unsafe { ffi::sdslen__(key_ptr.as_ptr()) };
+                    // Safety: We assume the caller provided options with a key pointer containing a sds string.
+                    let sds_len = unsafe { ffi::sdslen__(key_ptr.as_ptr()) };
 
-                // Safety: The sds string is prefixed with its length, key_ptr directly points to the string data.
-                let key_str =
-                    unsafe { RedisString::from_raw_parts(None, key_ptr.as_ptr(), sds_len) };
+                    // Safety: The sds string is prefixed with its length, key_ptr directly points to the string data.
+                    let key_str =
+                        unsafe { RedisString::from_raw_parts(None, key_ptr.as_ptr(), sds_len) };
 
-                if context.has_scan_key_feature() && !context.is_crdt() {
-                    todo!("hash::get_all_scan(lookup, dst_row, options, key_str, context)?;");
-                } else {
-                    todo!("hash::get_all_fallback(lookup, dst_row, options, key_str, context)?;");
+                    if context.has_scan_key_feature() && !context.is_crdt() {
+                        todo!("hash::get_all_scan(lookup, dst_row, options, key_str, context)?;");
+                    } else {
+                        todo!(
+                            "hash::get_all_fallback(lookup, dst_row, options, key_str, context)?;"
+                        );
+                    }
                 }
-            } else {
-                context.load_json(lookup, dst_row, options)?;
+                DocumentType::Json => {
+                    context.load_json(lookup, dst_row, options)?;
+                }
+                DocumentType::Unsupported => {
+                    return Err(LoadDocumentError::invalid_arguments(Some(
+                        "Unsupported document type".to_string(),
+                    )));
+                }
             }
         }
         RLookupLoadMode::KeyList | RLookupLoadMode::SortingVectorKeys => {
@@ -214,7 +223,7 @@ pub struct LoadDocumentOptionsBuilder<'a, T: RSValueTrait = RSValueFFI> {
 
 impl<'a, T: RSValueTrait> LoadDocumentOptionsBuilder<'a, T> {
     #[cfg_attr(not(test), expect(unused, reason = "Used in follow-up PRs"))]
-    pub fn new(
+    pub const fn new(
         ctx: *mut redis_module::raw::RedisModuleCtx,
         sv: &'a RSSortingVector<T>,
         doc_type: DocumentType,
@@ -237,31 +246,31 @@ impl<'a, T: RSValueTrait> LoadDocumentOptionsBuilder<'a, T> {
     }
 
     #[expect(unused, reason = "Used in follow-up PRs")]
-    pub fn with_force_load(mut self) -> Self {
+    pub const fn with_force_load(mut self) -> Self {
         self.force_load = true;
         self
     }
 
     #[expect(unused, reason = "Used in follow-up PRs")]
-    pub fn with_force_string(mut self) -> Self {
+    pub const fn with_force_string(mut self) -> Self {
         self.force_string = true;
         self
     }
 
     #[cfg_attr(not(test), expect(unused, reason = "Used in follow-up PRs"))]
-    pub fn set_mode(mut self, mode: u32) -> Self {
+    pub const fn set_mode(mut self, mode: u32) -> Self {
         self.mode = mode;
         self
     }
 
     #[cfg_attr(not(test), expect(unused, reason = "Used in follow-up PRs"))]
-    pub fn with_key_ptr(mut self, key_ptr: *const std::ffi::c_char) -> Self {
+    pub const fn with_key_ptr(mut self, key_ptr: *const std::ffi::c_char) -> Self {
         self.key_ptr = NonNull::new(key_ptr as *mut std::ffi::c_char);
         self
     }
 
     #[expect(unused, reason = "Used in follow-up PRs")]
-    pub fn override_tmp_cstruct(mut self, cstruct: NonNull<ffi::RLookupLoadOptions>) -> Self {
+    pub const fn override_tmp_cstruct(mut self, cstruct: NonNull<ffi::RLookupLoadOptions>) -> Self {
         self.tmp_cstruct = Some(cstruct);
         self
     }
@@ -312,6 +321,12 @@ pub enum LoadDocumentError {
         key: Option<String>,
     },
 
+    /// Key is not a JSON document
+    KeyIsNoJson {
+        #[cfg(debug_assertions)]
+        key: Option<String>,
+    },
+
     /// Invalid call arguments were provided
     InvalidArguments {
         #[cfg(debug_assertions)]
@@ -354,6 +369,16 @@ impl std::fmt::Display for LoadDocumentError {
                 #[cfg(not(debug_assertions))]
                 write!(f, "Key is not a hash document")
             }
+            Self::KeyIsNoJson { key } => {
+                #[cfg(debug_assertions)]
+                if let Some(key) = key {
+                    write!(f, "Key is not a json document: {}", key)
+                } else {
+                    write!(f, "Key is not a json document")
+                }
+                #[cfg(not(debug_assertions))]
+                write!(f, "Key is not a json document")
+            }
             Self::InvalidArguments {
                 #[cfg(debug_assertions)]
                 details,
@@ -377,21 +402,21 @@ impl std::fmt::Display for LoadDocumentError {
 }
 
 impl LoadDocumentError {
-    pub fn key_does_not_exist(key: Option<String>) -> Self {
+    pub const fn key_does_not_exist(key: Option<String>) -> Self {
         Self::KeyDoesNotExist {
             #[cfg(debug_assertions)]
             key,
         }
     }
 
-    pub fn key_is_no_hash(key: Option<String>) -> Self {
+    pub const fn key_is_no_hash(key: Option<String>) -> Self {
         Self::KeyIsNoHash {
             #[cfg(debug_assertions)]
             key,
         }
     }
 
-    pub fn invalid_arguments(details: Option<String>) -> Self {
+    pub const fn invalid_arguments(details: Option<String>) -> Self {
         Self::InvalidArguments {
             #[cfg(debug_assertions)]
             details,
