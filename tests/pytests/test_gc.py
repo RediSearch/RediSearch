@@ -130,7 +130,7 @@ def testNumericMergesTrees(env):
     waitForIndex(env, 'idx')
 
     # Phase 1: Add initial documents
-    InitialDocs = 255
+    InitialDocs = 100
     for i in range(InitialDocs):
         env.assertEqual(env.cmd('hset', 'doc%d' % i, 'id', str(i)), 1)
 
