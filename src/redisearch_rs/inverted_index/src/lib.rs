@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
-    io::{BufRead, Cursor, Seek, Write},
+    io::{Cursor, Seek, Write},
     sync::atomic::{self, AtomicUsize},
 };
 
@@ -132,6 +132,7 @@ impl NumericFilter {
     }
 
     /// Check if the given value is in the range specified by this filter
+    #[inline(always)]
     pub fn value_in_range(&self, value: f64) -> bool {
         let min_ok = value > self.min || (self.min_inclusive && value == self.min);
         let max_ok = value < self.max || (self.max_inclusive && value == self.max);
@@ -389,7 +390,7 @@ impl IndexBlock {
 
         let mut tmp_inverted_index = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, encoder);
 
-        while !cursor.fill_buf()?.is_empty() {
+        while self.buffer.len() as u64 > cursor.position() {
             let base = D::base_id(self, last_read_doc_id.unwrap_or(self.first_doc_id));
             decoder.decode(&mut cursor, base, &mut result)?;
 
@@ -1158,9 +1159,10 @@ pub trait IndexReader<'index> {
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     for IndexReaderCore<'index, E, D>
 {
+    #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
-        // Check if the current buffer is empty
-        if self.current_buffer.fill_buf()?.is_empty() {
+        // Check if the current buffer is empty or the end of the buffer has been reached
+        if self.current_buffer.get_ref().len() as u64 <= self.current_buffer.position() {
             if self.current_block_idx + 1 >= self.ii.blocks.len() {
                 // No more blocks to read from
                 return Ok(false);
@@ -1178,6 +1180,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         Ok(true)
     }
 
+    #[inline(always)]
     fn seek_record(
         &mut self,
         doc_id: t_docId,
@@ -1354,6 +1357,7 @@ impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
 }
 
 impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<IR> {
+    #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
             let success = self.inner.next_record(result)?;
@@ -1368,6 +1372,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
         }
     }
 
+    #[inline(always)]
     fn seek_record(
         &mut self,
         doc_id: t_docId,
@@ -1472,6 +1477,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReade
     /// # Safety
     ///
     /// 1. `result.is_numeric()` must be true when this function is called.
+    #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
             let success = self.inner.next_record(result)?;
@@ -1494,6 +1500,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReade
     /// # Safety
     ///
     /// 1. `result.is_numeric()` must be true when this function is called.
+    #[inline(always)]
     fn seek_record(
         &mut self,
         doc_id: t_docId,
@@ -1623,6 +1630,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'i
     /// # Safety
     ///
     /// 1. `result.is_numeric()` must be true when this function is called.
+    #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
             let success = self.inner.next_record(result)?;
@@ -1648,6 +1656,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'i
     /// # Safety
     ///
     /// 1. `result.is_numeric()` must be true when this function is called.
+    #[inline(always)]
     fn seek_record(
         &mut self,
         doc_id: t_docId,
