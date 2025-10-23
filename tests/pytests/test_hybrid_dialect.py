@@ -141,7 +141,7 @@ def test_hybrid_dialect_stats_tracking():
         'FT.HYBRID', 'idx',
         'SEARCH', '@nonexistent_field:(apples)',  # Field doesn't exist
         'VSIM', '@vector', query_vector
-    ).error()
+    ).error().contains('Unknown field at offset 0 near nonexistent_field')
 
     # Check that dialect stats were NOT updated after execution error
     info = env.cmd('FT.INFO', 'idx')
