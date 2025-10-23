@@ -198,6 +198,10 @@ jobs:
                              ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
                              ${{ inputs.container || inputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
+
+      - name: Check disk space
+        run: df -h
+
       - name: Build
         env:
           SAN: ${{ inputs.san }}
