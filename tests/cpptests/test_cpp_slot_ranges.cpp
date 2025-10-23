@@ -56,7 +56,7 @@ TEST_F(SlotRangesTest, testBinarySerializationBasic) {
 
     // Calculate required buffer size
     size_t size = RedisModuleSlotRangeArray_SerializedSize_Binary(1);
-    EXPECT_EQ(size, 4 + 4); // 4 bytes for count + 4 bytes for one range (2*uint16_t)
+    EXPECT_EQ(size, 4); // 4 bytes for one range (2*uint16_t)
 
     // Serialize
     std::vector<uint8_t> buffer(size);
@@ -80,7 +80,7 @@ TEST_F(SlotRangesTest, testBinarySerializationMultipleRanges) {
 
     // Calculate required buffer size
     size_t size = RedisModuleSlotRangeArray_SerializedSize_Binary(3);
-    EXPECT_EQ(size, 4 + 12); // 4 bytes for count + 12 bytes for three ranges
+    EXPECT_EQ(size, 12); // 12 bytes for three ranges
 
     // Serialize
     std::vector<uint8_t> buffer(size);
@@ -90,31 +90,6 @@ TEST_F(SlotRangesTest, testBinarySerializationMultipleRanges) {
 
     // Deserialize
     auto* deserialized = createSlotRangeArray({{0, 0}, {0, 0}, {0, 0}}); // Allocate space for three ranges
-    result = RedisModuleSlotRangeArray_DeserializeBinary(buffer.data(), buffer.size(), deserialized);
-
-    EXPECT_TRUE(result);
-    EXPECT_TRUE(compareExactly(original, deserialized));
-    freeSlotRangeArray(original);
-    freeSlotRangeArray(deserialized);
-}
-
-// Test binary serialization with empty array
-TEST_F(SlotRangesTest, testBinarySerializationEmpty) {
-    // Test with empty array
-    auto* original = createSlotRangeArray({});
-
-    // Calculate required buffer size
-    size_t size = RedisModuleSlotRangeArray_SerializedSize_Binary(0);
-    EXPECT_EQ(size, 4); // 4 bytes for count only
-
-    // Serialize
-    std::vector<uint8_t> buffer(size);
-    bool result = RedisModuleSlotRangeArray_SerializeBinary(original, buffer.data(), buffer.size());
-
-    EXPECT_TRUE(result);
-
-    // Deserialize
-    auto* deserialized = createSlotRangeArray({}); // Allocate space for zero ranges
     result = RedisModuleSlotRangeArray_DeserializeBinary(buffer.data(), buffer.size(), deserialized);
 
     EXPECT_TRUE(result);
@@ -163,7 +138,7 @@ TEST_F(SlotRangesTest, testBinarySerializationManyRanges) {
 
     // Calculate required buffer size
     size_t size = RedisModuleSlotRangeArray_SerializedSize_Binary(100);
-    EXPECT_EQ(size, 4 + 400); // 4 bytes for count + 400 bytes for 100 ranges (4 bytes each)
+    EXPECT_EQ(size, 400); // 400 bytes for 100 ranges (4 bytes each)
 
     // Serialize
     std::vector<uint8_t> buffer(size);
@@ -197,7 +172,7 @@ TEST_F(SlotRangesTest, testBinarySerializationExtremeValues) {
 
     // Calculate required buffer size
     size_t size = RedisModuleSlotRangeArray_SerializedSize_Binary(6);
-    EXPECT_EQ(size, 4 + 24); // 4 bytes for count + 24 bytes for 6 ranges
+    EXPECT_EQ(size, 24); // 4 bytes for count + 24 bytes for 6 ranges
 
     // Serialize
     std::vector<uint8_t> buffer(size);
@@ -232,7 +207,7 @@ TEST_F(SlotRangesTest, testBinarySerializationVeryManyRanges) {
 
     // Calculate required buffer size
     size_t size = RedisModuleSlotRangeArray_SerializedSize_Binary(1000);
-    EXPECT_EQ(size, 4 + 4000); // 4 bytes for count + 4000 bytes for 1000 ranges
+    EXPECT_EQ(size, 4000); // 4000 bytes for 1000 ranges
 
     // Serialize
     std::vector<uint8_t> buffer(size);

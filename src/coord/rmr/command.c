@@ -248,7 +248,7 @@ bool MRCommand_AddSlotRangeInfo(MRCommand *cmd, const RedisModuleSlotRangeArray 
   }
 
   // Add the slot range arguments to the command
-  MRCommand_Append(cmd, "RANGE_SLOTS_BINARY", strlen("RANGE_SLOTS_BINARY"));
+  MRCommand_Append(cmd, "_RANGE_SLOTS_BINARY", strlen("_RANGE_SLOTS_BINARY"));
 
   // Add size as string
   char size_str[32];
@@ -277,7 +277,7 @@ bool MRCommand_AddSlotRangeInfo_HumanReadable(MRCommand *cmd, const RedisModuleS
     }
 
     // Add the human-readable slot range marker
-    MRCommand_Append(cmd, "RANGE_SLOTS_HR", strlen("RANGE_SLOTS_HR"));
+    MRCommand_Append(cmd, "_RANGE_SLOTS_HR", strlen("_RANGE_SLOTS_HR"));
 
     // Add number of ranges
     char num_ranges_str[16]; // to write int32_t, max 11 chars + null terminator, still reserve 16 for alignment
