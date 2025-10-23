@@ -21,9 +21,7 @@ extern "C" {
 
 typedef struct {
   // total bytes collected by the GC
-  // This is signed because block splitting (when deltas are too big) can cause more bytes to be
-  // allocated by the GC than the number of bytes collected.
-  ssize_t totalCollected;
+  size_t totalCollected;
   // number of cycle ran
   size_t numCycles;
 
@@ -121,10 +119,7 @@ void FGC_ForkAndWaitBeforeApply(ForkGC *gc);
 void FGC_Apply(ForkGC *gc);
 
 typedef struct InfoGCStats {
-  // Total bytes collected by the GCs
-  // This is signed because block splitting (when deltas are too big) can cause more bytes to be
-  // allocated by a GC than the number of bytes collected.
-  ssize_t totalCollectedBytes;
+  size_t totalCollectedBytes; // Total bytes collected by the GCs
   size_t totalCycles;         // Total number of cycles ran
   size_t totalTime;           // In ms
 } InfoGCStats;
