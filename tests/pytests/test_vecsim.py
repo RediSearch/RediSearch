@@ -851,8 +851,9 @@ def test_memory_info():
 # The heuristic automatically chooses between HYBRID_ADHOC_BF and HYBRID_BATCHES modes
 # based on subset size ratio, index size, and k value using these thresholds:
 # - Small subset (<7% of index): ADHOC_BF if index < 750K
-# - Medium subset (7-21% of index): ADHOC_BF if index < 75K OR k > 12
+# - Medium subset (7-21% of index): ADHOC_BF if index < 75K else, if k > 12
 # - Large subset (>21% of index): ADHOC_BF only if index < 75K
+# This test doesn't cover medium and large index scenarios to avoid extensive CI running time.
 # The heuristic is implemented in VectorSimilarity library in SVSIndex::preferAdHocSearch.
 # The test scenarios below demonstrate each heuristic path with detailed explanations.
 def test_hybrid_query_with_text_vamana():
@@ -860,11 +861,11 @@ def test_hybrid_query_with_text_vamana():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
     conn = getConnectionByEnv(env)
     dim = 2
-    initial_index_size = 70_000
+    index_size = 3000 # a number divisible by 10
     data_type = 'FLOAT32'
     create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'])
 
-    load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, initial_index_size, data_type)
+    load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, index_size, data_type)
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
     query_data = create_np_array_typed([1] * dim, data_type)
@@ -881,28 +882,18 @@ def test_hybrid_query_with_text_vamana():
         expected_res.append(['__v_score', str(dim*i**2), 't', 'text value'])
     execute_hybrid_query(env, '(@t:(text value))=>[KNN 10 @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
 
-    # Scenario 2: Large subset (>21%) + large index (>75K) → BATCHES
-
-    # To ensure we have at least 75K vectors transferred to VAMANA, we need slightly more to trigger updates.
-    # Since SVS processes vectors in blocks of DEFAULT_BLOCK_SIZE (1024). Adding exactly 75K might not guarantee
-    # all vectors are processed into the VAMANA graph structure.
-    index_size = 75_000 + DEFAULT_BLOCK_SIZE
-    load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, index_size - initial_index_size, data_type, initial_id=initial_index_size+1)
-    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
-    execute_hybrid_query(env, '(@t:(text value))=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
-
-    # Scenario 3: Small subset (<7%) + medium index (<750K) → ADHOC_BF
+    # Scenario 2: Small subset (<7%) + medium index (<750K) → ADHOC_BF
     # Change small amount of docs (less than 7% of this index size) to 'other'
     conn.execute_command('HSET', 10, 't', 'other')
 
     expected_res = [1, '10', ['__v_score', str(dim*(10 - 1)**2), 't', 'other']]
     execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
 
-    # Scenario 4: Medium subset (7-21%) + large index (>75K) → policy depends on k
+    # Scenario 3: Medium subset (7-21%) + small index (<75K) → ADHOC_BF
     # Create 10% subset by changing every 10th document (with ids 10, 20, ..., index_size)
     for i in range(1, int(index_size/10) + 1):
         conn.execute_command('HSET', 10*i, 't', 'other')
-    env.assertGreater(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 75_000)
+    env.assertGreater(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], DEFAULT_BLOCK_SIZE)
 
     # Expect to get only vector that passes the filter (i.e, has "other" in t field)
     expected_res = [15]
@@ -912,19 +903,17 @@ def test_hybrid_query_with_text_vamana():
 
     k = 15 # k > 12 → ADHOC_BF
     execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res)
-    k = 12 # k <= 12 → BATCHES
+    k = 12 # k <= 12 → ADHOC_BF
     expected_res[0] = k
-    execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_BATCHES', limit = k).equal(expected_res[:k*2+1])
-
-    # Expect empty score for the intersection (disjoint sets of results)
-    # The hybrid policy changes to ad hoc after the first batch
-    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param]', query_data, 't',
-                            hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal([0])
+    execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res[:k*2+1])
 
     # Test explicit BATCHES policy with batch size
-    k = 15
-    expected_res[0] = k
-    execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res)
+    execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]', query_data, 't', hybrid_mode='HYBRID_BATCHES', limit = k).equal(expected_res[:k*2+1])
+    # Expect empty score for the intersection (disjoint sets of results)
+    # The hybrid policy changes to ad hoc after the first batch
+    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]', query_data, 't',
+                            hybrid_mode='HYBRID_BATCHES').equal([0])
+    print("meow")
 
 def test_hybrid_query_batches_mode_with_text():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
