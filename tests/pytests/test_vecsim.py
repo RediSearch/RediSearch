@@ -857,6 +857,7 @@ def test_memory_info():
 DEFAULT_INDEX_NAME = 'idx'
 DEFAULT_FIELD_NAME = 'v'
 DEFAULT_DOC_NAME_PREFIX = 'doc'
+DEFAULT_BLOCK_SIZE = 1024
 
 # @param additional_schema_args - additional arguments to pass to FT.CREATE beyond TYPE, DIM, DISTANCE_METRIC
 def create_vector_index(env: Env, dim, index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME, datatype='FLOAT32', metric='L2',
