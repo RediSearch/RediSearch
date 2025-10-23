@@ -156,6 +156,7 @@ def import_slot_range_sanity_test(env: Env):
     # Import slots from shard 2 to shard 1, and wait for it to complete
     task_id = import_middle_slot_range(shard1, shard2)
     wait_for_slot_import(shard1, task_id)
+    wait_for_slot_import(shard2, task_id)
 
     # And test again after the import is complete
     query_all_shards()
@@ -203,6 +204,7 @@ def add_shard_and_migrate_test(env: Env):
     # ...and migrate slots from shard 1 to the new shard
     task = import_middle_slot_range(new_shard, shard1)
     wait_for_slot_import(new_shard, task)
+    wait_for_slot_import(shard1, task)
 
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
