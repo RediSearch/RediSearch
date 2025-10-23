@@ -397,13 +397,12 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     StrongRef searchMappingsRef = StrongRef_New(search, FreeCursorMappings);
     StrongRef vsimMappingsRef = StrongRef_New(vsim, FreeCursorMappings);
 
-
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
     int numShards = GetNumShards_UnSafe();
 
     // get the OOM policy from the request
-    RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
+    const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
     if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, status, oomPolicy)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
@@ -468,6 +467,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       if (estimateOOM(ctx)) {
         RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
         QueryError_SetCode(&status, QUERY_EOOM);
+        // Cleanup
         DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
         return;
       }
