@@ -88,6 +88,8 @@ def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
         while not is_migration_complete(conn, task_id):
             time.sleep(0.1)
 
+cluster_node_timeout = 60_000 # in milliseconds (1 minute)
+
 # @skip(cluster=False, min_shards=2)
 @skip() # Flaky test, until we can guarantee no missing or duplicate results during slot migration
 def test_import_slot_range(env: Env):
@@ -156,17 +158,19 @@ def import_slot_range_sanity_test(env: Env):
     # Import slots from shard 2 to shard 1, and wait for it to complete
     task_id = import_middle_slot_range(shard1, shard2)
     wait_for_slot_import(shard1, task_id)
+    wait_for_slot_import(shard2, task_id)
 
     # And test again after the import is complete
     query_all_shards()
 
 @skip(cluster=False, min_shards=2)
-def test_import_slot_range_sanity(env: Env):
+def test_import_slot_range_sanity():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env)
 
 @skip(cluster=False, min_shards=2)
 def test_import_slot_range_sanity_BG():
-    env = Env(moduleArgs='WORKERS 2')
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env)
 
 def add_shard_and_migrate_test(env: Env):
@@ -199,10 +203,12 @@ def add_shard_and_migrate_test(env: Env):
 
     # Add a new shard
     env.addShardToClusterIfExists()
+    time.sleep(5)  # wait a bit for the cluster to stabilize before migrating
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
     task = import_middle_slot_range(new_shard, shard1)
     wait_for_slot_import(new_shard, task)
+    wait_for_slot_import(shard1, task)
 
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
@@ -212,10 +218,11 @@ def add_shard_and_migrate_test(env: Env):
     query_all_shards()
 
 @skip(cluster=False)
-def test_add_shard_and_migrate(env: Env):
+def test_add_shard_and_migrate():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env)
 
 @skip(cluster=False)
 def test_add_shard_and_migrate_BG():
-    env = Env(moduleArgs='WORKERS 2')
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env)

@@ -65,7 +65,6 @@ inline bool Slots_CanAccessKeysInSlot(const SharedSlotRangeArray *slotRanges, ui
   return false;
 }
 
-
 // Helper function to check if a slot is covered by any range in the array
 static inline bool SlotInRanges(const RedisModuleSlotRangeArray *ranges, uint16_t slot) {
   for (int i = 0; i < ranges->num_ranges; i++) {
