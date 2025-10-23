@@ -153,6 +153,12 @@ def test_stop_indexing_low_mem_verbosity(env):
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
   warning = res['Results']['warning'][0]
   env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp3 warning in FT.AGGREGATE (MOD-11817)
+  res = env.cmd('FT.AGGREGATE', 'idx','*')
+  warning = res['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+
+
   # Check resp2 warning in FT.PROFILE
   env.cmd('HELLO', '2')
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
