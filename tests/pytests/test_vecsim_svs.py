@@ -64,10 +64,12 @@ def test_small_window_size():
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', field_name, 'VECTOR', 'SVS-VAMANA', len(params), *params)
 
             # Add enough vector to trigger transfer to svs
+            vectors = []
             for i in range(num_vectors):
                 vector = create_random_np_array_typed(dim, data_type)
+                vectors.append(vector)
                 conn.execute_command('HSET', f'doc_{i}', field_name, vector.tobytes())
-
+            print(vectors)
             try:
                 conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, f'__{field_name}_score')
             except Exception as e:
