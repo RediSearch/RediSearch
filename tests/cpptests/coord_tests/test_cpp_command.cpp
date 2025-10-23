@@ -12,6 +12,82 @@
 #include "hiredis/read.h"
 #include "rmutil/args.h"
 
+// Helper functions for testing
+void printMRCommand(const MRCommand* cmd) {
+    printf("MRCommand (%d args): ", cmd->num);
+    for (int i = 0; i < cmd->num; i++) {
+        // Check if this argument contains binary data (non-printable characters or null bytes)
+        bool is_binary = false;
+        for (size_t j = 0; j < cmd->lens[i]; j++) {
+            unsigned char c = (unsigned char)cmd->strs[i][j];
+            if (c == 0 || (c < 32 && c != '\t' && c != '\n' && c != '\r') || c > 126) {
+                is_binary = true;
+                break;
+            }
+        }
+
+        if (is_binary) {
+            printf("[%d]=<binary:%zu bytes:", i, cmd->lens[i]);
+            for (size_t j = 0; j < cmd->lens[i]; j++) {
+                printf("%02x", (unsigned char)cmd->strs[i][j]);
+            }
+            printf("> ");
+        } else {
+            printf("[%d]='%.*s' ", i, (int)cmd->lens[i], cmd->strs[i]);
+        }
+    }
+    printf("\n");
+}
+
+bool verifyCommandArgs(const MRCommand* cmd, const std::vector<std::string>& expected) {
+    if (cmd->num != (int)expected.size()) {
+        return false;
+    }
+
+    for (int i = 0; i < cmd->num; i++) {
+        if (cmd->lens[i] != expected[i].length() ||
+            memcmp(cmd->strs[i], expected[i].c_str(), cmd->lens[i]) != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool verifyCommandArgsPrefix(const MRCommand* cmd, const std::vector<std::string>& expected) {
+    if (cmd->num < (int)expected.size()) {
+        return false;
+    }
+
+    for (int i = 0; i < (int)expected.size(); i++) {
+        if (cmd->lens[i] != expected[i].length() ||
+            memcmp(cmd->strs[i], expected[i].c_str(), cmd->lens[i]) != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool hasSlotRangeInfo(const MRCommand* cmd) {
+    for (int i = 0; i < cmd->num - 2; i++) {
+        if (cmd->lens[i] == strlen("RANGE_SLOTS_BINARY") &&
+            memcmp(cmd->strs[i], "RANGE_SLOTS_BINARY", strlen("RANGE_SLOTS_BINARY")) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int findArgPosition(const MRCommand* cmd, const char* arg) {
+    for (int i = 0; i < cmd->num; i++) {
+        if (cmd->lens[i] == strlen(arg) &&
+            memcmp(cmd->strs[i], arg, strlen(arg)) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Base test class for non-parameterized tests
 class MRCommandTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -47,92 +123,58 @@ protected:
 
     RedisModuleCtx *ctx = nullptr;
     RedisModuleSlotRangeArray* testSlotArray;
+};
 
-    // Helper function to verify command arguments
-    bool verifyCommandArgs(const MRCommand *cmd, const std::vector<std::string>& expected) {
-        if (cmd->num != expected.size()) {
-            return false;
+// Parameterized test class for slot range tests
+class MRCommandSlotRangeTest : public ::testing::TestWithParam<std::vector<std::pair<uint16_t, uint16_t>>> {
+protected:
+    void SetUp() override {
+        ctx = RedisModule_GetThreadSafeContext(NULL);
+
+        // Create slot range array from the parameter
+        auto ranges = GetParam();
+        testSlotArray = createSlotRangeArray(ranges);
+
+        // Create a description for logging
+        testDescription = "SlotRanges[";
+        for (size_t i = 0; i < ranges.size(); i++) {
+            if (i > 0) testDescription += ",";
+            testDescription += std::to_string(ranges[i].first) + "-" + std::to_string(ranges[i].second);
         }
-        for (size_t i = 0; i < expected.size(); i++) {
-            if (cmd->lens[i] != expected[i].length() ||
-                memcmp(cmd->strs[i], expected[i].c_str(), expected[i].length()) != 0) {
-                return false;
-            }
-        }
-        return true;
+        testDescription += "]";
     }
 
-    // Helper function to verify the first N arguments of a command
-    bool verifyCommandArgsPrefix(const MRCommand *cmd, const std::vector<std::string>& expected) {
-        if (cmd->num < expected.size()) {
-            return false;
+    void TearDown() override {
+        if (ctx) {
+            RedisModule_FreeThreadSafeContext(ctx);
         }
-        for (size_t i = 0; i < expected.size(); i++) {
-            if (cmd->lens[i] != expected[i].length() ||
-                memcmp(cmd->strs[i], expected[i].c_str(), expected[i].length()) != 0) {
-                return false;
-            }
+        if (testSlotArray) {
+            rm_free(testSlotArray);
         }
-        return true;
     }
 
-    void printMRCommand(const MRCommand *cmd) {
-        printf("MRCommand (%d args): ", cmd->num);
-        for (int i = 0; i < cmd->num; i++) {
-            // Check if this looks like binary data (contains non-printable chars or null bytes)
-            bool isBinary = false;
-            for (size_t j = 0; j < cmd->lens[i]; j++) {
-                unsigned char c = (unsigned char)cmd->strs[i][j];
-                if (c == 0 || c < 32 || c > 126) {
-                    isBinary = true;
-                    break;
-                }
-            }
+    // Helper function to create a RedisModuleSlotRangeArray for testing
+    RedisModuleSlotRangeArray* createSlotRangeArray(const std::vector<std::pair<uint16_t, uint16_t>>& ranges) {
+        // Allocate memory for the struct plus the flexible array member
+        size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * ranges.size();
+        RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
+        array->num_ranges = ranges.size();
 
-            if (isBinary) {
-                printf("[%d]=<binary:%zu bytes:", i, cmd->lens[i]);
-                for (size_t j = 0; j < cmd->lens[i]; j++) {
-                    printf("%02x", (unsigned char)cmd->strs[i][j]);
-                }
-                printf("> ");
-            } else {
-                printf("[%d]='%.*s' ", i, (int)cmd->lens[i], cmd->strs[i]);
-            }
+        for (size_t i = 0; i < ranges.size(); i++) {
+            array->ranges[i].start = ranges[i].first;
+            array->ranges[i].end = ranges[i].second;
         }
-        printf("\n");
+
+        return array;
     }
 
-    // Helper function to check if a command contains slot range information
-    bool hasSlotRangeInfo(const MRCommand *cmd) {
-        int rangeSlotsBinaryPos = -1;
+    RedisModuleCtx *ctx = nullptr;
+    RedisModuleSlotRangeArray* testSlotArray;
+    std::string testDescription;
 
-        // Find RANGE_SLOTS_BINARY position
-        for (int i = 0; i < cmd->num; i++) {
-            if (strncmp(cmd->strs[i], "RANGE_SLOTS_BINARY", cmd->lens[i]) == 0) {
-                rangeSlotsBinaryPos = i;
-                break;
-            }
-        }
 
-        // If RANGE_SLOTS_BINARY is found, check that it's followed by size and binary data
-        if (rangeSlotsBinaryPos >= 0 && rangeSlotsBinaryPos + 2 < cmd->num) {
-            // The next argument should be the size (as a string)
-            // The argument after that should be the binary data
-            return true;
-        }
 
-        return false;
-    }
 
-    // Helper function to find the position of an argument in the command
-    int findArgPosition(const MRCommand *cmd, const char *arg) {
-        for (int i = 0; i < cmd->num; i++) {
-            if (strncmp(cmd->strs[i], arg, cmd->lens[i]) == 0 && strlen(arg) == cmd->lens[i]) {
-                return i;
-            }
-        }
-        return -1;
-    }
 
 
 };
@@ -558,4 +600,143 @@ TEST_F(MRCommandTest, testExtractSlotRangeFromArgs) {
 
     MRCommand_Free(&cmd);
     MRCommand_Free(&cmd_no_slots);
+}
+
+// Define the parameter values for slot range tests
+INSTANTIATE_TEST_SUITE_P(
+    SlotRangeVariations,
+    MRCommandSlotRangeTest,
+    ::testing::Values(
+        // Single range (full cluster)
+        std::vector<std::pair<uint16_t, uint16_t>>{{0, 16383}},
+
+        // Two ranges (original test case)
+        std::vector<std::pair<uint16_t, uint16_t>>{{0, 8191}, {8192, 16383}},
+
+        // Three ranges
+        std::vector<std::pair<uint16_t, uint16_t>>{{0, 5460}, {5461, 10922}, {10923, 16383}},
+
+        // Four ranges (quarters)
+        std::vector<std::pair<uint16_t, uint16_t>>{{0, 4095}, {4096, 8191}, {8192, 12287}, {12288, 16383}},
+
+        // Single slot ranges
+        std::vector<std::pair<uint16_t, uint16_t>>{{0, 0}, {100, 100}, {16383, 16383}},
+
+        // Irregular ranges
+        std::vector<std::pair<uint16_t, uint16_t>>{{0, 1000}, {5000, 6000}, {10000, 16383}}
+    )
+);
+
+// Parameterized test for adding slot range info
+TEST_P(MRCommandSlotRangeTest, testAddSlotRangeInfoParameterized) {
+    printf("Testing with %s\n", testDescription.c_str());
+
+    // Create a command
+    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
+
+    printf("Initial command: ");
+    printMRCommand(&cmd);
+
+    // Add slot range info
+    bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
+    EXPECT_TRUE(result) << "Adding slot range info should succeed";
+
+    printf("Command after adding slot range info: ");
+    printMRCommand(&cmd);
+
+    // Verify the command structure
+    EXPECT_EQ(cmd.num, 6) << "Command should have 6 arguments after adding slot range info";
+    EXPECT_STREQ(cmd.strs[3], "RANGE_SLOTS_BINARY") << "Fourth argument should be RANGE_SLOTS_BINARY";
+
+    // Verify the size argument
+    std::string expected_size = std::to_string(sizeof(int32_t) + testSlotArray->num_ranges * sizeof(RedisModuleSlotRange));
+    EXPECT_STREQ(cmd.strs[4], expected_size.c_str()) << "Fifth argument should be the binary data size";
+
+    // Verify binary data length
+    size_t expected_binary_len = sizeof(int32_t) + testSlotArray->num_ranges * sizeof(RedisModuleSlotRange);
+    EXPECT_EQ(cmd.lens[5], expected_binary_len) << "Binary data length should match expected size";
+
+    MRCommand_Free(&cmd);
+}
+
+// Parameterized test for round-trip slot range serialization
+TEST_P(MRCommandSlotRangeTest, testSlotRangeRoundTripParameterized) {
+    printf("Testing round-trip with %s\n", testDescription.c_str());
+
+    // Create a command with slot range info
+    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
+    bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
+    EXPECT_TRUE(result) << "Adding slot range info should succeed";
+
+    printf("Original command: ");
+    printMRCommand(&cmd);
+
+    // Format the command using redisFormatSdsCommandArgv
+    sds formatted_cmd = NULL;
+    long long cmd_len = redisFormatSdsCommandArgv(&formatted_cmd, cmd.num, (const char **)cmd.strs, cmd.lens);
+    EXPECT_GT(cmd_len, 0) << "Command formatting should succeed";
+    EXPECT_NE(formatted_cmd, (sds)NULL) << "Formatted command should not be NULL";
+
+    printf("Formatted command length: %lld bytes\n", cmd_len);
+
+    // Parse the formatted command back using redisReader
+    redisReader *reader = redisReaderCreate();
+    EXPECT_NE(reader, (redisReader*)NULL) << "Reader creation should succeed";
+
+    int feed_result = redisReaderFeed(reader, formatted_cmd, cmd_len);
+    EXPECT_EQ(feed_result, REDIS_OK) << "Feeding data to reader should succeed";
+
+    void *reply_ptr;
+    int get_result = redisReaderGetReply(reader, &reply_ptr);
+    EXPECT_EQ(get_result, REDIS_OK) << "Getting reply should succeed";
+    EXPECT_NE(reply_ptr, (void*)NULL) << "Reply should not be NULL";
+
+    redisReply *reply = (redisReply*)reply_ptr;
+    EXPECT_EQ(reply->type, REDIS_REPLY_ARRAY) << "Reply should be an array";
+    EXPECT_EQ(reply->elements, (size_t)cmd.num) << "Reply should have same number of elements as original command";
+
+    // Convert redisReply elements to RedisModuleString array for ArgsCursor
+    printf("Converting parsed command to argc/argv and using ArgsCursor...\n");
+
+    std::vector<RedisModuleString*> argv_vec;
+    for (size_t i = 0; i < reply->elements; i++) {
+        RedisModuleString *rms = RedisModule_CreateString(NULL, reply->element[i]->str, reply->element[i]->len);
+        argv_vec.push_back(rms);
+    }
+
+    RedisModuleString **argv = argv_vec.data();
+    int argc = argv_vec.size();
+
+    printf("Using helper function to extract slot range data from argc=%d, argv...\n", argc);
+
+    // Use the helper function to extract slot range data
+    RedisModuleSlotRangeArray *reconstructed = extractSlotRangeFromArgs(argv, argc);
+
+    EXPECT_NE(reconstructed, (RedisModuleSlotRangeArray*)NULL) << "Should successfully extract slot range data";
+
+    if (reconstructed) {
+        printf("Successfully extracted slot range array: %d ranges\n", reconstructed->num_ranges);
+        EXPECT_EQ(reconstructed->num_ranges, testSlotArray->num_ranges) << "Should have same number of ranges";
+
+        for (int i = 0; i < reconstructed->num_ranges && i < testSlotArray->num_ranges; i++) {
+            printf("  Range %d: %u-%u (original: %u-%u)\n", i,
+                   reconstructed->ranges[i].start, reconstructed->ranges[i].end,
+                   testSlotArray->ranges[i].start, testSlotArray->ranges[i].end);
+            EXPECT_EQ(reconstructed->ranges[i].start, testSlotArray->ranges[i].start) << "Start slot should match";
+            EXPECT_EQ(reconstructed->ranges[i].end, testSlotArray->ranges[i].end) << "End slot should match";
+        }
+
+        rm_free(reconstructed);
+    }
+
+    // Free the RedisModuleString objects we created
+    for (RedisModuleString *rms : argv_vec) {
+        RedisModule_FreeString(NULL, rms);
+    }
+
+    // Cleanup
+    freeReplyObject(reply);
+    redisReaderFree(reader);
+    sdsfree(formatted_cmd);
+    MRCommand_Free(&cmd);
 }
