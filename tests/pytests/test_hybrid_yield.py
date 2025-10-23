@@ -163,28 +163,38 @@ def test_hybrid_search_and_vsim_yield_parameters():
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
-def test_hybrid_vsim_both_yield_distance_and_score():
-    """Test VSIM with both YIELD_SCORE_AS and YIELD_SCORE_AS together - should fail because YIELD_SCORE_AS is not supported in VSIM"""
+def test_hybrid_vsim_knn_both_yield_distance_and_score():
+    """Test VSIM KNN with both YIELD_DISTANCE_AS and YIELD_SCORE_AS together -
+    should fail because YIELD_DISTANCE_AS is not supported in VSIM"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
-    # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'KNN', '6', 'K', '10', 'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
+    # YIELD_DISTANCE_AS is not supported in VSIM clauses and should return an error
+    env.expect(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+        'KNN', '6', 'K', '10', 'YIELD_DISTANCE_AS', 'vector_distance',
+        'YIELD_SCORE_AS', 'vector_score')\
+            .error().contains('Unknown argument `YIELD_DISTANCE_AS` in KNN')
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vsim_range_both_yield_distance_and_score():
-    """Test VSIM RANGE with both YIELD_SCORE_AS and YIELD_SCORE_AS together - should fail because YIELD_SCORE_AS is not supported in VSIM"""
+    """Test VSIM RANGE with both YIELD_DISTANCE_AS and YIELD_SCORE_AS together -
+    should fail because YIELD_DISTANCE_AS is not supported in VSIM"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     radius = 2
 
-    # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'RANGE', '6', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
+    # YIELD_DISTANCE_AS is not supported in VSIM clauses and should return an error
+    env.expect(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+        'RANGE', '6', 'RADIUS', str(radius),
+        'YIELD_DISTANCE_AS', 'vector_distance',
+        'YIELD_SCORE_AS', 'vector_score')\
+            .error().contains('Unknown argument `YIELD_DISTANCE_AS` in RANGE')
+
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -195,9 +205,11 @@ def test_hybrid_yield_score_as_after_combine_error():
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
     # This should fail because YIELD_SCORE_AS appears after COMBINE
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'KNN', '4', 'K', '10', 'COMBINE', 'RRF', '2', 'CONSTANT', '60',
-               'YIELD_SCORE_AS', 'vector_distance').error()
+    env.expect(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+        'KNN', '4', 'K', '10', 'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+        'YIELD_SCORE_AS', 'vector_distance')\
+            .error().contains('Unknown argument `COMBINE` in KNN')
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -207,9 +219,10 @@ def test_hybrid_search_yield_score_as_after_combine():
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
-    # YIELD_SCORE_AS after COMBINE should now work
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score')
+    # YIELD_SCORE_AS after COMBINE should work
+    response = env.cmd(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+        'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score')
     results, _ = get_results_from_hybrid_response(response)
 
     # Validate the search_score field
@@ -230,9 +243,11 @@ def test_hybrid_multiple_yield_after_combine_error():
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
     # This should fail because both YIELD parameters appear after COMBINE
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'KNN', '4', 'K', '10', 'COMBINE', 'LINEAR', '8', 'ALPHA', '0.5', 'BETA', '0.5',
-               'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
+    env.expect(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+        'KNN', '4', 'K', '10', 'COMBINE', 'LINEAR', '8', 'ALPHA', '0.5', 'BETA', '0.5',
+        'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score')\
+            .error().contains('Unknown argument `COMBINE` in KNN')
 
 def test_hybrid_yield_score_as_all_possible_scores():
     env = Env()
