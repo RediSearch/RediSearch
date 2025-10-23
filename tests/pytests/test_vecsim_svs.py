@@ -69,7 +69,13 @@ def test_small_window_size():
                 vector = create_random_np_array_typed(dim, data_type)
                 vectors.append(vector)
                 conn.execute_command('HSET', f'doc_{i}', field_name, vector.tobytes())
-            print(vectors)
+
+            # Create unique filename for this iteration
+            compression_str = "no_compression" if not compression else "_".join(compression)
+            filename = f"vectors_{data_type}_{compression_str}.txt"
+            with open(filename, 'w') as f:
+                f.write(f"Data Type: {data_type}, Compression: {compression}, Dim: {dim}, Count: {num_vectors}\n")
+                f.write(str([vector.tolist() for vector in vectors]))
             try:
                 conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, f'__{field_name}_score')
             except Exception as e:
