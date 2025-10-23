@@ -309,6 +309,33 @@ debug_disk_usage() {
   echo "--- Python Cache Directories ---"
   find "$ROOT" -type d -name "__pycache__" -exec du -sh {} \; 2>/dev/null | head -10 || echo "No __pycache__ directories found"
 
+  # Tests directory breakdown (if it exists and is large)
+  if [[ -d "$ROOT/tests" ]]; then
+    TESTS_SIZE=$(du -sh "$ROOT/tests" 2>/dev/null | awk '{print $1}')
+    echo ""
+    echo "--- Tests Directory Breakdown (Total: $TESTS_SIZE) ---"
+    du -sh "$ROOT/tests"/* 2>/dev/null | sort -rh | head -10 || true
+
+    # Count different file types in tests directory
+    echo ""
+    echo "--- File Types in Tests Directory ---"
+    echo -n "  .log files: "
+    find "$ROOT/tests" -name "*.log" 2>/dev/null | wc -l
+    echo -n "  dump.rdb files: "
+    find "$ROOT/tests" -name "dump.rdb" 2>/dev/null | wc -l
+    echo -n "  .aof files: "
+    find "$ROOT/tests" -name "*.aof" 2>/dev/null | wc -l
+    echo -n "  .rdb files: "
+    find "$ROOT/tests" -name "*.rdb" 2>/dev/null | wc -l
+    echo -n "  Directories: "
+    find "$ROOT/tests" -type d 2>/dev/null | wc -l
+
+    # Show largest files in tests directory
+    echo ""
+    echo "--- Top 20 Largest Files in Tests Directory ---"
+    find "$ROOT/tests" -type f -exec du -h {} + 2>/dev/null | sort -rh | head -20 || true
+  fi
+
   # Temporary directories
   echo ""
   echo "--- Temp Directories ---"
