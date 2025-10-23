@@ -55,7 +55,7 @@ jobs:
         if: inputs.pre-steps-script && inputs.container == 'alpine:3'
         shell: sh -l -eo pipefail {0}
         run: |
-          for i in 1 2 3 4 5; do
+          for i in {1..5}; do
             echo "Attempt $i of 5"
             if ${{ inputs.pre-steps-script }}; then
               echo "Pre-steps Dependencies succeeded"
@@ -162,7 +162,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if cd ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
+            if ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
               echo "Install aws cli succeeded"
               exit 0
             fi
