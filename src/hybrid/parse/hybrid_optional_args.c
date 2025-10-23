@@ -130,7 +130,18 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                              ARG_OPT_CALLBACK, handleIndexPrefixes, ctx,
                              ARG_OPT_END);
 
-        //TODO(Joan): Here parse the slot information from the coordinator
+        ArgParser_AddSubArgsV(parser, "_RANGE_SLOTS_BINARY", "Slot ranges",
+                            &subArgs, 1, -1,
+                            ARG_OPT_OPTIONAL,
+                            ARG_OPT_CALLBACK, handleRangeSlotsBinary, ctx,
+                            ARG_OPT_END);
+
+        ArgParser_AddSubArgsV(parser, "_RANGE_SLOTS_HR", "Slot ranges",
+                             &subArgs, 1, -1,
+                             ARG_OPT_OPTIONAL,
+                             ARG_OPT_CALLBACK, handleRangeSlotsHR, ctx,
+                             ARG_OPT_END);
+
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",

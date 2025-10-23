@@ -14,6 +14,10 @@
 #include <string.h>
 #include <limits.h>
 #include "util/misc.h"
+#include "slot_ranges.h"
+#include "aggregate/aggregate.h"
+#include <stdatomic.h>
+#include <arpa/inet.h>
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
@@ -440,4 +444,91 @@ void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) 
     }
     array_ensure_append_1(*ctx->prefixes, prefix);
   }
+}
+
+// _RANGE_SLOTS_BINARY callback - implements EXACT original logic from handleRangeSlotsBinary
+void handleRangeSlotsBinary(ArgParser *parser, const void *value, void *user_data) {
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  ArgsCursor *ac = (ArgsCursor*)value;
+  QueryError *status = ctx->status;
+
+  // Parse binary slot range format: _RANGE_SLOTS_BINARY <size> <binary_data>
+  if (AC_NumRemaining(ac) < 2) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_BINARY requires size and binary data arguments");
+    return;
+  }
+  // Get the binary data
+  const char *binary_data;
+  size_t binary_size;
+  if (AC_GetString(ac, &binary_data, &binary_size, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing binary data for _RANGE_SLOTS_BINARY");
+    return;
+  }
+
+  RS_ASSERT(binary_size % sizeof(RedisModuleSlotRange) == 0);
+  size_t num_ranges = binary_size / sizeof(RedisModuleSlotRange);
+  // Allocate memory for the slot range array
+  size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges;
+  RedisModuleSlotRangeArray *slot_array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
+  RS_ASSERT(slot_array)
+  // Deserialize the binary data into the slot array
+  if (!RedisModuleSlotRangeArray_DeserializeBinary((const uint8_t*)binary_data, binary_size, slot_array)) {
+    rm_free(slot_array);
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to deserialize _RANGE_SLOTS_BINARY data");
+    return;
+  }
+
+  //TODO(Joan): See to which attribute this should be assigned
+
+}
+
+// _RANGE_SLOTS_HR callback - implements EXACT original logic from handleRangeSlotsHR
+void handleRangeSlotsHR(ArgParser *parser, const void *value, void *user_data) {
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  ArgsCursor *ac = (ArgsCursor*)value;
+  QueryError *status = ctx->status;
+
+  // Parse human-readable slot range format: _RANGE_SLOTS_HR <num_ranges> <start1> <end1> <start2> <end2> ...
+  // Get the number of ranges
+  long long num_ranges_ll;
+  if (AC_GetLongLong(ac, &num_ranges_ll, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR requires number of ranges");
+    return;
+  }
+
+  int32_t num_ranges = (int32_t)num_ranges_ll;
+
+  // Check if we have enough arguments for all ranges (each range needs start and end)
+  if (AC_NumRemaining(ac) < (size_t)(num_ranges * 2)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR: insufficient arguments for ranges");
+    return;
+  }
+
+  // Allocate memory for the slot range array
+  size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges;
+  RedisModuleSlotRangeArray *slot_array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
+  slot_array->num_ranges = num_ranges;
+
+  // Parse each range pair
+  for (uint32_t i = 0; i < num_ranges; i++) {
+    long long start_ll, end_ll;
+
+    if (AC_GetLongLong(ac, &start_ll, 0) != AC_OK || AC_GetLongLong(ac, &end_ll, 0) != AC_OK) {
+      rm_free(slot_array);
+      QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR: invalid range values");
+      return;
+    }
+
+    if (start_ll > end_ll) {
+      rm_free(slot_array);
+      QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR: start slot must be <= end slot");
+      return;
+    }
+
+    slot_array->ranges[i].start = (uint16_t)start_ll;
+    slot_array->ranges[i].end = (uint16_t)end_ll;
+  }
+
+  //TODO(Joan): See to which attribute this should be assigned
+
 }
