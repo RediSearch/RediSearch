@@ -61,7 +61,7 @@ def test_small_window_size():
     for data_type in VECSIM_SVS_DATA_TYPES:
         query_vec = create_random_np_array_typed(dim, data_type)
         for compression in [[], ["COMPRESSION", "LVQ8"]]:
-            params = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', "CONSTRUCTION_WINDOW_SIZE", 20, *compression]
+            params = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', "CONSTRUCTION_WINDOW_SIZE", 10, *compression]
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', field_name, 'VECTOR', 'SVS-VAMANA', len(params), *params)
 
             # Add enough vector to trigger transfer to svs
