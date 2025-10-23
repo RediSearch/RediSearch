@@ -209,7 +209,6 @@ def add_shard_and_migrate_test(env: Env):
 
     # Add a new shard
     env.addShardToClusterIfExists()
-    time.sleep(5)  # wait a bit for the cluster to stabilize before migrating
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     env.assertOk(new_shard.execute_command('CONFIG', 'SET', 'cluster-allow-replica-migration', 'no'))
     # ...and migrate slots from shard 1 to the new shard
