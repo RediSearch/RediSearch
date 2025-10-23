@@ -455,11 +455,9 @@ def create_np_array_typed(data, data_type='FLOAT32'):
         return Bfloat16Array(data)
     return np.array(data, dtype=data_type.lower())
 
-# np.random.seed(42)
-def create_random_np_array_typed(dim, data_type='FLOAT32', seed=10):
-    np.random.seed(seed)
+np.random.seed(42)
+def create_random_np_array_typed(dim, data_type='FLOAT32'):
     return create_np_array_typed(np.random.rand(dim), data_type)
-
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
         return False
