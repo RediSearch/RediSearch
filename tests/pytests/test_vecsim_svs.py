@@ -270,17 +270,17 @@ and vector dimension to get an exact match, making the test prohibitively slow.
 def queries_sanity(env):
     dim = 28
     training_threshold = DEFAULT_BLOCK_SIZE
+    num_docs = training_threshold * 2 * env.shardsCount # To ensure all shards' svs index is trained.
     score_title = f'__{DEFAULT_FIELD_NAME}_score'
+    conn = getConnectionByEnv(env)
 
     # Create SVS VAMANA index with all compression flavors
     # for non intel machines, we only test NO_COMPRESSION and any compression type (will result in GlobalSQ8)
 
     compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8']
-    env.debugPrint("Eextended tests: ", EXTENDED_PYTESTS)
+    env.debugPrint(f"Extended tests: {EXTENDED_PYTESTS}", force=True)
     for data_type in VECSIM_SVS_DATA_TYPES:
         for metric in VECSIM_DISTANCE_METRICS:
-            message_prefix = f"datatype: {data_type}, metric: {metric}"
-
             # Create an index for each compression type
             indexes_list = []
             for compression_type in compression_types:
@@ -290,33 +290,31 @@ def queries_sanity(env):
                 if compression_type != 'NO_COMPRESSION':
                     compression_params = ['COMPRESSION', compression_type, 'TRAINING_THRESHOLD', training_threshold]
 
-                create_vector_index(env, dim, index_name=index_name, datatype=data_type, metric=metric, alg='SVS-VAMANA', additional_vec_params=compression_params)
+                create_vector_index(env, dim, index_name=index_name, datatype=data_type, metric=metric, alg='SVS-VAMANA',
+                                    additional_vec_params=compression_params, message=f"datatype: {data_type}, metric: {metric}, compression: {compression_type}")
 
             env.assertEqual(sorted(env.cmd('FT._LIST')), sorted(indexes_list))
             # add vectors with the same field name so they will be indexed in all indexes
             normalize = metric == 'IP'
-            populate_with_vectors(env, dim=dim, num_docs=training_threshold - 1, datatype=data_type, normalize=normalize)
-            for index_name in indexes_list:
-                env.assertEqual(get_tiered_backend_debug_info(env, index_name, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 0, message=f"{message_prefix}, index: {index_name}")
-                env.assertEqual(index_info(env, index_name)['num_docs'], training_threshold - 1, message=f"{message_prefix}")
+            populate_with_vectors(env, dim=dim, num_docs=num_docs, datatype=data_type, normalize=normalize)
 
-            query = create_random_np_array_typed(dim, data_type)
-            env.executeCommand("hset", f"doc{training_threshold}", DEFAULT_FIELD_NAME, query.tobytes())
             for index_name in indexes_list:
                 message = f"datatype: {data_type}, metric: {metric}, index: {index_name}"
                 wait_for_background_indexing(env, index_name, DEFAULT_FIELD_NAME, message=message)
-                env.assertEqual(get_tiered_backend_debug_info(env, index_name, DEFAULT_FIELD_NAME)['INDEX_SIZE'], training_threshold, message=message)
-                env.assertEqual(index_info(env, index_name)['num_docs'], training_threshold, message=message)
+                env.assertGreaterEqual(get_tiered_backend_debug_info(env, index_name, DEFAULT_FIELD_NAME)['INDEX_SIZE'], training_threshold, message=message)
+                env.assertEqual(index_info(env, index_name)['num_docs'], num_docs, message=message)
 
+            query = create_random_np_array_typed(dim, data_type, normalize)
+            conn.execute_command("hset", f"doc{num_docs + 1}", DEFAULT_FIELD_NAME, query.tobytes())
             for index_name in indexes_list:
                 message = f"datatype: {data_type}, metric: {metric}, index: {index_name}"
                 knn_res = env.execute_command('FT.SEARCH', index_name, f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
                 cmd_range = f'@{DEFAULT_FIELD_NAME}:[VECTOR_RANGE 10 $b]=>{{$yield_distance_as:{score_title}}}'
-                range_res = env.execute_command('FT.SEARCH', index_name, cmd_range, 'PARAMS', 2, 'b', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
-                env.assertEqual(knn_res[1], f'doc{training_threshold}', message=str(knn_res) + " " + message)
-                env.assertEqual(range_res[1], f'doc{training_threshold}', message=message)
+                range_res = conn.execute_command('FT.SEARCH', index_name, cmd_range, 'PARAMS', 2, 'b', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
+                env.assertEqual(knn_res[1], f'doc{num_docs + 1}', message=str(knn_res) + " " + message)
+                env.assertEqual(range_res[1], f'doc{num_docs + 1}', message=message)
 
-            env.execute_command('FLUSHALL')
+            conn.execute_command('FLUSHALL')
 
 def test_queries_sanity():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -455,7 +453,7 @@ def test_drop_index_during_query():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1')
     dim = 2
     training_threshold = DEFAULT_BLOCK_SIZE
-    set_up_database_with_vectors(env, dim, num_docs=training_threshold, additional_schema_args=['n', 'NUMERIC'])
+    set_up_database_with_vectors(env, dim, num_docs=training_threshold)
 
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], training_threshold)
     query = create_random_np_array_typed(dim, 'FLOAT32')
