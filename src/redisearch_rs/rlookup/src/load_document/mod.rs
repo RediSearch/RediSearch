@@ -426,6 +426,7 @@ impl LoadDocumentError {
 mod tests {
 
     use super::*;
+    #[cfg(not(miri))]
     use redis_mock::TestContext;
     use value::RSValueMock;
 
@@ -441,6 +442,8 @@ mod tests {
         /// indicates whether the ScanKeyCursor feature is available
         has_scan_key_feature: bool,
 
+        /// This is the underlying Redis module mock context
+        #[cfg(not(miri))]
         redis_ctx: TestContext,
     }
 
@@ -457,6 +460,7 @@ mod tests {
             self
         }
 
+        #[cfg(not(miri))]
         pub fn adapt_redis_ctx<F>(&mut self, f: F)
         where
             F: FnOnce(&mut TestContext),
@@ -470,6 +474,7 @@ mod tests {
             Self {
                 is_crdt: false,
                 has_scan_key_feature: true,
+                #[cfg(not(miri))]
                 redis_ctx: TestContext::new(),
             }
         }
@@ -537,11 +542,14 @@ mod tests {
                 ]);
             });
 
+            let test_ctx = &mut ctx.redis_ctx;
+            let redis_ctx =
+                std::ptr::from_mut(test_ctx).cast::<redis_module::raw::RedisModuleCtx>();
             let sv = RSSortingVector::new(0);
             let key_ptr = c"TestKey";
             type TOpt<'a> = LoadDocumentOptions<'a, RSValueMock>;
             let opt: TOpt = LoadDocumentOptionsBuilder::new(
-                ctx as *mut LoadDocumentTestContext as *mut redis_module::raw::RedisModuleCtx,
+                redis_ctx as *mut TestContext as *mut redis_module::raw::RedisModuleCtx,
                 &sv,
                 DocumentType::Hash,
             )

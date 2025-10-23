@@ -7,14 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(clippy::undocumented_unsafe_blocks)]
-#![allow(clippy::missing_safety_doc)]
-
 use crate::{
     key::UserKey,
     string::{RedisModule_CreateString, RedisModule_FreeString},
 };
 
+/// Creates a new Scan Key Cursor.
+///
+/// # Safety
+/// Caller is is only allow to use RedisModule_ScanKey, we don't support restart and other operations, yet.
 #[allow(non_snake_case)]
 pub const unsafe extern "C" fn RedisModule_ScanCursorCreate()
 -> *mut redis_module::raw::RedisModuleScanCursor {
@@ -22,6 +23,10 @@ pub const unsafe extern "C" fn RedisModule_ScanCursorCreate()
     std::ptr::null_mut()
 }
 
+/// Destroys a Scan Key Cursor.
+///
+/// # Safety
+/// It's a no-op in the mock implementation.
 #[allow(non_snake_case)]
 pub const unsafe extern "C" fn RedisModule_ScanCursorDestroy(
     _cursor: *mut redis_module::raw::RedisModuleScanCursor,
@@ -29,6 +34,14 @@ pub const unsafe extern "C" fn RedisModule_ScanCursorDestroy(
     // no-op, see RedisModule_ScanCursorCreate
 }
 
+/// Scans the keys in a Redis key using the Scan Key API.
+///
+///  # Safety
+/// 1. `key` must be a valid pointer to a `RedisModuleKey` implemented by [crate::key::UserKey].
+/// 2. `key` must be created by [crate::key::RedisModule_OpenKey] to ensure it holds a [crate::TestContext].
+/// 2. `_cursor` should be null in the test mock implementation.
+/// 3. `_cb` must be a valid callback function pointer.
+/// 4. `_privdata` can be null and is not used by the mock implementation.
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ScanKey(
     key: *mut redis_module::raw::RedisModuleKey,
@@ -43,31 +56,46 @@ pub unsafe extern "C" fn RedisModule_ScanKey(
     >,
     _privdata: *mut ::std::os::raw::c_void,
 ) -> ::std::os::raw::c_int {
+    // Safety: Caller has to ensure 1
     let key = unsafe { &*(key.cast::<UserKey>()) };
     let Some(ctx) = key.get_ctx() else {
         // early return we miss the data holder
         return 0;
     };
 
-    let ctx: &crate::TestContext = unsafe { &*(ctx.as_ptr() as *const crate::TestContext) };
+    // Safety: Caller is has to ensure 2 and thus we can cast the context as [crate::TestContext]
+    let test_ctx = unsafe {
+        ctx.as_ptr()
+            .cast::<crate::TestContext>()
+            .as_ref()
+            .expect("ctx pointer must be valid and point to TestContext")
+    };
 
-    let ctx_arg = std::ptr::null_mut();
     // we get cstrings and values from the context, we have to generate the scan key callback types
-    for (k, v) in ctx.access_key_values().iter() {
+    for (k, v) in test_ctx.access_key_values().iter() {
         // convert field to redis string
-        let field = unsafe { RedisModule_CreateString(ctx_arg, k.as_ptr(), k.as_bytes().len()) };
+        // Safety: We create a RedisModuleString from valid utf8 bytes in [crate::TestContext]
+        let field =
+            unsafe { RedisModule_CreateString(ctx.as_ptr(), k.as_ptr(), k.as_bytes().len()) };
 
         // convert value to redis string
-        let value = unsafe { RedisModule_CreateString(ctx_arg, v.as_ptr(), v.as_bytes().len()) };
+        // Safety: We create a RedisModuleString from valid utf8 bytes in [crate::TestContext]
+        let value =
+            unsafe { RedisModule_CreateString(ctx.as_ptr(), v.as_ptr(), v.as_bytes().len()) };
 
-        // call the callback
+        // access the callback
         let cb = _cb.expect("callback must be set");
 
+        // call the callback,
+        // Safety: if the user-code wants to use field or value after the loop it is their responsibility to copy them
         unsafe { cb(key as *const _ as *mut _, field, value, _privdata) };
 
         // free the created strings
-        unsafe { RedisModule_FreeString(ctx_arg, field) };
-        unsafe { RedisModule_FreeString(ctx_arg, value) };
+
+        // Safety: The user-code is expected to have used or copied the strings in the callback, so we can free them here.
+        unsafe { RedisModule_FreeString(ctx.as_ptr(), field) };
+        // Safety: The user-code is expected to have used or copied the strings in the callback, so we can free them here.
+        unsafe { RedisModule_FreeString(ctx.as_ptr(), value) };
     }
 
     0

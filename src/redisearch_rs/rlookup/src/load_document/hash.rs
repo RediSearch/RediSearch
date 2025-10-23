@@ -9,7 +9,6 @@
 
 use std::{borrow::Cow, ffi::CStr, ptr::NonNull};
 
-use enumflags2::make_bitflags;
 use redis_module::{
     KeyType, RedisString, ScanKeyCursor,
     key::{KeyFlags, RedisKey},
@@ -17,7 +16,7 @@ use redis_module::{
 use value::RSValueFFI;
 
 use crate::{
-    RLookup, RLookupKey, RLookupKeyFlag, RLookupRow,
+    RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow,
     bindings::RLookupCoerceType,
     load_document::{LoadDocumentContext, LoadDocumentError, LoadDocumentOptions, ValueSrc},
 };
@@ -149,9 +148,8 @@ where
 {
     let new_required = lookup.find_by_name(field_cstr).is_none();
     if new_required {
-        let flags = make_bitflags!(RLookupKeyFlag::{ForceLoad | NameAlloc});
         let name = Cow::from(field_cstr.to_owned());
-        lookup.get_key_write(name, flags);
+        lookup.get_key_write(name, RLookupKeyFlags::empty());
     }
 
     let cursor = lookup.find_by_name(field_cstr).expect("key must exist now");

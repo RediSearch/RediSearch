@@ -26,6 +26,6 @@ pub fn get_server_version() -> i32 {
 /// Returns true if the Redis server has the Scan Key API feature.
 pub fn has_scan_key_feature() -> bool {
     let server_version = get_server_version();
-    let feature = ffi::RM_SCAN_KEY_API_FIX as i32;
-    feature <= server_version
+    let min_version_for_feature = ffi::RM_SCAN_KEY_API_FIX as i32;
+    min_version_for_feature <= server_version
 }
