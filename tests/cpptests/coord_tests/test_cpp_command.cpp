@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "gtest/gtest.h"
 #include "redismock/redismock.h"
 #include "redismock/util.h"
@@ -171,12 +180,6 @@ protected:
     RedisModuleCtx *ctx = nullptr;
     RedisModuleSlotRangeArray* testSlotArray;
     std::string testDescription;
-
-
-
-
-
-
 };
 
 // ============================================================================
@@ -253,41 +256,31 @@ TEST_F(MRCommandTest, testCommandInsert) {
 
     EXPECT_EQ(cmd.num, 6);
     EXPECT_TRUE(verifyCommandArgs(&cmd, {"FT.SEARCH", "myindex", "hello", "LIMIT", "0", "10"}));
-
     MRCommand_Free(&cmd);
 }
 
 // Test replacing arguments in a command
 TEST_F(MRCommandTest, testCommandReplaceArg) {
     MRCommand cmd = MR_NewCommand(4, "FT.SEARCH", "myindex", "hello", "world");
-
     // Replace the query
     MRCommand_ReplaceArg(&cmd, 2, "goodbye", 7);
-
     EXPECT_TRUE(verifyCommandArgs(&cmd, {"FT.SEARCH", "myindex", "goodbye", "world"}));
-
     MRCommand_Free(&cmd);
 }
 
 // Test setting command prefix
 TEST_F(MRCommandTest, testCommandSetPrefix) {
     MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "myindex", "hello");
-
     MRCommand_SetPrefix(&cmd, "_FT");
-
     EXPECT_TRUE(verifyCommandArgs(&cmd, {"_FT.SEARCH", "myindex", "hello"}));
-
     MRCommand_Free(&cmd);
 }
 
 // Test replacing command prefix when one already exists
 TEST_F(MRCommandTest, testCommandReplacePrefixExisting) {
     MRCommand cmd = MR_NewCommand(3, "_FT.SEARCH", "myindex", "hello");
-
     MRCommand_SetPrefix(&cmd, "NEW");
-
     EXPECT_TRUE(verifyCommandArgs(&cmd, {"NEW.SEARCH", "myindex", "hello"}));
-
     MRCommand_Free(&cmd);
 }
 
@@ -295,61 +288,12 @@ TEST_F(MRCommandTest, testCommandReplacePrefixExisting) {
 // Slot Range Tests
 // ============================================================================
 
-// Test that MRCommand_AddSlotRangeInfo adds the correct arguments
-TEST_F(MRCommandTest, testAddSlotRangeInfo) {
-    // Create a basic command
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
-
-    // Print initial command
-    printf("Initial command: ");
-    printMRCommand(&cmd);
-
-    // Add slot range information
-    bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
-    EXPECT_TRUE(result) << "Adding slot range info should succeed";
-
-    // Print command after adding slot range info
-    printf("Command after adding slot range info: ");
-    printMRCommand(&cmd);
-
-    // In a real cluster environment, this should succeed
-    // In a non-cluster environment, it might fail (return false)
-    // For this test, we'll check both cases
-
-    // If successful, verify the slot range arguments were added
-    EXPECT_TRUE(hasSlotRangeInfo(&cmd)) << "Command should contain slot range information";
-
-    // Verify the arguments were added correctly
-    int rangePos = findArgPosition(&cmd, "RANGE_SLOTS_BINARY");
-    EXPECT_GT(rangePos, 0) << "RANGE_SLOTS_BINARY should be added at the end of the command";
-
-    // Verify that RANGE_SLOTS_BINARY is followed by size and binary data
-    EXPECT_LT(rangePos + 2, cmd.num) << "RANGE_SLOTS_BINARY should be followed by size and binary data";
-
-    // The next argument should be the size (as a string)
-    std::string sizeArg(cmd.strs[rangePos + 1], cmd.lens[rangePos + 1]);
-    EXPECT_GT(std::stoi(sizeArg), 0) << "Size argument should be a positive number";
-
-    // The argument after that should be the binary data
-    EXPECT_GT(cmd.lens[rangePos + 2], 0) << "Binary data should be present";
-
-    MRCommand_Free(&cmd);
-}
-
 // Test that slot range info is added to different types of commands
 TEST_F(MRCommandTest, testAddSlotRangeInfoToHybridCommand) {
     // Create a hybrid command
     MRCommand cmd = MR_NewCommand(7, "_FT.HYBRID", "test_index", "SEARCH", "hello", "VSIM", "@vector", "data");
-
-    printf("Initial hybrid command: ");
-    printMRCommand(&cmd);
-
     bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
-
     EXPECT_TRUE(result) << "Adding slot range info to cursor command should succeed";
-
-    printf("Cursor command after adding slot range info: ");
-    printMRCommand(&cmd);
     EXPECT_TRUE(hasSlotRangeInfo(&cmd)) << "Cursor command should contain slot range information";
     MRCommand_Free(&cmd);
 }
@@ -358,15 +302,8 @@ TEST_F(MRCommandTest, testAddSlotRangeInfoToHybridCommand) {
 TEST_F(MRCommandTest, testAddSlotRangeInfoToCursorCommand) {
     // Create a cursor command
     MRCommand cmd = MR_NewCommand(4, "_FT.CURSOR", "READ", "test_index", "12345");
-
-    printf("Initial cursor command: ");
-    printMRCommand(&cmd);
-
     bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
     EXPECT_TRUE(result) << "Adding slot range info to cursor command should succeed";
-
-    printf("Cursor command after adding slot range info: ");
-    printMRCommand(&cmd);
     EXPECT_TRUE(hasSlotRangeInfo(&cmd)) << "Cursor command should contain slot range information";
 
     MRCommand_Free(&cmd);
@@ -377,14 +314,8 @@ TEST_F(MRCommandTest, testAddSlotRangeInfoToSearchCommand) {
     // Create a FT.SEARCH command
     MRCommand cmd = MR_NewCommand(5, "FT.SEARCH", "myindex", "hello", "LIMIT", "10");
 
-    printf("Initial FT.SEARCH command: ");
-    printMRCommand(&cmd);
-
     bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
     EXPECT_TRUE(result) << "Adding slot range info to FT.SEARCH command should succeed";
-
-    printf("FT.SEARCH command after adding slot range info: ");
-    printMRCommand(&cmd);
     EXPECT_TRUE(hasSlotRangeInfo(&cmd)) << "FT.SEARCH command should contain slot range information";
 
     // Verify the original command arguments are preserved and slot range info is added
@@ -406,14 +337,8 @@ TEST_F(MRCommandTest, testAddSlotRangeInfoToAggregateCommand) {
     // Create a FT.AGGREGATE command
     MRCommand cmd = MR_NewCommand(6, "FT.AGGREGATE", "myindex", "*", "GROUPBY", "1", "@category");
 
-    printf("Initial FT.AGGREGATE command: ");
-    printMRCommand(&cmd);
-
     bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
     EXPECT_TRUE(result) << "Adding slot range info to FT.AGGREGATE command should succeed";
-
-    printf("FT.AGGREGATE command after adding slot range info: ");
-    printMRCommand(&cmd);
     EXPECT_TRUE(hasSlotRangeInfo(&cmd)) << "FT.AGGREGATE command should contain slot range information";
 
     // Verify the original command arguments are preserved and slot range info is added
@@ -485,123 +410,6 @@ RedisModuleSlotRangeArray* extractSlotRangeFromArgs(RedisModuleString **argv, in
     return NULL; // Not found or error
 }
 
-// Test round-trip: Command → Format → Parse → Reconstruct SlotRangeArray
-TEST_F(MRCommandTest, testSlotRangeRoundTrip) {
-    // Create a command with slot range info
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
-    bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
-    EXPECT_TRUE(result) << "Adding slot range info should succeed";
-
-    // Format the command using redisFormatSdsCommandArgv
-    sds formatted_cmd = NULL;
-    long long len = redisFormatSdsCommandArgv(&formatted_cmd, cmd.num, (const char**)cmd.strs, cmd.lens);
-    EXPECT_GT(len, 0) << "Command formatting should succeed";
-    EXPECT_NE(formatted_cmd, (sds)NULL) << "Formatted command should not be NULL";
-
-    // Parse the formatted command back using redisReader
-    redisReader *reader = redisReaderCreate();
-    EXPECT_NE(reader, (redisReader*)NULL) << "Reader creation should succeed";
-
-    // Feed the formatted command to the reader
-    int feed_result = redisReaderFeed(reader, formatted_cmd, len);
-    EXPECT_EQ(feed_result, REDIS_OK) << "Feeding command to reader should succeed";
-
-    // Get the parsed reply
-    redisReply *reply = NULL;
-    int parse_result = redisReaderGetReply(reader, (void**)&reply);
-    EXPECT_EQ(parse_result, REDIS_OK) << "Parsing command should succeed";
-
-    EXPECT_EQ(reply->type, REDIS_REPLY_ARRAY) << "Reply should be an array";
-    EXPECT_EQ(reply->elements, cmd.num) << "Reply should have same number of elements as original command";
-
-    for (size_t i = 0; i < reply->elements; i++) {
-        EXPECT_EQ(reply->element[i]->type, REDIS_REPLY_STRING) << "Each element should be a string";
-    }
-
-    std::vector<RedisModuleString*> argv_vec;
-    for (size_t i = 0; i < reply->elements; i++) {
-        // Create RedisModuleString from the reply data
-        RedisModuleString *rms = RedisModule_CreateString(NULL, reply->element[i]->str, reply->element[i]->len);
-        argv_vec.push_back(rms);
-    }
-
-    RedisModuleString **argv = argv_vec.data();
-    int argc = argv_vec.size();
-    // Use the helper function to extract slot range data
-    RedisModuleSlotRangeArray *reconstructed = extractSlotRangeFromArgs(argv, argc);
-
-    EXPECT_NE(reconstructed, (RedisModuleSlotRangeArray*)NULL) << "Should successfully extract slot range data";
-    EXPECT_EQ(reconstructed->num_ranges, testSlotArray->num_ranges) << "Should have same number of ranges";
-
-    for (int i = 0; i < reconstructed->num_ranges && i < testSlotArray->num_ranges; i++) {
-        EXPECT_EQ(reconstructed->ranges[i].start, testSlotArray->ranges[i].start) << "Start slot should match";
-        EXPECT_EQ(reconstructed->ranges[i].end, testSlotArray->ranges[i].end) << "End slot should match";
-    }
-
-    rm_free(reconstructed);
-
-    // Free the RedisModuleString objects we created
-    for (RedisModuleString *rms : argv_vec) {
-        RedisModule_FreeString(NULL, rms);
-    }
-
-    // Cleanup
-    freeReplyObject(reply);
-    redisReaderFree(reader);
-    sdsfree(formatted_cmd);
-    MRCommand_Free(&cmd);
-}
-
-// Test the helper function for extracting slot range data from argc/argv
-TEST_F(MRCommandTest, testExtractSlotRangeFromArgs) {
-    // Create a command with slot range info
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
-    bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
-    EXPECT_TRUE(result) << "Adding slot range info should succeed";
-    // Convert MRCommand to RedisModuleString array (simulating real usage)
-    std::vector<RedisModuleString*> argv_vec;
-    for (int i = 0; i < cmd.num; i++) {
-        RedisModuleString *rms = RedisModule_CreateString(NULL, cmd.strs[i], cmd.lens[i]);
-        argv_vec.push_back(rms);
-    }
-
-    // Use the helper function to extract slot range data
-    RedisModuleSlotRangeArray *extracted = extractSlotRangeFromArgs(argv_vec.data(), argv_vec.size());
-
-    EXPECT_NE(extracted, (RedisModuleSlotRangeArray*)NULL) << "Should successfully extract slot range data";
-
-    EXPECT_EQ(extracted->num_ranges, testSlotArray->num_ranges) << "Should have same number of ranges";
-
-    for (int i = 0; i < extracted->num_ranges && i < testSlotArray->num_ranges; i++) {
-        EXPECT_EQ(extracted->ranges[i].start, testSlotArray->ranges[i].start) << "Start slot should match";
-        EXPECT_EQ(extracted->ranges[i].end, testSlotArray->ranges[i].end) << "End slot should match";
-    }
-
-    rm_free(extracted);
-
-    // Test with command that doesn't have slot range data
-    MRCommand cmd_no_slots = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
-    std::vector<RedisModuleString*> argv_no_slots;
-    for (int i = 0; i < cmd_no_slots.num; i++) {
-        RedisModuleString *rms = RedisModule_CreateString(NULL, cmd_no_slots.strs[i], cmd_no_slots.lens[i]);
-        argv_no_slots.push_back(rms);
-    }
-
-    RedisModuleSlotRangeArray *no_slots_result = extractSlotRangeFromArgs(argv_no_slots.data(), argv_no_slots.size());
-    EXPECT_EQ(no_slots_result, (RedisModuleSlotRangeArray*)NULL) << "Should return NULL when no slot range data present";
-
-    // Cleanup
-    for (RedisModuleString *rms : argv_vec) {
-        RedisModule_FreeString(NULL, rms);
-    }
-    for (RedisModuleString *rms : argv_no_slots) {
-        RedisModule_FreeString(NULL, rms);
-    }
-
-    MRCommand_Free(&cmd);
-    MRCommand_Free(&cmd_no_slots);
-}
-
 // Define the parameter values for slot range tests
 INSTANTIATE_TEST_SUITE_P(
     SlotRangeVariations,
@@ -629,20 +437,12 @@ INSTANTIATE_TEST_SUITE_P(
 
 // Parameterized test for adding slot range info
 TEST_P(MRCommandSlotRangeTest, testAddSlotRangeInfoParameterized) {
-    printf("Testing with %s\n", testDescription.c_str());
-
     // Create a command
     MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
-
-    printf("Initial command: ");
-    printMRCommand(&cmd);
 
     // Add slot range info
     bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
     EXPECT_TRUE(result) << "Adding slot range info should succeed";
-
-    printf("Command after adding slot range info: ");
-    printMRCommand(&cmd);
 
     // Verify the command structure
     EXPECT_EQ(cmd.num, 6) << "Command should have 6 arguments after adding slot range info";
@@ -661,23 +461,16 @@ TEST_P(MRCommandSlotRangeTest, testAddSlotRangeInfoParameterized) {
 
 // Parameterized test for round-trip slot range serialization
 TEST_P(MRCommandSlotRangeTest, testSlotRangeRoundTripParameterized) {
-    printf("Testing round-trip with %s\n", testDescription.c_str());
-
     // Create a command with slot range info
     MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
     bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
     EXPECT_TRUE(result) << "Adding slot range info should succeed";
-
-    printf("Original command: ");
-    printMRCommand(&cmd);
 
     // Format the command using redisFormatSdsCommandArgv
     sds formatted_cmd = NULL;
     long long cmd_len = redisFormatSdsCommandArgv(&formatted_cmd, cmd.num, (const char **)cmd.strs, cmd.lens);
     EXPECT_GT(cmd_len, 0) << "Command formatting should succeed";
     EXPECT_NE(formatted_cmd, (sds)NULL) << "Formatted command should not be NULL";
-
-    printf("Formatted command length: %lld bytes\n", cmd_len);
 
     // Parse the formatted command back using redisReader
     redisReader *reader = redisReaderCreate();
@@ -695,9 +488,6 @@ TEST_P(MRCommandSlotRangeTest, testSlotRangeRoundTripParameterized) {
     EXPECT_EQ(reply->type, REDIS_REPLY_ARRAY) << "Reply should be an array";
     EXPECT_EQ(reply->elements, (size_t)cmd.num) << "Reply should have same number of elements as original command";
 
-    // Convert redisReply elements to RedisModuleString array for ArgsCursor
-    printf("Converting parsed command to argc/argv and using ArgsCursor...\n");
-
     std::vector<RedisModuleString*> argv_vec;
     for (size_t i = 0; i < reply->elements; i++) {
         RedisModuleString *rms = RedisModule_CreateString(NULL, reply->element[i]->str, reply->element[i]->len);
@@ -707,27 +497,18 @@ TEST_P(MRCommandSlotRangeTest, testSlotRangeRoundTripParameterized) {
     RedisModuleString **argv = argv_vec.data();
     int argc = argv_vec.size();
 
-    printf("Using helper function to extract slot range data from argc=%d, argv...\n", argc);
-
     // Use the helper function to extract slot range data
     RedisModuleSlotRangeArray *reconstructed = extractSlotRangeFromArgs(argv, argc);
 
     EXPECT_NE(reconstructed, (RedisModuleSlotRangeArray*)NULL) << "Should successfully extract slot range data";
+    EXPECT_EQ(reconstructed->num_ranges, testSlotArray->num_ranges) << "Should have same number of ranges";
 
-    if (reconstructed) {
-        printf("Successfully extracted slot range array: %d ranges\n", reconstructed->num_ranges);
-        EXPECT_EQ(reconstructed->num_ranges, testSlotArray->num_ranges) << "Should have same number of ranges";
-
-        for (int i = 0; i < reconstructed->num_ranges && i < testSlotArray->num_ranges; i++) {
-            printf("  Range %d: %u-%u (original: %u-%u)\n", i,
-                   reconstructed->ranges[i].start, reconstructed->ranges[i].end,
-                   testSlotArray->ranges[i].start, testSlotArray->ranges[i].end);
-            EXPECT_EQ(reconstructed->ranges[i].start, testSlotArray->ranges[i].start) << "Start slot should match";
-            EXPECT_EQ(reconstructed->ranges[i].end, testSlotArray->ranges[i].end) << "End slot should match";
-        }
-
-        rm_free(reconstructed);
+    for (int i = 0; i < reconstructed->num_ranges && i < testSlotArray->num_ranges; i++) {
+        EXPECT_EQ(reconstructed->ranges[i].start, testSlotArray->ranges[i].start) << "Start slot should match";
+        EXPECT_EQ(reconstructed->ranges[i].end, testSlotArray->ranges[i].end) << "End slot should match";
     }
+
+    rm_free(reconstructed);
 
     // Free the RedisModuleString objects we created
     for (RedisModuleString *rms : argv_vec) {
