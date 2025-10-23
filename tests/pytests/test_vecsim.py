@@ -43,12 +43,12 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors, data
 
 
 def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True, sort_by_non_vector_field=False,
-                         hybrid_mode='HYBRID_BATCHES', scorer='BM25STD'):
+                         hybrid_mode='HYBRID_BATCHES', scorer='BM25STD', limit=10):
     if sort_by_vector:
         ret = env.expect('FT.SEARCH', 'idx', query_string,
                          'SORTBY', '__v_score',
                          'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                         'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, 10)
+                         'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, limit)
 
     else:
 
@@ -56,16 +56,15 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
             ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES', 'SCORER', scorer,
                              'SORTBY', non_vector_field,
                              'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                             'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
+                             'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, limit)
 
         else:
             ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES', 'SCORER', scorer,
                              'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                             'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
+                             'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, limit)
 
     env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], hybrid_mode, depth=1)
     return ret
-
 
 '''******************* vecsim tests *****************************'''
 
