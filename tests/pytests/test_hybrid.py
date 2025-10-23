@@ -193,7 +193,7 @@ class testHybridSearch:
         """Test hybrid search using KNN + tag prefilter"""
         scenario = {
             "hybrid_query": "SEARCH '@text:(even) ~@text:(text)' VSIM @vector $BLOB FILTER @tag:{odd}",
-            "search_equivalent": "@text:even ~@text:(text)",
+            "search_equivalent": "@text:(even) ~@text:(text)",
             "vector_equivalent": "(@tag:{odd})=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
