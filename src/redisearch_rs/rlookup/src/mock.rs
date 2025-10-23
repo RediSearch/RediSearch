@@ -136,3 +136,14 @@ extern "C" fn IndexSpecCache_Decref(s: Option<NonNull<ffi::IndexSpecCache>>) {
         drop(unsafe { Box::from_raw(s.as_ptr()) });
     }
 }
+
+/// Mock implementation of `sdslen` from sds.h for testing purposes,
+/// instead of using a dynamic string type, we just use C strings here.
+#[unsafe(no_mangle)]
+extern "C" fn sdslen__(s: *const c_char) -> usize {
+    if s.is_null() {
+        0
+    } else {
+        unsafe { libc::strlen(s) }
+    }
+}
