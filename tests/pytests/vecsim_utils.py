@@ -34,16 +34,14 @@ def create_vector_index(env: Env, dim, index_name=DEFAULT_INDEX_NAME, field_name
                 field_name, 'VECTOR', alg, len(params), *params,
                 *additional_schema_args)
     except redis_exceptions.ResponseError as e:
-        env.assertTrue(False, message=f"Failed to create index: '{index_name}' {message} with error: {e}", depth=depth+1)
+        env.assertTrue(False, message=f"Failed to create index: '{index_name}', metric: {metric}, datatype: {datatype}, alg: {alg}, {message} with error: {e}", depth=depth+1)
 
 # Will populate the database with hashes doc_name_prefix<doc_id> containing a single vector field
 def populate_with_vectors(env, num_docs, dim, datatype='FLOAT32', field_name=DEFAULT_FIELD_NAME, initial_doc_id=1, doc_name_prefix=DEFAULT_DOC_NAME_PREFIX, normalize=False):
     conn = getConnectionByEnv(env)
     p = conn.pipeline(transaction=False)
     for i in range(num_docs):
-        vector = create_random_np_array_typed(dim, datatype)
-        if normalize:
-            vector = vector / np.linalg.norm(vector)
+        vector = create_random_np_array_typed(dim, datatype, normalize=normalize)
         p.execute_command('HSET', f'{doc_name_prefix}{initial_doc_id + i}', field_name, vector.tobytes())
     p.execute()
 
@@ -56,7 +54,7 @@ def set_up_database_with_vectors(env: Env, dim, num_docs, index_name=DEFAULT_IND
                         additional_vec_params=additional_vec_params,
                         additional_schema_args=additional_schema_args)
 
-    populate_with_vectors(env, num_docs, dim, datatype)
+    populate_with_vectors(env, num_docs, dim, datatype, field_name)
 
 def get_tiered_debug_info(env, index_name, field_name) -> dict:
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, field_name))

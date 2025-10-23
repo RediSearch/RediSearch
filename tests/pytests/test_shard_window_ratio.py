@@ -232,7 +232,7 @@ def test_insufficient_docs_per_shard():
     effectiveK = (k + num_shards - 1) // num_shards
     # Set up database with 10 documents initially
     num_initial_docs = 20
-    set_up_database_with_vectors(env, dim, num_initial_docs, 'idx', datatype)
+    set_up_database_with_vectors(env, dim, num_initial_docs, 'idx', datatype=datatype)
     query_vec = create_random_np_array_typed(dim, datatype)
 
     # The database contains k(5) results in total.
