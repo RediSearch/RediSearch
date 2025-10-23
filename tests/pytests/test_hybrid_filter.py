@@ -45,8 +45,6 @@ def setup_filter_test_index(env):
     )
 
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_filter_behavior():
     """Test that FILTER without and with COMBINE behavior in hybrid queries"""
     env = Env()
