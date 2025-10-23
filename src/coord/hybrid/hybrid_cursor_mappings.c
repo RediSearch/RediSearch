@@ -178,13 +178,16 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
             if (QueryError_GetCode(&ctx->errors[i]) == QUERY_EOOM && oomPolicy == OomPolicy_Return ) {
                 QueryError_SetQueryOOMWarning(status);
             } else {
-                firstErrorIndex = i;
-                QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process shard responses, first error: %s, total error count: %zu", QueryError_GetUserError(&ctx->errors[0]), array_len(ctx->errors));
+                QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process shard responses, first error: %s, total error count: %zu",
+                    QueryError_GetUserError(&ctx->errors[0]), array_len(ctx->errors));
                 success = false;
                 break;
             }
-        } if (array_len(ctx->errors) == numShards) {
-            QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process shard responses, first error: %s, total error count: %zu", QueryError_GetUserError(&ctx->errors[firstErrorIndex]), array_len(ctx->errors));
+        }
+        // if all shards returned errors, set the error and mark as failed
+        if (array_len(ctx->errors) == numShards) {
+            QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process shard responses, first error: %s, total error count: %zu",
+                QueryError_GetUserError(&ctx->errors[0]), array_len(ctx->errors));
             success = false;
         }
     }
