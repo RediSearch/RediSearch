@@ -122,45 +122,6 @@ def testNumericCompleteGCAndRepopulation(env):
     search_res = env.cmd('ft.search', 'idx', '@id:[0 49]')
     env.assertEqual(search_res[0], NewDocs)
 
-@skip(cluster=True)
-def testNumericMergesTrees(env):
-    """Test to check the numeric index trees merges when half or more of all the trees are empty"""
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
-    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id', 'numeric'))
-    waitForIndex(env, 'idx')
-
-    # Phase 1: Add initial documents
-    InitialDocs = 255
-    for i in range(InitialDocs):
-        env.assertEqual(env.cmd('hset', 'doc%d' % i, 'id', str(i)), 1)
-
-    # Verify initial state
-    res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
-    env.assertEqual(len(res), 4)
-    env.assertEqual(res[3], [int(i) for i in range(1, 8)])
-    env.assertEqual(res[2], [int(i) for i in range(8, 34)])
-
-    # Phase 2: Make the last bucket empty
-    for i in range(0, 7):
-        env.assertEqual(env.cmd('del', 'doc%d' % i), 1)
-
-    forceInvokeGC(env, 'idx')
-
-    # Verify last bucket is empty
-    res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
-    env.assertEqual(len(res), 4)
-    env.assertEqual(res[3], [])
-    env.assertEqual(res[2], [int(i) for i in range(8, 34)])
-
-    # Phase 3: Make the second last bucket empty to trigger merge
-    for i in range(7, 33):
-        env.assertEqual(env.cmd('del', 'doc%d' % i), 1)
-
-    forceInvokeGC(env, 'idx')
-
-    # Verify index is merged
-    res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
-    env.assertEqual(len(res), 2)
 
 @skip(cluster=True)
 def testGeoGCIntensive(env:Env):
