@@ -422,6 +422,7 @@ static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
   dest->timeoutPolicy = src->timeoutPolicy;
   dest->printProfileClock = src->printProfileClock;
   dest->BM25STD_TanhFactor = src->BM25STD_TanhFactor;
+  dest->oomPolicy = src->oomPolicy;
 }
 
 static void copyCursorConfig(CursorConfig *dest, const CursorConfig *src) {
@@ -675,43 +676,42 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   );
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
-  const bool hadArgumentBesidesCombine = (hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0;
-  if (hadArgumentBesidesCombine) {
-    *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
-    if (mergeSearchopts.params) {
-      searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
-      vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
-      Param_DictFree(mergeSearchopts.params);
-      mergeSearchopts.params = NULL;
-    }
 
-    if (*mergeReqflags & QEXEC_F_IS_CURSOR) {
-      // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
-      searchRequest->reqflags |= QEXEC_F_IS_CURSOR;
-      vectorRequest->reqflags |= QEXEC_F_IS_CURSOR;
-      // Copy cursor configuration using the helper function
-      copyCursorConfig(&searchRequest->cursorConfig, parsedCmdCtx->cursorConfig);
-      copyCursorConfig(&vectorRequest->cursorConfig, parsedCmdCtx->cursorConfig);
-    }
-    if (*mergeReqflags & QEXEC_F_SEND_SCORES) {
-      searchRequest->reqflags |= QEXEC_F_SEND_SCORES;
-      vectorRequest->reqflags |= QEXEC_F_SEND_SCORES;
-    }
-
-    // Copy request configuration using the helper function
-    copyRequestConfig(&searchRequest->reqConfig, parsedCmdCtx->reqConfig);
-    copyRequestConfig(&vectorRequest->reqConfig, parsedCmdCtx->reqConfig);
-
-    // Copy max results limits
-    searchRequest->maxSearchResults = maxHybridResults;
-    searchRequest->maxAggregateResults = maxHybridResults;
-    vectorRequest->maxSearchResults = maxHybridResults;
-    vectorRequest->maxAggregateResults = maxHybridResults;
-
-    if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
-      goto error;
-    }
+  *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
+  if (mergeSearchopts.params) {
+    searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+    vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+    Param_DictFree(mergeSearchopts.params);
+    mergeSearchopts.params = NULL;
   }
+
+  if (*mergeReqflags & QEXEC_F_IS_CURSOR) {
+    // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
+    searchRequest->reqflags |= QEXEC_F_IS_CURSOR;
+    vectorRequest->reqflags |= QEXEC_F_IS_CURSOR;
+    // Copy cursor configuration using the helper function
+    copyCursorConfig(&searchRequest->cursorConfig, parsedCmdCtx->cursorConfig);
+    copyCursorConfig(&vectorRequest->cursorConfig, parsedCmdCtx->cursorConfig);
+  }
+  if (*mergeReqflags & QEXEC_F_SEND_SCORES) {
+    searchRequest->reqflags |= QEXEC_F_SEND_SCORES;
+    vectorRequest->reqflags |= QEXEC_F_SEND_SCORES;
+  }
+
+  // Copy request configuration using the helper function
+  copyRequestConfig(&searchRequest->reqConfig, parsedCmdCtx->reqConfig);
+  copyRequestConfig(&vectorRequest->reqConfig, parsedCmdCtx->reqConfig);
+
+  // Copy max results limits
+  searchRequest->maxSearchResults = maxHybridResults;
+  searchRequest->maxAggregateResults = maxHybridResults;
+  vectorRequest->maxSearchResults = maxHybridResults;
+  vectorRequest->maxAggregateResults = maxHybridResults;
+
+  if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
+    goto error;
+  }
+
 
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
   // This is because the sorter limits the number of results and can reduce the amount of work the loader needs to do
