@@ -141,4 +141,143 @@ void DeletedIds::clear() {
     bitmap_.clear();
 }
 
+/**
+ * @brief Gets the size needed for serialization
+ *
+ * Returns the number of bytes needed to serialize this DeletedIds container
+ * in a portable format using the roaring bitmap's getSizeInBytes method.
+ *
+ * @return Size in bytes needed for serialization
+ */
+size_t DeletedIds::GetSerializedSize() const {
+    // Acquire read lock for reading from the bitmap
+    std::shared_lock<std::shared_mutex> lock(rwlock_);
+    return bitmap_.getSizeInBytes();
+}
+
+/**
+ * @brief Serializes the deleted IDs to a buffer
+ *
+ * Serializes the roaring bitmap to a portable format that can be stored
+ * in RDB or transmitted over the network.
+ *
+ * @param buffer Buffer to write the serialized data to
+ * @param bufferSize Size of the buffer
+ * @return Number of bytes written, or 0 on error
+ */
+size_t DeletedIds::SerializeToBuffer(char* buffer, size_t bufferSize) const {
+    if (!buffer || bufferSize == 0) {
+        return 0;
+    }
+
+    // Acquire read lock for reading from the bitmap
+    std::shared_lock<std::shared_mutex> lock(rwlock_);
+
+    size_t requiredSize = bitmap_.getSizeInBytes();
+    if (bufferSize < requiredSize) {
+        return 0; // Buffer too small
+    }
+
+    // Write the bitmap to the buffer
+    bitmap_.write(buffer);
+    return requiredSize;
+}
+
+/**
+ * @brief Deserializes deleted IDs from a buffer
+ *
+ * Loads the roaring bitmap from a portable format that was previously
+ * serialized using SerializeToBuffer.
+ *
+ * @param buffer Buffer containing the serialized data
+ * @param bufferSize Size of the buffer
+ * @return true on success, false on error
+ */
+bool DeletedIds::DeserializeFromBuffer(const char* buffer, size_t bufferSize) {
+    if (!buffer || bufferSize == 0) {
+        return false;
+    }
+    std::unique_lock<std::shared_mutex> lock(rwlock_);
+    bitmap_.clear();
+
+    try {
+        // Clear existing data
+        // Read from the buffer
+        bitmap_ = roaring::Roaring64Map::read(buffer);
+        return true;
+    } catch (...) {
+        // If deserialization fails, ensure bitmap is in a clean state
+        // TODO: Handle some error logging
+        return false;
+    }
+}
+
+/**
+ * @brief Serializes the deleted IDs to Redis RDB format
+ *
+ * Serializes the roaring bitmap to Redis RDB format for persistence.
+ * This method handles the complete serialization including size information.
+ *
+ * @param rdb Redis module IO handle for writing
+ */
+void DeletedIds::SerializeToRDB(RedisModuleIO* rdb) const {
+    RS_ASSERT(rdb != nullptr);
+
+    // Get the roaring bitmap data
+    // We need to serialize the roaring bitmap to a portable format
+
+    // First, get the size needed for serialization
+    size_t serializedSize = GetSerializedSize();
+
+    // Save the size
+    RedisModule_SaveUnsigned(rdb, serializedSize);
+
+    if (serializedSize > 0) {
+        // Allocate buffer and serialize
+        std::vector<char> buffer(serializedSize);
+        size_t actualSize = SerializeToBuffer(buffer.data(), buffer.size());
+
+        RS_ASSERT(actualSize == serializedSize);
+
+        // Save the serialized data
+        RedisModule_SaveStringBuffer(rdb, buffer.data(), actualSize);
+    }
+}
+
+/**
+ * @brief Deserializes deleted IDs from Redis RDB format
+ *
+ * Loads the roaring bitmap from Redis RDB format that was previously
+ * serialized using SerializeToRDB.
+ *
+ * @param rdb Redis module IO handle for reading
+ * @return true on success, false on error
+ */
+bool DeletedIds::DeserializeFromRDB(RedisModuleIO* rdb) {
+    RS_ASSERT(rdb != nullptr);
+
+    // Load the size
+    uint64_t serializedSize = RedisModule_LoadUnsigned(rdb);
+
+    if (serializedSize > 0) {
+        // Load the serialized data
+        size_t loadedSize;
+        char* buffer = RedisModule_LoadStringBuffer(rdb, &loadedSize);
+        if (!buffer || loadedSize != serializedSize) {
+            if (buffer) RedisModule_Free(buffer);
+            return false;
+        }
+
+        // Deserialize the roaring bitmap
+        if (!DeserializeFromBuffer(buffer, loadedSize)) {
+            RedisModule_Free(buffer);
+            return false;
+        }
+
+        RedisModule_Free(buffer);
+    }
+
+    return true;
+}
+
 } // namespace search::disk

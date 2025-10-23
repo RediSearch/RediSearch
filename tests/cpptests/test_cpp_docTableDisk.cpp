@@ -4,6 +4,9 @@
 #include "disk/doc_table/doc_table_disk.hpp"
 #include "disk/doc_table/doc_table_disk_c.h"
 #include "disk/document_metadata/document_metadata.hpp"
+#include "disk/memory_object.h"
+#include "disk/doc_table/deleted_ids/deleted_ids.hpp"
+#include "redismock/redismock.h"
 #include <cstdio>
 #include <filesystem>
 #include <gtest/gtest.h>
@@ -302,4 +305,436 @@ TEST_F(DocTableDiskTest, CApi_DocIdDeleted) {
 
     // Test with a null handle
     ASSERT_EQ(DocTableDisk_DocIdDeleted(nullptr, docId), 0);
+}
+
+// ============================================================================
+// Tests for Database creation with MemoryObject
+// ============================================================================
+
+class DatabaseWithMemoryObjectTest : public ::testing::Test {
+protected:
+    string db_path;
+    RedisModuleCtx *ctx;
+
+    void SetUp() override {
+        db_path = "test_db_with_memory_object";
+        ctx = RedisModule_GetThreadSafeContext(NULL);
+        // Clean up any existing database
+        DiskDatabase_Delete(ctx, db_path.c_str());
+    }
+
+    void TearDown() override {
+        if (ctx) {
+            DiskDatabase_Delete(ctx, db_path.c_str());
+            RedisModule_FreeThreadSafeContext(ctx);
+            ctx = nullptr;
+        }
+    }
+};
+
+TEST_F(DatabaseWithMemoryObjectTest, CreateDBFromPathOnly) {
+    // Create a database from path only (no memory object)
+    DiskDatabase* disk_db = DiskDatabase_Create(ctx, db_path.c_str());
+    ASSERT_NE(disk_db, nullptr);
+
+    auto* db = reinterpret_cast<search::disk::Database*>(disk_db);
+    auto* index = db->OpenIndex("idx1", DocumentType_Hash);
+    ASSERT_NE(index, nullptr);
+
+    auto& table = index->GetDocTable();
+
+    // Add some documents
+    search::disk::DocumentID docId1 = table.put("key1", 1.0, 0, 0);
+    search::disk::DocumentID docId2 = table.put("key2", 2.0, 0, 0);
+    ASSERT_NE(docId1.id, 0u);
+    ASSERT_NE(docId2.id, 0u);
+
+    // Verify documents exist
+    ASSERT_TRUE(table.getDocId("key1").has_value());
+    ASSERT_TRUE(table.getDocId("key2").has_value());
+
+    DiskDatabase_Destroy(disk_db);
+}
+
+TEST_F(DatabaseWithMemoryObjectTest, CreateDBWithMemoryObject) {
+    // Create a memory object with index metadata
+    search::disk::MemoryObject memObj;
+    auto deletedIds = std::make_shared<search::disk::DeletedIds>();
+    deletedIds->add(10);
+    deletedIds->add(20);
+
+    memObj.AddIndex("idx_with_memory", DocumentType_Hash, 100, deletedIds);
+
+    // Create database with memory object
+    DiskDatabase* disk_db = DiskDatabase_CreateWithMemory(ctx, db_path.c_str(),
+                                                          reinterpret_cast<DiskMemoryObject*>(&memObj));
+    ASSERT_NE(disk_db, nullptr);
+
+    auto* db = reinterpret_cast<search::disk::Database*>(disk_db);
+    auto* index = db->OpenIndex("idx_with_memory", DocumentType_Hash);
+    ASSERT_NE(index, nullptr);
+
+    auto& table = index->GetDocTable();
+
+    // Verify maxDocId was restored from memory object
+    ASSERT_EQ(table.GetMaxDocId(), 100u);
+
+    // Verify deleted IDs were restored
+    ASSERT_TRUE(table.GetDeletedIds()->contains(10));
+    ASSERT_TRUE(table.GetDeletedIds()->contains(20));
+    ASSERT_EQ(table.GetDeletedIds()->size(), 2u);
+
+    DiskDatabase_Destroy(disk_db);
+}
+
+TEST_F(DatabaseWithMemoryObjectTest, CreateDBWithMultipleIndexesInMemoryObject) {
+    // Create a memory object with multiple indexes
+    search::disk::MemoryObject memObj;
+
+    auto deletedIds1 = std::make_shared<search::disk::DeletedIds>();
+    deletedIds1->add(5);
+    deletedIds1->add(15);
+
+    auto deletedIds2 = std::make_shared<search::disk::DeletedIds>();
+    deletedIds2->add(100);
+    deletedIds2->add(200);
+    deletedIds2->add(300);
+
+    memObj.AddIndex("hash_index", DocumentType_Hash, 50, deletedIds1);
+    memObj.AddIndex("json_index", DocumentType_Json, 200, deletedIds2);
+
+    // Create database with memory object
+    DiskDatabase* disk_db = DiskDatabase_CreateWithMemory(ctx, db_path.c_str(),
+                                                          reinterpret_cast<DiskMemoryObject*>(&memObj));
+    ASSERT_NE(disk_db, nullptr);
+
+    auto* db = reinterpret_cast<search::disk::Database*>(disk_db);
+
+    // Verify hash index
+    auto* hash_index = db->OpenIndex("hash_index", DocumentType_Hash);
+    ASSERT_NE(hash_index, nullptr);
+    ASSERT_EQ(hash_index->GetDocTable().GetMaxDocId(), 50u);
+    ASSERT_EQ(hash_index->GetDocTable().GetDeletedIds()->size(), 2u);
+
+    // Verify json index
+    auto* json_index = db->OpenIndex("json_index", DocumentType_Json);
+    ASSERT_NE(json_index, nullptr);
+    ASSERT_EQ(json_index->GetDocTable().GetMaxDocId(), 200u);
+    ASSERT_EQ(json_index->GetDocTable().GetDeletedIds()->size(), 3u);
+
+    DiskDatabase_Destroy(disk_db);
+}
+
+TEST_F(DatabaseWithMemoryObjectTest, CreateDBWithEmptyMemoryObject) {
+    // Create an empty memory object
+    search::disk::MemoryObject memObj;
+    ASSERT_TRUE(memObj.IsEmpty());
+
+    // Create database with empty memory object
+    DiskDatabase* disk_db = DiskDatabase_CreateWithMemory(ctx, db_path.c_str(),
+                                                          reinterpret_cast<DiskMemoryObject*>(&memObj));
+    ASSERT_NE(disk_db, nullptr);
+
+    auto* db = reinterpret_cast<search::disk::Database*>(disk_db);
+
+    // Should be able to create new indexes
+    auto* index = db->OpenIndex("new_index", DocumentType_Hash);
+    ASSERT_NE(index, nullptr);
+
+    auto& table = index->GetDocTable();
+    ASSERT_EQ(table.GetMaxDocId(), 0u);
+
+    DiskDatabase_Destroy(disk_db);
+}
+
+TEST_F(DatabaseWithMemoryObjectTest, CreateDBWithMemoryObjectAndAddDocuments) {
+    // Create a memory object with initial state
+    search::disk::MemoryObject memObj;
+    auto deletedIds = std::make_shared<search::disk::DeletedIds>();
+    deletedIds->add(1);
+    deletedIds->add(2);
+    deletedIds->add(3);
+
+    memObj.AddIndex("test_idx", DocumentType_Hash, 50, deletedIds);
+
+    // Create database with memory object
+    DiskDatabase* disk_db = DiskDatabase_CreateWithMemory(ctx, db_path.c_str(),
+                                                          reinterpret_cast<DiskMemoryObject*>(&memObj));
+    ASSERT_NE(disk_db, nullptr);
+
+    auto* db = reinterpret_cast<search::disk::Database*>(disk_db);
+    auto* index = db->OpenIndex("test_idx", DocumentType_Hash);
+    ASSERT_NE(index, nullptr);
+
+    auto& table = index->GetDocTable();
+
+    // Verify initial state from memory object
+    ASSERT_EQ(table.GetMaxDocId(), 50u);
+    ASSERT_EQ(table.GetDeletedIds()->size(), 3u);
+
+    // Add new documents
+    search::disk::DocumentID docId1 = table.put("new_key1", 1.5, 0, 0);
+    search::disk::DocumentID docId2 = table.put("new_key2", 2.5, 0, 0);
+
+    ASSERT_NE(docId1.id, 0u);
+    ASSERT_NE(docId2.id, 0u);
+
+    // New documents should have IDs greater than maxDocId from memory object
+    ASSERT_GT(docId1.id, 50u);
+    ASSERT_GT(docId2.id, 50u);
+
+    // Verify documents can be retrieved
+    ASSERT_TRUE(table.getDocId("new_key1").has_value());
+    ASSERT_TRUE(table.getDocId("new_key2").has_value());
+
+    DiskDatabase_Destroy(disk_db);
+}
+
+// ============================================================================
+// Tests for GetDeletedIds() getter and setDeletedIds() setter
+// ============================================================================
+
+/**
+ * @brief Test GetDeletedIds getter returns the correct DeletedIds container
+ *
+ * This test verifies that:
+ * - GetDeletedIds() returns a valid shared_ptr to DeletedIds
+ * - The returned container is the same one used internally
+ * - Operations on the returned container affect the table's deleted IDs
+ */
+TEST_F(DocTableDiskTest, GetDeletedIdsGetter) {
+    // Get the deleted IDs container
+    auto deletedIds = table->GetDeletedIds();
+    ASSERT_NE(deletedIds, nullptr);
+
+    // Verify it's a valid shared_ptr
+    ASSERT_TRUE(deletedIds.get() != nullptr);
+
+    // Initially should be empty
+    ASSERT_EQ(deletedIds->size(), 0u);
+
+    // Add some IDs to the container
+    deletedIds->add(1);
+    deletedIds->add(2);
+    deletedIds->add(3);
+
+    // Verify the size increased
+    ASSERT_EQ(deletedIds->size(), 3u);
+
+    // Verify the IDs are in the container
+    ASSERT_TRUE(deletedIds->contains(1));
+    ASSERT_TRUE(deletedIds->contains(2));
+    ASSERT_TRUE(deletedIds->contains(3));
+}
+
+/**
+ * @brief Test GetDeletedIds returns the same container across multiple calls
+ *
+ * This test verifies that:
+ * - Multiple calls to GetDeletedIds() return the same container
+ * - Changes made through one reference are visible through another
+ */
+TEST_F(DocTableDiskTest, GetDeletedIdsConsistency) {
+    // Get the deleted IDs container twice
+    auto deletedIds1 = table->GetDeletedIds();
+    auto deletedIds2 = table->GetDeletedIds();
+
+    // Both should point to the same object
+    ASSERT_EQ(deletedIds1.get(), deletedIds2.get());
+
+    // Add IDs through the first reference
+    deletedIds1->add(42);
+    deletedIds1->add(100);
+
+    // Verify they're visible through the second reference
+    ASSERT_EQ(deletedIds2->size(), 2u);
+    ASSERT_TRUE(deletedIds2->contains(42));
+    ASSERT_TRUE(deletedIds2->contains(100));
+
+    // Add IDs through the second reference
+    deletedIds2->add(200);
+
+    // Verify they're visible through the first reference
+    ASSERT_EQ(deletedIds1->size(), 3u);
+    ASSERT_TRUE(deletedIds1->contains(200));
+}
+
+/**
+ * @brief Test GetDeletedIds with document deletion
+ *
+ * This test verifies that:
+ * - When a document is deleted, its ID is added to the deleted IDs container
+ * - GetDeletedIds() reflects the changes made by document operations
+ */
+TEST_F(DocTableDiskTest, GetDeletedIdsWithDocumentDeletion) {
+    // Add a document
+    string key = "test_key";
+    search::disk::DocumentID docId = table->put(key, 1.0, 0, 0);
+    ASSERT_NE(docId.id, 0u);
+
+    // Initially, deleted IDs should be empty
+    auto deletedIds = table->GetDeletedIds();
+    ASSERT_EQ(deletedIds->size(), 0u);
+
+    // Delete the document
+    bool deleted = table->del(key);
+    ASSERT_TRUE(deleted);
+
+    // Now the deleted IDs should contain the document ID
+    ASSERT_EQ(deletedIds->size(), 1u);
+    ASSERT_TRUE(deletedIds->contains(docId.id));
+}
+
+/**
+ * @brief Test setDeletedIds setter replaces the deleted IDs container
+ *
+ * This test verifies that:
+ * - setDeletedIds() can replace the deleted IDs container
+ * - The new container is used for subsequent operations
+ * - The old container is no longer used
+ */
+TEST_F(DocTableDiskTest, SetDeletedIdsSetter) {
+    // Create a new DeletedIds container with some IDs
+    auto newDeletedIds = std::make_shared<search::disk::DeletedIds>();
+    newDeletedIds->add(10);
+    newDeletedIds->add(20);
+    newDeletedIds->add(30);
+
+    // Get the old container
+    auto oldDeletedIds = table->GetDeletedIds();
+    ASSERT_EQ(oldDeletedIds->size(), 0u);
+
+    // Set the new container
+    table->setDeletedIds(newDeletedIds);
+
+    // Verify the new container is now in use
+    auto retrievedDeletedIds = table->GetDeletedIds();
+    ASSERT_EQ(retrievedDeletedIds.get(), newDeletedIds.get());
+    ASSERT_EQ(retrievedDeletedIds->size(), 3u);
+    ASSERT_TRUE(retrievedDeletedIds->contains(10));
+    ASSERT_TRUE(retrievedDeletedIds->contains(20));
+    ASSERT_TRUE(retrievedDeletedIds->contains(30));
+}
+
+/**
+ * @brief Test setDeletedIds with empty container
+ *
+ * This test verifies that:
+ * - setDeletedIds() can set an empty container
+ * - The empty container is properly used
+ */
+TEST_F(DocTableDiskTest, SetDeletedIdsWithEmptyContainer) {
+    // First, add some IDs to the current container
+    auto currentDeletedIds = table->GetDeletedIds();
+    currentDeletedIds->add(1);
+    currentDeletedIds->add(2);
+    ASSERT_EQ(currentDeletedIds->size(), 2u);
+
+    // Create a new empty container
+    auto emptyDeletedIds = std::make_shared<search::disk::DeletedIds>();
+    ASSERT_EQ(emptyDeletedIds->size(), 0u);
+
+    // Set the empty container
+    table->setDeletedIds(emptyDeletedIds);
+
+    // Verify the empty container is now in use
+    auto retrievedDeletedIds = table->GetDeletedIds();
+    ASSERT_EQ(retrievedDeletedIds.get(), emptyDeletedIds.get());
+    ASSERT_EQ(retrievedDeletedIds->size(), 0u);
+}
+
+/**
+ * @brief Test setDeletedIds followed by document operations
+ *
+ * This test verifies that:
+ * - After setting a new deleted IDs container, document operations work correctly
+ * - Document deletions are tracked in the new container
+ */
+TEST_F(DocTableDiskTest, SetDeletedIdsWithDocumentOperations) {
+    // Create a new DeletedIds container with some initial IDs
+    auto newDeletedIds = std::make_shared<search::disk::DeletedIds>();
+    newDeletedIds->add(100);
+    newDeletedIds->add(200);
+
+    // Set the new container
+    table->setDeletedIds(newDeletedIds);
+
+    // Add a document
+    string key = "new_doc";
+    search::disk::DocumentID docId = table->put(key, 1.5, 0, 0);
+    ASSERT_NE(docId.id, 0u);
+
+    // Delete the document
+    bool deleted = table->del(key);
+    ASSERT_TRUE(deleted);
+
+    // Verify the deleted IDs container now contains both the initial IDs and the new deleted ID
+    auto retrievedDeletedIds = table->GetDeletedIds();
+    ASSERT_EQ(retrievedDeletedIds->size(), 3u);
+    ASSERT_TRUE(retrievedDeletedIds->contains(100));
+    ASSERT_TRUE(retrievedDeletedIds->contains(200));
+    ASSERT_TRUE(retrievedDeletedIds->contains(docId.id));
+}
+
+/**
+ * @brief Test GetDeletedIds reference counting with setDeletedIds
+ *
+ * This test verifies that:
+ * - The shared_ptr reference counting works correctly
+ * - Old containers are properly managed when replaced
+ */
+TEST_F(DocTableDiskTest, GetSetDeletedIdsReferenceManagement) {
+    // Get the initial container
+    auto initialDeletedIds = table->GetDeletedIds();
+    initialDeletedIds->add(1);
+
+    // Create a new container
+    auto newDeletedIds = std::make_shared<search::disk::DeletedIds>();
+    newDeletedIds->add(10);
+
+    // Keep a reference to the initial container
+    auto initialRef = initialDeletedIds;
+
+    // Set the new container
+    table->setDeletedIds(newDeletedIds);
+
+    // The initial container should still be valid (we have a reference)
+    ASSERT_EQ(initialRef->size(), 1u);
+    ASSERT_TRUE(initialRef->contains(1));
+
+    // The table should now use the new container
+    auto currentDeletedIds = table->GetDeletedIds();
+    ASSERT_EQ(currentDeletedIds.get(), newDeletedIds.get());
+    ASSERT_EQ(currentDeletedIds->size(), 1u);
+    ASSERT_TRUE(currentDeletedIds->contains(10));
+}
+
+/**
+ * @brief Test setDeletedIds with large container
+ *
+ * This test verifies that:
+ * - setDeletedIds() works correctly with containers holding many IDs
+ * - All IDs are preserved after setting
+ */
+TEST_F(DocTableDiskTest, SetDeletedIdsWithLargeContainer) {
+    // Create a new container with many IDs
+    auto largeDeletedIds = std::make_shared<search::disk::DeletedIds>();
+    const size_t numIds = 1000;
+    for (size_t i = 0; i < numIds; ++i) {
+        largeDeletedIds->add(i * 10);
+    }
+
+    ASSERT_EQ(largeDeletedIds->size(), numIds);
+
+    // Set the large container
+    table->setDeletedIds(largeDeletedIds);
+
+    // Verify all IDs are present
+    auto retrievedDeletedIds = table->GetDeletedIds();
+    ASSERT_EQ(retrievedDeletedIds->size(), numIds);
+
+    // Verify a sample of IDs
+    ASSERT_TRUE(retrievedDeletedIds->contains(0));
+    ASSERT_TRUE(retrievedDeletedIds->contains(100));
+    ASSERT_TRUE(retrievedDeletedIds->contains(9990));
 }

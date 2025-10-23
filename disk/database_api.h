@@ -39,6 +39,44 @@ void DiskDatabase_Delete(RedisModuleCtx *ctx, const char *db_path);
 DiskDatabase *DiskDatabase_Create(RedisModuleCtx *ctx, const char *db_path);
 
 /**
+ * @brief Opaque type representing serialized memory object data
+ */
+typedef struct DiskMemoryObject DiskMemoryObject;
+
+/**
+ * @brief Creates a memory object from RDB data
+ *
+ * @param rdb Redis module IO handle for RDB operations
+ * @return Pointer to the memory object, or NULL if deserialization failed
+ */
+DiskMemoryObject *DiskMemoryObject_FromRDB(RedisModuleIO *rdb);
+
+/**
+ * @brief Serializes a memory object to RDB
+ *
+ * @param memObj Pointer to the memory object
+ * @param rdb Redis module IO handle for RDB operations
+ */
+void DiskMemoryObject_ToRDB(DiskMemoryObject *memObj, RedisModuleIO *rdb);
+
+/**
+ * @brief Destroys a memory object
+ *
+ * @param memObj Pointer to the memory object to destroy
+ */
+void DiskMemoryObject_Destroy(DiskMemoryObject *memObj);
+
+/**
+ * @brief Creates or opens a disk database with memory object data
+ *
+ * @param ctx Redis module context for logging
+ * @param db_path Path to the database directory
+ * @param memObj Memory object containing serialized data (can be NULL for empty)
+ * @return Pointer to the created database, or NULL if creation failed
+ */
+DiskDatabase *DiskDatabase_CreateWithMemory(RedisModuleCtx *ctx, const char *db_path, DiskMemoryObject *memObj);
+
+/**
  * @brief Destroys a disk database instance
  *
  * Closes the database and frees all associated resources.

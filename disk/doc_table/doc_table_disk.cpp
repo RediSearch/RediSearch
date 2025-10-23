@@ -22,9 +22,8 @@ namespace search::disk {
  *
  * @param db Pointer to the disk database
  */
-DocTableColumn::DocTableColumn(Column column, DocumentType docType, std::shared_ptr<DeletedIds> deletedIds)
-    : column_(std::move(column)), docType_(docType), deletedIds_(deletedIds) {
-    // TODO: Recover the max_docId once persistance is supported.
+DocTableColumn::DocTableColumn(Column column, DocumentType docType, std::shared_ptr<DeletedIds> deletedIds, t_docId maxDocId)
+    : column_(std::move(column)), docType_(docType), deletedIds_(deletedIds), maxDocId_(maxDocId) {
 }
 
 DocTableColumn::DocTableColumn(DocTableColumn&& other) noexcept

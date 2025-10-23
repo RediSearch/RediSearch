@@ -34,7 +34,7 @@ public:
      *
      * @param db Pointer to the disk database
      */
-    DocTableColumn(Column column, DocumentType docType, std::shared_ptr<DeletedIds> deletedIds);
+    DocTableColumn(Column column, DocumentType docType, std::shared_ptr<DeletedIds> deletedIds, t_docId maxDocId);
 
     DocTableColumn(DocTableColumn&& other) noexcept;
 
@@ -100,6 +100,30 @@ public:
     std::optional<::std::string> getKey(DocumentID docId);
 
     DocumentType getDocumentType() const { return docType_; }
+
+    /**
+     * @brief Sets the maximum document ID
+     * @param maxDocId The maximum document ID to set
+     */
+    void SetMaxDocId(t_docId maxDocId) { maxDocId_.store(maxDocId); }
+
+    /**
+     * @brief Gets the current maximum document ID
+     * @return Current maximum document ID
+     */
+    t_docId GetMaxDocId() const { return maxDocId_.load(); }
+
+    /**
+     * @brief Gets the deleted IDs container
+     * @return Shared pointer to the deleted IDs container
+     */
+    std::shared_ptr<DeletedIds> GetDeletedIds() const { return deletedIds_; }
+
+    /**
+     * @brief Sets the deleted IDs container
+     * @param deletedIds Shared pointer to the deleted IDs container
+     */
+    void setDeletedIds(const std::shared_ptr<DeletedIds>& deletedIds) { deletedIds_ = deletedIds; }
 
     struct Iterator {
         struct Entry {

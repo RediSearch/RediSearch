@@ -1,6 +1,7 @@
 #include <rocksdb/db.h>
 #include "disk/database_api.h"
 #include "disk/database.h"
+#include "disk/memory_object.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +17,41 @@ void DiskDatabase_Delete(RedisModuleCtx *ctx, const char *db_path) {
 
 DiskDatabase* DiskDatabase_Create(RedisModuleCtx *ctx, const char *db_path) {
     search::disk::Database* db = search::disk::Database::Create(ctx, db_path);
+    return reinterpret_cast<DiskDatabase*>(db);
+}
+
+DiskMemoryObject *DiskMemoryObject_FromRDB(RedisModuleIO *rdb) {
+    if (!rdb) return nullptr;
+
+    auto memObj = search::disk::MemoryObject::DeserializeFromRDB(rdb);
+    if (!memObj) return nullptr;
+
+    return reinterpret_cast<DiskMemoryObject*>(memObj.release());
+}
+
+void DiskMemoryObject_ToRDB(DiskMemoryObject *memObj, RedisModuleIO *rdb) {
+    if (!memObj || !rdb) return;
+
+    search::disk::MemoryObject* cppMemObj = reinterpret_cast<search::disk::MemoryObject*>(memObj);
+    cppMemObj->SerializeToRDB(rdb);
+}
+
+void DiskMemoryObject_Destroy(DiskMemoryObject *memObj) {
+    if (!memObj) return;
+
+    search::disk::MemoryObject* cppMemObj = reinterpret_cast<search::disk::MemoryObject*>(memObj);
+    delete cppMemObj;
+}
+
+DiskDatabase *DiskDatabase_CreateWithMemory(RedisModuleCtx *ctx, const char *db_path, DiskMemoryObject *memObj) {
+    search::disk::MemoryObject emptyMemObj;
+    const search::disk::MemoryObject* cppMemObj = &emptyMemObj;
+
+    if (memObj) {
+        cppMemObj = reinterpret_cast<search::disk::MemoryObject*>(memObj);
+    }
+
+    search::disk::Database* db = search::disk::Database::Create(ctx, db_path, *cppMemObj);
     return reinterpret_cast<DiskDatabase*>(db);
 }
 

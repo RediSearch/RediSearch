@@ -154,6 +154,66 @@ public:
      */
     void clear();
 
+    /**
+     * @brief Gets the size needed for serialization
+     *
+     * Returns the number of bytes needed to serialize this DeletedIds container
+     * in a portable format.
+     *
+     * @return Size in bytes needed for serialization
+     * Thread safety: Thread-safe, acquires a read lock
+     */
+    size_t GetSerializedSize() const;
+
+    /**
+     * @brief Serializes the deleted IDs to a buffer
+     *
+     * Serializes the roaring bitmap to a portable format that can be stored
+     * in RDB or transmitted over the network.
+     *
+     * @param buffer Buffer to write the serialized data to
+     * @param bufferSize Size of the buffer
+     * @return Number of bytes written, or 0 on error
+     * Thread safety: Thread-safe, acquires a read lock
+     */
+    size_t SerializeToBuffer(char* buffer, size_t bufferSize) const;
+
+    /**
+     * @brief Deserializes deleted IDs from a buffer
+     *
+     * Loads the roaring bitmap from a portable format that was previously
+     * serialized using SerializeToBuffer.
+     *
+     * @param buffer Buffer containing the serialized data
+     * @param bufferSize Size of the buffer
+     * @return true on success, false on error
+     * Thread safety: Thread-safe, acquires a write lock
+     */
+    bool DeserializeFromBuffer(const char* buffer, size_t bufferSize);
+
+    /**
+     * @brief Serializes the deleted IDs to Redis RDB format
+     *
+     * Serializes the roaring bitmap to Redis RDB format for persistence.
+     * This method handles the complete serialization including size information.
+     *
+     * @param rdb Redis module IO handle for writing
+     * Thread safety: Thread-safe, acquires a read lock
+     */
+    void SerializeToRDB(RedisModuleIO* rdb) const;
+
+    /**
+     * @brief Deserializes deleted IDs from Redis RDB format
+     *
+     * Loads the roaring bitmap from Redis RDB format that was previously
+     * serialized using SerializeToRDB.
+     *
+     * @param rdb Redis module IO handle for reading
+     * @return true on success, false on error
+     * Thread safety: Thread-safe, acquires a write lock
+     */
+    bool DeserializeFromRDB(RedisModuleIO* rdb);
+
 private:
     /**
      * @brief The underlying roaring bitmap storing the deleted IDs

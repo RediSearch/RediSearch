@@ -4,6 +4,7 @@
 #include "disk/database.h"
 #include "disk/inverted_index/merge_operator.h"
 #include "disk/inverted_index/inverted_index.h"
+#include "disk/memory_object.h"
 #include "rocksdb/db.h"
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
@@ -51,10 +52,11 @@ static rocksdb::ColumnFamilyOptions CreateDocTableOptions(size_t cacheSize) {
   return options;
 }
 
-Database::Index* Database::Index::Create(std::string name, rocksdb::DB& db, DocumentType docType) {
-  auto createColumnName = [&name, docType](const std::string& columnName) {
+namespace {
+  // Helper function to create column name with document type and column suffix
+  std::string CreateColumnName(const std::string& indexName, DocumentType docType, const std::string& columnName) {
     std::ostringstream ss;
-    ss << name;
+    ss << indexName;
     if (docType == DocumentType_Hash) {
       ss << ":hash";
     } else if (docType == DocumentType_Json) {
@@ -64,41 +66,76 @@ Database::Index* Database::Index::Create(std::string name, rocksdb::DB& db, Docu
     RS_ASSERT(columnName.find(':') == std::string::npos);
     ss << ":" << columnName;
     return ss.str();
-  };
+  }
 
-  // We currently enable the block-cache for the doc-table only, since we use
-  // the iterator pre-fetch for the inverted index.
-  // static constexpr size_t InvertedIndexCacheSize = 30 * 1024 * 1024; // 30MB
-  static constexpr size_t DocTableCacheSize = 30 * 1024 * 1024; // 30MB
+  // Helper function to create column families and handles
+  bool CreateColumnFamiliesForIndex(
+      const std::string& indexName,
+      DocumentType docType,
+      rocksdb::DB& db,
+      std::shared_ptr<DeletedIds> deletedIds,
+      std::vector<rocksdb::ColumnFamilyHandle*>& outHandles) {
+    static constexpr size_t DocTableCacheSize = 30 * 1024 * 1024; // 30MB
 
+    std::vector<rocksdb::ColumnFamilyDescriptor> columnFamilies;
+    columnFamilies.push_back(
+      rocksdb::ColumnFamilyDescriptor(
+        CreateColumnName(indexName, docType, "doc_table"), CreateDocTableOptions(DocTableCacheSize)
+      )
+    );
+    columnFamilies.push_back(
+      rocksdb::ColumnFamilyDescriptor(
+        CreateColumnName(indexName, docType, "inverted_indices"), CreateInvertedIndexOptions(deletedIds)
+      )
+    );
+
+    const rocksdb::Status status = db.CreateColumnFamilies(columnFamilies, &outHandles);
+    return status.ok();
+  }
+}
+
+Database::Index* Database::Index::Create(std::string name, rocksdb::DB& db, DocumentType docType) {
   auto deletedIds = std::make_shared<DeletedIds>();
-  std::vector<rocksdb::ColumnFamilyDescriptor> columnFamilies;
-
-  const size_t docTableColumnIndex = 0;
-  columnFamilies.push_back(
-    rocksdb::ColumnFamilyDescriptor(
-      createColumnName("doc_table"), CreateDocTableOptions(DocTableCacheSize)
-    )
-  );
-  const size_t invertedIndexColumnIndex = 1;
-  columnFamilies.push_back(
-    rocksdb::ColumnFamilyDescriptor(
-      createColumnName("inverted_indices"), CreateInvertedIndexOptions(deletedIds)
-    )
-  );
 
   std::vector<rocksdb::ColumnFamilyHandle*> handles;
-  const rocksdb::Status status = db.CreateColumnFamilies(columnFamilies, &handles);
-  if (!status.ok()) {
+  if (!CreateColumnFamiliesForIndex(name, docType, db, deletedIds, handles)) {
     return nullptr;
   }
+
+  const size_t docTableColumnIndex = 0;
+  const size_t invertedIndexColumnIndex = 1;
+
   return new Index(name,
-      DocTableColumn(Column(db, *handles[docTableColumnIndex]), docType, deletedIds),
+      DocTableColumn(Column(db, *handles[docTableColumnIndex]), docType, deletedIds, 0),
       Column(db, *handles[invertedIndexColumnIndex]),
       docType);
 }
 
-Database* Database::Create(RedisModuleCtx* ctx, const std::string& db_path) {
+Database::Index* Database::Index::Create(std::string name, rocksdb::DB& db, DocumentType docType,
+                                        t_docId maxDocId, std::shared_ptr<DeletedIds> deletedIds) {
+  // Use the provided deletedIds instead of creating a new one
+  if (!deletedIds) {
+    deletedIds = std::make_shared<DeletedIds>();
+  }
+
+  std::vector<rocksdb::ColumnFamilyHandle*> handles;
+  if (!CreateColumnFamiliesForIndex(name, docType, db, deletedIds, handles)) {
+    return nullptr;
+  }
+
+  const size_t docTableColumnIndex = 0;
+  const size_t invertedIndexColumnIndex = 1;
+
+  // Create DocTableColumn with the provided maxDocId
+  DocTableColumn docTable(Column(db, *handles[docTableColumnIndex]), docType, deletedIds, maxDocId);
+
+  return new Index(name,
+      std::move(docTable),
+      Column(db, *handles[invertedIndexColumnIndex]),
+      docType);
+}
+
+Database* Database::Create(RedisModuleCtx* ctx, const std::string& db_path, const MemoryObject& memory_obj) {
     rocksdb::Options options;
     options.create_if_missing = true;
     options.create_missing_column_families = true;
@@ -116,6 +153,12 @@ Database* Database::Create(RedisModuleCtx* ctx, const std::string& db_path) {
     }
 
     std::unordered_map<std::string, DocumentType> indexes;
+
+    // First, collect indexes from MemoryObject
+    for (const auto& [name, memIndex] : memory_obj.GetIndexes()) {
+      indexes[name] = memIndex.docType;
+    }
+
     for (const std::string& columnName : columnFamilies) {
         if (columnName == rocksdb::kDefaultColumnFamilyName) {
             continue;
@@ -139,6 +182,8 @@ Database* Database::Create(RedisModuleCtx* ctx, const std::string& db_path) {
         if (indexes.find(std::string(indexName)) != indexes.end()) {
             // Already added this index. This is now ok since we have a separate
             // column-family for the doc-table and inverted index.
+
+            //TODO: Assert that the docType encountered in the column-family matches the one in the memory object
             continue;
         }
         if (docType == "hash") {
@@ -161,7 +206,15 @@ Database* Database::Create(RedisModuleCtx* ctx, const std::string& db_path) {
 
     Database* database = new Database(ctx, std::unique_ptr<rocksdb::DB>(db));
     for (auto& [name, docType] : indexes) {
-        database->OpenIndex(name, docType);
+        // Check if we have memory object data for this index
+        const auto* memIndex = memory_obj.GetIndex(name);
+        t_docId maxDocId = 0;
+        std::shared_ptr<DeletedIds> deletedIds = std::make_shared<DeletedIds>();
+        if (memIndex) {
+            maxDocId = memIndex->maxDocId;
+            deletedIds = memIndex->deletedIds;
+        }
+        database->OpenIndex(name, docType, maxDocId, deletedIds);
     }
 
     return database;
@@ -180,6 +233,27 @@ Database::~Database() {
             RedisModule_Log(ctx_, "notice", "Database closed successfully") :
             RedisModule_Log(ctx_, "error", "Failed to close database: %s", status.ToString().c_str());
     }
+}
+
+MemoryObject CreateMemoryObjectFromDatabase(const Database& database) {
+    MemoryObject memObj;
+
+    // Iterate through all indexes in the database
+    for (const auto& [indexName, indexPtr] : database.GetIndexes()) {
+        RS_ASSERT(indexPtr);
+
+        const auto& docTable = indexPtr->GetDocTable();
+
+        // Extract the memory state from the index
+        t_docId maxDocId = docTable.GetMaxDocId();
+        std::shared_ptr<DeletedIds> deletedIds = docTable.GetDeletedIds();
+        DocumentType docType = docTable.getDocumentType();
+
+        // Add to memory object
+        memObj.AddIndex(indexName, docType, maxDocId, deletedIds);
+    }
+
+    return memObj;
 }
 
 } // namespace search::disk {

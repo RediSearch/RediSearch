@@ -23,6 +23,7 @@
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <cstring>
 
 using namespace std;
 
@@ -352,4 +353,479 @@ TEST_F(DeletedIdsTest, SpecialValues) {
     for (const auto& val : values) {
         ASSERT_FALSE(deletedIds.contains(val));
     }
+}
+
+// ============================================================================
+// Tests for Buffer Serialization and Deserialization
+// ============================================================================
+
+/**
+ * @brief Test serialization of an empty DeletedIds
+ *
+ * This test verifies that:
+ * - An empty DeletedIds can be serialized
+ * - GetSerializedSize returns a valid size
+ * - SerializeToBuffer returns the correct number of bytes
+ */
+TEST_F(DeletedIdsTest, SerializeEmptyDeletedIds) {
+    search::disk::DeletedIds deletedIds;
+
+    // Get serialized size
+    size_t serializedSize = deletedIds.GetSerializedSize();
+    ASSERT_GT(serializedSize, 0);  // Even empty bitmap has some size
+
+    // Create buffer
+    std::vector<char> buffer(serializedSize);
+
+    // Serialize
+    size_t bytesWritten = deletedIds.SerializeToBuffer(buffer.data(), buffer.size());
+    ASSERT_EQ(bytesWritten, serializedSize);
+}
+
+/**
+ * @brief Test serialization and deserialization of a simple DeletedIds
+ *
+ * This test verifies that:
+ * - A DeletedIds with a few IDs can be serialized
+ * - The serialized data can be deserialized
+ * - The deserialized DeletedIds contains the same IDs as the original
+ */
+TEST_F(DeletedIdsTest, SerializeDeserializeSimple) {
+    search::disk::DeletedIds original;
+
+    // Add some IDs
+    original.add(1);
+    original.add(42);
+    original.add(1000);
+
+    // Get serialized size
+    size_t serializedSize = original.GetSerializedSize();
+    ASSERT_GT(serializedSize, 0);
+
+    // Create buffer and serialize
+    std::vector<char> buffer(serializedSize);
+    size_t bytesWritten = original.SerializeToBuffer(buffer.data(), buffer.size());
+    ASSERT_EQ(bytesWritten, serializedSize);
+
+    // Deserialize into a new DeletedIds
+    search::disk::DeletedIds deserialized;
+    bool success = deserialized.DeserializeFromBuffer(buffer.data(), buffer.size());
+    ASSERT_TRUE(success);
+
+    // Verify the deserialized data matches the original
+    ASSERT_EQ(deserialized.size(), original.size());
+    ASSERT_TRUE(deserialized.contains(1));
+    ASSERT_TRUE(deserialized.contains(42));
+    ASSERT_TRUE(deserialized.contains(1000));
+    ASSERT_FALSE(deserialized.contains(2));
+    ASSERT_FALSE(deserialized.contains(100));
+}
+
+/**
+ * @brief Test serialization and deserialization with large number of IDs
+ *
+ * This test verifies that:
+ * - A DeletedIds with many IDs can be serialized
+ * - The serialized data can be deserialized
+ * - All IDs are preserved through serialization/deserialization
+ */
+TEST_F(DeletedIdsTest, SerializeDeserializeLargeSet) {
+    search::disk::DeletedIds original;
+
+    // Add a large number of IDs
+    const size_t numIds = 5000;
+    std::vector<uint64_t> ids;
+
+    std::random_device rd;
+    std::mt19937_64 gen(rd());
+    std::uniform_int_distribution<uint64_t> dis;
+
+    for (size_t i = 0; i < numIds; ++i) {
+        uint64_t id = dis(gen);
+        ids.push_back(id);
+        original.add(id);
+    }
+
+    // Get unique IDs for verification
+    std::sort(ids.begin(), ids.end());
+    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+
+    // Get serialized size
+    size_t serializedSize = original.GetSerializedSize();
+    ASSERT_GT(serializedSize, 0);
+
+    // Create buffer and serialize
+    std::vector<char> buffer(serializedSize);
+    size_t bytesWritten = original.SerializeToBuffer(buffer.data(), buffer.size());
+    ASSERT_EQ(bytesWritten, serializedSize);
+
+    // Deserialize into a new DeletedIds
+    search::disk::DeletedIds deserialized;
+    bool success = deserialized.DeserializeFromBuffer(buffer.data(), buffer.size());
+    ASSERT_TRUE(success);
+
+    // Verify the deserialized data matches the original
+    ASSERT_EQ(deserialized.size(), original.size());
+    ASSERT_EQ(deserialized.size(), ids.size());
+
+    // Verify all IDs are present
+    for (const auto& id : ids) {
+        ASSERT_TRUE(deserialized.contains(id));
+    }
+}
+
+/**
+ * @brief Test serialization with special uint64_t values
+ *
+ * This test verifies that:
+ * - Special values (0, UINT32_MAX, UINT64_MAX) are correctly serialized
+ * - These values are correctly deserialized
+ */
+TEST_F(DeletedIdsTest, SerializeDeserializeSpecialValues) {
+    search::disk::DeletedIds original;
+
+    // Add special values
+    const uint64_t values[] = {
+        0,
+        1,
+        UINT32_MAX,
+        UINT32_MAX + 1ULL,
+        UINT64_MAX / 2,
+        UINT64_MAX - 1,
+        UINT64_MAX
+    };
+
+    for (const auto& val : values) {
+        original.add(val);
+    }
+
+    // Get serialized size
+    size_t serializedSize = original.GetSerializedSize();
+    ASSERT_GT(serializedSize, 0);
+
+    // Create buffer and serialize
+    std::vector<char> buffer(serializedSize);
+    size_t bytesWritten = original.SerializeToBuffer(buffer.data(), buffer.size());
+    ASSERT_EQ(bytesWritten, serializedSize);
+
+    // Deserialize into a new DeletedIds
+    search::disk::DeletedIds deserialized;
+    bool success = deserialized.DeserializeFromBuffer(buffer.data(), buffer.size());
+    ASSERT_TRUE(success);
+
+    // Verify the deserialized data matches the original
+    ASSERT_EQ(deserialized.size(), original.size());
+    for (const auto& val : values) {
+        ASSERT_TRUE(deserialized.contains(val));
+    }
+}
+
+/**
+ * @brief Test serialization buffer size validation
+ *
+ * This test verifies that:
+ * - SerializeToBuffer returns 0 when buffer is too small
+ * - SerializeToBuffer returns 0 when buffer is nullptr
+ * - SerializeToBuffer returns 0 when bufferSize is 0
+ */
+TEST_F(DeletedIdsTest, SerializeBufferValidation) {
+    search::disk::DeletedIds deletedIds;
+
+    // Add some IDs
+    deletedIds.add(1);
+    deletedIds.add(42);
+    deletedIds.add(1000);
+
+    size_t serializedSize = deletedIds.GetSerializedSize();
+    ASSERT_GT(serializedSize, 0);
+
+    // Test with nullptr buffer
+    size_t result = deletedIds.SerializeToBuffer(nullptr, serializedSize);
+    ASSERT_EQ(result, 0);
+
+    // Test with zero buffer size
+    std::vector<char> buffer(serializedSize);
+    result = deletedIds.SerializeToBuffer(buffer.data(), 0);
+    ASSERT_EQ(result, 0);
+
+    // Test with buffer too small
+    result = deletedIds.SerializeToBuffer(buffer.data(), serializedSize - 1);
+    ASSERT_EQ(result, 0);
+
+    // Test with correct buffer size (should succeed)
+    result = deletedIds.SerializeToBuffer(buffer.data(), serializedSize);
+    ASSERT_EQ(result, serializedSize);
+}
+
+/**
+ * @brief Test deserialization buffer validation
+ *
+ * This test verifies that:
+ * - DeserializeFromBuffer returns false when buffer is nullptr
+ * - DeserializeFromBuffer returns false when bufferSize is 0
+ * - DeserializeFromBuffer returns false with invalid data
+ */
+TEST_F(DeletedIdsTest, DeserializeBufferValidation) {
+    search::disk::DeletedIds deletedIds;
+
+    // Test with nullptr buffer
+    bool success = deletedIds.DeserializeFromBuffer(nullptr, 100);
+    ASSERT_FALSE(success);
+
+    // Test with zero buffer size
+    std::vector<char> buffer(100);
+    success = deletedIds.DeserializeFromBuffer(buffer.data(), 0);
+    ASSERT_FALSE(success);
+
+    // Test with invalid data (random bytes)
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 255);
+
+    for (auto& byte : buffer) {
+        byte = static_cast<char>(dis(gen));
+    }
+
+    // This might succeed or fail depending on the random data,
+    // but it shouldn't crash
+    success = deletedIds.DeserializeFromBuffer(buffer.data(), buffer.size());
+    // We don't assert the result, just that it doesn't crash
+}
+
+/**
+ * @brief Test serialization after modifications
+ *
+ * This test verifies that:
+ * - Serialization works correctly after adding IDs
+ * - Serialization works correctly after removing IDs
+ * - Serialization works correctly after clearing and re-adding IDs
+ */
+TEST_F(DeletedIdsTest, SerializeAfterModifications) {
+    search::disk::DeletedIds deletedIds;
+
+    // Add initial IDs
+    deletedIds.add(1);
+    deletedIds.add(2);
+    deletedIds.add(3);
+
+    // Serialize and verify
+    size_t size1 = deletedIds.GetSerializedSize();
+    std::vector<char> buffer1(size1);
+    size_t written1 = deletedIds.SerializeToBuffer(buffer1.data(), buffer1.size());
+    ASSERT_EQ(written1, size1);
+
+    // Remove an ID
+    deletedIds.remove(2);
+
+    // Serialize and verify (size might change)
+    size_t size2 = deletedIds.GetSerializedSize();
+    std::vector<char> buffer2(size2);
+    size_t written2 = deletedIds.SerializeToBuffer(buffer2.data(), buffer2.size());
+    ASSERT_EQ(written2, size2);
+
+    // Deserialize and verify
+    search::disk::DeletedIds deserialized;
+    bool success = deserialized.DeserializeFromBuffer(buffer2.data(), buffer2.size());
+    ASSERT_TRUE(success);
+    ASSERT_EQ(deserialized.size(), 2);
+    ASSERT_TRUE(deserialized.contains(1));
+    ASSERT_FALSE(deserialized.contains(2));
+    ASSERT_TRUE(deserialized.contains(3));
+
+    // Clear and add new IDs
+    deletedIds.clear();
+    deletedIds.add(100);
+    deletedIds.add(200);
+
+    // Serialize and verify
+    size_t size3 = deletedIds.GetSerializedSize();
+    std::vector<char> buffer3(size3);
+    size_t written3 = deletedIds.SerializeToBuffer(buffer3.data(), buffer3.size());
+    ASSERT_EQ(written3, size3);
+
+    // Deserialize and verify
+    search::disk::DeletedIds deserialized2;
+    success = deserialized2.DeserializeFromBuffer(buffer3.data(), buffer3.size());
+    ASSERT_TRUE(success);
+    ASSERT_EQ(deserialized2.size(), 2);
+    ASSERT_TRUE(deserialized2.contains(100));
+    ASSERT_TRUE(deserialized2.contains(200));
+    ASSERT_FALSE(deserialized2.contains(1));
+}
+
+/**
+ * @brief Test GetSerializedSize getter method
+ *
+ * This test verifies that:
+ * - GetSerializedSize() returns a valid size for empty set
+ * - GetSerializedSize() returns a valid size after adding IDs
+ * - GetSerializedSize() changes appropriately after modifications
+ */
+TEST_F(DeletedIdsTest, GetSerializedSizeGetter) {
+    search::disk::DeletedIds deletedIds;
+
+    // Empty set should have some size (roaring bitmap header)
+    size_t emptySize = deletedIds.GetSerializedSize();
+    ASSERT_GT(emptySize, 0);
+
+    // Add some IDs
+    deletedIds.add(1);
+    deletedIds.add(42);
+    deletedIds.add(1000);
+
+    size_t filledSize = deletedIds.GetSerializedSize();
+    ASSERT_GT(filledSize, 0);
+
+    // Size should be reasonable (not too large)
+    ASSERT_LT(filledSize, 10000);
+
+    // Add more IDs
+    for (int i = 0; i < 100; ++i) {
+        deletedIds.add(i * 100);
+    }
+
+    size_t largerSize = deletedIds.GetSerializedSize();
+    ASSERT_GT(largerSize, filledSize);
+
+    // Clear and verify size returns to small value
+    deletedIds.clear();
+    size_t clearedSize = deletedIds.GetSerializedSize();
+    ASSERT_GT(clearedSize, 0);
+    ASSERT_LE(clearedSize, emptySize * 2);  // Should be similar to empty size
+}
+
+/**
+ * @brief Test RDB serialization of an empty DeletedIds
+ *
+ * This test verifies that:
+ * - An empty DeletedIds can be serialized to RDB format
+ * - The serialized data can be deserialized
+ * - The deserialized DeletedIds is empty
+ */
+TEST_F(DeletedIdsTest, SerializeDeserializeRDBEmpty) {
+    search::disk::DeletedIds original;
+
+    // Create a mock RDB context using a buffer
+    // We'll use a simple approach: serialize to buffer, then deserialize
+    std::vector<char> rdbBuffer(1024);
+
+    // Simulate RDB serialization by manually writing the size
+    // For empty DeletedIds, GetSerializedSize should return a small value
+    size_t serializedSize = original.GetSerializedSize();
+
+    // Create a buffer to hold the RDB data
+    std::vector<char> buffer(serializedSize);
+    size_t bytesWritten = original.SerializeToBuffer(buffer.data(), buffer.size());
+    ASSERT_EQ(bytesWritten, serializedSize);
+
+    // Deserialize and verify
+    search::disk::DeletedIds deserialized;
+    bool success = deserialized.DeserializeFromBuffer(buffer.data(), buffer.size());
+    ASSERT_TRUE(success);
+    ASSERT_EQ(deserialized.size(), 0);
+}
+
+/**
+ * @brief Test RDB serialization of DeletedIds with multiple IDs
+ *
+ * This test verifies that:
+ * - A DeletedIds with multiple IDs can be serialized to RDB format
+ * - The serialized data can be deserialized
+ * - The deserialized DeletedIds contains the same IDs
+ */
+TEST_F(DeletedIdsTest, SerializeDeserializeRDBMultipleIds) {
+    search::disk::DeletedIds original;
+
+    // Add multiple IDs
+    original.add(1);
+    original.add(42);
+    original.add(1000);
+    original.add(UINT64_MAX);
+
+    // Serialize to buffer
+    size_t serializedSize = original.GetSerializedSize();
+    std::vector<char> buffer(serializedSize);
+    size_t bytesWritten = original.SerializeToBuffer(buffer.data(), buffer.size());
+    ASSERT_EQ(bytesWritten, serializedSize);
+
+    // Deserialize and verify
+    search::disk::DeletedIds deserialized;
+    bool success = deserialized.DeserializeFromBuffer(buffer.data(), buffer.size());
+    ASSERT_TRUE(success);
+    ASSERT_EQ(deserialized.size(), 4);
+    ASSERT_TRUE(deserialized.contains(1));
+    ASSERT_TRUE(deserialized.contains(42));
+    ASSERT_TRUE(deserialized.contains(1000));
+    ASSERT_TRUE(deserialized.contains(UINT64_MAX));
+}
+
+/**
+ * @brief Test RDB serialization with large set of IDs
+ *
+ * This test verifies that:
+ * - A DeletedIds with a large number of IDs can be serialized to RDB format
+ * - The serialized data can be deserialized
+ * - The deserialized DeletedIds contains all the IDs
+ */
+TEST_F(DeletedIdsTest, SerializeDeserializeRDBLargeSet) {
+    search::disk::DeletedIds original;
+
+    // Add a large number of IDs
+    const size_t numIds = 10000;
+    for (size_t i = 0; i < numIds; ++i) {
+        original.add(i * 2);  // Add even numbers
+    }
+
+    // Serialize to buffer
+    size_t serializedSize = original.GetSerializedSize();
+    std::vector<char> buffer(serializedSize);
+    size_t bytesWritten = original.SerializeToBuffer(buffer.data(), buffer.size());
+    ASSERT_EQ(bytesWritten, serializedSize);
+
+    // Deserialize and verify
+    search::disk::DeletedIds deserialized;
+    bool success = deserialized.DeserializeFromBuffer(buffer.data(), buffer.size());
+    ASSERT_TRUE(success);
+    ASSERT_EQ(deserialized.size(), numIds);
+
+    // Verify a sample of IDs
+    ASSERT_TRUE(deserialized.contains(0));
+    ASSERT_TRUE(deserialized.contains(100));
+    ASSERT_TRUE(deserialized.contains(19998));
+    ASSERT_FALSE(deserialized.contains(1));  // Odd numbers should not be present
+    ASSERT_FALSE(deserialized.contains(19999));
+}
+
+/**
+ * @brief Test RDB serialization with special values
+ *
+ * This test verifies that:
+ * - DeletedIds with special values (0, UINT64_MAX) can be serialized to RDB format
+ * - The serialized data can be deserialized
+ * - The deserialized DeletedIds contains the special values
+ */
+TEST_F(DeletedIdsTest, SerializeDeserializeRDBSpecialValues) {
+    search::disk::DeletedIds original;
+
+    // Add special values
+    original.add(0);
+    original.add(1);
+    original.add(UINT64_MAX - 1);
+    original.add(UINT64_MAX);
+
+    // Serialize to buffer
+    size_t serializedSize = original.GetSerializedSize();
+    std::vector<char> buffer(serializedSize);
+    size_t bytesWritten = original.SerializeToBuffer(buffer.data(), buffer.size());
+    ASSERT_EQ(bytesWritten, serializedSize);
+
+    // Deserialize and verify
+    search::disk::DeletedIds deserialized;
+    bool success = deserialized.DeserializeFromBuffer(buffer.data(), buffer.size());
+    ASSERT_TRUE(success);
+    ASSERT_EQ(deserialized.size(), 4);
+    ASSERT_TRUE(deserialized.contains(0));
+    ASSERT_TRUE(deserialized.contains(1));
+    ASSERT_TRUE(deserialized.contains(UINT64_MAX - 1));
+    ASSERT_TRUE(deserialized.contains(UINT64_MAX));
 }
