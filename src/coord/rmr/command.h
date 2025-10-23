@@ -66,6 +66,8 @@ MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv);
 
 bool MRCommand_AddSlotRangeInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slotArray);
 
+bool MRCommand_AddSlotRangeInfo_HumanReadable(MRCommand *cmd, const RedisModuleSlotRangeArray *slotArray);
+
 static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t idx, size_t *len) {
   // assert(idx < cmd->num);
   if (len) {

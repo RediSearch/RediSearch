@@ -410,6 +410,69 @@ RedisModuleSlotRangeArray* extractSlotRangeFromArgs(RedisModuleString **argv, in
     return NULL; // Not found or error
 }
 
+// Helper function to extract slot range data from argc/argv using ArgsCursor (Human-Readable format)
+// This demonstrates how to find and deserialize human-readable slot range data in real code
+RedisModuleSlotRangeArray* extractSlotRangeFromArgs_HumanReadable(RedisModuleString **argv, int argc) {
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv, argc);
+
+    // Search for RANGE_SLOTS_HR token
+    while (!AC_IsAtEnd(&ac)) {
+        const char *current_arg;
+        size_t arg_len;
+
+        if (AC_GetString(&ac, &current_arg, &arg_len, AC_F_NOADVANCE) == AC_OK) {
+            if (arg_len == strlen("RANGE_SLOTS_HR") &&
+                strncmp(current_arg, "RANGE_SLOTS_HR", arg_len) == 0) {
+
+                // Found RANGE_SLOTS_HR, advance to next argument (num_ranges)
+                AC_Advance(&ac);
+                const char *num_ranges_str;
+                if (AC_GetString(&ac, &num_ranges_str, NULL, 0) == AC_OK) {
+                    int32_t num_ranges = strtol(num_ranges_str, NULL, 10);
+
+                    if (num_ranges > 0 && num_ranges <= 16384) { // Sanity check
+                        // Allocate slot range array
+                        RedisModuleSlotRangeArray *slot_array = (RedisModuleSlotRangeArray*)rm_malloc(
+                            sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges);
+
+                        if (slot_array) {
+                            slot_array->num_ranges = num_ranges;
+
+                            // Read start_slot and end_slot pairs
+                            for (int i = 0; i < num_ranges; i++) {
+                                const char *start_slot_str, *end_slot_str;
+
+                                // Get start slot
+                                if (AC_GetString(&ac, &start_slot_str, NULL, 0) != AC_OK) {
+                                    rm_free(slot_array);
+                                    return NULL;
+                                }
+
+                                // Get end slot
+                                if (AC_GetString(&ac, &end_slot_str, NULL, 0) != AC_OK) {
+                                    rm_free(slot_array);
+                                    return NULL;
+                                }
+
+                                // Parse and store the range
+                                slot_array->ranges[i].start = (uint16_t)strtoul(start_slot_str, NULL, 10);
+                                slot_array->ranges[i].end = (uint16_t)strtoul(end_slot_str, NULL, 10);
+                            }
+
+                            return slot_array;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        AC_Advance(&ac);
+    }
+
+    return NULL; // Not found or error
+}
+
 // Define the parameter values for slot range tests
 INSTANTIATE_TEST_SUITE_P(
     SlotRangeVariations,
@@ -436,7 +499,7 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 // Parameterized test for adding slot range info
-TEST_P(MRCommandSlotRangeTest, testAddSlotRangeInfoParameterized) {
+TEST_P(MRCommandSlotRangeTest, testAddSlotRangeInfo) {
     // Create a command
     MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
 
@@ -460,7 +523,7 @@ TEST_P(MRCommandSlotRangeTest, testAddSlotRangeInfoParameterized) {
 }
 
 // Parameterized test for round-trip slot range serialization
-TEST_P(MRCommandSlotRangeTest, testSlotRangeRoundTripParameterized) {
+TEST_P(MRCommandSlotRangeTest, testSlotRangeRoundTrip) {
     // Create a command with slot range info
     MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
     bool result = MRCommand_AddSlotRangeInfo(&cmd, testSlotArray);
@@ -501,6 +564,109 @@ TEST_P(MRCommandSlotRangeTest, testSlotRangeRoundTripParameterized) {
     RedisModuleSlotRangeArray *reconstructed = extractSlotRangeFromArgs(argv, argc);
 
     EXPECT_NE(reconstructed, (RedisModuleSlotRangeArray*)NULL) << "Should successfully extract slot range data";
+    EXPECT_EQ(reconstructed->num_ranges, testSlotArray->num_ranges) << "Should have same number of ranges";
+
+    for (int i = 0; i < reconstructed->num_ranges && i < testSlotArray->num_ranges; i++) {
+        EXPECT_EQ(reconstructed->ranges[i].start, testSlotArray->ranges[i].start) << "Start slot should match";
+        EXPECT_EQ(reconstructed->ranges[i].end, testSlotArray->ranges[i].end) << "End slot should match";
+    }
+
+    rm_free(reconstructed);
+
+    // Free the RedisModuleString objects we created
+    for (RedisModuleString *rms : argv_vec) {
+        RedisModule_FreeString(NULL, rms);
+    }
+
+    // Cleanup
+    freeReplyObject(reply);
+    redisReaderFree(reader);
+    sdsfree(formatted_cmd);
+    MRCommand_Free(&cmd);
+}
+
+// Parameterized test for adding human-readable slot range info
+TEST_P(MRCommandSlotRangeTest, testAddSlotRangeInfoHumanReadable) {
+    // Create a command
+    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
+
+    // Add slot range info in human-readable format
+    bool result = MRCommand_AddSlotRangeInfo_HumanReadable(&cmd, testSlotArray);
+    EXPECT_TRUE(result) << "Adding human-readable slot range info should succeed";
+
+    // Verify the command structure
+    // Expected: original 3 args + RANGE_SLOTS_HR + num_ranges + (start,end) pairs
+    int expected_args = 3 + 1 + 1 + (testSlotArray->num_ranges * 2);
+    EXPECT_EQ(cmd.num, expected_args) << "Command should have correct number of arguments";
+    EXPECT_STREQ(cmd.strs[3], "RANGE_SLOTS_HR") << "Fourth argument should be RANGE_SLOTS_HR";
+
+    // Verify the num_ranges argument
+    std::string expected_num_ranges = std::to_string(testSlotArray->num_ranges);
+    EXPECT_STREQ(cmd.strs[4], expected_num_ranges.c_str()) << "Fifth argument should be the number of ranges";
+
+    // Verify the slot range pairs
+    for (int i = 0; i < testSlotArray->num_ranges; i++) {
+        int start_arg_idx = 5 + (i * 2);
+        int end_arg_idx = 5 + (i * 2) + 1;
+
+        std::string expected_start = std::to_string(testSlotArray->ranges[i].start);
+        std::string expected_end = std::to_string(testSlotArray->ranges[i].end);
+
+        EXPECT_STREQ(cmd.strs[start_arg_idx], expected_start.c_str())
+            << "Start slot for range " << i << " should match";
+        EXPECT_STREQ(cmd.strs[end_arg_idx], expected_end.c_str())
+            << "End slot for range " << i << " should match";
+    }
+
+    MRCommand_Free(&cmd);
+}
+
+// Parameterized test for human-readable slot range round-trip serialization
+TEST_P(MRCommandSlotRangeTest, testSlotRangeRoundTripHumanReadable) {
+    // Create a command with human-readable slot range info
+    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "test_index", "hello");
+    bool result = MRCommand_AddSlotRangeInfo_HumanReadable(&cmd, testSlotArray);
+    EXPECT_TRUE(result) << "Adding human-readable slot range info should succeed";
+
+    // Format the command using redisFormatSdsCommandArgv
+    sds formatted_cmd = NULL;
+    long long len = redisFormatSdsCommandArgv(&formatted_cmd, cmd.num, (const char**)cmd.strs, cmd.lens);
+    EXPECT_GT(len, 0) << "Command formatting should succeed";
+    EXPECT_NE(formatted_cmd, (sds)NULL) << "Formatted command should not be NULL";
+
+    // Parse the formatted command back using redisReader
+    redisReader *reader = redisReaderCreate();
+    EXPECT_NE(reader, (redisReader*)NULL) << "Reader creation should succeed";
+
+    // Feed the formatted command to the reader
+    int feed_result = redisReaderFeed(reader, formatted_cmd, len);
+    EXPECT_EQ(feed_result, REDIS_OK) << "Feeding command to reader should succeed";
+
+    // Get the parsed reply
+    redisReply *reply = NULL;
+    int parse_result = redisReaderGetReply(reader, (void**)&reply);
+    EXPECT_EQ(parse_result, REDIS_OK) << "Parsing command should succeed";
+
+    EXPECT_EQ(reply->type, REDIS_REPLY_ARRAY) << "Reply should be an array";
+    EXPECT_EQ(reply->elements, cmd.num) << "Reply should have same number of elements as original command";
+
+    for (size_t i = 0; i < reply->elements; i++) {
+        EXPECT_EQ(reply->element[i]->type, REDIS_REPLY_STRING) << "Each element should be a string";
+    }
+
+    std::vector<RedisModuleString*> argv_vec;
+    for (size_t i = 0; i < reply->elements; i++) {
+        // Create RedisModuleString from the reply data
+        RedisModuleString *rms = RedisModule_CreateString(NULL, reply->element[i]->str, reply->element[i]->len);
+        argv_vec.push_back(rms);
+    }
+
+    RedisModuleString **argv = argv_vec.data();
+    int argc = argv_vec.size();
+    // Use the human-readable helper function to extract slot range data
+    RedisModuleSlotRangeArray *reconstructed = extractSlotRangeFromArgs_HumanReadable(argv, argc);
+
+    EXPECT_NE(reconstructed, (RedisModuleSlotRangeArray*)NULL) << "Should successfully extract human-readable slot range data";
     EXPECT_EQ(reconstructed->num_ranges, testSlotArray->num_ranges) << "Should have same number of ranges";
 
     for (int i = 0; i < reconstructed->num_ranges && i < testSlotArray->num_ranges; i++) {

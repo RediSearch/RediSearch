@@ -262,3 +262,39 @@ bool MRCommand_AddSlotRangeInfo(MRCommand *cmd, const RedisModuleSlotRangeArray 
   rm_free(binary_buf);
   return true;
 }
+
+/**
+ * Helper function to add slot range information to a command.
+ * Adds RANGE_SLOTS_HR, NUM_RANGES, START_SLOT, and END_SLOT arguments.
+ *
+ * @param cmd The command to add slot information to
+ * @param slotArray the slot range array to serialize
+ * @return true on success, false on failure
+ */
+bool MRCommand_AddSlotRangeInfo_HumanReadable(MRCommand *cmd, const RedisModuleSlotRangeArray *slotArray) {
+    if (!cmd || !slotArray) {
+        return false;
+    }
+
+    // Add the human-readable slot range marker
+    MRCommand_Append(cmd, "RANGE_SLOTS_HR", strlen("RANGE_SLOTS_HR"));
+
+    // Add number of ranges
+    char num_ranges_str[12]; // to write int32_t, max 11 chars + null terminator
+    snprintf(num_ranges_str, sizeof(num_ranges_str), "%d", slotArray->num_ranges);
+    MRCommand_Append(cmd, num_ranges_str, strlen(num_ranges_str));
+
+    // Add each range as start_slot-end_slot pairs
+    for (int i = 0; i < slotArray->num_ranges; i++) {
+        char start_slot_str[6]; // to write uint16_t, max 5 digits + null terminator
+        char end_slot_str[6]; // to write uint16_t, max 5 digits + null terminator
+
+        snprintf(start_slot_str, sizeof(start_slot_str), "%u", slotArray->ranges[i].start);
+        snprintf(end_slot_str, sizeof(end_slot_str), "%u", slotArray->ranges[i].end);
+
+        MRCommand_Append(cmd, start_slot_str, strlen(start_slot_str));
+        MRCommand_Append(cmd, end_slot_str, strlen(end_slot_str));
+    }
+
+    return true;
+}
