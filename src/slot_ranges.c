@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <arpa/inet.h>
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -73,25 +74,28 @@ size_t RedisModuleSlotRangeArray_SerializedSize_Binary(uint32_t n) {
   return /*num_ranges*/sizeof(int32_t) + /*space for num_ranges*/(size_t)n * (sizeof(uint16_t) + sizeof(uint16_t));
 }
 
-static int write_u32_be(uint8_t *buf, size_t len, size_t *off, uint32_t v) {
-    if (*off > len || len - *off < 4) return 0;
+static bool write_u32_be(uint8_t *buf, size_t len, size_t *off, uint32_t v) {
+    if (*off > len || len - *off < 4) return false;
     uint32_t be = htonl(v);
-    memcpy(buf + *off, &be, 4); *off += 4; return 1;
+    memcpy(buf + *off, &be, 4); *off += 4; return true;
 }
-static int write_u16_be(uint8_t *buf, size_t len, size_t *off, uint16_t v) {
-    if (*off > len || len - *off < 2) return 0;
+
+static bool write_u16_be(uint8_t *buf, size_t len, size_t *off, uint16_t v) {
+    if (*off > len || len - *off < 2) return false;
     uint16_t be = htons(v);
-    memcpy(buf + *off, &be, 2); *off += 2; return 1;
+    memcpy(buf + *off, &be, 2); *off += 2; return true;
 }
-static int read_u32_be(const uint8_t *buf, size_t len, size_t *off, uint32_t *out) {
-    if (*off > len || len - *off < 4) return 0;
+
+static bool read_u32_be(const uint8_t *buf, size_t len, size_t *off, uint32_t *out) {
+    if (*off > len || len - *off < 4) return false;
     uint32_t be; memcpy(&be, buf + *off, 4);
-    *out = ntohl(be); *off += 4; return 1;
+    *out = ntohl(be); *off += 4; return true;
 }
-static int read_u16_be(const uint8_t *buf, size_t len, size_t *off, uint16_t *out) {
-    if (*off > len || len - *off < 2) return 0;
+
+static bool read_u16_be(const uint8_t *buf, size_t len, size_t *off, uint16_t *out) {
+    if (*off > len || len - *off < 2) return false;
     uint16_t be; memcpy(&be, buf + *off, 2);
-    *out = ntohs(be); *off += 2; return 1;
+    *out = ntohs(be); *off += 2; return true;
 }
 
 /* ===== Binary (client-managed buffers) ===== */

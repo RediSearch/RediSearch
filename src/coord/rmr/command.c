@@ -280,14 +280,14 @@ bool MRCommand_AddSlotRangeInfo_HumanReadable(MRCommand *cmd, const RedisModuleS
     MRCommand_Append(cmd, "RANGE_SLOTS_HR", strlen("RANGE_SLOTS_HR"));
 
     // Add number of ranges
-    char num_ranges_str[12]; // to write int32_t, max 11 chars + null terminator
+    char num_ranges_str[16]; // to write int32_t, max 11 chars + null terminator, still reserve 16 for alignment
     snprintf(num_ranges_str, sizeof(num_ranges_str), "%d", slotArray->num_ranges);
     MRCommand_Append(cmd, num_ranges_str, strlen(num_ranges_str));
 
     // Add each range as start_slot-end_slot pairs
     for (int i = 0; i < slotArray->num_ranges; i++) {
-        char start_slot_str[6]; // to write uint16_t, max 5 digits + null terminator
-        char end_slot_str[6]; // to write uint16_t, max 5 digits + null terminator
+        char start_slot_str[16]; // to write uint16_t, max 5 digits + null terminator, still reserve 16 for alignment
+        char end_slot_str[16]; // to write uint16_t, max 5 digits + null terminator, still reserve 16 for alignment
 
         snprintf(start_slot_str, sizeof(start_slot_str), "%u", slotArray->ranges[i].start);
         snprintf(end_slot_str, sizeof(end_slot_str), "%u", slotArray->ranges[i].end);
