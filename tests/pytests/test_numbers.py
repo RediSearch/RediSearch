@@ -91,7 +91,9 @@ def testCompressionConfig(env):
         env.expect('ft.search', 'idx', f'@n:[{num} {num}]').equal([1, str(i), ['n', num]])
 
     # with compression. no exact number match.
+    env.cmd('ft.dropindex', 'idx')
     env.expect(config_cmd(), 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
     for i in range(100):
       env.cmd('hset', i, 'n', str(1 + i / 100.0))
 
