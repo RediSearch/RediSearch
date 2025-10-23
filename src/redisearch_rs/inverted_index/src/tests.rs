@@ -17,8 +17,8 @@ use std::{
 use crate::{
     BlockGcScanResult, DecodedBy, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex,
     FilterGeoReader, FilterMaskReader, FilterNumericReader, GcApplyInfo, GcScanDelta, IdDelta,
-    IndexBlock, IndexReader, InvertedIndex, NumericFilter, RSAggregateResult, RSIndexResult,
-    RSResultData, RSResultKind, RSTermRecord, RepairType,
+    IndexBlock, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSAggregateResult,
+    RSIndexResult, RSResultData, RSResultKind, RSTermRecord, RepairType,
     debug::{BlockSummary, Summary},
 };
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, t_docId};
@@ -868,7 +868,34 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
     ) -> std::io::Result<bool> {
         unimplemented!("This tests won't seek anything")
     }
+
+    fn skip_to(&mut self, _doc_id: t_docId) -> bool {
+        unimplemented!("This test won't skip to anything")
+    }
+
+    fn reset(&mut self) {
+        unimplemented!("This test won't reset")
+    }
+
+    fn unique_docs(&self) -> usize {
+        unimplemented!("This test won't count unique docs")
+    }
+
+    fn has_duplicates(&self) -> bool {
+        false
+    }
+
+    fn flags(&self) -> ffi::IndexFlags {
+        ffi::IndexFlags_Index_DocIdsOnly
+    }
+
+    fn needs_revalidation(&self) -> bool {
+        false
+    }
 }
+
+// Claim iterators are numeric readers so they can be used in tests.
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> NumericReader<'index> for I {}
 
 #[test]
 fn reading_filter_based_on_field_mask() {
