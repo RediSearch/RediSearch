@@ -87,7 +87,7 @@ def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
     with TimeLimit(timeout):
         while not is_migration_complete(conn, task_id):
             time.sleep(0.1)
-
+            
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
 # @skip(cluster=False, min_shards=2)
