@@ -94,6 +94,8 @@ cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 @skip() # Flaky test, until we can guarantee no missing or duplicate results during slot migration
 def test_import_slot_range(env: Env):
     n_docs = 2**14
+    
+    verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'cluster-allow-replica-migration', 'no')
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
 
@@ -130,6 +132,8 @@ def test_import_slot_range(env: Env):
 
 def import_slot_range_sanity_test(env: Env):
     n_docs = 2**14
+    
+    verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'cluster-allow-replica-migration', 'no')
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
 
@@ -177,6 +181,8 @@ def add_shard_and_migrate_test(env: Env):
     n_docs = 2**14
     initial_shards_count = env.shardsCount
 
+    verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'cluster-allow-replica-migration', 'no')
+
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
 
     with env.getClusterConnectionIfNeeded() as con:
@@ -205,6 +211,7 @@ def add_shard_and_migrate_test(env: Env):
     env.addShardToClusterIfExists()
     time.sleep(5)  # wait a bit for the cluster to stabilize before migrating
     new_shard = env.getConnection(shardId=initial_shards_count+1)
+    env.assertOk(new_shard.execute_command('CONFIG', 'SET', 'cluster-allow-replica-migration', 'no'))
     # ...and migrate slots from shard 1 to the new shard
     task = import_middle_slot_range(new_shard, shard1)
     wait_for_slot_import(new_shard, task)
