@@ -48,10 +48,10 @@ impl<'index> IdList<'index> {
         self.ids.get(self.offset).copied()
     }
     #[inline(always)]
-    pub fn offset(&self) -> usize {
+    pub const fn offset(&self) -> usize {
         self.offset
     }
-    pub fn get_mut_result(&mut self) -> &mut RSIndexResult<'index> {
+    pub const fn get_mut_result(&mut self) -> &mut RSIndexResult<'index> {
         &mut self.result
     }
 }
