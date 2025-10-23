@@ -251,6 +251,7 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
 static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
   int rv;
   bool dialect_specified = false;
+  bool slotRanges_specified = false;
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
@@ -356,8 +357,83 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
     }
-  } //TODO(Joan): Here parse the slot information from the coordinator (for FT SEARCH and FT AGGREGATE)
-  else {
+  } else if (AC_AdvanceIfMatch(ac, "_RANGE_SLOTS_BINARY")) {
+    // Parse binary slot range format: _RANGE_SLOTS_BINARY <size> <binary_data>
+    slotRanges_specified = true;
+    if (AC_NumRemaining(ac) < 2) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_BINARY requires size and binary data arguments");
+      return ARG_ERROR;
+    }
+    // Get the binary data
+    const char *binary_data;
+    size_t binary_size;
+    if (AC_GetString(ac, &binary_data, &binary_size, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Missing binary data for _RANGE_SLOTS_BINARY");
+      return ARG_ERROR;
+    }
+
+    RS_ASSERT(binary_size % sizeof(RedisModuleSlotRange) == 0);
+    size_t num_ranges = binary_size / sizeof(RedisModuleSlotRange);
+    // Allocate memory for the slot range array
+    size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges;
+    RedisModuleSlotRangeArray *slot_array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
+    RS_ASSERT(slot_array)
+    // Deserialize the binary data into the slot array
+    if (!RedisModuleSlotRangeArray_DeserializeBinary((const uint8_t*)binary_data, binary_size, slot_array)) {
+      rm_free(slot_array);
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to deserialize _RANGE_SLOTS_BINARY data");
+      return ARG_ERROR;
+    }
+    // Create a SharedSlotRangeArray wrapper using the helper function
+    *papCtx->coordSlotRanges = slot_array;
+  } else if (AC_AdvanceIfMatch(ac, "_RANGE_SLOTS_HR")) {
+    // Parse human-readable slot range format: _RANGE_SLOTS_HR <num_ranges> <start1> <end1> <start2> <end2> ...
+    if (slotRanges_specified) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Cannot specify both _RANGE_SLOTS_BINARY and _RANGE_SLOTS_HR");
+      return ARG_ERROR;
+    }
+    // Get the number of ranges
+    long long num_ranges_ll;
+    if (AC_GetLongLong(ac, &num_ranges_ll, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR requires number of ranges");
+      return ARG_ERROR;
+    }
+
+    int32_t num_ranges = (int32_t)num_ranges_ll;
+
+    // Check if we have enough arguments for all ranges (each range needs start and end)
+    if (AC_NumRemaining(ac) < (size_t)(num_ranges * 2)) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR: insufficient arguments for ranges");
+      return ARG_ERROR;
+    }
+
+    // Allocate memory for the slot range array
+    size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges;
+    RedisModuleSlotRangeArray *slot_array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
+    slot_array->num_ranges = num_ranges;
+
+    // Parse each range pair
+    for (uint32_t i = 0; i < num_ranges; i++) {
+      long long start_ll, end_ll;
+
+      if (AC_GetLongLong(ac, &start_ll, 0) != AC_OK || AC_GetLongLong(ac, &end_ll, 0) != AC_OK) {
+        rm_free(slot_array);
+        QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR: invalid range values");
+        return ARG_ERROR;
+      }
+
+      if (start_ll > end_ll) {
+        rm_free(slot_array);
+        QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR: start slot must be <= end slot");
+        return ARG_ERROR;
+      }
+
+      slot_array->ranges[i].start = (uint16_t)start_ll;
+      slot_array->ranges[i].end = (uint16_t)end_ll;
+    }
+    RS_ASSERT(*papCtx->coordSlotRanges == NULL);
+    *papCtx->coordSlotRanges = slot_array;
+  } else {
     return ARG_UNKNOWN;
   }
 
@@ -895,8 +971,6 @@ error:
   }
   return REDISMODULE_ERR;
 }
-
-
 
 static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
