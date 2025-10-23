@@ -1059,7 +1059,7 @@ pub unsafe extern "C" fn IndexReader_IsIndex(
 /// The following invariant must be upheld when calling this function:
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_HasSeeker(_ir: *const IndexReader) -> bool {
+pub const unsafe extern "C" fn IndexReader_HasSeeker(_ir: *const IndexReader) -> bool {
     // The Rust `Decoder` implementation has a default seeker for all decoders
     true
 }

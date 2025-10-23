@@ -75,7 +75,7 @@ impl RsValue {
     }
 
     /// Create a new numeric [`RsValue`] given the passed number
-    pub fn number(n: f64) -> Self {
+    pub const fn number(n: f64) -> Self {
         Self::Def(RsValueInternal::Number(n))
     }
 
