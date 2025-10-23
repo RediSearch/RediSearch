@@ -71,11 +71,6 @@ impl<'index> Metric<'index> {
             type_: MetricType::VectorDistance,
         }
     }
-
-    #[inline(always)]
-    fn offset(&self) -> usize {
-        self.base.offset()
-    }
 }
 
 impl<'index> RQEIterator<'index> for Metric<'index> {
