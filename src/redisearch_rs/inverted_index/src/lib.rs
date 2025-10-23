@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
-    io::{BufRead, Cursor, Seek, Write},
+    io::{BufRead, Cursor, Seek, SeekFrom, Write},
     sync::atomic::{self, AtomicUsize},
 };
 
@@ -231,6 +231,118 @@ pub trait Decoder {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
+struct ControlledCursor<T> {
+    inner: T,
+    pos: u64,
+}
+
+impl<T> ControlledCursor<T> {
+    const fn new(inner: T) -> Self {
+        Self { inner, pos: 0 }
+    }
+
+    const fn set_position(&mut self, pos: u64) {
+        self.pos = pos;
+    }
+}
+
+impl Write for ControlledCursor<&mut Vec<u8>> {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let buf_len = buf.len();
+        if self.inner.len() + buf_len > self.inner.capacity() {
+            self.inner.reserve(
+                (self.inner.capacity() / 5 + 1)
+                    .min(1024 * 1024)
+                    .max(buf_len),
+            );
+        }
+
+        // Safety: we have ensured that the capacity is available
+        // and that all bytes get written up to pos
+        debug_assert!(self.inner.capacity() >= self.pos as usize + buf_len);
+        unsafe {
+            self.inner
+                .as_mut_ptr()
+                .add(self.pos as usize)
+                .copy_from(buf.as_ptr(), buf_len)
+        };
+
+        // Bump us forward
+        self.pos += buf_len as u64;
+
+        unsafe {
+            self.inner.set_len(self.pos as usize);
+        }
+        Ok(buf_len)
+    }
+
+    #[inline]
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    #[inline]
+    fn write_vectored(&mut self, bufs: &[std::io::IoSlice<'_>]) -> std::io::Result<usize> {
+        // For safety reasons, we don't want this sum to overflow ever.
+        // If this saturates, the reserve should panic to avoid any unsound writing.
+        let bufs_len = bufs.iter().fold(0usize, |a, b| a.saturating_add(b.len()));
+        if self.inner.len() + bufs_len > self.inner.capacity() {
+            self.inner.reserve(
+                (self.inner.capacity() / 5 + 1)
+                    .min(1024 * 1024)
+                    .max(bufs_len),
+            );
+        }
+
+        // Safety: we have ensured that the capacity is available
+        // and that all bytes get written up to pos
+        debug_assert!(self.inner.capacity() >= self.pos as usize + bufs_len);
+
+        for buf in bufs {
+            unsafe {
+                self.inner
+                    .as_mut_ptr()
+                    .add(self.pos as usize)
+                    .copy_from(buf.as_ptr(), buf.len())
+            };
+
+            // Bump us forward
+            self.pos += buf.len() as u64;
+        }
+
+        unsafe {
+            self.inner.set_len(self.pos as usize);
+        }
+
+        Ok(bufs_len)
+    }
+}
+
+impl Seek for ControlledCursor<&mut Vec<u8>> {
+    fn seek(&mut self, style: SeekFrom) -> std::io::Result<u64> {
+        let (base_pos, offset) = match style {
+            SeekFrom::Start(n) => {
+                self.pos = n;
+                return Ok(n);
+            }
+            SeekFrom::End(n) => (self.inner.len() as u64, n),
+            SeekFrom::Current(n) => (self.pos, n),
+        };
+        match base_pos.checked_add_signed(offset) {
+            Some(n) => {
+                self.pos = n;
+                Ok(self.pos)
+            }
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid seek to a negative or overflowing position",
+            )),
+        }
+    }
+}
+
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
 pub struct InvertedIndex<E> {
@@ -340,9 +452,9 @@ impl IndexBlock {
         &self.buffer
     }
 
-    const fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
+    const fn writer(&mut self) -> ControlledCursor<&mut Vec<u8>> {
         let pos = self.buffer.len();
-        let mut buffer = Cursor::new(&mut self.buffer);
+        let mut buffer = ControlledCursor::new(&mut self.buffer);
 
         buffer.set_position(pos as u64);
 
