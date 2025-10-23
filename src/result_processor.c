@@ -146,9 +146,7 @@ validate_current:
     }
     if (should_filter_slots) {
       RS_ASSERT(self->slotRanges != NULL);
-      RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
-      int slot = RedisModule_ClusterKeySlot(key);
-      RedisModule_FreeString(NULL, key);
+      int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
       if (!Slots_CanAccessKeysInSlot(self->slotRanges, slot)) {
         DMD_Return(dmd);
         continue;
