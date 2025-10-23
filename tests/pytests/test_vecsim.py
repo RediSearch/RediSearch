@@ -872,7 +872,7 @@ def test_hybrid_query_with_text_vamana():
 
     # Empty filter test
     # Expect to find no result (internally, build the child iterator as empty iterator).
-    env.expect('FT.SEARCH', 'idx', '(nothing)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
+    env.expect('FT.SEARCH', 'idx', f'(nothing)=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
     env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'EMPTY_MODE')
 
     # Scenario 1: Large subset (>21%) + small index (<75K) → ADHOC_BF
@@ -880,7 +880,7 @@ def test_hybrid_query_with_text_vamana():
     for i in range(10):
         expected_res.append(str(i + 1))
         expected_res.append(['__v_score', str(dim*i**2), 't', 'text value'])
-    execute_hybrid_query(env, '(@t:(text value))=>[KNN 10 @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
+    execute_hybrid_query(env, f'(@t:(text value))=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
 
     # Scenario 2: Small subset (<7%) + medium index (<750K) → ADHOC_BF
     # Change small amount of docs (less than 7% of this index size) to 'other'
