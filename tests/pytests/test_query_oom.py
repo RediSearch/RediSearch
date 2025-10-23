@@ -300,6 +300,7 @@ def test_hybrid_oom_standalone(env):
 # Test OOM error on coordinator for FT.HYBRID (fail or return)
 # under each policy, test the query fails on the coordinator at the beginning of the query
 # therefore we expect the query to fail with OOM_QUERY_ERROR both fail and return policies
+@skip(cluster=False)
 def test_hybrid_oom_cluster_coord_error():
     env = Env(shardsCount=3)
 
@@ -320,6 +321,7 @@ def test_hybrid_oom_cluster_coord_error():
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
 
 # Test OOM error returned from shards for FT.HYBRID (only for fail)
+@skip(cluster=False)
 def test_hybrid_oom_cluster_shards_error():
     env = Env(shardsCount=3)
 
@@ -339,6 +341,7 @@ def test_hybrid_oom_cluster_shards_error():
     env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000').error().contains(OOM_QUERY_ERROR)
 
 # Test OOM error returned from shards for FT.HYBRID (only for return)
+@skip(cluster=False)
 def test_hybrid_oom_cluster_shards_return():
     env = Env(shardsCount=3, enableDebugCommand=True)
 
