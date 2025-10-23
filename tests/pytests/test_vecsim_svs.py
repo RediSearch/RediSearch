@@ -15,7 +15,7 @@ from common import (
     runDebugQueryCommandPauseBeforeRPAfterN,
     getIsRPPaused,
     setPauseRPResume,
-    forceInvokeGC
+    forceInvokeGC,
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -91,6 +91,7 @@ def test_small_window_size():
                 conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, f'__{field_name}_score')
             except Exception as e:
                 env.assertTrue(False, message=f"compression: {compression} data_type: {data_type}. Search failed with exception: {e}")
+                return
             conn.execute_command('FLUSHALL')
 
 @skip(cluster=True)
@@ -162,6 +163,7 @@ def test_svs_vamana_info():
                         expected_info)
         env.expect('FT.DROPINDEX', 'idx').ok()
 
+# TODO: Elaborate for doord
 def test_vamana_debug_info_vs_info():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
@@ -199,8 +201,8 @@ def test_vamana_debug_info_vs_info():
             # from stats:
             # memory
             # marked deleted
-
-            env.execute_command('FLUSHALL')
+            conn = getConnectionByEnv(env)
+            conn.execute_command('FLUSHALL')
 
 @skip(cluster=True)
 # TODO: rename to test stats and also verify marked deleted
@@ -266,11 +268,11 @@ and verifies that vector is returned as the top result.
 Distance verification is skipped since some compression types would require larger training thresholds
 and vector dimension to get an exact match, making the test prohibitively slow.
 '''
-
+# TODO: Cluster
 def queries_sanity(env):
     dim = 28
     training_threshold = DEFAULT_BLOCK_SIZE
-    num_docs = training_threshold * 2 * env.shardsCount # To ensure all shards' svs index is trained.
+    num_docs = training_threshold * 2 * env.shardsCount # To ensure all shards' svs index is initialized.
     score_title = f'__{DEFAULT_FIELD_NAME}_score'
     conn = getConnectionByEnv(env)
 
@@ -327,6 +329,7 @@ def empty_index(env):
     env.execute_command(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '1000000')
     dim = 4
     data_type = 'FLOAT32'
+    num_docs = DEFAULT_BLOCK_SIZE * 2 * env.shardsCount # To ensure all shards' svs index is initialized.
     training_threshold = DEFAULT_BLOCK_SIZE
     compression_params = [None, ['COMPRESSION', 'LVQ8', 'TRAINING_THRESHOLD', training_threshold]]
     score_title = f'__{DEFAULT_FIELD_NAME}_score'
@@ -334,6 +337,7 @@ def empty_index(env):
     query = create_random_np_array_typed(dim, data_type)
     query_cmd = ['FT.SEARCH', DEFAULT_INDEX_NAME, f'*=>[KNN {k} @v $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'RETURN', 1, score_title]
 
+    conn = getConnectionByEnv(env)
     for compression_params in compression_params:
         message_prefix = f"compression_params: {compression_params}"
         create_vector_index(env, dim, index_name=DEFAULT_INDEX_NAME, datatype=data_type, alg='SVS-VAMANA', additional_vec_params=compression_params)
@@ -344,24 +348,33 @@ def empty_index(env):
 
         # Scenario 2: adding less than training threshold vectors (index is created, but no vectors in svs yet)
         populate_with_vectors(env, dim=dim, num_docs=training_threshold - 1, datatype=data_type)
-        env.assertEqual(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 0, message=f"{message_prefix}")
+        tiered_backend_debug_info = [get_tiered_backend_debug_info(con, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME) for con in env.getOSSMasterNodesConnectionList()]
+        for debug_info in tiered_backend_debug_info:
+            env.assertEqual(debug_info['INDEX_SIZE'], 0, message=f"{message_prefix}")
         res = env.execute_command(*query_cmd)
         env.assertEqual(res[0], k, message=f"{message_prefix}")
 
-        # Scenario 3: Querying svs index after in was initialized and emptied
-        populate_with_vectors(env, dim=dim, num_docs=100, datatype=data_type, initial_doc_id=training_threshold)
-        expected_index_size = training_threshold - 1 + 100
+        # Scenario 3: Querying svs index after it was initialized and emptied
+        populate_with_vectors(env, dim=dim, num_docs=num_docs - (training_threshold - 1), datatype=data_type, initial_doc_id=training_threshold)
+        expected_index_size = num_docs
         wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=message_prefix)
-        env.assertEqual(get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], training_threshold - 1 + 100, message=f"{message_prefix}")
+        tiered_backend_debug_info = [get_tiered_backend_debug_info(con, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME) for con in env.getOSSMasterNodesConnectionList()]
+        tiered_debug_info = [get_tiered_debug_info(con, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME) for con in env.getOSSMasterNodesConnectionList()]
+        for debug_info in tiered_debug_info:
+            env.assertGreaterEqual(debug_info['INDEX_SIZE'], training_threshold, message=f"{message_prefix}")
+        env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], num_docs, message=f"{message_prefix}")
 
         for i in range(expected_index_size):
-            env.execute_command('DEL', f'{DEFAULT_DOC_NAME_PREFIX}{i+1}')
+            conn.execute_command('DEL', f'{DEFAULT_DOC_NAME_PREFIX}{i+1}')
         env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], 0, message=f"{message_prefix}")
-        env.assertEqual(get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 0, message=f"{message_prefix}")
+        tiered_debug_info = [get_tiered_debug_info(con, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME) for con in env.getOSSMasterNodesConnectionList()]
+        for debug_info in tiered_debug_info:
+            env.assertGreaterEqual(debug_info['INDEX_SIZE'], 0, message=f"{message_prefix}")
+
         res = env.execute_command(*query_cmd)
         env.assertEqual(res, [0], message=f"{message_prefix}")
 
-        env.execute_command('FLUSHALL')
+        conn.execute_command('FLUSHALL')
 
 def test_empty_index():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')

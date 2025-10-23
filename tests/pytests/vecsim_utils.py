@@ -57,7 +57,7 @@ def set_up_database_with_vectors(env: Env, dim, num_docs, index_name=DEFAULT_IND
     populate_with_vectors(env, num_docs, dim, datatype, field_name)
 
 def get_tiered_debug_info(env, index_name, field_name) -> dict:
-    return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, field_name))
+    return to_dict(env.execute_command(debug_cmd(), "VECSIM_INFO", index_name, field_name))
 
 def get_tiered_frontend_debug_info(env, index_name, field_name) -> dict:
     tiered_index_info = get_tiered_debug_info(env, index_name, field_name)
@@ -81,7 +81,9 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
         is_trained = False
         while not is_trained:
             # 'BACKGROUND_INDEXING' == 0 means training is done
-            is_trained = get_tiered_debug_info(env, index_name, field_name)['BACKGROUND_INDEXING'] == 0
+            for con in env.getOSSMasterNodesConnectionList():
+                is_trained = get_tiered_debug_info(con, index_name, field_name)['BACKGROUND_INDEXING'] == 0
             time.sleep(0.1)
 
-        env.assertGreater(get_tiered_backend_debug_info(env, index_name, field_name)['INDEX_SIZE'], 0, message=message)
+        for id, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            env.assertGreater(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"wait_for_background_indexing: shard: {id}, " + message)
