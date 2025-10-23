@@ -80,7 +80,25 @@ protected:
     void printMRCommand(const MRCommand *cmd) {
         printf("MRCommand (%d args): ", cmd->num);
         for (int i = 0; i < cmd->num; i++) {
-            printf("[%d]='%.*s' ", i, (int)cmd->lens[i], cmd->strs[i]);
+            // Check if this looks like binary data (contains non-printable chars or null bytes)
+            bool isBinary = false;
+            for (size_t j = 0; j < cmd->lens[i]; j++) {
+                unsigned char c = (unsigned char)cmd->strs[i][j];
+                if (c == 0 || c < 32 || c > 126) {
+                    isBinary = true;
+                    break;
+                }
+            }
+
+            if (isBinary) {
+                printf("[%d]=<binary:%zu bytes:", i, cmd->lens[i]);
+                for (size_t j = 0; j < cmd->lens[i]; j++) {
+                    printf("%02x", (unsigned char)cmd->strs[i][j]);
+                }
+                printf("> ");
+            } else {
+                printf("[%d]='%.*s' ", i, (int)cmd->lens[i], cmd->strs[i]);
+            }
         }
         printf("\n");
     }
@@ -335,11 +353,9 @@ TEST_F(MRCommandTest, testAddSlotRangeInfoToSearchCommand) {
     // Verify slot range arguments are at the end
     int rangePos = findArgPosition(&cmd, "RANGE_SLOTS_BINARY");
     EXPECT_EQ(rangePos, 5) << "RANGE_SLOTS_BINARY should be at position 5";
-    if (rangePos >= 0) {
-        std::string sizeArg(cmd.strs[rangePos + 1], cmd.lens[rangePos + 1]);
-        EXPECT_EQ(sizeArg, "12") << "Size argument should be '12'";
-        EXPECT_GT(cmd.lens[rangePos + 2], 0) << "Binary data should be present";
-    }
+    std::string sizeArg(cmd.strs[rangePos + 1], cmd.lens[rangePos + 1]);
+    EXPECT_EQ(sizeArg, "12") << "Size argument should be '12'";
+    EXPECT_GT(cmd.lens[rangePos + 2], 0) << "Binary data should be present";
 
     MRCommand_Free(&cmd);
 }
@@ -366,11 +382,9 @@ TEST_F(MRCommandTest, testAddSlotRangeInfoToAggregateCommand) {
     // Verify slot range arguments are at the end
     int rangePos = findArgPosition(&cmd, "RANGE_SLOTS_BINARY");
     EXPECT_EQ(rangePos, 6) << "RANGE_SLOTS_BINARY should be at position 6";
-    if (rangePos >= 0) {
-        std::string sizeArg(cmd.strs[rangePos + 1], cmd.lens[rangePos + 1]);
-        EXPECT_EQ(sizeArg, "12") << "Size argument should be '12'";
-        EXPECT_GT(cmd.lens[rangePos + 2], 0) << "Binary data should be present";
-    }
+    std::string sizeArg(cmd.strs[rangePos + 1], cmd.lens[rangePos + 1]);
+    EXPECT_EQ(sizeArg, "12") << "Size argument should be '12'";
+    EXPECT_GT(cmd.lens[rangePos + 2], 0) << "Binary data should be present";
 
     MRCommand_Free(&cmd);
 }

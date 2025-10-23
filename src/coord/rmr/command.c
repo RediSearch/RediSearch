@@ -240,8 +240,7 @@ bool MRCommand_AddSlotRangeInfo(MRCommand *cmd, const RedisModuleSlotRangeArray 
   }
 
   // Serialize slot ranges to binary format
-  bool serialize_success = RedisModuleSlotRangeArray_SerializeBinary(
-      slotArray, binary_buf, binary_size);
+  bool serialize_success = RedisModuleSlotRangeArray_SerializeBinary(slotArray, binary_buf, binary_size);
 
   if (!serialize_success) {
     rm_free(binary_buf);
