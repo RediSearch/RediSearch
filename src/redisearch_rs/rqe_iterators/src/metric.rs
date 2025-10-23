@@ -26,6 +26,37 @@ pub struct Metric<'index> {
     type_: MetricType,
 }
 
+#[inline(always)]
+fn set_result_metrics(result: &mut RSIndexResult, val: f64) {
+    if let Some(num) = result.as_numeric_mut() {
+        *num = val;
+    } else {
+        // Safety: we created a metric result, which is numeric, in the constructor
+        panic!("Result is not numeric");
+    }
+
+    // SAFETY: free the metrics c_array
+    unsafe {
+        ResultMetrics_Reset(result.metrics);
+    }
+
+    // SAFETY: calling ffi::RSValue_Number function to allocate a new RSValue
+    let value = RSValueFFI::create_num(val);
+    let new_metrics: *const RSYieldableMetric = &RSYieldableMetric {
+        key: std::ptr::null_mut(),
+        value: value.as_ptr(),
+    };
+    // SAFETY: calling ffi::RSYieldableMetric_Concat function to concatenate new_metrics to result.metrics array
+    unsafe {
+        result.metrics = array_ensure_append_n_func(
+            result.metrics as *mut std::ffi::c_void,
+            new_metrics as *mut std::ffi::c_void,
+            1,
+            std::mem::size_of::<RSYieldableMetric>() as u16,
+        ) as *mut RSYieldableMetric;
+    }
+}
+
 impl<'index> Metric<'index> {
     pub fn new(ids: Vec<t_docId>, metric_data: Vec<f64>) -> Self {
         debug_assert!(ids.len() == metric_data.len());
@@ -43,67 +74,40 @@ impl<'index> Metric<'index> {
     }
 
     #[inline(always)]
-    fn set_result_metrics(&mut self, result: &mut RSIndexResult<'index>, val: f64) {
-        if let Some(num) = result.as_numeric_mut() {
-            *num = val;
-        } else {
-            // Safety: we created a metric result, which is numeric, in the constructor
-            panic!("Result is not numeric");
-        }
-
-        // SAFETY: free the metrics c_array
-        unsafe {
-            ResultMetrics_Reset(result.metrics);
-        }
-
-        // SAFETY: calling ffi::RSValue_Number function to allocate a new RSValue
-        let value = RSValueFFI::create_num(val);
-        let new_metrics: *const RSYieldableMetric = &RSYieldableMetric {
-            key: std::ptr::null_mut(),
-            value: value.as_ptr(),
-        };
-        // SAFETY: calling ffi::RSYieldableMetric_Concat function to concatenate new_metrics to result.metrics array
-        unsafe {
-            result.metrics = array_ensure_append_n_func(
-                result.metrics as *mut std::ffi::c_void,
-                new_metrics as *mut std::ffi::c_void,
-                1,
-                std::mem::size_of::<RSYieldableMetric>() as u16,
-            ) as *mut RSYieldableMetric;
-        }
+    fn offset(&self) -> usize {
+        self.base.offset()
     }
 }
 
-impl<'index> RQEIterator<'_, 'index> for Metric<'index> {
-    fn read(&'_ mut self) -> Result<Option<&'_ mut RSIndexResult<'index>>, RQEIteratorError> {
+impl<'index> RQEIterator<'index> for Metric<'index> {
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.base.at_eof() {
             return Ok(None);
         }
+        self.base.read()?;
 
         let val = self.metric_data[self.base.offset() - 1];
-        let result = self.base.read()?;
-        if result.is_none() {
-            return Ok(None);
-        }
-        let result = result.unwrap();
-        self.set_result_metrics(result, val);
+        let result = self.base.get_mut_result();
+        set_result_metrics(result, val);
         Ok(Some(result))
     }
 
     fn skip_to(
-        &'_ mut self,
+        &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         let skip_outcome = self.base.skip_to(doc_id)?;
         match skip_outcome {
-            Some(SkipToOutcome::Found(result)) => {
+            Some(SkipToOutcome::Found(_)) => {
                 let val = self.metric_data[self.base.offset() - 1];
-                self.set_result_metrics(result, val);
+                let result = self.base.get_mut_result();
+                set_result_metrics(result, val);
                 Ok(Some(SkipToOutcome::Found(result)))
             }
-            Some(SkipToOutcome::NotFound(result)) => {
+            Some(SkipToOutcome::NotFound(_)) => {
                 let val = self.metric_data[self.base.offset() - 1];
-                self.set_result_metrics(result, val);
+                let result = self.base.get_mut_result();
+                set_result_metrics(result, val);
                 Ok(Some(SkipToOutcome::NotFound(result)))
             }
             None => Ok(None),
