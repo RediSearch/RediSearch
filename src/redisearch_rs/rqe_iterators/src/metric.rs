@@ -35,18 +35,17 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64) {
         panic!("Result is not numeric");
     }
 
-    // SAFETY: free the metrics c_array
+    // SAFETY: reset the metrics c_array
     unsafe {
         ResultMetrics_Reset(result.metrics);
     }
 
-    // SAFETY: calling ffi::RSValue_Number function to allocate a new RSValue
     let value = RSValueFFI::create_num(val);
     let new_metrics: *const RSYieldableMetric = &RSYieldableMetric {
         key: std::ptr::null_mut(),
         value: value.as_ptr(),
     };
-    // SAFETY: calling ffi::RSYieldableMetric_Concat function to concatenate new_metrics to result.metrics array
+    // SAFETY: calling a C function to append a new metric to the result's metrics array
     unsafe {
         result.metrics = array_ensure_append_n_func(
             result.metrics as *mut std::ffi::c_void,
