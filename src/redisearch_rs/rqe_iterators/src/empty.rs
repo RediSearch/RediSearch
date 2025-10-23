@@ -20,30 +20,34 @@ use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 #[derive(Default)]
 pub struct Empty;
 
-impl<'iterator, 'index> RQEIterator<'iterator, 'index> for Empty {
-    fn read(
-        &'iterator mut self,
-    ) -> Result<Option<&'iterator mut RSIndexResult<'index>>, RQEIteratorError> {
+impl<'index> RQEIterator<'index> for Empty {
+    #[inline(always)]
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         Ok(None)
     }
 
+    #[inline(always)]
     fn skip_to(
-        &'iterator mut self,
+        &mut self,
         _doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'iterator, 'index>>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         Ok(None)
     }
 
+    #[inline(always)]
     fn rewind(&mut self) {}
 
+    #[inline(always)]
     fn num_estimated(&self) -> usize {
         0
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         0
     }
 
+    #[inline(always)]
     fn at_eof(&self) -> bool {
         true
     }
