@@ -56,7 +56,7 @@ impl Bencher {
             let mut group = self.benchmark_group(c, &group);
 
             for input in inputs {
-                numeric_rust_encode(&mut group, input);
+                encode(&mut group, input);
             }
 
             group.finish();
@@ -69,7 +69,7 @@ impl Bencher {
             let mut group = self.benchmark_group(c, &group);
 
             for input in inputs {
-                numeric_rust_decode(&mut group, input);
+                decode(&mut group, input);
             }
 
             group.finish();
@@ -246,7 +246,7 @@ fn generate_test_values() -> Vec<BenchGroup> {
         .collect()
 }
 
-fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchInput) {
+fn encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchInput) {
     let BenchInput {
         values,
         delta_size,
@@ -255,8 +255,8 @@ fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
 
     group.bench_function(
         BenchmarkId::new(
-            "Rust",
-            format!("Value size: {value_size}/Delta size: {delta_size}"),
+            format!("Value size: {value_size}"),
+            format!("Delta size: {delta_size}"),
         ),
         |b| {
             b.iter_batched_ref(
@@ -286,7 +286,7 @@ fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
     );
 }
 
-fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchInput) {
+fn decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchInput) {
     let BenchInput {
         values,
         delta_size,
@@ -295,8 +295,8 @@ fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
 
     group.bench_function(
         BenchmarkId::new(
-            "Rust",
-            format!("Value size: {value_size}/Delta size: {delta_size}"),
+            format!("Value size: {value_size}"),
+            format!("Delta size: {delta_size}"),
         ),
         |b| {
             for (_, _, buffer) in values {
