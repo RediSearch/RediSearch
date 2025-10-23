@@ -89,6 +89,7 @@ impl<'a> PartialEq for TermRecordCompare<'a> {
         }
 
         // do not compare `RSTermRecord` as it's not encoded
-        true
+
+        a_term_record.is_copy() == b_term_record.is_copy()
     }
 }

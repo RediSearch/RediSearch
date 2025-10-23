@@ -182,7 +182,7 @@ pub fn generate_c_bindings(
     let root = git_root().expect("Could not find git root for static library linking");
 
     let mut includes = vec![
-        // root.join("deps").join("RedisModulesSDK"),
+        root.join("deps").join("RedisModulesSDK"),
         root.join("src"),
         root.join("deps"),
         root.join("src").join("redisearch_rs").join("headers"),
