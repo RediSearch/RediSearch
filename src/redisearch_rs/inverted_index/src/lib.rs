@@ -1141,8 +1141,7 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
 
 /// Reader that is able to read the records from an [`InvertedIndex`]
 pub struct IndexReaderCore<'index, E, D> {
-    /// The block of the inverted index that is being read from. This might be used to determine the
-    /// base document ID for delta calculations.
+    /// The inverted index that is being read from.
     ii: &'index InvertedIndex<E>,
 
     /// The decoder used to decode the records from the index blocks.
