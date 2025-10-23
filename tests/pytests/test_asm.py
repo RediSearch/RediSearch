@@ -87,7 +87,7 @@ def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
     with TimeLimit(timeout):
         while not is_migration_complete(conn, task_id):
             time.sleep(0.1)
-
+            
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
 # @skip(cluster=False, min_shards=2)
@@ -158,30 +158,19 @@ def import_slot_range_sanity_test(env: Env):
     # Import slots from shard 2 to shard 1, and wait for it to complete
     task_id = import_middle_slot_range(shard1, shard2)
     wait_for_slot_import(shard1, task_id)
-<<<<<<< HEAD
-=======
     wait_for_slot_import(shard2, task_id)
->>>>>>> 3bd770ef0bccefe87b63eeace5f3ba877686ace0
 
     # And test again after the import is complete
     query_all_shards()
 
 @skip(cluster=False, min_shards=2)
-<<<<<<< HEAD
-def test_import_slot_range_sanity(env: Env):
-=======
 def test_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
->>>>>>> 3bd770ef0bccefe87b63eeace5f3ba877686ace0
     import_slot_range_sanity_test(env)
 
 @skip(cluster=False, min_shards=2)
 def test_import_slot_range_sanity_BG():
-<<<<<<< HEAD
-    env = Env(moduleArgs='WORKERS 2')
-=======
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
->>>>>>> 3bd770ef0bccefe87b63eeace5f3ba877686ace0
     import_slot_range_sanity_test(env)
 
 def add_shard_and_migrate_test(env: Env):
@@ -214,18 +203,12 @@ def add_shard_and_migrate_test(env: Env):
 
     # Add a new shard
     env.addShardToClusterIfExists()
-<<<<<<< HEAD
-=======
     time.sleep(5)  # wait a bit for the cluster to stabilize before migrating
->>>>>>> 3bd770ef0bccefe87b63eeace5f3ba877686ace0
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
     task = import_middle_slot_range(new_shard, shard1)
     wait_for_slot_import(new_shard, task)
-<<<<<<< HEAD
-=======
     wait_for_slot_import(shard1, task)
->>>>>>> 3bd770ef0bccefe87b63eeace5f3ba877686ace0
 
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
