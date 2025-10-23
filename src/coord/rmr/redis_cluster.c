@@ -12,6 +12,7 @@
 #include "rmr.h"
 #include "module.h"
 #include "util/strconv.h"
+#include "slot_ranges.h"
 
 #ifndef ENABLE_ASSERT
 #define ASSERT_KEY(reply, idx, expected)
@@ -211,6 +212,7 @@ void UpdateTopology(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "debug", "UpdateTopology: Setting number of partitions to %ld", topo->numShards);
     NumShards = topo->numShards;
     MR_UpdateTopology(topo);
+    Slots_DropCachedLocalSlots(); // Local slots may have changed, drop the cache
   }
 }
 
