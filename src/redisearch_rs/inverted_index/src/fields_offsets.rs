@@ -14,7 +14,7 @@ use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
 use crate::{
-    DecodedBy, Decoder, Encoder, RSIndexResult, RSResultData, TermDecoder,
+    Decoder, Encoder, RSIndexResult, RSResultData, TermDecoder,
     full::{decode_term_record_offsets, offsets},
 };
 
@@ -54,14 +54,6 @@ impl Encoder for FieldsOffsets {
         bytes_written += writer.write(offsets)?;
 
         Ok(bytes_written)
-    }
-}
-
-impl DecodedBy for FieldsOffsets {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
     }
 }
 
@@ -162,14 +154,6 @@ impl Encoder for FieldsOffsetsWide {
         bytes_written += writer.write(offsets)?;
 
         Ok(bytes_written)
-    }
-}
-
-impl DecodedBy for FieldsOffsetsWide {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
     }
 }
 

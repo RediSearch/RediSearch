@@ -144,7 +144,7 @@ use std::io::{Cursor, IoSlice, Read, Write};
 
 use ffi::t_docId;
 
-use crate::{DecodedBy, Decoder, Encoder, IdDelta, NumericDecoder, RSIndexResult};
+use crate::{Decoder, Encoder, IdDelta, NumericDecoder, RSIndexResult};
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
@@ -390,14 +390,6 @@ impl Encoder for Numeric {
         };
 
         Ok(bytes_written)
-    }
-}
-
-impl DecodedBy for Numeric {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self::default()
     }
 }
 
