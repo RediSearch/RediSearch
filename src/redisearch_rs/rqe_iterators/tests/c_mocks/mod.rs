@@ -17,19 +17,34 @@
 //! mod c_mocks;
 //! ```
 
-use ffi::RSQueryTerm;
+use ffi::{RSQueryTerm, RSValueType_RSValueType_Number};
+use ffi::{array_clear_func, array_ensure_append_n_func, array_free};
 use inverted_index::{RSIndexResult, RSTermRecord};
+use std::ffi::c_void;
+
+redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }
+    unsafe {
+        array_free(metrics as *mut c_void);
+    }
+}
 
-    panic!(
-        "did not expect any test to set metrics, but got: {:?}",
-        unsafe { *metrics }
-    );
+#[unsafe(no_mangle)]
+pub extern "C" fn ResultMetrics_Reset(metrics: *mut ffi::RSYieldableMetric) {
+    if metrics.is_null() {
+        return;
+    }
+    unsafe {
+        array_clear_func(
+            metrics as *mut c_void,
+            std::mem::size_of::<ffi::RSYieldableMetric>() as u16,
+        );
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -49,5 +64,51 @@ pub extern "C" fn Term_Offset_Data_Free(_tr: *mut RSTermRecord) {
 pub extern "C" fn Term_Free(t: *mut RSQueryTerm) {
     if !t.is_null() {
         panic!("No test created a term record");
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_Number(val: f64) -> ffi::RSValue {
+    ffi::RSValue {
+        __bindgen_anon_1: ffi::RSValue__bindgen_ty_1 {
+            _numval: val, // Store the number value in the union
+        },
+        _refcount: 1,
+        _bitfield_align_1: [0; 0],
+        _bitfield_1: ffi::__BindgenBitfieldUnit::new([RSValueType_RSValueType_Number as u8; 1]),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_NewNumber(val: f64) -> *mut ffi::RSValue {
+    let rs_val = RSValue_Number(val);
+    Box::into_raw(Box::new(rs_val))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_DecrRef() {}
+
+#[unsafe(no_mangle)]
+#[allow(unused_assignments)]
+pub extern "C" fn RSYieldableMetric_Concat(
+    metrics: *mut *mut ffi::RSYieldableMetric,
+    mut new_metric: *mut ffi::RSYieldableMetric,
+) {
+    if new_metric.is_null() {
+        return;
+    }
+    unsafe {
+        let elem_sz = std::mem::size_of::<ffi::RSYieldableMetric>() as u16;
+        // array_ensure_append_n_func returns a new array pointer, but we don't need to use it in this mock
+        *metrics = array_ensure_append_n_func(
+            *metrics as *mut c_void,
+            new_metric as *mut c_void,
+            1,
+            elem_sz,
+        ) as *mut ffi::RSYieldableMetric;
+
+        // array_clear_func returns a new array pointer, but we don't need to use it in this mock
+        new_metric =
+            array_clear_func(new_metric as *mut c_void, elem_sz) as *mut ffi::RSYieldableMetric;
     }
 }
