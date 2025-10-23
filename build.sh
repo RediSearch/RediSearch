@@ -290,6 +290,11 @@ capture_coverage() {
 
   # Clean up temporary files
   rm $BINROOT/base.info $BINROOT/test.info $BINROOT/full.info $BINROOT/source.info
+
+  # Clean up .gcda files to free disk space (MOD-12008)
+  # These files accumulate during test execution and can consume significant disk space
+  echo "Cleaning up coverage data files to free disk space..."
+  find $BINROOT -name "*.gcda" -delete 2>/dev/null || true
 }
 
 #-----------------------------------------------------------------------------
@@ -596,6 +601,12 @@ run_rust_tests() {
   else
     echo "Some Rust tests failed. Check the test logs above for details."
     HAS_FAILURES=1
+  fi
+
+  # Clean up coverage data files after Rust tests to free disk space (MOD-12008)
+  if [[ $COV == 1 ]]; then
+    echo "Cleaning up Rust coverage data files to free disk space..."
+    find $BINROOT -name "*.gcda" -delete 2>/dev/null || true
   fi
 }
 
