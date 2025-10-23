@@ -284,7 +284,8 @@ def test_change_config_during_bg_indexing(env):
   memory_ratio = get_memory_consumption_ratio(env)
   env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
 
-def test_cluster_oom_all_shards(env):
+def test_cluster_oom_all_shards():
+  env = Env(shardsCount=3, protocol=3)
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
   verify_command_OK_on_all_shards(env,' '.join(['_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
 
@@ -335,8 +336,21 @@ def test_cluster_oom_all_shards(env):
     res = env.getConnection(shard_id).execute_command('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
     env.assertEqual(res,1)
 
+  # Check verbosity of commands
+  res = env.cmd('FT.SEARCH', 'idx','*')
+  warning = res['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp3 warning in FT.PROFILE
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
+  warning = res['Results']['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp3 warning in FT.AGGREGATE (MOD-11817)
+  res = env.cmd('FT.AGGREGATE', 'idx','*')
+  warning = res['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
 
-def test_cluster_oom_single_shard(env):
+def test_cluster_oom_single_shard():
+  env = Env(shardsCount=3, protocol=3)
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
   verify_command_OK_on_all_shards(env,' '.join(['_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
 
@@ -392,6 +406,19 @@ def test_cluster_oom_single_shard(env):
   # Verify the shard that triggered OOM
   res = env.getConnection(oom_shard_id).execute_command('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
   env.assertEqual(res, 1)
+
+  # Check verbosity of commands
+  res = env.cmd('FT.SEARCH', 'idx','*')
+  warning = res['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp3 warning in FT.PROFILE
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
+  warning = res['Results']['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp3 warning in FT.AGGREGATE (MOD-11817)
+  res = env.cmd('FT.AGGREGATE', 'idx','*')
+  warning = res['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
 
 @skip(cluster=True, no_json=True)
 def test_oom_json(env):
