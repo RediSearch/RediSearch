@@ -49,6 +49,7 @@ pub unsafe extern "C" fn RedisModule_ScanKey(
         return 0;
     };
 
+    // Safety: Caller is responsible to use a [TestContext] as the RedisModuleCtx pointer
     let ctx: &crate::TestContext = unsafe { &*(ctx.as_ptr() as *const crate::TestContext) };
 
     let ctx_arg = std::ptr::null_mut();

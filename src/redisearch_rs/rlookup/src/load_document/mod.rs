@@ -532,11 +532,12 @@ mod tests {
                 ]);
             });
 
+            let redis_ctx = &mut ctx.redis_ctx;
             let sv = RSSortingVector::new(0);
             let key_ptr = c"TestKey";
             type TOpt<'a> = LoadDocumentOptions<'a, RSValueMock>;
             let opt: TOpt = LoadDocumentOptionsBuilder::new(
-                ctx as *mut LoadDocumentTestContext as *mut redis_module::raw::RedisModuleCtx,
+                redis_ctx as *mut TestContext as *mut redis_module::raw::RedisModuleCtx,
                 &sv,
                 DocumentType::Hash,
             )
