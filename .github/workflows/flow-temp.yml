@@ -1,5 +1,5 @@
+@@ -1,18 +1,23 @@
 name: temporary testing
-
 # This file is useful for triggering actions when you implement them.
 # When the `branches-ignore` line is commented out, this workflow will run on every push.
 # It is better to use this file for testing your new flows than creating a new one, to avoid cluttering the repo
@@ -10,9 +10,17 @@ name: temporary testing
 on:
   push:
     branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
 
   run-on-intel:
     uses: ./.github/workflows/flow-intel.yml
+  coverage:
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
+    with:
+      coverage: true
+      get-redis: '8.2.2'
+      rejson-branch: master
+      test-config: '' # run all tests
