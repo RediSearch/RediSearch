@@ -37,7 +37,6 @@ impl Encoder for DocIdsOnly {
 impl Decoder for DocIdsOnly {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,

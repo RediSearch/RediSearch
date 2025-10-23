@@ -181,17 +181,10 @@ pub trait Encoder: Clone {
 /// Trait to model that an encoder can be decoded by a decoder.
 pub trait DecodedBy: Encoder {
     type Decoder: Decoder;
-
-    /// Create a new decoder that can be used to decode records encoded by this encoder.
-    fn decoder() -> Self::Decoder;
 }
 
 impl<E: Encoder + Decoder + Default> DecodedBy for E {
     type Decoder = E;
-
-    fn decoder() -> Self::Decoder {
-        Default::default()
-    }
 }
 
 /// Decoder to read records from an index
@@ -199,7 +192,6 @@ pub trait Decoder {
     /// Decode the next record from the reader. If any delta values are decoded, then they should
     /// add to the `base` document ID to get the actual document ID.
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -211,12 +203,11 @@ pub trait Decoder {
     /// Like `[Decoder::decode]`, but it returns a new instance of the result instead of filling
     /// an existing one.
     fn decode_new<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
     ) -> std::io::Result<RSIndexResult<'index>> {
         let mut result = Self::base_result();
-        self.decode(cursor, base, &mut result)?;
+        Self::decode(cursor, base, &mut result)?;
 
         Ok(result)
     }
@@ -230,14 +221,13 @@ pub trait Decoder {
     /// Returns `false` if end of the cursor was reached before finding a document equal, or bigger,
     /// than the target.
     fn seek<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         loop {
-            match self.decode(cursor, base, result) {
+            match Self::decode(cursor, base, result) {
                 Ok(_) if result.doc_id >= target => {
                     return Ok(true);
                 }
@@ -422,7 +412,6 @@ impl IndexBlock {
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
         let mut last_read_doc_id = None;
-        let decoder = E::decoder();
         let mut result = D::base_result();
         let mut unique_read = 0;
         let mut unique_write = 0;
@@ -432,7 +421,7 @@ impl IndexBlock {
 
         while self.buffer.len() as u64 > cursor.position() {
             let base = D::base_id(self, last_read_doc_id.unwrap_or(self.first_doc_id));
-            decoder.decode(&mut cursor, base, &mut result)?;
+            D::decode(&mut cursor, base, &mut result)?;
 
             if doc_exist(result.doc_id) {
                 if let Some(repair) = repair.as_mut() {
@@ -744,7 +733,7 @@ pub struct GcApplyInfo {
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReaderCore<'_, E, E::Decoder> {
+    pub fn reader(&self) -> IndexReaderCore<'_, E> {
         IndexReaderCore::new(self)
     }
 
@@ -988,7 +977,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
 
 impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReaderCore<'_, E, E::Decoder> {
+    pub fn reader(&self) -> IndexReaderCore<'_, E> {
         self.index.reader()
     }
 
@@ -1117,10 +1106,7 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
 
 impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(
-        &self,
-        mask: t_fieldMask,
-    ) -> FilterMaskReader<IndexReaderCore<'_, E, E::Decoder>> {
+    pub fn reader(&self, mask: t_fieldMask) -> FilterMaskReader<IndexReaderCore<'_, E>> {
         FilterMaskReader::new(mask, self.index.reader())
     }
 
@@ -1148,12 +1134,9 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
 }
 
 /// Reader that is able to read the records from an [`InvertedIndex`]
-pub struct IndexReaderCore<'index, E, D> {
+pub struct IndexReaderCore<'index, E> {
     /// The inverted index that is being read from.
     ii: &'index InvertedIndex<E>,
-
-    /// The decoder used to decode the records from the index blocks.
-    decoder: D,
 
     /// The current position in the block that is being read from.
     current_buffer: Cursor<&'index [u8]>,
@@ -1217,18 +1200,18 @@ pub trait TermReader<'index>: IndexReader<'index> {}
 
 // Automatically implemented if the IndexReaderCore uses a NumericDecoder.
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + NumericDecoder> NumericReader<'index>
-    for IndexReaderCore<'index, E, D>
+    for IndexReaderCore<'index, E>
 {
 }
 
 /// Automatically implemented if the IndexReaderCore uses a TermDecoder.
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + TermDecoder> TermReader<'index>
-    for IndexReaderCore<'index, E, D>
+    for IndexReaderCore<'index, E>
 {
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
-    for IndexReaderCore<'index, E, D>
+    for IndexReaderCore<'index, E>
 {
     #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
@@ -1243,8 +1226,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         }
 
         let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
-        self.decoder
-            .decode(&mut self.current_buffer, base, result)?;
+        D::decode(&mut self.current_buffer, base, result)?;
 
         self.last_doc_id = result.doc_id;
 
@@ -1262,9 +1244,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         }
 
         let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
-        let success = self
-            .decoder
-            .seek(&mut self.current_buffer, base, doc_id, result)?;
+        let success = D::seek(&mut self.current_buffer, base, doc_id, result)?;
 
         if success {
             self.last_doc_id = result.doc_id;
@@ -1338,7 +1318,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     }
 }
 
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D> {
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
     /// Create a new index reader that reads from the given [`InvertedIndex`].
     ///
     /// # Panic
@@ -1355,7 +1335,6 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D
 
         Self {
             ii,
-            decoder: E::decoder(),
             current_buffer,
             current_block_idx: 0,
             last_doc_id,
@@ -1487,9 +1466,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
     }
 }
 
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterMaskReader<IndexReaderCore<'index, E, D>>
-{
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReaderCore<'index, E>> {
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.
     pub fn needs_revalidation(&self) -> bool {
@@ -1515,7 +1492,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
 
 /// Automatically implemented if the IndexReaderCore uses a TermDecoder.
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + TermDecoder> TermReader<'index>
-    for FilterMaskReader<IndexReaderCore<'index, E, D>>
+    for FilterMaskReader<IndexReaderCore<'index, E>>
 {
 }
 
@@ -1539,9 +1516,7 @@ impl<'filter, 'index, IR: NumericReader<'index>> FilterNumericReader<'filter, IR
     }
 }
 
-impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterNumericReader<'filter, IndexReaderCore<'index, E, D>>
-{
+impl<'filter, 'index, E> FilterNumericReader<'filter, IndexReaderCore<'index, E>> {
     /// Get the numeric filter used by this reader.
     pub const fn filter(&self) -> &NumericFilter {
         self.filter
@@ -1625,7 +1600,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
 }
 
 impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterNumericReader<'filter, IndexReaderCore<'index, E, D>>
+    FilterNumericReader<'filter, IndexReaderCore<'index, E>>
 {
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.
@@ -1695,9 +1670,7 @@ impl<'filter, 'index, IR: NumericReader<'index>> FilterGeoReader<'filter, IR> {
     }
 }
 
-impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterGeoReader<'filter, IndexReaderCore<'index, E, D>>
-{
+impl<'filter, 'index, E> FilterGeoReader<'filter, IndexReaderCore<'index, E>> {
     /// Get the numeric filter used by this reader.
     pub const fn filter(&self) -> &NumericFilter {
         self.filter
@@ -1787,7 +1760,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
 }
 
 impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterGeoReader<'filter, IndexReaderCore<'index, E, D>>
+    FilterGeoReader<'filter, IndexReaderCore<'index, E>>
 {
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.

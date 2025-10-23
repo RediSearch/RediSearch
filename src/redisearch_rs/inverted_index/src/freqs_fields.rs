@@ -48,7 +48,6 @@ impl Encoder for FreqsFields {
 impl Decoder for FreqsFields {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -97,7 +96,6 @@ impl Encoder for FreqsFieldsWide {
 impl Decoder for FreqsFieldsWide {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
