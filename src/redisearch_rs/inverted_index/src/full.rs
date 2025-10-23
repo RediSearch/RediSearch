@@ -13,9 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{
-    DecodedBy, Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData, TermDecoder,
-};
+use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData, TermDecoder};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -68,14 +66,6 @@ impl Encoder for Full {
         bytes_written += writer.write(offsets)?;
 
         Ok(bytes_written)
-    }
-}
-
-impl DecodedBy for Full {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
     }
 }
 
@@ -225,14 +215,6 @@ impl Encoder for FullWide {
         bytes_written += writer.write(offsets)?;
 
         Ok(bytes_written)
-    }
-}
-
-impl DecodedBy for FullWide {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
     }
 }
 

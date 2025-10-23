@@ -186,6 +186,14 @@ pub trait DecodedBy: Encoder {
     fn decoder() -> Self::Decoder;
 }
 
+impl<E: Encoder + Decoder + Default> DecodedBy for E {
+    type Decoder = E;
+
+    fn decoder() -> Self::Decoder {
+        Default::default()
+    }
+}
+
 /// Decoder to read records from an index
 pub trait Decoder {
     /// Decode the next record from the reader. If any delta values are decoded, then they should

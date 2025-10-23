@@ -12,7 +12,7 @@ use std::io::{Cursor, Seek, Write};
 use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
 
-use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
+use crate::{Decoder, Encoder, RSIndexResult};
 
 /// Encode and decode only the delta and frequencies of a record, without any other data.
 /// The delta and frequency are encoded using [qint encoding](qint).
@@ -30,14 +30,6 @@ impl Encoder for FreqsOnly {
     ) -> std::io::Result<usize> {
         let bytes_written = qint_encode(&mut writer, [delta, record.freq])?;
         Ok(bytes_written)
-    }
-}
-
-impl DecodedBy for FreqsOnly {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
     }
 }
 
