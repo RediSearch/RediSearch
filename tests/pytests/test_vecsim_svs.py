@@ -47,6 +47,7 @@ def is_intel_opt_enabled():
 This test reproduce the crash described in MOD-10771,
 where SVS crashes during topk search if CONSTRUCTION_WINDOW_SIZE given in creation is small.
 '''
+@skip(cluster=True)
 def test_small_window_size():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
