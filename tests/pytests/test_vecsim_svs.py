@@ -42,10 +42,20 @@ def is_intel_opt_supported():
 
 def is_intel_opt_enabled():
     return is_intel_opt_supported() and BUILD_INTEL_SVS_OPT
+# Global counter for unique vector generation
+_vector_seed_counter = 0
+
+def get_unique_vector(dim, data_type='FLOAT32'):
+    """Generate a unique random vector by incrementing seed counter"""
+    global _vector_seed_counter
+    _vector_seed_counter += 1
+    return create_random_np_array_typed(dim, data_type, seed=_vector_seed_counter)
+
 '''
 This test reproduce the crash described in MOD-10771,
 where SVS crashes during topk search if CONSTRUCTION_WINDOW_SIZE given in creation is small.
 '''
+
 def test_small_window_size():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -56,14 +66,14 @@ def test_small_window_size():
     keep_count = 10
     num_vectors = svs_transfer_th
     for data_type in VECSIM_SVS_DATA_TYPES:
-        query_vec = create_random_np_array_typed(dim, data_type)
         for compression in [[], ["COMPRESSION", "LVQ8"]]:
             params = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', "CONSTRUCTION_WINDOW_SIZE", 10, *compression]
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v_SVS_VAMANA', 'VECTOR', 'SVS-VAMANA', len(params), *params)
 
             # Add enough vector to trigger transfer to svs
             for i in range(num_vectors):
-                vector = create_random_np_array_typed(dim, data_type)
+                vector = get_unique_vector(dim, data_type)
+                # vector = create_random_np_array_typed(dim, data_type)
                 conn.execute_command('HSET', f'doc_{i}', 'v_SVS_VAMANA', vector.tobytes())
 
             try:
@@ -76,6 +86,7 @@ def test_small_window_size():
 
             # run topk for remaining
             # query_vec = create_random_np_array_typed(dim, data_type)
+            query_vec = get_unique_vector(dim, data_type)
             # Before fixing MOD-10771, search crashed
             try:
                 conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @v_SVS_VAMANA $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, '__v_score')
