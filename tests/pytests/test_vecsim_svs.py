@@ -53,7 +53,7 @@ def test_small_window_size():
 
     dim = 2
     # The vectors will be moved from the flat buffer to svs after 1024 * 10 vectors.
-    svs_transfer_th = 1024 * 10
+    svs_transfer_th = 1024 * 2
     keep_count = 10
     num_vectors = svs_transfer_th
     field_name = 'v_SVS_VAMANA'
