@@ -156,12 +156,10 @@ impl Bencher {
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
                         if self.wide {
-                            let decoder = FreqsFieldsWide;
-                            let result = decoder.decode_new(buffer, 100).unwrap();
+                            let result = FreqsFieldsWide::decode_new(buffer, 100).unwrap();
                             let _ = black_box(result);
                         } else {
-                            let decoder = FreqsFields;
-                            let result = decoder.decode_new(buffer, 100).unwrap();
+                            let result = FreqsFields::decode_new(buffer, 100).unwrap();
                             let _ = black_box(result);
                         }
                     },

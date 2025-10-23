@@ -119,7 +119,6 @@ pub fn decode_term_record_offsets<'index>(
 impl Decoder for Full {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -143,7 +142,6 @@ impl Decoder for Full {
     }
 
     fn seek<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
@@ -221,7 +219,6 @@ impl Encoder for FullWide {
 impl Decoder for FullWide {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -238,7 +235,6 @@ impl Decoder for FullWide {
     }
 
     fn seek<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,

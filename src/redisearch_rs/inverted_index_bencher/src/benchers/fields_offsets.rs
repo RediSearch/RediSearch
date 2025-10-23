@@ -161,9 +161,9 @@ impl Bencher {
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
                         let result = if self.wide {
-                            FieldsOffsetsWide.decode_new(buffer, 100).unwrap()
+                            FieldsOffsetsWide::decode_new(buffer, 100).unwrap()
                         } else {
-                            FieldsOffsets.decode_new(buffer, 100).unwrap()
+                            FieldsOffsets::decode_new(buffer, 100).unwrap()
                         };
 
                         let _ = black_box(result);

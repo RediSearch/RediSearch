@@ -108,8 +108,7 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let result = RawDocIdsOnly.decode_new(buffer, 100).unwrap();
-
+                        let result = RawDocIdsOnly::decode_new(buffer, 100).unwrap();
                         let _ = black_box(result);
                     },
                     BatchSize::SmallInput,

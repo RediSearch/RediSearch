@@ -47,7 +47,6 @@ impl Encoder for FieldsOnly {
 impl Decoder for FieldsOnly {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -94,7 +93,6 @@ impl Encoder for FieldsOnlyWide {
 impl Decoder for FieldsOnlyWide {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,

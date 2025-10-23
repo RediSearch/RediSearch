@@ -51,7 +51,6 @@ impl Encoder for FreqsOffsets {
 impl Decoder for FreqsOffsets {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -67,7 +66,6 @@ impl Decoder for FreqsOffsets {
     }
 
     fn seek<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,

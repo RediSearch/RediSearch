@@ -144,12 +144,10 @@ impl Bencher {
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
                         if self.wide {
-                            let decoder = FieldsOnlyWide;
-                            let result = decoder.decode_new(buffer, 100).unwrap();
+                            let result = FieldsOnlyWide::decode_new(buffer, 100).unwrap();
                             let _ = black_box(result);
                         } else {
-                            let decoder = FieldsOnly;
-                            let result = decoder.decode_new(buffer, 100).unwrap();
+                            let result = FieldsOnly::decode_new(buffer, 100).unwrap();
                             let _ = black_box(result);
                         }
                     },

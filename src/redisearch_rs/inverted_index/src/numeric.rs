@@ -402,7 +402,6 @@ impl Decoder for Numeric {
     /// 1. `result.is_numeric()` must be true to ensure `result` is holding numeric data.
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
