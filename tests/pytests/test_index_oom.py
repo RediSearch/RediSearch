@@ -8,6 +8,7 @@ last_indexing_error_str = 'last indexing error'
 OOM_indexing_failure_str = 'Index background scan did not complete due to OOM. New documents will not be indexed.'
 OOMfailureStr = "OOM failure"
 partial_results_warning_str = 'Index contains partial data due to an indexing failure caused by insufficient memory'
+info_modules_oom_count_str = 'search_OOM_indexing_failures_indexes_count'
 
 def get_memory_consumption_ratio(env):
   used_memory = env.cmd('INFO', 'MEMORY')['used_memory']
@@ -69,7 +70,7 @@ def test_stop_background_indexing_on_low_mem(env):
   env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
 
 @skip(cluster=True)
-def test_stop_indexing_low_mem_verbosity(env):
+def test_stop_indexing_low_mem_verbosity():
   # Change to resp3
   env = Env(protocol=3)
   oom_test_config(env)
@@ -111,7 +112,7 @@ def test_stop_indexing_low_mem_verbosity(env):
 
   # Verify info metric
   # Only one index was created
-  index_oom_count = env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+  index_oom_count = env.cmd('INFO', 'modules')[info_modules_oom_count_str]
   env.assertEqual(index_oom_count, 1)
 
   # Check verbosity of HSET after OOM
@@ -148,15 +149,15 @@ def test_stop_indexing_low_mem_verbosity(env):
   # Check resp3 warning for OOM
   res = env.cmd('FT.SEARCH', 'idx','*')
   warning = res['warning'][0]
-  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  env.assertEqual(warning, partial_results_warning_str)
   # Check resp3 warning in FT.PROFILE
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
   warning = res['Results']['warning'][0]
-  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  env.assertEqual(warning, partial_results_warning_str)
   # Check resp3 warning in FT.AGGREGATE (MOD-11817)
   res = env.cmd('FT.AGGREGATE', 'idx','*')
   warning = res['warning'][0]
-  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  env.assertEqual(warning, partial_results_warning_str)
 
 
   # Check resp2 warning in FT.PROFILE
@@ -284,6 +285,7 @@ def test_change_config_during_bg_indexing(env):
   memory_ratio = get_memory_consumption_ratio(env)
   env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
 
+@skip(cluster=False)
 def test_cluster_oom_all_shards():
   env = Env(shardsCount=3, protocol=3)
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
@@ -333,22 +335,23 @@ def test_cluster_oom_all_shards():
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
   # Verify all shards individual OOM status
   for shard_id in range(1, env.shardsCount + 1):
-    res = env.getConnection(shard_id).execute_command('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+    res = env.getConnection(shard_id).execute_command('INFO', 'modules')[info_modules_oom_count_str]
     env.assertEqual(res,1)
 
   # Check verbosity of commands
   res = env.cmd('FT.SEARCH', 'idx','*')
   warning = res['warning'][0]
-  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  env.assertEqual(warning, partial_results_warning_str)
   # Check resp3 warning in FT.PROFILE
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
   warning = res['Results']['warning'][0]
-  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  env.assertEqual(warning, partial_results_warning_str)
   # Check resp3 warning in FT.AGGREGATE (MOD-11817)
   res = env.cmd('FT.AGGREGATE', 'idx','*')
   warning = res['warning'][0]
-  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  env.assertEqual(warning, partial_results_warning_str)
 
+@skip(cluster=False)
 def test_cluster_oom_single_shard():
   env = Env(shardsCount=3, protocol=3)
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
@@ -401,24 +404,24 @@ def test_cluster_oom_single_shard():
   # Verify all shards individual OOM status
   # Cannot use FT.INFO on a specific shard, so we use the info metric
   for shard_id in range(1, env.shardsCount):
-    res = env.getConnection(shard_id).execute_command('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+    res = env.getConnection(shard_id).execute_command('INFO', 'modules')[info_modules_oom_count_str]
     env.assertEqual(res, 0)
   # Verify the shard that triggered OOM
-  res = env.getConnection(oom_shard_id).execute_command('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+  res = env.getConnection(oom_shard_id).execute_command('INFO', 'modules')[info_modules_oom_count_str]
   env.assertEqual(res, 1)
 
   # Check verbosity of commands
   res = env.cmd('FT.SEARCH', 'idx','*')
   warning = res['warning'][0]
-  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  env.assertEqual(warning, partial_results_warning_str)
   # Check resp3 warning in FT.PROFILE
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
   warning = res['Results']['warning'][0]
-  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  env.assertEqual(warning, partial_results_warning_str)
   # Check resp3 warning in FT.AGGREGATE (MOD-11817)
   res = env.cmd('FT.AGGREGATE', 'idx','*')
   warning = res['warning'][0]
-  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  env.assertEqual(warning, partial_results_warning_str)
 
 @skip(cluster=True, no_json=True)
 def test_oom_json(env):
@@ -886,7 +889,7 @@ def test_pseudo_enterprise_cluster_oom_retry_success(env):
     # Every shard’s failure counter must stay at 0
     for shard_id in range(1, env.shardsCount + 1):
         failures = env.getConnection(shard_id).execute_command(
-            'INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+            'INFO', 'modules')[info_modules_oom_count_str]
         env.assertEqual(failures, 0)
 
 def test_pseudo_enterprise_cluster_oom_retry_failure(env):
@@ -935,7 +938,7 @@ def test_pseudo_enterprise_cluster_oom_retry_failure(env):
     # Shards must report exactly one failed index each
     for shard_id in range(1, env.shardsCount + 1):
         failures = env.getConnection(shard_id).execute_command(
-            'INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+            'INFO', 'modules')[info_modules_oom_count_str]
         env.assertEqual(failures, 1)
 
 @skip(cluster=True)
