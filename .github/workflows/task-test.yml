@@ -232,6 +232,8 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
+      - name: Check disk space after standalone tests
+        run: df -h
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
