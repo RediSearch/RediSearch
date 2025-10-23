@@ -136,11 +136,6 @@ where
         RLookupLoadMode::KeyList | RLookupLoadMode::SortingVectorKeys => {
             context.load_individual_keys(lookup, dst_row, options)?;
         }
-        _ => {
-            return Err(LoadDocumentError::invalid_arguments(Some(
-                "Invalid load mode".to_string(),
-            )));
-        }
     };
 
     Ok(())
@@ -428,13 +423,10 @@ impl LoadDocumentError {
 }
 
 #[cfg(test)]
-mod mock;
-
-#[cfg(test)]
 mod tests {
 
     use super::*;
-    use std::ffi::CString;
+    use redis_mock::TestContext;
     use value::RSValueMock;
 
     /// A test context implementation for load document tests, allowing to mock out various features.
@@ -449,21 +441,10 @@ mod tests {
         /// indicates whether the ScanKeyCursor feature is available
         has_scan_key_feature: bool,
 
-        /// stores the key-value pairs to be returned by the mock
-        key_values: Vec<(CString, RSValueMock)>,
+        redis_ctx: TestContext,
     }
 
     impl LoadDocumentTestContext {
-        #[cfg_attr(miri, expect(unused, reason = "no used by tests with miri"))]
-        pub fn push(&mut self, field: CString, value: RSValueMock) -> &mut Self {
-            self.key_values.push((field, value));
-            self
-        }
-
-        pub fn access_key_values(&self) -> &Vec<(CString, RSValueMock)> {
-            &self.key_values
-        }
-
         #[cfg_attr(miri, expect(unused, reason = "no used by tests with miri"))]
         pub fn with_scan_key_feature(&mut self, has_scan_key_feature: bool) -> &mut Self {
             self.has_scan_key_feature = has_scan_key_feature;
@@ -475,6 +456,13 @@ mod tests {
             self.is_crdt = is_crdt;
             self
         }
+
+        pub fn adapt_redis_ctx<F>(&mut self, f: F)
+        where
+            F: FnOnce(&mut TestContext),
+        {
+            f(&mut self.redis_ctx);
+        }
     }
 
     impl Default for LoadDocumentTestContext {
@@ -482,7 +470,7 @@ mod tests {
             Self {
                 is_crdt: false,
                 has_scan_key_feature: true,
-                key_values: Vec::new(),
+                redis_ctx: TestContext::new(),
             }
         }
     }
@@ -535,18 +523,19 @@ mod tests {
 
         use value::RSValueMock;
 
-        // write a test that can be used by both scan and call api
+        // write a test that simulates loading two fields into an empty row and lookup
+        //
+        // the test can be used by both the scan key api and the fallback call api code paths
+        // therefore we use specialized mocking in the mock module
         fn two_fields_empty_row_and_lookup(
             ctx: &mut LoadDocumentTestContext,
         ) -> Result<(), LoadDocumentError> {
-            ctx.push(
-                CString::new("field1").unwrap(),
-                RSValueMock::create_string("value1".to_owned()),
-            )
-            .push(
-                CString::new("field2").unwrap(),
-                RSValueMock::create_string("value2".to_owned()),
-            );
+            ctx.adapt_redis_ctx(|ctx| {
+                ctx.set_key_values(vec![
+                    (c"field1".to_owned(), c"value1".to_owned()),
+                    (c"field2".to_owned(), c"value2".to_owned()),
+                ]);
+            });
 
             let sv = RSSortingVector::new(0);
             let key_ptr = c"TestKey";
@@ -586,7 +575,7 @@ mod tests {
         #[test]
         fn add_two_fields_hash_scan() -> Result<(), LoadDocumentError> {
             // Safety: Initialization of function pointers multiple times is idempotent
-            unsafe { mock::init_redis_mock_module() };
+            redis_mock::init_redis_module_mock();
             let mut ctx = LoadDocumentTestContext::default();
             ctx.with_scan_key_feature(true);
             two_fields_empty_row_and_lookup(&mut ctx)

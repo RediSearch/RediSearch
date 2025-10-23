@@ -1389,6 +1389,11 @@ dependencies = [
 [[package]]
 name = "redis_mock"
 version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+ "value",
+]
 
 [[package]]
 name = "redisearch_rs"
@@ -1475,6 +1480,7 @@ dependencies = [
  "pin-project",
  "proptest",
  "redis-module",
+ "redis_mock",
  "sorting_vector",
  "strum",
  "thiserror",
