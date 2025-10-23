@@ -7,12 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, time::Duration, vec};
+use std::{io::Cursor, vec};
 
-use criterion::{
-    BatchSize, BenchmarkGroup, Criterion, black_box,
-    measurement::{Measurement, WallTime},
-};
+use criterion::{BatchSize, Criterion, black_box};
 use ffi::t_fieldMask;
 use inverted_index::{
     Decoder, Encoder, RSIndexResult,
@@ -43,9 +40,6 @@ impl Default for Bencher {
 }
 
 impl Bencher {
-    const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
-    const WARMUP_TIME: Duration = Duration::from_millis(200);
-
     pub fn wide() -> Self {
         Self::new(true)
     }
@@ -97,38 +91,12 @@ impl Bencher {
         Self { test_values, wide }
     }
 
-    fn benchmark_group<'a>(
-        &self,
-        c: &'a mut Criterion,
-        label: &str,
-    ) -> BenchmarkGroup<'a, WallTime> {
-        let mut label = label.to_string();
-        if self.wide {
-            label.push_str(" Wide");
-        }
-        let mut group = c.benchmark_group(label);
-        group.measurement_time(Self::MEASUREMENT_TIME);
-        group.warm_up_time(Self::WARMUP_TIME);
-        group
-    }
-
     pub fn encoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Encode - Full");
-        self.rust_encode(&mut group);
-        group.finish();
-    }
-
-    pub fn decoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Decode - Full");
-        self.rust_decode(&mut group);
-        group.finish();
-    }
-
-    fn rust_encode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         // Use a single buffer big enough to hold all encoded values
         let buffer_size = self.test_values.iter().map(|test| test.encoded.len()).sum();
+        let id = format!("Encode Full{}", if self.wide { "Wide" } else { "" });
 
-        group.bench_function("Rust", |b| {
+        c.bench_function(&id, |b| {
             b.iter_batched_ref(
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
@@ -157,8 +125,10 @@ impl Bencher {
         });
     }
 
-    fn rust_decode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("Rust", |b| {
+    pub fn decoding(&self, c: &mut Criterion) {
+        let id = format!("Decode Full{}", if self.wide { "Wide" } else { "" });
+
+        c.bench_function(&id, |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
                     || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
