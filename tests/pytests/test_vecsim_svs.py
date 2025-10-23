@@ -56,6 +56,7 @@ def test_small_window_size():
     keep_count = 10
     num_vectors = svs_transfer_th
     for data_type in VECSIM_SVS_DATA_TYPES:
+        query_vec = create_random_np_array_typed(dim, data_type)
         for compression in [[], ["COMPRESSION", "LVQ8"]]:
             params = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', "CONSTRUCTION_WINDOW_SIZE", 10, *compression]
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v_SVS_VAMANA', 'VECTOR', 'SVS-VAMANA', len(params), *params)
@@ -65,12 +66,16 @@ def test_small_window_size():
                 vector = create_random_np_array_typed(dim, data_type)
                 conn.execute_command('HSET', f'doc_{i}', 'v_SVS_VAMANA', vector.tobytes())
 
+            try:
+                conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @v_SVS_VAMANA $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, '__v_score')
+            except Exception as e:
+                env.assertTrue(False, message=f"compression: {compression} data_type: {data_type}. Search failed with exception: {e}")
             # delete most
             for i in range(num_vectors - keep_count):
                 conn.execute_command('DEL', f'doc_{i}')
 
             # run topk for remaining
-            query_vec = create_random_np_array_typed(dim, data_type)
+            # query_vec = create_random_np_array_typed(dim, data_type)
             # Before fixing MOD-10771, search crashed
             try:
                 conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @v_SVS_VAMANA $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, '__v_score')
