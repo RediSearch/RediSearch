@@ -3526,9 +3526,6 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
     MRCommand_Insert(cmd, arg_pos++, prefix, len);
   }
 
-  // TODO(Joan): Add slot information from topology (for FT SEARCH)
-
-
   // Return spec references, no longer needed
   IndexSpecRef_Release(strong_ref);
   WeakRef_Release(spec_ref);

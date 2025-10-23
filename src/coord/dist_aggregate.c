@@ -170,9 +170,6 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     MRCommand_AppendRstr(xcmd, argv[bm25std_tanh_factor_index + 4 + profileArgs]);
   }
 
-  // TODO(Joan): Add slot information from topology (for FT AGGREGATE)
-
-
   MRCommand_SetPrefix(xcmd, "_FT");
 
   rm_free(n_prefixes);
