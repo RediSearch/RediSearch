@@ -252,6 +252,73 @@ end_group() {
 }
 
 #-----------------------------------------------------------------------------
+# Function: debug_disk_usage
+# Print detailed disk usage information for debugging (MOD-12008)
+#-----------------------------------------------------------------------------
+debug_disk_usage() {
+  local LABEL="${1:-Disk Usage}"
+
+  echo "=========================================="
+  echo "DISK USAGE DEBUG: $LABEL"
+  echo "=========================================="
+
+  # Overall disk space
+  echo ""
+  echo "--- Overall Disk Space ---"
+  df -h /
+
+  # Disk usage by directory in workspace
+  echo ""
+  echo "--- Top 10 Largest Directories in Workspace ---"
+  du -sh "$ROOT"/* 2>/dev/null | sort -rh | head -10 || true
+
+  # Specific coverage-related files
+  if [[ $COV == 1 ]]; then
+    echo ""
+    echo "--- Coverage Data Files (.gcda) ---"
+    find "$BINROOT" -name "*.gcda" -exec ls -lh {} \; 2>/dev/null | wc -l | xargs echo "Number of .gcda files:"
+    find "$BINROOT" -name "*.gcda" -exec du -ch {} + 2>/dev/null | tail -1 || echo "No .gcda files found"
+
+    echo ""
+    echo "--- Coverage Info Files (.info) ---"
+    find "$BINROOT" -name "*.info" -exec ls -lh {} \; 2>/dev/null || echo "No .info files found"
+
+    echo ""
+    echo "--- Coverage Notes Files (.gcno) ---"
+    find "$BINROOT" -name "*.gcno" -exec ls -lh {} \; 2>/dev/null | wc -l | xargs echo "Number of .gcno files:"
+    find "$BINROOT" -name "*.gcno" -exec du -ch {} + 2>/dev/null | tail -1 || echo "No .gcno files found"
+  fi
+
+  # Large files in bin directory
+  echo ""
+  echo "--- Top 20 Largest Files in $BINROOT ---"
+  find "$BINROOT" -type f -exec du -h {} + 2>/dev/null | sort -rh | head -20 || true
+
+  # Redis dumps
+  echo ""
+  echo "--- Redis Dump Files ---"
+  find "$ROOT" -name "dump.rdb" -exec ls -lh {} \; 2>/dev/null || echo "No dump.rdb files found"
+
+  # Log files
+  echo ""
+  echo "--- Large Log Files (>10MB) ---"
+  find "$ROOT" -name "*.log" -size +10M -exec ls -lh {} \; 2>/dev/null || echo "No large log files found"
+
+  # Python cache
+  echo ""
+  echo "--- Python Cache Directories ---"
+  find "$ROOT" -type d -name "__pycache__" -exec du -sh {} \; 2>/dev/null | head -10 || echo "No __pycache__ directories found"
+
+  # Temporary directories
+  echo ""
+  echo "--- Temp Directories ---"
+  du -sh /tmp 2>/dev/null || true
+
+  echo "=========================================="
+  echo ""
+}
+
+#-----------------------------------------------------------------------------
 # Function: prepare_coverage_capture
 # Run lcov preparations before testing for coverage
 #-----------------------------------------------------------------------------
@@ -268,6 +335,11 @@ prepare_coverage_capture() {
 #-----------------------------------------------------------------------------
 capture_coverage() {
   NAME=${1:-cov} # Get output name. Defaults to `cov.info`
+
+  # Debug: Disk usage before coverage capture (MOD-12008)
+  if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+    debug_disk_usage "Before Coverage Capture ($NAME)"
+  fi
 
   start_group "Code Coverage Capture ($NAME)"
 
@@ -295,6 +367,11 @@ capture_coverage() {
   # These files accumulate during test execution and can consume significant disk space
   echo "Cleaning up coverage data files to free disk space..."
   find $BINROOT -name "*.gcda" -delete 2>/dev/null || true
+
+  # Debug: Disk usage after coverage capture and cleanup (MOD-12008)
+  if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+    debug_disk_usage "After Coverage Capture and Cleanup ($NAME)"
+  fi
 }
 
 #-----------------------------------------------------------------------------
@@ -418,6 +495,11 @@ run_cmake() {
 # Build the RediSearch project using Make
 #-----------------------------------------------------------------------------
 build_project() {
+  # Debug: Disk usage before build (MOD-12008)
+  if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+    debug_disk_usage "Before Build"
+  fi
+
   # redisearch_rs is now built automatically by CMake
   # Determine number of parallel jobs for make
   if command -v nproc &> /dev/null; then
@@ -432,6 +514,11 @@ build_project() {
 
   # Build test dependencies if needed
   build_test_dependencies
+
+  # Debug: Disk usage after build (MOD-12008)
+  if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+    debug_disk_usage "After Build"
+  fi
 
   # Report build success
   echo "Build complete. Artifacts in $BINDIR"
@@ -516,6 +603,11 @@ run_unit_tests() {
     prepare_coverage_capture
   fi
 
+  # Debug: Disk usage before unit tests (MOD-12008)
+  if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+    debug_disk_usage "Before Unit Tests"
+  fi
+
   # Set verbose mode if requested
   if [[ "$VERBOSE" == "1" ]]; then
     export VERBOSE=1
@@ -532,6 +624,12 @@ run_unit_tests() {
 
   # Check test results
   UNIT_TEST_RESULT=$?
+
+  # Debug: Disk usage after unit tests (MOD-12008)
+  if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+    debug_disk_usage "After Unit Tests (before coverage capture)"
+  fi
+
   if [[ $UNIT_TEST_RESULT -eq 0 ]]; then
     echo "All unit tests passed!"
     if [[ $COV == 1 ]]; then
@@ -590,12 +688,23 @@ run_rust_tests() {
     RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
   fi
 
+  # Debug: Disk usage before Rust tests (MOD-12008)
+  if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+    debug_disk_usage "Before Rust Tests"
+  fi
+
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
   RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
+
+  # Debug: Disk usage after Rust tests (MOD-12008)
+  if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+    debug_disk_usage "After Rust Tests (before cleanup)"
+  fi
+
   if [[ $RUST_TEST_RESULT -eq 0 ]]; then
     echo "All Rust tests passed!"
   else
@@ -607,6 +716,11 @@ run_rust_tests() {
   if [[ $COV == 1 ]]; then
     echo "Cleaning up Rust coverage data files to free disk space..."
     find $BINROOT -name "*.gcda" -delete 2>/dev/null || true
+
+    # Debug: Disk usage after Rust cleanup (MOD-12008)
+    if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+      debug_disk_usage "After Rust Tests Cleanup"
+    fi
   fi
 }
 
@@ -722,6 +836,15 @@ run_python_tests() {
     prepare_coverage_capture
   fi
 
+  # Debug: Disk usage before Python tests (MOD-12008)
+  if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+    if [[ "$REDIS_STANDALONE" == "1" ]]; then
+      debug_disk_usage "Before Python Flow Tests (Standalone)"
+    else
+      debug_disk_usage "Before Python Flow Tests (Coordinator)"
+    fi
+  fi
+
   # Use the runtests.sh script for Python tests
   TESTS_SCRIPT="$ROOT/tests/pytests/runtests.sh"
   echo "Running Python tests with module at: $MODULE"
@@ -732,6 +855,16 @@ run_python_tests() {
 
   # Check test results
   PYTHON_TEST_RESULT=$?
+
+  # Debug: Disk usage after Python tests (MOD-12008)
+  if [[ -n "${DEBUG_DISK_USAGE:-}" ]]; then
+    if [[ "$REDIS_STANDALONE" == "1" ]]; then
+      debug_disk_usage "After Python Flow Tests (Standalone, before coverage capture)"
+    else
+      debug_disk_usage "After Python Flow Tests (Coordinator, before coverage capture)"
+    fi
+  fi
+
   if [[ $PYTHON_TEST_RESULT -eq 0 ]]; then
     echo "All Python tests passed!"
     if [[ $COV == 1 ]]; then
