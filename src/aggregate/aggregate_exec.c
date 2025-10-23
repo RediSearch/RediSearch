@@ -585,7 +585,8 @@ done_3:
 
     // <error>
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-    if (sctx->spec && sctx->spec->scan_failed_OOM) {
+    // qctx->bgScanOOM for coordinator, sctx->spec->scan_failed_OOM for shards
+    if ((qctx->bgScanOOM)||(sctx->spec && sctx->spec->scan_failed_OOM)) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
