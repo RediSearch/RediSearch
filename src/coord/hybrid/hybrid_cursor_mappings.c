@@ -163,7 +163,6 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
         cleanupCtx(ctx);
         return false;
     }
-
     // Wait for all callbacks to complete
     pthread_mutex_lock(ctx->mutex);
     // initialize count with response counts in case some shards already sent a response
@@ -172,7 +171,6 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     }
     pthread_mutex_unlock(ctx->mutex);
     bool success = true;
-    size_t firstErrorIndex = 0;
     if (array_len(ctx->errors)) {
         for (size_t i = 0; i < array_len(ctx->errors); i++) {
             if (QueryError_GetCode(&ctx->errors[i]) == QUERY_EOOM && oomPolicy == OomPolicy_Return ) {
