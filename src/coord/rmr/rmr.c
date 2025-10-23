@@ -544,7 +544,9 @@ void iterStartCb(void *p) {
   cmd->targetShard = targetShard; // Set the first command to target the first shard
 
   // Add slot range information to the first command (For FT SEARCH and FT HYBRID)
-  MRCommand_AddSlotRangeInfo(cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
+  if (io_runtime_ctx->topo->shards[targetShard].slotRanges != NULL) {
+    MRCommand_AddSlotRangeInfo(cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
+  }
 
   for (targetShard = 1; targetShard < numShards; targetShard++) {
     it->cbxs[targetShard].it = it;
@@ -553,8 +555,10 @@ void iterStartCb(void *p) {
     it->cbxs[targetShard].cmd.targetShard = targetShard;
     it->cbxs[targetShard].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
 
-    // Add slot range information to the command (For FT SEARCH and FT HYBRID)
-    MRCommand_AddSlotRangeInfo(&it->cbxs[targetShard].cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
+    if (io_runtime_ctx->topo->shards[targetShard].slotRanges != NULL) {
+      // Add slot range information to the command (For FT SEARCH and FT HYBRID)
+      MRCommand_AddSlotRangeInfo(&it->cbxs[targetShard].cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
+    }
   }
 
   // This implies that every connection to each shard will work inside a single IO thread
@@ -601,9 +605,10 @@ void iterCursorMappingCb(void *p) {
   sprintf(buf, "%lld", vsimOrSearch->mappings[targetShard].cursorId);
   MRCommand_Append(cmd, buf, strlen(buf));
 
-  // Add slot range information to the first command (For FT AGGREGATE)
-  MRCommand_AddSlotRangeInfo(cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
-
+  if (io_runtime_ctx->topo->shards[targetShard].slotRanges != NULL) {
+    // Add slot range information to the first command (For FT AGGREGATE)
+    MRCommand_AddSlotRangeInfo(cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
+  }
   // Create FT.CURSOR READ commands for each mapping (TODO(Joan): Is this comment accurate?)
   for (targetShard = 1; targetShard < numShards; targetShard++) {
     it->cbxs[targetShard].it = it;
@@ -619,8 +624,10 @@ void iterCursorMappingCb(void *p) {
     sprintf(buf, "%lld", vsimOrSearch->mappings[targetShard].cursorId);
     MRCommand_ReplaceArg(&it->cbxs[targetShard].cmd, 3, buf, strlen(buf));
 
-    // Add slot range information to the command (For FT AGGREGATE)
-    MRCommand_AddSlotRangeInfo(&it->cbxs[targetShard].cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
+    if (io_runtime_ctx->topo->shards[targetShard].slotRanges != NULL) {
+      // Add slot range information to the command (For FT AGGREGATE)
+      MRCommand_AddSlotRangeInfo(&it->cbxs[targetShard].cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
+    }
   }
 
   // Send commands to all shards
