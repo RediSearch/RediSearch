@@ -60,13 +60,8 @@ impl<'index> Metric<'index> {
     pub fn new(ids: Vec<t_docId>, metric_data: Vec<f64>) -> Self {
         debug_assert!(ids.len() == metric_data.len());
 
-        // Metric iterator returns a metric result while IdList returns a virtual one.
-        let mut base = IdList::new(ids);
-        let res = base.get_mut_result();
-        *res = RSIndexResult::metric();
-
         Metric {
-            base,
+            base: IdList::new_with_result(ids, RSIndexResult::metric()),
             metric_data,
             type_: MetricType::VectorDistance,
         }
@@ -78,10 +73,12 @@ impl<'index> RQEIterator<'index> for Metric<'index> {
         if self.base.at_eof() {
             return Ok(None);
         }
-        self.base.read()?;
 
-        let val = self.metric_data[self.base.offset() - 1];
-        let result = self.base.get_mut_result();
+        let Some((result, offset)) = self.base.read_and_get_offset()? else {
+            return Ok(None);
+        };
+        let val = self.metric_data[offset - 1];
+
         set_result_metrics(result, val);
         Ok(Some(result))
     }
@@ -90,17 +87,15 @@ impl<'index> RQEIterator<'index> for Metric<'index> {
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        let skip_outcome = self.base.skip_to(doc_id)?;
+        let skip_outcome = self.base.skip_to_and_get_offset(doc_id)?;
         match skip_outcome {
-            Some(SkipToOutcome::Found(_)) => {
-                let val = self.metric_data[self.base.offset() - 1];
-                let result = self.base.get_mut_result();
+            Some((SkipToOutcome::Found(result), offset)) => {
+                let val = self.metric_data[offset - 1];
                 set_result_metrics(result, val);
                 Ok(Some(SkipToOutcome::Found(result)))
             }
-            Some(SkipToOutcome::NotFound(_)) => {
-                let val = self.metric_data[self.base.offset() - 1];
-                let result = self.base.get_mut_result();
+            Some((SkipToOutcome::NotFound(result), offset)) => {
+                let val = self.metric_data[offset - 1];
                 set_result_metrics(result, val);
                 Ok(Some(SkipToOutcome::NotFound(result)))
             }
