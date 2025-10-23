@@ -14,6 +14,7 @@ sorting_vector.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
 strum.workspace = true
 thiserror.workspace = true
+redis_mock.workspace = true
 redis-module.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]

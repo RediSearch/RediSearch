@@ -28,16 +28,11 @@ impl LoadDocumentContext for LoadDocumentImpl {
     type V = RSValueFFI;
 
     fn is_crdt(&self) -> bool {
-        // Safety: `isCrdt` is written at module startup and never changed afterwards, therefore it is safe to read it here.
-        unsafe { ffi::isCrdt }
+        redis_mock::globals::is_crdt()
     }
 
     fn has_scan_key_feature(&self) -> bool {
-        // Safety: We access the global config, which is setup during module initialization, we readonly access the serverVersion field here.
-        // which is safe as it is never changed after initialization.
-        let server_version = unsafe { ffi::RSGlobalConfig.serverVersion };
-        let feature = ffi::RM_SCAN_KEY_API_FIX as i32;
-        feature <= server_version
+        redis_mock::globals::has_scan_key_feature()
     }
 
     fn generate_value(&self, src: ValueSrc, ct: RLookupCoerceType) -> Self::V {
