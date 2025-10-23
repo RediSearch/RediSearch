@@ -27,7 +27,7 @@ pub struct Wildcard<'index> {
 }
 
 impl Wildcard<'_> {
-    pub fn new(top_id: t_docId) -> Self {
+    pub const fn new(top_id: t_docId) -> Self {
         Wildcard {
             top_id,
             current_id: 0,
@@ -36,10 +36,8 @@ impl Wildcard<'_> {
     }
 }
 
-impl<'iterator, 'index> RQEIterator<'iterator, 'index> for Wildcard<'index> {
-    fn read(
-        &'iterator mut self,
-    ) -> Result<Option<&'iterator mut RSIndexResult<'index>>, RQEIteratorError> {
+impl<'index> RQEIterator<'index> for Wildcard<'index> {
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
         }
@@ -50,9 +48,9 @@ impl<'iterator, 'index> RQEIterator<'iterator, 'index> for Wildcard<'index> {
     }
 
     fn skip_to(
-        &'iterator mut self,
+        &mut self,
         doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'iterator, 'index>>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
         }

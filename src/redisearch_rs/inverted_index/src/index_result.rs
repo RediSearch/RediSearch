@@ -84,7 +84,7 @@ impl Debug for RSOffsetVector<'_> {
 
 impl RSOffsetVector<'_> {
     /// Create a new, empty offset vector ready to receive data
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self {
             data: ptr::null_mut(),
             len: 0,
@@ -93,7 +93,7 @@ impl RSOffsetVector<'_> {
     }
 
     /// Create a new offset vector with the given data pointer and length.
-    pub fn with_data(data: *mut c_char, len: u32) -> Self {
+    pub const fn with_data(data: *mut c_char, len: u32) -> Self {
         Self {
             data,
             len,
@@ -201,7 +201,7 @@ impl Drop for RSTermRecord<'_> {
 
 impl<'index> RSTermRecord<'index> {
     /// Create a new term record without term pointer and offsets.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self::Borrowed {
             term: ptr::null_mut(),
             offsets: RSOffsetVector::empty(),
@@ -209,7 +209,7 @@ impl<'index> RSTermRecord<'index> {
     }
 
     /// Create a new term with the given term pointer and offsets.
-    pub fn with_term(
+    pub const fn with_term(
         term: *mut RSQueryTerm,
         offsets: RSOffsetVector<'index>,
     ) -> RSTermRecord<'index> {
@@ -217,12 +217,12 @@ impl<'index> RSTermRecord<'index> {
     }
 
     /// Is this term record borrowed or owned?
-    pub fn is_copy(&self) -> bool {
+    pub const fn is_copy(&self) -> bool {
         matches!(self, RSTermRecord::Owned { .. })
     }
 
     /// Get the offsets of this term record.
-    pub fn offsets(&self) -> &[u8] {
+    pub const fn offsets(&self) -> &[u8] {
         let offsets = match self {
             RSTermRecord::Borrowed { offsets, .. } => offsets,
             RSTermRecord::Owned { offsets, .. } => offsets,
@@ -237,7 +237,7 @@ impl<'index> RSTermRecord<'index> {
     }
 
     /// Get the query term pointer of this term record.
-    pub fn query_term(&self) -> *mut RSQueryTerm {
+    pub const fn query_term(&self) -> *mut RSQueryTerm {
         match self {
             RSTermRecord::Borrowed { term, .. } => *term,
             RSTermRecord::Owned { term, .. } => *term,
@@ -395,7 +395,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// The number of results in this aggregate result
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.len(),
             RSAggregateResult::Owned { records, .. } => records.len(),
@@ -403,7 +403,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// Check whether this aggregate result is empty
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.is_empty(),
             RSAggregateResult::Owned { records, .. } => records.is_empty(),
@@ -411,7 +411,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// The capacity of the aggregate result
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.capacity(),
             RSAggregateResult::Owned { records, .. } => records.capacity(),
@@ -419,7 +419,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// The current type mask of the aggregate result
-    pub fn kind_mask(&self) -> RSResultKindMask {
+    pub const fn kind_mask(&self) -> RSResultKindMask {
         match self {
             RSAggregateResult::Borrowed { kind_mask, .. } => *kind_mask,
             RSAggregateResult::Owned { kind_mask, .. } => *kind_mask,
@@ -427,7 +427,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// Get an iterator over the children of this aggregate result
-    pub fn iter(&'index self) -> RSAggregateResultIter<'index> {
+    pub const fn iter(&'index self) -> RSAggregateResultIter<'index> {
         RSAggregateResultIter {
             agg: self,
             index: 0,
@@ -652,7 +652,7 @@ pub enum RSResultData<'index> {
 }
 
 impl RSResultData<'_> {
-    pub fn kind(&self) -> RSResultKind {
+    pub const fn kind(&self) -> RSResultKind {
         match self {
             RSResultData::Union(_) => RSResultKind::Union,
             RSResultData::Intersection(_) => RSResultKind::Intersection,
@@ -713,7 +713,7 @@ impl Default for RSIndexResult<'_> {
 
 impl<'index> RSIndexResult<'index> {
     /// Create a new virtual index result
-    pub fn virt() -> Self {
+    pub const fn virt() -> Self {
         Self {
             doc_id: 0,
             dmd: ptr::null(),
@@ -781,7 +781,7 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
-    pub fn term_with_term_ptr(
+    pub const fn term_with_term_ptr(
         term: *mut RSQueryTerm,
         offsets: RSOffsetVector<'index>,
         doc_id: t_docId,
@@ -800,35 +800,35 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// Set the document ID of this record
-    pub fn doc_id(mut self, doc_id: t_docId) -> Self {
+    pub const fn doc_id(mut self, doc_id: t_docId) -> Self {
         self.doc_id = doc_id;
 
         self
     }
 
     /// Set the field mask of this record
-    pub fn field_mask(mut self, field_mask: FieldMask) -> Self {
+    pub const fn field_mask(mut self, field_mask: FieldMask) -> Self {
         self.field_mask = field_mask;
 
         self
     }
 
     /// Set the weight of this record
-    pub fn weight(mut self, weight: f64) -> Self {
+    pub const fn weight(mut self, weight: f64) -> Self {
         self.weight = weight;
 
         self
     }
 
     /// Set the frequency of this record
-    pub fn frequency(mut self, frequency: u32) -> Self {
+    pub const fn frequency(mut self, frequency: u32) -> Self {
         self.freq = frequency;
 
         self
     }
 
     /// Get the kind of this index result
-    pub fn kind(&self) -> RSResultKind {
+    pub const fn kind(&self) -> RSResultKind {
         self.data.kind()
     }
 
@@ -889,7 +889,7 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get this record as a numeric record if possible. If the record is not numeric, returns
     /// `None`.
-    pub fn as_numeric(&self) -> Option<f64> {
+    pub const fn as_numeric(&self) -> Option<f64> {
         match &self.data {
             RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => Some(*numeric),
             RSResultData::HybridMetric(_)
@@ -902,7 +902,7 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get this record as a mutable numeric record if possible. If the record is not numeric,
     /// returns `None`.
-    pub fn as_numeric_mut(&mut self) -> Option<&mut f64> {
+    pub const fn as_numeric_mut(&mut self) -> Option<&mut f64> {
         match &mut self.data {
             RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => Some(numeric),
             RSResultData::HybridMetric(_)
@@ -944,7 +944,7 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get this record as a term record if possible. If the record is not term, returns
     /// `None`.
-    pub fn as_term(&self) -> Option<&RSTermRecord<'index>> {
+    pub const fn as_term(&self) -> Option<&RSTermRecord<'index>> {
         match &self.data {
             RSResultData::Term(term) => Some(term),
             RSResultData::Union(_)
@@ -958,7 +958,7 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get this record as a mutable term record if possible. If the record is not a term,
     /// returns `None`.
-    pub fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'index>> {
+    pub const fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'index>> {
         match &mut self.data {
             RSResultData::Term(term) => Some(term),
             RSResultData::Union(_)
@@ -1000,7 +1000,7 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get this record as an aggregate result if possible. If the record is not an aggregate,
     /// returns `None`.
-    pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'index>> {
+    pub const fn as_aggregate(&self) -> Option<&RSAggregateResult<'index>> {
         match &self.data {
             RSResultData::Union(agg)
             | RSResultData::Intersection(agg)
@@ -1014,7 +1014,7 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get this record as a mutable aggregate result if possible. If the record is not an
     /// aggregate, returns `None`.
-    pub fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'index>> {
+    pub const fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'index>> {
         match &mut self.data {
             RSResultData::Union(agg)
             | RSResultData::Intersection(agg)
@@ -1027,7 +1027,7 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// True if this is an aggregate kind
-    pub fn is_aggregate(&self) -> bool {
+    pub const fn is_aggregate(&self) -> bool {
         matches!(
             self.data,
             RSResultData::Intersection(_) | RSResultData::Union(_) | RSResultData::HybridMetric(_)
@@ -1035,7 +1035,7 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// True if this is a numeric kind
-    fn is_numeric(&self) -> bool {
+    const fn is_numeric(&self) -> bool {
         matches!(
             self.data,
             RSResultData::Numeric(_) | RSResultData::Metric(_)
@@ -1043,12 +1043,12 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// True if this is a term kind
-    fn is_term(&self) -> bool {
+    const fn is_term(&self) -> bool {
         matches!(self.data, RSResultData::Term(_))
     }
 
     /// Is this result some copy type
-    pub fn is_copy(&self) -> bool {
+    pub const fn is_copy(&self) -> bool {
         match self.data {
             RSResultData::Union(RSAggregateResult::Owned { .. })
             | RSResultData::Intersection(RSAggregateResult::Owned { .. })

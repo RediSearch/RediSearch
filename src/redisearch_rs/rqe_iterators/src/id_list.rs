@@ -56,10 +56,8 @@ impl<'index> IdList<'index> {
     }
 }
 
-impl<'iterator, 'index> RQEIterator<'iterator, 'index> for IdList<'index> {
-    fn read(
-        &'iterator mut self,
-    ) -> Result<Option<&'iterator mut RSIndexResult<'index>>, RQEIteratorError> {
+impl<'index> RQEIterator<'index> for IdList<'index> {
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         let Some(doc_id) = self.get_current() else {
             return Ok(None);
         };
@@ -70,9 +68,9 @@ impl<'iterator, 'index> RQEIterator<'iterator, 'index> for IdList<'index> {
     }
 
     fn skip_to(
-        &'iterator mut self,
+        &mut self,
         doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'iterator, 'index>>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         // Safe to unwrap as we are not at eof + the list must not be empty
         if self.at_eof() || self.ids.last().unwrap() < &doc_id {
             self.offset = self.ids.len(); // Move to EOF

@@ -99,6 +99,6 @@ pub extern "C" fn RSYieldableMetric_Concat(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Term_Free(_t: *mut ::ffi::RSQueryTerm) {
+pub const extern "C" fn Term_Free(_t: *mut ::ffi::RSQueryTerm) {
     // RSQueryTerm used by the benchers are created on the stack so we don't need to free them.
 }
