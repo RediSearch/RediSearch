@@ -854,7 +854,114 @@ def test_memory_info():
         vecsim_memory = cur_vecsim_memory
         #verify vecsim memory == redisearch memory
         env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
+DEFAULT_INDEX_NAME = 'idx'
+DEFAULT_FIELD_NAME = 'v'
+DEFAULT_DOC_NAME_PREFIX = 'doc'
 
+# @param additional_schema_args - additional arguments to pass to FT.CREATE beyond TYPE, DIM, DISTANCE_METRIC
+def create_vector_index(env: Env, dim, index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME, datatype='FLOAT32', metric='L2',
+                        alg='FLAT', additional_vec_params=None,
+                        additional_schema_args=None, message='', depth=0):
+    if additional_schema_args is None:
+        additional_schema_args = []
+    params = ['TYPE', datatype, 'DIM', dim, 'DISTANCE_METRIC', metric]
+    if additional_vec_params is not None:
+        params.extend(additional_vec_params)
+    try:
+        env.execute_command('FT.CREATE', index_name, 'SCHEMA',
+                field_name, 'VECTOR', alg, len(params), *params,
+                *additional_schema_args)
+    except redis_exceptions.ResponseError as e:
+        env.assertTrue(False, message=f"Failed to create index: '{index_name}' {message} with error: {e}", depth=depth+1)
+
+def get_tiered_debug_info(env, index_name, field_name) -> dict:
+    return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, field_name))
+
+def get_tiered_frontend_debug_info(env, index_name, field_name) -> dict:
+    tiered_index_info = get_tiered_debug_info(env, index_name, field_name)
+    return to_dict(tiered_index_info['FRONTEND_INDEX'])
+
+def get_tiered_backend_debug_info(env, index_name, field_name) -> dict:
+    tiered_index_info = get_tiered_debug_info(env, index_name, field_name)
+    return to_dict(tiered_index_info['BACKEND_INDEX'])
+def wait_for_background_indexing(env, index_name, field_name, message=''):
+    with TimeLimit(30, message):
+        is_trained = False
+        while not is_trained:
+            # 'BACKGROUND_INDEXING' == 0 means training is done
+            is_trained = get_tiered_debug_info(env, index_name, field_name)['BACKGROUND_INDEXING'] == 0
+            time.sleep(0.1)
+
+        env.assertGreater(get_tiered_backend_debug_info(env, index_name, field_name)['INDEX_SIZE'], 0, message=message)
+
+
+# This test validates the SVS-VAMANA hybrid search mode selection heuristic.
+# The heuristic automatically chooses between HYBRID_ADHOC_BF and HYBRID_BATCHES modes
+# based on subset size ratio, index size, and k value using these thresholds:
+# - Small subset (<7% of index): ADHOC_BF if index < 750K
+# - Medium subset (7-21% of index): ADHOC_BF if index < 75K else, if k > 12
+# - Large subset (>21% of index): ADHOC_BF only if index < 75K
+# This test doesn't cover medium and large index scenarios to avoid extensive CI running time.
+# The heuristic is implemented in VectorSimilarity library in SVSIndex::preferAdHocSearch.
+# The test scenarios below demonstrate each heuristic path with detailed explanations.
+def test_hybrid_query_with_text_vamana():
+    # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    index_size = 3000 # a number divisible by 10
+    data_type = 'FLOAT32'
+    create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'])
+
+    load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, index_size, data_type)
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+
+    query_data = create_np_array_typed([1] * dim, data_type)
+
+    # Empty filter test
+    # Expect to find no result (internally, build the child iterator as empty iterator).
+    env.expect('FT.SEARCH', 'idx', '(nothing)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
+    env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'EMPTY_MODE')
+
+    # Scenario 1: Large subset (>21%) + small index (<75K) → ADHOC_BF
+    expected_res = [10]
+    for i in range(10):
+        expected_res.append(str(i + 1))
+        expected_res.append(['__v_score', str(dim*i**2), 't', 'text value'])
+    execute_hybrid_query(env, '(@t:(text value))=>[KNN 10 @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
+
+    # Scenario 2: Small subset (<7%) + medium index (<750K) → ADHOC_BF
+    # Change small amount of docs (less than 7% of this index size) to 'other'
+    conn.execute_command('HSET', 10, 't', 'other')
+
+    expected_res = [1, '10', ['__v_score', str(dim*(10 - 1)**2), 't', 'other']]
+    execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
+
+    # Scenario 3: Medium subset (7-21%) + small index (<75K) → ADHOC_BF
+    # Create 10% subset by changing every 10th document (with ids 10, 20, ..., index_size)
+    for i in range(1, int(index_size/10) + 1):
+        conn.execute_command('HSET', 10*i, 't', 'other')
+    env.assertGreater(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], DEFAULT_BLOCK_SIZE)
+
+    # Expect to get only vector that passes the filter (i.e, has "other" in t field)
+    expected_res = [15]
+    for i in range(15):
+        expected_res.append(str(10*(i + 1)))
+        expected_res.append(['__v_score', str(dim*(10*(i + 1) - 1)**2), 't', 'other'])
+
+    k = 15 # k > 12 → ADHOC_BF
+    execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res)
+    k = 12 # k <= 12 → ADHOC_BF
+    expected_res[0] = k
+    execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res[:k*2+1])
+
+    # Test explicit BATCHES policy with batch size
+    execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]', query_data, 't', hybrid_mode='HYBRID_BATCHES', limit = k).equal(expected_res[:k*2+1])
+    # Expect empty score for the intersection (disjoint sets of results)
+    # The hybrid policy changes to ad hoc after the first batch
+    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]', query_data, 't',
+                            hybrid_mode='HYBRID_BATCHES').equal([0])
+    print("meow")
 
 def test_hybrid_query_batches_mode_with_text():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
