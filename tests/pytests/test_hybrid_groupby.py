@@ -84,8 +84,6 @@ def l2_from_bytes(a_bytes, b_bytes) -> float:
     b = np.frombuffer(b_bytes, dtype=np.float32)
     return np.linalg.norm(a - b)
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_groupby_small():
     """Test hybrid search with small result set (3 docs) + groupby"""
     env = Env()
@@ -105,8 +103,6 @@ def test_hybrid_groupby_small():
     expected_categories = Counter(doc['category'] for doc in test_docs.values() if l2_from_bytes(doc['embedding'], query_vector)**2 <= radius)
     env.assertEqual(Counter(results), expected_categories)
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_groupby_medium():
     """Test hybrid search with medium result set (6 docs) + groupby"""
     env = Env()
@@ -125,8 +121,6 @@ def test_hybrid_groupby_medium():
     expected_categories = Counter(doc['category'] for doc in test_docs.values() if l2_from_bytes(doc['embedding'], query_vector)**2 <= radius)
     env.assertEqual(Counter(results), expected_categories)
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_groupby_large():
     """Test hybrid search with large result set (9 docs) + groupby"""
     env = Env()
@@ -146,8 +140,6 @@ def test_hybrid_groupby_large():
     expected_categories = Counter(doc['category'] for doc in test_docs.values() if l2_from_bytes(doc['embedding'], query_vector)**2 <= radius)
     env.assertEqual(Counter(results), expected_categories)
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_groupby_with_filter():
     """Test hybrid search with groupby + filter to verify result count consistency"""
     env = Env()

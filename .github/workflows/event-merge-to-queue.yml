@@ -27,6 +27,10 @@ jobs:
     # with:
     #   repo: redis/redis
 
+  lint:
+    uses: ./.github/workflows/task-lint.yml
+    secrets: inherit
+
   test-linux:
     needs: get-latest-redis-tag
     uses: ./.github/workflows/flow-linux-platforms.yml
@@ -75,6 +79,7 @@ jobs:
   pr-validation:
     needs:
       - get-latest-redis-tag
+      - lint
       - test-linux
       - test-macos
       # - coverage
