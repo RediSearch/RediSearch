@@ -611,6 +611,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Prefixes for the index
   arrayof(const char*) prefixes = array_new(const char*, 0);
 
+  // TODO(Joan): Will be used to parse, then we will see how to use it
+  RedisModuleSlotRangeArray *coordSlotRanges = NULL;
+
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ESYNTAX, "SEARCH argument is required");
     goto error;
@@ -624,9 +627,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
-  // TODO(Joan): Will be used to parse, then we will see how to use it
-  RedisModuleSlotRangeArray *coordSlotRanges = NULL;
-
   HybridParseContext hybridParseCtx = {
       .status = status,
       .specifiedArgs = 0,
@@ -639,7 +639,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
-      .coordSlotRanges = coordSlotRanges,
+      .coordSlotRanges = &coordSlotRanges,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
@@ -732,8 +732,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   }
   array_free(prefixes);
   prefixes = NULL;
-  rm_free(coordSlotRanges);
-  coordSlotRanges = NULL;
+  if (coordSlotRanges) {
+    rm_free(coordSlotRanges);
+    coordSlotRanges = NULL;
+  }
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
@@ -767,8 +769,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 error:
   array_free(prefixes);
   prefixes = NULL;
-  rm_free(coordSlotRanges);
-  coordSlotRanges = NULL;
+  if (coordSlotRanges) {
+    rm_free(coordSlotRanges);
+    coordSlotRanges = NULL;
+  }
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
   }
