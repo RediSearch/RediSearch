@@ -308,6 +308,7 @@ struct RedisModuleCtx {
   bool automemory = false;
   std::set<RedisModuleString *> allocstrs;
   std::set<RedisModuleKey *> allockeys;
+  std::vector<std::vector<std::string>> propagated_commands;
   KVDB *db = NULL;
   uint32_t dbid = 0;
 
