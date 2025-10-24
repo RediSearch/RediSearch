@@ -12,7 +12,6 @@
 #include "query_optimizer.h"
 #include "iterators/iterator_api.h"
 #include "redisearch.h"
-#include "spec.h"
 #include "util/heap.h"
 #include "util/timeout.h"
 
