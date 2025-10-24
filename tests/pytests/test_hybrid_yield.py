@@ -188,7 +188,6 @@ def test_hybrid_vsim_range_both_yield_distance_and_score():
             .error().contains('Unknown argument `YIELD_DISTANCE_AS` in RANGE')
 
 
-
 def test_hybrid_yield_score_as_after_combine_error():
     """Test that YIELD_SCORE_AS after COMBINE keyword fails"""
     env = Env()
