@@ -19,7 +19,8 @@ typedef struct {
 
 static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   // New shard
-  MRClusterShard csh = MR_NewClusterShard(&sh->node);
+  //TODO(Joan): Create slot ranges and pass info from RLShard or parse directly into the new type and refactor
+  MRClusterShard csh = MR_NewClusterShard(&sh->node, NULL);
   MRClusterTopology_AddShard(t, &csh);
 }
 

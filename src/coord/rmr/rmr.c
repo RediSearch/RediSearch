@@ -540,13 +540,25 @@ void iterStartCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  cmd->targetShard = 0; // Set the first command to target the first shard
-  for (size_t i = 1; i < numShards; i++) {
-    it->cbxs[i].it = it;
-    it->cbxs[i].cmd = MRCommand_Copy(cmd);
+  size_t targetShard = 0;
+  cmd->targetShard = targetShard; // Set the first command to target the first shard
+
+  // Add slot range information to the first command (For FT SEARCH and FT HYBRID)
+  if (io_runtime_ctx->topo->shards[targetShard].slotRanges != NULL) {
+    MRCommand_AddSlotRangeInfo(cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
+  }
+
+  for (targetShard = 1; targetShard < numShards; targetShard++) {
+    it->cbxs[targetShard].it = it;
+    it->cbxs[targetShard].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
-    it->cbxs[i].cmd.targetShard = i;
-    it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    it->cbxs[targetShard].cmd.targetShard = targetShard;
+    it->cbxs[targetShard].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+
+    if (io_runtime_ctx->topo->shards[targetShard].slotRanges != NULL) {
+      // Add slot range information to the command (For FT SEARCH and FT HYBRID)
+      MRCommand_AddSlotRangeInfo(&it->cbxs[targetShard].cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
+    }
   }
 
   // This implies that every connection to each shard will work inside a single IO thread
@@ -584,27 +596,37 @@ void iterCursorMappingCb(void *p) {
   it->ctx.pending = numShards;
   it->ctx.inProcess = numShards; // Initially all commands are in process
 
-
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
+  // The mappings are not sorted by targetShard, so we need to find the first one
+  size_t targetShard = vsimOrSearch->mappings[0].targetShard;;
+  cmd->targetShard = targetShard;
   char buf[128];
   sprintf(buf, "%lld", vsimOrSearch->mappings[0].cursorId);
   MRCommand_Append(cmd, buf, strlen(buf));
 
-
-  // Create FT.CURSOR READ commands for each mapping
+  if (io_runtime_ctx->topo->shards[targetShard].slotRanges != NULL) {
+    // Add slot range information to the first command (For FT AGGREGATE)
+    MRCommand_AddSlotRangeInfo(cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
+  }
+  // Create FT.CURSOR READ commands for each mapping (TODO(Joan): Is this comment accurate?)
   for (size_t i = 1; i < numShards; i++) {
+    size_t targetShard = vsimOrSearch->mappings[i].targetShard;
     it->cbxs[i].it = it;
     it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
 
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
 
-    it->cbxs[i].cmd.targetShard = vsimOrSearch->mappings[i].targetShard;
+    it->cbxs[i].cmd.targetShard = targetShard;
     it->cbxs[i].cmd.num = 4;
     char buf[128];
     sprintf(buf, "%lld", vsimOrSearch->mappings[i].cursorId);
     MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, strlen(buf));
+
+    if (io_runtime_ctx->topo->shards[targetShard].slotRanges != NULL) {
+      // Add slot range information to the command (For FT AGGREGATE)
+      MRCommand_AddSlotRangeInfo(&it->cbxs[i].cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
+    }
   }
 
   // Send commands to all shards
