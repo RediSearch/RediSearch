@@ -16,6 +16,7 @@ from common import (
     getIsRPPaused,
     setPauseRPResume,
     forceInvokeGC,
+    waitForIndex
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -198,21 +199,16 @@ def test_vamana_debug_info_vs_info():
 
             compare_debug_info_to_ft_info(debug_info, vec_field_info,
                                           params, message=f"datatype: {data_type}, params: {params}")
-            # from stats:
-            # memory
-            # marked deleted
             conn = getConnectionByEnv(env)
             conn.execute_command('FLUSHALL')
 
 @skip(cluster=True)
-# TODO: rename to test stats and also verify marked deleted
 def test_memory_info():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4 _FREE_RESOURCE_ON_THREAD FALSE')
     dimension = 10
     index_key = DEFAULT_INDEX_NAME
     vector_field = DEFAULT_FIELD_NAME
     training_threshold = DEFAULT_BLOCK_SIZE
-    update_threshold = training_threshold
     compression_params = [None, ['COMPRESSION', 'LVQ8', 'TRAINING_THRESHOLD', training_threshold]]
 
     cur_redisearch_memory = 0
@@ -246,7 +242,7 @@ def test_memory_info():
             env.assertEqual(get_tiered_backend_debug_info(env, index_key, vector_field)['INDEX_SIZE'], 0, message=f"{message_prefix}, total index size: {index_size}")
             verify_mem(f"{message_prefix}. after adding less than training threshold vectors")
 
-            # Add vector to trigger trasnition
+            # Add vector to trigger svs initialization
             added_vectors = 5
             populate_with_vectors(env, num_docs=added_vectors, dim=dimension, initial_doc_id=training_threshold)
             wait_for_background_indexing(env, index_key, vector_field,
@@ -443,21 +439,31 @@ def test_change_threads_turn_off():
 def test_change_threads_increase():
     change_threads(3, 5)
 
-def test_drop_index():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    num_docs = 3000
-    dim = 128
-    initial_proc_memory = get_redis_memory_in_mb(env)
+@skip(cluster=True)
+def test_drop_index_memory():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _FREE_RESOURCE_ON_THREAD FALSE')
+    num_docs = DEFAULT_BLOCK_SIZE # enough to trigger svs initialization
+    dim = 4
 
-    set_up_database_with_vectors(env, dim, num_docs=num_docs, alg='SVS-VAMANA')
+    # add vectors and measure memory
+    populate_with_vectors(env, dim=dim, num_docs=num_docs, datatype='FLOAT32')
+    no_index_proc_memory = get_redis_memory_in_mb(env)
+
+    # create index and measure memory. Expect it to increase by at least the size in bytes of vectors
+    create_vector_index(env, dim, alg='SVS-vamana')
+    waitForIndex(env, DEFAULT_INDEX_NAME)
+    env.assertEqual(get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], num_docs)
+    env.assertGreater(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 0)
 
     proc_memory = get_redis_memory_in_mb(env)
-    env.debugPrint(f"before dropindex: {proc_memory}", force=True)
-    env.expect('FT.DROPINDEX', DEFAULT_INDEX_NAME).ok()
+    vectors_mem_mb = (num_docs * dim * 4) / (1024 * 1024)
+    env.assertGreater(proc_memory, no_index_proc_memory + vectors_mem_mb,
+                    message=f"no_index_proc_memory: {no_index_proc_memory}, proc_memory: {proc_memory}, vectors_mem_mb: {vectors_mem_mb}")
 
+    # drop index and measure memory. Expect it to decrease by at least the size in bytes of vectors
+    env.expect('FT.DROPINDEX', DEFAULT_INDEX_NAME).ok()
     memory_after_drop = get_redis_memory_in_mb(env)
-    env.debugPrint(f"after dropindex: {memory_after_drop}", force=True)
-    env.assertLess(memory_after_drop, proc_memory, message=f"initial_proc_memory: {initial_proc_memory}")
+    env.assertGreaterEqual(proc_memory - memory_after_drop, vectors_mem_mb, message=f"proc_memory: {proc_memory}, memory_after_drop: {memory_after_drop}, vectors_mem_mb: {vectors_mem_mb}")
 
     # No operations on a dropped index are allowed
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
@@ -501,7 +507,7 @@ def test_drop_index_during_query():
     env.expect(*query_cmd).error().contains(f"No such index")
 
 def test_gc():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 2 _FREE_RESOURCE_ON_THREAD FALSE')
     dim = 128
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
