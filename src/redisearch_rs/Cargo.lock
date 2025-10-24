@@ -1636,6 +1636,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sds_rs"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "libc",
+]
+
+[[package]]
 name = "search_result"
 version = "0.0.1"
 dependencies = [
@@ -2063,6 +2072,7 @@ name = "value"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "sds_rs",
 ]
 
 [[package]]

@@ -581,6 +581,13 @@ run_rust_tests() {
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
+    # C libraries (like hiredis) are built with gcov coverage (--coverage flag) while Rust uses LLVM coverage.
+    # We need to link with the gcov runtime to resolve __gcov_* symbols from C libraries.
+    # Use RUSTFLAGS to pass linker arguments that will work across platforms:
+    # - Linux with GCC: --coverage expands to -lgcov
+    # - macOS with Clang: --coverage links the profile runtime
+    # - Both: --coverage is portable and matches what CMake uses for C code
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C link-arg=--coverage"
   elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
     RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
   fi
