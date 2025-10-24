@@ -136,5 +136,3 @@ def test_hybrid_range_invalid_syntax():
         'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
         'RANGE', 2, 'EPSILON', 0.1
     ).error().contains('Missing required argument RADIUS')
-
-

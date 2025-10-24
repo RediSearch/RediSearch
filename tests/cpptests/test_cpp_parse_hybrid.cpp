@@ -1040,6 +1040,13 @@ TEST_F(ParseHybridTest, testLimitExceedsMaxResults) {
   testErrorCode(args, QUERY_ELIMIT, "LIMIT exceeds maximum of 1000000");
 }
 
+TEST_F(ParseHybridTest, testLimitOnlyOffset) {
+  // Test LIMIT with only offset (should fail)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LIMIT", "1");
+  testErrorCode(args, QUERY_EPARSEARGS, "LIMIT: Not enough arguments were provided");
+}
+
 // SORTBY callback error tests
 TEST_F(ParseHybridTest, testSortByMissingFieldName) {
   // Test SORTBY with missing field name (empty args after SORTBY)
@@ -1058,6 +1065,14 @@ TEST_F(ParseHybridTest, testParamsZeroArguments) {
   // Test PARAMS with zero arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "PARAMS", "0");
   testErrorCode(args, QUERY_EPARSEARGS, "PARAMS: Invalid argument count");
+}
+
+TEST_F(ParseHybridTest, testParamsSpecifiedMultipleTimes) {
+  // Test PARAMS with multiple PARAMS clauses
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
+    "PARAMS", "2", "p1", "val1", "PARAMS", "2", "p2", "val2");
+  testErrorCode(args, QUERY_EPARSEARGS, "PARAMS: Argument specified multiple times");
 }
 
 // WITHCURSOR callback error tests
