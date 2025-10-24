@@ -9,6 +9,7 @@ members = [
     "fnv",
     "low_memory_thin_vec",
     "qint",
+    "query_error",
     "redis_mock",
     "result_processor",
     "rlookup",
