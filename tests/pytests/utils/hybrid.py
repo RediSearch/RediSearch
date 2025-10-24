@@ -33,7 +33,7 @@ def _validate_results(env, actual_results: List[Result], expected_results: List[
     """Compare actual vs expected results, allowing for small score variations"""
 
     # Every test case should return at least one result
-    env.assertGreater(len(actual_results), 0, message=comparison_table)
+    env.assertGreater(len(actual_results), 0, message=f"Expected at least one result, got 0.")
 
     # We assume the number of actual result is correct
     env.assertLessEqual(len(actual_results), len(expected_results), message=comparison_table)
