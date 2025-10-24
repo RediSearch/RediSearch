@@ -123,3 +123,17 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_IsEnabled(RedisModuleCtx *ctx);
+
+/**
+ * @brief Load the disk database memory part from RDB
+ *
+ * @param rdb Redis module IO handle for RDB operations
+ */
+void SearchDisk_LoadFromRDB(RedisModuleIO *rdb);
+
+/**
+ * @brief Save the disk database memory part to RDB
+ *
+ * @param rdb Redis module IO handle for RDB operations
+ */
+void SearchDisk_SaveToRDB(RedisModuleIO *rdb);
