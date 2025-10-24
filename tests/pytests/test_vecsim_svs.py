@@ -447,13 +447,17 @@ def test_drop_index():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     num_docs = 3000
     dim = 128
+    initial_proc_memory = get_redis_memory_in_mb(env)
 
     set_up_database_with_vectors(env, dim, num_docs=num_docs, alg='SVS-VAMANA')
 
     proc_memory = get_redis_memory_in_mb(env)
+    env.debugPrint(f"before dropindex: {proc_memory}", force=True)
     env.expect('FT.DROPINDEX', DEFAULT_INDEX_NAME).ok()
 
-    env.assertLess(get_redis_memory_in_mb(env), proc_memory)
+    memory_after_drop = get_redis_memory_in_mb(env)
+    env.debugPrint(f"after dropindex: {memory_after_drop}", force=True)
+    env.assertLess(memory_after_drop, proc_memory, message=f"initial_proc_memory: {initial_proc_memory}")
 
     # No operations on a dropped index are allowed
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
