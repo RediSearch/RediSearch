@@ -445,16 +445,16 @@ def test_change_threads_increase():
 
 def test_drop_index():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    training_threshold = DEFAULT_BLOCK_SIZE
-    dim = 4
+    num_docs = 3000
+    dim = 128
 
-    set_up_database_with_vectors(env, dim, num_docs=training_threshold, alg='SVS-VAMANA')
+    set_up_database_with_vectors(env, dim, num_docs=num_docs, alg='SVS-VAMANA')
 
     proc_memory = get_redis_memory_in_mb(env)
     env.expect('FT.DROPINDEX', DEFAULT_INDEX_NAME).ok()
 
-    # Memory should decrease
-    env.assertLessEqual(get_redis_memory_in_mb(env), proc_memory)
+    env.assertLess(get_redis_memory_in_mb(env), proc_memory)
+
     # No operations on a dropped index are allowed
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
     query = create_random_np_array_typed(dim, 'FLOAT32')
@@ -498,7 +498,7 @@ def test_drop_index_during_query():
 
 def test_gc():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 2')
-    dim = 4
+    dim = 128
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
     index_size = 3000
@@ -520,10 +520,8 @@ def test_gc():
         size_before = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE']
 
         # Phase 1: Delete vectors up to (but not exceeding) the marked deletion threshold
-        #
         # SVS resets marked_deleted when: marked_deleted > 0.5 * current_index_size
         # This translates to: marked_deleted > size_before / 3
-        #
         # Delete exactly (size_before // 3 - 1) vectors to stay just below threshold
         vecs_to_delete = size_before // 3 - 1
         for i in range (vecs_to_delete):
@@ -542,7 +540,6 @@ def test_gc():
         env.assertEqual(total_deleted, size_before - size_after, message=f"{message_prefix}")
 
         # Phase 2: Delete additional vectors to trigger marked deletion reset
-        #
         # Delete 3 more vectors to exceed the threshold and trigger counter reset.
         # After reset, marked_deleted should be reset to a small value (≤ 3)
         vecs_to_delete = 3
@@ -562,7 +559,6 @@ def test_gc():
         env.assertEqual(curr_memory, memory_before_deletion, message=f"{message_prefix}")
 
         # Phase 3: Force garbage collection to reclaim memory
-        #
         # Explicit GC should reduce memory usage after marked deletions
         forceInvokeGC(env, DEFAULT_INDEX_NAME)
         env.assertLess(get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME), curr_memory, message=f"{message_prefix}")
