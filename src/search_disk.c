@@ -2,6 +2,8 @@
 #include "config.h"
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
+RedisSearchDiskMemObject *disk_mem_obj = NULL;
+
 
 // Weak default implementations for when disk API is not available
 __attribute__((weak))
@@ -13,6 +15,7 @@ __attribute__((weak))
 RedisSearchDiskAPI *SearchDisk_GetAPI() {
   return NULL;
 }
+
 
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
@@ -27,7 +30,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   }
   RedisModule_Log(ctx, "warning", "RediSearch disk API enabled");
 
-  disk_db = disk->basic.open(ctx, "redisearch");
+  disk_db = disk->basic.open(ctx, "redisearch", disk_mem_obj);
   return disk_db != NULL;
 }
 
@@ -36,6 +39,22 @@ void SearchDisk_Close() {
     disk->basic.close(disk_db);
     disk_db = NULL;
   }
+  if (disk_mem_obj) {
+    disk->memObject.free(disk_mem_obj);
+    disk_mem_obj = NULL;
+  }
+}
+
+void SearchDisk_LoadFromRDB(RedisModuleIO *rdb) {
+  //TODO(Joan): Check thread-safety (I think it happens in fork so no problem?)
+  if (!disk) return;
+  disk_mem_obj = disk->memObject.fromRDB(rdb);
+}
+
+void SearchDisk_SaveToRDB(RedisModuleIO *rdb) {
+  //TODO(Joan): Check thread-safety (I think it happens in fork so no problem?)
+  if (!disk || !disk_mem_obj) return;
+  disk->memObject.toRDB(disk_mem_obj, rdb);
 }
 
 // Basic API wrappers

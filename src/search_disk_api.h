@@ -18,6 +18,7 @@ extern "C" {
 
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
+typedef const void* RedisSearchDiskMemObject;
 typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
@@ -26,11 +27,17 @@ typedef const void* RedisSearchDiskIterator;
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
 typedef struct BasicDiskAPI {
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, const char *path);
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, const char *path, RedisSearchDiskMemObject *memObj);
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, DocumentType type);
   void (*closeIndexSpec)(RedisSearchDiskIndexSpec *index);
   void (*close)(RedisSearchDisk *disk);
 } BasicDiskAPI;
+
+typedef struct MemObjectAPI {
+  RedisSearchDiskMemObject *(*fromRDB)(RedisModuleIO *rdb);
+  void (*toRDB)(RedisSearchDiskMemObject *memObj, RedisModuleIO *rdb);
+  void (*free)(RedisSearchDiskMemObject *memObj);
+} MemObjectAPI;
 
 typedef struct IndexDiskAPI {
   /**
@@ -98,6 +105,7 @@ typedef struct RedisSearchDiskAPI {
   BasicDiskAPI basic;
   IndexDiskAPI index;
   DocTableDiskAPI docTable;
+  MemObjectAPI memObject;
 } RedisSearchDiskAPI;
 
 #define RedisSearchDiskAPI_LATEST_API_VER 1
