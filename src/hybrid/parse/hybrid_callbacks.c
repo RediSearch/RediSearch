@@ -478,8 +478,7 @@ void handleRangeSlotsBinary(ArgParser *parser, const void *value, void *user_dat
     return;
   }
 
-  //TODO(Joan): See to which attribute this should be assigned
-
+  ctx->coordSlotRanges = slot_array;
 }
 
 // _RANGE_SLOTS_HR callback - implements EXACT original logic from handleRangeSlotsHR
@@ -529,6 +528,5 @@ void handleRangeSlotsHR(ArgParser *parser, const void *value, void *user_data) {
     slot_array->ranges[i].end = (uint16_t)end_ll;
   }
 
-  //TODO(Joan): See to which attribute this should be assigned
-
+  ctx->coordSlotRanges = slot_array;
 }
