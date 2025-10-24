@@ -248,10 +248,9 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
-static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
+static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status, bool *slotRanges_specified) {
   int rv;
   bool dialect_specified = false;
-  bool slotRanges_specified = false;
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
@@ -359,9 +358,19 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if (AC_AdvanceIfMatch(ac, "_RANGE_SLOTS_BINARY")) {
     // Parse binary slot range format: _RANGE_SLOTS_BINARY <size> <binary_data>
-    slotRanges_specified = true;
+    if (*slotRanges_specified) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Cannot specify both _RANGE_SLOTS_BINARY and _RANGE_SLOTS_HR");
+      return ARG_ERROR;
+    }
+    *slotRanges_specified = true;
     if (AC_NumRemaining(ac) < 2) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_BINARY requires size and binary data arguments");
+      return ARG_ERROR;
+    }
+    // Skip the size parameter (we don't need it since AC_GetString gives us the length)
+    const char *size_str;
+    if (AC_GetString(ac, &size_str, NULL, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Missing size argument for _RANGE_SLOTS_BINARY");
       return ARG_ERROR;
     }
     // Get the binary data
@@ -388,10 +397,11 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     *papCtx->coordSlotRanges = slot_array;
   } else if (AC_AdvanceIfMatch(ac, "_RANGE_SLOTS_HR")) {
     // Parse human-readable slot range format: _RANGE_SLOTS_HR <num_ranges> <start1> <end1> <start2> <end2> ...
-    if (slotRanges_specified) {
+    if (*slotRanges_specified) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "Cannot specify both _RANGE_SLOTS_BINARY and _RANGE_SLOTS_HR");
       return ARG_ERROR;
     }
+    *slotRanges_specified = true;
     // Get the number of ranges
     long long num_ranges_ll;
     if (AC_GetLongLong(ac, &num_ranges_ll, 0) != AC_OK) {
@@ -608,6 +618,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
+  bool slotRanges_specified = false;
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
     int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
@@ -668,7 +679,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxAggregateResults = &req->maxAggregateResults,
         .coordSlotRanges = &req->coordSlotRanges
       };
-      int rv = handleCommonArgs(&papCtx, ac, status);
+      int rv = handleCommonArgs(&papCtx, ac, status, &slotRanges_specified);
       if (rv == ARG_HANDLED) {
         // nothing
       } else if (rv == ARG_ERROR) {
@@ -1032,8 +1043,9 @@ AREQ *AREQ_New(void) {
 }
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
+  bool slotRanges_specified = false;
   while (!AC_IsAtEnd(ac)) {
-    int rv = handleCommonArgs(papCtx, ac, status);
+    int rv = handleCommonArgs(papCtx, ac, status, &slotRanges_specified);
     if (rv == ARG_HANDLED) {
       continue;
     } else if (rv == ARG_ERROR) {
