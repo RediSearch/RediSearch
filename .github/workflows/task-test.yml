@@ -227,21 +227,21 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }} TEST=test_vecsim_svs
-      # - name: Flow tests (coordinator)
-      #   timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
-      #   id: coordinator_tests
-      #   if: ${{ inputs.coordinator }}
-      #   continue-on-error: true
-      #   env:
-      #     SAN: ${{ inputs.san }}
-      #     LOG: 1
-      #     CLEAR_LOGS: 0
-      #     REDIS_STANDALONE: 0
-      #     REJSON: ${{ env.REJSON }}
-      #     REJSON_BRANCH: ${{ inputs.rejson-branch }}
-      #     ENABLE_ASSERT: 1
-      #   run: make pytest ${{ inputs.test-config }}
+        run: make pytest ${{ inputs.test-config }}
+      - name: Flow tests (coordinator)
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: coordinator_tests
+        if: ${{ inputs.coordinator }}
+        continue-on-error: true
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          REDIS_STANDALONE: 0
+          REJSON: ${{ env.REJSON }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          ENABLE_ASSERT: 1
+        run: make pytest ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
