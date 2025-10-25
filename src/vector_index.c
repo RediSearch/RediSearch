@@ -298,9 +298,8 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
 }
 
 bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits) {
-  return quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec;
+  return isLVQSupported() && (quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec);
 }
-
 
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {
   // If quantBits is not NONE, We need to check if we are running on intel machine,  and if not, we
