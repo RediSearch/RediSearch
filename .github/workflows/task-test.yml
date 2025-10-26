@@ -61,10 +61,8 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: docker prune
-        run: docker image prune --all --force    
       - name: Check disk space 1st
-        run: du -h -d 1 /usr 
+        run: du -h -d 1 /usr/local/lib
       - name: Check disk space 1st
         run: df -h /
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
