@@ -47,7 +47,7 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
 
-  coverage:
+  coverage-standalone:
     needs: get-latest-redis-tag
     if: ${{ vars.ENABLE_CODE_COVERAGE != 'false'}}
     uses: ./.github/workflows/task-test.yml
@@ -57,6 +57,21 @@ jobs:
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
       test-config: '' # run all tests
+      coordinator: false  # Skip coordinator tests
+      standalone: true    # Run standalone tests only
+
+  coverage-coordinator:
+    needs: get-latest-redis-tag
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false'}}
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      coverage: true
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      rejson-branch: master
+      test-config: '' # run all tests
+      coordinator: true   # Run coordinator tests only
+      standalone: false   # Skip standalone tests
 
   run-on-intel:
     needs: get-latest-redis-tag
@@ -82,7 +97,8 @@ jobs:
       - lint
       - test-linux
       - test-macos
-      # - coverage
+      - coverage-standalone
+      - coverage-coordinator
       - run-on-intel
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}

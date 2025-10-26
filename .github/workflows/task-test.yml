@@ -289,6 +289,7 @@ jobs:
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
+        if: ${{ inputs.coordinator }}
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
@@ -356,17 +357,26 @@ jobs:
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           exit 1
 
-      - name: Upload flow coverage
-        if: inputs.coverage
+      - name: Upload flow coverage (standalone)
+        if: inputs.coverage && inputs.standalone
         uses: codecov/codecov-action@v5
         with:
-          files: bin/flow_standalone.info,bin/flow_coordinator.info
+          files: bin/flow_standalone.info
           disable_search: true
-          flags: flow
+          flags: flow-standalone
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload flow coverage (coordinator)
+        if: inputs.coverage && inputs.coordinator
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_coordinator.info
+          disable_search: true
+          flags: flow-coordinator
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
-        if: inputs.coverage
+        if: inputs.coverage && inputs.coordinator
         uses: codecov/codecov-action@v5
         with:
           files: bin/unit.info,bin/rust_cov.info
