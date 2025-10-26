@@ -217,13 +217,6 @@ jobs:
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Check disk space
         run: df -h .
-      - name: free disk space
-        shell: bash
-        run: |
-          sudo swapoff -a
-          sudo rm -f /swapfile
-          sudo apt clean
-          df -h
       - name: Build
         env:
           SAN: ${{ inputs.san }}
@@ -242,6 +235,9 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make unit-tests rust-tests
+      
+      - name: check bin disk space
+        run: df -h ./bin
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -256,6 +252,8 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
+      - name: check bin disk space after standalone
+        run: du -h -d 2 ./bin
       - name: Check disk space after standalone tests
         run: df -h
       - name: Flow tests (coordinator)
@@ -272,6 +270,10 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
+      - name: check bin disk space after coordinator
+        run: du -h -d 2 bin
+      - name: Check disk space logs
+        run: du -h -d 2 tests
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
