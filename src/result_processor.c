@@ -46,6 +46,7 @@ typedef struct {
   QueryIterator *iterator;
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
   RedisSearchCtx *sctx;
+  const SharedSlotRangeArray *slotRanges; // Owned slot ranges info, may be used for filtering
 } RPQueryIterator;
 
 
@@ -143,6 +144,14 @@ validate_current:
         continue;
       }
     }
+    if (should_filter_slots) {
+      RS_ASSERT(self->slotRanges != NULL);
+      int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
+      if (!Slots_CanAccessKeysInSlot(self->slotRanges, slot)) {
+        DMD_Return(dmd);
+        continue;
+      }
+    }
 
     // Increment the total results barring deleted results
     base->parent->totalResults++;
@@ -161,13 +170,15 @@ validate_current:
 static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
   self->iterator->Free(self->iterator);
+  Slots_FreeLocalSlots(self->slotRanges);
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root, RedisSearchCtx *sctx) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root, const SharedSlotRangeArray *slotRanges, RedisSearchCtx *sctx) {
   RS_ASSERT(root != NULL);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
+  ret->slotRanges = slotRanges;
   ret->base.Next = rpQueryItNext;
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
@@ -1722,7 +1733,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   RLookupRow_WriteFieldsFrom(&r->rowdata, self->lookupCtx->sourceLookups[upstreamIndex], &translated, self->lookupCtx->tailLookup);
   RLookupRow_Reset(&r->rowdata);
   r->rowdata = translated;
-  
+
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
   // Coordinator case - no dmd - use docKey in rlookup

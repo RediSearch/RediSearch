@@ -868,6 +868,30 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
     ) -> std::io::Result<bool> {
         unimplemented!("This tests won't seek anything")
     }
+
+    fn skip_to(&mut self, _doc_id: t_docId) -> bool {
+        unimplemented!("This test won't skip to anything")
+    }
+
+    fn reset(&mut self) {
+        unimplemented!("This test won't reset")
+    }
+
+    fn unique_docs(&self) -> usize {
+        unimplemented!("This test won't count unique docs")
+    }
+
+    fn has_duplicates(&self) -> bool {
+        false
+    }
+
+    fn flags(&self) -> ffi::IndexFlags {
+        ffi::IndexFlags_Index_DocIdsOnly
+    }
+
+    fn needs_revalidation(&self) -> bool {
+        false
+    }
 }
 
 #[test]

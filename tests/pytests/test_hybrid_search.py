@@ -33,8 +33,21 @@ def setup_basic_index(env):
     for doc_id, doc_data in test_data.items():
         conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+def setup_basic_index_hnsw(env):
+    """Setup basic index with hnsw vector and load test data"""
+    conn = env.getClusterConnectionIfNeeded()
+    env.expect(
+        'FT.CREATE', 'idx_hnsw', 'SCHEMA', 'description', 'TEXT',
+        'embedding_hnsw', 'VECTOR', 'HNSW', 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+        'DISTANCE_METRIC', 'COSINE').ok()
+
+    # Load test data
+    for doc_id, doc_data in test_data.items():
+        conn.execute_command(
+            'HSET', doc_id, 'description', doc_data['description'],
+            'embedding_hnsw', doc_data['embedding'])
+
+
 def test_hybrid_search_invalid_query_with_vector():
     """Test that hybrid search subquery fails when it contains vector query"""
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
@@ -44,8 +57,6 @@ def test_hybrid_search_invalid_query_with_vector():
     env.expect('FT.HYBRID', 'idx', 'SEARCH', '@embedding:[VECTOR_RANGE 0.01 $BLOB]', 'VSIM' ,'@embedding', '$BLOB',\
                'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e").error().contains('Vector expressions are not allowed in FT.HYBRID SEARCH')
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_search_explicit_scorer():
     """Test that hybrid search subquery fails when it contains vector query"""
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
@@ -58,5 +69,72 @@ def test_hybrid_search_explicit_scorer():
         env.assertEqual(count, len(results.keys()))
         results = {a: float(results[a][SCORE_FIELD]) for a in results}
         agg_response = env.cmd('FT.AGGREGATE', 'idx', 'shoes', 'ADDSCORES', 'SCORER', scorer, 'LOAD', 2, '__key', '__score')
-        agg_results = {a[3]: float(a[1]) for a in agg_response[1:]}
+        agg_results = {dict['__key']: float(dict[SCORE_FIELD]) for dict in (to_dict(a) for a in agg_response[1:])}
         env.assertEqual(results, agg_results)
+
+def test_hybrid_knn_invalid_syntax():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    setup_basic_index(env)
+
+    env.expect(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
+        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+        'KNN', 4, 'K', 15
+    ).error().contains('Expected arguments 4, but 2 were provided')
+
+    env.expect(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
+        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+        'KNN', 'K', 15
+    ).error().contains('Invalid argument count: expected an unsigned integer')
+
+def test_invalid_ef_runtime():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    setup_basic_index_hnsw(env)
+
+    for invalid_value in ['text', '-1', '0', '1.5']:
+        env.expect(
+            'FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes',
+            'VSIM' ,'@embedding_hnsw', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+            'KNN', 4, 'K', 15, 'EF_RUNTIME', invalid_value
+        ).error().contains('Invalid EF_RUNTIME value')
+
+def test_invalid_epsilon():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    setup_basic_index_hnsw(env)
+
+    for invalid_value in ['text', '-1', '-0.1', '0']:
+        env.expect(
+            'FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes',
+            'VSIM' ,'@embedding_hnsw', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+            'RANGE', 4, 'RADIUS', 1.1, 'EPSILON', invalid_value
+        ).error().contains('Invalid EPSILON value')
+
+def test_invalid_radius():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    setup_basic_index(env)
+
+    for invalid_value in ['text', '-1', '-0.1']:
+        env.expect(
+            'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
+            'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+            'RANGE', 2, 'RADIUS', invalid_value
+        ).error().contains('Invalid RADIUS value')
+
+def test_hybrid_range_invalid_syntax():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    setup_basic_index(env)
+
+    env.expect(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
+        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+        'RANGE', 4, 'RADIUS', 1
+    ).error().contains('Expected arguments 4, but 2 were provided')
+
+    env.expect(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
+        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+        'RANGE', 2, 'EPSILON', 0.1
+    ).error().contains('Missing required argument RADIUS')
+
+
