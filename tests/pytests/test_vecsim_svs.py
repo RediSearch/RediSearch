@@ -99,7 +99,6 @@ def test_small_window_size():
             conn.execute_command('FLUSHALL')
 
 @skip(cluster=True)
-# TODO: CLUSTER????
 def test_rdb_load_trained_svs_vamana():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -167,7 +166,6 @@ def test_svs_vamana_info():
                         expected_info)
         env.expect('FT.DROPINDEX', 'idx').ok()
 
-# TODO: Elaborate for doord
 def test_vamana_debug_info_vs_info():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
@@ -267,7 +265,6 @@ and verifies that vector is returned as the top result.
 Distance verification is skipped since some compression types would require larger training thresholds
 and vector dimension to get an exact match, making the test prohibitively slow.
 '''
-# TODO: Cluster
 def queries_sanity(env):
     dim = 28
     training_threshold = DEFAULT_BLOCK_SIZE
