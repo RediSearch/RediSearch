@@ -437,3 +437,35 @@ def test_change_threads_turn_off():
     change_threads(4, 0)
 def test_change_threads_increase():
     change_threads(3, 5)
+
+@skip(cluster=True)
+def test_drop_index_memory():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _FREE_RESOURCE_ON_THREAD FALSE')
+    num_docs = DEFAULT_BLOCK_SIZE # enough to trigger svs initialization
+    dim = 4
+
+    # add vectors and measure memory
+    populate_with_vectors(env, dim=dim, num_docs=num_docs, datatype='FLOAT32')
+    no_index_proc_memory = get_redis_memory_in_mb(env)
+
+    # create index and measure memory. Expect it to increase by at least the size in bytes of vectors
+    create_vector_index(env, dim, alg='SVS-vamana')
+    waitForIndex(env, DEFAULT_INDEX_NAME)
+    env.assertEqual(get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], num_docs)
+    env.assertGreater(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 0)
+
+    proc_memory = get_redis_memory_in_mb(env)
+    vectors_mem_mb = (num_docs * dim * 4) / (1024 * 1024)
+    env.assertGreater(proc_memory, no_index_proc_memory + vectors_mem_mb,
+                    message=f"no_index_proc_memory: {no_index_proc_memory}, proc_memory: {proc_memory}, vectors_mem_mb: {vectors_mem_mb}")
+
+    # drop index and measure memory. Expect it to decrease by at least the size in bytes of vectors
+    env.expect('FT.DROPINDEX', DEFAULT_INDEX_NAME).ok()
+    memory_after_drop = get_redis_memory_in_mb(env)
+    env.assertGreaterEqual(proc_memory - memory_after_drop, vectors_mem_mb, message=f"proc_memory: {proc_memory}, memory_after_drop: {memory_after_drop}, vectors_mem_mb: {vectors_mem_mb}")
+
+    # No operations on a dropped index are allowed
+    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
+    query = create_random_np_array_typed(dim, 'FLOAT32')
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param',
+               query.tobytes(), 'NOCONTENT').error().contains(f"No such index")
