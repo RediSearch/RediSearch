@@ -286,6 +286,8 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
+      # Unit tests are paired with coordinator tests to balance job execution times
+      # This means unit tests only run when coordinator tests run.
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
@@ -375,6 +377,9 @@ jobs:
           flags: flow-coordinator
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
+      # Unit coverage is only uploaded from coordinator jobs because unit tests
+      # are paired with coordinator tests (see line 292). This prevents duplicate
+      # coverage uploads and balances execution time across split coverage jobs.
       - name: Upload unit coverage
         if: inputs.coverage && inputs.coordinator
         uses: codecov/codecov-action@v5

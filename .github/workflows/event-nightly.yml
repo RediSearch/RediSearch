@@ -24,7 +24,6 @@ jobs:
       redis-ref: unstable
       test-config: QUICK=1
 
-  # Split coverage into two parallel jobs to avoid disk space issues (MOD-12008)
   coverage-standalone:
     if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
     uses: ./.github/workflows/task-test.yml
