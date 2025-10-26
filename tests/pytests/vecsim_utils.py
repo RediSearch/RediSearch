@@ -78,11 +78,16 @@ def get_redisearch_vector_index_memory(env, index_key):
 
 def wait_for_background_indexing(env, index_name, field_name, message=''):
     with TimeLimit(30, message):
-        is_trained = False
-        while not is_trained:
+        all_trained = False
+        while not all_trained:
+            all_trained = True
             # 'BACKGROUND_INDEXING' == 0 means training is done
             for con in env.getOSSMasterNodesConnectionList():
                 is_trained = get_tiered_debug_info(con, index_name, field_name)['BACKGROUND_INDEXING'] == 0
+                if not is_trained:
+                    all_trained = False
+                    break
+
             time.sleep(0.1)
 
         for id, con in enumerate(env.getOSSMasterNodesConnectionList()):
