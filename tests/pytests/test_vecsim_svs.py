@@ -1,6 +1,6 @@
 from RLTest import Env
 import distro
-from common import *
+# from common import *
 from includes import *
 
 from vecsim_utils import (
@@ -12,8 +12,17 @@ from vecsim_utils import (
     get_tiered_frontend_debug_info,
     get_tiered_backend_debug_info,
     wait_for_background_indexing,
-    get_tiered_debug_info
+    get_tiered_debug_info,
+    populate_with_vectors
     )
+from common import (
+    create_random_np_array_typed,
+    getConnectionByEnv,
+    skip,
+    assertInfoField,
+    index_info,
+    to_dict,
+)
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
 SVS_COMPRESSION_TYPES = ['NO_COMPRESSION', 'LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']
 
@@ -41,7 +50,7 @@ def is_intel_opt_enabled():
 
 '''
 This test reproduce the crash described in MOD-10771,
-wherer SVS crashes during topk search if CONSTRUCTION_WINDOW_SIZE given in creation is small.
+where SVS crashes during topk search if CONSTRUCTION_WINDOW_SIZE given in creation is small.
 '''
 def test_small_window_size():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -62,7 +71,6 @@ def test_small_window_size():
                 vector = create_random_np_array_typed(dim, data_type)
                 conn.execute_command('HSET', f'doc_{i}', 'v_SVS_VAMANA', vector.tobytes())
 
-
             # delete most
             for i in range(num_vectors - keep_count):
                 conn.execute_command('DEL', f'doc_{i}')
@@ -70,8 +78,11 @@ def test_small_window_size():
             # run topk for remaining
             query_vec = create_random_np_array_typed(dim, data_type)
             # Before fixing MOD-10771, search crashed
-            res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @v_SVS_VAMANA $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, '__v_score')
-            env.assertGreater(res[0], 0)
+            try:
+                res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @v_SVS_VAMANA $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, '__v_score')
+                env.assertGreater(res[0], 0)
+            except Exception as e:
+                env.assertTrue(False, message=f"compression: {compression} data_type: {data_type}. Search failed with exception: {e}")
             conn.execute_command('FLUSHALL')
 
 @skip(cluster=True)
@@ -93,18 +104,13 @@ def test_rdb_load_trained_svs_vamana():
         env.assertEqual(frontend_index_info['INDEX_SIZE'], 0)
 
         # Insert vectors (not triggering training yet)
-        # populate_with_vectors(env, num_docs=training_threshold - 1, dim=dim, datatype=data_type)
-        for i in range(training_threshold - 1):
-            vector = create_random_np_array_typed(dim, data_type)
-            conn.execute_command('HSET', f'doc_{1 + i}', DEFAULT_FIELD_NAME, vector.tobytes())
+        populate_with_vectors(env, num_docs=training_threshold - 1, dim=dim, datatype=data_type)
 
         env.assertEqual(get_tiered_frontend_debug_info(env, index_name, field_name)['INDEX_SIZE'], training_threshold - 1)
         env.assertEqual(get_tiered_backend_debug_info(env, index_name, field_name)['INDEX_SIZE'], 0)
 
         # Insert more vectors to trigger training
-        # populate_with_vectors(env, num_docs=1, dim=dim, datatype=data_type, initial_doc_id=training_threshold)
-        vector = create_random_np_array_typed(dim, data_type)
-        conn.execute_command('HSET', f'doc_{training_threshold + 1}', DEFAULT_FIELD_NAME, vector.tobytes())
+        populate_with_vectors(env, num_docs=1, dim=dim, datatype=data_type, initial_doc_id=training_threshold)
 
         def verify_trained(message):
             wait_for_background_indexing(env, index_name, field_name, message)
