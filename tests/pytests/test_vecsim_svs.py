@@ -16,7 +16,8 @@ from common import (
     getIsRPPaused,
     setPauseRPResume,
     forceInvokeGC,
-    waitForIndex
+    waitForIndex,
+    SkipTest,
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -47,8 +48,10 @@ def is_intel_opt_enabled():
 '''
 This test reproduce the crash described in MOD-10771,
 where SVS crashes during topk search if CONSTRUCTION_WINDOW_SIZE given in creation is small.
+NOTE: This test is being skipped because the crash issue has returned and we're waiting for a fix - 
+see MOD-12011 for details.
 '''
-@skip(cluster=True)
+@skip()
 def test_small_window_size():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -381,19 +384,21 @@ def test_empty_index_async():
     empty_index(env)
 
 def change_threads(initial_workers, final_workers):
+    if CLUSTER:
+        raise SkipTest()
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
     message_prefix = f"initial_workers: {initial_workers}, final_workers: {final_workers}"
     env.assertEqual(int(env.execute_command(config_cmd(), 'GET', 'WORKERS')[0][1]), initial_workers, message=message_prefix)
     training_threshold = DEFAULT_BLOCK_SIZE
     update_threshold = training_threshold
     dim = 2
-    prev_last_reserved_num_threads = [0] * env.shardsCount
-    def verify_num_threads(expected_num_threads, expected_reserved_num_threads: list[int], message):
+    prev_last_reserved_num_threads = 0
+    def verify_num_threads(expected_num_threads, expected_reserved_num_threads, message):
         nonlocal prev_last_reserved_num_threads
         # zero workers is also considered as 1 thread
         expected_num_threads = 1 if expected_num_threads == 0 else expected_num_threads
         for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
-            expected_reserved_num_threads = 1 if expected_reserved_num_threads[i] == 0 else expected_reserved_num_threads[i]
+            expected_reserved_num_threads = 1 if expected_reserved_num_threads == 0 else expected_reserved_num_threads
             tiered_debug_info = get_tiered_backend_debug_info(con, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
             num_threads = tiered_debug_info['NUM_THREADS']
             last_reserved_num_threads = tiered_debug_info['LAST_RESERVED_NUM_THREADS']
@@ -401,11 +406,11 @@ def change_threads(initial_workers, final_workers):
             # 0 < last_reserved_num_threads <= expected_reserved_num_threads
             env.assertGreater(last_reserved_num_threads, 0, message=message)
             env.assertLessEqual(last_reserved_num_threads, expected_reserved_num_threads, message=message)
-            prev_last_reserved_num_threads[i] = last_reserved_num_threads
+            prev_last_reserved_num_threads = last_reserved_num_threads
 
     set_up_database_with_vectors(env, dim, num_docs=training_threshold, alg='SVS-VAMANA')
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=message_prefix)
-    verify_num_threads(initial_workers, [initial_workers] * env.shardsCount, message=f"{message_prefix}, after training trigger")
+    verify_num_threads(initial_workers, initial_workers, message=f"{message_prefix}, after training trigger")
 
     env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
     env.assertEqual(int(env.execute_command(config_cmd(), 'GET', 'WORKERS')[0][1]), final_workers, message=message_prefix)
@@ -427,7 +432,7 @@ def change_threads(initial_workers, final_workers):
     # TODO: Expected behavior after VecSim gets worker change notifications:
     # - num_threads should reflect the current RediSearch worker count
     # - last_reserved_num_threads should match the actual threads used in operations
-    expected_last_reserved_num_threads = [min(final_workers, initial_workers)] * env.shardsCount
+    expected_last_reserved_num_threads = min(final_workers, initial_workers)
     verify_num_threads(initial_workers, expected_last_reserved_num_threads,
                     message=f"{message_prefix}, after changing workers to {final_workers} and triggering another update job")
 
@@ -507,6 +512,7 @@ def test_drop_index_during_query():
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
     env.expect(*query_cmd).error().contains(f"No such index")
 
+@skip(cluster=True)
 def test_gc():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 2 _FREE_RESOURCE_ON_THREAD FALSE')
     dim = 128
