@@ -29,7 +29,7 @@ from common import (
     to_dict,
     get_redis_memory_in_mb,
     config_cmd,
-
+    waitForIndex,
 
 )
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
