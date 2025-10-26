@@ -93,6 +93,9 @@ typedef struct {
   // Object which contains the error
   QueryError *err;
 
+  // Background indexing OOM warning
+  bool bgScanOOM;
+
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 

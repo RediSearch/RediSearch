@@ -719,8 +719,9 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count):
     return runDebugQueryCommand(env, query_cmd, debug_params)
 
 def waitForIndexFinishScan(env, idx = 'idx'):
-    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
+        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+            time.sleep(0.1)
 
 def bgScanCommand():
     return debug_cmd() + ' BG_SCAN_CONTROLLER'
@@ -755,8 +756,9 @@ def set_unlimited_maxmemory_for_oom(env):
 
 
 def waitForIndexStatus(env, status, idx='idx'):
-    while getDebugScannerStatus(env, idx) != status:
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index status'):
+        while getDebugScannerStatus(env, idx) != status:
+            time.sleep(0.1)
 
 def waitForIndexPauseScan(env,idx = 'idx'):
     waitForIndexStatus(env,'PAUSED', idx)
@@ -765,8 +767,9 @@ def shard_getDebugScannerStatus(env, shardId, idx = 'idx'):
     return env.getConnection(shardId).execute_command(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
 
 def shard_waitForIndexStatus(env, shardId, status, idx='idx'):
-    while shard_getDebugScannerStatus(env, shardId, idx) != status:
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index status'):
+        while shard_getDebugScannerStatus(env, shardId, idx) != status:
+            time.sleep(0.1)
 
 def shard_waitForIndexPauseScan(env, shardId, idx = 'idx'):
     shard_waitForIndexStatus(env, shardId, 'PAUSED', idx)
@@ -780,8 +783,9 @@ def allShards_waitForIndexStatus(env, status, idx='idx'):
         shard_waitForIndexStatus(env, shardId, status, idx)
 
 def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
-    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
+        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+            time.sleep(0.1)
 
 def allShards_waitForIndexFinishScan(env, idx = 'idx'):
     for shardId in range(1, env.shardsCount + 1):
