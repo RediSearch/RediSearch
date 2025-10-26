@@ -178,6 +178,7 @@ def test_import_slot_range_sanity_BG():
     import_slot_range_sanity_test(env)
 
 def add_shard_and_migrate_test(env: Env):
+    print(run_command_on_all_shards(env, 'CLUSTER', 'NODES'))
     n_docs = 2**14
     initial_shards_count = env.shardsCount
 
@@ -222,6 +223,8 @@ def add_shard_and_migrate_test(env: Env):
     # And expect all shards to return the same results, including the new one
     shards.append(new_shard)
     query_all_shards()
+    
+    print(run_command_on_all_shards(env, 'CLUSTER', 'NODES'))
 
 @skip(cluster=False)
 def test_add_shard_and_migrate():
