@@ -378,7 +378,7 @@ jobs:
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
       # Unit coverage is only uploaded from coordinator jobs because unit tests
-      # are paired with coordinator tests (see line 292). This prevents duplicate
+      # are paired with coordinator tests. This prevents duplicate
       # coverage uploads and balances execution time across split coverage jobs.
       - name: Upload unit coverage
         if: inputs.coverage && inputs.coordinator
