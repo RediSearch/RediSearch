@@ -13,7 +13,10 @@ from vecsim_utils import (
     get_tiered_backend_debug_info,
     wait_for_background_indexing,
     get_tiered_debug_info,
-    populate_with_vectors
+    populate_with_vectors,
+    get_vecsim_index_size,
+    get_vecsim_memory,
+    get_redisearch_vector_index_memory
     )
 from common import (
     create_random_np_array_typed,
@@ -22,6 +25,8 @@ from common import (
     assertInfoField,
     index_info,
     to_dict,
+    get_redis_memory_in_mb,
+
 )
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
 SVS_COMPRESSION_TYPES = ['NO_COMPRESSION', 'LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']
@@ -191,3 +196,56 @@ def test_vamana_debug_info_vs_info():
                                           params, message=f"datatype: {data_type}, params: {params}")
             conn = getConnectionByEnv(env)
             conn.execute_command('FLUSHALL')
+
+@skip(cluster=True)
+def test_memory_info():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4 _FREE_RESOURCE_ON_THREAD FALSE')
+    dimension = 10
+    index_key = DEFAULT_INDEX_NAME
+    vector_field = DEFAULT_FIELD_NAME
+    training_threshold = DEFAULT_BLOCK_SIZE
+    compression_params = [None, ['COMPRESSION', 'LVQ8', 'TRAINING_THRESHOLD', training_threshold]]
+
+    cur_redisearch_memory = 0
+    cur_redis_memory = get_redis_memory_in_mb(env)
+
+    def verify_mem(message):
+        nonlocal cur_redisearch_memory, cur_redis_memory
+        vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
+        redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
+        redis_memory = get_redis_memory_in_mb(env)
+        env.assertEqual(redisearch_memory, vecsim_memory, message=message)
+        env.assertLessEqual(redisearch_memory, redis_memory, message=message)
+        env.assertGreater(redis_memory, cur_redis_memory, message=message)
+        env.assertGreater(vecsim_memory, cur_redisearch_memory, message=message)
+        cur_redisearch_memory = vecsim_memory
+        cur_redis_memory = redis_memory
+
+    for data_type in VECSIM_SVS_DATA_TYPES:
+        for extended_params in compression_params:
+            cur_redisearch_memory = 0
+            cur_redis_memory = get_redis_memory_in_mb(env)
+
+            message_prefix = f"datatype: {data_type}, compression: {extended_params}"
+
+            create_vector_index(env, dimension, alg='SVS-VAMANA', additional_vec_params=extended_params, message=message_prefix)
+
+            # Add vectors, not triggering transfer to the backend index
+            populate_with_vectors(env, training_threshold - 1, dimension)
+            index_size = get_vecsim_index_size(env, index_key, vector_field)
+            env.assertEqual(index_size, training_threshold - 1, message=message_prefix)
+            env.assertEqual(get_tiered_backend_debug_info(env, index_key, vector_field)['INDEX_SIZE'], 0, message=f"{message_prefix}, total index size: {index_size}")
+            verify_mem(f"{message_prefix}. after adding less than training threshold vectors")
+
+            # Add vector to trigger svs initialization
+            added_vectors = 5
+            populate_with_vectors(env, num_docs=added_vectors, dim=dimension, initial_doc_id=training_threshold)
+            wait_for_background_indexing(env, index_key, vector_field,
+                                         f"{message_prefix}. after adding {added_vectors + training_threshold - 1} vectors, to trigger transition to the backend index")
+            index_size = get_vecsim_index_size(env, index_key, vector_field)
+            env.assertEqual(index_size, training_threshold - 1 + added_vectors, message=message_prefix)
+            # we have at least training_threshold in the backend index
+            env.assertGreaterEqual(get_tiered_backend_debug_info(env, index_key, vector_field)['INDEX_SIZE'], training_threshold, message=f"{message_prefix}, total index size: {index_size}")
+            verify_mem(f"{message_prefix}. after adding more than training threshold vectors")
+
+            env.execute_command('FLUSHALL')
