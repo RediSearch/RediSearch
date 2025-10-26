@@ -59,6 +59,7 @@ jobs:
       test-config: '' # run all tests
       coordinator: false  # Skip coordinator tests
       standalone: true    # Run standalone tests only
+      unit-test: false
 
   coverage-coordinator:
     needs: get-latest-redis-tag
@@ -72,6 +73,7 @@ jobs:
       test-config: '' # run all tests
       coordinator: true   # Run coordinator tests only
       standalone: false   # Skip standalone tests
+      unit-test: true # Run the unit-tests with the coordinator
 
   run-on-intel:
     needs: get-latest-redis-tag

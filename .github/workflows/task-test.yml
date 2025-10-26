@@ -21,6 +21,9 @@ on:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
         type: string
+      unit-test:
+        type: boolean
+        default: true
       coordinator:
         type: boolean
         default: true
@@ -68,7 +71,6 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
           df -h
 
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
@@ -301,7 +303,7 @@ jobs:
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
-        if: ${{ inputs.coordinator }}
+        if: ${{ inputs.unit-test }}
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
@@ -337,6 +339,46 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
+
+      - name: Check test logs folder size
+        if: always()
+        run: |
+          echo "=== Test Logs Folder Size ==="
+          if [ -d "tests" ]; then
+            echo "Total tests directory size:"
+            du -sh tests/ 2>/dev/null || echo "tests/ directory not found"
+            echo ""
+            echo "Logs subdirectories size:"
+            find tests -type d -name "logs" -exec du -sh {} \; 2>/dev/null || echo "No logs directories found"
+            echo ""
+            echo "Detailed breakdown of logs:"
+            find tests -type d -name "logs" -exec sh -c 'echo "Directory: {}"; du -h {} | tail -1' \; 2>/dev/null || echo "No logs found"
+          else
+            echo "tests/ directory does not exist"
+          fi
+          echo "=========================="
+
+      - name: Check coverage files size
+        if: inputs.coverage
+        run: |
+          echo "=== Coverage Files Size ==="
+          if [ -d "bin" ]; then
+            echo "Coverage files in bin/:"
+            ls -lh bin/*.info 2>/dev/null || echo "No .info files found in bin/"
+            echo ""
+            echo "Total size of coverage files:"
+            du -ch bin/*.info 2>/dev/null | tail -1 || echo "No coverage files to measure"
+            echo ""
+            echo "Individual coverage file sizes:"
+            for file in bin/*.info; do
+              if [ -f "$file" ]; then
+                echo "  $(basename $file): $(du -h "$file" | cut -f1)"
+              fi
+            done
+          else
+            echo "bin/ directory does not exist"
+          fi
+          echo "=========================="
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
@@ -391,7 +433,7 @@ jobs:
       # are paired with coordinator tests. This prevents duplicate
       # coverage uploads and balances execution time across split coverage jobs.
       - name: Upload unit coverage
-        if: inputs.coverage && inputs.coordinator
+        if: inputs.coverage && inputs.unit-test
         uses: codecov/codecov-action@v5
         with:
           files: bin/unit.info,bin/rust_cov.info

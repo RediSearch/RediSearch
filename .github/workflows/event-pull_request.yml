@@ -65,6 +65,7 @@ jobs:
       test-config: QUICK=1
       coordinator: false  # Skip coordinator tests
       standalone: true    # Run standalone tests only
+      unit-test: false
     secrets: inherit
 
   coverage-coordinator:
@@ -83,6 +84,7 @@ jobs:
       test-config: QUICK=1
       coordinator: true   # Run coordinator tests only
       standalone: false   # Skip standalone tests
+      unit-test: true # Run the unit-tests with the coordinator
     secrets: inherit
 
   sanitize:

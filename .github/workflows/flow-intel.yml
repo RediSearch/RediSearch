@@ -55,6 +55,7 @@ jobs:
       get-redis: ${{ inputs.get-redis }}
       coordinator: true   # Run both coordinator and standalone tests
       standalone: true    # (defaults, but explicit for clarity)
+      unit-test: true # (defaults, but explicit for clarity)
       pre-steps-script: echo "HOME=/home/ubuntu" >> $GITHUB_ENV
 
   stop-runner:
