@@ -67,10 +67,16 @@ jobs:
       - name: Free up disk space
         run: |
           df -h
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          # Determine if we need sudo (containers typically don't have/need it)
+          if command -v sudo >/dev/null 2>&1 && [ -z "${{ inputs.container }}" ]; then
+            SUDO="sudo"
+          else
+            SUDO=""
+          fi
+          $SUDO rm -rf /usr/share/dotnet
+          $SUDO rm -rf /usr/local/lib/android
+          $SUDO rm -rf /opt/ghc
+          $SUDO rm -rf /opt/hostedtoolcache/CodeQL
           df -h
 
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
