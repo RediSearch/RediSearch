@@ -39,15 +39,6 @@ def is_intel_opt_supported():
 def is_intel_opt_enabled():
     return is_intel_opt_supported() and BUILD_INTEL_SVS_OPT
 
-# Global counter for unique vector generation
-_vector_seed_counter = 0
-
-def get_unique_vector(dim, data_type='FLOAT32'):
-    """Generate a unique random vector by incrementing seed counter"""
-    global _vector_seed_counter
-    _vector_seed_counter += 1
-    return create_random_np_array_typed(dim, data_type, seed=_vector_seed_counter)
-
 '''
 This test reproduce the crash described in MOD-10771,
 wherer SVS crashes during topk search if CONSTRUCTION_WINDOW_SIZE given in creation is small.
@@ -68,7 +59,7 @@ def test_small_window_size():
 
             # Add enough vector to trigger transfer to svs
             for i in range(num_vectors):
-                vector = get_unique_vector(dim, data_type)
+                vector = create_random_np_array_typed(dim, data_type)
                 conn.execute_command('HSET', f'doc_{i}', 'v_SVS_VAMANA', vector.tobytes())
 
 
@@ -77,10 +68,10 @@ def test_small_window_size():
                 conn.execute_command('DEL', f'doc_{i}')
 
             # run topk for remaining
-            query_vec = get_unique_vector(dim, data_type)
+            query_vec = create_random_np_array_typed(dim, data_type)
             # Before fixing MOD-10771, search crashed
-            conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @v_SVS_VAMANA $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, '__v_score')
-
+            res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @v_SVS_VAMANA $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, '__v_score')
+            env.assertGreater(res[0], 0)
             conn.execute_command('FLUSHALL')
 
 @skip(cluster=True)
@@ -104,7 +95,7 @@ def test_rdb_load_trained_svs_vamana():
         # Insert vectors (not triggering training yet)
         # populate_with_vectors(env, num_docs=training_threshold - 1, dim=dim, datatype=data_type)
         for i in range(training_threshold - 1):
-            vector = get_unique_vector(dim, data_type)
+            vector = create_random_np_array_typed(dim, data_type)
             conn.execute_command('HSET', f'doc_{1 + i}', DEFAULT_FIELD_NAME, vector.tobytes())
 
         env.assertEqual(get_tiered_frontend_debug_info(env, index_name, field_name)['INDEX_SIZE'], training_threshold - 1)
@@ -112,7 +103,7 @@ def test_rdb_load_trained_svs_vamana():
 
         # Insert more vectors to trigger training
         # populate_with_vectors(env, num_docs=1, dim=dim, datatype=data_type, initial_doc_id=training_threshold)
-        vector = get_unique_vector(dim, data_type)
+        vector = create_random_np_array_typed(dim, data_type)
         conn.execute_command('HSET', f'doc_{training_threshold + 1}', DEFAULT_FIELD_NAME, vector.tobytes())
 
         def verify_trained(message):
