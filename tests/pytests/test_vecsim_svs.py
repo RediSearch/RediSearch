@@ -2,6 +2,17 @@ from RLTest import Env
 import distro
 from common import *
 from includes import *
+
+from vecsim_utils import (
+    DEFAULT_BLOCK_SIZE,
+    DEFAULT_INDEX_NAME,
+    DEFAULT_FIELD_NAME,
+
+    create_vector_index,
+    get_tiered_frontend_debug_info,
+    get_tiered_backend_debug_info,
+    wait_for_background_indexing
+    )
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
 SVS_COMPRESSION_TYPES = ['NO_COMPRESSION', 'LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']
 
@@ -70,6 +81,52 @@ def test_small_window_size():
             conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @v_SVS_VAMANA $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, '__v_score')
 
             conn.execute_command('FLUSHALL')
+
+@skip(cluster=True)
+# TODO: CLUSTER????
+def test_rdb_load_trained_svs_vamana():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    training_threshold = DEFAULT_BLOCK_SIZE * 3
+    extend_params = ['COMPRESSION', 'LVQ8', 'TRAINING_THRESHOLD', training_threshold]
+    dim = 4
+    index_name=DEFAULT_INDEX_NAME
+    field_name=DEFAULT_FIELD_NAME
+
+    for data_type in VECSIM_SVS_DATA_TYPES:
+        create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_vec_params=extend_params)
+
+        frontend_index_info = get_tiered_frontend_debug_info(env, index_name, field_name)
+        env.assertEqual(frontend_index_info['INDEX_SIZE'], 0)
+
+        # Insert vectors (not triggering training yet)
+        # populate_with_vectors(env, num_docs=training_threshold - 1, dim=dim, datatype=data_type)
+        for i in range(training_threshold - 1):
+            vector = get_unique_vector(dim, data_type)
+            conn.execute_command('HSET', f'doc_{1 + i}', DEFAULT_FIELD_NAME, vector.tobytes())
+
+        env.assertEqual(get_tiered_frontend_debug_info(env, index_name, field_name)['INDEX_SIZE'], training_threshold - 1)
+        env.assertEqual(get_tiered_backend_debug_info(env, index_name, field_name)['INDEX_SIZE'], 0)
+
+        # Insert more vectors to trigger training
+        # populate_with_vectors(env, num_docs=1, dim=dim, datatype=data_type, initial_doc_id=training_threshold)
+        vector = get_unique_vector(dim, data_type)
+        conn.execute_command('HSET', f'doc_{training_threshold + 1}', DEFAULT_FIELD_NAME, vector.tobytes())
+
+        def verify_trained(message):
+            wait_for_background_indexing(env, index_name, field_name, message)
+
+            env.assertEqual(get_tiered_frontend_debug_info(env, index_name, field_name)['INDEX_SIZE'], 0, message=message)
+            env.assertEqual(get_tiered_backend_debug_info(env, index_name, field_name)['INDEX_SIZE'], training_threshold, message=message)
+
+        verify_trained(f"datatype: {data_type} before rdb load")
+
+        # reload rdb
+        for _ in env.reloadingIterator():
+            verify_trained(f"datatype: {data_type} after rdb load")
+
+        conn.execute_command('FLUSHALL')
 
 @skip(cluster=True)
 def test_svs_vamana_info():
