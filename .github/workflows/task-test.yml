@@ -61,6 +61,8 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: docker prune
+        run: docker image prune --all --force    
       - name: Check disk space 1st
         run: du -h -d 1 /usr 
       - name: Check disk space 1st
