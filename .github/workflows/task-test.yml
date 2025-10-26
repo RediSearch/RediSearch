@@ -62,7 +62,9 @@ jobs:
         shell: bash -l -eo pipefail {0}
     steps:
       - name: Check disk space 1st
-        run: du -h -d 1
+        run: du -h -d 1      
+      - name: Check disk space 1st
+        run: df -h .
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
         if: inputs.pre-steps-script && inputs.container == 'alpine:3'
