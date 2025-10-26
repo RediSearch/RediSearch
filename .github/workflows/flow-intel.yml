@@ -6,6 +6,19 @@ on:
       get-redis:
         type: string
 
+env:
+  AWS_IMAGE_ID: ami-09fabd03bb09b3704
+  AWS_INSTANCE_TYPE: c7i.xlarge
+  TAGS: | # Make sure there is no trailing comma!
+    [
+      {"Key": "Name",         "Value": "redisearch-ci-runner"},
+      {"Key": "Environment",  "Value": "CI"},
+      {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
+      {"Key": "PR",           "Value": "${{ github.event.number }}"},
+      {"Key": "Owner",        "Value": "${{ github.actor }}"},
+      {"Key": "Project",      "Value": "${{ github.repository }}"}
+    ]
+
 jobs:
   start-runner:
     name: Start self-hosted EC2 runner
@@ -26,10 +39,11 @@ jobs:
         with:
           mode: start
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
-          ec2-image-id: ami-09fabd03bb09b3704
-          ec2-instance-type: c7i.xlarge
+          ec2-image-id: ${{ env.AWS_IMAGE_ID }}
+          ec2-instance-type: ${{ env.AWS_INSTANCE_TYPE }}
           subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
           security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
+          aws-resource-tags: ${{ env.TAGS }}
 
   run-tests:
     needs: start-runner # required to start the main job when the runner is ready
@@ -39,8 +53,8 @@ jobs:
       env: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
       test-config: QUICK=1
       get-redis: ${{ inputs.get-redis }}
-      pre-steps-script: |
-        echo "HOME=/home/ubuntu" >> $GITHUB_ENV
+      pre-steps-script: echo "HOME=/home/ubuntu" >> $GITHUB_ENV
+
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:

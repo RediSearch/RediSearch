@@ -67,6 +67,7 @@ uint16_t pendingIndexDropCount_g = 0;
 Version redisVersion;
 Version rlecVersion;
 bool isCrdt;
+bool should_filter_slots = false;
 bool isTrimming = false;
 bool isFlex = false;
 
@@ -3317,6 +3318,7 @@ RedisModuleString * IndexSpec_Serialize(IndexSpec *sp) {
 */
 int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver) {
   IndexSpec *sp = RedisModule_LoadDataTypeFromStringEncver(serialized, IndexSpecType, encver);
+  if (sp) Initialize_KeyspaceNotifications();
   return IndexSpec_StoreAfterRdbLoad(sp);
 }
 
@@ -3340,6 +3342,24 @@ int CompareVersions(Version v1, Version v2) {
   }
 
   return 0;
+}
+
+void Indexes_Propagate(RedisModuleCtx *ctx) {
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    RS_ASSERT(sp != NULL);
+    RedisModuleString *serialized = IndexSpec_Serialize(sp);
+    RS_ASSERT(serialized != NULL);
+    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
+    if (rc != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Failed to propagate index '%s' during slot migration. errno: %d", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), errno);
+    }
+    RedisModule_FreeString(NULL, serialized);
+  }
+  dictReleaseIterator(iter);
 }
 
 // This function is called in case the server is started or
@@ -3371,12 +3391,14 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     if (hasLegacyIndexes) {
       Indexes_ScanAndReindex();
     }
-    workersThreadPool_OnEventEnd(true);
+    int rc = workersThreadPool_OnEventEnd(true);
+    RS_LOG_ASSERT(rc == REDISMODULE_OK, "Another event has started while loading was in progress");
     g_isLoading = false;
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
     // Clear pending jobs from job queue in case of short read.
-    workersThreadPool_OnEventEnd(true);
+    int rc = workersThreadPool_OnEventEnd(true);
+    RS_LOG_ASSERT(rc == REDISMODULE_OK, "Another event has started while loading was in progress");
     g_isLoading = false;
   }
 }
@@ -3550,6 +3572,10 @@ void Indexes_Init(RedisModuleCtx *ctx) {
   specDict_g = dictCreate(&dictTypeHeapHiddenStrings, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();
+}
+
+size_t Indexes_Count() {
+  return dictSize(specDict_g);
 }
 
 SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,

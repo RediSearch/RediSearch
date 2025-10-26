@@ -54,6 +54,7 @@ impl DecodedBy for FreqsFields {
 }
 
 impl Decoder for FreqsFields {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -110,6 +111,7 @@ impl DecodedBy for FreqsFieldsWide {
 }
 
 impl Decoder for FreqsFieldsWide {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,

@@ -17,9 +17,19 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
+    # TODO: Revert when 8.4 is released
+    runs-on: ubuntu-latest
+    outputs:
+      tag: unstable
+    steps:
+      - run: echo "Dummy step to set output"
+    # uses: ./.github/workflows/task-get-latest-tag.yml
+    # with:
+    #   repo: redis/redis
+
+  lint:
+    uses: ./.github/workflows/task-lint.yml
+    secrets: inherit
 
   test-linux:
     needs: get-latest-redis-tag
@@ -69,6 +79,7 @@ jobs:
   pr-validation:
     needs:
       - get-latest-redis-tag
+      - lint
       - test-linux
       - test-macos
       # - coverage
