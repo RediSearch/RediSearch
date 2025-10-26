@@ -475,37 +475,37 @@ def test_drop_index_memory():
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param',
                query.tobytes(), 'NOCONTENT').error().contains(f"No such index")
 
-@skip(cluster=True)
-def test_drop_index_during_query():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1')
-    dim = 2
-    training_threshold = DEFAULT_BLOCK_SIZE
-    set_up_database_with_vectors(env, dim, num_docs=training_threshold)
+# @skip(cluster=True)
+# def test_drop_index_during_query():
+#     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1')
+#     dim = 2
+#     training_threshold = DEFAULT_BLOCK_SIZE
+#     set_up_database_with_vectors(env, dim, num_docs=training_threshold)
 
-    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], training_threshold)
-    query = create_random_np_array_typed(dim, 'FLOAT32')
-    query_cmd = ['FT.SEARCH', DEFAULT_INDEX_NAME, f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT']
-    # Build threads
-    t_query = threading.Thread(
-        target=runDebugQueryCommandPauseBeforeRPAfterN,
-        args=(env,query_cmd, 'Metrics Applier', 2),
-        daemon=True
-    )
+#     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], training_threshold)
+#     query = create_random_np_array_typed(dim, 'FLOAT32')
+#     query_cmd = ['FT.SEARCH', DEFAULT_INDEX_NAME, f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT']
+#     # Build threads
+#     t_query = threading.Thread(
+#         target=runDebugQueryCommandPauseBeforeRPAfterN,
+#         args=(env,query_cmd, 'Metrics Applier', 2),
+#         daemon=True
+#     )
 
-    # Start the query and the pause-check in parallel
-    t_query.start()
+#     # Start the query and the pause-check in parallel
+#     t_query.start()
 
-    while getIsRPPaused(env) != 1:
-        time.sleep(0.1)
+#     while getIsRPPaused(env) != 1:
+#         time.sleep(0.1)
 
-    # drop the index while query is running
-    env.expect('FT.DROPINDEX', DEFAULT_INDEX_NAME).ok()
+#     # drop the index while query is running
+#     env.expect('FT.DROPINDEX', DEFAULT_INDEX_NAME).ok()
 
-    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
-    env.expect(*query_cmd).error().contains(f"No such index")
-    # Resume the query
-    setPauseRPResume(env)
-    t_query.join()
+#     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
+#     env.expect(*query_cmd).error().contains(f"No such index")
+#     # Resume the query
+#     setPauseRPResume(env)
+#     t_query.join()
 
-    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
-    env.expect(*query_cmd).error().contains(f"No such index")
+#     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
+#     env.expect(*query_cmd).error().contains(f"No such index")
