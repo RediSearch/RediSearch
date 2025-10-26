@@ -61,6 +61,15 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: Free up disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet        # ~10GB
+          sudo rm -rf /usr/local/lib/android   # ~10GB  
+          sudo rm -rf /opt/ghc                 # ~2GB
+          sudo rm -rf /opt/hostedtoolcache/CodeQL  # ~5GB
+          sudo docker image prune --all --force
+          df -h
       - name: Check disk space 1st
         run: du -h -d 1 /usr/local/lib
       - name: Check disk space 1st
