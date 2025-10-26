@@ -233,6 +233,8 @@ jobs:
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
+        # Only run unit tests if standalone is enabled (to avoid running twice in split coverage)
+        if: ${{ inputs.standalone }}
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
@@ -321,7 +323,8 @@ jobs:
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
-        if: inputs.coverage
+        # Only upload unit coverage from standalone job (unit tests only run there)
+        if: inputs.coverage && inputs.standalone
         uses: codecov/codecov-action@v5
         with:
           files: bin/unit.info,bin/rust_cov.info
