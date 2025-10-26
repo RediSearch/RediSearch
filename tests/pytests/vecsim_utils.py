@@ -34,16 +34,14 @@ def create_vector_index(env: Env, dim, index_name=DEFAULT_INDEX_NAME, field_name
                 field_name, 'VECTOR', alg, len(params), *params,
                 *additional_schema_args)
     except redis_exceptions.ResponseError as e:
-        env.assertTrue(False, message=f"Failed to create index: '{index_name}' {message} with error: {e}", depth=depth+1)
+        env.assertTrue(False, message=f"Failed to create index: '{index_name}', metric: {metric}, datatype: {datatype}, alg: {alg}, {message} with error: {e}", depth=depth+1)
 
 # Will populate the database with hashes doc_name_prefix<doc_id> containing a single vector field
 def populate_with_vectors(env, num_docs, dim, datatype='FLOAT32', field_name=DEFAULT_FIELD_NAME, initial_doc_id=1, doc_name_prefix=DEFAULT_DOC_NAME_PREFIX, normalize=False):
     conn = getConnectionByEnv(env)
     p = conn.pipeline(transaction=False)
     for i in range(num_docs):
-        vector = create_random_np_array_typed(dim, datatype)
-        if normalize:
-            vector = vector / np.linalg.norm(vector)
+        vector = create_random_np_array_typed(dim, datatype, normalize=normalize)
         p.execute_command('HSET', f'{doc_name_prefix}{initial_doc_id + i}', field_name, vector.tobytes())
     p.execute()
 
@@ -56,10 +54,10 @@ def set_up_database_with_vectors(env: Env, dim, num_docs, index_name=DEFAULT_IND
                         additional_vec_params=additional_vec_params,
                         additional_schema_args=additional_schema_args)
 
-    populate_with_vectors(env, num_docs, dim, datatype)
+    populate_with_vectors(env, num_docs, dim, datatype, field_name)
 
 def get_tiered_debug_info(env, index_name, field_name) -> dict:
-    return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, field_name))
+    return to_dict(env.execute_command(debug_cmd(), "VECSIM_INFO", index_name, field_name))
 
 def get_tiered_frontend_debug_info(env, index_name, field_name) -> dict:
     tiered_index_info = get_tiered_debug_info(env, index_name, field_name)
@@ -83,7 +81,9 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
         is_trained = False
         while not is_trained:
             # 'BACKGROUND_INDEXING' == 0 means training is done
-            is_trained = get_tiered_debug_info(env, index_name, field_name)['BACKGROUND_INDEXING'] == 0
+            for con in env.getOSSMasterNodesConnectionList():
+                is_trained = get_tiered_debug_info(con, index_name, field_name)['BACKGROUND_INDEXING'] == 0
             time.sleep(0.1)
 
-        env.assertGreater(get_tiered_backend_debug_info(env, index_name, field_name)['INDEX_SIZE'], 0, message=message)
+        for id, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            env.assertGreater(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"wait_for_background_indexing: shard: {id}, " + message)
