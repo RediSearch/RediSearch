@@ -53,6 +53,8 @@ jobs:
       env: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
       test-config: QUICK=1
       get-redis: ${{ inputs.get-redis }}
+      coordinator: true   # Run both coordinator and standalone tests
+      standalone: true    # (defaults, but explicit for clarity)
       pre-steps-script: echo "HOME=/home/ubuntu" >> $GITHUB_ENV
 
   stop-runner:
