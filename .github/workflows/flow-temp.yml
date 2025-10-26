@@ -13,7 +13,8 @@ on:
 
 jobs:
 
-  coverage:
+  # Job 1: Run standalone tests only
+  coverage-standalone:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
@@ -21,3 +22,30 @@ jobs:
       get-redis: '8.2.2'
       rejson-branch: master
       test-config: '' # run all tests
+      coordinator: false  # Skip coordinator tests
+      standalone: true    # Run standalone tests
+
+  # Job 2: Run coordinator tests only
+  coverage-coordinator:
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      coverage: true
+      get-redis: '8.2.2'
+      rejson-branch: master
+      test-config: '' # run all tests
+      coordinator: true   # Run coordinator tests
+      standalone: false   # Skip standalone tests
+
+  # Job 3: Wait for both jobs and provide single status check
+  coverage-complete:
+    needs: [coverage-standalone, coverage-coordinator]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Coverage jobs completed
+        run: |
+          echo "✅ Standalone tests completed successfully"
+          echo "✅ Coordinator tests completed successfully"
+          echo "✅ Coverage data uploaded to Codecov from both jobs"
+          echo ""
+          echo "Codecov will automatically merge the coverage reports."
