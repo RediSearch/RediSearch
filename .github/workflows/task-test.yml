@@ -61,6 +61,8 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: Check disk space 1st
+        run: df -h .
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
         if: inputs.pre-steps-script && inputs.container == 'alpine:3'
@@ -144,6 +146,8 @@ jobs:
           echo "Runner OS: $RUNNER_OS"
           echo "Runner Architecture: ${{ runner.arch }}"
           echo "========================"
+      - name: Check disk after checkout
+        run: df -h .
       - name: Setup
         working-directory: .install
         run: |
@@ -162,6 +166,8 @@ jobs:
           echo "CC=$CLANG_BIN" >> $GITHUB_ENV
           echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
+      - name: Check disk after Install LLVM for sanitizer
+        run: df -h .
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
@@ -199,7 +205,7 @@ jobs:
                              ${{ inputs.container || inputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Check disk space
-        run: df -h
+        run: df -h .
       - name: free disk space
         shell: bash
         run: |
