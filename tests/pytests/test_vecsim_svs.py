@@ -11,7 +11,8 @@ from vecsim_utils import (
     create_vector_index,
     get_tiered_frontend_debug_info,
     get_tiered_backend_debug_info,
-    wait_for_background_indexing
+    wait_for_background_indexing,
+    get_tiered_debug_info
     )
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
 SVS_COMPRESSION_TYPES = ['NO_COMPRESSION', 'LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']
@@ -155,3 +156,41 @@ def test_svs_vamana_info():
         assertInfoField(env, 'idx', 'attributes',
                         expected_info)
         env.expect('FT.DROPINDEX', 'idx').ok()
+
+# TODO: Elaborate for doord
+def test_vamana_debug_info_vs_info():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
+    extend_params = [None,
+                     # non default params
+                     ['COMPRESSION', 'LVQ8', 'GRAPH_MAX_DEGREE', 1, 'CONSTRUCTION_WINDOW_SIZE', 1, 'TRAINING_THRESHOLD', DEFAULT_BLOCK_SIZE * 2],
+                     ['COMPRESSION', 'LVQ8'], ['COMPRESSION', 'LeanVec4x8']]
+    dim = 4
+    index_name = DEFAULT_INDEX_NAME
+    field_name = DEFAULT_FIELD_NAME
+
+    def compare_debug_info_to_ft_info(index_debug_info: dict, vec_field_info: dict, extend_params, message):
+        backend_debug_info = to_dict(index_debug_info['BACKEND_INDEX'])
+        env.assertEqual(backend_debug_info['DIMENSION'], vec_field_info['dim'], message=message)
+        env.assertEqual(backend_debug_info['TYPE'], vec_field_info['data_type'], message=message)
+        env.assertEqual(backend_debug_info['METRIC'], vec_field_info['distance_metric'], message=message)
+        env.assertEqual(backend_debug_info['GRAPH_MAX_DEGREE'], vec_field_info['graph_max_degree'], message=message)
+        env.assertEqual(backend_debug_info['CONSTRUCTION_WINDOW_SIZE'], vec_field_info['construction_window_size'], message=message)
+        env.assertEqual(index_debug_info['TIERED_SVS_UPDATE_THRESHOLD'], DEFAULT_BLOCK_SIZE, message=message)
+
+        if extend_params:
+            env.assertEqual(index_debug_info['TIERED_SVS_TRAINING_THRESHOLD'], vec_field_info['training_threshold'], message=message)
+        else:
+            # for non-compressed index, first batch TH equals to subsequent batches TH.
+            env.assertEqual(index_debug_info['TIERED_SVS_TRAINING_THRESHOLD'], DEFAULT_BLOCK_SIZE, message=message)
+    for data_type in VECSIM_SVS_DATA_TYPES:
+        for params in extend_params:
+            create_vector_index(env, dim, index_name=index_name, field_name=field_name, datatype=data_type, alg='SVS-VAMANA',
+                                additional_vec_params=params, message=f"datatype: {data_type}, params: {params}")
+            debug_info = get_tiered_debug_info(env, index_name, field_name)
+            vec_field_info = to_dict(index_info(env, index_name)['attributes'][0])
+
+            compare_debug_info_to_ft_info(debug_info, vec_field_info,
+                                          params, message=f"datatype: {data_type}, params: {params}")
+            conn = getConnectionByEnv(env)
+            conn.execute_command('FLUSHALL')
