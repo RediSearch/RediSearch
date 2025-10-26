@@ -867,6 +867,8 @@ def test_hybrid_query_with_text_vamana():
 
     load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, index_size, data_type)
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    index_size = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE']
+    env.debugPrint(f"svs index size: {index_size}", force=True)
 
     query_data = create_np_array_typed([1] * dim, data_type)
 
