@@ -894,7 +894,6 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
 
         env.assertGreater(get_tiered_backend_debug_info(env, index_name, field_name)['INDEX_SIZE'], 0, message=message)
 
-
 # This test validates the SVS-VAMANA hybrid search mode selection heuristic.
 # The heuristic automatically chooses between HYBRID_ADHOC_BF and HYBRID_BATCHES modes
 # based on subset size ratio, index size, and k value using these thresholds:
