@@ -569,3 +569,29 @@ void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx) {
   RS_ASSERT(success != REDISMODULE_ERR); // should be supported in this redis version/release
   RedisModule_Log(ctx, "notice", "Enabled role change notification");
 }
+
+// This function is called in case the server is started or
+// when the replica is loading the RDB file from the master.
+void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START || subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START || subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
+    Indexes_StartRDBLoadingEvent();
+    workersThreadPool_OnEventStart();
+  } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
+    Indexes_EndRDBLoadingEvent(ctx);
+    int rc = workersThreadPool_OnEventEnd(true);
+    RS_LOG_ASSERT(rc == REDISMODULE_OK, "Another event has started while loading was in progress");
+    Indexes_EndLoading();
+    RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
+  } else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
+    // Clear pending jobs from job queue in case of short read.
+    int rc = workersThreadPool_OnEventEnd(true);
+    RS_LOG_ASSERT(rc == REDISMODULE_OK, "Another event has started while loading was in progress");
+    Indexes_EndLoading();
+  }
+}
+
+void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  RedisModule_Log(RSDummyContext, "debug", "Waiting for background jobs to be executed while loading is in progress (progress is %d)",
+  ((RedisModuleLoadingProgress *)data)->progress);
+  workersThreadPool_Drain(ctx, 100);
+}

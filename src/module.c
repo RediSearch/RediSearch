@@ -71,6 +71,7 @@
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
 #include "util/redis_mem_info.h"
+#include "notifications.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1354,6 +1355,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   RM_TRY_F(IndexSpec_RegisterType, ctx);
 
   RM_TRY_F(RegisterLegacyTypes, ctx);
+
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, RDB_LoadingEvent);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_LoadingProgress, LoadingProgressCallback);
 
 // With coordinator we do not want to raise a move error for index commands so we do not specify
 // any key.
