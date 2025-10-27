@@ -444,5 +444,9 @@ def test_hybrid_oom_verbosity_cluster_return():
     query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
 
     # Note - only the coordinator shard will return results
-    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
-    env.assertEqual(res['warnings'][0], OOM_WARNING)
+    res3 = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+    env.assertEqual(res3['warnings'][0], OOM_WARNING)
+
+    env.cmd('HELLO', 2)
+    res2 = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+    env.assertEqual(res2[5][0], OOM_WARNING)
