@@ -85,7 +85,7 @@ typedef struct {
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
-  // Default scorer name to use when no scorer is specified (default: BM25STD)
+  // Default scorer name to use when no scorer is specified (default: TFIDF)
   const char *defaultScorer;
 
   IteratorsConfig iteratorsConfigParams;
