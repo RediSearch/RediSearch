@@ -573,8 +573,7 @@ void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx) {
 // This function is called in case the server is started or
 // when the replica is loading the RDB file from the master.
 void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-  switch (subevent)
-  {
+  switch (subevent) {
   case REDISMODULE_SUBEVENT_LOADING_RDB_START:
   case REDISMODULE_SUBEVENT_LOADING_AOF_START:
   case REDISMODULE_SUBEVENT_LOADING_REPL_START:
