@@ -297,5 +297,5 @@ fn skip_between_any_pair() {
 fn revalidate() {
     let metric_data = vec![0.1, 0.2, 0.3];
     let mut it = Metric::new(vec![1, 2, 3], metric_data);
-    assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
 }
