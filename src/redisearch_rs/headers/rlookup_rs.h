@@ -6,6 +6,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+// Required to ensure that the alignment declared by cbindgen is respected on
+// the C/C++ side.
+#define ALIGNED(n) __attribute__((aligned(n)))
+
 // forward declarations for bitflags type names
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
@@ -23,103 +27,19 @@ typedef struct RLookup {
   IndexSpecCache *spcache;
 } RLookup;
 
-typedef struct RLookupRow {
-  uint8_t opaque;
-} RLookupRow;
-
 // forward declarations for types that are only used as a pointer
 typedef struct RSValue RSValue;
 
 
-enum RLookupKeyFlag
-#ifdef __cplusplus
-  : uint32_t
-#endif // __cplusplus
- {
-  /**
-   * This field is (or assumed to be) part of the document itself.
-   * This is a basic flag for a loaded key.
-   */
-  DocSrc = 1,
-  /**
-   * This field is part of the index schema.
-   */
-  SchemaSrc = 2,
-  /**
-   * Check the sorting table, if necessary, for the index of the key.
-   */
-  SvSrc = 4,
-  /**
-   * This key was created by the query itself (not in the document)
-   */
-  QuerySrc = 8,
-  /**
-   * Copy the key string via strdup. `name` may be freed
-   */
-  NameAlloc = 16,
-  /**
-   * If the key is already present, then overwrite it (relevant only for LOAD or WRITE modes)
-   */
-  Override = 32,
-  /**
-   * Request that the key is returned for loading even if it is already loaded.
-   */
-  ForceLoad = 64,
-  /**
-   * This key is unresolved. Its source needs to be derived from elsewhere
-   */
-  Unresolved = 128,
-  /**
-   * This field is hidden within the document and is only used as a transient
-   * field for another consumer. Don't output this field.
-   */
-  Hidden = 256,
-  /**
-   * The opposite of [`RLookupKeyFlag::Hidden`]. This field is specified as an explicit return in
-   * the RETURN list, so ensure that this gets emitted. Only set if
-   * explicitReturn is true in the aggregation request.
-   */
-  ExplicitReturn = 512,
-  /**
-   * This key's value is already available in the RLookup table,
-   * if it was opened for read but the field is sortable and not normalized,
-   * so the data should be exactly the same as in the doc.
-   */
-  ValAvailable = 1024,
-  /**
-   * This key's value was loaded (by a loader) from the document itself.
-   */
-  IsLoaded = 2048,
-  /**
-   * This key type is numeric
-   */
-  Numeric = 4096,
-};
-#ifndef __cplusplus
-typedef uint32_t RLookupKeyFlag;
-#endif // __cplusplus
-
-enum RLookupOption
-#ifdef __cplusplus
-  : uint32_t
-#endif // __cplusplus
- {
-  /**
-   * If the key cannot be found, do not mark it as an error, but create it and
-   * mark it as F_UNRESOLVED
-   */
-  AllowUnresolved = 1,
-  /**
-   * If a loader was added to load the entire document, this flag will allow
-   * later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
-   */
-  AllLoaded = 2,
-};
-#ifndef __cplusplus
-typedef uint32_t RLookupOption;
-#endif // __cplusplus
-
 typedef struct IndexSpecCache IndexSpecCache;
+
+typedef struct Option_Cow_CStr Option_Cow_CStr;
+
+typedef struct Option_IndexSpecCache Option_IndexSpecCache;
+
+#if defined(RUST_DEBUG)
+typedef struct RLookupId RLookupId;
+#endif
 
 typedef struct RLookupKey {
   /**
@@ -159,6 +79,46 @@ typedef struct RLookupKey {
   struct RLookupKey *next;
 } RLookupKey;
 
+typedef struct KeyList {
+  struct RLookupKey *head;
+  struct RLookupKey *tail;
+  uint32_t rowlen;
+} KeyList;
+
+typedef struct RLookupHeader {
+  struct KeyList keys;
+} RLookupHeader;
+
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_40[40];
+
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_48[48];
+
+#if !defined(RUST_DEBUG)
+typedef struct ALIGNED(8) RLookupRow {
+  Size_40 _0;
+} RLookupRow;
+#endif
+
+#if defined(RUST_DEBUG)
+/**
+ * An opaque RLookupRow which can be passed by value to C.
+ *
+ * The size and alignment of this struct must match the Rust `RLookupRow`
+ * structure exactly.
+ *
+ * The size is 40 bytes without the RLookupId field (in debug mode it's 48 bytes).
+ */
+typedef struct ALIGNED(8) RLookupRow {
+  Size_48 _0;
+} RLookupRow;
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -186,7 +146,7 @@ extern "C" {
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags);
+struct RLookupKey *RLookup_GetKey_Read(struct RLookup *lookup, const char *name, uint32_t flags);
 
 /**
  * Get a RLookup key for a given name.
@@ -212,7 +172,7 @@ struct RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup,
+struct RLookupKey *RLookup_GetKey_ReadEx(struct RLookup *lookup,
                                          const char *name,
                                          size_t name_len,
                                          uint32_t flags);
@@ -239,7 +199,7 @@ struct RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags);
+struct RLookupKey *RLookup_GetKey_Write(struct RLookup *lookup, const char *name, uint32_t flags);
 
 /**
  * Get a RLookup key for a given name.
@@ -264,7 +224,7 @@ struct RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint3
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup,
+struct RLookupKey *RLookup_GetKey_WriteEx(struct RLookup *lookup,
                                           const char *name,
                                           size_t name_len,
                                           uint32_t flags);
@@ -293,7 +253,7 @@ struct RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_Load(RLookup *lookup,
+struct RLookupKey *RLookup_GetKey_Load(struct RLookup *lookup,
                                        const char *name,
                                        const char *field_name,
                                        uint32_t flags);
@@ -323,7 +283,7 @@ struct RLookupKey *RLookup_GetKey_Load(RLookup *lookup,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup,
+struct RLookupKey *RLookup_GetKey_LoadEx(struct RLookup *lookup,
                                          const char *name,
                                          size_t name_len,
                                          const char *field_name,
@@ -341,7 +301,7 @@ struct RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_Init(RLookup *lookup, struct IndexSpecCache *spcache);
+void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
 
 /**
  * Releases any resources created by this lookup object. Note that if there are
@@ -355,7 +315,7 @@ void RLookup_Init(RLookup *lookup, struct IndexSpecCache *spcache);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_Cleanup(RLookup *lookup);
+void RLookup_Cleanup(struct RLookup *lookup);
 
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
@@ -369,7 +329,7 @@ void RLookup_Cleanup(RLookup *lookup);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_WriteKey(const struct RLookupKey *key,
-                      RLookupRow *row,
+                      struct RLookupRow *row,
                       RSValue *value);
 
 /**
@@ -384,7 +344,7 @@ void RLookup_WriteKey(const struct RLookupKey *key,
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_WriteOwnKey(const struct RLookupKey *key,
-                         RLookupRow *row,
+                         struct RLookupRow *row,
                          RSValue *value);
 
 /**
@@ -396,7 +356,7 @@ void RLookup_WriteOwnKey(const struct RLookupKey *key,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Wipe(RLookupRow *row);
+void RLookupRow_Wipe(struct RLookupRow *row);
 
 /**
  * Resets a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory of the dynamic values.
@@ -409,7 +369,7 @@ void RLookupRow_Wipe(RLookupRow *row);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Reset(RLookupRow *row);
+void RLookupRow_Reset(struct RLookupRow *row);
 
 /**
  * Move data from the source row to the destination row. The source row is cleared.
@@ -424,7 +384,7 @@ void RLookupRow_Reset(RLookupRow *row);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Move(RLookup *lookup, RLookupRow *src, RLookupRow *dst);
+void RLookupRow_Move(struct RLookup *lookup, struct RLookupRow *src, struct RLookupRow *dst);
 
 /**
  * Write fields from a source row into a destination row, the fields must exist in both lookups (schemas).
@@ -442,10 +402,10 @@ void RLookupRow_Move(RLookup *lookup, RLookupRow *src, RLookupRow *dst);
  * 3. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
  * 4. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
  */
-void RLookupRow_WriteFieldsFrom(RLookupRow *src_row,
-                                RLookup *src_lookup,
-                                RLookupRow *dst_row,
-                                RLookup *dst_lookup);
+void RLookupRow_WriteFieldsFrom(struct RLookupRow *src_row,
+                                struct RLookup *src_lookup,
+                                struct RLookupRow *dst_row,
+                                struct RLookup *dst_lookup);
 
 /**
  * Add all on-overridden keys from `src` to `self`.
@@ -464,8 +424,8 @@ void RLookupRow_WriteFieldsFrom(RLookupRow *src_row,
  * 1. `src` must be a [valid], non-null pointer to an [`RLookup`].
  * 2. `dst` must be a [valid], non-null pointer to an [`RLookup`].
  */
-void RLookup_AddKeysFrom(RLookup *src,
-                         RLookup *dst,
+void RLookup_AddKeysFrom(struct RLookup *src,
+                         struct RLookup *dst,
                          uint32_t flags);
 
 /**
@@ -478,7 +438,7 @@ void RLookup_AddKeysFrom(RLookup *src,
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
  * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
  */
-const RSValue *RLookup_GetItem(struct RLookupKey *key, RLookupRow *row);
+const RSValue *RLookup_GetItem(struct RLookupKey *key, struct RLookupRow *row);
 
 /**
  * Sets a sorting vector for the row.
@@ -486,24 +446,24 @@ const RSValue *RLookup_GetItem(struct RLookupKey *key, RLookupRow *row);
  * 1. `row` must be a valid pointer to an [`RLookupRow`].
  * 2. `sv` must be a valid pointer to an [`ffi::RSSortingVector`].
  */
-void RLookupRow_SetSortingVector(RLookupRow *row, const RSSortingVector *sv);
+void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *sv);
 
 /**
  * Returns a pointer to the sorting vector if it exists, or null otherwise.
  *
  * Safety:
- * The caller does not own the returned pointer and must not attempt to free it.
+ * 1. `row` must be a valid pointer to an [`RLookupRow`].
  */
-const RSSortingVector *RLookupRow_GetSortingVector(RLookupRow *row);
+const RSSortingVector *RLookupRow_GetSortingVector(struct RLookupRow *row);
 
 /**
  * Returns the number of dynamic values in the row.
  *
  * # Safety
- * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- *
+ * Safety:
+ * 1. `row` must be a valid pointer to an [`RLookupRow`].
  */
-uint32_t RLookupRow_GetDynLen(RLookupRow *row);
+uint32_t RLookupRow_GetDynLen(struct RLookupRow *row);
 
 #ifdef __cplusplus
 }  // extern "C"

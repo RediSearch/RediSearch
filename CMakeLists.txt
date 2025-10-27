@@ -188,9 +188,10 @@ endif()
 
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
-# On debug artifacts, enable assertions
+# On debug artifacts, enable assertions and use debug enhanced Rust FFI 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR ENABLE_ASSERT)
     add_compile_definitions(ENABLE_ASSERT=1)
+    add_compile_definitions(RUST_DEBUG=1)
 endif()
 
 #----------------------------------------------------------------------------------------------

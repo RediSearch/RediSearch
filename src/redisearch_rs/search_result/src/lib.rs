@@ -79,7 +79,10 @@ impl<'index> SearchResult<'index> {
             score_explain: None,
             document_metadata: None,
             index_result: None,
-            row_data: ffi::RLookupRow { opaque: 0 },
+            row_data: ffi::RLookupRow {
+                // Safety: zeroed RLookupRow is valid
+                ..unsafe { std::mem::zeroed() }
+            },
             flags: SearchResultFlags::from_bits_truncate_c(0, BitFlags::CONST_TOKEN),
         }
     }
