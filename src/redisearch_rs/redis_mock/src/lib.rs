@@ -16,6 +16,7 @@
 //! C code, since it levels the playing field by forcing both to use the same memory allocator.
 
 pub mod allocator;
+pub mod call;
 pub mod globals;
 pub mod key;
 pub mod scan_key_cursor;
@@ -23,6 +24,7 @@ pub mod string;
 
 use std::ffi::CString;
 
+use call::*;
 use key::*;
 use scan_key_cursor::*;
 use string::*;
@@ -81,6 +83,46 @@ pub fn init_redis_module_mock() {
         redis_module::raw::RedisModule_ScanCursorDestroy = Some(RedisModule_ScanCursorDestroy)
     };
     unsafe { redis_module::raw::RedisModule_ScanKey = Some(RedisModule_ScanKey) };
+
+    // Register call reply functions
+    unsafe { redis_module::raw::RedisModule_CallReplyType = Some(RedisModule_CallReplyType) };
+    unsafe { redis_module::raw::RedisModule_CallReplyLength = Some(RedisModule_CallReplyLength) };
+    unsafe {
+        redis_module::raw::RedisModule_CallReplyArrayElement =
+            Some(RedisModule_CallReplyArrayElement)
+    };
+    unsafe {
+        redis_module::raw::RedisModule_CallReplyStringPtr = Some(RedisModule_CallReplyStringPtr)
+    };
+    unsafe { redis_module::raw::RedisModule_FreeCallReply = Some(RedisModule_FreeCallReply) };
+
+    // Cast the variadic C function pointer to the expected Redis module function pointer type.
+    //
+    // The C function signature is: RedisModuleCallReply* RedisModule_CallImpl(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
+    // We use transmute to cast between function pointer types since Rust doesn't support variadic function types
+    // in function pointer signatures, but the C ABI will handle the variadic arguments correctly.
+    //
+    // First cast to raw pointer, then transmute to the expected function pointer type.
+
+    let raw_ptr = RedisModule_CallHgetAll as *const ();
+    let new_ftor = unsafe {
+        std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut redis_module::RedisModuleCtx,
+                *const i8,
+                *const i8,
+                ...
+            ) -> *mut redis_module::RedisModuleCallReply,
+        >(raw_ptr)
+    };
+    // Safety: This works as long as we only set this once during initialization.
+    // in other words, if we want to support different implementations of RedisModule_Call than
+    // HgetAll, we would need to add more machinery to swap them safely.
+    //
+    // In that case a call function that dispatches to different implementations based on the cmdname
+    // would be more appropriate.
+    unsafe { redis_module::raw::RedisModule_Call = Some(new_ftor) }
 }
 
 #[macro_export]

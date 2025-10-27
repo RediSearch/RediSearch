@@ -329,7 +329,7 @@ pub enum LoadDocumentError {
     },
 
     /// Neither the scan API nor the fallback Call API is available
-    FallbackAPINotAvailable,
+    CallAPIError,
 
     /// A temporary error that occurred in the C code, e.g. C was called and returned [`ffi::REDISMODULE_ERR`].
     FromCCode,
@@ -390,7 +390,7 @@ impl std::fmt::Display for LoadDocumentError {
                 #[cfg(not(debug_assertions))]
                 write!(f, "Invalid arguments")
             }
-            Self::FallbackAPINotAvailable => write!(
+            Self::CallAPIError => write!(
                 f,
                 "Neither the `Scan` nor the `Call` API is available for hash based documents"
             ),
@@ -430,9 +430,6 @@ impl LoadDocumentError {
         Self::InvalidArguments {}
     }
 }
-
-#[cfg(test)]
-pub mod mock;
 
 #[cfg(test)]
 mod tests {
@@ -508,15 +505,15 @@ mod tests {
                 ValueSrc::ReplyElem(reply_ptr) => {
                     // Convert the RedisModuleCallReply to a string value
                     let mut len: usize = 0;
-                    let string_ptr = unsafe {
-                        ffi::RedisModule_CallReplyStringPtr.unwrap()(
-                            reply_ptr as *mut ffi::RedisModuleCallReply,
-                            &mut len,
-                        )
-                    };
+                    // Safety: Static mutable access to function pointers is idempotent after initialization
+                    let ftor = unsafe { ffi::RedisModule_CallReplyStringPtr.unwrap() };
+                    // Safety: We assume the caller provided a valid call reply pointer.
+                    let string_ptr =
+                        unsafe { ftor(reply_ptr as *mut ffi::RedisModuleCallReply, &mut len) };
                     if string_ptr.is_null() {
                         RSValueMock::create_string(String::new())
                     } else {
+                        // Safety: We assume the return of RedisModule_CallReplyStringPtr is valid for len bytes.
                         let slice =
                             unsafe { std::slice::from_raw_parts(string_ptr as *const u8, len) };
                         let string = String::from_utf8_lossy(slice).to_string();

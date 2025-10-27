@@ -1,30 +1,19 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Mock implementations of RedisModule_Call (HGETALL) and related functions & types.
+//!
+//! For now it only implements a mock for the HGETALL command.
+//!
+//! These mocks are intended for testing purposes only.
+
 use std::ffi::{CString, c_char, c_int};
-
-fn init_mock_call_reply_functions() {
-    // Register call reply functions
-    unsafe { redis_module::raw::RedisModule_CallReplyType = Some(RedisModule_CallReplyType) };
-    unsafe { redis_module::raw::RedisModule_CallReplyLength = Some(RedisModule_CallReplyLength) };
-    unsafe {
-        redis_module::raw::RedisModule_CallReplyArrayElement =
-            Some(RedisModule_CallReplyArrayElement)
-    };
-    unsafe {
-        redis_module::raw::RedisModule_CallReplyStringPtr = Some(RedisModule_CallReplyStringPtr)
-    };
-    unsafe { redis_module::raw::RedisModule_FreeCallReply = Some(RedisModule_FreeCallReply) };
-
-    // Cast the variadic C function pointer to the expected Redis module function pointer type.
-    //
-    // The C function signature is: RedisModuleCallReply* RedisModule_CallImpl(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
-    // We use transmute to cast between function pointer types since Rust doesn't support variadic function types
-    // in function pointer signatures, but the C ABI will handle the variadic arguments correctly.
-    //
-    // First cast to raw pointer, then transmute to the expected function pointer type.
-    unsafe {
-        let raw_ptr = RedisModule_CallImpl as *const ();
-        redis_module::raw::RedisModule_Call = Some(std::mem::transmute(raw_ptr))
-    }
-}
 
 // Mock reply structure to simulate RedisModuleCallReply
 #[repr(C)]
@@ -32,6 +21,8 @@ struct MockCallReply {
     reply_type: c_int,
     string_data: CString,
     array_data: Vec<CString>,
+    gc: Vec<MockCallReply>, // To hold owned replies, e.g. from an array, for cleanup
+    is_nested: bool,
 }
 
 impl MockCallReply {
@@ -40,6 +31,8 @@ impl MockCallReply {
             reply_type: redis_module::raw::REDISMODULE_REPLY_ARRAY as c_int,
             string_data: CString::new("").unwrap(), // Empty for arrays
             array_data: strings,
+            gc: vec![],
+            is_nested: false,
         }
     }
 
@@ -48,46 +41,68 @@ impl MockCallReply {
             reply_type: redis_module::raw::REDISMODULE_REPLY_STRING as c_int,
             string_data: CString::new(s).unwrap(),
             array_data: Vec::new(),
+            gc: vec![],
+            is_nested: false,
         }
+    }
+
+    const fn with_nested(mut self) -> Self {
+        self.is_nested = true;
+        self
     }
 }
 
+/// Mock implementation of RedisModule_Call for HGETALL command
+///
+/// If the command is not HGETALL, it returns a null pointer.
+///
+/// Otherwise, the function returns a pointer to a MockCallReply representing the HGETALL result.
+///
+/// # Safety
+/// 1. ctx must be a valid pointer to a [crate::TestContext]
+/// 2. cmdname must be a valid C string.
 #[allow(non_snake_case)]
-#[unsafe(export_name = "RedisModule_CallImpl")]
-pub extern "C" fn RedisModule_CallImpl(
+#[unsafe(export_name = "RedisModule_CallHgetAll")]
+pub unsafe extern "C" fn RedisModule_CallHgetAll(
     ctx: *mut ffi::RedisModuleCtx,
     cmdname: *const c_char,
     _fmt: *const c_char,
     _keyname: *mut ffi::RedisModuleString,
 ) -> *mut redis_module::raw::RedisModuleCallReply {
     // Check if this is an HGETALL command
+
+    // Safety: Caller has to ensure 2.
     let cmd_str = unsafe { std::ffi::CStr::from_ptr(cmdname) };
     if cmd_str.to_bytes() != b"HGETALL" {
         return std::ptr::null_mut();
     }
 
-    let ctx: &LoadDocumentTestContext = unsafe { &*(ctx as *const LoadDocumentTestContext) };
+    // Safety: Caller is has to ensure 2 and thus we can cast the context as [crate::TestContext]
+    let test_ctx = unsafe {
+        ctx.cast::<crate::TestContext>()
+            .as_ref()
+            .expect("ctx pointer must be valid and point to TestContext")
+    };
 
     // Create array elements: [key1, value1, key2, value2, ...]
     let mut elements = Vec::new();
-    for (k, v) in ctx.access_key_values().iter() {
+    for (k, v) in test_ctx.access_key_values().iter() {
         elements.push(k.clone());
-        let value_str = v.as_str().unwrap_or("");
-        let value_str = CString::new(value_str).unwrap();
-        elements.push(value_str);
+        elements.push(v.clone());
     }
 
     let reply = Box::new(MockCallReply::new_array_from_strings(elements));
     Box::into_raw(reply) as *mut redis_module::raw::RedisModuleCallReply
 }
 
+/// Mock functions to handle the call reply operations.
 #[allow(non_snake_case)]
-// Mock functions to handle the call reply operations
 #[unsafe(export_name = "_RedisModule_CallReplyType.1")]
 pub extern "C" fn RedisModule_CallReplyType(
     reply: *mut redis_module::raw::RedisModuleCallReply,
 ) -> c_int {
-    let mock_reply = unsafe { &*(reply as *const MockCallReply) };
+    // Safety: The entire redis_mock provides call functions that return [MockCallReply] pointers only.
+    let mock_reply = unsafe { &*reply.cast::<MockCallReply>() };
     mock_reply.reply_type
 }
 
@@ -96,7 +111,8 @@ pub extern "C" fn RedisModule_CallReplyType(
 pub extern "C" fn RedisModule_CallReplyLength(
     reply: *mut redis_module::raw::RedisModuleCallReply,
 ) -> usize {
-    let mock_reply = unsafe { &*(reply as *const MockCallReply) };
+    // Safety: The entire redis_mock provides call functions that return [MockCallReply] pointers only.
+    let mock_reply = unsafe { &*reply.cast::<MockCallReply>() };
     mock_reply.array_data.len()
 }
 
@@ -106,25 +122,35 @@ pub extern "C" fn RedisModule_CallReplyArrayElement(
     reply: *mut redis_module::raw::RedisModuleCallReply,
     idx: usize,
 ) -> *mut redis_module::raw::RedisModuleCallReply {
-    let mock_reply = unsafe { &*(reply as *const MockCallReply) };
+    // Safety: The entire redis_mock provides call functions that return [MockCallReply] pointers only.
+    let mock_reply = unsafe { reply.cast::<MockCallReply>().as_mut().expect("msg") };
     if idx >= mock_reply.array_data.len() {
         return std::ptr::null_mut();
     }
 
     // Create a boxed string element and leak it (Redis will handle cleanup)
-    let element = MockCallReply::new_string(mock_reply.array_data[idx].to_str().unwrap_or(""));
-    let boxed = Box::new(element);
-    Box::into_raw(boxed) as *mut redis_module::raw::RedisModuleCallReply
+    let element =
+        MockCallReply::new_string(mock_reply.array_data[idx].to_str().unwrap_or("")).with_nested();
+    mock_reply.gc.push(element);
+    let element_ref = mock_reply.gc.last_mut().expect("we just added an element");
+    std::ptr::from_mut(element_ref).cast()
 }
 
+/// Mock implementation of RedisModule_CallReplyStringPtr
+///
+/// # Safety
+/// 1. reply must be a valid pointer to a CallReply generated by this mock.
+/// 2. len must be a valid pointer to write the length of the string data.
 #[allow(non_snake_case)]
 #[unsafe(export_name = "_RedisModule_CallReplyStringPtr.1")]
-pub extern "C" fn RedisModule_CallReplyStringPtr(
+pub unsafe extern "C" fn RedisModule_CallReplyStringPtr(
     reply: *mut redis_module::raw::RedisModuleCallReply,
     len: *mut usize,
 ) -> *const c_char {
-    let mock_reply = unsafe { &*(reply as *const MockCallReply) };
+    // Safety: The entire redis_mock provides call functions that return [MockCallReply] pointers only.
+    let mock_reply = unsafe { &*reply.cast::<MockCallReply>() };
     if !len.is_null() {
+        // Safety: Caller has to ensure 2.
         unsafe {
             *len = mock_reply.string_data.as_bytes().len();
         }
@@ -132,10 +158,21 @@ pub extern "C" fn RedisModule_CallReplyStringPtr(
     mock_reply.string_data.as_ptr()
 }
 
+/// Mock implementation of RedisModule_FreeCallReply
+///# Safety
+/// 1. reply must be a valid pointer to a CallReply generated by this mock.
+/// 2. Caller must not call this function more than once for the same reply pointer.
 #[allow(non_snake_case)]
 #[unsafe(export_name = "_RedisModule_FreeCallReply.1")]
-pub extern "C" fn RedisModule_FreeCallReply(reply: *mut redis_module::raw::RedisModuleCallReply) {
-    unsafe {
-        drop(Box::from_raw(reply as *mut MockCallReply));
+pub unsafe extern "C" fn RedisModule_FreeCallReply(
+    reply: *mut redis_module::raw::RedisModuleCallReply,
+) {
+    // Safety: The entire redis_mock provides call functions that return [MockCallReply] pointers only.
+    let reply = unsafe { reply.cast::<MockCallReply>().as_mut().expect("msg") };
+    if !reply.is_nested {
+        // Safety: The box has been generated by Box::into_raw in the call function, so we can safely reconstruct it here for cleanup.
+        // Caller has to ensure 2, though.
+        let to_free = unsafe { Box::from_raw(reply) };
+        drop(to_free);
     }
 }

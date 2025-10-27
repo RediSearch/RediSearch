@@ -10,8 +10,7 @@
 use std::{borrow::Cow, ffi::CStr, ptr::NonNull};
 
 use redis_module::{
-    CallOptionResp, CallOptionsBuilder, CallReply, CallResult, Context, KeyType, RedisString,
-    ScanKeyCursor,
+    CallOptionsBuilder, CallReply, CallResult, Context, KeyType, RedisString, ScanKeyCursor,
     key::{KeyFlags, RedisKey},
 };
 use value::RSValueFFI;
@@ -86,11 +85,7 @@ where
     C: LoadDocumentContext,
 {
     // generate call options to use CALL API from `redis_module` crate.
-    let call_options = CallOptionsBuilder::new()
-        .script_mode()
-        .resp(CallOptionResp::Resp3)
-        .errors_as_replies()
-        .build();
+    let call_options = CallOptionsBuilder::new().build();
 
     // create a context from the RedisModuleCtx
     let ctx = if let Some(ptr) = options.context {
@@ -101,7 +96,7 @@ where
 
     // call HGETALL using the CALL API with `key_str` as argument
     let Ok(reply) = ctx.call_ext::<_, CallResult>("HGETALL", &call_options, &[&key_str]) else {
-        return Err(LoadDocumentError::FallbackAPINotAvailable);
+        return Err(LoadDocumentError::CallAPIError);
     };
 
     // Check if the reply is an array and return an error if not
