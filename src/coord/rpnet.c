@@ -11,7 +11,7 @@
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
 #include "hiredis/sds.h"
-#include "../hybrid/dist_utils.h"
+#include "coord/hybrid/dist_utils.h"
 
 
 #define CURSOR_EOF 0
@@ -269,6 +269,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
               timed_out = true;
             } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
               QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+            }
+            if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
+              AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
             }
           }
         }
