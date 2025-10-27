@@ -3845,7 +3845,6 @@ void Indexes_StartRDBLoadingEvent() {
   } else {
     legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
   }
-  RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
   g_isLoading = true;
 }
 
