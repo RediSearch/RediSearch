@@ -910,6 +910,7 @@ def test_hybrid_query_with_text_vamana():
     # Create 10% subset by changing every 10th document (with ids 10, 20, ..., index_size)
     for i in range(1, int(index_size/10) + 1):
         conn.execute_command('HSET', 10*i, 't', 'other')
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
     env.assertGreater(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], DEFAULT_BLOCK_SIZE)
 
     # Expect to get only vector that passes the filter (i.e, has "other" in t field)
