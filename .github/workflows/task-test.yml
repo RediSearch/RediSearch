@@ -356,9 +356,6 @@ jobs:
             echo ""
             echo "Logs subdirectories size:"
             find tests -type d -name "logs" -exec du -sh {} \; 2>/dev/null || echo "No logs directories found"
-            echo ""
-            echo "Detailed breakdown of logs:"
-            find tests -type d -name "logs" -exec sh -c 'echo "Directory: {}"; du -h {} | tail -1' \; 2>/dev/null || echo "No logs found"
           else
             echo "tests/ directory does not exist"
           fi
@@ -435,9 +432,6 @@ jobs:
           flags: flow-coordinator
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
-      # Unit coverage is only uploaded from coordinator jobs because unit tests
-      # are paired with coordinator tests. This prevents duplicate
-      # coverage uploads and balances execution time across split coverage jobs.
       - name: Upload unit coverage
         if: inputs.coverage && inputs.unit-test
         uses: codecov/codecov-action@v5
