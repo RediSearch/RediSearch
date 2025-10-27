@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -440,32 +440,64 @@ name = "rspytests"
 version = "0.1.0"
 source = { virtual = "tests/pytests" }
 dependencies = [
+    { name = "coverage" },
     { name = "deepdiff" },
     { name = "distro" },
     { name = "faker" },
     { name = "gevent" },
+    { name = "greenlet" },
+    { name = "iniconfig" },
     { name = "ml-dtypes" },
     { name = "numpy" },
     { name = "orderly-set" },
     { name = "packaging" },
+    { name = "pip" },
+    { name = "pluggy" },
+    { name = "progressbar2" },
+    { name = "psutil" },
+    { name = "pyjwt" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "python-utils" },
     { name = "redis" },
     { name = "rltest" },
     { name = "scipy" },
+    { name = "setuptools" },
+    { name = "typing-extensions" },
+    { name = "tzdata" },
+    { name = "zope-event" },
+    { name = "zope-interface" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "coverage", specifier = "<=7.10.5" },
     { name = "deepdiff", specifier = "<=8.3.0" },
     { name = "distro", specifier = "<=1.9.0" },
     { name = "faker", specifier = "<=37.1.0" },
     { name = "gevent", specifier = "<=24.11.1" },
+    { name = "greenlet", specifier = "<=3.2.4" },
+    { name = "iniconfig", specifier = "<=2.1.0" },
     { name = "ml-dtypes", specifier = "<=0.5.3" },
     { name = "numpy", specifier = "<=2.2.4" },
     { name = "orderly-set", specifier = "<=5.3.0" },
     { name = "packaging", specifier = "<=24.2" },
+    { name = "pip", specifier = "<=25.2" },
+    { name = "pluggy", specifier = "<=1.6.0" },
+    { name = "progressbar2", specifier = "<=4.2.0" },
+    { name = "psutil", specifier = "<=5.9.8" },
+    { name = "pyjwt", specifier = "<=2.10.1" },
+    { name = "pytest", specifier = "<=7.4.4" },
+    { name = "pytest-cov", specifier = "<=4.1.0" },
+    { name = "python-utils", specifier = "<=3.9.1" },
     { name = "redis", specifier = ">=5.2.1" },
     { name = "rltest", specifier = "<=0.7.16" },
     { name = "scipy", specifier = "<=1.15.2" },
+    { name = "setuptools", specifier = "<=80.9.0" },
+    { name = "typing-extensions", specifier = "<=4.15.0" },
+    { name = "tzdata", specifier = "<=2025.2" },
+    { name = "zope-event", specifier = "<=5.1.1" },
+    { name = "zope-interface", specifier = "<=7.2" },
 ]
 
 [[package]]
