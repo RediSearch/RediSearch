@@ -2955,6 +2955,11 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
     SynonymMap_RdbSave(rdb, sp->smap);
   }
 
+  if (isSpecOnDisk(sp)) {
+    // The spec will not be built from keyspace, so we need to save the terms trie to enable rich queries
+    TrieType_GenericSave(rdb, sp->terms, 0);
+  }
+
   RedisModule_SaveUnsigned(rdb, sp->timeout);
 
   if (sp->aliases) {
@@ -3029,6 +3034,12 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
     if (sp->smap == NULL)
+      goto cleanup;
+  }
+
+  if (isSpecOnDisk(sp)) {
+    sp->terms = TrieType_GenericLoad(rdb, 0);
+    if (sp->terms == NULL)
       goto cleanup;
   }
 
