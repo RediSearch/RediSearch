@@ -346,7 +346,18 @@ def test_create():
         if data_type in ('FLOAT32', 'FLOAT16'):
             conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v_SVS_VAMANA', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', data_type,
                                  'DIM', '1024', 'DISTANCE_METRIC', 'L2')
-            expected_SVS_VAMANA = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'SVS', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'COMPRESSION', 'NONE', 'ALPHA', 1.2, 'GRAPH_MAX_DEGREE', 32, 'CONSTRUCTION_WINDOW_SIZE', 200, 'MAX_CANDIDATE_POOL_SIZE', 600, 'PRUNE_TO', 28, 'USE_SEARCH_HISTORY', 1, 'NUM_THREADS', 1, 'NUMBER_OF_MARKED_DELETED_NODES', 0, 'SEARCH_WINDOW_SIZE', 10, 'EPSILON', 0.01], 'TIERED_SVS_TRAINING_THRESHOLD', 10240]
+            expected_SVS_VAMANA = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0,
+                                    'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE',
+                                    'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024,
+                                    'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0,
+                                                       'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE',
+                                                       'BLOCK_SIZE', 1024],
+                                    'BACKEND_INDEX', ['ALGORITHM', 'SVS', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0,
+                                                      'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE',
+                                                      'BLOCK_SIZE', 1024, 'QUANT_BITS', 'NONE', 'ALPHA', 1.2, 'GRAPH_MAX_DEGREE', 32, 'CONSTRUCTION_WINDOW_SIZE', 200,
+                                                      'MAX_CANDIDATE_POOL_SIZE', 600, 'PRUNE_TO', 28, 'USE_SEARCH_HISTORY', 1, 'NUM_THREADS', 1, 'LAST_RESERVED_NUM_THREADS', 1,
+                                                      'NUMBER_OF_MARKED_DELETED', 0, 'SEARCH_WINDOW_SIZE', 10, 'SEARCH_BUFFER_CAPACITY', 10, 'LEANVEC_DIMENSION', 0, 'EPSILON', 0.01],
+                                                      'TIERED_SVS_TRAINING_THRESHOLD', 1024, 'TIERED_SVS_UPDATE_THRESHOLD', 1024, 'TIERED_SVS_THREADS_RESERVE_TIMEOUT', 5000]
 
         for _ in env.reloadingIterator():
             info = ['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']
@@ -381,8 +392,12 @@ def test_create():
                 back_svs = info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('BACKEND_INDEX') + 1]
                 back_svs[back_svs.index('MEMORY') + 1] = dummy_val
 
+                # round float values
+                back_svs[back_svs.index('ALPHA') + 1] = round(float(back_svs[back_svs.index('ALPHA') + 1]), 1)
+                back_svs[back_svs.index('EPSILON') + 1] = round(float(back_svs[back_svs.index('EPSILON') + 1]), 2)
+
                 # TODO: enable once info iterator implemented for svs-vamana
-                # env.assertEqual(info_data_SVS_VAMANA, expected_SVS_VAMANA)
+                env.assertEqual(info_data_SVS_VAMANA, expected_SVS_VAMANA)
 
         conn.execute_command('FLUSHALL')
 
@@ -861,7 +876,7 @@ def test_hybrid_query_with_text_vamana():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
     conn = getConnectionByEnv(env)
     dim = 2
-    index_size = 3000 # a number divisible by 10
+    index_size = 3000 * 2 * env.shardsCount # enough docs to trigger svs initialization on all shards
     data_type = 'FLOAT32'
     create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'])
 

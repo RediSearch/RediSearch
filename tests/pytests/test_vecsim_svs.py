@@ -98,12 +98,12 @@ def test_small_window_size():
                 return
             conn.execute_command('FLUSHALL')
 
-@skip(cluster=True)
-def test_rdb_load_trained_svs_vamana():
+def test_rdb_load_trained_svs_vamana(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    training_threshold = DEFAULT_BLOCK_SIZE * 3
+    training_threshold = DEFAULT_BLOCK_SIZE
+    num_docs = training_threshold * 2 * env.shardsCount # To ensure all shards' svs index is initialized.
     extend_params = ['COMPRESSION', 'LVQ8', 'TRAINING_THRESHOLD', training_threshold]
     dim = 4
     index_name=DEFAULT_INDEX_NAME
@@ -118,23 +118,35 @@ def test_rdb_load_trained_svs_vamana():
         # Insert vectors (not triggering training yet)
         populate_with_vectors(env, num_docs=training_threshold - 1, dim=dim, datatype=data_type)
 
-        env.assertEqual(get_tiered_frontend_debug_info(env, index_name, field_name)['INDEX_SIZE'], training_threshold - 1)
-        env.assertEqual(get_tiered_backend_debug_info(env, index_name, field_name)['INDEX_SIZE'], 0)
+        # Expect all vectors to be in the flat buffer
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            shard_keys = con.execute_command('DBSIZE')
+            env.assertEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"datatype: {data_type}, shard_id: {i}")
+            env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"datatype: {data_type}, shard_id: {i}")
 
         # Insert more vectors to trigger training
-        populate_with_vectors(env, num_docs=1, dim=dim, datatype=data_type, initial_doc_id=training_threshold)
+        populate_with_vectors(env, num_docs=num_docs - (training_threshold - 1), dim=dim, datatype=data_type, initial_doc_id=training_threshold)
 
-        def verify_trained(message):
-            wait_for_background_indexing(env, index_name, field_name, message)
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            shard_keys = con.execute_command('DBSIZE')
+            # We are in writeInPlace mode, so once the index is trained, all vectors are transfered to the backend index in place.
+            env.assertEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"shard_id: {i}, datatype: {data_type}, shard_keys: {shard_keys}, after adding {num_docs} vectors")
+            env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
+            env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
 
-            env.assertEqual(get_tiered_frontend_debug_info(env, index_name, field_name)['INDEX_SIZE'], 0, message=message)
-            env.assertEqual(get_tiered_backend_debug_info(env, index_name, field_name)['INDEX_SIZE'], training_threshold, message=message)
-
-        verify_trained(f"datatype: {data_type} before rdb load")
 
         # reload rdb
         for _ in env.reloadingIterator():
-            verify_trained(f"datatype: {data_type} after rdb load")
+            # rdb load occurs in a multi threaded environment, where the vectors are transferred to svs in batches of update_threshold vectors.
+            wait_for_background_indexing(env, index_name, field_name, message=f"datatype: {data_type} after rdb load")
+            for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+                shard_keys = con.execute_command('DBSIZE')
+                # We passed the training threshold, so we always have less than training_threshold ( = update_threshold)
+                # vectors in the frontend index.
+                env.assertLessEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], training_threshold, message=f"shard_id: {i}, datatype: {data_type}, shard_keys: {shard_keys}, after rdb reload of {num_docs} vectors")
+                # We passed the training threshold, so we always have at least training_threshold vectors in the backend index.
+                env.assertGreaterEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], training_threshold, message=f"shard_id: {i}, datatype: {data_type}, after rdb reload of {num_docs} vectors")
+                env.assertEqual(get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after rdb reload of {num_docs} vectors")
 
         conn.execute_command('FLUSHALL')
 

@@ -91,4 +91,5 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
             time.sleep(0.1)
 
         for id, con in enumerate(env.getOSSMasterNodesConnectionList()):
-            env.assertGreater(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"wait_for_background_indexing: shard: {id}, " + message)
+            index_size = get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE']
+            env.assertGreater(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"wait_for_background_indexing: shard: {id}, index size: {index_size}" + message)
