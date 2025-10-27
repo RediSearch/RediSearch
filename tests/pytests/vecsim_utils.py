@@ -37,13 +37,19 @@ def create_vector_index(env: Env, dim, index_name=DEFAULT_INDEX_NAME, field_name
         env.assertTrue(False, message=f"Failed to create index: '{index_name}', metric: {metric}, datatype: {datatype}, alg: {alg}, {message} with error: {e}", depth=depth+1)
 
 # Will populate the database with hashes doc_name_prefix<doc_id> containing a single vector field
-def populate_with_vectors(env, num_docs, dim, datatype='FLOAT32', field_name=DEFAULT_FIELD_NAME, initial_doc_id=1, doc_name_prefix=DEFAULT_DOC_NAME_PREFIX, normalize=False):
+# @param ret_vec_offset - return the i-th vector that is indexed.
+def populate_with_vectors(env, num_docs, dim, datatype='FLOAT32', field_name=DEFAULT_FIELD_NAME, initial_doc_id=1, doc_name_prefix=DEFAULT_DOC_NAME_PREFIX, normalize=False, ret_vec_offset=0):
     conn = getConnectionByEnv(env)
     p = conn.pipeline(transaction=False)
+    ret = None
     for i in range(num_docs):
         vector = create_random_np_array_typed(dim, datatype, normalize=normalize)
+        if i == ret_vec_offset:
+            ret = vector
         p.execute_command('HSET', f'{doc_name_prefix}{initial_doc_id + i}', field_name, vector.tobytes())
     p.execute()
+
+    return ret
 
 def set_up_database_with_vectors(env: Env, dim, num_docs, index_name=DEFAULT_INDEX_NAME, field_name=DEFAULT_FIELD_NAME, datatype='FLOAT32', metric='L2', alg='FLAT', additional_vec_params=None, additional_schema_args=None):
     create_vector_index(env, dim=dim, metric=metric,

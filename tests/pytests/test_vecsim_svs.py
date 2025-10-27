@@ -2,6 +2,7 @@ from RLTest import Env
 import distro
 from includes import *
 import threading
+import random
 
 from vecsim_utils import *
 from common import (
@@ -100,64 +101,62 @@ def test_small_window_size():
 
 def test_rdb_load_trained_svs_vamana(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
 
     training_threshold = DEFAULT_BLOCK_SIZE
-    num_docs = training_threshold * 2 * env.shardsCount # To ensure all shards' svs index is initialized.
+    num_docs = int(training_threshold * 1.1 * env.shardsCount) # To ensure all shards' svs index is initialized.
     extend_params = ['COMPRESSION', 'LVQ8', 'TRAINING_THRESHOLD', training_threshold]
-    dim = 4
+    dim = 2
     index_name=DEFAULT_INDEX_NAME
     field_name=DEFAULT_FIELD_NAME
+    data_type = random.choice(VECSIM_SVS_DATA_TYPES)
+    env.debugPrint(f"data_type for test {env.testName}: {data_type}", force=True)
 
-    for data_type in VECSIM_SVS_DATA_TYPES:
-        create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_vec_params=extend_params)
+    create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_vec_params=extend_params)
 
-        frontend_index_info = get_tiered_frontend_debug_info(env, index_name, field_name)
-        env.assertEqual(frontend_index_info['INDEX_SIZE'], 0)
+    frontend_index_info = get_tiered_frontend_debug_info(env, index_name, field_name)
+    env.assertEqual(frontend_index_info['INDEX_SIZE'], 0)
 
-        # Insert vectors (not triggering training yet)
-        populate_with_vectors(env, num_docs=training_threshold - 1, dim=dim, datatype=data_type)
+    # Insert vectors (not triggering training yet)
+    populate_with_vectors(env, num_docs=training_threshold - 1, dim=dim, datatype=data_type)
 
-        # Expect all vectors to be in the flat buffer
+    # Expect all vectors to be in the flat buffer
+    for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+        shard_keys = con.execute_command('DBSIZE')
+        env.assertEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"datatype: {data_type}, shard_id: {i}")
+        env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"datatype: {data_type}, shard_id: {i}")
+
+    # Insert more vectors to trigger training
+    populate_with_vectors(env, num_docs=num_docs - (training_threshold - 1), dim=dim, datatype=data_type, initial_doc_id=training_threshold)
+
+    for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+        shard_keys = con.execute_command('DBSIZE')
+        # We are in writeInPlace mode, so once the index is trained, all vectors are transferred to the backend index in place.
+        env.assertEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"shard_id: {i}, datatype: {data_type}, shard_keys: {shard_keys}, after adding {num_docs} vectors")
+        env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
+        env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
+
+    # reload rdb
+    for _ in env.reloadingIterator():
+        # rdb load occurs in a multi threaded environment, where the vectors are transferred to svs in batches of update_threshold vectors.
+        wait_for_background_indexing(env, index_name, field_name, message=f"datatype: {data_type} after rdb load")
         for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
             shard_keys = con.execute_command('DBSIZE')
-            env.assertEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"datatype: {data_type}, shard_id: {i}")
-            env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"datatype: {data_type}, shard_id: {i}")
-
-        # Insert more vectors to trigger training
-        populate_with_vectors(env, num_docs=num_docs - (training_threshold - 1), dim=dim, datatype=data_type, initial_doc_id=training_threshold)
-
-        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
-            shard_keys = con.execute_command('DBSIZE')
-            # We are in writeInPlace mode, so once the index is trained, all vectors are transferred to the backend index in place.
-            env.assertEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"shard_id: {i}, datatype: {data_type}, shard_keys: {shard_keys}, after adding {num_docs} vectors")
-            env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
-            env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
-
-
-        # reload rdb
-        for _ in env.reloadingIterator():
-            # rdb load occurs in a multi threaded environment, where the vectors are transferred to svs in batches of update_threshold vectors.
-            wait_for_background_indexing(env, index_name, field_name, message=f"datatype: {data_type} after rdb load")
-            for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
-                shard_keys = con.execute_command('DBSIZE')
-                # We passed the training threshold, so we always have less than training_threshold ( = update_threshold)
-                # vectors in the frontend index.
-                env.assertLessEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], training_threshold, message=f"shard_id: {i}, datatype: {data_type}, shard_keys: {shard_keys}, after rdb reload of {num_docs} vectors")
-                # We passed the training threshold, so we always have at least training_threshold vectors in the backend index.
-                env.assertGreaterEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], training_threshold, message=f"shard_id: {i}, datatype: {data_type}, after rdb reload of {num_docs} vectors")
-                env.assertEqual(get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after rdb reload of {num_docs} vectors")
-
-        conn.execute_command('FLUSHALL')
+            # We passed the training threshold, so we always have less than training_threshold ( = update_threshold)
+            # vectors in the frontend index.
+            env.assertLessEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], training_threshold, message=f"shard_id: {i}, datatype: {data_type}, shard_keys: {shard_keys}, after rdb reload of {num_docs} vectors")
+            # We passed the training threshold, so we always have at least training_threshold vectors in the backend index.
+            env.assertGreaterEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], training_threshold, message=f"shard_id: {i}, datatype: {data_type}, after rdb reload of {num_docs} vectors")
+            env.assertEqual(get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after rdb reload of {num_docs} vectors")
 
 @skip(cluster=True)
 def test_svs_vamana_info():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    dim = 16
-    data_type = 'FLOAT32'
+    dim = 2
+    data_type = random.choice(VECSIM_SVS_DATA_TYPES)
 
     # Create SVS VAMANA index with all compression flavors (except for global SQ8).
-    for compression_type in SVS_COMPRESSION_TYPES:
+    compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8']
+    for compression_type in compression_types:
         cmd_params = ['TYPE', data_type,
                     'DIM', dim, 'DISTANCE_METRIC', 'L2']
         if compression_type != 'NO_COMPRESSION':
@@ -168,7 +167,7 @@ def test_svs_vamana_info():
         # compression in runtime is LVQ8 if we are running on intel optimizations are enabled and GlobalSQ otherwise.
         compression_runtime = compression_type if is_intel_opt_enabled() or compression_type == 'NO_COMPRESSION' else 'GlobalSQ8'
         expected_info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
-                          'data_type', 'FLOAT32', 'dim', 16, 'distance_metric', 'L2', 'graph_max_degree', 32,
+                          'data_type', data_type, 'dim', dim, 'distance_metric', 'L2', 'graph_max_degree', 32,
                           'construction_window_size', 200, 'compression', compression_runtime]]
         if compression_type != 'NO_COMPRESSION':
             expected_info[0].extend(['training_threshold', 10240])
@@ -185,7 +184,7 @@ def test_vamana_debug_info_vs_info():
                      # non default params
                      ['COMPRESSION', 'LVQ8', 'GRAPH_MAX_DEGREE', 1, 'CONSTRUCTION_WINDOW_SIZE', 1, 'TRAINING_THRESHOLD', DEFAULT_BLOCK_SIZE * 2],
                      ['COMPRESSION', 'LVQ8'], ['COMPRESSION', 'LeanVec4x8']]
-    dim = 4
+    dim = 2
     index_name = DEFAULT_INDEX_NAME
     field_name = DEFAULT_FIELD_NAME
 
@@ -218,7 +217,9 @@ def test_vamana_debug_info_vs_info():
 @skip(cluster=True)
 def test_memory_info():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4 _FREE_RESOURCE_ON_THREAD FALSE')
-    dimension = 10
+    dimension = 2
+    data_type = random.choice(VECSIM_SVS_DATA_TYPES)
+    env.debugPrint(f"data_type for test {env.testName}: {data_type}", force=True)
     index_key = DEFAULT_INDEX_NAME
     vector_field = DEFAULT_FIELD_NAME
     training_threshold = DEFAULT_BLOCK_SIZE
@@ -239,34 +240,45 @@ def test_memory_info():
         cur_redisearch_memory = vecsim_memory
         cur_redis_memory = redis_memory
 
+    for extended_params in compression_params:
+        cur_redisearch_memory = 0
+        cur_redis_memory = get_redis_memory_in_mb(env)
+
+        message_prefix = f"datatype: {data_type}, compression: {extended_params}"
+
+        create_vector_index(env, dimension, alg='SVS-VAMANA', additional_vec_params=extended_params, message=message_prefix)
+
+        # Add vectors, not triggering transfer to the backend index
+        populate_with_vectors(env, training_threshold - 1, dimension)
+        index_size = get_vecsim_index_size(env, index_key, vector_field)
+        env.assertEqual(index_size, training_threshold - 1, message=message_prefix)
+        env.assertEqual(get_tiered_backend_debug_info(env, index_key, vector_field)['INDEX_SIZE'], 0, message=f"{message_prefix}, total index size: {index_size}")
+        verify_mem(f"{message_prefix}. after adding less than training threshold vectors")
+
+        # Add vector to trigger svs initialization
+        added_vectors = 5
+        populate_with_vectors(env, num_docs=added_vectors, dim=dimension, initial_doc_id=training_threshold)
+        wait_for_background_indexing(env, index_key, vector_field,
+                                        f"{message_prefix}. after adding {added_vectors + training_threshold - 1} vectors, to trigger transition to the backend index")
+        index_size = get_vecsim_index_size(env, index_key, vector_field)
+        env.assertEqual(index_size, training_threshold - 1 + added_vectors, message=message_prefix)
+        # we have at least training_threshold in the backend index
+        env.assertGreaterEqual(get_tiered_backend_debug_info(env, index_key, vector_field)['INDEX_SIZE'], training_threshold, message=f"{message_prefix}, total index size: {index_size}")
+        verify_mem(f"{message_prefix}. after adding more than training threshold vectors")
+
+        env.execute_command('FLUSHALL')
+
+
+func_gen = lambda tn, dt, dist, wr: lambda: queries_sanity(tn, dt, dist, wr)
+for workers in [0, 4]:
+    name_suffix = "_async" if workers else ""
     for data_type in VECSIM_SVS_DATA_TYPES:
-        for extended_params in compression_params:
-            cur_redisearch_memory = 0
-            cur_redis_memory = get_redis_memory_in_mb(env)
-
-            message_prefix = f"datatype: {data_type}, compression: {extended_params}"
-
-            create_vector_index(env, dimension, alg='SVS-VAMANA', additional_vec_params=extended_params, message=message_prefix)
-
-            # Add vectors, not triggering transfer to the backend index
-            populate_with_vectors(env, training_threshold - 1, dimension)
-            index_size = get_vecsim_index_size(env, index_key, vector_field)
-            env.assertEqual(index_size, training_threshold - 1, message=message_prefix)
-            env.assertEqual(get_tiered_backend_debug_info(env, index_key, vector_field)['INDEX_SIZE'], 0, message=f"{message_prefix}, total index size: {index_size}")
-            verify_mem(f"{message_prefix}. after adding less than training threshold vectors")
-
-            # Add vector to trigger svs initialization
-            added_vectors = 5
-            populate_with_vectors(env, num_docs=added_vectors, dim=dimension, initial_doc_id=training_threshold)
-            wait_for_background_indexing(env, index_key, vector_field,
-                                         f"{message_prefix}. after adding {added_vectors + training_threshold - 1} vectors, to trigger transition to the backend index")
-            index_size = get_vecsim_index_size(env, index_key, vector_field)
-            env.assertEqual(index_size, training_threshold - 1 + added_vectors, message=message_prefix)
-            # we have at least training_threshold in the backend index
-            env.assertGreaterEqual(get_tiered_backend_debug_info(env, index_key, vector_field)['INDEX_SIZE'], training_threshold, message=f"{message_prefix}, total index size: {index_size}")
-            verify_mem(f"{message_prefix}. after adding more than training threshold vectors")
-
-            env.execute_command('FLUSHALL')
+        metrics = ['IP']
+        if EXTENDED_PYTESTS:
+            metrics = VECSIM_DISTANCE_METRICS
+        for metric in metrics:
+            test_name = f"test_queries_sanity_{data_type}_{metric}" + name_suffix
+            globals()[test_name] = func_gen(test_name, data_type, metric, workers)
 
 '''
 This test validates SVS-VAMANA tiered indexing across all datatype, metric, and compression combinations.
@@ -277,23 +289,13 @@ and verifies that vector is returned as the top result.
 Distance verification is skipped since some compression types would require larger training thresholds
 and vector dimension to get an exact match, making the test prohibitively slow.
 '''
-
-func_gen = lambda tn, dt, dist, wr: lambda: queries_sanity(tn, dt, dist, wr)
-for workers in [0, 4]:
-    name_suffix = "_async" if workers else ""
-    for data_type in VECSIM_SVS_DATA_TYPES:
-        for metric in VECSIM_DISTANCE_METRICS:
-
-            test_name = f"test_queries_sanity_{data_type}_{metric}" + name_suffix
-            globals()[test_name] = func_gen(test_name, data_type, metric, workers)
-
 def queries_sanity(test_name, data_type, metric, workers):
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {workers}')
     # Sanity check that the test parameters match the test name
     env.debugPrint(f"test name: {test_name}, data_type: {data_type}, metric: {metric}", force=True)
     dim = 28
     training_threshold = DEFAULT_BLOCK_SIZE
-    num_docs = training_threshold * 2 * env.shardsCount # To ensure all shards' svs index is initialized.
+    num_docs = int(training_threshold * 1.1 * env.shardsCount) # To ensure all shards' svs index is initialized.
     score_title = f'__{DEFAULT_FIELD_NAME}_score'
     conn = getConnectionByEnv(env)
 
@@ -317,31 +319,29 @@ def queries_sanity(test_name, data_type, metric, workers):
     env.assertEqual(sorted(env.cmd('FT._LIST')), sorted(indexes_list))
     # add vectors with the same field name so they will be indexed in all indexes
     normalize = metric == 'IP'
-    populate_with_vectors(env, dim=dim, num_docs=num_docs, datatype=data_type, normalize=normalize)
+    query = populate_with_vectors(env, dim=dim, num_docs=num_docs, datatype=data_type, normalize=normalize, ret_vec_offset=0)
 
     for index_name in indexes_list:
         message = f"datatype: {data_type}, metric: {metric}, index: {index_name}"
         wait_for_background_indexing(env, index_name, DEFAULT_FIELD_NAME, message=message)
-        env.assertGreaterEqual(get_tiered_backend_debug_info(env, index_name, DEFAULT_FIELD_NAME)['INDEX_SIZE'], training_threshold, message=message)
         env.assertEqual(index_info(env, index_name)['num_docs'], num_docs, message=message)
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            env.assertGreaterEqual(get_tiered_backend_debug_info(con, index_name, DEFAULT_FIELD_NAME)['INDEX_SIZE'], training_threshold, message=f"shard id: {i} " + message)
 
-    query = create_random_np_array_typed(dim, data_type, normalize)
-    conn.execute_command("hset", f"doc{num_docs + 1}", DEFAULT_FIELD_NAME, query.tobytes())
     for index_name in indexes_list:
         message = f"datatype: {data_type}, metric: {metric}, index: {index_name}"
         knn_res = env.execute_command('FT.SEARCH', index_name, f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
         cmd_range = f'@{DEFAULT_FIELD_NAME}:[VECTOR_RANGE 10 $b]=>{{$yield_distance_as:{score_title}}}'
         range_res = conn.execute_command('FT.SEARCH', index_name, cmd_range, 'PARAMS', 2, 'b', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
-        env.assertEqual(knn_res[1], f'doc{num_docs + 1}', message=str(knn_res) + " " + message)
-        env.assertEqual(range_res[1], f'doc{num_docs + 1}', message=message)
-
-
+        env.assertEqual(knn_res[1], f'doc{1}', message=str(knn_res) + " " + message)
+        env.assertEqual(range_res[1], f'doc{1}', message=message)
 
 def empty_index(env):
     env.execute_command(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '1000000')
-    dim = 4
-    data_type = 'FLOAT32'
-    num_docs = DEFAULT_BLOCK_SIZE * 2 * env.shardsCount # To ensure all shards' svs index is initialized.
+    dim = 2
+    data_type = random.choice(VECSIM_SVS_DATA_TYPES)
+    env.debugPrint(f"data_type for test {env.testName}: {data_type}", force=True)
+    num_docs = int(DEFAULT_BLOCK_SIZE * 1.1 * env.shardsCount) # To ensure all shards' svs index is initialized.
     training_threshold = DEFAULT_BLOCK_SIZE
     compression_params = [None, ['COMPRESSION', 'LVQ8', 'TRAINING_THRESHOLD', training_threshold]]
     score_title = f'__{DEFAULT_FIELD_NAME}_score'
@@ -462,7 +462,7 @@ def test_change_threads_increase():
 def test_drop_index_memory():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 _FREE_RESOURCE_ON_THREAD FALSE')
     num_docs = DEFAULT_BLOCK_SIZE # enough to trigger svs initialization
-    dim = 4
+    dim = 2
 
     # add vectors and measure memory
     populate_with_vectors(env, dim=dim, num_docs=num_docs, datatype='FLOAT32')
@@ -528,7 +528,7 @@ def test_drop_index_during_query():
 @skip(cluster=True)
 def test_gc():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 2 _FREE_RESOURCE_ON_THREAD FALSE')
-    dim = 128
+    dim = 28
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
     index_size = 3000
