@@ -401,14 +401,22 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     MRCommand *cmd = &searchRPNet->cmd;
     int numShards = GetNumShards_UnSafe();
 
-    // get the OOM policy from the request
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
-    if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, status, oomPolicy)) {
+    if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
         return REDISMODULE_ERR;
     }
+
+    RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));
+    if (array_len(search->mappings) == 0) {
+      // No mappings available - set next function to EOF.
+      // Error handling relies on QueryError status and return codes, not on mapping availability.
+      searchRPNet->base.Next = rpnetNext_EOF;
+      vsimRPNet->base.Next = rpnetNext_EOF;
+    }
+
 
     // Store mappings in RPNet structures
     searchRPNet->mappings = StrongRef_Clone(searchMappingsRef);

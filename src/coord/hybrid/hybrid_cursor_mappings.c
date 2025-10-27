@@ -182,12 +182,6 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
                 break;
             }
         }
-        // if all shards returned errors, set the error and mark as failed
-        if (array_len(ctx->errors) == numShards) {
-            QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process shard responses, first error: %s, total error count: %zu",
-                QueryError_GetUserError(&ctx->errors[0]), array_len(ctx->errors));
-            success = false;
-        }
     }
 
     // Cleanup

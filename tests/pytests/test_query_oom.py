@@ -425,3 +425,24 @@ def test_oom_verbosity_cluster_return(env):
     shards_error_lst = [str(shard_err) for shard_err in res[1][1] if isinstance(shard_err, ResponseError)]
     # Since we don't know the order of responses, we need to count 2 errors
     env.assertEqual(shards_error_lst.count(OOM_QUERY_ERROR), 2)
+
+# Test OOM error returned from shards for FT.HYBRID (only for return)
+@skip(cluster=False)
+def test_hybrid_oom_verbosity_cluster_return():
+    env = Env(shardsCount=3,protocol=3, enableDebugCommand=True)
+
+    # Set OOM policy to return on all shards
+    allShards_change_oom_policy(env, 'return')
+
+    _common_hybrid_cluster_test_scenario(env)
+
+    # Change maxmemory on all shards to 1
+    allShards_change_maxmemory_low(env)
+    # Change back coord maxmemory to 0
+    set_unlimited_maxmemory_for_oom(env)
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # Note - only the coordinator shard will return results
+    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+    env.assertEqual(res['warnings'][0], OOM_WARNING)
