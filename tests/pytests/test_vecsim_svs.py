@@ -129,7 +129,7 @@ def test_rdb_load_trained_svs_vamana(env):
 
         for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
             shard_keys = con.execute_command('DBSIZE')
-            # We are in writeInPlace mode, so once the index is trained, all vectors are transfered to the backend index in place.
+            # We are in writeInPlace mode, so once the index is trained, all vectors are transferred to the backend index in place.
             env.assertEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"shard_id: {i}, datatype: {data_type}, shard_keys: {shard_keys}, after adding {num_docs} vectors")
             env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
             env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
