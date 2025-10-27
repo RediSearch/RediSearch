@@ -417,7 +417,6 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
       vsimRPNet->base.Next = rpnetNext_EOF;
     }
 
-
     // Store mappings in RPNet structures
     searchRPNet->mappings = StrongRef_Clone(searchMappingsRef);
     vsimRPNet->mappings = StrongRef_Clone(vsimMappingsRef);
