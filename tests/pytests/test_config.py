@@ -77,8 +77,8 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
     env.expect('ft.config', 'set', 'INDEX_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SEARCH_THREADS', 1).equal('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'BM25STD').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
-    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'BM25STD').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
     env.expect('ft.config', 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
     env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').ok()
 
@@ -291,9 +291,9 @@ def testDefaultScorerConfigDisabled(env):
 
     valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'DISMAX', 'DOCSCORE', 'HAMMING']
     for scorer in valid_scorers:
-        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
         env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
 
-    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
-    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('Default scorer can only be changed when `ENABLE_UNSTABLE_FEATURES` is ON')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
     env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])  # Should still be the last valid value
