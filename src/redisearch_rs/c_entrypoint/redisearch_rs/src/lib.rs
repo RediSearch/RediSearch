@@ -19,6 +19,7 @@ static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::a
 
 pub use fnv_ffi as fnv;
 pub use result_processor_ffi as result_processor;
+pub use rlookup_ffi as rlookup;
 pub use triemap_ffi as triemap;
 pub use types_ffi as types;
 pub use varint_ffi as varint;

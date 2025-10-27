@@ -1419,6 +1419,7 @@ dependencies = [
  "fnv_ffi",
  "redis-module",
  "result_processor_ffi",
+ "rlookup_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
