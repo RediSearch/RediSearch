@@ -420,7 +420,7 @@ jobs:
         with:
           files: bin/flow_standalone.info
           disable_search: true
-          flags: flow-standalone
+          flags: flow
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
@@ -429,7 +429,7 @@ jobs:
         with:
           files: bin/flow_coordinator.info
           disable_search: true
-          flags: flow-coordinator
+          flags: flow
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
