@@ -3388,13 +3388,11 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       Indexes_ScanAndReindex();
     }
     int rc = workersThreadPool_OnEventEnd(true);
-    RS_LOG_ASSERT(rc == REDISMODULE_OK, "Another event has started while loading was in progress");
     g_isLoading = false;
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
     // Clear pending jobs from job queue in case of short read.
     int rc = workersThreadPool_OnEventEnd(true);
-    RS_LOG_ASSERT(rc == REDISMODULE_OK, "Another event has started while loading was in progress");
     g_isLoading = false;
   }
 }
