@@ -86,21 +86,13 @@ void workersThreadPool_SetNumWorkers() {
 
   if (worker_count == 0 && curr_workers > 0) {
     redisearch_thpool_terminate_when_empty(_workers_thpool);
-    // MOD-11658 FIX: Release GIL before blocking in barrier_wait_and_destroy()
-    // Worker threads may need the GIL to process coordinator responses
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
     workersThreadPool_OnDeactivation(curr_workers);
   } else if (worker_count > curr_workers) {
     new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
     if (!curr_workers) workersThreadPool_OnActivation(worker_count);
   } else if (worker_count < curr_workers) {
-    // MOD-11658 FIX: Release GIL before blocking in barrier_wait_and_destroy()
-    // Worker threads may need the GIL to process coordinator responses
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 
   RS_LOG_ASSERT_FMT(new_num_threads == worker_count,

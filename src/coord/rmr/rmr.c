@@ -187,8 +187,6 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 
   // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "MOD-11658: All replies received, unblocking client");
     if (ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
@@ -295,21 +293,15 @@ struct UpdateConnPoolSizeCtx {
 static void uvUpdateConnPoolSize(void *p) {
   struct UpdateConnPoolSizeCtx *ctx = p;
   IORuntimeCtx *ioRuntime = ctx->ioRuntime;
-  RedisModule_Log(RSDummyContext, "warning", "MOD-11658: uvUpdateConnPoolSize executing on UV loop, conn_pool_size=%zu",
-                  ctx->conn_pool_size);
   IORuntimeCtx_UpdateConnPoolSize(ioRuntime, ctx->conn_pool_size);
-  RedisModule_Log(RSDummyContext, "warning", "MOD-11658: IORuntimeCtx_UpdateConnPoolSize completed");
   size_t max_pending = ioRuntime->conn_mgr.nodeConns * PENDING_FACTOR;
   RQ_UpdateMaxPending(ioRuntime->queue, max_pending);
   IORuntimeCtx_RequestCompleted(ioRuntime);
-  RedisModule_Log(RSDummyContext, "warning", "MOD-11658: uvUpdateConnPoolSize completed");
   rm_free(ctx);
 }
 
 extern size_t NumShards;
 void MR_UpdateConnPoolSize(size_t conn_pool_size) {
-  RedisModule_Log(RSDummyContext, "warning", "MOD-11658: MR_UpdateConnPoolSize called with conn_pool_size=%zu, cluster_g=%p, NumShards=%d",
-                  conn_pool_size, cluster_g, NumShards);
   if (!cluster_g) return; // not initialized yet, we have nothing to update yet.
   if (NumShards == 1) {
     // If we observe that there is only one shard from the main thread,
@@ -317,19 +309,15 @@ void MR_UpdateConnPoolSize(size_t conn_pool_size) {
     // We can update the connection pool size directly from the main thread.
     // This is mostly a no-op, as the connection pool is not in use (yet or at all).
     // This call should only update the connection pool `size` for when the connection pool is initialized.
-    RedisModule_Log(RSDummyContext, "warning", "MOD-11658: Single shard mode, updating directly");
     for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
       IORuntimeCtx_UpdateConnPoolSize(cluster_g->io_runtimes_pool[i], conn_pool_size);
     }
   } else {
-    RedisModule_Log(RSDummyContext, "warning", "MOD-11658: Multi-shard mode, scheduling on UV loop for %zu IO threads",
-                    cluster_g->num_io_threads);
     for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
       struct UpdateConnPoolSizeCtx *ctx = rm_malloc(sizeof(*ctx));
       ctx->ioRuntime = cluster_g->io_runtimes_pool[i];
       ctx->conn_pool_size = conn_pool_size;
       IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvUpdateConnPoolSize, ctx);
-      RedisModule_Log(RSDummyContext, "warning", "MOD-11658: Scheduled uvUpdateConnPoolSize for IO thread %zu", i);
     }
   }
 }

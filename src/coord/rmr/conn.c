@@ -254,20 +254,7 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
     int rc = redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", cmd->protocol);
     c->protocol = cmd->protocol;
   }
-
-  // MOD-11658: Log command send
-  RedisModule_Log(RSDummyContext, "warning",
-                  "[%p %s:%d %s] MOD-11658: Sending command, callback=%p, privdata=%p",
-                  c, c->ep.host, c->ep.port, MRConnState_Str(c->state), fn, privdata);
-
-  int result = redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
-
-  RedisModule_Log(RSDummyContext, "warning",
-                  "[%p %s:%d %s] MOD-11658: Command send result=%d, pending_callbacks=%d",
-                  c, c->ep.host, c->ep.port, MRConnState_Str(c->state),
-                  result, c->conn && c->conn->replies.head ? 1 : 0);
-
-  return result;
+  return redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
 }
 
 /* Add a node to the connection manager. Return 1 if it's been added or 0 if it hasn't */
@@ -348,16 +335,11 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num) {
 
   dictIterator *it = dictGetIterator(m->map);
   dictEntry *entry;
-  int total_stopped = 0;
   while ((entry = dictNext(it))) {
     MRConnPool *pool = dictGetVal(entry);
 
     for (size_t i = num; i < pool->num; i++) {
-      RedisModule_Log(RSDummyContext, "warning",
-                      "MOD-11658: Stopping connection %zu/%zu for node %s",
-                      i, pool->num, (char*)dictGetKey(entry));
       MRConn_Stop(pool->conns[i]);
-      total_stopped++;
     }
 
     pool->num = num;
@@ -366,10 +348,6 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num) {
   }
   m->nodeConns = num;
   dictReleaseIterator(it);
-
-  RedisModule_Log(RSDummyContext, "warning",
-                  "MOD-11658: MRConnManager_Shrink completed: stopped %d connections",
-                  total_stopped);
 }
 
 // Expand the connection pool to the given number of connections
@@ -422,19 +400,6 @@ static void signalCallback(uv_timer_t *tm) {
 
   if (conn->state == MRConn_Freeing) {
     if (ac) {
-      // MOD-11658: Log pending callbacks before disconnect
-      int pending_callbacks = 0;
-      if (ac->replies.head) {
-        redisCallback *cb = ac->replies.head;
-        while (cb) {
-          pending_callbacks++;
-          cb = cb->next;
-        }
-      }
-      RedisModule_Log(RSDummyContext, "warning",
-                      "[%p %s:%d %s] MOD-11658: Calling redisAsyncDisconnect with %d pending callbacks",
-                      conn, conn->ep.host, conn->ep.port, MRConnState_Str(conn->state), pending_callbacks);
-
       ac->data = NULL;
       conn->conn = NULL;
       redisAsyncDisconnect(ac);
