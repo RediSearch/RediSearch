@@ -168,11 +168,6 @@ static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
 
-  // MOD-11658: Log callback invocation
-  RedisModule_Log(RSDummyContext, "warning",
-                  "MOD-11658: fanoutCallback called: r=%p, numReplied=%d, numErrored=%d, numExpected=%d, flags=0x%x",
-                  r, ctx->numReplied, ctx->numErrored, ctx->numExpected, c ? c->c.flags : 0);
-
   if (!r) {
     ctx->numErrored++;
 

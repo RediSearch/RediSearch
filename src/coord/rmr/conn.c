@@ -403,10 +403,6 @@ static void signalCallback(uv_timer_t *tm) {
       ac->data = NULL;
       conn->conn = NULL;
       redisAsyncDisconnect(ac);
-
-      RedisModule_Log(RSDummyContext, "warning",
-                      "[%p %s:%d %s] MOD-11658: redisAsyncDisconnect returned, flags=0x%x",
-                      conn, conn->ep.host, conn->ep.port, MRConnState_Str(conn->state), ac->c.flags);
     }
     freeConn(conn);
     return;
