@@ -583,21 +583,15 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     RedisModule_Log(RSDummyContext, "notice", "Loading event started");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
-    {
-      Indexes_EndRDBLoadingEvent(ctx);
-      int rc = workersThreadPool_OnEventEnd(true);
-      RS_LOG_ASSERT(rc == REDISMODULE_OK, "Another event has started while loading was in progress");
-      Indexes_EndLoading();
-      RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
-    }
+    Indexes_EndRDBLoadingEvent(ctx);
+    workersThreadPool_OnEventEnd(true);
+    Indexes_EndLoading();
+    RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
     break;
   case REDISMODULE_SUBEVENT_LOADING_FAILED:
-    {
-      int rc = workersThreadPool_OnEventEnd(true);
-      RS_LOG_ASSERT(rc == REDISMODULE_OK, "Another event has started while loading was in progress");
-      Indexes_EndLoading();
-      RedisModule_Log(RSDummyContext, "notice", "Loading event failed");
-    }
+    workersThreadPool_OnEventEnd(true);
+    Indexes_EndLoading();
+    RedisModule_Log(RSDummyContext, "notice", "Loading event failed");
     break;
   default:
     RS_LOG_ASSERT_FMT(0, "Unknown sub-event %d", subevent);
