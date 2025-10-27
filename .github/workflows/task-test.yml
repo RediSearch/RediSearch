@@ -71,6 +71,8 @@ jobs:
       - name: Enable dynamic linking to C runtime in Alpine
         if: inputs.container == 'alpine:3'
         run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
+      - name: Check disk space before
+        run: df -h
       - name: Get Installation Mode
         id: mode
         run: |
@@ -194,6 +196,8 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make unit-tests rust-tests
+      - name: Check disk space after unit-tests
+        run: df -h
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -208,6 +212,8 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
+      - name: Check disk space after Flow tests (standalone)
+        run: df -h
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
@@ -222,6 +228,8 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
+      - name: Check disk space after coordinator-tests
+        run: df -h
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
