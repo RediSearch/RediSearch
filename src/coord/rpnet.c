@@ -11,7 +11,7 @@
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
 #include "hiredis/sds.h"
-#include "../hybrid/dist_utils.h"
+#include "coord/hybrid/dist_utils.h"
 
 
 #define CURSOR_EOF 0
