@@ -3387,6 +3387,9 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     if (hasLegacyIndexes) {
       Indexes_ScanAndReindex();
     }
+    if (isFlex) {
+      SearchDisk_ReOpen(ctx);
+    }
     int rc = workersThreadPool_OnEventEnd(true);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Another event has started while loading was in progress");
     g_isLoading = false;

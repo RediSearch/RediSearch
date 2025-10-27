@@ -4,6 +4,8 @@ RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 RedisSearchDiskMemObject *disk_mem_obj = NULL;
 
+/* declaration of the type for redis registration. */
+RedisModuleType *SearchDiskType;
 
 // Weak default implementations for when disk API is not available
 __attribute__((weak))
@@ -15,7 +17,6 @@ __attribute__((weak))
 RedisSearchDiskAPI *SearchDisk_GetAPI() {
   return NULL;
 }
-
 
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
@@ -30,8 +31,17 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   }
   RedisModule_Log(ctx, "warning", "RediSearch disk API enabled");
 
-  disk_db = disk->basic.open(ctx, "redisearch", disk_mem_obj);
+  disk_db = disk->basic.open(ctx, "redisearch", disk_mem_obj); // Memory Object is empty by now
   return disk_db != NULL;
+}
+
+void SearchDisk_ReOpen(RedisModuleCtx *ctx) {
+  RS_ASSERT(disk);
+  if (disk_db) {
+    disk->basic.close(disk_db);
+    disk_db = NULL;
+  }
+  disk_db = disk->basic.open(ctx, "redisearch", disk_mem_obj);
 }
 
 void SearchDisk_Close() {
@@ -45,14 +55,24 @@ void SearchDisk_Close() {
   }
 }
 
-void SearchDisk_LoadFromRDB(RedisModuleIO *rdb) {
-  //TODO(Joan): Check thread-safety (I think it happens in fork so no problem?)
-  if (!disk) return;
+void *SearchDisk_LoadFromRDB(RedisModuleIO *rdb, int encver) {
+  if (!disk) return NULL;
   disk_mem_obj = disk->memObject.fromRDB(rdb);
+  return disk_mem_obj;
 }
 
-void SearchDisk_SaveToRDB(RedisModuleIO *rdb) {
-  //TODO(Joan): Check thread-safety (I think it happens in fork so no problem?)
+void SearchDisk_SaveToRDB(RedisModuleIO *rdb, void *value) {
+  if (!disk) return;
+  disk->memObject.toRDB((RedisSearchDiskMemObject*)value, rdb);
+}
+
+int SearchDisk_AuxLoadFromRDB(RedisModuleIO *rdb, int encver, int when) {
+  if (!disk) return REDISMODULE_ERR;
+  disk_mem_obj = disk->memObject.fromRDB(rdb);
+  return REDISMODULE_OK;
+}
+
+void SearchDisk_AuxSaveToRDB(RedisModuleIO *rdb, int when) {
   if (!disk || !disk_mem_obj) return;
   disk->memObject.toRDB(disk_mem_obj, rdb);
 }
@@ -107,4 +127,23 @@ bool SearchDisk_IsEnabled(RedisModuleCtx *ctx) {
   } // Default is false, so nothing to change in that case.
   rm_free(isFlexStr);
   return isFlex;
+}
+
+int SearchDisk_RegisterType(RedisModuleCtx *ctx) {
+  RS_ASSERT(disk);
+  // rdb_load and aux_load are equivalent because disk_db is a singleton, so no multiple instances of this type are created
+  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
+    .rdb_load = SearchDisk_LoadFromRDB,
+    .rdb_save = SearchDisk_SaveToRDB,
+    .aux_load = SearchDisk_AuxLoadFromRDB,
+    .aux_save2 = SearchDisk_AuxSaveToRDB,
+    .free = SearchDisk_Close,
+    .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB, // Not strictly necessary, but we want to be called before RDB
+  };
+  SearchDiskType = RedisModule_CreateDataType(ctx, "ft_search_disk0", TRIE_ENCVER_CURRENT, &tm);
+  if (SearchDiskType == NULL) {
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
 }

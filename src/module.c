@@ -1355,6 +1355,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
   RM_TRY_F(RegisterLegacyTypes, ctx);
 
+  if (isFlex) {
+    RM_TRY_F(SearchDisk_RegisterType, ctx);
+  }
+
 // With coordinator we do not want to raise a move error for index commands so we do not specify
 // any key.
 #define INDEX_ONLY_CMD_ARGS 0, 0, 0

@@ -27,6 +27,13 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx);
  */
 void SearchDisk_Close();
 
+/**
+ * @brief Reopen the search disk module, when most likely memory object changed
+ *
+ * @param ctx Redis module context
+ */
+void SearchDisk_ReOpen(RedisModuleCtx *ctx);
+
 // Basic API wrappers
 
 /**
@@ -128,12 +135,42 @@ bool SearchDisk_IsEnabled(RedisModuleCtx *ctx);
  * @brief Load the disk database memory part from RDB
  *
  * @param rdb Redis module IO handle for RDB operations
+ * @param encver Encoding version
+ * @return Loaded object pointer (always returns NULL for singleton)
  */
-void SearchDisk_LoadFromRDB(RedisModuleIO *rdb);
+void *SearchDisk_LoadFromRDB(RedisModuleIO *rdb, int encver);
 
 /**
  * @brief Save the disk database memory part to RDB
  *
  * @param rdb Redis module IO handle for RDB operations
+ * @param value Value to save (unused for singleton)
  */
-void SearchDisk_SaveToRDB(RedisModuleIO *rdb);
+void SearchDisk_SaveToRDB(RedisModuleIO *rdb, void *value);
+
+/**
+ * @brief Auxiliary load function for RDB operations
+ *
+ * @param rdb Redis module IO handle for RDB operations
+ * @param encver Encoding version
+ * @param when When the load is happening
+ * @return 0 on success
+ */
+int SearchDisk_AuxLoadFromRDB(RedisModuleIO *rdb, int encver, int when);
+
+/**
+ * @brief Auxiliary save function for RDB operations
+ *
+ * @param rdb Redis module IO handle for RDB operations
+ * @param when When the save is happening
+ */
+void SearchDisk_AuxSaveToRDB(RedisModuleIO *rdb, int when);
+
+
+/**
+ * @brief Register the search disk module type
+ *
+ * @param ctx Redis module context
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR otherwise
+ */
+int SearchDisk_RegisterType(RedisModuleCtx *ctx);
