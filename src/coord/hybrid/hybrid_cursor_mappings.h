@@ -10,7 +10,6 @@
 #pragma once
 
 #include "rmr/rmr.h"
-#include "../../query_error.h"
 #include "util/references.h"
 #include "../../config.h"
 
@@ -27,6 +26,9 @@ typedef struct {
   MappingType type;
   arrayof(CursorMapping) mappings;
 } CursorMappings;
+
+// forward declaration of QueryError
+typedef struct QueryError QueryError;
 
 /**
  * Process hybrid cursor mappings synchronously
