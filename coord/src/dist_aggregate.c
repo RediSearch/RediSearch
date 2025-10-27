@@ -348,6 +348,9 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
           } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
             nc->areq->qiter.err->reachedMaxPrefixExpansions = true;
           }
+          if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
+              nc->areq->qiter.bgScanOOM = true;
+          }
         }
 
         long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
