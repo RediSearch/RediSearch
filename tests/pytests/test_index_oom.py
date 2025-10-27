@@ -344,7 +344,7 @@ def test_cluster_oom_all_shards():
   env.assertEqual(warning, partial_results_warning_str)
   # Check resp3 warning in FT.PROFILE
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
-  warning = res['Results']['warning'][0]
+  warning = res['warning'][0]
   env.assertEqual(warning, partial_results_warning_str)
   # Check resp3 warning in FT.AGGREGATE (MOD-11817)
   res = env.cmd('FT.AGGREGATE', 'idx','*')
@@ -353,7 +353,7 @@ def test_cluster_oom_all_shards():
 
 @skip(cluster=False)
 def test_cluster_oom_single_shard():
-  env = Env(shardsCount=3, protocol=3)(env)
+  env = Env(shardsCount=3, protocol=3)
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
   verify_command_OK_on_all_shards(env,' '.join(['_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
 
@@ -416,7 +416,7 @@ def test_cluster_oom_single_shard():
   env.assertEqual(warning, partial_results_warning_str)
   # Check resp3 warning in FT.PROFILE
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
-  warning = res['Results']['warning'][0]
+  warning = res['warning'][0]
   env.assertEqual(warning, partial_results_warning_str)
   # Check resp3 warning in FT.AGGREGATE (MOD-11817)
   res = env.cmd('FT.AGGREGATE', 'idx','*')
