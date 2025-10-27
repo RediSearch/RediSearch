@@ -113,6 +113,7 @@ TEST_F(AREQTest, testBinarySlotRangeParsing) {
     for (auto* str : argv) {
         RedisModule_FreeString(ctx, str);
     }
+    QueryError_ClearError(&status);
     AREQ_Free(req);
 }
 
@@ -154,6 +155,7 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
     for (auto* str : argv) {
         RedisModule_FreeString(ctx, str);
     }
+    QueryError_ClearError(&status);
     AREQ_Free(req);
 }
 
@@ -180,6 +182,7 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
     for (auto* str : argv) {
         RedisModule_FreeString(ctx, str);
     }
+    QueryError_ClearError(&status);
     AREQ_Free(req);
 }
 
@@ -226,6 +229,7 @@ TEST_F(AREQTest, testHumanReadableSlotRangeParsing) {
     for (auto* str : argv) {
         RedisModule_FreeString(ctx, str);
     }
+    QueryError_ClearError(&status);
     AREQ_Free(req);
 }
 
@@ -258,6 +262,7 @@ TEST_F(AREQTest, testHumanReadableSlotRangeParsingSingleRange) {
     for (auto* str : argv) {
         RedisModule_FreeString(ctx, str);
     }
+    QueryError_ClearError(&status);
     AREQ_Free(req);
 }
 
@@ -291,6 +296,7 @@ TEST_F(AREQTest, testHumanReadableSlotRangeInvalidRange) {
     for (auto* str : argv) {
         RedisModule_FreeString(ctx, str);
     }
+    QueryError_ClearError(&status);
     AREQ_Free(req);
 }
 
@@ -338,6 +344,7 @@ TEST_F(AREQTest, testConflictingSlotRangeFormats) {
     for (auto* str : argv) {
         RedisModule_FreeString(ctx, str);
     }
+    QueryError_ClearError(&status);
     AREQ_Free(req);
 }
 
@@ -386,6 +393,7 @@ TEST_F(AREQTest, testConflictingSlotRangeFormatsReversed) {
   for (auto* str : argv) {
       RedisModule_FreeString(ctx, str);
   }
+  QueryError_ClearError(&status);
   AREQ_Free(req);
 }
 
@@ -419,5 +427,6 @@ TEST_F(AREQTest, testHumanReadableSlotRangeInsufficientArgs) {
     for (auto* str : argv) {
         RedisModule_FreeString(ctx, str);
     }
+    QueryError_ClearError(&status);
     AREQ_Free(req);
 }
