@@ -218,7 +218,7 @@ def add_shard_and_migrate_test(env: Env):
         wait_for_slot_import(new_shard, task)
         wait_for_slot_import(shard1, task)
     except:
-        pass
+        env.assertTrue(False, message="Slot migration did not complete in time")
 
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
