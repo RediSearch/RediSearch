@@ -587,6 +587,8 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     int rc = workersThreadPool_OnEventEnd(true);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Another event has started while loading was in progress");
     Indexes_EndLoading();
+  } else {
+    RS_LOG_ASSERT_FMT(0, "Unknown sub-event %d", subevent);
   }
 }
 
