@@ -270,6 +270,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
             } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
               QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
             }
+            if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
+              AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
+            }
           }
         }
 

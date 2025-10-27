@@ -49,6 +49,7 @@ impl DecodedBy for RawDocIdsOnly {
 }
 
 impl Decoder for RawDocIdsOnly {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,

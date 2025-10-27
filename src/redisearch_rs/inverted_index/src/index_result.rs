@@ -58,7 +58,7 @@ unsafe extern "C" {
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct RSOffsetVector<'index> {
     /// At this point the data ownership is still managed by the caller.
     // TODO: switch to a Cow once the caller code has been ported to Rust.
@@ -151,7 +151,7 @@ impl RSOffsetVector<'_> {
 /// Represents a single record of a document inside a term in the inverted index
 /// cbindgen:prefix-with-name=true
 #[repr(u8)]
-#[derive(PartialEq)]
+#[derive(Eq)]
 pub enum RSTermRecord<'index> {
     Borrowed {
         /// The term that brought up this record
@@ -177,6 +177,12 @@ pub enum RSTermRecord<'index> {
         /// The owned version will make a copy of the offsets data, hence that `'static` lifetime.
         offsets: RSOffsetVector<'static>,
     },
+}
+
+impl PartialEq for RSTermRecord<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.query_term() == other.query_term() && self.offsets() == other.offsets()
+    }
 }
 
 impl Drop for RSTermRecord<'_> {
