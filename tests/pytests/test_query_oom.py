@@ -40,7 +40,7 @@ def _common_test_scenario(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     # Add a document
     env.expect('HSET', 'doc', 'name', 'hello').equal(1)
-    # Change maxmemory to 1
+    # Change maxmemory to 1 to trigger OOM
     env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
 
 def _common_cluster_test_scenario(env):
@@ -53,7 +53,7 @@ def _common_cluster_test_scenario(env):
     for i in range(n_docs):
         conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
 
-    # Change maxmemory to 1
+    # Change maxmemory to 1 to trigger OOM
     env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
 
     return n_docs
@@ -259,7 +259,7 @@ def _common_hybrid_cluster_test_scenario(env):
     for i in range(n_docs):
         conn.execute_command('HSET', f'doc{i}', 'description', f'hello{i}', 'embedding', np.array([np.random.rand(), np.random.rand()]).astype(np.float32).tobytes())
 
-    # Change maxmemory to 1
+    # Change maxmemory to 1 to trigger OOM
     env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
 
     return n_docs
@@ -317,7 +317,7 @@ def test_hybrid_oom_cluster_coord_error():
 
     # Test with 'return' policy on all shards
     allShards_change_oom_policy(env, 'return')
-    # Verify hybrid query fails
+    # Verify hybrid query fails in coordinator before going out to shards
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
 
 # Test OOM error returned from shards for FT.HYBRID (only for fail)
