@@ -279,6 +279,7 @@ impl<'a> RLookupKey<'a> {
     /// If the [`RLookupKeyFlag::NameAlloc`] is given, then the provided `CStr` will be cloned into
     /// a new allocation that is owned by this key. If the flag is *not* provided the key
     /// will simply borrow the provided string.
+    #[cfg_attr(not(debug_assertions), allow(unused_variables))]
     pub fn new(
         parent: &RLookup<'_>,
         name: impl Into<Cow<'a, CStr>>,

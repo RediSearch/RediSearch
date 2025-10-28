@@ -43,7 +43,8 @@ pub struct RLookupRow<'a, T: RSValueTrait> {
 impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and
     /// a [`RLookupRow::sorting_vector`] of the given length.
-    pub fn new(rlookup: &RLookup<'_>) -> Self {
+    #[cfg_attr(not(debug_assertions), allow(unused_variables))]
+    pub const fn new(rlookup: &RLookup<'_>) -> Self {
         Self {
             sorting_vector: None,
             dyn_values: vec![],
