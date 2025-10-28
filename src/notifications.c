@@ -16,6 +16,7 @@
 #include "util/workers.h"
 #include "dictionary.h"
 #include "slot_ranges.h"
+#include "search_disk.h"
 
 #define JSON_LEN 5 // length of string "json."
 
