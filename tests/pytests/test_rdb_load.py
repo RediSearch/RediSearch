@@ -5,18 +5,6 @@ import time
 from common import *
 from RLTest import Env
 
-
-def downloadFiles(rdbs):
-    os.makedirs(REDISEARCH_CACHE_DIR, exist_ok=True) # create cache dir if not exists
-    for f in rdbs:
-        path = os.path.join(REDISEARCH_CACHE_DIR, f)
-        if not os.path.exists(path):
-            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
-        if not os.path.exists(path):
-            return False
-    return True
-
-
 @skip(cluster=True)
 @pytest.mark.timeout(120)
 def test_rdb_load_no_deadlock():
