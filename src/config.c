@@ -16,6 +16,7 @@
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
+#include "extension.h"
 #include "util/dict.h"
 #include "resp3.h"
 #include "util/workers.h"
@@ -353,6 +354,41 @@ CONFIG_SETTER(setFrisoINI) {
 }
 CONFIG_GETTER(getFrisoINI) {
   return config->frisoIni ? sdsnew(config->frisoIni) : NULL;
+}
+
+// DEFAULT_SCORER
+CONFIG_SETTER(setDefaultScorer) {
+  if (!config->enableUnstableFeatures) {
+    QueryError_SetError(status, QUERY_EBADVAL, "`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`");
+    return REDISMODULE_ERR;
+  }
+  const char *scorerName;
+  int acrc = AC_GetString(ac, &scorerName, NULL, 0);
+  if (acrc == AC_OK) {
+    // Validate scorer name against registered scorers
+    if (Extensions_InitDone()) {
+      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, scorerName);
+      if (scoreCtx == NULL) {
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid default scorer value");
+        return REDISMODULE_ERR;
+      }
+    }
+    // Free the old scorer name before assigning the new one
+    if (config->defaultScorer) {
+      rm_free((void *)config->defaultScorer);
+    }
+    config->defaultScorer = rm_strdup(scorerName);
+  }
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getDefaultScorer) {
+  RS_ASSERT(config->defaultScorer != NULL);
+  if (config->defaultScorer && strlen(config->defaultScorer) > 0) {
+    return sdsnew(config->defaultScorer);
+  } else {
+    return NULL;
+  }
 }
 
 // ON_TIMEOUT
@@ -881,6 +917,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setFrisoINI,
          .getValue = getFrisoINI,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "DEFAULT_SCORER",
+         .helpText = "Default scorer to use when no scorer is specified in queries",
+         .setValue = setDefaultScorer,
+         .getValue = getDefaultScorer},
         {.name = "ON_TIMEOUT",
          .helpText = "Action to perform when search timeout is exceeded (choose RETURN or FAIL)",
          .setValue = setOnTimeout,
@@ -1126,6 +1166,10 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
 
   if (config->frisoIni) {
     ss = sdscatprintf(ss, "friso ini: %s, ", config->frisoIni);
+  }
+
+  if (config->defaultScorer && strlen(config->defaultScorer) > 0) {
+    ss = sdscatprintf(ss, "default scorer: %s, ", config->defaultScorer);
   }
   return ss;
 }

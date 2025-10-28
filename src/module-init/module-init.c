@@ -31,8 +31,10 @@
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
-                       REDISMODULE_APIVER_1) == REDISMODULE_ERR)
+                       REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
+  }
+  RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
 #endif
@@ -188,9 +190,19 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     DO_LOG("notice", "Loaded RediSearch extension '%s'", RSGlobalConfig.extLoad);
   }
 
+  if (RSGlobalConfig.defaultScorer == NULL) {
+    RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
+  }
+
   // Register the default hard coded extension
   if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
     DO_LOG("warning", "Could not register default extension");
+    return REDISMODULE_ERR;
+  }
+
+  ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, RSGlobalConfig.defaultScorer);
+  if (scoreCtx == NULL) {
+    DO_LOG("warning", "The scorer '%s' specified in the configuration for the default scorer is not a valid scorer", RSGlobalConfig.defaultScorer);
     return REDISMODULE_ERR;
   }
 
