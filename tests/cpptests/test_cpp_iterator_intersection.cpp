@@ -12,7 +12,7 @@
 
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/inverted_index_iterator.h"
-#include "src/inverted_index/inverted_index.h"
+#include "inverted_index.h"
 #include "src/iterators/empty_iterator.h"
 #include "src/iterators/wildcard_iterator.h"
 #include "src/forward_index.h"
@@ -194,7 +194,7 @@ public:
     for (auto &term : terms) {
       if (invertedIndexes.find(term) == invertedIndexes.end()) {
         // Create a new inverted index for the term if it doesn't exist
-        invertedIndexes[term] = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &dummy);
+        invertedIndexes[term] = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS | Index_WideSchema), &dummy);
       }
     }
     t_docId docId = ++num_docs;
@@ -389,6 +389,27 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithNULLChild) {
   QueryIterator *ii_base = NewIntersectionIterator(children, num, -1, false, 1.0);
 
   // Should return an empty iterator when any child is empty
+  ASSERT_EQ(ii_base->type, EMPTY_ITERATOR);
+  ii_base->Free(ii_base);
+}
+
+TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithNoChild) {
+  QueryIterator *ii_base;
+  size_t num = 0;
+
+  // Test with zero children, but allocated children array
+  QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *));
+  ii_base = NewIntersectionIterator(children, num, -1, false, 1.0);
+  children = NULL; // Lose pointer to children array to ensure it is freed inside the function and does not leak
+
+  // Should return an empty iterator when no children are provided
+  ASSERT_EQ(ii_base->type, EMPTY_ITERATOR);
+  ii_base->Free(ii_base);
+
+  // Test with zero children and NULL children array
+  ii_base = NewIntersectionIterator(NULL, num, -1, false, 1.0);
+
+  // Should return an empty iterator when no children are provided
   ASSERT_EQ(ii_base->type, EMPTY_ITERATOR);
   ii_base->Free(ii_base);
 }

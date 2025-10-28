@@ -13,9 +13,11 @@
 #include <query_node.h>
 #include <coord/rmr/reply.h>
 #include <util/heap.h>
+#include "rmutil/rm_assert.h"
 #include "shard_window_ratio.h"
 #include "coord/special_case_ctx.h"
 #include "rs_wall_clock.h"
+#include "thpool/thpool.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
@@ -40,6 +42,8 @@ extern "C" {
 
 int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfig, int isClusterEnabled);
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
+
+extern redisearch_thpool_t *depleterPool;
 
 int IsMaster();
 bool IsEnterprise();
@@ -103,6 +107,7 @@ typedef struct {
   int profileLimited;
   rs_wall_clock profileClock;
   void *reducer;
+  bool queryOOM;
 } searchRequestCtx;
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
@@ -116,6 +121,12 @@ void processResultFormat(uint32_t *flags, MRReply *map);
 
 int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
+void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
+
+bool should_return_error(QueryErrorCode errCode);
+
+bool estimateOOM(RedisModuleCtx *ctx);
 
 #ifdef __cplusplus
 }

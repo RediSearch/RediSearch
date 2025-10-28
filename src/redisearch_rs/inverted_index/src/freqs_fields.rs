@@ -23,7 +23,7 @@ use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 /// The delta, frequency, field mask are encoded using [qint encoding](qint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FreqsFields;
 
 impl Encoder for FreqsFields {
@@ -54,19 +54,24 @@ impl DecodedBy for FreqsFields {
 }
 
 impl Decoder for FreqsFields {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, field_mask] = decoded_values;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask as t_fieldMask)
-            .frequency(freq);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask as t_fieldMask;
+        result.freq = freq;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }
 
@@ -79,7 +84,7 @@ impl Decoder for FreqsFields {
 /// The field mask is then encoded using [varint encoding](varint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FreqsFieldsWide;
 
 impl Encoder for FreqsFieldsWide {
@@ -106,19 +111,24 @@ impl DecodedBy for FreqsFieldsWide {
 }
 
 impl Decoder for FreqsFieldsWide {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, freq] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask)
-            .frequency(freq);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask;
+        result.freq = freq;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }

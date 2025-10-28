@@ -23,7 +23,7 @@ use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 /// The delta and field mask are encoded using [qint encoding](qint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FieldsOnly;
 
 impl Encoder for FieldsOnly {
@@ -53,18 +53,23 @@ impl DecodedBy for FieldsOnly {
 }
 
 impl Decoder for FieldsOnly {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, field_mask] = decoded_values;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask as t_fieldMask);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask as t_fieldMask;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }
 
@@ -76,7 +81,7 @@ impl Decoder for FieldsOnly {
 /// The delta and the field mask are encoded using [varint encoding](varint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FieldsOnlyWide;
 
 impl Encoder for FieldsOnlyWide {
@@ -103,17 +108,22 @@ impl DecodedBy for FieldsOnlyWide {
 }
 
 impl Decoder for FieldsOnlyWide {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let delta = u32::read_as_varint(cursor)?;
         let field_mask = u128::read_as_varint(cursor)?;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }

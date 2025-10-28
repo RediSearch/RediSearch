@@ -26,6 +26,12 @@ pub struct Bencher {
     test_values: Vec<BenchGroup>,
 }
 
+impl Default for Bencher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Bencher {
     const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
     const WARMUP_TIME: Duration = Duration::from_millis(200);
@@ -260,10 +266,10 @@ fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &B
         |b| {
             b.iter_batched_ref(
                 || TestBuffer::with_capacity((1 + delta_size + value_size) * values.len()),
-                |mut buffer| {
+                |buffer| {
                     for (value, delta, _) in values {
                         let mut record = inverted_index::RSIndexResult::numeric(*value);
-                        let grew_size = encode_numeric(&mut buffer, &mut record, *delta as _);
+                        let grew_size = encode_numeric(buffer, &mut record, *delta as _);
 
                         black_box(grew_size);
                     }
@@ -293,8 +299,8 @@ fn numeric_c_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &B
                         let buffer_ptr = NonNull::new(buffer.as_ptr() as *mut _).unwrap();
                         unsafe { Buffer::new(buffer_ptr, buffer.len(), buffer.len()) }
                     },
-                    |mut buffer| {
-                        let (_filtered, result) = read_numeric(&mut buffer, 100);
+                    |buffer| {
+                        let (_filtered, result) = read_numeric(buffer, 100);
 
                         black_box(result);
                     },
@@ -363,7 +369,7 @@ fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
                     || Cursor::new(buffer.as_ref()),
                     |buffer| {
                         let decoder = Numeric::new();
-                        let result = decoder.decode(buffer, 100).unwrap();
+                        let result = decoder.decode_new(buffer, 100).unwrap();
 
                         let _ = black_box(result);
                     },

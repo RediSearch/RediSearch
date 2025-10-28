@@ -25,7 +25,7 @@ extern "C" {
 #define INDEX_BLOCK_SIZE 100
 #define INDEX_BLOCK_SIZE_DOCID_ONLY 1000
 
-extern uint64_t TotalIIBlocks;
+size_t TotalIIBlocks();
 
 /* A single block of data in the index. The index is basically a list of blocks we iterate */
 typedef struct {
@@ -55,16 +55,7 @@ typedef struct IndexBlockReader {
   t_docId curBaseId; // The current value to add to the decoded delta, to get the actual docId.
 } IndexBlockReader;
 
-/**
- * This context is passed to the decoder callback, and can contain either
- * a pointer or an integer. It is intended to relay along any kind of additional
- * configuration information to help the decoder determine whether to filter
- * the entry */
-typedef union {
-  uint32_t mask;
-  t_fieldMask wideMask;
-  const NumericFilter *filter;
-} IndexDecoderCtx;
+//--------- GC related types
 
 typedef struct {
   size_t bytesBeforFix;
@@ -80,16 +71,22 @@ typedef struct {
   void *arg;
 } IndexRepairParams;
 
-static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
-  bool useFieldMask = flags & Index_StoreFieldFlags;
-  bool useNumEntries = flags & Index_StoreNumeric;
-  RS_ASSERT(!(useFieldMask && useNumEntries));
-  // Avoid some of the allocation if not needed
-  const size_t base = sizeof(InvertedIndex) - sizeof(t_fieldMask); // Size without the union
-  if (useFieldMask) return base + sizeof(t_fieldMask);
-  if (useNumEntries) return base + sizeof(uint64_t);
-  return base;
-}
+// opaque handle
+typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
+
+// input shims (layout-compatible with the MSG_* the child/parent already use)
+typedef struct {
+  IndexBlock blk;
+  int64_t oldix;
+  int64_t newix;
+} InvertedIndex_RepairedInput;
+
+typedef struct {
+  void *ptr;
+  uint32_t oldix;
+} InvertedIndex_DeletedInput;
+
+// -------------------------
 
 // Create a new inverted index object, with the given flag.
 // The out parameter memsize must be not NULL, the total of allocated memory
@@ -194,7 +191,7 @@ typedef struct IndexReader {
 } IndexReader;
 
 /* Make a new inverted index reader. It should be freed using `IndexReader_Free`. */
-IndexReader *NewIndexReader(const InvertedIndex *idx, IndexDecoderCtx *ctx);
+IndexReader *NewIndexReader(const InvertedIndex *idx, IndexDecoderCtx ctx);
 
 /* Free an index reader created using `NewIndexReader` */
 void IndexReader_Free(IndexReader *ir);
@@ -357,9 +354,95 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, RSIndexResult *entry)
  */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 
+unsigned long InvertedIndex_MemUsage(const InvertedIndex *value);
+
+// ----- GC related API
+
+typedef struct {
+  // Number of blocks prior to repair
+  uint32_t nblocksOrig;
+  // Number of blocks repaired
+  uint32_t nblocksRepaired;
+  // Number of bytes cleaned in inverted index
+  uint64_t nbytesCollected;
+  // Number of bytes added to inverted index
+  uint64_t nbytesAdded;
+  // Number of document records removed
+  uint64_t ndocsCollected;
+  // Number of numeric records removed
+  uint64_t nentriesCollected;
+
+  /** Specific information about the _last_ index block */
+  size_t lastblkDocsRemoved;
+  size_t lastblkBytesCollected;
+  size_t lastblkNumEntries;
+  size_t lastblkEntriesRemoved;
+
+  uint64_t gcBlocksDenied;
+} II_GCScanStats;
+
+/* Repair an index block by removing garbage - records pointing at deleted documents,
+ * and write valid entries in their place.
+ * Returns the number of docs collected, and puts the number of bytes collected in the given
+ * pointer.
+ */
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
 
-unsigned long InvertedIndex_MemUsage(const InvertedIndex *value);
+/* Apply a GC change set to an inverted index.
+ * nblocks_orig is the number of blocks the child had scanned,
+ * nbytes_added_io is the child reported "bytes added" figure used if a fresh block,
+ * must be created when all scanned blocks were deleted. Updated for blocks that are added.
+ *
+ * delta requires ownership as data of new, deleted and repaired blocks
+ * are moved into the given index, the pointers of delta are updated accordingly.
+ */
+void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
+                                 InvertedIndexGcDelta *d,
+                                 II_GCScanStats *info);
+
+bool InvertedIndex_GcDelta_GetLastBlockIgnored(InvertedIndexGcDelta *d);
+void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d, II_GCScanStats *info);
+
+// --------------------- II High Level GC API
+
+typedef struct {
+  void *ctx;
+  void (*write)(void *ctx, const void *buf, size_t len);
+} II_GCWriter;
+
+typedef struct {
+  void *ctx;
+  // read exactly len or return nonzero
+  int (*read)(void *ctx, void *buf, size_t len);
+} II_GCReader;
+
+typedef struct {
+  void *ctx;
+  void (*call)(void *ctx);
+} II_GCCallback;
+
+// ------------------------ GC Scan
+
+/**
+ * II_GCCallback is invoked before the inverted index is written, only
+ * if the inverted index was repaired.
+ * This function writes to the receiver an info message with general info on the inverted index garbage collection.
+ * In addition, for each fixed block it writes a repair message. For deleted blocks it writes a delete message.
+ * If the index size (number of blocks) wasn't modified (no deleted blocks) we don't write a new block list.
+ * In this case, the receiver will get the modifications from the fix messages, that contains also a copy of the
+ * repaired block.
+ */
+bool InvertedIndex_GcDelta_Scan(II_GCWriter *wr, RedisSearchCtx *sctx, InvertedIndex *idx,
+                                     II_GCCallback *cb, IndexRepairParams *params);
+
+/**
+ * Read info written by InvertedIndex_GcDelta_Scan
+ *
+ * InvertedIndexGcDelta memory ownership is passed to the caller and should be freed by it
+ */
+InvertedIndexGcDelta *InvertedIndex_GcDelta_Read(II_GCReader *rd, II_GCScanStats *info);
+
+// ---------------------
 
 #ifdef __cplusplus
 }

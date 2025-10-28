@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#pragma once
+use build_utils::run_cbinden;
 
-#include <stdint.h>
-
-uint16_t crc12(const char *buf, int len);
+fn main() {
+    run_cbinden("../../headers/future/inverted_index.h").unwrap();
+}

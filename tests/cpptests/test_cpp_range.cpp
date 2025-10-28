@@ -232,7 +232,10 @@ TEST_F(RangeTest, EmptyTreeSanity) {
   NumericRangeNode *failed_range = NULL;
 
   NumericRangeTree *rt = NewNumericRangeTree();
-  size_t empty_numeric_mem_size = sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  // The base inverted index is 32 bytes + 8 bytes for the entries count of numeric records
+  // And IndexBlock is also 48 bytes
+  // And initial block capacity of 6 bytes
+  size_t empty_numeric_mem_size = 40 + 48 + 6;
   size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
   if (failed_range) {
     FAIL();
@@ -252,7 +255,6 @@ protected:
   void SetUp() override {
     RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec = 3000000;
     index = createSpec(ctx);
-
   }
 
   void TearDown() override {

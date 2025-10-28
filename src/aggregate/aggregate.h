@@ -9,13 +9,19 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
+#include <stdbool.h>
 #include "value.h"
 #include "query.h"
 #include "reducer.h"
 #include "result_processor.h"
 #include "expr/expression.h"
 #include "aggregate_plan.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_construction.h"
 #include "reply.h"
+#include "vector_index.h"
+#include "hybrid/vector_query_utils.h"
+#include "slot_ranges.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -25,9 +31,19 @@ extern "C" {
 
 #define DEFAULT_LIMIT 10
 
+/** Cached variables to avoid serializeResult retrieving these each time */
+typedef struct {
+  RLookup *lastLookup;
+  const PLN_ArrangeStep *lastAstp;
+} cachedVars;
+
 typedef struct Grouper Grouper;
 struct QOptimizer;
 
+/*
+ * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL,
+ * QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY, QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY are mutually exclusive (Only one can be set).
+ */
 typedef enum {
   QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
   QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
@@ -50,7 +66,7 @@ typedef enum {
    */
   QEXEC_F_RUN_IN_BACKGROUND = 0x100,
 
-  /* The inverse of IS_AGGREGATE. The two cannot coexist together */
+  /* The query is a search command */
   QEXEC_F_IS_SEARCH = 0x200,
 
   /* Highlight/summarize options are active */
@@ -90,25 +106,59 @@ typedef enum {
   // The query is internal (responding to a command from the coordinator)
   QEXEC_F_INTERNAL = 0x400000,
 
+  // The query is a Hybrid Request
+  QEXEC_F_IS_HYBRID_TAIL = 0x800000,
+
+  // The query is a Search Subquery of a Hybrid Request
+  QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY = 0x1000000,
+
+  // The query is a Vector Subquery of a Hybrid Request (aggregate equivalent)
+  QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY = 0x2000000,
+
+  // The query has an explicit SORT BY 0 step - no sorting at all
+  // Currently only used in when QEXEC_F_IS_HYBRID_TAIL is set - i.e this is the tail part
+  QEXEC_F_NO_SORT = 0x4000000,
+
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 
 } QEFlags;
 
+// Configuration parameters for cursor behavior
+typedef struct {
+  uint32_t maxIdle;     // Maximum idle time for the cursor (from MAXIDLE parameter)
+  uint32_t chunkSize;   // Number of results per cursor read (from COUNT parameter)
+} CursorConfig;
+
+// Context structure for parseAggPlan to reduce parameter count
+typedef struct {
+  AGGPlan *plan;                    // Aggregation plan
+  QEFlags *reqflags;                // Request flags
+  RequestConfig *reqConfig;         // Request configuration
+  RSSearchOptions *searchopts;      // Search options
+  size_t *prefixesOffset;           // Prefixes offset
+  CursorConfig *cursorConfig;       // Cursor configuration
+  const char ***requiredFields;     // Required fields
+  size_t *maxSearchResults;         // Maximum search results
+  size_t *maxAggregateResults;      // Maximum aggregate results
+} ParseAggPlanContext;
+
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
+#define IsHybridTail(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_TAIL)
+#define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
+#define IsHybridVectorSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY)
+#define IsHybrid(r) (IsHybridTail(r) || IsHybridSearchSubquery(r) || IsHybridVectorSubquery(r))
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
-#define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
+#define HasScorer(r) ((r)->optimizer && (r)->optimizer->scorerType != SCORER_TYPE_NONE)
 #define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
-// Get the index search context from the result processor
-#define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
 // Indicates whether a query should run in the background. This
 // will also guarantee that there is a running thread pool with al least 1 thread.
@@ -123,16 +173,18 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
-typedef struct AREQ {
-  /* plan containing the logical sequence of steps */
-  AGGPlan ap;
 
+typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
+typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
   size_t nargs;
 
   /** Search query string */
   const char *query;
+
+  /** For hybrid queries: contains parsed vector data and partially constructed query node */
+  ParsedVectorData *parsedVectorData;
 
   /** Fields to be output and otherwise processed */
   FieldList outFields;
@@ -149,11 +201,17 @@ typedef struct AREQ {
   /** Context, owned by request */
   RedisSearchCtx *sctx;
 
+  /** Local slots info for this request */
+  const SharedSlotRangeArray *slotRanges;
+
   /** Context for iterating over the queries themselves */
   QueryProcessingCtx qiter;
 
+    /** The pipeline for this request */
+  Pipeline pipeline;
+
   /** Flags controlling query output */
-  uint32_t reqflags;
+  QEFlags reqflags;
 
   /** Flags indicating current execution state */
   uint32_t stateflags;
@@ -173,10 +231,8 @@ typedef struct AREQ {
 
   RequestConfig reqConfig;
 
-  /** Cursor settings */
-  unsigned cursorMaxIdle;
-  unsigned cursorChunkSize;
-
+  /** Cursor configuration */
+  CursorConfig cursorConfig;
 
   /** Profile variables */
   rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
@@ -240,6 +296,18 @@ AREQ *AREQ_New(void);
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status);
 
 /**
+ * Parse aggregate plan arguments (GROUPBY, APPLY, LOAD, FILTER) from an ArgsCursor.
+ * This function extracts the aggregate-specific parsing logic that was previously
+ * part of AREQ_Compile, allowing it to be reused for merge plans in hybrid queries.
+ */
+int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, QueryError *status);
+
+/**
+ * Initialize basic AREQ structure with search options and aggregation plan.
+ */
+void initializeAREQ(AREQ *req);
+
+/**
  * This stage will apply the context to the request. During this phase, the
  * query will be parsed (and matched according to the schema), and the reducers
  * will be loaded and analyzed.
@@ -255,6 +323,37 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  * the requests. This does not yet start iterating over the objects
  */
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
+
+static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
+  return (QEFlags)req->reqflags;
+}
+
+static inline void AREQ_AddRequestFlags(AREQ *req, QEFlags flags) {
+  req->reqflags = (QEFlags)(req->reqflags | flags);
+}
+
+static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
+  req->reqflags = (QEFlags)(req->reqflags & ~flags);
+}
+
+/**
+ * Macro to directly set flags on a uint32_t *reqflags pointer.
+ * This is used when we don't have access to an AREQ structure
+ * but need to set flags directly on the reqflags pointer.
+ */
+#define REQFLAGS_AddFlags(reqflags, flags) (*(reqflags) |= (flags))
+
+static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
+  return &req->pipeline.qctx;
+}
+
+static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
+  return req->sctx;
+}
+
+static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
+  return &req->pipeline.ap;
+}
 
 /******************************************************************************
  ******************************************************************************
@@ -348,8 +447,10 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
 int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
+int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status);
 
-#define AREQ_RP(req) (req)->qiter.endProc
+
+#define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
 #ifdef __cplusplus
 }

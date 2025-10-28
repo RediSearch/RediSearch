@@ -319,6 +319,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
   NotIterator *ni = rm_calloc(1, sizeof(*ni));
   ret = &ni->base;
   bool optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  optimized |= q && q->sctx && q->sctx->spec && q->sctx->spec->diskSpec;
   if (optimized) {
     ni->wcii = NewWildcardIterator_Optimized(q->sctx, weight);
   }

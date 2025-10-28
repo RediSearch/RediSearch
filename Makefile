@@ -7,6 +7,7 @@
 #-----------------------------------------------------------------------------
 
 .NOTPARALLEL:
+.EXPORT_ALL_VARIABLES:
 
 MAKEFLAGS += --no-print-directory
 
@@ -40,6 +41,10 @@ ifeq ($(DEBUG),1)
 	BUILD_ARGS += DEBUG
 endif
 
+ifneq ($(ENABLE_ASSERT),)
+	BUILD_ARGS += ENABLE_ASSERT=$(ENABLE_ASSERT)
+endif
+
 ifeq ($(PROFILE),1)
 	BUILD_ARGS += PROFILE
 endif
@@ -58,6 +63,10 @@ endif
 
 ifneq ($(SAN),)
 	BUILD_ARGS += SAN=$(SAN)
+endif
+
+ifneq ($(MAX_WORKER_THREADS),)
+	BUILD_ARGS += MAX_WORKER_THREADS=$(MAX_WORKER_THREADS)
 endif
 
 ifeq ($(COV),1)
@@ -177,6 +186,11 @@ Benchmarks:
   make benchmark        Run performance benchmarks
   make micro-benchmarks Run micro-benchmarks
   make vecsim-bench     Run VecSim micro-benchmarks
+
+Documentation:
+  make check-links         Check all links in Markdown files (failures only)
+  make check-links-verbose Check all links in Markdown files (show all)
+  make test-linkcheck      Test the link checker functionality
 endef # HELPTEXT
 
 help:
@@ -277,9 +291,9 @@ run:
 		fi; \
 	fi
 
-# Function to extract RUST_EXCLUDE_CRATES from build.sh
+# Function to extract EXCLUDE_RUST_BENCHING_CRATES_LINKING_C from build.sh
 define get_rust_exclude_crates
-$(shell grep "RUST_EXCLUDE_CRATES=" build.sh | cut -d'=' -f2 | tr -d '"')
+$(shell grep "EXCLUDE_RUST_BENCHING_CRATES_LINKING_C=" build.sh | cut -d'=' -f2 | tr -d '"' | head -n1)
 endef
 
 lint:
@@ -362,7 +376,39 @@ callgrind:
 		--save "" --appendonly no \
 		--loadmodule $$(find $(ROOT)/bin -name "redisearch.so" -o -name "module-enterprise.so" | head -1)
 
+check-links:
+	@echo "Checking links in Markdown files..."
+	@if [ ! -f scripts/requirements-linkcheck.txt ]; then \
+		echo "Error: scripts/requirements-linkcheck.txt not found"; \
+		exit 1; \
+	fi
+	@if ! python3 -c "import requests, bs4" 2>/dev/null; then \
+		echo "Installing link checker dependencies..."; \
+		uv pip install -r scripts/requirements-linkcheck.txt; \
+	fi
+	@python3 scripts/check_links.py .
+
+check-links-verbose:
+	@echo "Checking links in Markdown files (verbose mode)..."
+	@if [ ! -f scripts/requirements-linkcheck.txt ]; then \
+		echo "Error: scripts/requirements-linkcheck.txt not found"; \
+		exit 1; \
+	fi
+	@if ! python3 -c "import requests, bs4" 2>/dev/null; then \
+		echo "Installing link checker dependencies..."; \
+		uv pip install -r scripts/requirements-linkcheck.txt; \
+	fi
+	@python3 scripts/check_links.py . --verbose
+
+test-linkcheck:
+	@echo "Testing link checker functionality..."
+	@if ! python3 -c "import requests, bs4" 2>/dev/null; then \
+		echo "Installing link checker dependencies..."; \
+		uv pip install -r scripts/requirements-linkcheck.txt; \
+	fi
+	@python3 scripts/test_link_checker.py
 
 .PHONY: help build clean test unit-tests rust-tests pytest
 .PHONY: run lint fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
+.PHONY: check-links check-links-verbose test-linkcheck

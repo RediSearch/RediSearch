@@ -92,10 +92,11 @@ void QOptimizer_Free(QOptimizer *opt) {
 
 void QOptimizer_Parse(AREQ *req) {
   QOptimizer *opt = req->optimizer;
-  opt->sctx = req->sctx;
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  opt->sctx = sctx;
 
   // get FieldSpec of sortby field and results limit
-  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
   if (arng) {
     opt->limit = arng->limit + arng->offset;
     if (IsSearch(req) && !opt->limit) {
@@ -103,7 +104,7 @@ void QOptimizer_Parse(AREQ *req) {
     }
     if (arng->sortKeys) {
       const char *name = arng->sortKeys[0];
-      const FieldSpec *field = IndexSpec_GetFieldWithLength(req->sctx->spec, name, strlen(name));
+      const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
       if (field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
@@ -120,7 +121,7 @@ void QOptimizer_Parse(AREQ *req) {
     opt->scorerType = SCORER_TYPE_NONE;
   } else {
     const char *scorer = req->searchopts.scorerName;
-    if (!scorer) {      // default is BM25STD
+    if (!scorer || !strcmp(scorer, BM25_STD_SCORER_NAME)) {      // default is BM25STD
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, TFIDF_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
@@ -286,7 +287,7 @@ static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
 }
 
 void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
-  IndexSpec *spec = req->sctx->spec;
+  IndexSpec *spec = AREQ_SearchCtx(req)->spec;
   QueryIterator *root = req->rootiter;
 
   switch (opt->type) {
@@ -319,7 +320,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         opt->type = Q_OPT_NONE;
         const FieldSpec *fs = opt->sortbyNode->nn.nf->fieldSpec;
         FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
-        QueryIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf, INDEXFLD_T_NUMERIC,
+        QueryIterator *numericIter = NewNumericFilterIterator(AREQ_SearchCtx(req), opt->sortbyNode->nn.nf, INDEXFLD_T_NUMERIC,
                                                               &req->ast.config, &filterCtx);
         updateRootIter(req, root, numericIter);
         return;
@@ -332,13 +333,14 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
 }
 
 void QOptimizer_UpdateTotalResults(AREQ *req) {
-    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
     size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
-    req->qiter.totalResults = req->qiter.totalResults > reqOffset ?
-                              req->qiter.totalResults - reqOffset : 0;
-    if(req->qiter.totalResults > reqLimit) {
-      req->qiter.totalResults = reqLimit;
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    qctx->totalResults = qctx->totalResults > reqOffset ?
+                              qctx->totalResults - reqOffset : 0;
+    if(qctx->totalResults > reqLimit) {
+      qctx->totalResults = reqLimit;
     }
 }
 

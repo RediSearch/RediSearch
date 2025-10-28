@@ -24,6 +24,7 @@
 #include "cursor.h"
 #include "module.h"
 #include "aggregate/aggregate_debug.h"
+#include "hybrid/hybrid_debug.h"
 #include "reply.h"
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
@@ -31,6 +32,27 @@
 #include "iterators/inverted_index_iterator.h"
 
 DebugCTX globalDebugCtx = {0};
+
+// QueryDebugCtx API implementations
+bool QueryDebugCtx_IsPaused(void) {
+  return globalDebugCtx.query.pause;
+}
+
+void QueryDebugCtx_SetPause(bool pause) {
+  globalDebugCtx.query.pause = pause;
+}
+
+ResultProcessor* QueryDebugCtx_GetDebugRP(void) {
+  return globalDebugCtx.query.debugRP;
+}
+
+void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP) {
+  globalDebugCtx.query.debugRP = debugRP;
+}
+
+bool QueryDebugCtx_HasDebugRP(void) {
+  return globalDebugCtx.query.debugRP != NULL;
+}
 
 void validateDebugMode(DebugCTX *debugCtx) {
   // Debug mode is enabled if any of its field is non-default
@@ -1191,7 +1213,7 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
       }
 
       RedisModule_Reply_CString(reply, "value");
-      RSValue_SendReply(reply, sv->values[ii], 0);
+      RedisModule_Reply_RSValue(reply, sv->values[ii], 0);
     RedisModule_Reply_ArrayEnd(reply);
   }
   RedisModule_Reply_ArrayEnd(reply);
@@ -1498,6 +1520,13 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
 }
 
+DEBUG_COMMAND(HybridCommand_DebugWrapper) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+}
+
 /**
  * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
  */
@@ -1795,6 +1824,9 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
 // Global counter for tracking yield calls during loading
 static size_t g_yieldCallCounter = 0;
 
+// Global variable for sleep time before yielding (in microseconds)
+static unsigned int g_indexerSleepBeforeYieldMicros = 0;
+
 // Function to increment the yield counter (to be called from IndexerBulkAdd)
 void IncrementYieldCounter(void) {
   g_yieldCallCounter++;
@@ -1803,6 +1835,11 @@ void IncrementYieldCounter(void) {
 // Reset the yield counter
 void ResetYieldCounter(void) {
   g_yieldCallCounter = 0;
+}
+
+// Get the current sleep time before yielding (in microseconds)
+unsigned int GetIndexerSleepBeforeYieldMicros(void) {
+  return g_indexerSleepBeforeYieldMicros;
 }
 
 /**
@@ -1832,6 +1869,159 @@ DEBUG_COMMAND(YieldCounter) {
 
   // Return the current counter value
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
+}
+
+/**
+ * FT.DEBUG INDEXER_SLEEP_BEFORE_YIELD [<microseconds>]
+ * Get or set the sleep time in microseconds before yielding during indexing while loading
+ */
+DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+
+  if (argc > 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // Set new sleep time
+  if (argc == 3) {
+    long long sleepMicros;
+    if (RedisModule_StringToLongLong(argv[2], &sleepMicros) != REDISMODULE_OK || sleepMicros < 0) {
+      return RedisModule_ReplyWithError(ctx, "Invalid sleep time. Must be a non-negative integer.");
+    }
+
+    g_indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+
+  return RedisModule_WrongArity(ctx);
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME
+ */
+DEBUG_COMMAND(setPauseRPResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!QueryDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Query is not paused");
+  }
+
+  QueryDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_RP_PAUSED
+ */
+DEBUG_COMMAND(getIsRPPaused) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, QueryDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER PRINT_RP_STREAM
+ */
+DEBUG_COMMAND(printRPStream) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!QueryDebugCtx_HasDebugRP()) {
+    return RedisModule_ReplyWithError(ctx, "No debug RP is set");
+  }
+
+  ResultProcessor* root = QueryDebugCtx_GetDebugRP()->parent->endProc;
+  ResultProcessor *cur = root;
+
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+
+  size_t resultSize = 0;
+
+  while (cur) {
+    if (cur->type < RP_MAX) {
+      RedisModule_ReplyWithSimpleString(ctx, RPTypeToString(cur->type));
+    }
+    else {
+      RedisModule_ReplyWithSimpleString(ctx, "DEBUG_RP");
+    }
+    cur = cur->upstream;
+    resultSize++;
+  }
+  RedisModule_ReplySetArrayLength(ctx, resultSize);
+
+  return REDISMODULE_OK;
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER <command> [options]
+ */
+DEBUG_COMMAND(queryController) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  // Check here all background indexing possible commands
+  if (!strcmp("SET_PAUSE_RP_RESUME", op)) {
+    return setPauseRPResume(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_RP_PAUSED", op)) {
+    return getIsRPPaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("PRINT_RP_STREAM", op)) {
+    return printRPStream(ctx, argv + 1, argc - 1);
+  }
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
+}
+
+
+/**
+ * FT.DEBUG DUMP_SCHEMA <index>
+ * Dump the schema of the index in a serialized format.
+ * Returns an array with two elements:
+ * 1. The serialized schema string.
+ * 2. The version of the index at the time of serialization.
+ */
+DEBUG_COMMAND(DumpSchema) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2]);
+
+  RedisModuleString *schemaStr = IndexSpec_Serialize(sctx->spec);
+  SearchCtx_Free(sctx);
+
+  if (!schemaStr) return RedisModule_ReplyWithError(ctx, "Failed to serialize schema");
+
+  RedisModule_ReplyWithArray(ctx, 2);
+  RedisModule_ReplyWithString(ctx, schemaStr);
+  RedisModule_ReplyWithLongLong(ctx, INDEX_CURRENT_VERSION);
+  RedisModule_FreeString(NULL, schemaStr);
+  return REDISMODULE_OK;
 }
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
@@ -1870,6 +2060,9 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
+                               {"QUERY_CONTROLLER", queryController},
+                               {"DUMP_SCHEMA", DumpSchema},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
@@ -1877,6 +2070,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"_FT.AGGREGATE", RSAggregateCommandShard}, // internal use only, in SA use FT.AGGREGATE
                                {"FT.SEARCH", DistSearchCommand_DebugWrapper},
                                {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
+                               {"FT.HYBRID", HybridCommand_DebugWrapper},
+                               {"_FT.HYBRID", HybridCommand_DebugWrapper}, // internal use only, in SA use FT.HYBRID
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.

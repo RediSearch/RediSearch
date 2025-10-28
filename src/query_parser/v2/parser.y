@@ -1091,8 +1091,7 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->field = C.fs;
-    int n_written = rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.tok.len, C.tok.s);
-    RS_ASSERT(n_written != -1);
+    VectorQuery_SetDefaultScoreField(A->vn.vq, C.tok.s, C.tok.len);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
     A = NULL;

@@ -11,11 +11,12 @@ enumflags2.workspace = true
 libc.workspace = true
 pin-project.workspace = true
 sorting_vector.workspace = true
-value.workspace = true
+value = { workspace = true, features = ["c_ffi_impl"] }
 strum.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = ["std"] }
+value = { workspace = true, features = ["test_utils"] }
 
 [lints]
 workspace = true

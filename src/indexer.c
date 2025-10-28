@@ -20,6 +20,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "redismodule.h"
 #include "debug_commands.h"
+#include "search_disk.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -99,15 +100,20 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
   while (entry != NULL) {
     bool isNew;
-    InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
-    if (isNew && strlen(entry->term) != 0) {
-      IndexSpec_AddTerm(spec, entry->term, entry->len);
-    }
-    if (invidx) {
-      entry->docId = aCtx->doc->docId;
-      RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      IndexerYieldWhileLoading(ctx->redisCtx);
-      writeIndexEntry(spec, invidx, entry);
+    if (spec->diskSpec) {
+      SearchDisk_IndexDocument(spec->diskSpec, entry->term, aCtx->doc->docId, entry->fieldMask);
+      // assume all terms are new, avoid the disk io to check
+      isNew = true;
+    } else {
+      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
+      if (isNew && strlen(entry->term) != 0) {
+        IndexSpec_AddTerm(spec, entry->term, entry->len);
+      }
+      if (invidx) {
+        entry->docId = aCtx->doc->docId;
+        RS_LOG_ASSERT(entry->docId, "docId should not be 0");
+        writeIndexEntry(spec, invidx, entry);
+      }
     }
 
     if (spec->suffixMask & entry->fieldMask
@@ -180,6 +186,17 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       continue;
     }
 
+    if (spec->diskSpec) {
+      const char *key = RedisModule_StringPtrLen(cur->doc->docKey, NULL);
+      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, cur->doc->score, cur->docFlags, cur->fwIdx->maxFreq);
+      if (docId) {
+        cur->doc->docId = docId;
+      } else {
+        cur->stateFlags |= ACTX_F_ERRORED;
+      }
+      continue;
+    }
+
     RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
     RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
                                             cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
@@ -226,8 +243,6 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
-
-      IndexerYieldWhileLoading(sctx->redisCtx);
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
         FieldSpec_AddQueryError(&cur->spec->fields[fs->index], &cur->status, doc->docKey);
@@ -391,14 +406,21 @@ bool g_isLoading = false;
  * Yield to Redis after a certain number of operations during indexing.
  * This helps keep Redis responsive during long indexing operations.
  * @param ctx The Redis context
+ * @param numOps Tue number of operations to count in the counter before considering RSGlobalConfig.indexerYieldEveryOpsWhileLoading. These are related to the number of fields in the document
+ * @param flags The flags to pass to RedisModule_Yield
  */
-static void IndexerYieldWhileLoading(RedisModuleCtx *ctx) {
+void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags) {
   static size_t opCounter = 0;
 
-  // If server is loading, Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
-  if (g_isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
-    opCounter = 0;
+  // If server is loading, Yield to Redis if the number of operations is greater than the yieldEveryOps
+  opCounter += numOps;
+  if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+    opCounter = opCounter % RSGlobalConfig.indexerYieldEveryOpsWhileLoading;
     IncrementYieldCounter(); // Track that we called yield
-    RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+    unsigned int sleepMicros = GetIndexerSleepBeforeYieldMicros();
+    if (sleepMicros > 0) {
+      usleep(sleepMicros);
+    }
+    RedisModule_Yield(ctx, flags, NULL);
   }
 }

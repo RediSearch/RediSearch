@@ -260,10 +260,20 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
 
 /**
  * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
- * idioms such as RLookup_WriteKey(..., RS_NumVal(10)); which would otherwise cause
+ * idioms such as RLookup_WriteKey(..., RSValue_NewNumber(10)); which would otherwise cause
  * a leak.
  */
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
+
+/**
+ * Move data from the source row to the destination row. The source row is cleared.
+ * The destination row should be pre-cleared (though its cache may still
+ * exist).
+ * @param lk lookup common to both rows
+ * @param src the source row
+ * @param dst the destination row
+ */
+void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
 
 /**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
@@ -290,7 +300,7 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RL
  * @return the value if found, NULL otherwise.
  */
 static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
-  
+
   RSValue *ret = NULL;
   if (row->dyn && array_len(row->dyn) > key->dstidx) {
     ret = row->dyn[key->dstidx];
@@ -300,7 +310,7 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
       const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
       if (sv && RSSortingVector_Length(sv) > key->svidx) {
         ret = RSSortingVector_Get(sv, key->svidx);
-        if (ret != NULL && ret == RS_NullVal()) {
+        if (ret != NULL && ret == RSValue_NullStatic()) {
           ret = NULL;
         }
       }
@@ -392,10 +402,14 @@ void RLookup_Init(RLookup *l, IndexSpecCache *cache);
 void RLookup_Cleanup(RLookup *l);
 
 /**
+ * Frees an individual RLookupKey, cleaning up its allocated strings
+ */
+void RLookupKey_Free(RLookupKey *k);
+
+/**
  * Initialize the lookup with fields from hash.
  */
 int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
-
 
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 
@@ -404,6 +418,30 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
  * Search an index field by its name in the lookup table spec cache.
  */
 const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
+
+/**
+ * Add non-overridden keys from source lookup into destination lookup (overridden keys are skipped).
+ * For each key in src, check if it already exists in dest by name.
+ * If doesn't exists, create new key in dest.
+ * Handle existing keys based on flags (skip with RLOOKUP_F_NOFLAGS, override with RLOOKUP_F_OVERRIDE).
+ *
+ * Flag handling:
+ * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+ * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+ * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+ * - Targat flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+ */
+void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags);
+
+/**
+ * Write field data from source row to destination row with different schemas.
+ * Iterate through source lookup keys, find corresponding keys in destination by name,
+ * and write it to destination row using RLookup_WriteOwnKey().
+ * Assumes all source keys exist in destination (enforce with ASSERT).
+ */
+void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
+                               RLookupRow *destRow, RLookup *destLookup);
+
 
 #ifdef __cplusplus
 }

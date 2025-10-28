@@ -12,11 +12,14 @@
 use std::{ffi::c_char, ptr};
 
 use inverted_index::{
-    NumericFilter, RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector,
-    RSQueryTerm, RSTermRecord, t_fieldMask,
+    NumericFilter, RSAggregateResult, RSIndexResult, RSOffsetVector, RSQueryTerm, RSTermRecord,
+    t_fieldMask,
 };
 
-pub use inverted_index::debug::{BlockSummary, Summary};
+pub use inverted_index::{
+    ReadFilter,
+    debug::{BlockSummary, Summary},
+};
 
 /// Check if this is a numeric filter and not a geo filter
 ///
@@ -304,9 +307,35 @@ pub unsafe extern "C" fn IndexResult_AggregateRef<'result, 'index>(
     result.as_aggregate()
 }
 
-/// Reset the result if it is an aggregate result. This will clear all children and reset the kind mask.
-/// This function does not deallocate the children pointers, but rather resets the internal state of the
-/// aggregate result. The owner of the children pointers is responsible for managing their lifetime.
+/// Get the aggregate result reference without performing a runtime check
+/// on the enum discriminant.
+///
+/// Use this method if and only if you've already checked the enum
+/// discriminant in C code and you don't want to incur the (small)
+/// performance penalty of an additional redundant check.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// 2. `result`'s data payload must be of the aggregate kind
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_AggregateRefUnchecked<'result, 'index>(
+    result: *const RSIndexResult<'index>,
+) -> Option<&'result RSAggregateResult<'index>> {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: The cast is valid thanks to safety precondition 1.
+    let result = unsafe { &*result };
+
+    // SAFETY:
+    // - The caller guarantees we can skip the discriminant check
+    //   thanks to safety precondition 2.
+    unsafe { result.as_aggregate_unchecked() }
+}
+
+/// Reset the result if it is an aggregate result. This will clear the children vector
+/// and reset the kind mask.
 ///
 /// # Safety
 ///
@@ -332,7 +361,6 @@ pub unsafe extern "C" fn IndexResult_AggregateReset(result: *mut RSIndexResult) 
 ///
 /// The following invariants must be upheld when calling this function:
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
-/// - The memory address at `index` should still be valid and not have been deallocated.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_Get<'result, 'index>(
     agg: *const RSAggregateResult<'index>,
@@ -345,6 +373,29 @@ pub unsafe extern "C" fn AggregateResult_Get<'result, 'index>(
     let agg = unsafe { &*agg };
 
     agg.get(index)
+}
+
+/// Get the result at the specified index in the aggregate result, without checking bounds.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// 2. `index` must be lower than the length of the aggregate result children vector.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AggregateResult_GetUnchecked<'result, 'index>(
+    agg: *const RSAggregateResult<'index>,
+    index: usize,
+) -> &'result RSIndexResult<'index> {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
+    // an `RSAggregateResult`.
+    let agg = unsafe { &*agg };
+
+    // SAFETY:
+    // 1. Guaranteed by the caller thanks to safety precondition 1.
+    unsafe { agg.get_unchecked(index) }
 }
 
 /// Get the element count of the aggregate result.
@@ -459,77 +510,41 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
     }
 }
 
-/// Create an iterator over the aggregate result. This iterator should be freed
-/// using [`AggregateResultIter_Free`].
+/// Get a view of the records stored inside the aggregate result.
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_Iter(
+pub unsafe extern "C" fn AggregateResult_GetRecordsSlice(
     agg: *const RSAggregateResult<'static>,
-) -> *mut RSAggregateResultIter<'static> {
+) -> AggregateRecordsSlice {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
     // an `RSAggregateResult`.
     let agg = unsafe { &*agg };
-    let iter = agg.iter();
-    let iter_boxed = Box::new(iter);
-
-    Box::into_raw(iter_boxed)
-}
-
-/// Get the next item in the aggregate result iterator and put it into the provided `value`
-/// pointer. This function will return `true` if there is a next item, or `false` if the iterator
-/// is exhausted.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
-/// - `value` must point to a valid pointer where the next item will be stored.
-/// - All the memory addresses of the `RSAggregateResult` should still be valid and not have
-///   been deallocated.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResultIter_Next(
-    iter: *mut RSAggregateResultIter<'static>,
-    value: *mut *mut RSIndexResult,
-) -> bool {
-    debug_assert!(!iter.is_null(), "iter must not be null");
-    debug_assert!(!value.is_null(), "value must not be null");
-
-    // SAFETY: Caller is to ensure that the pointer `iter` is a valid, non-null pointer to
-    // an `RSAggregateResultIter`.
-    let iter = unsafe { &mut *iter };
-
-    if let Some(next) = iter.next() {
-        // SAFETY: Caller is to ensure that the pointer `value` is a valid, non-null pointer
-        unsafe {
-            *value = next as *const _ as *mut _;
-        }
-        true
-    } else {
-        false
+    match agg {
+        RSAggregateResult::Borrowed { records, .. } => AggregateRecordsSlice {
+            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
+            len: records.len(),
+        },
+        RSAggregateResult::Owned { records, .. } => AggregateRecordsSlice {
+            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
+            len: records.len(),
+        },
     }
 }
 
-/// Free the aggregate result iterator. This function will deallocate the memory used by the iterator.
+#[repr(C)]
+/// A view over the records stored inside an [`RSAggregateResult`].
 ///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `iter` must point to a valid `RSAggregateResultIter`.
-/// - The iterator must have been created using [`AggregateResult_Iter`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResultIter_Free(iter: *mut RSAggregateResultIter<'static>) {
-    // Don't free if the pointer is `NULL` - just like the C free function
-    if iter.is_null() {
-        return;
-    }
-
-    // SAFETY: Caller is to ensure `iter` was allocated using `AggregateResult_Iter`
-    let _boxed_iter = unsafe { Box::from_raw(iter) };
+/// It is designed to minimize the overhead of iterating over the records on
+/// the C side, by providing a direct pointer to the records and avoiding unnecessary
+/// C->Rust FFI calls.
+pub struct AggregateRecordsSlice {
+    pub ptr: *const *const RSIndexResult<'static>,
+    pub len: usize,
 }
 
 /// Retrieve the offsets array from [`RSOffsetVector`].

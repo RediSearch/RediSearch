@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cluster.h"
-#include "crc16.h"
-#include "crc12.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 
@@ -29,157 +27,46 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   return cl;
 }
 
-/* Find the shard responsible for a given slot */
-MRClusterShard *_MRCluster_FindShard(MRClusterTopology *topo, unsigned slot) {
-  // TODO: Switch to binary search
-  for (int i = 0; i < topo->numShards; i++) {
-    if (topo->shards[i].startSlot <= slot && topo->shards[i].endSlot >= slot) {
-      return &topo->shards[i];
-    }
-  }
-  return NULL;
-}
+static MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, MRCommand *cmd) {
+  RS_LOG_ASSERT(cmd->targetShard != INVALID_SHARD, "Command must know its target shard");
+  RS_LOG_ASSERT(ioRuntime->topo != NULL, "IORuntimeCtx must have a valid topology here");
 
-/* Select a node from the shard according to the coordination strategy */
-MRClusterNode *_MRClusterShard_SelectNode(MRClusterShard *sh, bool mastersOnly) {
-  // if we only want masters - find the master of this shard
-  if (mastersOnly) {
-    for (int i = 0; i < sh->numNodes; i++) {
-      if (sh->nodes[i].flags & MRNode_Master) {
-        return &sh->nodes[i];
-      }
-    }
-    return NULL;
-  }
-  // if we don't care - select a random node
-  return &sh->nodes[rand() % sh->numNodes];
-}
-
-typedef struct {
-  const char *base;
-  size_t baseLen;
-  const char *shard;
-  size_t shardLen;
-} MRKey;
-
-void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
-  mk->shard = mk->base = src;
-  mk->shardLen = mk->baseLen = srclen;
-
-  const char *endBrace = src + srclen - 1;
-  if (srclen < 3 || !*endBrace || *endBrace != '}') {
-    return;
-  }
-
-  const char *beginBrace = endBrace;
-  while (beginBrace >= src && *beginBrace != '{') {
-    beginBrace--;
-  }
-
-  if (*beginBrace != '{') {
-    return;
-  }
-
-  mk->baseLen = beginBrace - src;
-  mk->shard = beginBrace + 1;
-  mk->shardLen = endBrace - mk->shard;
-}
-
-static const char *MRGetShardKey(const MRCommand *cmd, size_t *len) {
-  int pos = MRCommand_GetShardingKey(cmd);
-  if (pos >= cmd->num) {
+  // No target shard, or out of range (may happen during topology updates)
+  if (cmd->targetShard >= ioRuntime->topo->numShards) {
+    RedisModule_Log(RSDummyContext, "warning", "Command targetShard %d is out of bounds (numShards=%u)", cmd->targetShard, ioRuntime->topo->numShards);
     return NULL;
   }
 
-  size_t klen;
-  const char *k = MRCommand_ArgStringPtrLen(cmd, pos, &klen);
-  MRKey mk;
-  MRKey_Parse(&mk, k, klen);
-  *len = mk.shardLen;
-  return mk.shard;
-}
+  /* Get the shard directly by the targetShard field */
+  MRClusterShard *sh = &ioRuntime->topo->shards[cmd->targetShard];
 
-
-static mr_slot_t getSlotByCmd(const MRCommand *cmd, const MRClusterTopology *topo) {
-
-  if(cmd->targetSlot >= 0){
-    return cmd->targetSlot;
-  }
-
-  size_t len;
-  const char *k = MRGetShardKey(cmd, &len);
-  if (!k) return 0;
-  // Default to crc16
-  uint16_t crc = (topo->hashFunc == MRHashFunc_CRC12) ? crc12(k, len) : crc16(k, len);
-  return crc % topo->numSlots;
-}
-
-MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd) {
-
-  if (!ioRuntime->topo) return NULL;
-
-  /* Get the cluster slot from the sharder */
-  unsigned slot = getSlotByCmd(cmd, ioRuntime->topo);
-
-  /* Get the shard from the slot map */
-  MRClusterShard *sh = _MRCluster_FindShard(ioRuntime->topo, slot);
-  if (!sh) return NULL;
-
-  MRClusterNode *node = _MRClusterShard_SelectNode(sh, mastersOnly);
-  if (!node) return NULL;
-
-  return MRConn_Get(&ioRuntime->conn_mgr, node->id);
+  return MRConn_Get(&ioRuntime->conn_mgr, sh->node.id);
 }
 
 /* Send a single command to the right shard in the cluster, with an optional control over node
  * selection */
 int MRCluster_SendCommand(IORuntimeCtx *ioRuntime,
-                          bool mastersOnly,
                           MRCommand *cmd,
                           redisCallbackFn *fn,
                           void *privdata) {
-  MRConn *conn = MRCluster_GetConn(ioRuntime, mastersOnly, cmd);
+  MRConn *conn = MRCluster_GetConn(ioRuntime, cmd);
   if (!conn) return REDIS_ERR;
   return MRConn_SendCommand(conn, cmd, fn, privdata);
-}
-
-int MRCluster_CheckConnections(IORuntimeCtx *ioRuntime,
-                              bool mastersOnly) {
-  struct MRClusterTopology *topo = ioRuntime->topo;
-  for (size_t i = 0; i < topo->numShards; i++) {
-    MRClusterShard *sh = &topo->shards[i];
-    for (size_t j = 0; j < sh->numNodes; j++) {
-      if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
-        continue;
-      }
-      if (!MRConn_Get(&ioRuntime->conn_mgr, sh->nodes[j].id)) {
-        return REDIS_ERR;
-      }
-    }
-  }
-  return REDIS_OK;
 }
 
 /* Multiplex a command to all coordinators, using a specific coordination strategy. Returns the
  * number of sent commands */
 int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
-                           bool mastersOnly,
                            MRCommand *cmd,
                            redisCallbackFn *fn,
                            void *privdata) {
   struct MRClusterTopology *topo = ioRuntime->topo;
   int ret = 0;
   for (size_t i = 0; i < topo->numShards; i++) {
-    MRClusterShard *sh = &topo->shards[i];
-    for (size_t j = 0; j < sh->numNodes; j++) {
-      if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
-        continue;
-      }
-      MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, sh->nodes[j].id);
-      if (conn) {
-        if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
-          ret++;
-        }
+    MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);
+    if (conn) {
+      if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
+        ret++;
       }
     }
   }

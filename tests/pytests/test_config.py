@@ -94,6 +94,7 @@ def testGetConfigOptions(env):
     check_config('BM25STD_TANH_FACTOR')
     check_config('_BG_INDEX_OOM_PAUSE_TIME')
     check_config('INDEXER_YIELD_EVERY_OPS')
+    check_config('ON_OOM')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -107,6 +108,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'TIMEOUT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'BM25STD').equal('OK')
     env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).equal(not_modifiable) # deprecated
     env.expect(config_cmd(), 'set', 'MT_MODE', 1).equal(not_modifiable) # deprecated
     env.expect(config_cmd(), 'set', 'FRISOINI', 1).equal(not_modifiable)
@@ -123,6 +125,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'ON_OOM', 1).equal('Invalid ON_OOM value')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
@@ -159,6 +162,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXAGGREGATERESULTS'][0], 'unlimited')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
+    env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'BM25STD')
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
     env.assertEqual(res_dict['WORKERS'][0], '0')
     env.assertEqual(res_dict['MIN_OPERATION_WORKERS'][0], '4')
@@ -189,8 +193,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
     env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
-
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
+    env.assertEqual(res_dict['ON_OOM'][0], 'ignore')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -246,6 +250,7 @@ def testInitConfig():
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'true', 'true')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'false', 'false')
+    _test_config_str('ON_OOM', 'ignore')
 
 @skip(cluster=True)
 def test_command_name(env: Env):
@@ -915,6 +920,23 @@ def testConfigAPIRunTimeEnumParams():
 
     # Test search-on-timeout - invalid values
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\
+            .contains('CONFIG SET failed')
+
+        # Test search-on-oom - valid values
+    env.expect('CONFIG', 'SET', 'search-on-oom', 'fail').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-oom')\
+        .equal(['search-on-oom', 'fail'])
+
+    env.expect('CONFIG', 'SET', 'search-on-oom', 'return').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-oom')\
+        .equal(['search-on-oom', 'return'])
+
+    env.expect('CONFIG', 'SET', 'search-on-oom', 'ignore').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-oom')\
+        .equal(['search-on-oom', 'ignore'])
+
+    # Test search-on-oom - invalid values
+    env.expect('CONFIG', 'SET', 'search-on-oom', 'invalid_value').error()\
             .contains('CONFIG SET failed')
 
 @skip(cluster=True, redis_less_than='7.9.227')
@@ -1841,3 +1863,39 @@ def testConfigIndependence_max_values():
         env.expect('CONFIG', 'SET', configName, 'yes').ok()
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, maxValueConfigDict)
+
+@skip(cluster=True)
+def test_on_oom(env):
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'ignore').ok()
+    env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'ignore']])
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'fail').ok()
+    env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'fail']])
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'return').ok()
+    env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'return']])
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'invalid').error().contains('Invalid ON_OOM value')
+
+@skip(cluster=True)
+def testDefaultScorerConfig(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
+    env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', scorer).equal('OK')
+        env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+        env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', scorer])
+
+    for scorer in valid_scorers:
+        env.expect('CONFIG', 'set', 'search-default-scorer', scorer).equal('OK')
+        env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+        env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', scorer])
+
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('Invalid default scorer')
+
+    env.expect('CONFIG', 'SET', 'search-default-scorer', 'INVALID_SCORER2').error().contains('Invalid default scorer')
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('Invalid default scorer value')
+
+    env.expect('CONFIG', 'SET', 'search-default-scorer', 'NOTHING2').error().contains('Invalid default scorer value')
+
+    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value

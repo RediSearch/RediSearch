@@ -7,11 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
-
 use rlookup::RLookupKey;
-
-use value::{RSValueFFI, RSValueTrait};
+use std::{mem::ManuallyDrop, ptr::NonNull};
+use value::RSValueFFI;
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///
@@ -31,9 +29,13 @@ unsafe extern "C" fn RLookup_WriteKey<'a>(
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow
     let row = unsafe { row.expect("row must not be null").as_mut() };
 
-    let mut value = RSValueFFI(value.expect("value must not be null"));
-    value.increment();
-    row.write_key(key, value);
+    // this method does not take ownership of `value` so we must take care not to drop it at the end of the scope
+    // (therefore the `ManuallyDrop`). Instead we explicitly clone the value before inserting it below.
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RSValue
+    let value =
+        ManuallyDrop::new(unsafe { RSValueFFI::from_raw(value.expect("value must not be null")) });
+
+    row.write_key(key, ManuallyDrop::into_inner(value.clone()));
 }
 
 /// Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.
@@ -54,7 +56,10 @@ unsafe extern "C" fn RLookup_WriteOwnKey<'a>(
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow
     let row = unsafe { row.expect("row must not be null").as_mut() };
 
-    row.write_key(key, RSValueFFI(value.expect("value must not be null")));
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RSValue
+    let value = unsafe { RSValueFFI::from_raw(value.expect("value must not be null")) };
+
+    row.write_key(key, value);
 }
 
 /// Wipes a RLookupRow by decrementing all values and resetting the row.

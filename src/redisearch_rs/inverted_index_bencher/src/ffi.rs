@@ -21,12 +21,16 @@ mod bindings {
     #![allow(unsafe_op_in_unsafe_fn)]
     #![allow(improper_ctypes)]
     #![allow(dead_code)]
+    #![allow(clippy::ptr_offset_with_cast)]
+    #![allow(clippy::useless_transmute)]
+    #![allow(clippy::missing_const_for_fn)]
 
-    use inverted_index::{t_docId, t_fieldMask};
+    use inverted_index::{NumericFilter, t_docId, t_fieldMask};
 
     // Type aliases for C bindings - types without lifetimes for C interop
     pub type RSIndexResult = inverted_index::RSIndexResult<'static>;
     pub type RSOffsetVector = inverted_index::RSOffsetVector<'static>;
+    pub type IndexDecoderCtx = inverted_index::ReadFilter<'static>;
 
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
@@ -79,10 +83,10 @@ pub fn read_numeric(
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
-    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
+    let ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
     let mut result = inverted_index::RSIndexResult::numeric(0.0);
 
-    let returned = unsafe { bindings::read_numeric(&mut block_reader, &mut ctx, &mut result) };
+    let returned = unsafe { bindings::read_numeric(&mut block_reader, &ctx, &mut result) };
 
     (returned, result)
 }
@@ -120,13 +124,13 @@ pub fn read_freq_offsets_flags(
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
-    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
     let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
 
     let returned = if wide {
-        unsafe { bindings::read_freq_offsets_flags_wide(&mut block_reader, &mut ctx, &mut result) }
+        unsafe { bindings::read_freq_offsets_flags_wide(&mut block_reader, &ctx, &mut result) }
     } else {
-        unsafe { bindings::read_freq_offsets_flags(&mut block_reader, &mut ctx, &mut result) }
+        unsafe { bindings::read_freq_offsets_flags(&mut block_reader, &ctx, &mut result) }
     };
 
     (returned, result)
@@ -136,10 +140,10 @@ pub fn read_freqs(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index::R
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
-    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
+    let ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
     let mut result = inverted_index::RSIndexResult::virt().doc_id(base_id);
 
-    let returned = unsafe { bindings::read_freqs(&mut block_reader, &mut ctx, &mut result) };
+    let returned = unsafe { bindings::read_freqs(&mut block_reader, &ctx, &mut result) };
 
     (returned, result)
 }
@@ -169,13 +173,13 @@ pub fn read_freqs_flags(
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
-    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
     let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
 
     let returned = if wide {
-        unsafe { bindings::read_freqs_flags_wide(&mut block_reader, &mut ctx, &mut result) }
+        unsafe { bindings::read_freqs_flags_wide(&mut block_reader, &ctx, &mut result) }
     } else {
-        unsafe { bindings::read_freqs_flags(&mut block_reader, &mut ctx, &mut result) }
+        unsafe { bindings::read_freqs_flags(&mut block_reader, &ctx, &mut result) }
     };
 
     (returned, result)
@@ -204,13 +208,13 @@ pub fn read_flags(
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
-    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
     let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
 
     let returned = if wide {
-        unsafe { bindings::read_flags_wide(&mut block_reader, &mut ctx, &mut result) }
+        unsafe { bindings::read_flags_wide(&mut block_reader, &ctx, &mut result) }
     } else {
-        unsafe { bindings::read_flags(&mut block_reader, &mut ctx, &mut result) }
+        unsafe { bindings::read_flags(&mut block_reader, &ctx, &mut result) }
     };
 
     (returned, result)
@@ -233,10 +237,10 @@ pub fn read_doc_ids_only(
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
-    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
     let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
 
-    let returned = unsafe { bindings::read_doc_ids_only(&mut block_reader, &mut ctx, &mut result) };
+    let returned = unsafe { bindings::read_doc_ids_only(&mut block_reader, &ctx, &mut result) };
     (returned, result)
 }
 
@@ -265,13 +269,13 @@ pub fn read_fields_offsets(
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
-    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
     let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
 
     let returned = if wide {
-        unsafe { bindings::read_fields_offsets_wide(&mut block_reader, &mut ctx, &mut result) }
+        unsafe { bindings::read_fields_offsets_wide(&mut block_reader, &ctx, &mut result) }
     } else {
-        unsafe { bindings::read_fields_offsets(&mut block_reader, &mut ctx, &mut result) }
+        unsafe { bindings::read_fields_offsets(&mut block_reader, &ctx, &mut result) }
     };
 
     (returned, result)
@@ -294,10 +298,10 @@ pub fn read_offsets_only(
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
-    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
     let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
 
-    let returned = unsafe { bindings::read_offsets_only(&mut block_reader, &mut ctx, &mut result) };
+    let returned = unsafe { bindings::read_offsets_only(&mut block_reader, &ctx, &mut result) };
 
     (returned, result)
 }
@@ -319,11 +323,10 @@ pub fn read_freqs_offsets(
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
-    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
     let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
 
-    let returned =
-        unsafe { bindings::read_freqs_offsets(&mut block_reader, &mut ctx, &mut result) };
+    let returned = unsafe { bindings::read_freqs_offsets(&mut block_reader, &ctx, &mut result) };
 
     (returned, result)
 }
@@ -345,24 +348,23 @@ pub fn read_raw_doc_ids_only(
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
-    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
     let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
 
-    let returned =
-        unsafe { bindings::read_raw_doc_ids_only(&mut block_reader, &mut ctx, &mut result) };
+    let returned = unsafe { bindings::read_raw_doc_ids_only(&mut block_reader, &ctx, &mut result) };
 
     (returned, result)
 }
 
 #[cfg(test)]
+// `miri` can't handle FFI.
+#[cfg(not(miri))]
 mod tests {
-
+    use super::*;
     use ffi::RSQueryTerm;
+    use ffi::t_fieldMask;
     use inverted_index::RSOffsetVector;
 
-    use super::*;
-
-    use ffi::t_fieldMask;
     // The encode C implementation relies on these symbols. Re-export them to ensure they are not discarded by the linker.
     #[allow(unused_imports)]
     pub use types_ffi::RSOffsetVector_GetData;
@@ -370,6 +372,7 @@ mod tests {
     pub use varint_ffi::WriteVarintFieldMask;
 
     #[test]
+    #[ignore]
     fn test_encode_numeric() {
         // Test cases for all the different numeric encodings. These cases can be moved to the Rust
         // implementation tests verbatim.

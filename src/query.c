@@ -15,6 +15,7 @@
 #include "geo_index.h"
 #include "query.h"
 #include "config.h"
+#include "query_error.h"
 #include "redis_index.h"
 #include "tokenize.h"
 #include "triemap.h"
@@ -46,6 +47,7 @@
 #include "iterators/empty_iterator.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
+#include "search_disk.h"
 
 #ifndef STRINGIFY
 #define __STRINGIFY(x) #x
@@ -144,11 +146,13 @@ void QueryNode_Free(QueryNode *n) {
 }
 
 // Add a new metric request to the metricRequests array. Returns the index of the request
-static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr) {
-  MetricRequest mr = {metric_name, key_addr};
+static int addMetricRequest(QueryEvalCtx *q, char *metric_name, bool isInternal) {
+  MetricRequest mr = {metric_name, NULL, isInternal};
   array_ensure_append_1(*q->metricRequestsP, mr);
   return array_len(*q->metricRequestsP) - 1;
 }
+
+
 
 QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = rm_calloc(1, sizeof(QueryNode));
@@ -159,6 +163,7 @@ QueryNode *NewQueryNode(QueryNodeType type) {
     .maxSlop = -1,
     .inOrder = 0,
     .weight = 1,
+    .explicitWeight = false,
     .distField = NULL,
   };
   return s;
@@ -414,31 +419,31 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
   return ret;
 }
 
-static void setFilterNode(QueryAST *q, QueryNode *n) {
-  if (q->root == NULL || n == NULL) return;
+void SetFilterNode(QueryAST *q, QueryNode *filterNode) {
+  if (q->root == NULL || filterNode == NULL) return;
 
   // for a simple phrase node we just add the numeric node
   if (q->root->type == QN_PHRASE) {
     // we usually want the numeric range as the "leader" iterator.
-    q->root->children = array_ensure_prepend(q->root->children, &n, 1, QueryNode *);
+    q->root->children = array_ensure_prepend(q->root->children, &filterNode, 1, QueryNode *);
     q->numTokens++;
   // vector node of type KNN should always be in the root, so we have a special case here.
   } else if (q->root->type == QN_VECTOR && q->root->vn.vq->type == VECSIM_QT_KNN) {
     // for non-hybrid - add the filter node as the child of the vector node.
     if (QueryNode_NumChildren(q->root) == 0) {
-      QueryNode_AddChild(q->root, n);
+      QueryNode_AddChild(q->root, filterNode);
     // otherwise, add a new phrase node as the parent of the current child of the hybrid vector node,
     // and set its children to be the previous child and the new filter node.
     } else {
       RS_LOG_ASSERT(QueryNode_NumChildren(q->root) == 1, "Vector query node can have at most one child");
       QueryNode *nr = NewPhraseNode(0);
-      QueryNode_AddChild(nr, n);
+      QueryNode_AddChild(nr, filterNode);
       QueryNode_AddChild(nr, q->root->children[0]);
       q->root->children[0] = nr;
     }
   } else {  // for other types, we need to create a new phrase node
     QueryNode *nr = NewPhraseNode(0);
-    QueryNode_AddChild(nr, n);
+    QueryNode_AddChild(nr, filterNode);
     QueryNode_AddChild(nr, q->root);
     q->numTokens++;
     q->root = nr;
@@ -447,23 +452,23 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
 
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
   if (options->empty) {
-    setFilterNode(ast, NewQueryNode(QN_NULL));
+    SetFilterNode(ast, NewQueryNode(QN_NULL));
   }
   if (options->numeric) {
     QueryNode *n = NewQueryNode(QN_NUMERIC);
     n->nn.nf = options->numeric;
-    setFilterNode(ast, n);
+    SetFilterNode(ast, n);
   }
   if (options->geo) {
     QueryNode *n = NewQueryNode(QN_GEO);
     n->gn.gf = options->geo;
-    setFilterNode(ast, n);
+    SetFilterNode(ast, n);
   }
   if (options->keys) {
     QueryNode *n = NewQueryNode(QN_IDS);
     n->fn.keys = options->keys;
     n->fn.len = options->nkeys;
-    setFilterNode(ast, n);
+    SetFilterNode(ast, n);
   }
 }
 
@@ -513,10 +518,14 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
 
 QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_TOKEN, "query node type should be token")
-
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
-  return Redis_OpenReader(q->sctx, term, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
+  if (q->sctx->spec->diskSpec) {
+    RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
+    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
+  } else {
+    return Redis_OpenReader(q->sctx, term, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
+  }
 }
 
 static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
@@ -530,10 +539,16 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
   };
 
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
+  QueryIterator *ir = NULL;
 
-  // Open an index reader
-  QueryIterator *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
-                                       q->opts->fieldmask & opts->fieldMask, 1);
+  if (q->sctx->spec->diskSpec) {
+    RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, q->opts->fieldmask & opts->fieldMask, 1);
+  } else {
+    // Open an index reader
+    ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
+                                        q->opts->fieldmask & opts->fieldMask, 1);
+  }
 
   if (!ir) {
     return;
@@ -573,7 +588,7 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   TrieIterator_Free(it);
 
   if (hasNext && itsSz == q->config->maxPrefixExpansions) {
-    q->status->reachedMaxPrefixExpansions = true;
+    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
   }
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
@@ -761,14 +776,19 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   if (!RS_IsMock && ctx->nits >= q->config->maxPrefixExpansions) {
-    q->status->reachedMaxPrefixExpansions = true;
+    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     return REDISEARCH_ERR;
   }
   RSToken tok = {0};
   tok.str = runesToStr(r, n, &tok.len);
+  QueryIterator *ir = NULL;
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
-  QueryIterator *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
-                                       q->opts->fieldmask & ctx->opts->fieldMask, 1);
+  if (q->sctx->spec->diskSpec) {
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+  } else {
+    ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
+                                        q->opts->fieldmask & ctx->opts->fieldMask, 1);
+  }
   rm_free(tok.str);
   if (ir) {
     rangeItersAddIterator(ctx, ir);
@@ -781,13 +801,18 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   if (ctx->nits >= q->config->maxPrefixExpansions) {
-    q->status->reachedMaxPrefixExpansions = true;
+    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     return REDISEARCH_ERR;
   }
   RSToken tok = {.str = (char *)s, .len = n};
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
-  QueryIterator *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
-                                       q->opts->fieldmask & ctx->opts->fieldMask, 1);
+  QueryIterator *ir = NULL;
+  if (q->sctx->spec->diskSpec) {
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+  } else {
+    ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
+                                        q->opts->fieldmask & ctx->opts->fieldMask, 1);
+  }
   if (ir) {
     rangeItersAddIterator(ctx, ir);
   }
@@ -833,7 +858,7 @@ static QueryIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, qn->pfx.tok.len, qn->fz.maxDist, 0, &qn->opts);
+  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, strlen(qn->pfx.tok.str), qn->fz.maxDist, 0, &qn->opts);
 }
 
 static QueryIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -963,7 +988,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // This function creates the array if it's the first name, and ensure its size is sufficient.
   size_t idx;
   if (qn->vn.vq->scoreField) {
-    idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL);
+    idx = addMetricRequest(q, qn->vn.vq->scoreField, qn->opts.flags & QueryNode_HideVectorDistanceField);
   }
 
   QueryIterator *child_it = NULL;
@@ -977,19 +1002,27 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
   // If iterator was created successfully, and we have a metric to yield, update the
-  // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
-  if (it && qn->vn.vq->scoreField) {
+  // Only create MetricRequest entries for iterators that actually yield metrics
+  if (it && qn->vn.vq->scoreField &&
+      (it->type == HYBRID_ITERATOR || it->type == METRIC_ITERATOR)) {
+    MetricRequest *request = array_ensure_at(q->metricRequestsP, idx, MetricRequest);
+
+    // Create a handle that points to the iterator's ownKey field
+    // Both HYBRID_ITERATOR and METRIC_ITERATOR have the same ownKey and keyHandle layout
+    RLookupKeyHandle *handle = rm_malloc(sizeof(RLookupKeyHandle));
+    handle->is_valid = true;
+
     if (it->type == HYBRID_ITERATOR) {
       HybridIterator *hybridIt = (HybridIterator *)it;
-      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &hybridIt->ownKey;
-    } else if (it->type == METRIC_ITERATOR) {
+      handle->key_ptr = &hybridIt->ownKey;
+      hybridIt->keyHandle = handle; // Set up back-reference
+    } else { // Must be METRIC_ITERATOR due to the condition above
       MetricIterator *metricIt = (MetricIterator *)it;
-      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &metricIt->ownKey;
-    } else {
-      // Only reason to get an iterator of type different than HYBRID or METRIC
-      // is if the entire iterator was optimized away
-      RS_ASSERT(it->type == EMPTY_ITERATOR);
+      handle->key_ptr = &metricIt->ownKey;
+      metricIt->keyHandle = handle; // Set up back-reference
     }
+
+    request->key_handle = handle;
   }
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);
@@ -1196,7 +1229,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     }
 
     if (hasNext && itsSz == q->config->maxPrefixExpansions) {
-      q->status->reachedMaxPrefixExpansions = true;
+      QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     }
 
     TrieMapIterator_Free(it);
@@ -1212,7 +1245,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
       for (int j = 0; j < array_len(arr[i]); ++j) {
         size_t jarrlen = array_len(arr[i]);
         if (itsSz >= q->config->maxPrefixExpansions) {
-          q->status->reachedMaxPrefixExpansions = true;
+          QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
           break;
         }
         QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i][j], strlen(arr[i][j]), 1, fieldIndex);
@@ -1263,7 +1296,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     } else {
       for (int i = 0; i < array_len(arr); ++i) {
         if (itsSz >= q->config->maxPrefixExpansions) {
-          q->status->reachedMaxPrefixExpansions = true;
+          QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
           break;
         }
         QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i], strlen(arr[i]), 1, fieldIndex);
@@ -1305,7 +1338,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     }
 
     if (hasNext && itsSz == q->config->maxPrefixExpansions) {
-      q->status->reachedMaxPrefixExpansions = true;
+      QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     }
 
     TrieMapIterator_Free(it);
@@ -1319,20 +1352,28 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
   QueryIterator *ret = NULL;
   int caseSensitive = fs->tagOpts.tagFlags & TagField_CaseSensitive;
 
+  // For hybrid queries, use weight 0.0 to disable tag scoring
+  // Use IsHybrid-like logic adapted for QueryEvalCtx
+  bool is_hybrid = (q->reqFlags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) ||
+                  (q->reqFlags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY);
+  double effective_weight = is_hybrid ? 0.0 : weight;
+
   switch (n->type) {
     case QN_TOKEN: {
       tag_strtolower(&(n->tn.str), &n->tn.len, caseSensitive);
-      ret = TagIndex_OpenReader(idx, q->sctx, n->tn.str, n->tn.len, weight, fs->index);
+      ret = TagIndex_OpenReader(idx, q->sctx, n->tn.str, n->tn.len, effective_weight, fs->index);
       break;
     }
     case QN_PREFIX:
-      return Query_EvalTagPrefixNode(q, idx, n, weight, FieldSpec_HasSuffixTrie(fs), fs->index, caseSensitive);
+      return Query_EvalTagPrefixNode(q, idx, n, effective_weight,
+                         FieldSpec_HasSuffixTrie(fs), fs->index, caseSensitive);
 
     case QN_WILDCARD_QUERY:
-      return Query_EvalTagWildcardNode(q, idx, n, weight, fs->index, caseSensitive);
+      return Query_EvalTagWildcardNode(q, idx, n, effective_weight, fs->index,
+                                       caseSensitive);
 
     case QN_LEXRANGE:
-      return Query_EvalTagLexRangeNode(q, idx, n, weight, caseSensitive);
+      return Query_EvalTagLexRangeNode(q, idx, n, effective_weight, caseSensitive);
 
     case QN_PHRASE: {
       char *terms[QueryNode_NumChildren(n)];
@@ -1347,7 +1388,7 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
       sds s = sdsjoin(terms, QueryNode_NumChildren(n), " ");
 
-      ret = TagIndex_OpenReader(idx, q->sctx, s, sdslen(s), weight, fs->index);
+      ret = TagIndex_OpenReader(idx, q->sctx, s, sdslen(s), effective_weight, fs->index);
       sdsfree(s);
       break;
     }
@@ -1514,6 +1555,16 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
+
+  // Free the key handles in metric requests
+  if (q->metricRequests) {
+    for (size_t i = 0; i < array_len(q->metricRequests); i++) {
+      if (q->metricRequests[i].key_handle) {
+        rm_free(q->metricRequests[i].key_handle);
+      }
+    }
+  }
+
   array_free(q->metricRequests);
   q->metricRequests = NULL;
   q->numTokens = 0;
@@ -1642,8 +1693,22 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
   return true;
 }
 
-static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  int withChildren = 1;
+static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
+  QueryError *status, QAST_ValidationFlags validationFlags) {
+  // Check if this is the main vector node in a hybrid vector subquery
+  QAST_ValidationFlags effectiveFlags = validationFlags;
+  if ((n->opts.flags & QueryNode_HybridVectorSubqueryNode) && (n->type == QN_VECTOR)) {
+    // This is the main vector node in hybrid vector subquery - allow it despite restrictions
+    effectiveFlags &= ~(QAST_NO_WEIGHT | QAST_NO_VECTOR);
+  }
+
+  // Check for weight attribute restrictions
+  if ((effectiveFlags & QAST_NO_WEIGHT) && n->opts.explicitWeight) {
+    QueryError_SetError(status, QUERY_EWEIGHT_NOT_ALLOWED, NULL);
+    return REDISMODULE_ERR;
+  }
+
+  bool withChildren = true;
   int res = REDISMODULE_OK;
   switch(n->type) {
     case QN_PHRASE:
@@ -1658,7 +1723,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
     case QN_NULL:
     case QN_MISSING:
-      withChildren = 0;
+      withChildren = false;
       break;
     case QN_TAG:
       {
@@ -1687,6 +1752,12 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         }
       }
       break;
+    case QN_VECTOR:
+      if (effectiveFlags & QAST_NO_VECTOR) {
+        QueryError_SetError(status, QUERY_EVECTOR_NOT_ALLOWED, NULL);
+        res = REDISMODULE_ERR;
+      }
+      break;
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
@@ -1696,14 +1767,14 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_WILDCARD_QUERY:
     case QN_FUZZY:
     case QN_LEXRANGE:
-    case QN_VECTOR:
     case QN_GEOMETRY:
       break;
   }
+
   // Handle children
   if (withChildren && res == REDISMODULE_OK) {
     for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
-      res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status);
+      res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status, validationFlags);
       if (res == REDISMODULE_ERR)
         break;
     }
@@ -1720,8 +1791,10 @@ int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, Query
   ) {
     return REDISMODULE_OK;
   }
-  return QueryNode_CheckIsValid(q->root, spec, opts, status);
+
+  return QueryNode_CheckIsValid(q->root, spec, opts, status, q->validationFlags);
 }
+
 
 /* Set the field mask recursively on a query node. This is called by the parser to handle
  * situations like @foo:(bar baz|gaz), where a complex tree is being applied a field mask */
@@ -1895,7 +1968,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       for (int i = 0; i < qs->fn.len; i++) {
         t_docId id = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
         if (id != 0) {
-          s = sdscatprintf(s, "%zu,", id);
+          s = sdscatprintf(s, "%lu,", id);
         }
       }
       s = sdscat(s, "}");
@@ -2126,6 +2199,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
       return res;
     }
     qn->opts.weight = d;
+    qn->opts.explicitWeight = true;
     res = 1;
 
   } else if (STR_EQCASE(attr->name, attr->namelen, PHONETIC_ATTR)) {

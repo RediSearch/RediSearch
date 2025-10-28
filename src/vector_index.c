@@ -23,7 +23,7 @@
 
 static bool isLVQSupported() {
 
-#if defined(CPUID_AVAILABLE) && defined(SVS_PRE_COMPILED_LIB)
+#if defined(CPUID_AVAILABLE) && BUILD_INTEL_SVS_OPT
   // Check if the machine is Intel based on the CPU vendor.
   unsigned int eax, ebx, ecx, edx;
   char vendor[13];
@@ -220,6 +220,20 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
   return 1;
 }
 
+char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen) {
+  // Generate default scoreField name using vector field name
+  char *scoreFieldName = NULL;
+  int n_written = rm_asprintf(&scoreFieldName, "__%.*s_score", (int)fieldNameLen, fieldName);
+  RS_ASSERT(n_written != -1);
+  return scoreFieldName;
+}
+
+void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen) {
+  // Set default scoreField using vector field name
+  char *defaultName = VectorQuery_GetDefaultScoreFieldName(fieldName, fieldNameLen);
+  vq->scoreField = defaultName;
+}
+
 void VectorQuery_Free(VectorQuery *vq) {
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
@@ -370,7 +384,7 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
 
 static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   int rv;
 
   // Checking if the loaded parameters fits the current server limits.
@@ -665,4 +679,37 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   RedisSearchCtx_UnlockSpec(&sctx);
   StrongRef_Release(strong);
   return 1;
+}
+
+VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
+  RS_ASSERT(FIELD_IS(vectorField, INDEXFLD_T_VECTOR))
+  VecSimParams vec_params = vectorField->vectorOpts.vecSimParams;
+
+  VecSimAlgo field_algo = vec_params.algo;
+  AlgoParams algo_params = vec_params.algoParams;
+
+  switch (field_algo) {
+    case VecSimAlgo_TIERED: {
+      VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
+      if (primary_params->algo == VecSimAlgo_HNSWLIB) {
+        HNSWParams hnsw_params = primary_params->algoParams.hnswParams;
+        return hnsw_params.metric;
+      } else if (primary_params->algo == VecSimAlgo_SVS) {
+        SVSParams svs_params = primary_params->algoParams.svsParams;
+        return svs_params.metric;
+      } else {
+        // Unknown primary algorithm in tiered index
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "Unknown primary algorithm in tiered index: %s",
+                 VecSimAlgorithm_ToString(primary_params->algo));
+        RS_ABORT(error_msg);
+      }
+      break;
+    }
+    case VecSimAlgo_BF:
+      return algo_params.bfParams.metric;
+    default:
+      // Unknown algorithm type
+      RS_ABORT("Unknown algorithm in vector index");
+  }
 }

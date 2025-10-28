@@ -32,7 +32,9 @@
 #include "info/info_command.h"
 #include "profile.h"
 #include "info/info_redis/info_redis.h"
+#include "util/logging.h"
 
+#define DEPLETER_POOL_SIZE 4
 
 /**
  * Check if we can run under the current AOF configuration. Returns true
@@ -167,6 +169,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   DO_LOG("verbose", "threadpool has %lu high-priority bias that always prefer running queries "
                     "when possible", RSGlobalConfig.highPriorityBiasNum);
 
+  depleterPool = redisearch_thpool_create(DEPLETER_POOL_SIZE, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "depleter");
+
   IndexAlias_InitGlobal();
 
   // Register aggregation functions
@@ -188,6 +192,13 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Register the default hard coded extension
   if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
     DO_LOG("warning", "Could not register default extension");
+    return REDISMODULE_ERR;
+  }
+
+  RS_ASSERT(RSGlobalConfig.defaultScorer);
+  ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, RSGlobalConfig.defaultScorer);
+  if (scoreCtx == NULL) {
+    DO_LOG("warning", "The scorer '%s' specified in the configuration for the default scorer is not a valid scorer", RSGlobalConfig.defaultScorer);
     return REDISMODULE_ERR;
   }
 

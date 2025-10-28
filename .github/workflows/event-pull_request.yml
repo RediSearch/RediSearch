@@ -12,9 +12,15 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
+    # TODO: Revert when 8.4 is released
+    runs-on: ubuntu-latest
+    outputs:
+      tag: unstable
+    steps:
+      - run: echo "Dummy step to set output"
+    # uses: ./.github/workflows/task-get-latest-tag.yml
+    # with:
+    #   repo: redis/redis
 
   check-what-changed:
     uses: ./.github/workflows/task-check-changes.yml
@@ -33,6 +39,7 @@ jobs:
     if: >
       (
         needs.check-what-changed.outputs.CODE_CHANGED == 'true' ||
+        needs.check-what-changed.outputs.TESTS_CHANGED == 'true' ||
         contains(github.event.pull_request.labels.*.name, 'enforce:test')
       )
     uses: ./.github/workflows/task-test.yml
@@ -47,6 +54,7 @@ jobs:
     if: >
       vars.ENABLE_CODE_COVERAGE != 'false' && (
           (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
+          (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') ||
           contains(github.event.pull_request.labels.*.name, 'enforce:coverage')
       )
     uses: ./.github/workflows/task-test.yml
@@ -62,6 +70,7 @@ jobs:
     if: >
       (
         (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
+        (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') ||
         contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')
       )
     secrets: inherit

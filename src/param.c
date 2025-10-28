@@ -52,3 +52,35 @@ void Param_DictFree(dict *d) {
   dictReleaseIterator(iter);
   dictRelease(d);
 }
+
+dict *Param_DictClone(dict *source) {
+  if (!source) {
+    return NULL;
+  }
+
+  dict *clone = Param_DictCreate();
+  if (!clone) {
+    return NULL;
+  }
+
+  dictIterator *iter = dictGetIterator(source);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    const char *key = dictGetKey(entry);
+    RedisModuleString *value = dictGetVal(entry);
+
+    // Clone the RedisModuleString value
+    size_t value_len;
+    const char *value_str = RedisModule_StringPtrLen(value, &value_len);
+    RedisModuleString *cloned_value = RedisModule_CreateString(NULL, value_str, value_len);
+
+    // Add to the cloned dict
+    if (dictAdd(clone, (void*)key, (void*)cloned_value) == DICT_ERR) {
+      // If add fails, free the cloned value and continue
+      RedisModule_FreeString(NULL, cloned_value);
+    }
+  }
+  dictReleaseIterator(iter);
+
+  return clone;
+}

@@ -30,6 +30,12 @@ struct TestValue {
     encoded: Vec<u8>,
 }
 
+impl Default for Bencher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Bencher {
     const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
     const WARMUP_TIME: Duration = Duration::from_millis(200);
@@ -46,9 +52,7 @@ impl Bencher {
                     .doc_id(100)
                     .frequency(freq);
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = FreqsOnly::default()
-                    .encode(&mut buffer, delta, &record)
-                    .unwrap();
+                let _grew_size = FreqsOnly.encode(&mut buffer, delta, &record).unwrap();
                 let encoded = buffer.into_inner();
 
                 TestValue {
@@ -98,13 +102,12 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || TestBuffer::with_capacity(buffer_size),
-                |mut buffer| {
+                |buffer| {
                     for test in &self.test_values {
                         let mut record = inverted_index::RSIndexResult::virt()
                             .doc_id(100)
                             .frequency(test.freq);
-                        let grew_size =
-                            encode_freqs_only(&mut buffer, &mut record, test.delta as _);
+                        let grew_size = encode_freqs_only(buffer, &mut record, test.delta as _);
 
                         black_box(grew_size);
                     }
@@ -127,9 +130,7 @@ impl Bencher {
                             .doc_id(100)
                             .frequency(test.freq);
 
-                        let grew_size = FreqsOnly::default()
-                            .encode(&mut buffer, test.delta, &record)
-                            .unwrap();
+                        let grew_size = FreqsOnly.encode(&mut buffer, test.delta, &record).unwrap();
 
                         black_box(grew_size);
                     }
@@ -147,8 +148,8 @@ impl Bencher {
                         let buffer_ptr = NonNull::new(test.encoded.as_ptr() as *mut _).unwrap();
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
-                    |mut buffer| {
-                        let (_filtered, result) = read_freqs(&mut buffer, 100);
+                    |buffer| {
+                        let (_filtered, result) = read_freqs(buffer, 100);
 
                         black_box(result);
                     },
@@ -164,7 +165,7 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let result = FreqsOnly.decode(buffer, 100).unwrap();
+                        let result = FreqsOnly.decode_new(buffer, 100).unwrap();
                         let _ = black_box(result);
                     },
                     BatchSize::SmallInput,
