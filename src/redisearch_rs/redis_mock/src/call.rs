@@ -62,7 +62,7 @@ impl MockCallReply {
 /// 1. ctx must be a valid pointer to a [crate::TestContext]
 /// 2. cmdname must be a valid C string.
 #[allow(non_snake_case)]
-#[unsafe(export_name = "RedisModule_CallHgetAll")]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn RedisModule_CallHgetAll(
     ctx: *mut ffi::RedisModuleCtx,
     cmdname: *const c_char,
@@ -117,7 +117,7 @@ pub extern "C" fn RedisModule_CallReplyLength(
 }
 
 #[allow(non_snake_case)]
-#[unsafe(export_name = "_RedisModule_CallReplyArrayElement.3")]
+#[unsafe(export_name = "_RedisModule_CallReplyArrayElement.1")]
 pub extern "C" fn RedisModule_CallReplyArrayElement(
     reply: *mut redis_module::raw::RedisModuleCallReply,
     idx: usize,

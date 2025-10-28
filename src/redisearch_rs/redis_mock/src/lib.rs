@@ -26,10 +26,13 @@ use std::ffi::CString;
 
 use call::*;
 use key::*;
+use redis_module::KeyType;
 use scan_key_cursor::*;
 use string::*;
 
 pub struct TestContext {
+    pub(crate) open_key_type: redis_module::KeyType,
+
     /// Contains key value pairs to be injected during scan key cursor iterations or
     /// HGETALL calls.
     key_value_injections: Vec<(CString, CString)>,
@@ -39,6 +42,7 @@ impl TestContext {
     pub const fn new() -> Self {
         Self {
             key_value_injections: vec![],
+            open_key_type: redis_module::KeyType::Empty,
         }
     }
 
@@ -48,6 +52,25 @@ impl TestContext {
 
     pub fn inject_key_value(&mut self, key: CString, value: CString) {
         self.key_value_injections.push((key, value));
+    }
+
+    pub const fn with_key_type(&mut self, ty: &redis_module::KeyType) -> &mut Self {
+        // todo: Implement Clone and or Copy for KeyType in redis-module crate
+        // to avoid this match, it is not needless as we cannot move out from
+        // `text_ctx`. An alternative is to use `num_traits` crate, but then we have
+        // convert to u32 and back which is unnecessary code bloat, still.
+        // See MOD-12173
+        self.open_key_type = match ty {
+            KeyType::Empty => KeyType::Empty,
+            KeyType::String => KeyType::String,
+            KeyType::List => KeyType::List,
+            KeyType::Set => KeyType::Set,
+            KeyType::ZSet => KeyType::ZSet,
+            KeyType::Hash => KeyType::Hash,
+            KeyType::Module => KeyType::Module,
+            KeyType::Stream => KeyType::Stream,
+        };
+        self
     }
 
     pub const fn access_key_values(&self) -> &Vec<(CString, CString)> {

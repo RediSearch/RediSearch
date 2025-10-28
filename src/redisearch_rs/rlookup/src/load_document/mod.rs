@@ -301,23 +301,26 @@ impl<'a, T: RSValueTrait> LoadDocumentOptionsBuilder<'a, T> {
     }
 }
 
+/// Sub-errors for invalid key errors.
+///
+/// The Scan and the Call API provide error information
+/// in different level of detail for why a key is invalid.
+///
+/// Therefore we have specific sub-errors here and one general sub error.
+#[derive(Debug, Clone, PartialEq, Eq, strum::Display)]
+pub enum KeyError {
+    DoesNotExist,
+    IsNoHash,
+    IsNoJson,
+    DoesNotExistOrIsWrongType,
+}
+
 /// Errors that can occur when loading a document.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadDocumentError {
-    /// Key does not exist
-    KeyDoesNotExist {
-        #[cfg(debug_assertions)]
-        key: Option<String>,
-    },
-
-    /// Key is not an hash document
-    KeyIsNoHash {
-        #[cfg(debug_assertions)]
-        key: Option<String>,
-    },
-
-    /// Key is not a JSON document
-    KeyIsNoJson {
+    /// Invalid Key has been used
+    InvalidKey {
+        sub_error: KeyError,
         #[cfg(debug_assertions)]
         key: Option<String>,
     },
@@ -338,44 +341,19 @@ pub enum LoadDocumentError {
 impl std::fmt::Display for LoadDocumentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::KeyDoesNotExist {
+            Self::InvalidKey {
+                sub_error,
                 #[cfg(debug_assertions)]
                 key,
             } => {
                 #[cfg(debug_assertions)]
                 if let Some(key) = key {
-                    write!(f, "Key does not exist: {}", key)
+                    write!(f, "Invalid key ({}): {}", sub_error, key)
                 } else {
-                    write!(f, "Key does not exist")
+                    write!(f, "Invalid key: {}", sub_error)
                 }
                 #[cfg(not(debug_assertions))]
-                write!(f, "Key does not exist")
-            }
-            Self::KeyIsNoHash {
-                #[cfg(debug_assertions)]
-                key,
-            } => {
-                #[cfg(debug_assertions)]
-                if let Some(key) = key {
-                    write!(f, "Key is not a hash document: {}", key)
-                } else {
-                    write!(f, "Key is not a hash document")
-                }
-                #[cfg(not(debug_assertions))]
-                write!(f, "Key is not a hash document")
-            }
-            Self::KeyIsNoJson {
-                #[cfg(debug_assertions)]
-                key,
-            } => {
-                #[cfg(debug_assertions)]
-                if let Some(key) = key {
-                    write!(f, "Key is not a json document: {}", key)
-                } else {
-                    write!(f, "Key is not a json document")
-                }
-                #[cfg(not(debug_assertions))]
-                write!(f, "Key is not a json document")
+                write!(f, "Invalid key: {}", sub_error)
             }
             Self::InvalidArguments {
                 #[cfg(debug_assertions)]
@@ -400,24 +378,36 @@ impl std::fmt::Display for LoadDocumentError {
 }
 
 impl LoadDocumentError {
-    #[cfg(debug_assertions)]
     pub const fn key_does_not_exist(key: Option<String>) -> Self {
-        Self::KeyDoesNotExist { key }
+        Self::InvalidKey {
+            sub_error: KeyError::DoesNotExist,
+            #[cfg(debug_assertions)]
+            key,
+        }
     }
 
-    #[cfg(not(debug_assertions))]
-    pub fn key_does_not_exist(_key: Option<String>) -> Self {
-        Self::KeyDoesNotExist {}
-    }
-
-    #[cfg(debug_assertions)]
     pub const fn key_is_no_hash(key: Option<String>) -> Self {
-        Self::KeyIsNoHash { key }
+        Self::InvalidKey {
+            sub_error: KeyError::IsNoHash,
+            #[cfg(debug_assertions)]
+            key,
+        }
     }
 
-    #[cfg(not(debug_assertions))]
-    pub fn key_is_no_hash(_key: Option<String>) -> Self {
-        Self::KeyIsNoHash {}
+    pub const fn key_is_no_json(key: Option<String>) -> Self {
+        Self::InvalidKey {
+            sub_error: KeyError::IsNoJson,
+            #[cfg(debug_assertions)]
+            key,
+        }
+    }
+
+    pub const fn key_is_somehow_invalid(key: Option<String>) -> Self {
+        Self::InvalidKey {
+            sub_error: KeyError::DoesNotExistOrIsWrongType,
+            #[cfg(debug_assertions)]
+            key,
+        }
     }
 
     #[cfg(debug_assertions)]
@@ -552,6 +542,7 @@ mod tests {
         use super::super::*;
         use super::*;
 
+        use redis_module::KeyType;
         use value::RSValueMock;
 
         // write a test that simulates loading two fields into an empty row and lookup
@@ -562,6 +553,7 @@ mod tests {
             ctx: &mut LoadDocumentTestContext,
         ) -> Result<(), LoadDocumentError> {
             ctx.adapt_redis_ctx(|ctx| {
+                ctx.with_key_type(&KeyType::Hash);
                 ctx.set_key_values(vec![
                     (c"field1".to_owned(), c"value1".to_owned()),
                     (c"field2".to_owned(), c"value2".to_owned()),
@@ -621,6 +613,93 @@ mod tests {
             let mut ctx = LoadDocumentTestContext::default();
             ctx.with_scan_key_feature(false);
             two_fields_empty_row_and_lookup(&mut ctx)
+        }
+
+        #[test]
+        fn error_paths() -> Result<(), LoadDocumentError> {
+            redis_mock::init_redis_module_mock();
+            let mut ctx = LoadDocumentTestContext::default();
+            let key_name = c"TestKey";
+
+            struct TestCase {
+                has_scan_key_feature: bool,
+                key_type: KeyType,
+                expected_error: Result<(), LoadDocumentError>,
+            }
+
+            let cases = vec![
+                TestCase {
+                    has_scan_key_feature: true,
+                    key_type: KeyType::Empty,
+                    expected_error: Err(LoadDocumentError::InvalidKey {
+                        sub_error: KeyError::DoesNotExist,
+                        #[cfg(debug_assertions)]
+                        key: Some("TestKey".to_string()),
+                    }),
+                },
+                TestCase {
+                    has_scan_key_feature: false,
+                    key_type: KeyType::Empty,
+                    expected_error: Err(LoadDocumentError::InvalidKey {
+                        sub_error: KeyError::DoesNotExistOrIsWrongType,
+                        #[cfg(debug_assertions)]
+                        key: Some("TestKey".to_string()),
+                    }),
+                },
+                TestCase {
+                    has_scan_key_feature: true,
+                    key_type: KeyType::String,
+                    expected_error: Err(LoadDocumentError::InvalidKey {
+                        sub_error: KeyError::IsNoHash,
+                        #[cfg(debug_assertions)]
+                        key: Some("TestKey".to_string()),
+                    }),
+                },
+                TestCase {
+                    has_scan_key_feature: false,
+                    key_type: KeyType::String,
+                    expected_error: Err(LoadDocumentError::InvalidKey {
+                        sub_error: KeyError::DoesNotExistOrIsWrongType,
+                        #[cfg(debug_assertions)]
+                        key: Some("TestKey".to_string()),
+                    }),
+                },
+            ];
+
+            for case in &cases {
+                ctx.with_scan_key_feature(case.has_scan_key_feature);
+                ctx.adapt_redis_ctx(|ctx| {
+                    ctx.set_key_values(vec![]);
+                    ctx.with_key_type(&case.key_type);
+                });
+
+                let test_ctx = &mut ctx.redis_ctx;
+                let redis_ctx =
+                    std::ptr::from_mut(test_ctx).cast::<redis_module::raw::RedisModuleCtx>();
+                let sv = RSSortingVector::new(0);
+                type TOpt<'a> = LoadDocumentOptions<'a, RSValueMock>;
+                let opt: TOpt = LoadDocumentOptionsBuilder::new(
+                    redis_ctx as *mut TestContext as *mut redis_module::raw::RedisModuleCtx,
+                    &sv,
+                    DocumentType::Hash,
+                )
+                .set_mode(RLookupLoadMode::AllKeys as u32)
+                .with_key_ptr(key_name.as_ptr() as *const _)
+                .build()?;
+
+                let mut lookup = RLookup::new();
+                let mut row = RLookupRow::new();
+                let res = load_document_int(&mut lookup, &mut row, &opt, &ctx);
+                if res != case.expected_error {
+                    println!(
+                        "Test case failed: has_scan_key_feature = {}, key_type = {:?}",
+                        case.has_scan_key_feature, case.key_type
+                    );
+                }
+                assert_eq!(res, case.expected_error);
+            }
+
+            Ok(())
         }
     }
 

@@ -106,10 +106,10 @@ where
         )));
     };
 
-    // If the array is empty, the key does not exist
+    // If the array is empty, either does not exist or is no hash
     let len = reply.len();
     if len == 0 {
-        return Err(LoadDocumentError::key_does_not_exist(Some(
+        return Err(LoadDocumentError::key_is_somehow_invalid(Some(
             key_str.to_string(),
         )));
     }
