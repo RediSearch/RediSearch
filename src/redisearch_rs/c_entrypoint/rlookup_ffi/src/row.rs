@@ -206,6 +206,21 @@ unsafe extern "C-unwind" fn RLookup_WriteOwnKey(
     row.write_key(key, value);
 }
 
+/// Creates a RLookupRow on the stack associated with the given lookup.
+///
+/// The lookup is only tracked in Debug builds
+///
+/// # Safety
+/// /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_CreateOnStack(
+    lookup: Option<NonNull<RLookup>>,
+) -> OpaqueRLookupRow {
+    // Safety: Ensured by caller (1.)
+    let lookup = unsafe { lookup.expect("lookup must not be null").as_ref() };
+    rlookup::RLookupRow::<value::RSValueFFI>::new(lookup).into_opaque()
+}
+
 /// Wipes a RLookupRow by decrementing all values and resetting the row.
 ///
 /// # Safety

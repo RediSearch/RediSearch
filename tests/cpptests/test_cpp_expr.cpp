@@ -315,7 +315,7 @@ TEST_F(ExprTest, testPredicate) {
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_CreateOnStack(&lk);
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(1));
   RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(2));
   QueryError status = QueryError_Default();
@@ -395,7 +395,7 @@ TEST_F(ExprTest, testPropertyFetch) {
   TEvalCtx ctx("log(@foo) + 2*sqrt(@bar)");
   RLookup lk;
   RLookup_Init(&lk, NULL);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_CreateOnStack(&lk);
   RLookupKey *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(10));
@@ -454,7 +454,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_CreateOnStack(&lk);;
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(5));
   RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(10));
 
@@ -474,7 +474,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithExists) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_CreateOnStack(&lk);;
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(42));
 
   TEvalCtx ctx("case(exists(@foo), 1, 0)");  // @foo exists
@@ -573,7 +573,7 @@ TEST_F(ExprTest, testEvalFuncCaseShortCircuitEvaluation) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_CreateOnStack(&lk);;
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(5));
 
   TEvalCtx ctx("case(1, @foo + 10, @foo / 0)");

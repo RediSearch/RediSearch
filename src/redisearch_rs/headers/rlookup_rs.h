@@ -348,6 +348,16 @@ void RLookup_WriteOwnKey(const struct RLookupKey *key,
                          RSValue *value);
 
 /**
+ * Creates a RLookupRow on the stack associated with the given lookup.
+ *
+ * The lookup is only tracked in Debug builds
+ *
+ * # Safety
+ * /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ */
+struct RLookupRow RLookupRow_CreateOnStack(struct RLookup *lookup);
+
+/**
  * Wipes a RLookupRow by decrementing all values and resetting the row.
  *
  * # Safety

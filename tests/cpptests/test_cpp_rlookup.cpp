@@ -44,7 +44,7 @@ TEST_F(RLookupTest, testRow) {
   RLookup_Init(&lk, NULL);
   RLookupKey *fook = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *bark = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_CreateOnStack(&lk);
   RSValue *vfoo = RSValue_NewNumberFromInt64(42);
   RSValue *vbar = RSValue_NewNumberFromInt64(666);
 
@@ -331,7 +331,8 @@ TEST_F(RLookupTest, testWriteFieldsBasic) {
   RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create test data and write to source row
-  RLookupRow srcRow = {0}, destRow = {0};
+  RLookupRow srcRow = RLookupRow_CreateOnStack(&source);
+  RLookupRow destRow = RLookupRow_CreateOnStack(&dest);;
   std::vector<RSValue*> values = create_test_values({100, 200});
   write_values_to_row(srcKeys, &srcRow, values);
 
@@ -380,7 +381,8 @@ TEST_F(RLookupTest, testWriteFieldsEmptySource) {
   RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create empty rows
-  RLookupRow srcRow = {0}, destRow = {0};
+  RLookupRow srcRow = RLookupRow_CreateOnStack(&source);
+  RLookupRow destRow = RLookupRow_CreateOnStack(&dest);
 
   // Write from empty source
   RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest);
@@ -417,7 +419,8 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
   ASSERT_TRUE(dest_key1 && dest_key2 && dest_key3);
 
   // Create rows and add data with distinct values
-  RLookupRow srcRow = {0}, destRow = {0};
+  RLookupRow srcRow = RLookupRow_CreateOnStack(&source);
+  RLookupRow destRow = RLookupRow_CreateOnStack(&dest);;
 
   // Create test values with distinct data
   std::vector<RSValue*> values = create_test_values({111, 222, 333});
