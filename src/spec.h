@@ -752,6 +752,15 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 // Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
 
+// This function is called in case the server starts RDB loading.
+void Indexes_StartRDBLoadingEvent();
+
+// This function is called in case the server ends RDB loading.
+void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
+
+// This function is to be called when loading finishes (failed or not)
+void Indexes_EndLoading();
+
 #ifdef __cplusplus
 }
 #endif

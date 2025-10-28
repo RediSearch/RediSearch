@@ -17,7 +17,7 @@ use std::{
     ffi::{CStr, c_char},
     mem,
     ops::{Deref, DerefMut},
-    pin::{Pin, pin},
+    pin::Pin,
     ptr::{self, NonNull},
     slice,
 };

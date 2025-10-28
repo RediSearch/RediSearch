@@ -71,6 +71,7 @@
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
 #include "util/redis_mem_info.h"
+#include "notifications.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1354,6 +1355,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   RM_TRY_F(IndexSpec_RegisterType, ctx);
 
   RM_TRY_F(RegisterLegacyTypes, ctx);
+
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, RDB_LoadingEvent);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_LoadingProgress, LoadingProgressCallback);
 
 // With coordinator we do not want to raise a move error for index commands so we do not specify
 // any key.
@@ -2877,26 +2881,6 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
   return REDISMODULE_OK;
 }
 
-// Extracts the query error from the reply
-// Returns the error code
-// Only checks for timeout and OOM errors
-QueryErrorCode extractQueryErrorFromReply(MRReply *reply) {
-  const char *errStr = MRReply_String(reply, NULL);
-  if (!errStr) {
-    return QUERY_EGENERIC;
-  }
-
-  if (!strcmp(errStr, QueryError_Strerror(QUERY_ETIMEDOUT))) {
-    return QUERY_ETIMEDOUT;
-  }
-
-  if (!strcmp(errStr, QueryError_Strerror(QUERY_EOOM))) {
-    return QUERY_EOOM;
-  }
-
-  return QUERY_EGENERIC;
-}
-
 // TODO - get RequestConfig ptr as parameter instead of global config
 bool should_return_error(QueryErrorCode errCode) {
   // Check if this is a timeout error with non-fail policy
@@ -2940,7 +2924,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
       rCtx.errorOccurred = true;
       rCtx.lastError = curr_rep;
-      QueryErrorCode errCode = extractQueryErrorFromReply(curr_rep);
+      QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(curr_rep, NULL));
       if (should_return_error(errCode)) {
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;
@@ -3003,7 +2987,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       // Check that the reply is not an error, can be caused if a shard failed to execute the query (i.e OOM).
       if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
         // Since we expect this to happen only with OOM, we assert it until this invariant changes.
-        RS_ASSERT(extractQueryErrorFromReply(replies[i]) == QUERY_EOOM);
+        RS_ASSERT(QueryError_GetCodeFromMessage(MRReply_String(replies[i], NULL)) == QUERY_EOOM);
         continue;
       }
 

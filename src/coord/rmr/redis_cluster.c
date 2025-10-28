@@ -51,9 +51,9 @@ static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
     }
   }
   // Basic sanity - verify we have the required fields
-  RS_ASSERT(n->id != NULL);
-  RS_ASSERT(n->endpoint.host != NULL);
-  RS_ASSERT(n->endpoint.port != -1);
+  RS_ASSERT_ALWAYS(n->id != NULL);
+  RS_ASSERT_ALWAYS(n->endpoint.host != NULL);
+  RS_ASSERT_ALWAYS(n->endpoint.port != -1);
 }
 
 static void parseMasterNode(RedisModuleCallReply *nodes, MRClusterNode *n) {
@@ -67,8 +67,8 @@ static void parseMasterNode(RedisModuleCallReply *nodes, MRClusterNode *n) {
 
     // Find the "role" key
     size_t j = 0;
-    for (; j < node_len / 2; j++) {
-      RedisModuleCallReply *key = RedisModule_CallReplyArrayElement(node, j * 2);
+    for (; j < node_len; j += 2) {
+      RedisModuleCallReply *key = RedisModule_CallReplyArrayElement(node, j);
       RS_ASSERT(RedisModule_CallReplyType(key) == REDISMODULE_REPLY_STRING);
       size_t key_len;
       const char *key_str = RedisModule_CallReplyStringPtr(key, &key_len);
@@ -77,8 +77,8 @@ static void parseMasterNode(RedisModuleCallReply *nodes, MRClusterNode *n) {
       }
     }
     // Check if this is a master node
-    ASSERT_KEY(node, j * 2, "role");
-    RedisModuleCallReply *val = RedisModule_CallReplyArrayElement(node, j * 2 + 1);
+    ASSERT_KEY(node, j, "role");
+    RedisModuleCallReply *val = RedisModule_CallReplyArrayElement(node, j + 1);
     size_t val_len;
     const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
     if (STR_EQ(val_str, val_len, "master")) {
@@ -88,7 +88,7 @@ static void parseMasterNode(RedisModuleCallReply *nodes, MRClusterNode *n) {
   }
 
   // We should always find a master node
-  RS_ABORT("No master node found in shard");
+  RS_ABORT_ALWAYS("No master node found in shard");
 }
 
 static bool hasSlots(RedisModuleCallReply *shard) {

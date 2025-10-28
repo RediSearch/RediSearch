@@ -591,12 +591,14 @@ void iterCursorMappingCb(void *p) {
   }
 
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
-  size_t numShards = io_runtime_ctx->topo->numShards;
-  it->len = numShards;
-  it->ctx.pending = numShards;
-  it->ctx.inProcess = numShards; // Initially all commands are in process
+  const size_t numShardsWithMapping = array_len(vsimOrSearch->mappings);
+  RS_ASSERT(numShardsWithMapping > 0);
+  it->len = numShardsWithMapping;
+  it->ctx.pending = numShardsWithMapping;
+  it->ctx.inProcess = numShardsWithMapping; // Initially all commands are in process
 
-  it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
+
+  it->cbxs = rm_realloc(it->cbxs, numShardsWithMapping * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
   // The mappings are not sorted by targetShard, so we need to find the first one
   size_t targetShard = vsimOrSearch->mappings[0].targetShard;;
@@ -610,7 +612,7 @@ void iterCursorMappingCb(void *p) {
     MRCommand_AddSlotRangeInfo(cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
   }
   // Create FT.CURSOR READ commands for each mapping (TODO(Joan): Is this comment accurate?)
-  for (size_t i = 1; i < numShards; i++) {
+  for (size_t i = 1; i < numShardsWithMapping; i++) {
     size_t targetShard = vsimOrSearch->mappings[i].targetShard;
     it->cbxs[i].it = it;
     it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
