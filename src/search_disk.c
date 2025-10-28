@@ -19,6 +19,10 @@ RedisSearchDiskAPI *SearchDisk_GetAPI() {
 }
 
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
+  if (disk) {
+    // Already initialized
+    return true;
+  }
   if (!SearchDisk_HasAPI()) {
     RedisModule_Log(ctx, "notice", "RediSearch_Disk API not available");
     return false;
