@@ -55,6 +55,10 @@ void SearchDisk_Close() {
   }
 }
 
+static void SearchDisk_Close_Dummy(void *value) {
+  // Do nothing
+}
+
 void *SearchDisk_LoadFromRDB(RedisModuleIO *rdb, int encver) {
   if (!disk) return NULL;
   disk_mem_obj = disk->memObject.fromRDB(rdb);
@@ -137,7 +141,7 @@ int SearchDisk_RegisterType(RedisModuleCtx *ctx) {
     .rdb_save = SearchDisk_SaveToRDB,
     .aux_load = SearchDisk_AuxLoadFromRDB,
     .aux_save2 = SearchDisk_AuxSaveToRDB,
-    .free = SearchDisk_Close,
+    .free = SearchDisk_Close_Dummy,
     .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB, // Not strictly necessary, but we want to be called before RDB
   };
   SearchDiskType = RedisModule_CreateDataType(ctx, "ft_search_disk0", TRIE_ENCVER_CURRENT, &tm);
