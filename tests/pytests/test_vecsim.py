@@ -1889,7 +1889,7 @@ def test_index_multi_value_json():
         if data_t in ('FLOAT32', 'FLOAT16'):
             args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
             # Add enough vectors to trigger svs backend index initialization
-            n = DEFAULT_BLOCK_SIZE
+            n = 300
 
         env.expect(*args).ok()
 
@@ -1925,35 +1925,35 @@ def test_index_multi_value_json():
         for _ in env.reloadingIterator():
             waitForIndex(env, 'idx')
             info = index_info(env, 'idx')
-            env.assertEqual(info['num_docs'], n)
-            env.assertEqual(info['num_records'], n * per_doc * len(info['attributes']))
-            env.assertEqual(info['hash_indexing_failures'], 0)
+            env.assertEqual(info['num_docs'], n, message=f'data_t: {data_t}')
+            env.assertEqual(info['num_records'], n * per_doc * len(info['attributes']), message=f'data_t: {data_t}')
+            env.assertEqual(info['hash_indexing_failures'], 0, message=f'data_t: {data_t}')
 
             cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
             hnsw_res = conn.execute_command(*cmd_knn)[1:]
-            env.assertEqual(hnsw_res, expected_res_knn)
+            env.assertEqual(hnsw_res, expected_res_knn, message=f'data_t: {data_t}')
 
             cmd_knn[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
             flat_res = conn.execute_command(*cmd_knn)[1:]
-            env.assertEqual(flat_res, expected_res_knn)
+            env.assertEqual(flat_res, expected_res_knn, message=f'data_t: {data_t}')
 
             cmd_range[2] = f'@hnsw:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
             hnsw_res = conn.execute_command(*cmd_range)
-            env.assertEqual(sortedResults(hnsw_res), expected_res_range)
+            env.assertEqual(sortedResults(hnsw_res), expected_res_range, message=f'data_t: {data_t}')
 
             cmd_range[2] = f'@flat:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
             flat_res = conn.execute_command(*cmd_range)
-            env.assertEqual(sortedResults(flat_res), expected_res_range)
+            env.assertEqual(sortedResults(flat_res), expected_res_range, message=f'data_t: {data_t}')
 
             if data_t in ('FLOAT32', 'FLOAT16'):
                 env.assertGreater(get_tiered_backend_debug_info(env, 'idx', 'svs')['INDEX_SIZE'], 0)
                 cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
                 svs_res = conn.execute_command(*cmd_knn)[1:]
-                env.assertEqual(svs_res, expected_res_knn)
+                env.assertEqual(svs_res, expected_res_knn, message=f'data_t: {data_t}')
 
                 cmd_range[2] = f'@svs:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
                 svs_res = conn.execute_command(*cmd_range)
-                env.assertEqual(sortedResults(svs_res), expected_res_range)
+                env.assertEqual(sortedResults(svs_res), expected_res_range, message=f'data_t: {data_t}')
 
 @skip(no_json=True)
 def test_bad_index_multi_value_json():
