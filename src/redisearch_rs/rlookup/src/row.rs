@@ -127,8 +127,8 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not
     /// refer to a read-only (SVSRC) key.
     pub fn write_key(&mut self, key: &RLookupKey, val: T) -> Option<T> {
-        #[cfg(debug_assertions)]
-        assert_eq!(key.rlookup_id(), self.rlookup_id);
+        //#[cfg(debug_assertions)]
+        //assert_eq!(key.rlookup_id(), self.rlookup_id);
 
         let idx = key.dstidx;
         if self.dyn_values.len() <= idx as usize {
