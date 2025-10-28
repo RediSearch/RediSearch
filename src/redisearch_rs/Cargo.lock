@@ -1542,6 +1542,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsvalue_bencher"
+version = "0.0.1"
+dependencies = [
+ "bindgen 0.72.0",
+ "buffer",
+ "build_utils",
+ "criterion",
+ "ffi",
+ "inverted_index",
+ "itertools 0.14.0",
+ "redis-module",
+ "redis_mock",
+ "types_ffi",
+ "varint_ffi",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
