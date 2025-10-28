@@ -9,16 +9,20 @@ echo "Installing Python dependencies system-wide"
 if ! python3 -m pip --version &>/dev/null; then
     echo "pip not found, trying to bootstrap it..."
     if [[ $OS_TYPE == Darwin ]]; then
-        # On macOS with Homebrew Python, pip might be available but blocked
-        # Try to use the pip3 command directly if it exists
-        if command -v pip3 &>/dev/null; then
-            echo "Found pip3 command, using that instead"
-            # Create a wrapper function to use pip3 instead of python3 -m pip
+        # On macOS, try to install pip via brew first
+        echo "Installing pip via brew..."
+        if command -v brew &>/dev/null; then
+            brew install python-pip || true
+        fi
+
+        # Try again after brew install
+        if python3 -m pip --version &>/dev/null; then
+            echo "pip is now available via python3 -m pip"
             pip_cmd() {
-                pip3 "$@" --break-system-packages
+                python3 -m pip "$@" --break-system-packages
             }
         else
-            echo "No pip found, this Python installation may be incomplete"
+            echo "pip still not available, this Python installation may be incomplete"
             exit 1
         fi
     fi
