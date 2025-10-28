@@ -11,142 +11,65 @@ use ffi;
 
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlags};
 use sorting_vector::RSSortingVector;
-use std::{
-    mem::{ManuallyDrop, MaybeUninit},
-    ptr::NonNull,
-};
+use std::mem::MaybeUninit;
+use std::{mem::ManuallyDrop, ptr::NonNull};
 use value::RSValueFFI;
 
-//pub type RLookupRow = rlookup::RLookupRow<'_, RSValueFFI>;
+use crate::{extension::OpaqueExt, impl_opaque_ext};
 
-// cbindgen:no-export
-const RLOOKUP_SIZE: u32 = 40;
+// see cbindgen.toml parse.expand - there is an option but it doesn't seem to work
+/*
+impl_opaque_ext!(
+    rlookup::RLookupRow<'_, value::RSValueFFI>,
+    OpaqueRLookupRow,
+    8,
+    40,
+    48
+);
+*/
 
-/// A type with size `N`.
-#[repr(transparent)]
-pub struct Size<const N: usize>(MaybeUninit<[u8; N]>);
+// Recursive expansion of impl_opaque_ext! macro
+// ==============================================
 
 #[cfg(not(debug_assertions))]
 #[repr(C, align(8))]
-pub struct OpaqueRLookupRow(Size<40>);
+pub struct OpaqueRLookupRow(std::mem::MaybeUninit<[u8; 40]>);
 
-/// An opaque RLookupRow which can be passed by value to C.
-///
-/// The size and alignment of this struct must match the Rust `RLookupRow`
-/// structure exactly.
-///
-/// The size is 40 bytes without the RLookupId field (in debug mode it's 48 bytes).
 #[cfg(debug_assertions)]
 #[repr(C, align(8))]
-pub struct OpaqueRLookupRow(Size<48>);
+pub struct OpaqueRLookupRow(std::mem::MaybeUninit<[u8; 48]>);
 
-// If `QueryError` and `OpaqueQueryError` ever differ in size, this code will
-// cause a clear error message like:
-//
-//    = note: source type: `QueryError` (320 bits)
-//    = note: target type: `OpaqueQueryError` (256 bits)
-//
-// Using `assert!(a == b)` is less clear since the values of `a` and `b`
-// are not printed. We cannot use `assert_eq` in a const context. We also
-// cannot actually run the transmute as that would require that `QueryError` and
-// `OpaqueQueryError` have default constant values, so we provide a never type
-// (`break`) as the argument.
-//
-// For alignment, printing a clear error message is more difficult as there
-// isn't a magic function like `transmute` that will show the alignments.
 const _: () = {
     #[allow(unreachable_code, clippy::never_loop)]
     loop {
-        // Safety: this code never runs
-        unsafe { std::mem::transmute::<OpaqueRLookupRow, rlookup::RLookupRow<RSValueFFI>>(break) };
+        unsafe {
+            std::mem::transmute::<OpaqueRLookupRow, rlookup::RLookupRow<'_, value::RSValueFFI>>(
+                break,
+            )
+        };
     }
-
-    assert!(
-        std::mem::align_of::<OpaqueRLookupRow>()
-            == std::mem::align_of::<rlookup::RLookupRow<RSValueFFI>>()
-    );
 };
-
-mod opaque {
-    use super::OpaqueRLookupRow;
-
-    /// An extension trait for convenience methods attached to `QueryError` for
-    /// using it in an FFI context as an opaque sized type.
-    pub trait RLookupRowExt {
-        /// Converts a `RLookupRow` into an [`OpaqueRLookupRow`].
-        fn into_opaque(self) -> OpaqueRLookupRow;
-
-        /// Converts a [`RLookupRow`] reference into an `*const OpaqueRLookupRow`.
-        fn as_opaque_ptr(&self) -> *const OpaqueRLookupRow;
-
-        /// Converts a [`RLookupRow`] mutable reference into an
-        /// `*mut OpaqueRLookupRow`.
-        fn as_opaque_mut_ptr(&mut self) -> *mut OpaqueRLookupRow;
-
-        /// Converts an [`OpaqueRLookupRow`] back to an [`RLookupRow`].
-        ///
-        /// # Safety
-        ///
-        /// This value must have been created via [`QueryErrorExt::into_opaque`].
-        unsafe fn from_opaque(opaque: OpaqueRLookupRow) -> Self;
-
-        /// Converts a const pointer to a [`OpaqueRLookupRow`] to a reference to a
-        /// [`QueryError`].
-        ///
-        /// # Safety
-        ///
-        /// The pointer itself must have been created via
-        /// [`RLookupRowExt::as_opaque_ptr`], as the alignment of the value
-        /// pointed to by `opaque` must also be an alignment-compatible address for
-        /// a [`RLookupRow`].
-        unsafe fn from_opaque_ptr<'a>(opaque: *const OpaqueRLookupRow) -> Option<&'a Self>;
-
-        /// Converts a mutable pointer to a [`OpaqueQueryError`] to a mutable
-        /// reference to a [`RLookupRow`].
-        ///
-        /// # Safety
-        ///
-        /// The pointer itself must have been created via
-        /// [`RLookupRowExt::as_opaque_mut_ptr`], as the alignment of the value
-        /// pointed to by `opaque` must also be an alignment-compatible address for
-        /// a [`RLookupRow`].
-        unsafe fn from_opaque_mut_ptr<'a>(opaque: *mut OpaqueRLookupRow) -> Option<&'a mut Self>;
+impl OpaqueExt for rlookup::RLookupRow<'_, value::RSValueFFI> {
+    type OpaqueType = OpaqueRLookupRow;
+    fn into_opaque(self) -> Self::OpaqueType {
+        unsafe { std::mem::transmute(self) }
     }
-
-    impl RLookupRowExt for rlookup::RLookupRow<'_, value::RSValueFFI> {
-        fn into_opaque(self) -> OpaqueRLookupRow {
-            // Safety: `OpaqueRLookupRow` is defined as a `MaybeUninit` slice of
-            // bytes with the same size and alignment as `RLookupRow`, so any valid
-            // `RLookupRow` has a bit pattern which is a valid `OpaqueRLookupRow`.
-            unsafe { std::mem::transmute(self) }
-        }
-
-        fn as_opaque_ptr(&self) -> *const OpaqueRLookupRow {
-            std::ptr::from_ref(&self).cast()
-        }
-
-        fn as_opaque_mut_ptr(&mut self) -> *mut OpaqueRLookupRow {
-            std::ptr::from_mut(self).cast()
-        }
-
-        unsafe fn from_opaque(opaque: OpaqueRLookupRow) -> Self {
-            // Safety: see trait's safety requirement.
-            unsafe { std::mem::transmute(opaque) }
-        }
-
-        unsafe fn from_opaque_ptr<'a>(opaque: *const OpaqueRLookupRow) -> Option<&'a Self> {
-            // Safety: see trait's safety requirement.
-            unsafe { opaque.cast::<Self>().as_ref() }
-        }
-
-        unsafe fn from_opaque_mut_ptr<'a>(opaque: *mut OpaqueRLookupRow) -> Option<&'a mut Self> {
-            // Safety: see trait's safety requirement.
-            unsafe { opaque.cast::<Self>().as_mut() }
-        }
+    fn as_opaque_ptr(&self) -> *const Self::OpaqueType {
+        std::ptr::from_ref(self).cast()
+    }
+    fn as_opaque_mut_ptr(&mut self) -> *mut Self::OpaqueType {
+        std::ptr::from_mut(self).cast()
+    }
+    unsafe fn from_opaque(opaque: Self::OpaqueType) -> Self {
+        unsafe { std::mem::transmute(opaque) }
+    }
+    unsafe fn from_opaque_ptr<'a>(opaque: *const Self::OpaqueType) -> Option<&'a Self> {
+        unsafe { opaque.cast::<Self>().as_ref() }
+    }
+    unsafe fn from_opaque_mut_ptr<'a>(opaque: *mut Self::OpaqueType) -> Option<&'a mut Self> {
+        unsafe { opaque.cast::<Self>().as_mut() }
     }
 }
-
-use crate::row::opaque::RLookupRowExt;
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///
@@ -168,7 +91,7 @@ unsafe extern "C" fn RLookup_WriteKey(
     //todo Safety: ensured by caller (2.)
     let row = row.expect("row must not be null").as_ptr();
     let row: &mut rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_mut_ptr(row as *mut _).expect("row is null") };
+        unsafe { OpaqueExt::from_opaque_mut_ptr(row as *mut _).expect("row is null") };
 
     // this method does not take ownership of `value` so we must take care not to drop it at the end of the scope
     // (therefore the `ManuallyDrop`). Instead we explicitly clone the value before inserting it below.
@@ -199,7 +122,7 @@ unsafe extern "C-unwind" fn RLookup_WriteOwnKey(
     // Safety: ensured by caller (2.)
     let row = row.expect("`row` must not be null").as_ptr();
     let row: &mut rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_mut_ptr(row as *mut _).expect("row is null") };
+        unsafe { OpaqueExt::from_opaque_mut_ptr(row as *mut _).expect("row is null") };
     // Safety: ensured by caller (3.)
     let value = unsafe { RSValueFFI::from_raw(value.expect("`value` must not be null")) };
 
@@ -233,7 +156,7 @@ unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<OpaqueRLookupRow>>) {
     // Safety: ensured by caller (1.)
     let row = row.expect("row must not be null").as_ptr();
     let row: &mut rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_mut_ptr(row as *mut _).expect("row is null") };
+        unsafe { OpaqueExt::from_opaque_mut_ptr(row as *mut _).expect("row is null") };
     row.wipe();
 }
 
@@ -251,7 +174,7 @@ unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<OpaqueRLookupRow>>) {
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let row = row.expect("row must not be null").as_ptr();
     let row: &mut rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_mut_ptr(row as *mut _).expect("row is null") };
+        unsafe { OpaqueExt::from_opaque_mut_ptr(row as *mut _).expect("row is null") };
     row.reset_dyn_values();
 }
 
@@ -278,11 +201,11 @@ pub unsafe extern "C-unwind" fn RLookupRow_Move(
     // Safety: ensured by caller (2.)
     let src = src.expect("`src` must not be null").as_ptr();
     let src: &mut rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_mut_ptr(src as *mut _).expect("src is null") };
+        unsafe { OpaqueExt::from_opaque_mut_ptr(src as *mut _).expect("src is null") };
     // Safety: ensured by caller (3.)
     let dst = dst.expect("`dst` must not be null").as_ptr();
     let dst: &mut rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_mut_ptr(dst as *mut _).expect("dst is null") };
+        unsafe { OpaqueExt::from_opaque_mut_ptr(dst as *mut _).expect("dst is null") };
     debug_assert!(dst.is_empty(), "expected `dst` to be pre-cleared");
     #[cfg(debug_assertions)]
     {
@@ -330,11 +253,11 @@ unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let src_row = src_row.expect("src_row must not be null").as_ptr();
     let src_row: &rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_ptr(src_row).expect("src_row is null") };
+        unsafe { OpaqueExt::from_opaque_ptr(src_row).expect("src_row is null") };
     let src_lookup = unsafe { src_lookup.expect("src_lookup must not be null").as_ref() };
     let dst_row = dst_row.expect("dst_row must not be null").as_ptr();
     let dst_row: &mut rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_mut_ptr(dst_row as *mut _).expect("dst_row is null") };
+        unsafe { OpaqueExt::from_opaque_mut_ptr(dst_row as *mut _).expect("dst_row is null") };
     let dst_lookup = unsafe { dst_lookup.expect("dst_lookup must not be null").as_ref() };
 
     // Safety: Caller has to ensure that the pointers are
@@ -388,7 +311,7 @@ unsafe extern "C" fn RLookup_GetItem(
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let row = row.expect("row must not be null").as_ptr();
     let row: &rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_ptr(row).expect("row is null") };
+        unsafe { OpaqueExt::from_opaque_ptr(row).expect("row is null") };
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupKey.
     let key = unsafe { key.expect("key must not be null").as_ref() };
 
@@ -410,7 +333,7 @@ unsafe extern "C" fn RLookupRow_SetSortingVector(
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let row = row.expect("row must not be null").as_ptr();
     let row: &mut rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_mut_ptr(row as *mut _).expect("row is null") };
+        unsafe { OpaqueExt::from_opaque_mut_ptr(row as *mut _).expect("row is null") };
     let sv: *const RSSortingVector<RSValueFFI> = sv.cast();
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RSSortingVector.
     let sv = unsafe { sv.as_ref() };
@@ -429,7 +352,7 @@ unsafe extern "C" fn RLookupRow_GetSortingVector(
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let row = row.expect("row must not be null").as_ptr();
     let row: &rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_ptr(row).expect("row is null") };
+        unsafe { OpaqueExt::from_opaque_ptr(row).expect("row is null") };
     // Safety: The caller has to ensure that the pointer is kept around
     unsafe { row.get_sorting_vector() as *const ffi::RSSortingVector }
 }
@@ -444,7 +367,7 @@ unsafe extern "C" fn RLookupRow_GetDynLen(row: Option<NonNull<OpaqueRLookupRow>>
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let row = row.expect("row must not be null").as_ptr();
     let row: &rlookup::RLookupRow<'_, value::RSValueFFI> =
-        unsafe { RLookupRowExt::from_opaque_ptr(row).expect("row is null") };
+        unsafe { OpaqueExt::from_opaque_ptr(row).expect("row is null") };
     // Safety: The caller has to ensure that the pointer is kept around
     row.num_dyn_values()
 }

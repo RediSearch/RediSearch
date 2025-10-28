@@ -89,33 +89,15 @@ typedef struct RLookupHeader {
   struct KeyList keys;
 } RLookupHeader;
 
-/**
- * A type with size `N`.
- */
-typedef uint8_t Size_40[40];
-
-/**
- * A type with size `N`.
- */
-typedef uint8_t Size_48[48];
-
 #if !defined(RUST_DEBUG)
 typedef struct ALIGNED(8) RLookupRow {
-  Size_40 _0;
+  uint8_t _0[40];
 } RLookupRow;
 #endif
 
 #if defined(RUST_DEBUG)
-/**
- * An opaque RLookupRow which can be passed by value to C.
- *
- * The size and alignment of this struct must match the Rust `RLookupRow`
- * structure exactly.
- *
- * The size is 40 bytes without the RLookupId field (in debug mode it's 48 bytes).
- */
 typedef struct ALIGNED(8) RLookupRow {
-  Size_48 _0;
+  uint8_t _0[48];
 } RLookupRow;
 #endif
 

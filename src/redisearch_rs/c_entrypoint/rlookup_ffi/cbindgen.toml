@@ -38,6 +38,9 @@ debug_assertions = "RUST_DEBUG"
 parse_deps = true
 include = ["rlookup"]
 
+#[parse.expand]
+#crates = ["rlookup_ffi"]
+
 #[export]
 #include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey"]
 #exclude = ["Option_IndexSpecCache", "Option_Cow_CStr", "RLookupId", "RLookup"]
