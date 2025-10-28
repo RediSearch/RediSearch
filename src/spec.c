@@ -67,6 +67,7 @@ uint16_t pendingIndexDropCount_g = 0;
 Version redisVersion;
 Version rlecVersion;
 bool isCrdt;
+bool should_filter_slots = false;
 bool isTrimming = false;
 bool isFlex = false;
 
@@ -3313,6 +3314,7 @@ RedisModuleString * IndexSpec_Serialize(IndexSpec *sp) {
 */
 int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver) {
   IndexSpec *sp = RedisModule_LoadDataTypeFromStringEncver(serialized, IndexSpecType, encver);
+  if (sp) Initialize_KeyspaceNotifications();
   return IndexSpec_StoreAfterRdbLoad(sp);
 }
 
@@ -3338,51 +3340,22 @@ int CompareVersions(Version v1, Version v2) {
   return 0;
 }
 
-// This function is called in case the server is started or
-// when the replica is loading the RDB file from the master.
-static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
-                                 void *data) {
-  if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
-      subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START ||
-      subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
-    Indexes_Free(specDict_g);
-    if (legacySpecDict) {
-      dictEmpty(legacySpecDict, NULL);
-    } else {
-      legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+void Indexes_Propagate(RedisModuleCtx *ctx) {
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    RS_ASSERT(sp != NULL);
+    RedisModuleString *serialized = IndexSpec_Serialize(sp);
+    RS_ASSERT(serialized != NULL);
+    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
+    if (rc != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Failed to propagate index '%s' during slot migration. errno: %d", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), errno);
     }
-    RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
-    g_isLoading = true;
-    workersThreadPool_OnEventStart();
-  } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
-    int hasLegacyIndexes = dictSize(legacySpecDict);
-    Indexes_UpgradeLegacyIndexes();
-
-    // we do not need the legacy dict specs anymore
-    dictRelease(legacySpecDict);
-    legacySpecDict = NULL;
-
-    LegacySchemaRulesArgs_Free(ctx);
-
-    if (hasLegacyIndexes) {
-      Indexes_ScanAndReindex();
-    }
-    workersThreadPool_OnEventEnd(true);
-    g_isLoading = false;
-    RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
-  } else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
-    // Clear pending jobs from job queue in case of short read.
-    workersThreadPool_OnEventEnd(true);
-    g_isLoading = false;
+    RedisModule_FreeString(NULL, serialized);
   }
-}
-
-static void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
-                                 void *data) {
-  RedisModule_Log(RSDummyContext, "debug", "Waiting for background jobs to be executed while"
-                  " loading is in progress (progress is %d)",
-                  ((RedisModuleLoadingProgress *)data)->progress);
-  workersThreadPool_Drain(ctx, 100);
+  dictReleaseIterator(iter);
 }
 
 static void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
@@ -3407,9 +3380,6 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "warning", "Could not create index spec type");
     return REDISMODULE_ERR;
   }
-
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, Indexes_LoadingEvent);
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_LoadingProgress, LoadingProgressCallback);
   return REDISMODULE_OK;
 }
 
@@ -3546,6 +3516,10 @@ void Indexes_Init(RedisModuleCtx *ctx) {
   specDict_g = dictCreate(&dictTypeHeapHiddenStrings, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();
+}
+
+size_t Indexes_Count() {
+  return dictSize(specDict_g);
 }
 
 SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
@@ -3862,4 +3836,33 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
   }
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
   RedisModule_ThreadSafeContextLock(ctx);
+}
+
+void Indexes_StartRDBLoadingEvent() {
+  Indexes_Free(specDict_g);
+  if (legacySpecDict) {
+    dictEmpty(legacySpecDict, NULL);
+  } else {
+    legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+  }
+  g_isLoading = true;
+}
+
+void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx) {
+  int hasLegacyIndexes = dictSize(legacySpecDict);
+  Indexes_UpgradeLegacyIndexes();
+
+  // we do not need the legacy dict specs anymore
+  dictRelease(legacySpecDict);
+  legacySpecDict = NULL;
+
+  LegacySchemaRulesArgs_Free(ctx);
+
+  if (hasLegacyIndexes) {
+    Indexes_ScanAndReindex();
+  }
+}
+
+void Indexes_EndLoading() {
+  g_isLoading = false;
 }

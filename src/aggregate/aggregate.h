@@ -21,6 +21,7 @@
 #include "reply.h"
 #include "vector_index.h"
 #include "hybrid/vector_query_utils.h"
+#include "slot_ranges.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -199,6 +200,9 @@ typedef struct AREQ {
 
   /** Context, owned by request */
   RedisSearchCtx *sctx;
+
+  /** Local slots info for this request */
+  const SharedSlotRangeArray *slotRanges;
 
   /** Context for iterating over the queries themselves */
   QueryProcessingCtx qiter;

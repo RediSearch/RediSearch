@@ -145,6 +145,22 @@ QueryErrorCode QueryError_GetCode(const QueryError *status) {
   return status->_code;
 }
 
+QueryErrorCode QueryError_GetCodeFromMessage(const char *errorMessage) {
+  if (!errorMessage) {
+    return QUERY_EGENERIC;
+  }
+
+  if (!strcmp(errorMessage, QueryError_Strerror(QUERY_ETIMEDOUT))) {
+    return QUERY_ETIMEDOUT;
+  }
+
+  if (!strcmp(errorMessage, QueryError_Strerror(QUERY_EOOM))) {
+    return QUERY_EOOM;
+  }
+
+  return QUERY_EGENERIC;
+}
+
 bool QueryError_HasReachedMaxPrefixExpansionsWarning(const QueryError *status) {
   return status->_reachedMaxPrefixExpansions;
 }

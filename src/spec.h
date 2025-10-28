@@ -203,7 +203,8 @@ typedef struct Version {
 extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
-extern bool isTrimming;
+extern bool should_filter_slots;
+extern bool isTrimming; // TODO: remove this when redis deprecates sharding trimming events
 extern bool isFlex;
 
 /**
@@ -721,6 +722,8 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 void Indexes_Init(RedisModuleCtx *ctx);
 void Indexes_Free(dict *d);
+size_t Indexes_Count();
+void Indexes_Propagate(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
@@ -748,6 +751,15 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 // Must only be called if the spec was promoted successfully
 // Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
+
+// This function is called in case the server starts RDB loading.
+void Indexes_StartRDBLoadingEvent();
+
+// This function is called in case the server ends RDB loading.
+void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
+
+// This function is to be called when loading finishes (failed or not)
+void Indexes_EndLoading();
 
 #ifdef __cplusplus
 }
