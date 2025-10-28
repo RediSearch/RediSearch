@@ -301,12 +301,9 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
-      # Unit tests are paired with coordinator tests to balance job execution times
-      # This means unit tests only run when coordinator tests run.
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
-        if: ${{ inputs.unit-test }}
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
