@@ -1875,7 +1875,7 @@ def testDefaultScorerConfig(env):
 
 @skip(cluster=True)
 def testDefaultScorerConfigDisabled(env):
-    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands with `search-enable-unstable-features` off"""
     env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
     env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
 
