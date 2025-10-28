@@ -8,6 +8,10 @@
 */
 #include "arr.h"
 
+uint32_t array_len_func(array_t arr) {
+  return arr ? array_hdr(arr)->len : 0;
+}
+
 void array_free(array_t arr) {
   if (arr != NULL) {
     // like free(), shouldn't explode if NULL

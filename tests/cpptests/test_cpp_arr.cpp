@@ -317,3 +317,9 @@ TEST_F(ArrTest, testArrayFunctionsCombined) {
   }
   array_free(arr);
 }
+
+TEST_F(ArrTest, testArrayLenFunc) {
+  int *arr = array_new(int, 5);
+  ASSERT_EQ(0, array_len_func(arr));
+  array_free(arr);
+}
