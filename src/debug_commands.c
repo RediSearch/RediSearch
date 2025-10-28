@@ -107,6 +107,18 @@ static void ReplyIteratorResultsIDs(QueryIterator *iterator, RedisModuleCtx *ctx
   iterator->Free(iterator);
 }
 
+static void ReplyReaderResultsIDs(IndexReader *reader, RSIndexResult *res, RedisModuleCtx *ctx) {
+  size_t resultSize = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  while (IndexReader_Next(reader, res)) {
+      RedisModule_ReplyWithLongLong(ctx, res->docId);
+      ++resultSize;
+  }
+  RedisModule_ReplySetArrayLength(ctx, resultSize);
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
+}
+
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
   size_t len;
@@ -230,8 +242,12 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
-  QueryIterator *iter = NewInvIndIterator_TermFull(invidx);
-  ReplyIteratorResultsIDs(iter, sctx->redisCtx);
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+  IndexReader *reader = NewIndexReader(invidx, decoderCtx);
+  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  res->freq = 1;
+  res->fieldMask = RS_FIELDMASK_ALL;
+  ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
 
 end:
   SearchCtx_Free(sctx);
