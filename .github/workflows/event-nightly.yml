@@ -24,7 +24,7 @@ jobs:
       redis-ref: unstable
       test-config: QUICK=1
 
-  coverage-standalone:
+  coverage:
     if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
@@ -32,21 +32,6 @@ jobs:
       coverage: true
       test-config: QUICK=1
       get-redis: unstable
-      coordinator: false  # Skip coordinator tests
-      standalone: true    # Run standalone tests only
-      unit-test: false
-
-  coverage-coordinator:
-    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
-    uses: ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      coverage: true
-      test-config: QUICK=1
-      get-redis: unstable
-      coordinator: true   # Run coordinator tests only
-      standalone: false   # Skip standalone tests
-      unit-test: true # Run the unit-tests with the coordinator
 
   run-on-intel:
     secrets: inherit
@@ -69,7 +54,7 @@ jobs:
 
 
   notify-failure:
-    needs: [test-linux, test-macos, coverage-standalone, coverage-coordinator, run-on-intel, sanitize, micro-benchmarks]
+    needs: [test-linux, test-macos, coverage, run-on-intel, sanitize, micro-benchmarks]
     if: failure()
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:

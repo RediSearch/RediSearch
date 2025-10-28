@@ -21,9 +21,6 @@ on:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
         type: string
-      unit-test:
-        type: boolean
-        default: true
       coordinator:
         type: boolean
         default: true
@@ -331,6 +328,25 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
+
+      - name: Clean pytest coverage files after standalone tests
+        if: inputs.coverage && inputs.standalone
+        run: |
+          echo "=== Cleaning pytest coverage files (preserving *.info) ==="
+          if [ -d "bin" ]; then
+            echo "Removing pytest coverage files from bin/:"
+            # Remove common pytest coverage files but keep *.info files
+            rm -f bin/.coverage* bin/coverage.xml 2>/dev/null || true
+            if [ -d "bin/htmlcov" ]; then
+              rm -rf bin/htmlcov
+              echo "Removed htmlcov directory"
+            fi
+            echo "Pytest coverage files cleaned (*.info files preserved)"
+          else
+            echo "bin/ directory does not exist, nothing to clean"
+          fi
+          echo "=========================="
+
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
@@ -414,26 +430,17 @@ jobs:
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           exit 1
 
-      - name: Upload flow coverage (standalone)
-        if: inputs.coverage && inputs.standalone
+      - name: Upload flow coverage
+        if: inputs.coverage
         uses: codecov/codecov-action@v5
         with:
-          files: bin/flow_standalone.info
-          disable_search: true
-          flags: flow
-          fail_ci_if_error: true # Fail on upload errors
-          token: ${{ secrets.CODECOV_TOKEN }}
-      - name: Upload flow coverage (coordinator)
-        if: inputs.coverage && inputs.coordinator
-        uses: codecov/codecov-action@v5
-        with:
-          files: bin/flow_coordinator.info
+          files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
-        if: inputs.coverage && inputs.unit-test
+        if: inputs.coverage
         uses: codecov/codecov-action@v5
         with:
           files: bin/unit.info,bin/rust_cov.info
@@ -441,3 +448,4 @@ jobs:
           flags: unit
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
+

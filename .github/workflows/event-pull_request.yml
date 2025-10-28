@@ -49,7 +49,7 @@ jobs:
       rejson-branch: master
     secrets: inherit
 
-  coverage-standalone:
+  coverage:
     needs: [check-what-changed, get-latest-redis-tag]
     if: >
       vars.ENABLE_CODE_COVERAGE != 'false' && (
@@ -63,28 +63,6 @@ jobs:
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
       test-config: QUICK=1
-      coordinator: false  # Skip coordinator tests
-      standalone: true    # Run standalone tests only
-      unit-test: false
-    secrets: inherit
-
-  coverage-coordinator:
-    needs: [check-what-changed, get-latest-redis-tag]
-    if: >
-      vars.ENABLE_CODE_COVERAGE != 'false' && (
-          (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
-          (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') ||
-          contains(github.event.pull_request.labels.*.name, 'enforce:coverage')
-      )
-    uses: ./.github/workflows/task-test.yml
-    with:
-      coverage: true
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: master
-      test-config: QUICK=1
-      coordinator: true   # Run coordinator tests only
-      standalone: false   # Skip standalone tests
-      unit-test: true # Run the unit-tests with the coordinator
     secrets: inherit
 
   sanitize:
@@ -110,8 +88,7 @@ jobs:
       - spellcheck
       - basic-test
       - lint
-      - coverage-standalone
-      - coverage-coordinator
+      - coverage
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{!cancelled()}}
