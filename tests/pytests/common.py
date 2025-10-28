@@ -774,7 +774,7 @@ def access_nested_list(lst, index):
         result = result[entry]
     return result
 
-def downloadFile(env, file_name, depth=0):
+def downloadFile(env, file_name, depth=0, max_retries=3):
     path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
     path_dir = os.path.dirname(path)
     os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
@@ -783,24 +783,28 @@ def downloadFile(env, file_name, depth=0):
         try:
             subprocess.run(
                 [
-                    "wget",
-                    "--no-check-certificate",
-                    BASE_RDBS_URL + file_name,
-                    "-O",
-                    path,
-                    "-q",
-                ],
-                check=True,
-            )
+                "wget",
+                "--no-check-certificate",
+                "--tries", str(max_retries + 1),  # wget tries
+                "--waitretry", "2",  # wait 2 seconds between retries
+                "--retry-connrefused",  # retry on connection refused
+                BASE_RDBS_URL + file_name,
+                "-O",
+                path,
+                "-v"  # verbose to get better error info
+            ], check=True, capture_output=True, text=True)
+
         except subprocess.CalledProcessError as e:
-            env.assertTrue(
-                False,
-                message=f"Failed to download {BASE_RDBS_URL + file_name}. Return code: {e.returncode}, output: {e.output}, stderr: {e.stderr}",
-                depth=depth + 1,
-            )
+            env.assertTrue(False,
+                message=f"Failed to download {BASE_RDBS_URL + file_name} after {max_retries + 1} attempts. "
+                       f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}",
+                depth=depth + 1)
+
+            # Clean up partial download
             try:
-                os.remove(path)
-                env.debugPrint(f"Partially downloaded file {path}. Removing it.", force=True)
+                if os.path.exists(path):
+                    os.remove(path)
+                    env.debugPrint(f"Removed partially downloaded file {path}", force=True)
             except OSError:
                 env.debugPrint(f"Failed to remove {path}", force=True)
                 pass
@@ -813,7 +817,6 @@ def downloadFile(env, file_name, depth=0):
         )
         return False
     return True
-
 
 def downloadFiles(env, rdbs=None, depth=0):
     if rdbs is None:
