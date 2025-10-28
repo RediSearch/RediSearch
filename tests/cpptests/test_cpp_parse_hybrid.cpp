@@ -191,6 +191,39 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
 }
 
+TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
+  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Fail;
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+
+  parseCommand(args);
+  ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Fail);
+  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Fail);
+  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Fail);
+}
+
+TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
+  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+
+  parseCommand(args);
+  ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Return);
+  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Return);
+  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Return);
+}
+
+TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
+
+  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+  parseCommand(args);
+  ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Ignore);
+  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Ignore);
+  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Ignore);
+}
+
 TEST_F(ParseHybridTest, testWithCombineLinear) {
   // Test with LINEAR combine method
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
