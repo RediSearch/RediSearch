@@ -30,7 +30,7 @@
 #include "cursor.h"
 #include "fork_gc.h"
 #include "info/info_command.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
 

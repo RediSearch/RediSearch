@@ -107,7 +107,7 @@ class ParseHybridTest : public ::testing::Test {
     QueryError status = QueryError_Default();
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
+    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true, EXEC_NO_FLAGS);
     EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
@@ -648,7 +648,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   QueryError status = QueryError_Default();
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_EPARSEARGS) << "Should fail as external command";
   QueryError_ClearError(&status);
 
@@ -668,7 +668,7 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_OK) << "Should succeed as internal command";
   QueryError_ClearError(&status);
 
@@ -720,7 +720,7 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
+  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true, EXEC_NO_FLAGS);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_STREQ(QueryError_GetUserError(&status), expected_detail) << "parsing error: " << QueryError_GetUserError(&status);

@@ -13,7 +13,7 @@
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
 #include "module.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "util/timeout.h"
 #include "resp3.h"
 #include "coord/config.h"

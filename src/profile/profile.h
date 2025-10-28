@@ -9,7 +9,6 @@
 #pragma once
 
 #include "value.h"
-#include "aggregate/aggregate.h"
 #include "util/timeout.h"
 #include "iterators/profile_iterator.h"
 
@@ -45,8 +44,11 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx);
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply);
 
+typedef struct AREQ AREQ;
+typedef struct HybridRequest HybridRequest;
 typedef struct {
   AREQ *req;
+  HybridRequest *hreq;
   bool timedout;
   bool reachedMaxPrefixExpansions;
   bool bgScanOOM;

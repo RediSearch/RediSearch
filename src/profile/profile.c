@@ -93,6 +93,9 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_GROUP:
       case RP_MAX_SCORE_NORMALIZER:
       case RP_NETWORK:
+      case RP_VECTOR_NORMALIZER:
+      case RP_HYBRID_MERGER:
+      case RP_DEPLETER:
         printProfileType(RPTypeToString(rp->type));
         break;
 
@@ -198,7 +201,11 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print profile of result processors
       ResultProcessor *rp = qctx->endProc;
       RedisModule_ReplyKV_Array(reply, "Result processors profile");
-        printProfileRP(reply, rp, req->reqConfig.printProfileClock);
+        if (rp != NULL) {
+          printProfileRP(reply, rp, req->reqConfig.printProfileClock);
+        }
+        // If rp is NULL (e.g., in hybrid search where individual AREQ pipelines are consumed),
+        // we just create an empty array - no placeholder entries needed
       RedisModule_Reply_ArrayEnd(reply);
   RedisModule_Reply_MapEnd(reply);
 }

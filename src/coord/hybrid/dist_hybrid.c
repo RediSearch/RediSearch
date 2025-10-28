@@ -18,6 +18,7 @@
 #include "commands.h"
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
+#include "profile/profile.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -306,10 +307,43 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
   }
 }
 
+void printDistHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
+  // profileRP replace netRP as end PR
+  ProfilePrinterCtx *cCtx = ctx;
+  RedisModule_ReplyKV_Map(reply, "Subqueries");
+  for (size_t i = 0; i < cCtx->hreq->nrequests; i++) {
+    AREQ *areq = cCtx->hreq->requests[i];
+    RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(areq)->rootProc;
+    ProfilePrinterCtx sCtx = {
+      .req = areq,
+      .timedout = cCtx->timedout,
+      .reachedMaxPrefixExpansions = cCtx->reachedMaxPrefixExpansions,
+      .bgScanOOM = cCtx->bgScanOOM,
+      .queryOOM = cCtx->queryOOM,
+    };
+    const char *subqueryType = "N/A";
+    if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
+      subqueryType = "SEARCH";
+    } else if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
+      subqueryType = "VSIM";
+    }
+    RedisModule_ReplyKV_Map(reply, subqueryType);
+    Profile_Print(reply, &sCtx);
+    RedisModule_Reply_MapEnd(reply);
+  }
+  RedisModule_Reply_MapEnd(reply);
+}
+
+void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
+  Profile_PrintInFormat(reply, printDistHybridProfileShards, ctx, NULL, NULL);
+}
+
+
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
         RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
 
     hreq->tailPipeline->qctx.err = status;
+    hreq->profile = printDistHybridProfile;
 
     // Parse the hybrid command (equivalent to AREQ_Compile)
     HybridPipelineParams hybridParams = {0};
@@ -323,7 +357,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
-    int rc = parseHybridCommand(ctx, &ac, hreq->sctx, &cmd, status, false);
+    int rc = parseHybridCommand(ctx, &ac, hreq->sctx, &cmd, status, false, EXEC_NO_FLAGS);
     // we only need parse the combine and what comes after it
     // we can manually create the subqueries pipelines (depleter -> sorter(window)-> RPNet(shared dispatcher ))
     if (rc != REDISMODULE_OK) {
@@ -368,6 +402,13 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // UPDATED: Use new start function with mappings (no dispatcher needed)
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext_StartWithMappings);
     HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, lookups[1], rpnetNext_StartWithMappings);
+
+    if (IsProfile(hreq)) {
+      rs_wall_clock parseClock;
+      rs_wall_clock_init(&parseClock);
+      // Calculate the time elapsed for profileParseTime by using the initialized parseClock
+      hreq->profileParseTime = rs_wall_clock_diff_ns(&hreq->initClock, &parseClock);
+    }
 
     // Free the command
     MRCommand_Free(&xcmd);

@@ -1171,10 +1171,12 @@ void RPProfile_IncrementCount(ResultProcessor *rp) {
 
 void Profile_AddRPs(QueryProcessingCtx *qctx) {
   ResultProcessor *cur = qctx->endProc = RPProfile_New(qctx->endProc, qctx);
-  while (cur && cur->upstream && cur->upstream->upstream) {
+  while (cur && cur->upstream) {
     cur = cur->upstream;
-    cur->upstream = RPProfile_New(cur->upstream, qctx);
-    cur = cur->upstream;
+    if (cur->upstream) {  // Only add profile RP if there's another RP upstream
+      cur->upstream = RPProfile_New(cur->upstream, qctx);
+      cur = cur->upstream;
+    }
   }
 }
 

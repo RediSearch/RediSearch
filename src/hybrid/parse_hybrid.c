@@ -436,6 +436,40 @@ static void copyCursorConfig(CursorConfig *dest, const CursorConfig *src) {
   dest->chunkSize = src->chunkSize;
 }
 
+// Helper function to copy hybrid request configuration to a single subquery
+static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
+                                      ParseHybridCommandCtx *parsedCmdCtx,
+                                      RSSearchOptions *mergeSearchopts,
+                                      uint32_t mergeReqflags, size_t maxHybridResults, 
+                                      ProfileOptions profileOptions) {
+  // Copy parameters if they exist
+  if (mergeSearchopts->params) {
+    subqueryRequest->searchopts.params = Param_DictClone(mergeSearchopts->params);
+  }
+
+  // Copy cursor configuration and flags if cursor is enabled
+  if (mergeReqflags & QEXEC_F_IS_CURSOR) {
+    // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
+    subqueryRequest->reqflags |= QEXEC_F_IS_CURSOR;
+    // Copy cursor configuration using the helper function
+    copyCursorConfig(&subqueryRequest->cursorConfig, parsedCmdCtx->cursorConfig);
+  }
+
+  // Copy score sending flags if enabled
+  if (mergeReqflags & QEXEC_F_SEND_SCORES) {
+    subqueryRequest->reqflags |= QEXEC_F_SEND_SCORES;
+  }
+
+  // Copy request configuration using the helper function
+  copyRequestConfig(&subqueryRequest->reqConfig, parsedCmdCtx->reqConfig);
+
+  // Copy max results limits
+  subqueryRequest->maxSearchResults = maxHybridResults;
+  subqueryRequest->maxAggregateResults = maxHybridResults;
+
+  ApplyProfileOptions(&subqueryRequest->qiter, &subqueryRequest->reqflags, profileOptions);
+}
+
 /**
  * Apply KNN K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation.
  *
@@ -579,14 +613,16 @@ static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AGGPlan *searchP
  */
 int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
                        RedisSearchCtx *sctx, ParseHybridCommandCtx *parsedCmdCtx,
-                       QueryError *status, bool internal) {
+                       QueryError *status, bool internal, ProfileOptions profileOptions) {
   HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
 
   // Individual variables used for parsing the tail of the command
   uint32_t *mergeReqflags = &hybridParams->aggregationParams.common.reqflags;
+
   // Don't expect any flag to be on yet
   RS_ASSERT(*mergeReqflags == 0);
+  ApplyProfileFlags(mergeReqflags, profileOptions);
   *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
 
   // Use default dialect if > 1, otherwise use dialect 2
@@ -605,6 +641,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
   vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
+  if (internal) {
+    searchRequest->reqflags |= QEXEC_F_INTERNAL;
+    vectorRequest->reqflags |= QEXEC_F_INTERNAL;
+  }
 
   searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
@@ -664,42 +704,26 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
   const bool hadArgumentBesidesCombine = (hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0;
-  if (hadArgumentBesidesCombine) {
+  const bool isProfile = (profileOptions & EXEC_WITH_PROFILE) != 0;
+  if (hadArgumentBesidesCombine || isProfile) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
+
+    // Copy hybrid request configuration to each subquery
+    copyHybridConfigToSubquery(searchRequest, parsedCmdCtx,
+                              &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+    copyHybridConfigToSubquery(vectorRequest, parsedCmdCtx,
+                              &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+
+    // Clean up merge search options after copying
     if (mergeSearchopts.params) {
-      searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
-      vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
       Param_DictFree(mergeSearchopts.params);
       mergeSearchopts.params = NULL;
     }
-
-    if (*mergeReqflags & QEXEC_F_IS_CURSOR) {
-      // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
-      searchRequest->reqflags |= QEXEC_F_IS_CURSOR;
-      vectorRequest->reqflags |= QEXEC_F_IS_CURSOR;
-      // Copy cursor configuration using the helper function
-      copyCursorConfig(&searchRequest->cursorConfig, parsedCmdCtx->cursorConfig);
-      copyCursorConfig(&vectorRequest->cursorConfig, parsedCmdCtx->cursorConfig);
-    }
-    if (*mergeReqflags & QEXEC_F_SEND_SCORES) {
-      searchRequest->reqflags |= QEXEC_F_SEND_SCORES;
-      vectorRequest->reqflags |= QEXEC_F_SEND_SCORES;
-    }
-
-    // Copy max results limits
-    searchRequest->maxSearchResults = maxHybridResults;
-    searchRequest->maxAggregateResults = maxHybridResults;
-    vectorRequest->maxSearchResults = maxHybridResults;
-    vectorRequest->maxAggregateResults = maxHybridResults;
 
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
     }
   }
-
-  // Copy request configuration using the helper function
-  copyRequestConfig(&searchRequest->reqConfig, parsedCmdCtx->reqConfig);
-  copyRequestConfig(&vectorRequest->reqConfig, parsedCmdCtx->reqConfig);
 
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
   // This is because the sorter limits the number of results and can reduce the amount of work the loader needs to do

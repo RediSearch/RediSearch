@@ -16,6 +16,7 @@
 #include "query_error.h"
 #include "spec.h"
 #include "module.h"
+#include "profile/profile.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,9 +33,23 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
 
         areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
 
+        const bool isProfile = IsProfile(req);
+        if (isProfile) {
+          // Add a Profile iterators before every iterator in the tree
+          Profile_AddIters(&areq->rootiter);
+        }
+        rs_wall_clock parseClock;
+        if (isProfile) {
+          rs_wall_clock_init(&parseClock);
+          // Calculate the time elapsed for profileParseTime by using the initialized parseClock
+          areq->profileParseTime = rs_wall_clock_diff_ns(&areq->initClock, &parseClock);
+        }
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
         int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+        if (isProfile) {
+          areq->profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
+        }
         if (rc != REDISMODULE_OK) {
             StrongRef_Release(sync_ref);
             return REDISMODULE_ERR;
@@ -54,6 +69,9 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
         ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
         QITR_PushRP(qctx, depleter);
+        if (isProfile) {
+          QITR_PushRP(qctx, RPProfile_New(qctx->endProc, qctx));
+        }
     }
 
     // Release the sync reference as depleters now hold their own references
@@ -78,9 +96,10 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
 int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridLookupContext *lookupCtx, const RLookupKey *scoreKey, HybridPipelineParams *params) {
     // Array to collect depleter processors from each individual request pipeline
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
+    const ResultProcessorType expected = IsProfile(req) ? RP_PROFILE : RP_DEPLETER;
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
-        if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
+        if (areq->pipeline.qctx.endProc->type != expected) {
             array_free(depleters);
             return REDISMODULE_ERR;
         }
@@ -142,6 +161,9 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
 
+    rs_wall_clock now = {0};
+    rs_wall_clock_init(&now);
+
     // Initialize error tracking for each individual request
     hybridReq->errors = array_new(QueryError, nrequests);
     memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
@@ -157,11 +179,15 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
-        initializeAREQ(requests[i]);
+        AREQ *areq = requests[i];
+        initializeAREQ(areq);
         hybridReq->errors[i] = QueryError_Default();
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
+        areq->initClock = now;
+        areq->qiter.initTime = now;
     }
-    hybridReq->initClock = clock();
+    hybridReq->initClock = now;
+    hybridReq->tailPipeline->qctx.initTime = now;
     return hybridReq;
 }
 

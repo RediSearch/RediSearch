@@ -12,10 +12,10 @@
 #include "hybrid/hybrid_lookup_context.h"
 
 
-static void pushDepleter(QueryProcessingCtx *qctx, ResultProcessor *depleter) {
-  depleter->upstream = qctx->endProc;
-  depleter->parent = qctx;
-  qctx->endProc = depleter;
+static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
+  rp->upstream = qctx->endProc;
+  rp->parent = qctx;
+  qctx->endProc = rp;
 }
 
 // should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
@@ -51,7 +51,10 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
       RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
       ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
-      pushDepleter(qctx, depleter);
+      pushResultProcessor(qctx, depleter);
+      if (qctx->isProfile) {
+        pushResultProcessor(qctx, RPProfile_New(qctx->endProc, qctx));
+      }
   }
 
   // Release the sync reference as depleters now hold their own references

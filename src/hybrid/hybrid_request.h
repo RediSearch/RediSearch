@@ -30,10 +30,15 @@ typedef struct HybridRequest {
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
     CursorConfig cursorConfig;
-    clock_t initClock;  // For timing execution
+    rs_wall_clock initClock;  // For timing execution
     RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
     RedisSearchCtx *sctx;
     QEFlags reqflags;
+    rs_wall_clock profileClock;
+    rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
+    rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
+    rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
+    profiler_func profile;
 } HybridRequest;
 
 // Blocked client context for HybridRequest background execution

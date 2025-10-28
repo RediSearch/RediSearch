@@ -17,7 +17,7 @@ def testProfileSearch(env):
   conn.execute_command('hset', '2', 't', 'world')
 
   env.expect('ft.profile', 'profile', 'idx', '*', 'nocontent').error().contains('no such index')
-  env.expect('FT.PROFILE', 'idx', 'Puffin', '*', 'nocontent').error().contains('No `SEARCH` or `AGGREGATE` provided')
+  env.expect('FT.PROFILE', 'idx', 'Puffin', '*', 'nocontent').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
 
   # test WILDCARD
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*', 'nocontent')
@@ -693,3 +693,75 @@ def testProfileBM25NormMax(env):
   env.assertTrue(recursive_contains(aggregate_response, "Score Max Normalizer"))
   search_response = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'query', 'hello', 'WITHSCORES', 'SCORER', 'BM25STD.NORM')
   env.assertTrue(recursive_contains(search_response, "Score Max Normalizer"))
+
+@skip(cluster=True)
+def testProfileHybrid(env):
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', '2')
+
+  # Create index with both text and vector fields
+  env.expect('FT.CREATE idx SCHEMA t TEXT v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
+  conn.execute_command('hset', '1', 't', 'hello world', 'v', 'bababaca')
+  conn.execute_command('hset', '2', 't', 'hello space', 'v', 'babababa')
+  conn.execute_command('hset', '3', 't', 'world space', 'v', 'aabbaabb')
+  conn.execute_command('hset', '4', 't', 'other text', 'v', 'bbaabbaa')
+
+  # Test basic FT.PROFILE with FT.HYBRID
+  # Note: FT.PROFILE HYBRID requires QUERY keyword followed by SEARCH and hybrid command
+  actual_res = conn.execute_command('ft.profile', 'idx', 'hybrid', 'query', 'search', 'hello',
+                                    'vsim', '@v', 'aaaaaaaa', 'knn', '2', 'k', '10',
+                                    'combine', 'rrf', '2', 'constant', '60')
+
+  # Verify the response structure contains profile data
+  env.assertTrue(isinstance(actual_res, list))
+  env.assertTrue(len(actual_res) >= 2)
+
+  # Check that we have results (hybrid response format)
+  results = actual_res[0]
+  env.assertTrue(isinstance(results, dict))
+  env.assertTrue('total_results' in results)
+  env.assertTrue('results' in results)
+
+  # Check that we have profile data
+  profile_data = actual_res[1]
+  env.assertTrue(isinstance(profile_data, dict))
+  env.assertTrue('Subqueries' in profile_data)
+
+  # Verify subqueries structure
+  subqueries = profile_data['Subqueries']
+  env.assertTrue(isinstance(subqueries, dict))
+  env.assertTrue('SEARCH' in subqueries)
+  env.assertTrue('VSIM' in subqueries)
+
+  # Check SEARCH subquery profile
+  search_profile = subqueries['SEARCH']
+  env.assertTrue('Iterators profile' in search_profile)
+  env.assertTrue('Result processors profile' in search_profile)
+
+  # Check VSIM subquery profile
+  vsim_profile = subqueries['VSIM']
+  env.assertTrue('Iterators profile' in vsim_profile)
+  env.assertTrue('Result processors profile' in vsim_profile)
+
+  # Test FT.PROFILE with FT.HYBRID LIMITED
+  actual_res = conn.execute_command('ft.profile', 'idx', 'hybrid', 'limited', 'query', 'search', 'hello',
+                                    'vsim', '@v', 'aaaaaaaa', 'knn', '2', 'k', '10',
+                                    'combine', 'rrf', '2', 'constant', '60')
+
+  # Verify LIMITED profile also works
+  env.assertTrue(isinstance(actual_res, list))
+  env.assertTrue(len(actual_res) >= 2)
+  profile_data = actual_res[1]
+  env.assertTrue('Subqueries' in profile_data)
+
+  # Test with PARAMS
+  actual_res = conn.execute_command('ft.profile', 'idx', 'hybrid', 'query', 'search', '($term)',
+                                    'vsim', '@v', '$vec', 'knn', '2', 'k', '10',
+                                    'combine', 'rrf', '2', 'constant', '60',
+                                    'params', '4', 'term', 'hello', 'vec', 'aaaaaaaa')
+
+  # Verify PARAMS profile works
+  env.assertTrue(isinstance(actual_res, list))
+  profile_data = actual_res[1]
+  env.assertTrue('Subqueries' in profile_data)
