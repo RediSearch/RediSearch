@@ -62,6 +62,7 @@ jobs:
         shell: bash -l -eo pipefail {0}
     steps:
       - name: Free up disk space
+        shell: sh -l -eo pipefail {0}
         run: |
           df -h
           # Determine if we need sudo (containers typically don't have/need it)
