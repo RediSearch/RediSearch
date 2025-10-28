@@ -87,7 +87,7 @@ def test_MOD_11658_workers_reduction_under_load():
     # Increase thread count to maximize likelihood of hitting the race condition
     # The bug requires worker threads to be actively processing queries when
     # the config change happens
-    num_query_threads = 20
+    num_query_threads = 100
     query_threads = []
 
     for i in range(num_query_threads):
