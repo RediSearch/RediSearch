@@ -21,10 +21,15 @@ use crate::{
     bindings::{DocumentType, RLookupCoerceType, RLookupLoadMode},
 };
 
-/// Populate the provided `dst_row` by loading a either a redis hash or json key (either a [Redis hash] or JSON Document).
-/// Either all keys are loaded or only the individual keys given in `options.keys`.
+/// Populate the provided `dst_row` by loading a either a redis hash or json key (either a [Redis hash] or [JSON Document]).
 ///
+/// Either all keys are loaded or only the individual keys given in `options.keys`.
 /// If the key given in `options.dmd.keyPtr` does not exist it will be created in the lookup table.
+///
+/// Further information about redis data-types:
+///
+/// 1. [Redis hash](https://redis.io/docs/latest/develop/data-types/hashes/)
+/// 2. [JSON Document](https://redis.io/docs/latest/develop/data-types/json/)
 ///
 /// ## Arguments
 ///
