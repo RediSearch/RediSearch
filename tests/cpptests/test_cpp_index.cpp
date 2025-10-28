@@ -222,16 +222,20 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(200, InvertedIndex_LastId(idx));
 
   for (int xx = 0; xx < 1; xx++) {
-    QueryIterator *ir = NewInvIndIterator_TermFull(idx);
+    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_None, .field_mask = RS_FIELDMASK_ALL};
+    IndexReader *reader = NewIndexReader(idx, decoderCtx);
+    RSIndexResult *res = NewTokenRecord(NULL, 1);
+    res->freq = 1;
+    res->fieldMask = RS_FIELDMASK_ALL;
 
     int n = 1;
     IteratorStatus rc;
-    while ((rc = ir->Read(ir)) != ITERATOR_EOF) {
-      ASSERT_EQ(ITERATOR_OK, rc);
-      ASSERT_EQ(ir->lastDocId, n);
+    while (IndexReader_Next(reader, res)) {
+      ASSERT_EQ(res->docId, n);
       n++;
     }
-    ir->Free(ir);
+    IndexReader_Free(reader);
+    IndexResult_Free(res);
   }
 
   InvertedIndex_Free(idx);
@@ -305,21 +309,6 @@ TEST_F(IndexTest, testGetEncoderAndDecoders) {
   }
 }
 
-TEST_F(IndexTest, testReadIterator) {
-  InvertedIndex *idx = createPopulateTermsInvIndex(10, 1);
-  QueryIterator *it = NewInvIndIterator_TermFull(idx);
-  int i = 1;
-  while (it->Read(it) == ITERATOR_OK) {
-    ASSERT_EQ(it->lastDocId, i);
-    i++;
-  }
-  ASSERT_EQ(11, i);
-
-  it->Free(it);
-
-  InvertedIndex_Free(idx);
-}
-
 TEST_F(IndexTest, testUnion) {
   int oldConfig = RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap;
   for (int cfg = 0; cfg < 2; ++cfg) {
@@ -328,8 +317,9 @@ TEST_F(IndexTest, testUnion) {
 
     // printf("Reading!\n");
     QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-    irs[0] = NewInvIndIterator_TermFull(w);
-    irs[1] = NewInvIndIterator_TermFull(w2);
+    FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+    irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
+    irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
     IteratorsConfig config{};
     iteratorsConfig_init(&config);
     QueryIterator *ui = NewUnionIterator(irs, 2, 0, 1, QN_UNION, NULL, &config);
@@ -381,8 +371,9 @@ TEST_F(IndexTest, testWeight) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 2);
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = { .index = RS_INVALID_FIELD_INDEX }};
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-  irs[0] = NewInvIndIterator_TermQuery(w, NULL, fieldMaskOrIndex, NULL, 0.5);
-  irs[1] = NewInvIndIterator_TermFull(w2);
+  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, fieldMaskOrIndex, nullptr, 0.5);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
   IteratorsConfig config{};
   iteratorsConfig_init(&config);
   QueryIterator *ui = NewUnionIterator(irs, 2, 0, 0.8, QN_UNION, NULL, &config);
@@ -418,8 +409,9 @@ TEST_F(IndexTest, testNot) {
   // not all numbers that divide by 3
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-  irs[0] = NewInvIndIterator_TermFull(w);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermFull(w2), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -439,7 +431,8 @@ TEST_F(IndexTest, testNot) {
 TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createPopulateTermsInvIndex(10, 3);
   auto ctx = std::make_unique<MockQueryEvalCtx>();
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermFull(w), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -686,8 +679,9 @@ TEST_F(IndexTest, testIntersection) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(100000, 2);
 
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-  irs[0] = NewInvIndIterator_TermFull(w);
-  irs[1] = NewInvIndIterator_TermFull(w2);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
+  irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
 
   int count = 0;
   QueryIterator *ii = NewIntersectionIterator(irs, 2, -1, 0, 1);
@@ -813,7 +807,8 @@ TEST_F(IndexTest, testHybridVector) {
   vecIt->Free(vecIt);
 
   // Test in hybrid mode.
-  QueryIterator *ir = NewInvIndIterator_TermFull(w);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  QueryIterator *ir = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
   hParams.childIt = ir;
   QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -860,7 +855,7 @@ TEST_F(IndexTest, testHybridVector) {
   hybridIt->Free(hybridIt);
 
   // Rerun without ignoring document scores.
-  ir = NewInvIndIterator_TermFull(w);
+  ir = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
   hParams.canTrimDeepResults = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
@@ -1480,22 +1475,28 @@ TEST_F(IndexTest, testDeltaSplits) {
   InvertedIndex_WriteForwardIndexEntry(idx, &ent);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
-  QueryIterator *ir = NewInvIndIterator_TermFull(idx);
-  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
-  ASSERT_EQ(1, ir->lastDocId);
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_None, .field_mask = RS_FIELDMASK_ALL};
+  IndexReader *reader = NewIndexReader(idx, decoderCtx);
+  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  res->freq = 1;
+  res->fieldMask = RS_FIELDMASK_ALL;
 
-  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
-  ASSERT_EQ(200, ir->lastDocId);
+  ASSERT_TRUE(IndexReader_Next (reader, res));
+  ASSERT_EQ(1, res->docId);
 
-  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
-  ASSERT_EQ((1LLU << 48), ir->lastDocId);
+  ASSERT_TRUE(IndexReader_Next (reader, res));
+  ASSERT_EQ(200, res->docId);
 
-  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
-  ASSERT_EQ((1LLU << 48) + 1, ir->lastDocId);
+  ASSERT_TRUE(IndexReader_Next (reader, res));
+  ASSERT_EQ((1LLU << 48), res->docId);
 
-  ASSERT_EQ(ITERATOR_EOF, ir->Read(ir));
+  ASSERT_TRUE(IndexReader_Next (reader, res));
+  ASSERT_EQ((1LLU << 48) + 1, res->docId);
 
-  ir->Free(ir);
+  ASSERT_FALSE(IndexReader_Next (reader, res));
+
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
   InvertedIndex_Free(idx);
 }
 
@@ -1512,7 +1513,8 @@ TEST_F(IndexTest, testRawDocId) {
   }
 
   // Test that we can read them back
-  QueryIterator *ir = NewInvIndIterator_TermFull(idx);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  QueryIterator *ir = NewInvIndIterator_TermQuery(idx, nullptr, f, nullptr, 1);
   for (t_docId id = 1; id < 100; id += 2) {
     ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
     ASSERT_EQ(id, ir->lastDocId);
