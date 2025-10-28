@@ -83,13 +83,20 @@ def get_redisearch_vector_index_memory(env, index_key):
     return float(index_info(env, index_key)["vector_index_sz_mb"])
 
 def wait_for_background_indexing(env, index_name, field_name, message=''):
-    with TimeLimit(30, message):
+    index_size = 0
+    flat_index_size = 0
+    backend_index_size = 0
+    with TimeLimit(30, f"index_size: {index_size}, flat_index_size: {flat_index_size}, backend_index_size: {backend_index_size}, {message})"):
         all_trained = False
         while not all_trained:
             all_trained = True
             # 'BACKGROUND_INDEXING' == 0 means training is done
             for con in env.getOSSMasterNodesConnectionList():
-                is_trained = get_tiered_debug_info(con, index_name, field_name)['BACKGROUND_INDEXING'] == 0
+                tiered_info = get_tiered_debug_info(con, index_name, field_name)
+                is_trained = tiered_info['BACKGROUND_INDEXING'] == 0
+                index_size = tiered_info['INDEX_SIZE']
+                flat_index_size = to_dict(tiered_info['FRONTEND_INDEX'])['INDEX_SIZE']
+                backend_index_size = to_dict(tiered_info['BACKEND_INDEX'])['INDEX_SIZE']
                 if not is_trained:
                     all_trained = False
                     break
