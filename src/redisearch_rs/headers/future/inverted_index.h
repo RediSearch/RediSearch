@@ -310,7 +310,7 @@ t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
  */
-uintptr_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
+uint32_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
 
 /**
  * Increment the garbage collector marker of the inverted index. This is used by some C tests.

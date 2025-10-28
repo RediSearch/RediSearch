@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
     io::{Cursor, Seek, Write},
-    sync::atomic::{self, AtomicUsize},
+    sync::atomic::{self, AtomicU32, AtomicUsize},
 };
 
 use debug::{BlockSummary, Summary};
@@ -269,7 +269,7 @@ pub struct InvertedIndex<E> {
 
     /// A marker used by the garbage collector to determine if the index has been modified since
     /// the last GC pass. This is used to reset a reader if the index has been modified.
-    gc_marker: AtomicUsize,
+    gc_marker: AtomicU32,
 
     /// The encoder to use when adding new entries to the index
     encoder: E,
@@ -447,7 +447,7 @@ impl<E: Encoder> InvertedIndex<E> {
             blocks: Vec::new(),
             n_unique_docs: 0,
             flags,
-            gc_marker: AtomicUsize::new(0),
+            gc_marker: AtomicU32::new(0),
             encoder,
         }
     }
@@ -472,7 +472,7 @@ impl<E: Encoder> InvertedIndex<E> {
             blocks,
             n_unique_docs,
             flags,
-            gc_marker: AtomicUsize::new(0),
+            gc_marker: AtomicU32::new(0),
             encoder,
         }
     }
@@ -633,7 +633,7 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 
     /// Get the current GC marker of this index. This is only used by the some C tests.
-    pub fn gc_marker(&self) -> usize {
+    pub fn gc_marker(&self) -> u32 {
         self.gc_marker.load(atomic::Ordering::Relaxed)
     }
 
@@ -920,7 +920,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Get the current GC marker of this index. This is only used by the some C tests.
-    pub fn gc_marker(&self) -> usize {
+    pub fn gc_marker(&self) -> u32 {
         self.index.gc_marker()
     }
 
@@ -1049,7 +1049,7 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     }
 
     /// Get the current GC marker of this index. This is only used by the some C tests.
-    pub fn gc_marker(&self) -> usize {
+    pub fn gc_marker(&self) -> u32 {
         self.index.gc_marker()
     }
 
@@ -1120,7 +1120,7 @@ pub struct IndexReaderCore<'index, E, D> {
     /// The marker of the inverted index when this reader last read from it. This is used to
     /// detect if the index has been modified since the last read, in which case the reader
     /// should be reset.
-    gc_marker: usize,
+    gc_marker: u32,
 }
 
 /// A reader is something which knows how to read / decode the records from an `[InvertedIndex]`.
