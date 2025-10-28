@@ -10,6 +10,9 @@
 use core::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Unique identifier for a RLookup instance, encapsulated a u64.
+///
+/// This struct provides a method to generate the next unique identifier which is thread-safe.
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub struct RLookupId(u64);
 

@@ -552,16 +552,17 @@ fn row_panics_on_foreign_lookup() {
 
 /// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes
 #[unsafe(no_mangle)]
-extern "C" fn IndexSpecCache_Decref(s: Option<NonNull<ffi::IndexSpecCache>>) {
-    let s = s.unwrap();
+extern "C" fn IndexSpecCache_Decref(spcache: Option<NonNull<ffi::IndexSpecCache>>) {
+    let spcache = spcache.expect("`spcache` must not be null");
     let refcount = unsafe {
-        s.byte_add(offset_of!(ffi::IndexSpecCache, refcount))
+        spcache
+            .byte_add(offset_of!(ffi::IndexSpecCache, refcount))
             .cast::<usize>()
     };
 
     let refcount = unsafe { AtomicUsize::from_ptr(refcount.as_ptr()) };
 
     if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
-        drop(unsafe { Box::from_raw(s.as_ptr()) });
+        drop(unsafe { Box::from_raw(spcache.as_ptr()) });
     }
 }

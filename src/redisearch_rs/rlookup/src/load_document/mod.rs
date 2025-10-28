@@ -721,7 +721,7 @@ mod tests {
                 .build()?;
 
                 let mut lookup = RLookup::new();
-                let mut row = RLookupRow::new();
+                let mut row = RLookupRow::new(&lookup);
                 let res = load_document_int(&mut lookup, &mut row, &opt, &ctx);
                 if res != case.expected_error {
                     println!(
