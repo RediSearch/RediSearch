@@ -83,9 +83,9 @@ def get_redisearch_vector_index_memory(env, index_key):
     return float(index_info(env, index_key)["vector_index_sz_mb"])
 
 def wait_for_background_indexing(env, index_name, field_name, message=''):
-    index_size = [0] * env.shardsCount
-    flat_index_size = [0] * env.shardsCount
-    backend_index_size = [0] * env.shardsCount
+    index_sizes = [0] * env.shardsCount
+    flat_index_sizes = [0] * env.shardsCount
+    backend_index_sizes = [0] * env.shardsCount
     iter = 0
     is_trained = [False] * env.shardsCount
     try:
@@ -95,9 +95,9 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
                 for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
                     tiered_info = get_tiered_debug_info(con, index_name, field_name)
                     is_trained[i] = tiered_info['BACKGROUND_INDEXING'] == 0
-                    index_size[i] = tiered_info['INDEX_SIZE']
-                    flat_index_size[i] = to_dict(tiered_info['FRONTEND_INDEX'])['INDEX_SIZE']
-                    backend_index_size[i] = to_dict(tiered_info['BACKEND_INDEX'])['INDEX_SIZE']
+                    index_sizes[i] = tiered_info['INDEX_SIZE']
+                    flat_index_sizes[i] = to_dict(tiered_info['FRONTEND_INDEX'])['INDEX_SIZE']
+                    backend_index_sizes[i] = to_dict(tiered_info['BACKEND_INDEX'])['INDEX_SIZE']
 
                 time.sleep(0.1)
                 iter += 1
@@ -105,5 +105,5 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
             index_size = get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE']
             env.assertGreater(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"wait_for_background_indexing: shard: {id}, index size: {index_size}" + message)
     except Exception as e:
-        message = f"wait_for_background_indexing: iter: {iter}, index_sizes: {index_size}, flat_index_sizes: {flat_index_size}, backend_index_sizes: {backend_index_size}, {message})"
+        message = f"wait_for_background_indexing: iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, {message})"
         raise Exception(f'Timeout: {message}')
