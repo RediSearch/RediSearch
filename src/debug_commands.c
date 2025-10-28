@@ -408,12 +408,15 @@ InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *
 
   REPLY_WITH_STR("values", ARRAY_LEN_VAR(invertedIndexDump));
   START_POSTPONED_LEN_ARRAY(invertedIndexValues);
-  QueryIterator *iter = NewInvIndIterator_NumericFull(idx);
-  while (iter->Read(iter) == ITERATOR_OK) {
-    REPLY_WITH_DOUBLE("value", IndexResult_NumValue(iter->current), ARRAY_LEN_VAR(invertedIndexValues));
-    REPLY_WITH_LONG_LONG("docId", iter->current->docId, ARRAY_LEN_VAR(invertedIndexValues));
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
+  IndexReader *reader = NewIndexReader(idx, decoderCtx);
+  RSIndexResult *res = NewNumericResult();
+  while (IndexReader_Next(reader, res)) {
+    REPLY_WITH_DOUBLE("value", IndexResult_NumValue(res), ARRAY_LEN_VAR(invertedIndexValues));
+    REPLY_WITH_LONG_LONG("docId", res->docId, ARRAY_LEN_VAR(invertedIndexValues));
   }
-  iter->Free(iter);
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
   END_POSTPONED_LEN_ARRAY(invertedIndexValues);
   ARRAY_LEN_VAR(invertedIndexDump)++;
 
