@@ -304,8 +304,7 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
-      # Unit tests are paired with coordinator tests to balance job execution times
-      # This means unit tests only run when coordinator tests run.
+
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
@@ -317,6 +316,17 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make unit-tests rust-tests
+
+      - name: Clean up coverage data files after unit tests
+        if: inputs.coverage && inputs.unit-test
+        run: |
+          echo "=== Cleaning up .gcda and .gcno files to free disk space ==="
+          df -h
+          echo "Finding and removing coverage data files..."
+          find bin -type f \( -name "*.gcda" -o -name "*.gcno" \) -delete 2>/dev/null || true
+          echo "Coverage data files cleaned up"
+          df -h
+
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -331,6 +341,17 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
+
+      - name: Clean up coverage data files after standalone tests
+        if: inputs.coverage && inputs.standalone
+        run: |
+          echo "=== Cleaning up .gcda and .gcno files to free disk space ==="
+          df -h
+          echo "Finding and removing coverage data files..."
+          find bin -type f \( -name "*.gcda" -o -name "*.gcno" \) -delete 2>/dev/null || true
+          echo "Coverage data files cleaned up"
+          df -h
+
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
@@ -345,6 +366,14 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
+      - name: Clean up coverage data files after coordinator
+        run: |
+          echo "=== Cleaning up .gcda and .gcno files to free disk space ==="
+          df -h
+          echo "Finding and removing coverage data files..."
+          find bin -type f \( -name "*.gcda" -o -name "*.gcno" \) -delete 2>/dev/null || true
+          echo "Coverage data files cleaned up"
+          df -h
 
       - name: Check test logs folder size
         if: always()
