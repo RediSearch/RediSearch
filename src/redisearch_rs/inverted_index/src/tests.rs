@@ -197,7 +197,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         type Delta = u32;
 
         const ALLOW_DUPLICATES: bool = true;
-        const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
+        const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
             &self,
@@ -1138,7 +1138,7 @@ fn blocks_summary() {
         type Delta = u32;
 
         const ALLOW_DUPLICATES: bool = true;
-        const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
+        const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
             &self,
@@ -1193,7 +1193,7 @@ fn blocks_summary_store_numeric() {
         type Delta = u32;
 
         const ALLOW_DUPLICATES: bool = true;
-        const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
+        const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
             &self,

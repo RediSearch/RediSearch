@@ -768,7 +768,7 @@ pub unsafe extern "C" fn IndexBlock_LastId(ib: *const IndexBlock) -> t_docId {
 /// The following invariant must be upheld when calling this function:
 /// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexBlock_NumEntries(ib: *const IndexBlock) -> usize {
+pub unsafe extern "C" fn IndexBlock_NumEntries(ib: *const IndexBlock) -> u16 {
     debug_assert!(!ib.is_null(), "ib must not be null");
 
     // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`

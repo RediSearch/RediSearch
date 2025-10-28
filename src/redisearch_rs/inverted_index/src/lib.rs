@@ -159,7 +159,7 @@ pub trait Encoder: Clone {
     const ALLOW_DUPLICATES: bool = false;
 
     /// The suggested number of entries that can be written in a single block. Defaults to 100.
-    const RECOMMENDED_BLOCK_ENTRIES: usize = 100;
+    const RECOMMENDED_BLOCK_ENTRIES: u16 = 100;
 
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
@@ -291,7 +291,7 @@ pub struct IndexBlock {
     last_doc_id: t_docId,
 
     /// The total number of non-unique entries in this block
-    num_entries: usize,
+    num_entries: u16,
 
     /// The encoded entries in this block
     buffer: Vec<u8>,
@@ -350,7 +350,7 @@ impl IndexBlock {
     }
 
     /// Get the number of entries in this block. This is only needed for some C tests.
-    pub const fn num_entries(&self) -> usize {
+    pub const fn num_entries(&self) -> u16 {
         self.num_entries
     }
 
@@ -466,7 +466,7 @@ impl<E: Encoder> InvertedIndex<E> {
             "blocks must have valid ranges"
         );
 
-        let n_unique_docs = blocks.iter().map(|b| b.num_entries).sum();
+        let n_unique_docs = blocks.iter().map(|b| b.num_entries as usize).sum();
 
         Self {
             blocks,
@@ -652,7 +652,7 @@ pub struct GcScanDelta {
 
     /// The number of entries in the last block at the time of the scan. This is used to ensure
     /// that the index has not changed since the scan was performed.
-    last_block_num_entries: usize,
+    last_block_num_entries: u16,
 
     /// The results of the scan for each block that needs to be repaired or deleted.
     deltas: Vec<BlockGcScanResult>,
@@ -798,7 +798,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                         RepairType::Delete {
                             n_unique_docs_removed,
                         } => {
-                            info.entries_removed += block.num_entries;
+                            info.entries_removed += block.num_entries as usize;
                             info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
                             self.n_unique_docs -= n_unique_docs_removed;
                         }
@@ -806,12 +806,12 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                             blocks,
                             n_unique_docs_removed,
                         } => {
-                            info.entries_removed += block.num_entries;
+                            info.entries_removed += block.num_entries as usize;
                             info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
                             self.n_unique_docs -= n_unique_docs_removed;
 
                             for block in blocks {
-                                info.entries_removed -= block.num_entries;
+                                info.entries_removed -= block.num_entries as usize;
                                 info.bytes_allocated += IndexBlock::SIZE + block.buffer.capacity();
                                 self.blocks.push(block);
                             }

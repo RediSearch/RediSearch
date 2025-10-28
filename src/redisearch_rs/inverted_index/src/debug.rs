@@ -30,5 +30,5 @@ pub struct Summary {
 pub struct BlockSummary {
     pub first_doc_id: t_docId,
     pub last_doc_id: t_docId,
-    pub number_of_entries: usize,
+    pub number_of_entries: u16,
 }

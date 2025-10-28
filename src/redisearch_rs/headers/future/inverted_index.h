@@ -422,7 +422,7 @@ t_docId IndexBlock_LastId(const struct IndexBlock *ib);
  * The following invariant must be upheld when calling this function:
  * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
  */
-uintptr_t IndexBlock_NumEntries(const struct IndexBlock *ib);
+uint16_t IndexBlock_NumEntries(const struct IndexBlock *ib);
 
 /**
  * Get a pointer to the raw data of the index block. This is used by some C tests.
