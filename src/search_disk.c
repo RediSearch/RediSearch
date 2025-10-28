@@ -73,6 +73,7 @@ void SearchDisk_SaveToRDB(RedisModuleIO *rdb, void *value) {
 int SearchDisk_AuxLoadFromRDB(RedisModuleIO *rdb, int encver, int when) {
   if (!disk) return REDISMODULE_ERR;
   disk_mem_obj = disk->memObject.fromRDB(rdb);
+  if (!disk_mem_obj) return REDISMODULE_ERR;
   return REDISMODULE_OK;
 }
 
