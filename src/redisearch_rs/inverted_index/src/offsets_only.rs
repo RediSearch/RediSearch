@@ -23,7 +23,7 @@ use crate::{
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct OffsetsOnly;
 
 impl Encoder for OffsetsOnly {
@@ -57,6 +57,7 @@ impl DecodedBy for OffsetsOnly {
 }
 
 impl Decoder for OffsetsOnly {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,

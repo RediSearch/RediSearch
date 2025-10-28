@@ -70,6 +70,23 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   return timeoutOccurred;
 }
 
+// Reply with warnings, adding suffixes to indicate the originating context (search/vsim/post-processing)
+static void replyWarningsWithSuffixes(RedisModule_Reply *reply, HybridRequest *hreq,
+                                       QueryProcessingCtx *qctx, int postProcessingRC) {
+  bool timeoutInSubquery = false;
+
+  // Handle warnings from each subquery, adding appropriate suffix
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    QueryError* err = &hreq->errors[i];
+    const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
+    const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
+    timeoutInSubquery = handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
+  }
+
+  // Handle warnings from post-processing stage
+  handleAndReplyWarning(reply, qctx->err, postProcessingRC, POST_PROCESSING_SUFFIX, timeoutInSubquery);
+}
+
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 
 // Serializes a result for the `FT.HYBRID` command.
@@ -204,7 +221,7 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
  * @param limit Maximum number of results to return
  * @param cv Cached variables for result processing
  */
-static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
+void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
@@ -263,16 +280,13 @@ done:
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
-
-    bool timeoutInSubquery = false;
-    for (size_t i = 0; i < hreq->nrequests; ++i) {
-      QueryError* err = &hreq->errors[i];
-      const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
-      const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
-      timeoutInSubquery = handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
+    if (QueryError_HasQueryOOMWarning(qctx->err)) {
+      // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
+      // because this warning is not related to subqueries or post-processing terminology
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     }
-    // Handle main query errors (POST PROCESSING)
-    handleAndReplyWarning(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, timeoutInSubquery);
+
+    replyWarningsWithSuffixes(reply, hreq, qctx, rc);
 
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
@@ -549,9 +563,18 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
 
-  if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status, internal) != REDISMODULE_OK) {
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
+
+  if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
+
+  for (int i = 0; i < hybridRequest->nrequests; i++) {
+    AREQ *subquery = hybridRequest->requests[i];
+    SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);
+  }
+  SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
 
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);

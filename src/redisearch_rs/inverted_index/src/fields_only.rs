@@ -23,7 +23,7 @@ use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 /// The delta and field mask are encoded using [qint encoding](qint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FieldsOnly;
 
 impl Encoder for FieldsOnly {
@@ -53,6 +53,7 @@ impl DecodedBy for FieldsOnly {
 }
 
 impl Decoder for FieldsOnly {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -80,7 +81,7 @@ impl Decoder for FieldsOnly {
 /// The delta and the field mask are encoded using [varint encoding](varint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FieldsOnlyWide;
 
 impl Encoder for FieldsOnlyWide {
@@ -107,6 +108,7 @@ impl DecodedBy for FieldsOnlyWide {
 }
 
 impl Decoder for FieldsOnlyWide {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,

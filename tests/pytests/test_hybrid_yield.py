@@ -72,8 +72,7 @@ def calculate_l2_distance_raw(vec1_bytes, vec2_bytes):
     vec2 = np.frombuffer(vec2_bytes, dtype=np.float32)
     return np.linalg.norm(vec1 - vec2)**2
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_vsim_knn_yield_score_as():
     """Test VSIM KNN with YIELD_SCORE_AS parameter"""
     env = Env()
@@ -94,8 +93,7 @@ def test_hybrid_vsim_knn_yield_score_as():
         expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_vsim_range_yield_score_as():
     """Test VSIM RANGE with YIELD_SCORE_AS parameter"""
     env = Env()
@@ -116,10 +114,8 @@ def test_hybrid_vsim_range_yield_score_as():
         returned_distance = float(doc_result['vector_score'])
         expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
-        
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_search_yield_score_as():
     """Test SEARCH with YIELD_SCORE_AS parameter"""
     env = Env()
@@ -139,8 +135,7 @@ def test_hybrid_search_yield_score_as():
         search_score = float(doc_result['search_score'])
         env.assertGreater(search_score, 0)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_search_and_vsim_yield_parameters():
     """Test using SEARCH YIELD_SCORE_AS with VSIM YIELD_SCORE_AS together"""
     env = Env()
@@ -162,8 +157,6 @@ def test_hybrid_search_and_vsim_yield_parameters():
         has_vector_distance = 'vector_distance' in doc_result
         env.assertTrue(has_search_score or has_vector_distance)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_vsim_both_yield_distance_and_score():
     """Test VSIM with both YIELD_SCORE_AS and YIELD_SCORE_AS together - should fail because YIELD_SCORE_AS is not supported in VSIM"""
     env = Env()
@@ -174,8 +167,6 @@ def test_hybrid_vsim_both_yield_distance_and_score():
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                'KNN', '6', 'K', '10', 'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_vsim_range_both_yield_distance_and_score():
     """Test VSIM RANGE with both YIELD_SCORE_AS and YIELD_SCORE_AS together - should fail because YIELD_SCORE_AS is not supported in VSIM"""
     env = Env()
@@ -186,10 +177,8 @@ def test_hybrid_vsim_range_both_yield_distance_and_score():
     # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                'RANGE', '6', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
-    
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
+
 def test_hybrid_yield_score_as_after_combine_error():
     """Test that YIELD_SCORE_AS after COMBINE keyword fails"""
     env = Env()
@@ -201,8 +190,6 @@ def test_hybrid_yield_score_as_after_combine_error():
                'KNN', '4', 'K', '10', 'COMBINE', 'RRF', '2', 'CONSTANT', '60',
                'YIELD_SCORE_AS', 'vector_distance').error()
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_search_yield_score_as_after_combine():
     """Test that SEARCH YIELD_SCORE_AS after COMBINE keyword works"""
     env = Env()
@@ -223,8 +210,6 @@ def test_hybrid_search_yield_score_as_after_combine():
         search_score = float(doc_result['search_score'])
         env.assertGreater(search_score, 0)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_multiple_yield_after_combine_error():
     """Test that multiple YIELD parameters after COMBINE keyword fail"""
     env = Env()
@@ -235,3 +220,31 @@ def test_hybrid_multiple_yield_after_combine_error():
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                'KNN', '4', 'K', '10', 'COMBINE', 'LINEAR', '8', 'ALPHA', '0.5', 'BETA', '0.5',
                'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
+
+def test_hybrid_yield_score_as_all_possible_scores():
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    alpha = 0.3
+    beta = 0.7
+
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes','YIELD_SCORE_AS', 's_score', 'VSIM', '@embedding', query_vector,
+               'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'v_score', 'COMBINE', 'LINEAR', '6', 'ALPHA', alpha, 'BETA', beta,
+               'YIELD_SCORE_AS', 'fused_score', 'APPLY', f"{alpha}*case(exists(@s_score), @s_score ,0) + {beta}*case(exists(@v_score), @v_score,0)", 'AS', 'calculated_score')
+    results, _ = get_results_from_hybrid_response(response)
+
+    # Validate the vector_distance and vector_score fields
+    env.assertGreater(len(results.keys()), 0)
+    for doc_key, doc_result in results.items():
+        # assert at least one subquery score is present
+        env.assertTrue('s_score' in doc_result or 'v_score' in doc_result)
+
+        # assert both calculated and fused scores are present
+        env.assertTrue('calculated_score' in doc_result)
+        env.assertTrue('fused_score' in doc_result)
+
+        # assert fused_score and the score calculated from the subquery scores using apply are the same
+        calculated_score = float(doc_result[f'calculated_score'])
+        fused_score = float(doc_result[f'fused_score'])
+        env.assertGreater(fused_score, 0)
+        env.assertAlmostEqual(calculated_score, fused_score, delta=1e-6, message=f"Fused score and calculated score for {doc_key} do not match")

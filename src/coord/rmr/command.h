@@ -15,6 +15,10 @@
 #include <assert.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2 } MRRootCommand;
 
 #define INVALID_SHARD -1
@@ -96,9 +100,11 @@ void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t
 void MRCommand_WriteTaggedKey(MRCommand *cmd, int index, const char *newarg, const char *part,
                               size_t n);
 
-int MRCommand_GetShardingKey(const MRCommand *cmd);
-
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx);
 
 /* Create a copy of a command by duplicating all strings */
 MRCommand MRCommand_Copy(const MRCommand *cmd);
+
+#ifdef __cplusplus
+}
+#endif

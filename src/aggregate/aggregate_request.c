@@ -231,10 +231,6 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
       QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format is only supported with JSON");
       return REDISMODULE_ERR;
     }
-    if (japi_ver < 4) {
-      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format requires a newer RedisJSON (with API version RedisJSON_V4)");
-      return REDISMODULE_ERR;
-    }
   }
   return REDISMODULE_OK;
 }
@@ -781,12 +777,13 @@ arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp) {
   return (arrayof(const char*))StrongRef_Get(gstp->properties_ref);
 }
 
-PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref) {
+PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, bool strictPrefix) {
   PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
   gstp->properties_ref = properties_ref;
   gstp->base.dtor = groupStepFree;
   gstp->base.getLookup = groupStepGetLookup;
   gstp->base.type = PLN_T_GROUP;
+  gstp->strictPrefix = strictPrefix;
   return gstp;
 }
 
@@ -822,7 +819,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
 
   // Number of fields.. now let's see the reducers
   StrongRef properties_ref = StrongRef_New((void *)properties, (RefManager_Free)array_free);
-  PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref);
+  PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref, false);
   AGPLN_AddStep(plan, &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
@@ -953,6 +950,7 @@ AREQ *AREQ_New(void) {
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
+  req->prefixesOffset = 0;
   return req;
 }
 
@@ -1267,6 +1265,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
       return REDISMODULE_ERR;
     }
+  } else {
+    opts->scorerName = RSGlobalConfig.defaultScorer;
   }
 
   bool resp3 = req->protocol == 3;
@@ -1278,6 +1278,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     opts->stopwords = sctx->spec->stopwords;
     StopWordList_Ref(sctx->spec->stopwords);
   }
+
+  req->slotRanges = Slots_GetLocalSlots();
 
   SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
@@ -1357,6 +1359,8 @@ void AREQ_Free(AREQ *req) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
 
+  Slots_FreeLocalSlots(req->slotRanges);
+
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.
   RedisModuleCtx *thctx = NULL;
@@ -1421,10 +1425,12 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,
+      .slotRanges = req->slotRanges,
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
+    req->slotRanges = NULL; // Ownership of the slot ranges is now with the params.
     Pipeline_BuildQueryPart(&req->pipeline, &params);
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;

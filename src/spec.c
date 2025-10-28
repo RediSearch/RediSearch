@@ -67,6 +67,7 @@ uint16_t pendingIndexDropCount_g = 0;
 Version redisVersion;
 Version rlecVersion;
 bool isCrdt;
+bool should_filter_slots = false;
 bool isTrimming = false;
 bool isFlex = false;
 
@@ -546,7 +547,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
   // Start the garbage collector
-  IndexSpec_StartGC(ctx, spec_ref, sp);
+  IndexSpec_StartGC(spec_ref, sp);
 
   Cursors_initSpec(sp);
 
@@ -1146,8 +1147,8 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
       }
       return 0;
     }
-    multi = !(pathIsSingle(jsonPath));
-    pathFree(jsonPath);
+    multi = !(japi->pathIsSingle(jsonPath));
+    japi->pathFree(jsonPath);
   }
 
   // parse algorithm
@@ -1431,7 +1432,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
         if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
           RedisModuleString *err_msg;
           JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
-          if (jsonPath && pathHasDefinedOrder(jsonPath)) {
+          if (jsonPath && japi->pathHasDefinedOrder(jsonPath)) {
             // Ordering is well defined
             fs->options &= ~FieldSpec_UndefinedOrder;
           } else {
@@ -1441,7 +1442,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
             sp->flags |= Index_HasUndefinedOrder;
           }
           if (jsonPath) {
-            pathFree(jsonPath);
+            japi->pathFree(jsonPath);
           } else if (err_msg) {
             JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
             goto reset;
@@ -1526,6 +1527,7 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
 inline static bool isSpecOnDisk(const IndexSpec *sp) {
   return isFlex;
 }
+
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
@@ -2202,7 +2204,7 @@ void IndexSpec_StartGCFromSpec(StrongRef global, IndexSpec *sp, uint32_t gcPolic
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
  * index after removing documents */
 // Only used on new specs so it's thread safe
-void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
+void IndexSpec_StartGC(StrongRef global, IndexSpec *sp) {
   RS_LOG_ASSERT(!sp->gc, "GC already exists");
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.gcConfigParams.enableGC && !(sp->flags & Index_Temporary)) {
@@ -2210,8 +2212,8 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
     GCContext_Start(sp->gc);
 
     const char* name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
-    RedisModule_Log(ctx, "verbose", "Starting GC for %s", name);
-    RedisModule_Log(ctx, "debug", "Starting GC %p for %s", sp->gc, name);
+    RedisModule_Log(RSDummyContext, "verbose", "Starting GC for %s", name);
+    RedisModule_Log(RSDummyContext, "debug", "Starting GC %p for %s", sp->gc, name);
   }
 }
 
@@ -3061,10 +3063,8 @@ cleanup_no_index:
   return NULL;
 }
 
-int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
-                                       QueryError *status) {
-  // Load the index spec using the new function
-  IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, status);
+static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
+
   if (!sp) {
     addPendingIndexDrop();
     return REDISMODULE_ERR;
@@ -3081,7 +3081,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
   }
 
-  IndexSpec_StartGC(ctx, spec_ref, sp);
+  IndexSpec_StartGC(spec_ref, sp);
   Cursors_initSpec(sp);
 
   if (sp->isDuplicate) {
@@ -3099,6 +3099,12 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     }
   }
   return REDISMODULE_OK;
+}
+
+static int IndexSpec_CreateFromRdb(RedisModuleIO *rdb, int encver, QueryError *status) {
+  // Load the index spec using the new function
+  IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, status);
+  return IndexSpec_StoreAfterRdbLoad(sp);
 }
 
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
@@ -3210,7 +3216,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   // start the gc and add the spec to the cursor list
-  IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
+  IndexSpec_StartGC(spec_ref, sp);
   Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
@@ -3232,10 +3238,9 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   }
 
   size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   QueryError status = QueryError_Default();
   for (size_t i = 0; i < nIndexes; ++i) {
-    if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
+    if (IndexSpec_CreateFromRdb(rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
@@ -3273,6 +3278,46 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   }
 }
 
+void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
+  if (encver < INDEX_VECSIM_SVS_VAMANA_VERSION) {
+    // Legacy index, loaded in order to upgrade from an old version
+    return IndexSpec_LegacyRdbLoad(rdb, encver);
+  } else {
+    // New index, loaded normally.
+    // Even though we don't actually load or save the index spec in the key space, this implementation is useful
+    // because it allows us to serialize and deserialize the index spec in a clean way.
+    QueryError status = QueryError_Default();
+    IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, &status);
+    if (!sp) {
+      RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+      QueryError_ClearError(&status);
+    }
+    return sp;
+  }
+}
+
+/**
+ * Convert an IndexSpec to its RDB serialized form, by calling the `IndexSpecType` rdb_save function.
+ * Note that the returned RedisModuleString* must be freed by the caller
+ * using RedisModule_FreeString
+*/
+RedisModuleString * IndexSpec_Serialize(IndexSpec *sp) {
+  return RedisModule_SaveDataTypeToString(NULL, sp, IndexSpecType);
+}
+
+/**
+ * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
+ * Note that this function also stores the index spec in the global spec dictionary, as if it was loaded
+ * from the RDB file.
+ * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure.
+ * Does not consume the serialized string, the caller is responsible for freeing it.
+*/
+int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver) {
+  IndexSpec *sp = RedisModule_LoadDataTypeFromStringEncver(serialized, IndexSpecType, encver);
+  if (sp) Initialize_KeyspaceNotifications();
+  return IndexSpec_StoreAfterRdbLoad(sp);
+}
+
 int CompareVersions(Version v1, Version v2) {
   if (v1.majorVersion < v2.majorVersion) {
     return -1;
@@ -3295,58 +3340,33 @@ int CompareVersions(Version v1, Version v2) {
   return 0;
 }
 
-// This function is called in case the server is started or
-// when the replica is loading the RDB file from the master.
-static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
-                                 void *data) {
-  if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
-      subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START ||
-      subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
-    Indexes_Free(specDict_g);
-    if (legacySpecDict) {
-      dictEmpty(legacySpecDict, NULL);
-    } else {
-      legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+void Indexes_Propagate(RedisModuleCtx *ctx) {
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    RS_ASSERT(sp != NULL);
+    RedisModuleString *serialized = IndexSpec_Serialize(sp);
+    RS_ASSERT(serialized != NULL);
+    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
+    if (rc != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Failed to propagate index '%s' during slot migration. errno: %d", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), errno);
     }
-    RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
-    g_isLoading = true;
-    workersThreadPool_OnEventStart();
-  } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
-    int hasLegacyIndexes = dictSize(legacySpecDict);
-    Indexes_UpgradeLegacyIndexes();
-
-    // we do not need the legacy dict specs anymore
-    dictRelease(legacySpecDict);
-    legacySpecDict = NULL;
-
-    LegacySchemaRulesArgs_Free(ctx);
-
-    if (hasLegacyIndexes) {
-      Indexes_ScanAndReindex();
-    }
-    workersThreadPool_OnEventEnd(true);
-    g_isLoading = false;
-    RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
-  } else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
-    // Clear pending jobs from job queue in case of short read.
-    workersThreadPool_OnEventEnd(true);
-    g_isLoading = false;
+    RedisModule_FreeString(NULL, serialized);
   }
+  dictReleaseIterator(iter);
 }
 
-static void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
-                                 void *data) {
-  RedisModule_Log(RSDummyContext, "debug", "Waiting for background jobs to be executed while"
-                  " loading is in progress (progress is %d)",
-                  ((RedisModuleLoadingProgress *)data)->progress);
-  workersThreadPool_Drain(ctx, 100);
+static void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
+  IndexSpec_RdbSave(rdb, value);
 }
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {
       .version = REDISMODULE_TYPE_METHOD_VERSION,
-      .rdb_load = IndexSpec_LegacyRdbLoad,
-      .rdb_save = IndexSpec_LegacyRdbSave,
+      .rdb_load = IndexSpec_RdbLoad_Logic,    // We don't store the index spec in the key space,
+      .rdb_save = IndexSpec_RdbSave_Wrapper,  // but these are useful for serialization/deserialization (and legacy loading)
       .aux_load = Indexes_RdbLoad,
       .aux_save = Indexes_RdbSave,
       .free = IndexSpec_LegacyFree,
@@ -3360,9 +3380,6 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "warning", "Could not create index spec type");
     return REDISMODULE_ERR;
   }
-
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, Indexes_LoadingEvent);
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_LoadingProgress, LoadingProgressCallback);
   return REDISMODULE_OK;
 }
 
@@ -3499,6 +3516,10 @@ void Indexes_Init(RedisModuleCtx *ctx) {
   specDict_g = dictCreate(&dictTypeHeapHiddenStrings, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();
+}
+
+size_t Indexes_Count() {
+  return dictSize(specDict_g);
 }
 
 SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
@@ -3815,4 +3836,33 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
   }
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
   RedisModule_ThreadSafeContextLock(ctx);
+}
+
+void Indexes_StartRDBLoadingEvent() {
+  Indexes_Free(specDict_g);
+  if (legacySpecDict) {
+    dictEmpty(legacySpecDict, NULL);
+  } else {
+    legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+  }
+  g_isLoading = true;
+}
+
+void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx) {
+  int hasLegacyIndexes = dictSize(legacySpecDict);
+  Indexes_UpgradeLegacyIndexes();
+
+  // we do not need the legacy dict specs anymore
+  dictRelease(legacySpecDict);
+  legacySpecDict = NULL;
+
+  LegacySchemaRulesArgs_Free(ctx);
+
+  if (hasLegacyIndexes) {
+    Indexes_ScanAndReindex();
+  }
+}
+
+void Indexes_EndLoading() {
+  g_isLoading = false;
 }

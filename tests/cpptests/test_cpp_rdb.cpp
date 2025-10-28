@@ -47,42 +47,42 @@ TEST_F(RdbMockTest, testBasicRdbOperations) {
     // Test unsigned integer
     uint64_t original_uint = 0x123456789ABCDEF0ULL;
     RMCK_SaveUnsigned(io, original_uint);
-    
+
     // Test signed integer
     int64_t original_int = -0x123456789ABCDEF0LL;
     RMCK_SaveSigned(io, original_int);
-    
+
     // Test double
     double original_double = 3.14159265359;
     RMCK_SaveDouble(io, original_double);
-    
+
     // Test string
     const char *original_str = "Hello, RediSearch!";
     RMCK_SaveStringBuffer(io, original_str, strlen(original_str));
-    
+
     // Reset read position
     io->read_pos = 0;
-    
+
     // Load and verify
     uint64_t loaded_uint = RMCK_LoadUnsigned(io);
     EXPECT_EQ(original_uint, loaded_uint);
-    
+
     int64_t loaded_int = RMCK_LoadSigned(io);
     EXPECT_EQ(original_int, loaded_int);
-    
+
     double loaded_double = RMCK_LoadDouble(io);
     EXPECT_DOUBLE_EQ(original_double, loaded_double);
-    
+
     size_t loaded_str_len;
     char *loaded_str = RMCK_LoadStringBuffer(io, &loaded_str_len);
     ASSERT_TRUE(loaded_str != nullptr);
     EXPECT_EQ(strlen(original_str), loaded_str_len);
     EXPECT_STREQ(original_str, loaded_str);
     free(loaded_str);
-    
+
     // Verify no errors
     EXPECT_EQ(0, RMCK_IsIOError(io));
-    
+
     RMCK_FreeRdbIO(io);
 }
 
@@ -90,17 +90,17 @@ TEST_F(RdbMockTest, testCreateIndexSpec) {
     // Test creating a simple IndexSpec using IndexSpec_ParseC
     const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "1.0", "body", "TEXT", "price", "NUMERIC"};
     QueryError err = QueryError_Default();
-    
+
     StrongRef spec_ref = IndexSpec_ParseC("test_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-    
+
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(spec_ref);
     ASSERT_TRUE(spec != nullptr);
-    
+
     // Verify basic properties
     EXPECT_EQ(3, spec->numFields);
     EXPECT_TRUE(spec->fields != nullptr);
-    
+
     // Verify the rwlock is properly initialized
     // We can't directly test the lock state, but we can verify it's initialized
     // by trying to acquire and release it
@@ -111,7 +111,7 @@ TEST_F(RdbMockTest, testCreateIndexSpec) {
     // If tryrdlock failed, it means the lock is either already locked or there's an error
     // For a newly created spec, it should be unlocked, so we expect success (0)
     EXPECT_EQ(0, lock_result);
-    
+
     // Clean up
     IndexSpec_RemoveFromGlobals(spec_ref, false);
 }
@@ -214,4 +214,47 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
         EXPECT_GE(loadedField->index, 0);
         EXPECT_NE(loadedField->fieldName, nullptr);
     }
+}
+
+TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
+
+    // Create an IndexSpec
+    const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "2.0", "body", "TEXT", "price", "NUMERIC"};
+    QueryError err = QueryError_Default();
+
+    StrongRef original_spec_ref = IndexSpec_ParseC("test_rdb_idx", args, sizeof(args) / sizeof(const char *), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+    IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
+
+    ASSERT_TRUE(spec != nullptr);
+
+    // Create serialized string
+    RedisModuleString *serialized = IndexSpec_Serialize(spec);
+    int encver = INDEX_CURRENT_VERSION;
+    ASSERT_TRUE(serialized != nullptr);
+
+    // Drop the original spec from globals
+    IndexSpec_RemoveFromGlobals(original_spec_ref, false);
+    ASSERT_TRUE(IndexSpec_LoadUnsafe("test_rdb_idx").rm == NULL);
+
+    // Deserialize
+    int res = IndexSpec_Deserialize(serialized, encver);
+    ASSERT_EQ(REDISMODULE_OK, res);
+    StrongRef loaded_spec_ref = IndexSpec_LoadUnsafe("test_rdb_idx");
+    spec = (IndexSpec *)StrongRef_Get(loaded_spec_ref);
+
+    // Sanity checks that the spec is loaded correctly
+    // This test verifies that the serialization and deserialization to string work correctly,
+    // and isn't focused on deep equality of all fields. That's covered in other RDB tests.
+    ASSERT_TRUE(spec != nullptr);
+    ASSERT_STREQ(HiddenString_GetUnsafe(spec->specName, NULL), "test_rdb_idx");
+    ASSERT_EQ(spec->numFields, 3);
+    ASSERT_STREQ(HiddenString_GetUnsafe(spec->fields[0].fieldName, NULL), "title");
+    ASSERT_STREQ(HiddenString_GetUnsafe(spec->fields[1].fieldName, NULL), "body");
+    ASSERT_STREQ(HiddenString_GetUnsafe(spec->fields[2].fieldName, NULL), "price");
+
+    // Clean up
+    IndexSpec_RemoveFromGlobals(loaded_spec_ref, false);
+    RedisModule_FreeString(NULL, serialized);
 }

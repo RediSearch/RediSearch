@@ -11,6 +11,7 @@
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
 #include "wildcard_iterator.h"
+#include "query.h"
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_Get(IndexResult_AggregateRef(p), 0)))
 
@@ -401,6 +402,12 @@ void HybridIterator_Free(QueryIterator *self) {
   if (it == NULL) {
     return;
   }
+
+  // Invalidate the handle if it exists
+  if (it->keyHandle) {
+    it->keyHandle->is_valid = false;
+  }
+
   if (it->topResults) {   // Iterator is in one of the hybrid modes.
     mmh_free(it->topResults);
   }
@@ -452,6 +459,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   // This will be changed later to a valid RLookupKey if there is no syntax error in the query,
   // by the creation of the metrics loader results processor.
   hi->ownKey = NULL;
+  hi->keyHandle = NULL; // Will be set later if this iterator is used for metrics
   hi->child = hParams.childIt;
   hi->resultsPrepared = false;
   hi->index = hParams.index;

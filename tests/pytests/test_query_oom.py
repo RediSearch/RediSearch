@@ -40,7 +40,7 @@ def _common_test_scenario(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     # Add a document
     env.expect('HSET', 'doc', 'name', 'hello').equal(1)
-    # Change maxmemory to 1
+    # Change maxmemory to 1 to trigger OOM
     env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
 
 def _common_cluster_test_scenario(env):
@@ -53,7 +53,7 @@ def _common_cluster_test_scenario(env):
     for i in range(n_docs):
         conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
 
-    # Change maxmemory to 1
+    # Change maxmemory to 1 to trigger OOM
     env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
 
     return n_docs
@@ -185,7 +185,6 @@ def test_query_oom_cluster_shards_error_first_reply():
     # Wait for the query to finish
     t_query.join()
 
-
 # Test OOM error on coordinator (fail or return)
 @skip(cluster=False)
 def test_query_oom_cluster_coord_error():
@@ -246,6 +245,25 @@ def _common_hybrid_test_scenario(env):
     # Change maxmemory to 1 to trigger OOM
     env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
 
+def _common_hybrid_cluster_test_scenario(env):
+    """Common setup for hybrid OOM tests in cluster"""
+    conn = getConnectionByEnv(env)
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+            'description', 'TEXT',
+            'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+
+    n_docs_per_shard = 100
+    n_docs = n_docs_per_shard * env.shardsCount
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{i}', 'description', f'hello{i}', 'embedding', np.array([np.random.rand(), np.random.rand()]).astype(np.float32).tobytes())
+
+    # Change maxmemory to 1 to trigger OOM
+    env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+    return n_docs
+
 # Test ignore policy for FT.HYBRID
 @skip(cluster=True)
 def test_hybrid_oom_ignore(env):
@@ -278,6 +296,75 @@ def test_hybrid_oom_standalone(env):
     change_oom_policy(env, 'return')
     # Verify hybrid query fails
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
+
+# Test OOM error on coordinator for FT.HYBRID (fail or return)
+# under each policy, test the query fails on the coordinator at the beginning of the query
+# therefore we expect the query to fail with OOM_QUERY_ERROR both fail and return policies
+@skip(cluster=False)
+def test_hybrid_oom_cluster_coord_error():
+    env = Env(shardsCount=3)
+
+    _ = _common_hybrid_cluster_test_scenario(env)
+    # Note: the coord's maxmemory is changed in the function above
+
+    # Test with 'fail' policy on all shards
+    allShards_change_oom_policy(env, 'fail')
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # Verify hybrid query fails
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
+
+    # Test with 'return' policy on all shards
+    allShards_change_oom_policy(env, 'return')
+    # Verify hybrid query fails in coordinator before going out to shards
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
+
+# Test OOM error returned from shards for FT.HYBRID (only for fail)
+@skip(cluster=False)
+def test_hybrid_oom_cluster_shards_error():
+    env = Env(shardsCount=3)
+
+    # Set OOM policy to fail on all shards
+    allShards_change_oom_policy(env, 'fail')
+
+    _ = _common_hybrid_cluster_test_scenario(env)
+
+    # Change maxmemory on all shards to 1
+    allShards_change_maxmemory_low(env)
+    # Change back coord maxmemory to 0
+    set_unlimited_maxmemory_for_oom(env)
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # Verify hybrid query fails
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000').error().contains(OOM_QUERY_ERROR)
+
+# Test OOM error returned from shards for FT.HYBRID (only for return)
+@skip(cluster=False)
+def test_hybrid_oom_cluster_shards_return():
+    env = Env(shardsCount=3, enableDebugCommand=True)
+
+    # Set OOM policy to return on all shards
+    allShards_change_oom_policy(env, 'return')
+
+    _common_hybrid_cluster_test_scenario(env)
+
+    # Change maxmemory on all shards to 1
+    allShards_change_maxmemory_low(env)
+    # Change back coord maxmemory to 0
+    set_unlimited_maxmemory_for_oom(env)
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # Note - only the coordinator shard will return results
+
+    # Get num keys in coordinator shard
+    n_keys = len(env.cmd('KEYS', '*'))
+
+    # Verify partial results in hybrid search
+    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+    env.assertEqual(res[1] , n_keys)
 
 # Test verbosity when partial results are returned for PROFILE and RESP3
 @skip(cluster=False)
@@ -338,3 +425,28 @@ def test_oom_verbosity_cluster_return(env):
     shards_error_lst = [str(shard_err) for shard_err in res[1][1] if isinstance(shard_err, ResponseError)]
     # Since we don't know the order of responses, we need to count 2 errors
     env.assertEqual(shards_error_lst.count(OOM_QUERY_ERROR), 2)
+
+# Test OOM error returned from shards for FT.HYBRID (only for return)
+@skip(cluster=False)
+def test_hybrid_oom_verbosity_cluster_return():
+    env = Env(shardsCount=3,protocol=3, enableDebugCommand=True)
+
+    # Set OOM policy to return on all shards
+    allShards_change_oom_policy(env, 'return')
+
+    _common_hybrid_cluster_test_scenario(env)
+
+    # Change maxmemory on all shards to 1
+    allShards_change_maxmemory_low(env)
+    # Change back coord maxmemory to 0
+    set_unlimited_maxmemory_for_oom(env)
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+
+    # Note - only the coordinator shard will return results
+    res3 = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+    env.assertEqual(res3['warnings'][0], OOM_WARNING)
+
+    env.cmd('HELLO', 2)
+    res2 = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+    env.assertEqual(res2[5][0], OOM_WARNING)

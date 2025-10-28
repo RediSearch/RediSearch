@@ -10,6 +10,7 @@
 #include "internal.h"
 #include "util.h"
 #include "redismock.h"
+#include "config.h"
 
 #include <string>
 #include <map>
@@ -752,6 +753,85 @@ int RMCK_IsIOError(RedisModuleIO *io) {
   return result;
 }
 
+void *RMCK_LoadDataTypeFromStringEncver(const RedisModuleString *str,
+                                        const RedisModuleType *mt,
+                                        int encver) {
+  RedisModuleIO io{};
+  io.buffer.insert(io.buffer.end(), str->c_str(), str->c_str() + str->size());
+  return mt->typemeths.rdb_load(&io, encver);
+}
+
+RedisModuleString *RMCK_SaveDataTypeToString(RedisModuleCtx *ctx,
+                                             void *data,
+                                             const RedisModuleType *mt) {
+  RedisModuleIO io{};
+  mt->typemeths.rdb_save(&io, data);
+  if (io.error_flag) {
+    return nullptr;
+  }
+  RedisModuleString *rms = new RedisModuleString(std::string(io.buffer.begin(), io.buffer.end()));
+  if (ctx) ctx->addPointer(rms);
+  return rms;
+}
+
+int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
+  std::vector<std::string> command;
+  command.emplace_back(cmdname);
+  va_list ap;
+  va_start(ap, fmt);
+  // Parse the format string and extract arguments
+  for (const char *p = fmt; *p; p++) {
+    if (*p == 's') {
+      RedisModuleString *str = va_arg(ap, RedisModuleString *);
+      command.emplace_back(*str);
+    } else if (*p == 'l') {
+      long long ll = va_arg(ap, long long);
+      command.emplace_back(std::to_string(ll));
+    } else if (*p == 'c') {
+      char *cstr = va_arg(ap, char *);
+      command.emplace_back(cstr);
+    } else if (*p == 'v') {
+      RedisModuleString **vec = va_arg(ap, RedisModuleString **);
+      size_t len = va_arg(ap, size_t);
+      for (size_t i = 0; i < len; i++) {
+        command.emplace_back(*vec[i]);
+      }
+    } else if (*p == 'b') {
+      char *buf = va_arg(ap, char *);
+      size_t len = va_arg(ap, size_t);
+      command.emplace_back(std::string(buf, len));
+    } else {
+      // Unsupported format specifier
+      va_end(ap);
+      return REDISMODULE_ERR;
+    }
+  }
+  va_end(ap);
+  // Propagate the command (by storing it in the context)
+  ctx->propagated_commands.push_back(std::move(command));
+  return REDISMODULE_OK;
+}
+
+// Function to retrieve propagated commands for testing purposes
+std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx *ctx) {
+  return ctx->propagated_commands;
+}
+
+RedisModuleSlotRangeArray *RMCK_ClusterGetLocalSlotRanges(RedisModuleCtx *ctx) {
+  constexpr RedisModuleSlotRange dummy_ranges[] = {
+      {0, 5460},
+      {10923, 16383},
+  };
+  auto *array = reinterpret_cast<RedisModuleSlotRangeArray *>(RMCK_Alloc(sizeof(RedisModuleSlotRangeArray) + sizeof(dummy_ranges)));
+  array->num_ranges = 2;
+  std::memcpy(array->ranges, dummy_ranges, sizeof(dummy_ranges));
+  return array;
+}
+
+void RMCK_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots) {
+  RMCK_Free(slots);
+}
+
 // Track contexts associated with IO objects
 static std::map<RedisModuleIO*, RedisModuleCtx*> io_contexts;
 static std::mutex io_contexts_mutex;
@@ -1412,6 +1492,14 @@ static void registerApis() {
   REGISTER_API(LoadStringBuffer);
   REGISTER_API(IsIOError);
   REGISTER_API(GetContextFromIO);
+  // Serialization
+  REGISTER_API(LoadDataTypeFromStringEncver);
+  REGISTER_API(SaveDataTypeToString);
+
+  // Cluster
+  REGISTER_API(ClusterPropagateForSlotMigration);
+  REGISTER_API(ClusterGetLocalSlotRanges);
+  REGISTER_API(ClusterFreeSlotRanges);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
@@ -1451,5 +1539,7 @@ void RMCK_Shutdown(void) {
   Datatype::typemap.clear();
 
   RedisModuleCommand::commands.clear();
+  rm_free((void *)RSGlobalConfig.defaultScorer);
+  RSGlobalConfig.defaultScorer = NULL;
 }
 }

@@ -152,6 +152,7 @@ trait ToBytes<const N: usize> {
     fn pack(self) -> [u8; N];
 }
 
+#[derive(Clone)]
 pub struct Numeric {
     /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
     /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)
@@ -166,7 +167,7 @@ impl Numeric {
 
     pub const FLOAT_COMPRESSION_THRESHOLD: f64 = 0.01;
 
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             compress_floats: false,
         }
@@ -174,7 +175,7 @@ impl Numeric {
 
     /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
     /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)
-    pub fn with_float_compression(mut self) -> Self {
+    pub const fn with_float_compression(mut self) -> Self {
         self.compress_floats = true;
 
         self
@@ -215,7 +216,7 @@ impl IdDelta for NumericDelta {
 
 impl NumericDelta {
     /// Get the value this delta type is wrapping
-    pub fn inner(&self) -> u64 {
+    pub const fn inner(&self) -> u64 {
         self.0
     }
 }
@@ -407,6 +408,7 @@ impl Decoder for Numeric {
     /// # Safety
     ///
     /// 1. `result.is_numeric()` must be true to ensure `result` is holding numeric data.
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -490,12 +492,14 @@ impl Decoder for Numeric {
     }
 }
 
+#[inline(always)]
 fn read_only_u64<R: Read>(reader: &mut R, len: usize) -> std::io::Result<u64> {
     let mut bytes = [0; 8];
     reader.read_exact(&mut bytes[..len])?;
     Ok(u64::from_le_bytes(bytes))
 }
 
+#[inline(always)]
 fn read_u64_and_u64<R: Read>(
     reader: &mut R,
     first_bytes: usize,
@@ -507,19 +511,13 @@ fn read_u64_and_u64<R: Read>(
     // Use one read since it is faster
     reader.read_exact(&mut buffer[..total_bytes])?;
 
-    let mut first = [0; 8];
-    first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
-    let first = u64::from_le_bytes(first);
-
-    let second = u64::from_le_bytes(
-        buffer[first_bytes..first_bytes + 8]
-            .try_into()
-            .expect("to convert slice into array"),
-    );
+    let first = u64::from_slice(&buffer[..first_bytes]);
+    let second = u64::from_slice(&buffer[first_bytes..first_bytes + second_bytes]);
 
     Ok((first, second))
 }
 
+#[inline(always)]
 fn read_u64_and_f32<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Result<(u64, f32)> {
     let mut buffer = [0; 12];
     let total_bytes = first_bytes + 4;
@@ -527,19 +525,13 @@ fn read_u64_and_f32<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Res
     // Use one read since it is faster
     reader.read_exact(&mut buffer[..total_bytes])?;
 
-    let mut first = [0; 8];
-    first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
-    let first = u64::from_le_bytes(first);
-
-    let second = f32::from_le_bytes(
-        buffer[first_bytes..first_bytes + 4]
-            .try_into()
-            .expect("to convert slice into array"),
-    );
+    let first = u64::from_slice(&buffer[..first_bytes]);
+    let second = f32::from_slice(&buffer[first_bytes..first_bytes + 4]);
 
     Ok((first, second))
 }
 
+#[inline(always)]
 fn read_u64_and_f64<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Result<(u64, f64)> {
     let mut buffer = [0; 16];
     let total_bytes = first_bytes + 8;
@@ -547,17 +539,49 @@ fn read_u64_and_f64<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Res
     // Use one read since it is faster
     reader.read_exact(&mut buffer[..total_bytes])?;
 
-    let mut first = [0; 8];
-    first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
-    let first = u64::from_le_bytes(first);
-
-    let second = f64::from_le_bytes(
-        buffer[first_bytes..first_bytes + 8]
-            .try_into()
-            .expect("to convert slice into array"),
-    );
+    let first = u64::from_slice(&buffer[..first_bytes]);
+    let second = f64::from_slice(&buffer[first_bytes..first_bytes + 8]);
 
     Ok((first, second))
+}
+
+/// Helper trait to convert from byte slices to various types
+trait FromSlice {
+    /// Creates an instance of Self from a byte slice.
+    fn from_slice(slice: &[u8]) -> Self;
+}
+
+impl FromSlice for u64 {
+    #[inline(always)]
+    fn from_slice(slice: &[u8]) -> Self {
+        debug_assert!(slice.len() <= 8, "Slice length must be at most 8 bytes");
+
+        let mut bytes = [0; 8];
+        bytes[..slice.len()].copy_from_slice(slice);
+        u64::from_le_bytes(bytes)
+    }
+}
+
+impl FromSlice for f32 {
+    #[inline(always)]
+    fn from_slice(slice: &[u8]) -> Self {
+        debug_assert!(slice.len() == 4, "Slice length must be exactly 4 bytes");
+
+        let mut bytes = [0; 4];
+        bytes.copy_from_slice(slice);
+        f32::from_le_bytes(bytes)
+    }
+}
+
+impl FromSlice for f64 {
+    #[inline(always)]
+    fn from_slice(slice: &[u8]) -> Self {
+        debug_assert!(slice.len() == 8, "Slice length must be exactly 8 bytes");
+
+        let mut bytes = [0; 8];
+        bytes.copy_from_slice(slice);
+        f64::from_le_bytes(bytes)
+    }
 }
 
 enum Value {

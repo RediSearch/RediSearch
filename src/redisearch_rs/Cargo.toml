@@ -6,6 +6,7 @@ members = [
     "ffi",
     "inverted_index",
     "inverted_index_bencher",
+    "fnv",
     "low_memory_thin_vec",
     "qint",
     "redis_mock",
@@ -49,6 +50,8 @@ undocumented_unsafe_blocks = "warn"
 # We can also more easily track the amount of unsafe operations throughout
 # the codebase.
 multiple_unsafe_ops_per_block = "warn"
+# Ensure const usage to allow for more compile-time optimizations.
+missing_const_for_fn = "warn"
 
 [workspace.package]
 version = "0.0.1"
@@ -58,6 +61,7 @@ publish = false
 
 [workspace.dependencies]
 ffi = { path = "./ffi", default-features = false }
+fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
@@ -90,6 +94,9 @@ pretty_assertions = "1.4.1"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
 rand = "0.9.1"
+rmp-serde = "1.3.0"
+serde = { version = "1.0.226", features = ["derive"] }
+smallvec = "1.15.1"
 thiserror = "2.0.12"
 ureq = "3.0.10"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
@@ -101,9 +108,7 @@ version = "0.72"
 default-features = false
 
 [workspace.dependencies.redis-module]
-# Patched version. See https://github.com/RedisLabsModules/redismodule-rs/pull/413
-git = "https://github.com/hdoordt/redismodule-rs.git"
-branch = "patches-redisearch"
+git = "https://github.com/RedisLabsModules/redismodule-rs.git"
 default-features = false
 
 [profile.release]

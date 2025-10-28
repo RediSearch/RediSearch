@@ -27,7 +27,7 @@ use crate::{
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FieldsOffsets;
 
 impl Encoder for FieldsOffsets {
@@ -66,6 +66,7 @@ impl DecodedBy for FieldsOffsets {
 }
 
 impl Decoder for FieldsOffsets {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -138,7 +139,7 @@ impl Decoder for FieldsOffsets {
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FieldsOffsetsWide;
 
 impl Encoder for FieldsOffsetsWide {
@@ -173,6 +174,7 @@ impl DecodedBy for FieldsOffsetsWide {
 }
 
 impl Decoder for FieldsOffsetsWide {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
