@@ -18,6 +18,7 @@
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
+#include "extension.h"
 #include "util/dict.h"
 #include "resp3.h"
 #include "util/workers.h"
@@ -50,6 +51,7 @@ configPair_t __configPairs[] = {
   {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
   {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
   {"DEFAULT_DIALECT",                 "search-default-dialect"},
+  {"DEFAULT_SCORER",                  "search-default-scorer"},
   {"EXTLOAD",                         "search-ext-load"},
   {"FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
   {"FORK_GC_CLEAN_THRESHOLD",         "search-fork-gc-clean-threshold"},
@@ -190,6 +192,44 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
   const char *ret = RedisModule_StringPtrLen(val, &len);
   *ptr = rm_strndup(ret, len);
   return REDISMODULE_OK;
+}
+
+int set_default_scorer_config(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err) {
+    REDISMODULE_NOT_USED(name);
+    bool is_enabled = RSGlobalConfig.defaultScorer == NULL || RSGlobalConfig.enableUnstableFeatures;
+    if (!is_enabled) {
+        if (err) {
+            *err = RedisModule_CreateStringPrintf(NULL, "`search-default-scorer` is unavailable when `search-enable-unstable-features` is off. Enable it with `CONFIG SET search-enable-unstable-features true`");
+        }
+        return REDISMODULE_ERR;
+    }
+    if (RSGlobalConfig.defaultScorer == NULL) {
+      RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
+    }
+
+    // Get the scorer name from the Redis module string
+    size_t len;
+    const char *newScorerName = RedisModule_StringPtrLen(val, &len);
+
+    // If Extension is not yet initialized, we will validate the defaultScorer after initialization for validation
+    if (Extensions_InitDone()) {
+      // Validate the scorer name against registered scorers only when the extension system is initialized
+      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, newScorerName);
+      if (scoreCtx == NULL) {
+          if (err) {
+              *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
+          }
+          return REDISMODULE_ERR;
+      }
+    }
+
+    // Validation passed, now allocate and apply it to RSGlobalConfig
+    char **ptr = (char **)privdata;
+    if (*ptr) {
+        rm_free(*ptr);   // Free the existing default scorer string
+    }
+    *ptr = rm_strndup(newScorerName, len);  // Transfer ownership
+    return REDISMODULE_OK;
 }
 
 // EXTLOAD
@@ -640,6 +680,51 @@ RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   }
   config_friso_ini = RedisModule_CreateString(NULL, str, strlen(str));
   return config_friso_ini;
+}
+
+RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
+  char *str = *(char **)privdata;
+  RS_ASSERT(str != NULL);
+  if (config_default_scorer) {
+    RedisModule_FreeString(NULL, config_default_scorer);
+  }
+  config_default_scorer = RedisModule_CreateString(NULL, str, strlen(str));
+  return config_default_scorer;
+}
+
+// DEFAULT_SCORER
+CONFIG_SETTER(setDefaultScorer) {
+  if (!config->enableUnstableFeatures) {
+    QueryError_SetError(status, QUERY_EBADVAL, "`search-default-scorer` is unavailable when `search-enable-unstable-features` is off. Enable it with `CONFIG SET search-enable-unstable-features true`");
+    return REDISMODULE_ERR;
+  }
+  const char *scorerName;
+  int acrc = AC_GetString(ac, &scorerName, NULL, 0);
+  if (acrc == AC_OK) {
+    // Validate scorer name against registered scorers
+    if (Extensions_InitDone()) {
+      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, scorerName);
+      if (scoreCtx == NULL) {
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid default scorer value");
+        return REDISMODULE_ERR;
+      }
+    }
+    // Free the old scorer name before assigning the new one
+    if (config->defaultScorer) {
+      rm_free((void *)config->defaultScorer);
+    }
+    config->defaultScorer = rm_strdup(scorerName);
+  }
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getDefaultScorer) {
+  RS_ASSERT(config->defaultScorer != NULL);
+  if (config->defaultScorer && strlen(config->defaultScorer) > 0) {
+    return sdsnew(config->defaultScorer);
+  } else {
+    return NULL;
+  }
 }
 
 // ON_TIMEOUT
@@ -1171,6 +1256,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setFrisoINI,
          .getValue = getFrisoINI,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "DEFAULT_SCORER",
+         .helpText = "Default scorer to use when no scorer is specified in queries",
+         .setValue = setDefaultScorer,
+         .getValue = getDefaultScorer},
         {.name = "ON_TIMEOUT",
          .helpText = "Action to perform when search timeout is exceeded (choose RETURN or FAIL)",
          .setValue = setOnTimeout,
@@ -1435,6 +1524,10 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
 
   if (config->frisoIni && strlen(config->frisoIni) > 0) {
     ss = sdscatprintf(ss, "friso ini: %s, ", config->frisoIni);
+  }
+
+  if (config->defaultScorer && strlen(config->defaultScorer) > 0) {
+    ss = sdscatprintf(ss, "default scorer: %s, ", config->defaultScorer);
   }
   return ss;
 }
@@ -1826,6 +1919,15 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_friso_ini, set_immutable_string_config, NULL,
       (void *)&(RSGlobalConfig.frisoIni)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterStringConfig(
+      ctx, "search-default-scorer", DEFAULT_SCORER_NAME,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_default_scorer_config, set_default_scorer_config, NULL,
+      (void *)&(RSGlobalConfig.defaultScorer)
     )
   )
 

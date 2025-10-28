@@ -96,6 +96,7 @@ size_t NumShards = 0;
 // Strings returned by CONFIG GET functions
 RedisModuleString *config_ext_load = NULL;
 RedisModuleString *config_friso_ini = NULL;
+RedisModuleString *config_default_scorer = NULL;
 
 /* ======================= DEBUG ONLY DECLARATIONS ======================= */
 static void DEBUG_DistSearchCommandHandler(void* pd);
@@ -3886,6 +3887,10 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeString(ctx, config_friso_ini);
     config_friso_ini = NULL;
   }
+  if (config_default_scorer) {
+    RedisModule_FreeString(ctx, config_default_scorer);
+    config_default_scorer = NULL;
+  }
   if (RSGlobalConfig.extLoad) {
     rm_free((void *)RSGlobalConfig.extLoad);
     RSGlobalConfig.extLoad = NULL;
@@ -3893,6 +3898,10 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
   if (RSGlobalConfig.frisoIni) {
     rm_free((void *)RSGlobalConfig.frisoIni);
     RSGlobalConfig.frisoIni = NULL;
+  }
+  if (RSGlobalConfig.defaultScorer) {
+    rm_free((void *)RSGlobalConfig.defaultScorer);
+    RSGlobalConfig.defaultScorer = NULL;
   }
 
   return REDISMODULE_OK;

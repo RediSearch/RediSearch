@@ -107,6 +107,10 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'TIMEOUT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'BM25STD').error().contains('`search-default-scorer` is unavailable when `search-enable-unstable-features` is off. Enable it with `CONFIG SET search-enable-unstable-features true`')
+    env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'TFIDF').error().contains('`search-default-scorer` is unavailable when `search-enable-unstable-features` is off. Enable it with `CONFIG SET search-enable-unstable-features true`')
+    env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'TFIDF').ok()
     env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).equal(not_modifiable) # deprecated
     env.expect(config_cmd(), 'set', 'MT_MODE', 1).equal(not_modifiable) # deprecated
     env.expect(config_cmd(), 'set', 'FRISOINI', 1).equal(not_modifiable)
@@ -139,7 +143,7 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 10001).contains('BM25STD_TANH_FACTOR must be between 1 and 10000')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
-    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')    
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', -1).contains('Value is outside acceptable bounds')
 
 @skip(cluster=True)
@@ -159,6 +163,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXAGGREGATERESULTS'][0], 'unlimited')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
+    env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'BM25STD')
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
     env.assertEqual(res_dict['WORKERS'][0], '0')
     env.assertEqual(res_dict['MIN_OPERATION_WORKERS'][0], '4')
@@ -1840,3 +1845,60 @@ def testConfigIndependence_max_values():
         env.expect('CONFIG', 'SET', configName, 'yes').ok()
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, maxValueConfigDict)
+
+@skip(cluster=True)
+def testDefaultScorerConfig(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
+    env.expect(config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', scorer).equal('OK')
+        env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+        env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', scorer])
+
+    for scorer in valid_scorers:
+        env.expect('CONFIG', 'set', 'search-default-scorer', scorer).equal('OK')
+        env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+        env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', scorer])
+
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('Invalid default scorer')
+
+    env.expect('CONFIG', 'SET', 'search-default-scorer', 'INVALID_SCORER2').error().contains('Invalid default scorer')
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('Invalid default scorer value')
+
+    env.expect('CONFIG', 'SET', 'search-default-scorer', 'NOTHING2').error().contains('Invalid default scorer value')
+
+    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
+
+@skip(cluster=True)
+def testDefaultScorerConfigDisabled(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands with `search-enable-unstable-features` off"""
+    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
+    env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', scorer).error().contains('`search-default-scorer` is unavailable when `search-enable-unstable-features` is off. Enable it with `CONFIG SET search-enable-unstable-features true`')
+        env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
+        env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
+
+    for scorer in valid_scorers:
+        # Since BM25STD is the default scorer, it is always valid
+        if scorer == 'BM25STD':
+            env.expect('CONFIG', 'set', 'search-default-scorer', scorer).ok()
+        else:
+            env.expect('CONFIG', 'set', 'search-default-scorer', scorer).error().contains('`search-default-scorer` is unavailable when `search-enable-unstable-features` is off. Enable it with `CONFIG SET search-enable-unstable-features true`')
+        env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
+        env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
+
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('`search-default-scorer` is unavailable when `search-enable-unstable-features` is off. Enable it with `CONFIG SET search-enable-unstable-features true`')
+
+    env.expect('CONFIG', 'SET', 'search-default-scorer', 'INVALID_SCORER2').error().contains('`search-default-scorer` is unavailable when `search-enable-unstable-features` is off. Enable it with `CONFIG SET search-enable-unstable-features true`')
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('`search-default-scorer` is unavailable when `search-enable-unstable-features` is off. Enable it with `CONFIG SET search-enable-unstable-features true`')
+
+    env.expect('CONFIG', 'SET', 'search-default-scorer', 'NOTHING2').error().contains('`search-default-scorer` is unavailable when `search-enable-unstable-features` is off. Enable it with `CONFIG SET search-enable-unstable-features true`')
+
+    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])  # Should still be the last valid value
