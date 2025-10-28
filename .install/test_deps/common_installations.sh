@@ -3,46 +3,20 @@ set -e
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
-activate_venv() {
-	echo "copy activation script to shell config"
-	if [[ $OS_TYPE == Darwin ]]; then
-		# For macOS, add both venv activation and PATH prioritization
-		echo "source $PWD/venv/bin/activate" >> ~/.bashrc
-		echo "source $PWD/venv/bin/activate" >> ~/.zshrc
-		# Also ensure the venv bin directory is first in PATH
-		echo "export PATH=\"$PWD/venv/bin:\$PATH\"" >> ~/.bashrc
-		echo "export PATH=\"$PWD/venv/bin:\$PATH\"" >> ~/.zshrc
-	else
-		echo "source $PWD/venv/bin/activate" >> ~/.bash_profile
-		echo "source $PWD/venv/bin/activate" >> ~/.bashrc
-		echo "export PATH=\"$PWD/venv/bin:\$PATH\"" >> ~/.bash_profile
-		echo "export PATH=\"$PWD/venv/bin:\$PATH\"" >> ~/.bashrc
-	fi
-}
+echo "Installing Python dependencies system-wide"
 
-python3 -m venv venv
-activate_venv
-source venv/bin/activate
+# Upgrade pip for the system Python
+python3 -m pip install --upgrade pip
+python3 -m pip install -q --upgrade setuptools
+echo "pip version: $(python3 -m pip --version)"
+echo "pip path: $(which pip3)"
 
-# Ensure python3 symlink exists in virtual environment
-if [[ ! -L "venv/bin/python3" && -f "venv/bin/python" ]]; then
-    ln -sf python venv/bin/python3
-fi
-
-# For the current session, prioritize the virtual environment
-export PATH="$PWD/venv/bin:$PATH"
-echo "Current PATH prioritizes virtual environment: $PATH"
-
-pip install --upgrade pip
-pip install -q --upgrade setuptools
-echo "pip version: $(pip --version)"
-echo "pip path: $(which pip)"
-
-# Verify that python3 now points to the virtual environment
+# Verify Python version and path
 echo "python3 path: $(which python3)"
 echo "python3 version: $(python3 --version)"
 
-pip install -q -r tests/pytests/requirements.txt
+# Install test dependencies system-wide
+python3 -m pip install -q -r tests/pytests/requirements.txt
 
 # List installed packages
-pip list
+python3 -m pip list
