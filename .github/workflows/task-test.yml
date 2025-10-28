@@ -61,21 +61,6 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Free up disk space
-        shell: sh -l -eo pipefail {0}
-        run: |
-          df -h
-          # Determine if we need sudo (containers typically don't have/need it)
-          if command -v sudo >/dev/null 2>&1 && [ -z "${{ inputs.container }}" ]; then
-            SUDO="sudo"
-          else
-            SUDO=""
-          fi
-          $SUDO rm -rf /usr/share/dotnet
-          $SUDO rm -rf /usr/local/lib/android
-          $SUDO rm -rf /opt/ghc
-          $SUDO rm -rf /opt/hostedtoolcache/CodeQL
-          df -h
 
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
@@ -119,6 +104,20 @@ jobs:
             echo "Pre-steps Dependencies failed after 5 attempts"
             exit 1
           fi
+      - name: Free up disk space
+        run: |
+          df -h
+          # Determine if we need sudo (containers typically don't have/need it)
+          if command -v sudo >/dev/null 2>&1 && [ -z "${{ inputs.container }}" ]; then
+            SUDO="sudo"
+          else
+            SUDO=""
+          fi
+          $SUDO rm -rf /usr/share/dotnet
+          $SUDO rm -rf /usr/local/lib/android
+          $SUDO rm -rf /opt/ghc
+          $SUDO rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
       - name: Enable dynamic linking to C runtime in Alpine
         if: inputs.container == 'alpine:3'
         run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
