@@ -99,7 +99,7 @@ def test_small_window_size():
                 return
             conn.execute_command('FLUSHALL')
 
-def test_rdb_load_trained_svs_vamana(env):
+def test_rdb_load_trained_svs_vamana():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
     training_threshold = DEFAULT_BLOCK_SIZE
