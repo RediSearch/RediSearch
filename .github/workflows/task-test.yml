@@ -326,24 +326,6 @@ jobs:
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
 
-      - name: Clean pytest coverage files after standalone tests
-        if: inputs.coverage && inputs.standalone
-        run: |
-          echo "=== Cleaning pytest coverage files (preserving *.info) ==="
-          if [ -d "bin" ]; then
-            echo "Removing pytest coverage files from bin/:"
-            # Remove common pytest coverage files but keep *.info files
-            rm -f bin/.coverage* bin/coverage.xml 2>/dev/null || true
-            if [ -d "bin/htmlcov" ]; then
-              rm -rf bin/htmlcov
-              echo "Removed htmlcov directory"
-            fi
-            echo "Pytest coverage files cleaned (*.info files preserved)"
-          else
-            echo "bin/ directory does not exist, nothing to clean"
-          fi
-          echo "=========================="
-
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
