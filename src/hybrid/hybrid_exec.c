@@ -70,6 +70,23 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   return timeoutOccurred;
 }
 
+// Reply with warnings, adding suffixes to indicate the originating context (search/vsim/post-processing)
+static void replyWarningsWithSuffixes(RedisModule_Reply *reply, HybridRequest *hreq,
+                                       QueryProcessingCtx *qctx, int postProcessingRC) {
+  bool timeoutInSubquery = false;
+
+  // Handle warnings from each subquery, adding appropriate suffix
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    QueryError* err = &hreq->errors[i];
+    const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
+    const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
+    timeoutInSubquery = handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
+  }
+
+  // Handle warnings from post-processing stage
+  handleAndReplyWarning(reply, qctx->err, postProcessingRC, POST_PROCESSING_SUFFIX, timeoutInSubquery);
+}
+
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 
 // Serializes a result for the `FT.HYBRID` command.
@@ -263,16 +280,13 @@ done:
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
-
-    bool timeoutInSubquery = false;
-    for (size_t i = 0; i < hreq->nrequests; ++i) {
-      QueryError* err = &hreq->errors[i];
-      const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
-      const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
-      timeoutInSubquery = handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
+    if (QueryError_HasQueryOOMWarning(qctx->err)) {
+      // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
+      // because this warning is not related to subqueries or post-processing terminology
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     }
-    // Handle main query errors (POST PROCESSING)
-    handleAndReplyWarning(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, timeoutInSubquery);
+
+    replyWarningsWithSuffixes(reply, hreq, qctx, rc);
 
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
