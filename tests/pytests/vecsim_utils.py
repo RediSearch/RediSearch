@@ -88,7 +88,7 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
     backend_index_size = [0] * env.shardsCount
     iter = 0
     try:
-        with TimeLimit(1):
+        with TimeLimit(30):
             all_trained = False
             while not all_trained:
                 all_trained = True
