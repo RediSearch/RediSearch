@@ -133,13 +133,11 @@ static void testSplit() {
 }
 
 int main(int, char **) {
-  RMCK_Bootstrap(my_OnLoad, NULL, 0);
-  RMCK::init();
+  const char *arguments[] = {""};
+  RMCK_Bootstrap(my_OnLoad, arguments, 1);
   testAverage();
   testCountDistinct();
-  // RMCK_Shutdown() is causing a segfault, but I need to remove the scorer before exiting to avoid sanitizer errors
-  rm_free((void *)RSGlobalConfig.defaultScorer);
-  RSGlobalConfig.defaultScorer = NULL;
+  RMCK_Shutdown();
 }
 
 //REDISMODULE_INIT_SYMBOLS();
