@@ -15,7 +15,7 @@ use ffi::t_docId;
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct Summary {
-    pub number_of_docs: usize,
+    pub number_of_docs: u32,
     pub number_of_entries: usize,
     pub last_doc_id: t_docId,
     pub flags: u64,

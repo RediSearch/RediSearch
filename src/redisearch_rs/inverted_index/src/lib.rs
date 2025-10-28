@@ -261,7 +261,7 @@ pub struct InvertedIndex<E> {
 
     /// Number of unique documents in the index. This is not the total number of entries, but rather the
     /// number of unique documents that have been indexed.
-    n_unique_docs: usize,
+    n_unique_docs: u32,
 
     /// The flags of this index. This is used to determine the type of index and how it should be
     /// handled.
@@ -305,7 +305,7 @@ enum RepairType {
     /// This block can be deleted completely.
     Delete {
         /// Number of unique records this will remove
-        n_unique_docs_removed: usize,
+        n_unique_docs_removed: u32,
     },
 
     /// The block contains GCed entries, and should be replaced with the following blocks.
@@ -314,7 +314,7 @@ enum RepairType {
         blocks: SmallVec<[IndexBlock; 3]>,
 
         /// How many unique documents were removed from the block being replaced.
-        n_unique_docs_removed: usize,
+        n_unique_docs_removed: u32,
     },
 }
 
@@ -466,7 +466,7 @@ impl<E: Encoder> InvertedIndex<E> {
             "blocks must have valid ranges"
         );
 
-        let n_unique_docs = blocks.iter().map(|b| b.num_entries as usize).sum();
+        let n_unique_docs = blocks.iter().map(|b| b.num_entries as u32).sum();
 
         Self {
             blocks,
@@ -588,7 +588,7 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 
     /// Returns the number of unique documents in the index.
-    pub const fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> u32 {
         self.n_unique_docs
     }
 
@@ -601,7 +601,7 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn summary(&self) -> Summary {
         Summary {
             number_of_docs: self.n_unique_docs,
-            number_of_entries: self.n_unique_docs,
+            number_of_entries: self.n_unique_docs as usize,
             last_doc_id: self.last_doc_id().unwrap_or(0),
             flags: self.flags as _,
             number_of_blocks: self.blocks.len(),
@@ -880,7 +880,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Returns the number of unique documents in the index.
-    pub const fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> u32 {
         self.index.unique_docs()
     }
 
@@ -1014,7 +1014,7 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     }
 
     /// Returns the number of unique documents in the index.
-    pub const fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> u32 {
         self.index.unique_docs()
     }
 
@@ -1146,7 +1146,7 @@ pub trait IndexReader<'index> {
     fn reset(&mut self);
 
     /// Return the number of unique documents in the underlying index.
-    fn unique_docs(&self) -> usize;
+    fn unique_docs(&self) -> u32;
 
     /// Returns true if the underlying index has duplicate document IDs.
     fn has_duplicates(&self) -> bool;
@@ -1262,7 +1262,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
     }
 
-    fn unique_docs(&self) -> usize {
+    fn unique_docs(&self) -> u32 {
         self.ii.unique_docs()
     }
 
@@ -1411,7 +1411,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> usize {
+    fn unique_docs(&self) -> u32 {
         self.inner.unique_docs()
     }
 
@@ -1542,7 +1542,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> usize {
+    fn unique_docs(&self) -> u32 {
         self.inner.unique_docs()
     }
 
@@ -1704,7 +1704,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> usize {
+    fn unique_docs(&self) -> u32 {
         self.inner.unique_docs()
     }
 

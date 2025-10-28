@@ -69,12 +69,12 @@ impl Encoder for Dummy {
 fn memory_usage() {
     let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 48);
+    assert_eq!(ii.memory_usage(), 40);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 48 + mem_growth);
+    assert_eq!(ii.memory_usage(), 40 + mem_growth);
 }
 
 #[test]
@@ -294,13 +294,13 @@ fn adding_big_delta_makes_new_block() {
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 56);
+    assert_eq!(ii.memory_usage(), 48);
     assert_eq!(ii.number_of_entries(), 0);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 56 + mem_growth);
+    assert_eq!(ii.memory_usage(), 48 + mem_growth);
     assert_eq!(ii.number_of_entries(), 1);
 
     let record = RSIndexResult::default().doc_id(10);
@@ -313,7 +313,7 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::new(IndexFlags_Index_StoreFieldFlags, Dummy);
 
-    assert_eq!(ii.memory_usage(), 64);
+    assert_eq!(ii.memory_usage(), 56);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::default().doc_id(10).field_mask(0b101);
@@ -877,7 +877,7 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
         unimplemented!("This test won't reset")
     }
 
-    fn unique_docs(&self) -> usize {
+    fn unique_docs(&self) -> u32 {
         unimplemented!("This test won't count unique docs")
     }
 
@@ -1633,13 +1633,13 @@ fn ii_apply_gc() {
     ];
     let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
 
-    // Inverted index is 48 bytes base
+    // Inverted index is 40 bytes base
     // 1st index block is 40 bytes + 16 bytes for the buffer capacity
     // 2nd index block is 40 bytes + 24 bytes for the buffer capacity
     // 3rd index block is 40 bytes + 16 bytes for the buffer capacity
     // 4th index block is 40 bytes + 24 bytes for the buffer capacity
     // So total memory size is 288 bytes
-    assert_eq!(ii.memory_usage(), 288);
+    assert_eq!(ii.memory_usage(), 280);
 
     let gc_result = vec![
         BlockGcScanResult {
@@ -1694,13 +1694,13 @@ fn ii_apply_gc() {
 
     assert_eq!(ii.gc_marker(), 1);
 
-    // Inverted index is 48 bytes base
+    // Inverted index is 40 bytes base
     // 1st index block is 40 bytes + 16 bytes for the buffer capacity
     // 2nd index block is 40 bytes + 16 bytes for the buffer capacity
     // 3rd index block is 40 bytes + 16 bytes for the buffer capacity
     // 4th index block is 40 bytes + 16 bytes for the buffer capacity
     // So total memory size is 272 bytes
-    assert_eq!(ii.memory_usage(), 272);
+    assert_eq!(ii.memory_usage(), 264);
 
     assert_eq!(ii.unique_docs(), 4);
     assert_eq!(
@@ -1766,11 +1766,11 @@ fn ii_apply_gc_last_block_updated() {
 
     let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
 
-    // Inverted index is 48 bytes base
+    // Inverted index is 40 bytes base
     // 1st index block is 40 bytes + 16 bytes for the buffer capacity
     // 2nd index block is 40 bytes + 24 bytes for the buffer capacity
     // So total memory size is 168 bytes
-    assert_eq!(ii.memory_usage(), 168);
+    assert_eq!(ii.memory_usage(), 160);
 
     let gc_result = vec![
         BlockGcScanResult {
@@ -1807,10 +1807,10 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(ii.gc_marker(), 1);
 
-    // Inverted index is 48 bytes base
+    // Inverted index is 40 bytes base
     // 1st index block is 40 bytes + 24 bytes for the buffer capacity
     // So total memory size is 112 bytes
-    assert_eq!(ii.memory_usage(), 112);
+    assert_eq!(ii.memory_usage(), 104);
 
     assert_eq!(ii.unique_docs(), 3);
     assert_eq!(

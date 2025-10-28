@@ -355,7 +355,7 @@ pub unsafe extern "C" fn InvertedIndex_Flags(ii: *const InvertedIndex) -> IndexF
 /// The following invariant must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_NumDocs(ii: *const InvertedIndex) -> usize {
+pub unsafe extern "C" fn InvertedIndex_NumDocs(ii: *const InvertedIndex) -> u32 {
     debug_assert!(!ii.is_null(), "ii must not be null");
 
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
@@ -989,7 +989,7 @@ pub unsafe extern "C" fn IndexReader_Reset(ir: *mut IndexReader) {
 /// The following invariant must be upheld when calling this function:
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_NumEstimated(ir: *const IndexReader) -> usize {
+pub unsafe extern "C" fn IndexReader_NumEstimated(ir: *const IndexReader) -> u32 {
     debug_assert!(!ir.is_null(), "ir must not be null");
 
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
