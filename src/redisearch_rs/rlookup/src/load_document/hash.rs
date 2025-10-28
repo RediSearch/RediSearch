@@ -27,10 +27,12 @@ impl LoadDocumentContext for LoadDocumentImpl {
     type V = RSValueFFI;
 
     fn is_crdt(&self) -> bool {
+        // use redis_mock crate as temporary place for globals
         redis_mock::globals::is_crdt()
     }
 
     fn has_scan_key_feature(&self) -> bool {
+        // use redis_mock crate as temporary place for globals
         redis_mock::globals::has_scan_key_feature()
     }
 
