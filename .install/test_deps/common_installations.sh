@@ -10,7 +10,7 @@ if ! python3 -m pip --version &>/dev/null; then
     echo "pip not found, installing pip first..."
     if [[ $OS_TYPE == Darwin ]]; then
         # On macOS, ensure pip is installed via ensurepip
-        python3 -m ensurepip --upgrade
+        python3 -m ensurepip --upgrade --break-system-packages
     fi
 fi
 
