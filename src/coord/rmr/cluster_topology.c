@@ -20,6 +20,11 @@ MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray
   return ret;
 }
 
+void MRClusterShard_Free(MRClusterShard *sh) {
+  MRClusterNode_Free(&sh->node);
+  rm_free(sh->slotRanges);
+}
+
 MRClusterTopology *MR_NewTopology(uint32_t numShards) {
   MRClusterTopology *topo = rm_new(MRClusterTopology);
   topo->numShards = 0;
@@ -58,7 +63,7 @@ void MRClusterNode_Free(MRClusterNode *n) {
 
 void MRClusterTopology_Free(MRClusterTopology *t) {
   for (int s = 0; s < t->numShards; s++) {
-    MRClusterNode_Free(&t->shards[s].node);
+    MRClusterShard_Free(&t->shards[s]);
   }
   rm_free(t->shards);
   rm_free(t);

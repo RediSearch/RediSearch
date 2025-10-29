@@ -20,7 +20,13 @@ typedef struct {
 static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   // New shard
   //TODO(Joan): Create slot ranges and pass info from RLShard or parse directly into the new type and refactor
-  MRClusterShard csh = MR_NewClusterShard(&sh->node, NULL);
+  size_t num_ranges = 1; // For now CLUSTERSET only supports a single range per shard
+  size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges;
+  RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
+  array->num_ranges = num_ranges;
+  array->ranges[0].start = sh->startSlot;
+  array->ranges[0].end = sh->endSlot;
+  MRClusterShard csh = MR_NewClusterShard(&sh->node, array);
   MRClusterTopology_AddShard(t, &csh);
 }
 

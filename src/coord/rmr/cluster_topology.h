@@ -27,6 +27,9 @@ typedef struct {
 /* Create a new cluster shard to be added to a topology */
 MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges);
 
+/* Free a cluster shard */
+void MRClusterShard_Free(MRClusterShard *sh);
+
 /* A topology is the mapping of slots to shards and nodes */
 typedef struct MRClusterTopology {
   uint32_t numShards;
