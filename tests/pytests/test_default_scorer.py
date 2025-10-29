@@ -152,21 +152,33 @@ def test_default_scorer_startup_validation():
         # It sometimes captures the error of it not being up (PID dead and sometimes not). We cannot have a false positive that env.isUp but we still pass the test
         assert not isinstance(e, AssertionError)
 
-    env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true DEFAULT_SCORER example_scorer ')
+    env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true DEFAULT_SCORER example_scorer')
     assert env.isUp()
 
-    env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true DEFAULT_SCORER TFIDF ')
+    env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true DEFAULT_SCORER TFIDF')
     assert env.isUp()
 
-    env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES false DEFAULT_SCORER example_scorer ')
-    assert not env.isUp()
-
-    env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES false DEFAULT_SCORER TFIDF ')
-    assert not env.isUp()
+    try:
+        env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES false DEFAULT_SCORER example_scorer')
+        assert not env.isUp()
+    except Exception as e:
+        # It sometimes captures the error of it not being up (PID dead and sometimes not). We cannot have a false positive that env.isUp but we still pass the test
+        assert not isinstance(e, AssertionError)
+    try:
+        env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES false DEFAULT_SCORER TFIDF')
+        assert not env.isUp()
+    except:
+        assert not isinstance(e, AssertionError)
 
     # These do not work because the ENABLE_UNSTABLE_FEATURES is after the DEFAULT_SCORER (not sure it can be bypassed)
-    env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER example_scorer ENABLE_UNSTABLE_FEATURES true')
-    assert not env.isUp()
+    try:
+        env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER example_scorer ENABLE_UNSTABLE_FEATURES true')
+        assert not env.isUp()
+    except:
+        assert not isinstance(e, AssertionError)
 
-    env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER TFIDF ENABLE_UNSTABLE_FEATURES true')
-    assert not env.isUp()
+    try:
+        env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER TFIDF ENABLE_UNSTABLE_FEATURES true')
+        assert not env.isUp()
+    except:
+        assert not isinstance(e, AssertionError)
