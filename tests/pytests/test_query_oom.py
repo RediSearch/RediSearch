@@ -170,6 +170,10 @@ def test_query_oom_cluster_shards_error_first_reply():
     # Start the query and the pause-check in parallel
     t_query.start()
 
+    with TimeLimit(60, 'Timeout while waiting for worker to be created'):
+        while getWorkersThpoolStats(env)['numThreadsAlive'] == 0:
+            time.sleep(0.1)
+
     env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
     stats = getWorkersThpoolStats(env)
     env.assertEqual(stats['totalJobsDone'], 1)
