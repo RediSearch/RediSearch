@@ -22,6 +22,7 @@ pub(crate) type SlotRange = (u16, u16);
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SlotsSet {
     /// Vector of slot ranges, where each range is (start, end) inclusive.
+    #[allow(dead_code)] // Will be used once methods are implemented
     ranges: Vec<SlotRange>,
 }
 

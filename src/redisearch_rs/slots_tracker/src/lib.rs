@@ -43,16 +43,15 @@ impl<T> UnsafeSyncCell<T> {
         UnsafeSyncCell(UnsafeCell::new(value))
     }
 
-    /// Get a mutable reference to the inner value.
+    /// Get a mutable pointer to the inner value.
     ///
     /// # Safety
     ///
     /// The caller must ensure that:
     /// - Only one thread accesses this at a time
     /// - No other references (mutable or immutable) exist while this reference is alive
-    unsafe fn get_mut(&self) -> &mut T {
-        // SAFETY: The caller guarantees single-threaded access
-        unsafe { &mut *self.0.get() }
+    const fn get(&self) -> *mut T {
+        self.0.get()
     }
 }
 
@@ -135,6 +134,91 @@ pub enum SlotTrackerError {
 }
 
 // ============================================================================
+// Private Helper Functions
+// ============================================================================
+
+/// Converts a C SlotRangeArray pointer to a Rust slice.
+///
+/// Returns None if the pointer is null or num_ranges is negative.
+///
+/// # Safety
+///
+/// The caller must ensure the pointer is valid and points to a properly initialized
+/// SlotRangeArray with at least `num_ranges` elements in the flexible array.
+#[allow(clippy::missing_const_for_fn)] // Can't be const due to slice::from_raw_parts
+unsafe fn parse_slot_ranges(ranges: *const SlotRangeArray) -> Option<&'static [SlotRange]> {
+    if ranges.is_null() {
+        return None;
+    }
+
+    // SAFETY: Caller guarantees valid pointer
+    let ranges_ref = unsafe { &*ranges };
+    
+    if ranges_ref.num_ranges < 0 {
+        return None;
+    }
+
+    if ranges_ref.num_ranges == 0 {
+        return Some(&[]);
+    }
+
+    // SAFETY: Caller guarantees the flexible array has num_ranges elements
+    let slice = unsafe {
+        std::slice::from_raw_parts(
+            ranges_ref.ranges.as_ptr(),
+            ranges_ref.num_ranges as usize,
+        )
+    };
+    
+    Some(slice)
+}
+
+/// Gets mutable references to all three slot sets.
+///
+/// # Safety
+///
+/// The caller must ensure single-threaded access to the static instances.
+unsafe fn get_all_sets() -> (&'static mut SlotsSet, &'static mut SlotsSet, &'static mut SlotsSet) {
+    // SAFETY: Caller guarantees single-threaded access
+    let local = unsafe { &mut *LOCAL_SLOTS.get() };
+    // SAFETY: Caller guarantees single-threaded access
+    let fully = unsafe { &mut *FULLY_AVAILABLE_SLOTS.get() };
+    // SAFETY: Caller guarantees single-threaded access
+    let partial = unsafe { &mut *PARTIALLY_AVAILABLE_SLOTS.get() };
+    (local, fully, partial)
+}
+
+/// Gets mutable reference to the local slots set.
+///
+/// # Safety
+///
+/// The caller must ensure single-threaded access to the static instance.
+unsafe fn get_local_slots() -> &'static mut SlotsSet {
+    // SAFETY: Caller guarantees single-threaded access
+    unsafe { &mut *LOCAL_SLOTS.get() }
+}
+
+/// Gets mutable reference to the fully available slots set.
+///
+/// # Safety
+///
+/// The caller must ensure single-threaded access to the static instance.
+unsafe fn get_fully_available_slots() -> &'static mut SlotsSet {
+    // SAFETY: Caller guarantees single-threaded access
+    unsafe { &mut *FULLY_AVAILABLE_SLOTS.get() }
+}
+
+/// Gets mutable reference to the partially available slots set.
+///
+/// # Safety
+///
+/// The caller must ensure single-threaded access to the static instance.
+unsafe fn get_partially_available_slots() -> &'static mut SlotsSet {
+    // SAFETY: Caller guarantees single-threaded access
+    unsafe { &mut *PARTIALLY_AVAILABLE_SLOTS.get() }
+}
+
+// ============================================================================
 // Main API Functions
 // ============================================================================
 
@@ -155,49 +239,27 @@ pub enum SlotTrackerError {
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
-    // SAFETY: The caller guarantees this is called from the main thread
-    // and that the pointer is valid
-    unsafe {
-        // Validate the pointer
-        if ranges.is_null() {
-            return;
-        }
+    // SAFETY: Caller guarantees valid pointer and main thread access
+    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
+        return;
+    };
 
-        let ranges_ref = &*ranges;
-        
-        // Validate num_ranges is non-negative
-        if ranges_ref.num_ranges < 0 {
-            return;
-        }
+    // SAFETY: Caller guarantees single-threaded access
+    let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
 
-        // Create a slice from the flexible array member
-        let ranges_slice = if ranges_ref.num_ranges == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(
-                ranges_ref.ranges.as_ptr(),
-                ranges_ref.num_ranges as usize,
-            )
-        };
-
-        // Get mutable access to the sets
-        let local_slots = LOCAL_SLOTS.get_mut();
-        let fully_available = FULLY_AVAILABLE_SLOTS.get_mut();
-        let partially_available = PARTIALLY_AVAILABLE_SLOTS.get_mut();
-
-        // TODO: Implement in SlotsSet:
-        // 1. Check if local_slots.equals(ranges_slice)
-        // 2. If different:
-        //    a. local_slots.set_from_ranges(ranges_slice)
-        //    b. fully_available.remove_ranges(ranges_slice)
-        //    c. partially_available.remove_ranges(ranges_slice)
-        //    d. VERSION.fetch_add(1, Ordering::Relaxed);
-        
-        // Placeholder: Always increment version for now
-        let _ = (local_slots, fully_available, partially_available, ranges_slice);
-        VERSION.fetch_add(1, Ordering::Relaxed);
-    }
+    // TODO: Implement in SlotsSet:
+    // 1. Check if local_slots.equals(ranges_slice)
+    // 2. If different:
+    //    a. local_slots.set_from_ranges(ranges_slice)
+    //    b. fully_available.remove_ranges(ranges_slice)
+    //    c. partially_available.remove_ranges(ranges_slice)
+    //    d. VERSION.fetch_add(1, Ordering::Relaxed);
+    
+    // Placeholder: Always increment version for now
+    let _ = (local_slots, fully_available, partially_available, ranges_slice);
+    VERSION.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Sets the partially available slot ranges.
@@ -213,47 +275,25 @@ pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const SlotRangeArray) {
-    // SAFETY: The caller guarantees this is called from the main thread
-    // and that the pointer is valid
-    unsafe {
-        // Validate the pointer
-        if ranges.is_null() {
-            return;
-        }
+    // SAFETY: Caller guarantees valid pointer and main thread access
+    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
+        return;
+    };
 
-        let ranges_ref = &*ranges;
-        
-        // Validate num_ranges is non-negative
-        if ranges_ref.num_ranges < 0 {
-            return;
-        }
+    // SAFETY: Caller guarantees single-threaded access
+    let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
 
-        // Create a slice from the flexible array member
-        let ranges_slice = if ranges_ref.num_ranges == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(
-                ranges_ref.ranges.as_ptr(),
-                ranges_ref.num_ranges as usize,
-            )
-        };
-
-        // Get mutable access to the sets
-        let local_slots = LOCAL_SLOTS.get_mut();
-        let fully_available = FULLY_AVAILABLE_SLOTS.get_mut();
-        let partially_available = PARTIALLY_AVAILABLE_SLOTS.get_mut();
-
-        // TODO: Implement in SlotsSet:
-        // 1. partially_available.set_from_ranges(ranges_slice)
-        // 2. local_slots.remove_ranges(ranges_slice)
-        // 3. fully_available.remove_ranges(ranges_slice)
-        // 4. VERSION.fetch_add(1, Ordering::Relaxed);
-        
-        // Placeholder: Always increment version for now
-        let _ = (local_slots, fully_available, partially_available, ranges_slice);
-        VERSION.fetch_add(1, Ordering::Relaxed);
-    }
+    // TODO: Implement in SlotsSet:
+    // 1. partially_available.set_from_ranges(ranges_slice)
+    // 2. local_slots.remove_ranges(ranges_slice)
+    // 3. fully_available.remove_ranges(ranges_slice)
+    // 4. VERSION.fetch_add(1, Ordering::Relaxed);
+    
+    // Placeholder: Always increment version for now
+    let _ = (local_slots, fully_available, partially_available, ranges_slice);
+    VERSION.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Sets the fully available non-owned slot ranges.
@@ -271,44 +311,25 @@ pub extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const Slo
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const SlotRangeArray) {
-    // SAFETY: The caller guarantees this is called from the main thread
-    // and that the pointer is valid
-    unsafe {
-        // Validate the pointer
-        if ranges.is_null() {
-            return;
-        }
+    // SAFETY: Caller guarantees valid pointer and main thread access
+    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
+        return;
+    };
 
-        let ranges_ref = &*ranges;
-        
-        // Validate num_ranges is non-negative
-        if ranges_ref.num_ranges < 0 {
-            return;
-        }
+    // SAFETY: Caller guarantees single-threaded access
+    let local_slots = unsafe { get_local_slots() };
+    // SAFETY: Caller guarantees single-threaded access
+    let fully_available = unsafe { get_fully_available_slots() };
 
-        // Create a slice from the flexible array member
-        let ranges_slice = if ranges_ref.num_ranges == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(
-                ranges_ref.ranges.as_ptr(),
-                ranges_ref.num_ranges as usize,
-            )
-        };
-
-        // Get mutable access to the sets
-        let local_slots = LOCAL_SLOTS.get_mut();
-        let fully_available = FULLY_AVAILABLE_SLOTS.get_mut();
-
-        // TODO: Implement in SlotsSet:
-        // 1. fully_available.set_from_ranges(ranges_slice)
-        // 2. local_slots.remove_ranges(ranges_slice)
-        // Note: Do NOT increment VERSION, do NOT remove from partially_available
-        
-        // Placeholder
-        let _ = (local_slots, fully_available, ranges_slice);
-    }
+    // TODO: Implement in SlotsSet:
+    // 1. fully_available.set_from_ranges(ranges_slice)
+    // 2. local_slots.remove_ranges(ranges_slice)
+    // Note: Do NOT increment VERSION, do NOT remove from partially_available
+    
+    // Placeholder
+    let _ = (local_slots, fully_available, ranges_slice);
 }
 
 /// Removes deleted slot ranges from the partially available slots.
@@ -324,42 +345,22 @@ pub extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const SlotRan
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArray) {
-    // SAFETY: The caller guarantees this is called from the main thread
-    // and that the pointer is valid
-    unsafe {
-        // Validate the pointer
-        if ranges.is_null() {
-            return;
-        }
+    // SAFETY: Caller guarantees valid pointer and main thread access
+    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
+        return;
+    };
 
-        let ranges_ref = &*ranges;
-        
-        // Validate num_ranges is non-negative
-        if ranges_ref.num_ranges < 0 {
-            return;
-        }
+    // SAFETY: Caller guarantees single-threaded access
+    let partially_available = unsafe { get_partially_available_slots() };
 
-        // Create a slice from the flexible array member
-        let ranges_slice = if ranges_ref.num_ranges == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(
-                ranges_ref.ranges.as_ptr(),
-                ranges_ref.num_ranges as usize,
-            )
-        };
-
-        // Get mutable access to set 3 only
-        let partially_available = PARTIALLY_AVAILABLE_SLOTS.get_mut();
-
-        // TODO: Implement in SlotsSet:
-        // 1. partially_available.remove_ranges(ranges_slice)
-        // Note: Do NOT increment VERSION, only remove from set 3
-        
-        // Placeholder
-        let _ = (partially_available, ranges_slice);
-    }
+    // TODO: Implement in SlotsSet:
+    // 1. partially_available.remove_ranges(ranges_slice)
+    // Note: Do NOT increment VERSION, only remove from set 3
+    
+    // Placeholder
+    let _ = (partially_available, ranges_slice);
 }
 
 /// Checks if there is any overlap between the given slot ranges and the fully available slots.
@@ -374,42 +375,22 @@ pub extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArr
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotRangeArray) -> bool {
-    // SAFETY: The caller guarantees this is called from the main thread
-    // and that the pointer is valid
-    unsafe {
-        // Validate the pointer
-        if ranges.is_null() {
-            return false;
-        }
+    // SAFETY: Caller guarantees valid pointer and main thread access
+    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
+        return false;
+    };
 
-        let ranges_ref = &*ranges;
-        
-        // Validate num_ranges is non-negative
-        if ranges_ref.num_ranges < 0 {
-            return false;
-        }
+    // SAFETY: Caller guarantees single-threaded access
+    let fully_available = unsafe { get_fully_available_slots() };
 
-        // Create a slice from the flexible array member
-        let ranges_slice = if ranges_ref.num_ranges == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(
-                ranges_ref.ranges.as_ptr(),
-                ranges_ref.num_ranges as usize,
-            )
-        };
-
-        // Get access to set 2
-        let fully_available = FULLY_AVAILABLE_SLOTS.get_mut();
-
-        // TODO: Implement in SlotsSet:
-        // 1. Return fully_available.has_overlap(ranges_slice)
-        
-        // Placeholder: return false for now
-        let _ = (fully_available, ranges_slice);
-        false
-    }
+    // TODO: Implement in SlotsSet:
+    // 1. Return fully_available.has_overlap(ranges_slice)
+    
+    // Placeholder: return false for now
+    let _ = (fully_available, ranges_slice);
+    false
 }
 
 /// Reserved version value indicating unstable/partial availability.
@@ -448,59 +429,37 @@ pub const SLOTS_TRACKER_UNAVAILABLE: u32 = u32::MAX - 1;
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray) -> u32 {
-    // SAFETY: The caller guarantees this is called from the main thread
-    // and that the pointer is valid
-    unsafe {
-        // Validate the pointer
-        if ranges.is_null() {
-            return SLOTS_TRACKER_UNAVAILABLE;
-        }
+    // SAFETY: Caller guarantees valid pointer and main thread access
+    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
+        return SLOTS_TRACKER_UNAVAILABLE;
+    };
 
-        let ranges_ref = &*ranges;
-        
-        // Validate num_ranges is non-negative
-        if ranges_ref.num_ranges < 0 {
-            return SLOTS_TRACKER_UNAVAILABLE;
-        }
+    // SAFETY: Caller guarantees single-threaded access
+    let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
 
-        // Create a slice from the flexible array member
-        let ranges_slice = if ranges_ref.num_ranges == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(
-                ranges_ref.ranges.as_ptr(),
-                ranges_ref.num_ranges as usize,
-            )
-        };
-
-        // Get access to all sets
-        let local_slots = LOCAL_SLOTS.get_mut();
-        let fully_available = FULLY_AVAILABLE_SLOTS.get_mut();
-        let partially_available = PARTIALLY_AVAILABLE_SLOTS.get_mut();
-
-        // TODO: Implement in SlotsSet:
-        // Fast path: Check if sets 2 & 3 are empty
-        // if fully_available.is_empty() && partially_available.is_empty() {
-        //     if local_slots.equals(ranges_slice) {
-        //         return VERSION.load(Ordering::Relaxed);
-        //     }
-        // }
-        //
-        // Full check:
-        // 1. Check if local_slots + fully_available covers ranges_slice
-        //    Use: local_slots.union_covers(fully_available, ranges_slice)
-        // 2. If not covered: return SLOTS_TRACKER_UNAVAILABLE
-        // 3. If covered:
-        //    a. Check if local_slots + fully_available equals ranges_slice exactly
-        //       AND partially_available.is_empty()
-        //    b. If yes: return VERSION.load(Ordering::Relaxed)
-        //    c. If no: return SLOTS_TRACKER_UNSTABLE_VERSION
-        
-        // Placeholder: return unavailable for now
-        let _ = (local_slots, fully_available, partially_available, ranges_slice);
-        SLOTS_TRACKER_UNAVAILABLE
-    }
+    // TODO: Implement in SlotsSet:
+    // Fast path: Check if sets 2 & 3 are empty
+    // if fully_available.is_empty() && partially_available.is_empty() {
+    //     if local_slots.equals(ranges_slice) {
+    //         return VERSION.load(Ordering::Relaxed);
+    //     }
+    // }
+    //
+    // Full check:
+    // 1. Check if local_slots + fully_available covers ranges_slice
+    //    Use: local_slots.union_covers(fully_available, ranges_slice)
+    // 2. If not covered: return SLOTS_TRACKER_UNAVAILABLE
+    // 3. If covered:
+    //    a. Check if local_slots + fully_available equals ranges_slice exactly
+    //       AND partially_available.is_empty()
+    //    b. If yes: return VERSION.load(Ordering::Relaxed)
+    //    c. If no: return SLOTS_TRACKER_UNSTABLE_VERSION
+    
+    // Placeholder: return unavailable for now
+    let _ = (local_slots, fully_available, partially_available, ranges_slice);
+    SLOTS_TRACKER_UNAVAILABLE
 }
 
 /// Returns the current version of the slots configuration.
