@@ -114,10 +114,10 @@ jobs:
       - name: Free up disk space
         run: |
           df -h
-          ${{ steps.mode.outputs.mode }} rm -rf /usr/share/dotnet
-          ${{ steps.mode.outputs.mode }} rm -rf /usr/local/lib/android
-          ${{ steps.mode.outputs.mode }} rm -rf /opt/ghc
-          ${{ steps.mode.outputs.mode }} rm -rf /opt/hostedtoolcache/CodeQL
+          ${{ steps.mode.outputs.mode }} rm -rf /usr/share/dotnet || true
+          ${{ steps.mode.outputs.mode }} rm -rf /usr/local/lib/android || true
+          ${{ steps.mode.outputs.mode }} rm -rf /opt/ghc || true
+          ${{ steps.mode.outputs.mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
