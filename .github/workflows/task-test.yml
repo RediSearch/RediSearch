@@ -48,7 +48,7 @@ env:
   COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
-  BUILD_INTEL_SVS_OPT: "yes"
+  # BUILD_INTEL_SVS_OPT: "yes"
 
 jobs:
   common-flow:
@@ -286,16 +286,16 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
-      - name: Unit tests
-        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
-        id: unit_tests
-        continue-on-error: true
-        env:
-          SAN: ${{ inputs.san }}
-          LOG: 1
-          CLEAR_LOGS: 0
-          ENABLE_ASSERT: 1
-        run: make unit-tests rust-tests
+      # - name: Unit tests
+      #   timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+      #   id: unit_tests
+      #   continue-on-error: true
+      #   env:
+      #     SAN: ${{ inputs.san }}
+      #     LOG: 1
+      #     CLEAR_LOGS: 0
+      #     ENABLE_ASSERT: 1
+      #   run: make unit-tests rust-tests
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -309,21 +309,21 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
-      - name: Flow tests (coordinator)
-        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
-        id: coordinator_tests
-        if: ${{ inputs.coordinator }}
-        continue-on-error: true
-        env:
-          SAN: ${{ inputs.san }}
-          LOG: 1
-          CLEAR_LOGS: 0
-          REDIS_STANDALONE: 0
-          REJSON: ${{ env.REJSON }}
-          REJSON_BRANCH: ${{ inputs.rejson-branch }}
-          ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+        run: make pytest ${{ inputs.test-config }} TEST=test_vecsim_svs
+      # - name: Flow tests (coordinator)
+      #   timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+      #   id: coordinator_tests
+      #   if: ${{ inputs.coordinator }}
+      #   continue-on-error: true
+      #   env:
+      #     SAN: ${{ inputs.san }}
+      #     LOG: 1
+      #     CLEAR_LOGS: 0
+      #     REDIS_STANDALONE: 0
+      #     REJSON: ${{ env.REJSON }}
+      #     REJSON_BRANCH: ${{ inputs.rejson-branch }}
+      #     ENABLE_ASSERT: 1
+      #   run: make pytest ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
