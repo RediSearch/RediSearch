@@ -104,20 +104,6 @@ jobs:
             echo "Pre-steps Dependencies failed after 5 attempts"
             exit 1
           fi
-      - name: Free up disk space
-        run: |
-          df -h
-          # Determine if we need sudo (containers typically don't have/need it)
-          if command -v sudo >/dev/null 2>&1 && [ -z "${{ inputs.container }}" ]; then
-            SUDO="sudo"
-          else
-            SUDO=""
-          fi
-          $SUDO rm -rf /usr/share/dotnet
-          $SUDO rm -rf /usr/local/lib/android
-          $SUDO rm -rf /opt/ghc
-          $SUDO rm -rf /opt/hostedtoolcache/CodeQL
-          df -h
       - name: Enable dynamic linking to C runtime in Alpine
         if: inputs.container == 'alpine:3'
         run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
@@ -125,6 +111,14 @@ jobs:
         id: mode
         run: |
           [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+      - name: Free up disk space
+        run: |
+          df -h
+          ${{ steps.mode.outputs.mode }} rm -rf /usr/share/dotnet
+          ${{ steps.mode.outputs.mode }} rm -rf /usr/local/lib/android
+          ${{ steps.mode.outputs.mode }} rm -rf /opt/ghc
+          ${{ steps.mode.outputs.mode }} rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
