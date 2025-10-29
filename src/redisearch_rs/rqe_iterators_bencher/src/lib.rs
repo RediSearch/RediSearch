@@ -15,7 +15,7 @@
 
 use ::ffi::{
     __BindgenBitfieldUnit, RSValue, RSValue__bindgen_ty_1, RSYieldableMetric, array_clear_func,
-    array_free,
+    array_free, array_len_func,
 };
 use std::ffi::c_void;
 
@@ -27,13 +27,24 @@ pub use types_ffi::NewVirtualResult;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
+fn free_rs_values(metrics: *mut RSYieldableMetric) {
+    let len = unsafe { array_len_func(metrics as *mut c_void) };
+    let mut metric = metrics;
+    unsafe {
+        for _ in 0..len {
+            RSValue_Free((*metric).value);
+            metric = metric.add(1);
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }
-
+    free_rs_values(metrics);
     unsafe {
         array_free(metrics as *mut c_void);
     }
@@ -44,6 +55,7 @@ pub extern "C" fn ResultMetrics_Reset(metrics: *mut RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }
+    free_rs_values(metrics);
     unsafe {
         array_clear_func(
             metrics as *mut c_void,
@@ -69,6 +81,16 @@ pub extern "C" fn RSValue_Number(val: f64) -> RSValue {
 pub extern "C" fn RSValue_NewNumber(val: f64) -> *mut RSValue {
     let rs_val = RSValue_Number(val);
     Box::into_raw(Box::new(rs_val))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_Free(val: *mut RSValue) {
+    if val.is_null() {
+        return;
+    }
+    let _ = unsafe {
+        Box::from_raw(val);
+    };
 }
 
 #[unsafe(no_mangle)]

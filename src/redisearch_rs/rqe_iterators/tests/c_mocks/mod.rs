@@ -24,11 +24,7 @@ use std::ffi::c_void;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
-#[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
-    if metrics.is_null() {
-        return;
-    }
+fn free_rs_values(metrics: *mut ffi::RSYieldableMetric) {
     let len = unsafe { array_len_func(metrics as *mut c_void) };
     let mut metric = metrics;
     unsafe {
@@ -37,6 +33,14 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
             metric = metric.add(1);
         }
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
+    if metrics.is_null() {
+        return;
+    }
+    free_rs_values(metrics);
     unsafe {
         array_free(metrics as *mut c_void);
     }
@@ -47,6 +51,7 @@ pub extern "C" fn ResultMetrics_Reset(metrics: *mut ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }
+    free_rs_values(metrics);
     unsafe {
         array_clear_func(
             metrics as *mut c_void,
