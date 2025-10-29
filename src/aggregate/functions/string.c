@@ -5,15 +5,16 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
+#include "rmutil/rm_assert.h"
 #include "util/minmax.h"
 #include "util/block_alloc.h"
 #include "aggregate/expr/expression.h"
 #include "util/arr.h"
 #include "function.h"
+#include "rmalloc.h"
 
-#include "hiredis/sds.h"
 #include "value.h"
 
 #include <ctype.h>
@@ -48,19 +49,19 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   return EXPR_EVAL_OK;
 }
 
-#define stringfunc_to_generic(func)                                                           \
-  size_t sz;                                                                                  \
-  const char *p;                                                                              \
-  if (!(p = RSValue_StringPtrLen(&argv[0], &sz))) {                                           \
-    RSValue_MakeReference(result, RSValue_NullStatic());                                              \
-    return EXPR_EVAL_OK;                                                                      \
-  }                                                                                           \
-  char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);                                            \
-  for (size_t i = 0; i < sz; i++) {                                                           \
-    np[i] = func(p[i]);                                                                       \
-  }                                                                                           \
-  np[sz] = '\0';                                                                              \
-  RSValue_SetConstString(result, np, sz);                                                     \
+#define stringfunc_to_generic(func)                      \
+  size_t sz;                                             \
+  const char *p;                                         \
+  if (!(p = RSValue_StringPtrLen(&argv[0], &sz))) {      \
+    RSValue_MakeReference(result, RSValue_NullStatic()); \
+    return EXPR_EVAL_OK;                                 \
+  }                                                      \
+  char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);       \
+  for (size_t i = 0; i < sz; i++) {                      \
+    np[i] = func(p[i]);                                  \
+  }                                                      \
+  np[sz] = '\0';                                         \
+  RSValue_SetConstString(result, np, sz);                \
   return EXPR_EVAL_OK
 
 /* lower(str) */
@@ -126,13 +127,31 @@ int func_to_str(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
 }
 
 static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+
+  #define APPEND_OUT(src, src_len)                                                           \
+  do {                                                                                       \
+    size_t out_len = out_tail - out;                                                         \
+    size_t out_free = out_cap - out_len;                                                     \
+    if (src_len > out_free) {                                                                \
+      out_cap += src_len;                                                                    \
+      out = rm_realloc(out, out_cap);                                                        \
+      RS_ASSERT(out != NULL);                                                                \
+      out_tail = out + out_len;                                                              \
+    }                                                                                        \
+    memcpy(out_tail, src, src_len);                                                          \
+    out_tail += src_len;                                                                     \
+  } while (0)
+
   VALIDATE_ARG_ISSTRING("format", argv, 0);
 
   size_t argix = 1;
   size_t fmtsz = 0;
   const char *fmt = RSValue_StringPtrLen(&argv[0], &fmtsz);
   const char *last = fmt, *end = fmt + fmtsz;
-  sds out = sdsMakeRoomFor(sdsnew(""), fmtsz);
+
+  size_t out_cap = fmtsz;
+  char *out = rm_malloc(fmtsz);
+  char *out_tail = out;
 
   for (size_t ii = 0; ii < fmtsz; ++ii) {
     if (fmt[ii] != '%') {
@@ -146,13 +165,14 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
     }
 
     // Detected a format string. Write from 'last' up to 'fmt'
-    out = sdscatlen(out, last, (fmt + ii) - last);
-    last = fmt + ii + 2;
+    size_t len = (fmt + ii) - last;
+    APPEND_OUT(last, len);
 
+    last = fmt + ii + 2;
     char type = fmt[++ii];
     if (type == '%') {
       // Append literal '%'
-      out = sdscat(out, "%");
+      APPEND_OUT("%", 1);
       continue;
     }
 
@@ -165,7 +185,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
     if (type == 's') {
       if (arg == RSValue_NullStatic()) {
         // write null value
-        out = sdscat(out, "(null)");
+        APPEND_OUT("(null)", 6);
         continue;
       } else if (!RSValue_IsAnyString(arg)) {
 
@@ -174,15 +194,15 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
         size_t sz;
         const char *str = RSValue_StringPtrLen(&strval, &sz);
         if (!str) {
-          out = sdscat(out, "(null)");
+          APPEND_OUT("(null)", 6);
         } else {
-          out = sdscatlen(out, str, sz);
+          APPEND_OUT(str, sz);
         }
         RSValue_Free(&strval);
       } else {
         size_t sz;
         const char *str = RSValue_StringPtrLen(arg, &sz);
-        out = sdscatlen(out, str, sz);
+        APPEND_OUT(str, sz);
       }
     } else {
       QueryError_SetError(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown format specifier passed");
@@ -191,15 +211,19 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   }
 
   if (last && last < end) {
-    out = sdscatlen(out, last, end - last);
+    APPEND_OUT(last, end - last);
   }
+  RS_DEBUG_LOG(out);
+  APPEND_OUT("\0", 1);
 
-  RSValue_SetSDS(result, out);
+#undef APPEND_OUT
+  // Don't count the null terminator
+  RSValue_SetString(result, out, out_tail - out - 1);
   return EXPR_EVAL_OK;
 
 error:
   RS_ASSERT(QueryError_HasError(ctx->err));
-  sdsfree(out);
+  rm_free(out);
   RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_ERR;
 }
@@ -309,7 +333,7 @@ static int stringfunc_contains(ExprEval *ctx, RSValue *argv, size_t argc, RSValu
   const char *p_pref = (char *)RSValue_StringPtrLen(pref, &p_pref_size);
 
   size_t num;
-  if(p_pref_size > 0) {
+  if (p_pref_size > 0) {
     num = 0;
     while ((p_str = strstr(p_str, p_pref)) != NULL) {
       num++;
@@ -344,7 +368,8 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValueType_String, 1, 1);
   RSFunctionRegistry_RegisterFunction("exists", func_exists, RSValueType_Number, 1, 1);
   RSFunctionRegistry_RegisterFunction("case", func_case, RSValueType_Undef, 3, 3);
-  RSFunctionRegistry_RegisterFunction("startswith", stringfunc_startswith, RSValueType_Number, 2, 2);
+  RSFunctionRegistry_RegisterFunction("startswith", stringfunc_startswith, RSValueType_Number, 2,
+                                      2);
   RSFunctionRegistry_RegisterFunction("contains", stringfunc_contains, RSValueType_Number, 2, 2);
   RSFunctionRegistry_RegisterFunction("strlen", stringfunc_strlen, RSValueType_Number, 1, 1);
 }

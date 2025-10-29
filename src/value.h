@@ -16,7 +16,6 @@
 #include "util/fnv.h"
 
 #include "rmutil/rm_assert.h"
-#include "hiredis/sds.h"
 
 #include <string.h>
 #include <sys/param.h>
@@ -58,7 +57,6 @@ typedef enum {
   RSStringType_Const = 0x00,
   RSStringType_Malloc = 0x01,
   RSStringType_RMAlloc = 0x02,
-  RSStringType_SDS = 0x03,
 } RSStringType;
 
 /**
@@ -447,7 +445,6 @@ void RSValue_IntoNumber(RSValue *v, double n);
 
 // String getters/setters
 void RSValue_SetString(RSValue *v, char *str, size_t len);
-void RSValue_SetSDS(RSValue *v, sds s);
 void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
 /**

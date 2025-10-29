@@ -102,12 +102,6 @@ inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
   v->_strval.stype = RSStringType_Malloc;
 }
 
-inline void RSValue_SetSDS(RSValue *v, sds s) {
-  v->_t = RSValueType_String;
-  v->_strval.len = sdslen(s);
-  v->_strval.str = s;
-  v->_strval.stype = RSStringType_SDS;
-}
 
 inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
   v->_t = RSValueType_String;
@@ -430,9 +424,6 @@ void RSValue_Clear(RSValue *v) {
         case RSStringType_Malloc:
         case RSStringType_RMAlloc:
           rm_free(v->_strval.str);
-          break;
-        case RSStringType_SDS:
-          sdsfree(v->_strval.str);
           break;
         case RSStringType_Const:
           break;
