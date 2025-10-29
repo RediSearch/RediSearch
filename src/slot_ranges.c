@@ -214,3 +214,44 @@ SlotRangesComparisonResult CompareSlotRanges(const RedisModuleSlotRangeArray *ra
   // All A covered; since we already ruled out exact equality, it's a proper subset
   return SLOT_RANGES_SUBSET;
 }
+
+bool RedisModuleSlotRangeArray_FromClusterShardsReply(RedisModuleCallReply *slots, RedisModuleSlotRangeArray **slotRanges) {
+  if (!slots || !slotRanges) {
+    return false;
+  }
+
+  if (RedisModule_CallReplyType(slots) != REDISMODULE_REPLY_ARRAY) {
+    return false;
+  }
+
+  size_t numSlots = RedisModule_CallReplyLength(slots);
+  if (numSlots % 2 != 0) {
+    return false;
+  }
+
+  size_t numRanges = numSlots / 2;
+  size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * numRanges;
+  RedisModuleSlotRangeArray *ranges = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
+  if (!ranges) {
+    return false;
+  }
+
+  ranges->num_ranges = numRanges;
+  for (size_t i = 0; i < numRanges; i++) {
+    RedisModuleCallReply *start = RedisModule_CallReplyArrayElement(slots, i * 2);
+    RedisModuleCallReply *end = RedisModule_CallReplyArrayElement(slots, i * 2 + 1);
+
+    if (!start || !end ||
+        RedisModule_CallReplyType(start) != REDISMODULE_REPLY_INTEGER ||
+        RedisModule_CallReplyType(end) != REDISMODULE_REPLY_INTEGER) {
+      rm_free(ranges);
+      return false;
+    }
+
+    ranges->ranges[i].start = (uint16_t)RedisModule_CallReplyInteger(start);
+    ranges->ranges[i].end = (uint16_t)RedisModule_CallReplyInteger(end);
+  }
+
+  *slotRanges = ranges;
+  return true;
+}

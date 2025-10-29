@@ -14,6 +14,8 @@
 
 #include "rmalloc.h"
 #include "src/slot_ranges.h"
+#include "redismock/redismock.h"
+#include "redismock/internal.h"
 
 class SlotRangesTest : public ::testing::Test {
 protected:
@@ -446,4 +448,120 @@ TEST_F(SlotRangesTest, testReverseSubset) {
 
     freeSlotRangeArray(expected);
     freeSlotRangeArray(actual);
+}
+
+TEST_F(SlotRangesTest, testFromClusterShardsReply) {
+    RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
+
+    // Create a mock reply that represents slot ranges: [0, 100], [200, 300]
+    RedisModuleCallReply reply(ctx);
+    reply.type = REDISMODULE_REPLY_ARRAY;
+
+    // Initialize array elements with proper constructors
+    reply.arr.emplace_back(ctx);  // First range start
+    reply.arr.emplace_back(ctx);  // First range end
+    reply.arr.emplace_back(ctx);  // Second range start
+    reply.arr.emplace_back(ctx);  // Second range end
+
+    // First range: [0, 100]
+    reply.arr[0].type = REDISMODULE_REPLY_INTEGER;
+    reply.arr[0].ll = 0;
+
+    reply.arr[1].type = REDISMODULE_REPLY_INTEGER;
+    reply.arr[1].ll = 100;
+
+    // Second range: [200, 300]
+    reply.arr[2].type = REDISMODULE_REPLY_INTEGER;
+    reply.arr[2].ll = 200;
+
+    reply.arr[3].type = REDISMODULE_REPLY_INTEGER;
+    reply.arr[3].ll = 300;
+
+    RedisModuleSlotRangeArray* result = nullptr;
+    bool success = RedisModuleSlotRangeArray_FromClusterShardsReply(&reply, &result);
+
+    EXPECT_TRUE(success);
+    ASSERT_NE(result, nullptr);
+    EXPECT_EQ(result->num_ranges, 2);
+
+    EXPECT_EQ(result->ranges[0].start, 0);
+    EXPECT_EQ(result->ranges[0].end, 100);
+    EXPECT_EQ(result->ranges[1].start, 200);
+    EXPECT_EQ(result->ranges[1].end, 300);
+
+    rm_free(result);
+    RedisModule_FreeThreadSafeContext(ctx);
+}
+
+TEST_F(SlotRangesTest, testFromClusterShardsReplyInvalidInput) {
+    RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
+
+    // Test with NULL inputs
+    RedisModuleSlotRangeArray* result = nullptr;
+    bool success = RedisModuleSlotRangeArray_FromClusterShardsReply(nullptr, &result);
+    EXPECT_FALSE(success);
+
+    RedisModuleCallReply reply(ctx);
+    success = RedisModuleSlotRangeArray_FromClusterShardsReply(&reply, nullptr);
+    EXPECT_FALSE(success);
+
+    // Test with non-array reply
+    reply.type = REDISMODULE_REPLY_STRING;
+    success = RedisModuleSlotRangeArray_FromClusterShardsReply(&reply, &result);
+    EXPECT_FALSE(success);
+
+    // Test with odd number of elements (invalid slot range format)
+    reply.type = REDISMODULE_REPLY_ARRAY;
+    reply.arr.clear();
+    reply.arr.emplace_back(ctx);  // Add 3 elements (odd number)
+    reply.arr.emplace_back(ctx);
+    reply.arr.emplace_back(ctx);
+    success = RedisModuleSlotRangeArray_FromClusterShardsReply(&reply, &result);
+    EXPECT_FALSE(success);
+
+    RedisModule_FreeThreadSafeContext(ctx);
+}
+
+TEST_F(SlotRangesTest, testFromClusterShardsReplyNonIntegerElements) {
+    RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
+
+    // Test with non-integer elements in the array
+    RedisModuleCallReply reply(ctx);
+    reply.type = REDISMODULE_REPLY_ARRAY;
+
+    // Create array with string elements instead of integers
+    reply.arr.emplace_back(ctx, "not_a_number");  // String instead of integer
+    reply.arr.emplace_back(ctx);
+    reply.arr[1].type = REDISMODULE_REPLY_INTEGER;
+    reply.arr[1].ll = 100;
+
+    RedisModuleSlotRangeArray* result = nullptr;
+    bool success = RedisModuleSlotRangeArray_FromClusterShardsReply(&reply, &result);
+    EXPECT_FALSE(success);
+    EXPECT_EQ(result, nullptr);
+
+    // Test with second element being non-integer
+    reply.arr.clear();
+    reply.arr.emplace_back(ctx);
+    reply.arr.emplace_back(ctx, "also_not_a_number");  // String instead of integer
+    reply.arr[0].type = REDISMODULE_REPLY_INTEGER;
+    reply.arr[0].ll = 0;
+
+    success = RedisModuleSlotRangeArray_FromClusterShardsReply(&reply, &result);
+    EXPECT_FALSE(success);
+    EXPECT_EQ(result, nullptr);
+
+    // Test with NULL element (simulating missing element)
+    reply.arr.clear();
+    reply.arr.emplace_back(ctx);
+    reply.arr.emplace_back(ctx);
+    reply.arr[0].type = REDISMODULE_REPLY_INTEGER;
+    reply.arr[0].ll = 0;
+    reply.arr[1].type = REDISMODULE_REPLY_NULL;  // NULL instead of integer
+
+    success = RedisModuleSlotRangeArray_FromClusterShardsReply(&reply, &result);
+    EXPECT_FALSE(success);
+    EXPECT_EQ(result, nullptr);
+
+    RedisModule_FreeThreadSafeContext(ctx);
 }

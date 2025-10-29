@@ -91,6 +91,11 @@ static void parseMasterNode(RedisModuleCallReply *nodes, MRClusterNode *n) {
   RS_ABORT_ALWAYS("No master node found in shard");
 }
 
+static void parseSlots(RedisModuleCallReply *slots, RedisModuleSlotRangeArray **slotRanges) {
+  bool success = RedisModuleSlotRangeArray_FromClusterShardsReply(slots, slotRanges);
+  RS_ASSERT(success);
+}
+
 static bool hasSlots(RedisModuleCallReply *shard) {
   ASSERT_KEY(shard, 0, "slots");
   RedisModuleCallReply *slots = RedisModule_CallReplyArrayElement(shard, 1);
@@ -178,6 +183,8 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     // Handle slots
     ASSERT_KEY(currShard, 0, "slots");
     // We don't actually use the slots, as we don't handle slot-level routing ourselves
+    RedisModuleCallReply *slots = RedisModule_CallReplyArrayElement(currShard, 1);
+    parseSlots(slots, &topo->shards[i].slotRanges);
 
     // Handle nodes
     ASSERT_KEY(currShard, 2, "nodes");
@@ -186,7 +193,6 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     // parse and store the master
     parseMasterNode(nodes, &topo->shards[i].node);
 
-    //TODO(Joan): Parse slot ranges
   }
 
   // Sort shards by the port of their first node (master), to have a stable order

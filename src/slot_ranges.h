@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "redismodule.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,6 +85,12 @@ bool RedisModuleSlotRangeArray_DeserializeBinary(
 /// and SLOT_RANGES_DOES_NOT_INCLUDE if any of the range in ranges_expected is not in ranges_actual
 SlotRangesComparisonResult CompareSlotRanges(const RedisModuleSlotRangeArray *ranges_expected,
                                              const RedisModuleSlotRangeArray *ranges_actual);
+
+/// @brief Create a RedisModuleSlotRangeArray from a cluster shards reply slots array
+/// @param slots The Redis module call reply containing slot ranges (array of start/end pairs)
+/// @param slotRanges Output parameter to store the created slot range array
+/// @returns true on success, false on error
+bool RedisModuleSlotRangeArray_FromClusterShardsReply(RedisModuleCallReply *slots, RedisModuleSlotRangeArray **slotRanges);
 
 #ifdef __cplusplus
 }
