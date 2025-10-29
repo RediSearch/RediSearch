@@ -22,6 +22,7 @@ import inspect
 from unittest import SkipTest
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
+REDISEARCH_CACHE_DIR = '/tmp/rdbcompat'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
 
 class TimeLimit(object):
@@ -470,6 +471,59 @@ def get_TLS_args():
     passphrase = get_passphrase() if with_pass else None
 
     return cert_file, key_file, ca_cert_file, passphrase
+
+def downloadFile(env, file_name, depth=0, max_retries=3):
+    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
+    path_dir = os.path.dirname(path)
+    os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
+    if not os.path.exists(path):
+        env.debugPrint(f"downloading {file_name}", force=True)
+        try:
+            subprocess.run(
+                [
+                "wget",
+                "--no-check-certificate",
+                "--tries", str(max_retries + 1),  # wget tries
+                "--waitretry", "2",  # wait 2 seconds between retries
+                "--retry-connrefused",  # retry on connection refused
+                BASE_RDBS_URL + file_name,
+                "-O",
+                path,
+                "-v"  # verbose to get better error info
+            ], check=True, capture_output=True, text=True)
+
+        except subprocess.CalledProcessError as e:
+            env.assertTrue(False,
+                message=f"Failed to download {BASE_RDBS_URL + file_name} after {max_retries + 1} attempts. "
+                       f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}",
+                depth=depth + 1)
+
+            # Clean up partial download
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+                    env.debugPrint(f"Removed partially downloaded file {path}", force=True)
+            except OSError:
+                env.debugPrint(f"Failed to remove {path}", force=True)
+                pass
+            return False
+    if not os.path.exists(path):
+        env.assertTrue(
+            False,
+            message=f"{path} does not exist after download",
+            depth=depth + 1,
+        )
+        return False
+    return True
+
+def downloadFiles(env, rdbs=None, depth=0):
+    if rdbs is None:
+        return False
+
+    for f in rdbs:
+        if not downloadFile(env, f, depth=depth + 1):
+            return False
+    return True
 
 def index_errors(env, idx = 'idx'):
     return to_dict(index_info(env, idx)['Index Errors'])

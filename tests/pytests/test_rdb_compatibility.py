@@ -4,9 +4,6 @@ from includes import *
 from common import *
 from RLTest import Env
 
-
-REDISEARCH_CACHE_DIR = '/tmp/rdbcompat'
-
 RDBS = [
     'redisearch_1.2.0.rdb',
     'redisearch_1.4.0.rdb',
@@ -17,25 +14,6 @@ RDBS = [
     'redisearch_1.8.1.rdb',
     'redisearch_2.0.9.rdb'
 ]
-
-def downloadFiles(rdbs = None):
-    rdbs = RDBS if rdbs is None else rdbs
-
-    # In parallel test runs, several tests may check for REDISEARCH_CACHE_DIR existence successfully,
-    # but upon creating the directory, only one test succeeds, and the others would throw an error and fail.
-    # The try block aims to create REDISEARCH_CACHE_DIR, while the except block handles the case when the directory already exists,
-    # and the test can continue.
-    try:
-        os.makedirs(REDISEARCH_CACHE_DIR)
-    except FileExistsError:
-        pass
-    for f in rdbs:
-        path = os.path.join(REDISEARCH_CACHE_DIR, f)
-        if not os.path.exists(path):
-            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
-        if not os.path.exists(path):
-            return False
-    return True
 
 @skip(cluster=True)
 def testRDBCompatibility(env):
@@ -48,12 +26,8 @@ def testRDBCompatibility(env):
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
-    if not downloadFiles():
-        if CI:
-            env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
-        else:
-            env.skip()
-            return
+    if not downloadFiles(env, RDBS):
+        return
 
     for fileName in RDBS:
         env.stop()
@@ -89,12 +63,8 @@ def testRDBCompatibility_vecsim():
 
     rdbs = ['redisearch_2.4.14_with_vecsim.rdb']
     algorithms = ['FLAT', 'HNSW']
-    if not downloadFiles(rdbs):
-        if CI:
-            env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
-        else:
-            env.skip()
-            return
+    if not downloadFiles(env, rdbs):
+        return
 
     for fileName in rdbs:
         env.stop()
@@ -116,8 +86,3 @@ def testRDBCompatibility_vecsim():
 
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
-
-if __name__ == "__main__":
-    if not downloadFiles():
-        raise Exception("Couldn't download RDB files")
-    print("RDB Files ready for testing!")
