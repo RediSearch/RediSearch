@@ -250,12 +250,6 @@ bool MRCommand_AddSlotRangeInfo(MRCommand *cmd, const RedisModuleSlotRangeArray 
   // Add the slot range arguments to the command
   MRCommand_Append(cmd, "_RANGE_SLOTS_BINARY", strlen("_RANGE_SLOTS_BINARY"));
 
-  // Add size as string
-  // TODO(Joan): Is this actually needed? Not sure
-  char size_str[32];
-  snprintf(size_str, sizeof(size_str), "%zu", binary_size);
-  MRCommand_Append(cmd, size_str, strlen(size_str));
-
   // Add binary data
   MRCommand_Append(cmd, (const char*)binary_buf, binary_size);
 

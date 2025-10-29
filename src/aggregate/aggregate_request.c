@@ -357,20 +357,14 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "_RANGE_SLOTS_BINARY")) {
-    // Parse binary slot range format: _RANGE_SLOTS_BINARY <size> <binary_data>
+    // Parse binary slot range format: _RANGE_SLOTS_BINARY <binary_data>
     if (*slotRanges_specified) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "Cannot specify both _RANGE_SLOTS_BINARY and _RANGE_SLOTS_HR");
       return ARG_ERROR;
     }
     *slotRanges_specified = true;
-    if (AC_NumRemaining(ac) < 2) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_BINARY requires size and binary data arguments");
-      return ARG_ERROR;
-    }
-    // Skip the size parameter (we don't need it since AC_GetString gives us the length)
-    const char *size_str;
-    if (AC_GetString(ac, &size_str, NULL, 0) != AC_OK) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Missing size argument for _RANGE_SLOTS_BINARY");
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_BINARY requires binary data arguments");
       return ARG_ERROR;
     }
     // Get the binary data

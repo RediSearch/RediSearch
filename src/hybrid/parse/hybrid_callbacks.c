@@ -452,9 +452,9 @@ void handleRangeSlotsBinary(ArgParser *parser, const void *value, void *user_dat
   ArgsCursor *ac = (ArgsCursor*)value;
   QueryError *status = ctx->status;
 
-  // Parse binary slot range format: _RANGE_SLOTS_BINARY <size> <binary_data>
-  if (AC_NumRemaining(ac) < 2) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_BINARY requires size and binary data arguments");
+  // Parse binary slot range format: _RANGE_SLOTS_BINARY <binary_data>
+  if (AC_NumRemaining(ac) < 1) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_BINARY requires binary data arguments");
     return;
   }
   // Get the binary data

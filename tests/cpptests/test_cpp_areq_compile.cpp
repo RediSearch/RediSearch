@@ -87,10 +87,6 @@ TEST_F(AREQTest, testBinarySlotRangeParsing) {
     std::vector<RedisModuleString*> argv;
     argv.push_back(RedisModule_CreateString(ctx, "hello", 5));  // query
     argv.push_back(RedisModule_CreateString(ctx, "_RANGE_SLOTS_BINARY", strlen("_RANGE_SLOTS_BINARY")));
-
-    char size_str[32];
-    snprintf(size_str, sizeof(size_str), "%zu", binary_data.size());
-    argv.push_back(RedisModule_CreateString(ctx, size_str, strlen(size_str)));
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
@@ -133,10 +129,6 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
     std::vector<RedisModuleString*> argv;
     argv.push_back(RedisModule_CreateString(ctx, "hello", 5));  // query
     argv.push_back(RedisModule_CreateString(ctx, "_RANGE_SLOTS_BINARY", strlen("_RANGE_SLOTS_BINARY")));
-
-    char size_str[32];
-    snprintf(size_str, sizeof(size_str), "%zu", binary_data.size());
-    argv.push_back(RedisModule_CreateString(ctx, size_str, strlen(size_str)));
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
@@ -170,7 +162,6 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
     std::vector<RedisModuleString*> argv;
     argv.push_back(RedisModule_CreateString(ctx, "hello", 5));  // query
     argv.push_back(RedisModule_CreateString(ctx, "_RANGE_SLOTS_BINARY", strlen("_RANGE_SLOTS_BINARY")));
-    argv.push_back(RedisModule_CreateString(ctx, "4", 1));  // size but no data
 
     // Test AREQ_Compile - should fail due to insufficient arguments
     int result = AREQ_Compile(req, argv.data(), argv.size(), &status);
@@ -318,9 +309,6 @@ TEST_F(AREQTest, testConflictingSlotRangeFormats) {
 
     // First add binary format
     argv.push_back(RedisModule_CreateString(ctx, "_RANGE_SLOTS_BINARY", strlen("_RANGE_SLOTS_BINARY")));
-    char size_str[32];
-    snprintf(size_str, sizeof(size_str), "%zu", binary_data.size());
-    argv.push_back(RedisModule_CreateString(ctx, size_str, strlen(size_str)));
     argv.push_back(createBinaryString(binary_data));
 
     // Then add HR format (this should cause conflict)
@@ -373,9 +361,6 @@ TEST_F(AREQTest, testConflictingSlotRangeFormatsReversed) {
 
   // Then add binary format
   argv.push_back(RedisModule_CreateString(ctx, "_RANGE_SLOTS_BINARY", strlen("_RANGE_SLOTS_BINARY")));
-  char size_str[32];
-  snprintf(size_str, sizeof(size_str), "%zu", binary_data.size());
-  argv.push_back(RedisModule_CreateString(ctx, size_str, strlen(size_str)));
   argv.push_back(createBinaryString(binary_data));
 
   // Test AREQ_Compile
