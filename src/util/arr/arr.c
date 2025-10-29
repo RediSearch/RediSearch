@@ -8,8 +8,9 @@
 */
 #include "arr.h"
 
+// define a function to be used from Rust
 uint32_t array_len_func(array_t arr) {
-  return arr ? array_hdr(arr)->len : 0;
+  return array_len(arr);
 }
 
 void array_free(array_t arr) {

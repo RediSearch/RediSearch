@@ -30,12 +30,12 @@ impl<'index> IdList<'index> {
     #[inline(always)]
     /// Creates a new ID list iterator. The list of document IDs must be sorted, unique, and non-empty.
     pub fn new(ids: Vec<t_docId>) -> Self {
-        Self::new_with_result(ids, RSIndexResult::virt())
+        Self::with_result(ids, RSIndexResult::virt())
     }
 
     /// Same as [`IdList::new`] but with a custom [`RSIndexResult`],
     /// useful when wrapping this iterator and requiring a non-virtual result.
-    pub fn new_with_result(ids: Vec<t_docId>, result: RSIndexResult<'index>) -> Self {
+    pub fn with_result(ids: Vec<t_docId>, result: RSIndexResult<'index>) -> Self {
         debug_assert!(!ids.is_empty());
         debug_assert!(
             ids.is_sorted_by(|a, b| a < b),
@@ -55,11 +55,9 @@ impl<'index> IdList<'index> {
         self.ids.get(self.offset).copied()
     }
 
-    #[inline(always)]
-    pub const fn offset(&self) -> usize {
-        self.offset
-    }
-
+    // this function is needed by the metric iterator to get the offset,
+    // because the metric iterator borrows the iterator as mutable for read(), and the offset is changed by read().
+    // This is because the IndexResult is reused.
     pub(super) fn read_and_get_offset(
         &mut self,
     ) -> Result<Option<(&mut RSIndexResult<'index>, usize)>, RQEIteratorError> {
@@ -73,6 +71,9 @@ impl<'index> IdList<'index> {
         Ok(Some((&mut self.result, self.offset)))
     }
 
+    // this function is needed by the metric iterator to get the offset,
+    // because the metric iterator borrows the iterator as mutable for skip_to(), and the offset is changed by skip_to().
+    // This is because the IndexResult is reused.
     pub(super) fn skip_to_and_get_offset(
         &mut self,
         doc_id: t_docId,

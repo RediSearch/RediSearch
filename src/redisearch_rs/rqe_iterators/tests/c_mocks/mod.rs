@@ -47,7 +47,7 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Reset(metrics: *mut ffi::RSYieldableMetric) {
+pub extern "C" fn ResultMetrics_Reset_func(metrics: *mut ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }
@@ -81,11 +81,6 @@ pub extern "C" fn Term_Free(t: *mut RSQueryTerm) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn RSValue_NullStatic() -> *const ffi::RSValue {
-    std::ptr::null_mut()
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn RSValue_Number(val: f64) -> ffi::RSValue {
     ffi::RSValue {
         __bindgen_anon_1: ffi::RSValue__bindgen_ty_1 {
@@ -108,5 +103,5 @@ pub extern "C" fn RSValue_DecrRef() {}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_Free(val: *mut ffi::RSValue) {
-    let _ = unsafe { Box::from_raw(val) };
+    unsafe { drop(Box::from_raw(val)) }
 }

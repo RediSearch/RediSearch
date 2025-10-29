@@ -321,5 +321,9 @@ TEST_F(ArrTest, testArrayFunctionsCombined) {
 TEST_F(ArrTest, testArrayLenFunc) {
   int *arr = array_new(int, 5);
   ASSERT_EQ(0, array_len_func(arr));
+  for (int i = 0; i < 8; i++) {
+    array_append(arr, i * 10);
+    ASSERT_EQ(i + 1, array_len_func(arr));
+  }
   array_free(arr);
 }

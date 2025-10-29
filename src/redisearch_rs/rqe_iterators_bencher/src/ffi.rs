@@ -79,10 +79,9 @@ impl QueryIterator {
     #[inline(always)]
     pub fn new_metric(vec: Vec<u64>, metric_data: Vec<f64>) -> Self {
         let len = vec.len();
-        let data =
-            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };
-        let m_data =
-            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<f64>()) as *mut f64 };
+        let layout = std::alloc::Layout::array::<u64>(len).unwrap();
+        let data = unsafe { std::alloc::alloc(layout) } as *mut u64;
+        let m_data = unsafe { std::alloc::alloc(layout) } as *mut f64;
         unsafe {
             std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
             std::ptr::copy_nonoverlapping(metric_data.as_ptr(), m_data, len);

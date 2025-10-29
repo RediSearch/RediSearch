@@ -11,9 +11,10 @@
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdList};
 use ffi::{RSYieldableMetric, array_ensure_append_n_func, t_docId};
-use inverted_index::{RSIndexResult, ResultMetrics_Reset};
+use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
 use value::{RSValueFFI, RSValueTrait};
 
+// enum indecating the type of metric. corrently only vector distance is supported.
 pub enum MetricType {
     VectorDistance,
 }
@@ -37,7 +38,7 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64) {
 
     // SAFETY: reset the metrics c_array
     unsafe {
-        ResultMetrics_Reset(result.metrics);
+        ResultMetrics_Reset_func(result.metrics);
     }
 
     let value = RSValueFFI::create_num(val);
@@ -48,8 +49,8 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64) {
     // SAFETY: calling a C function to append a new metric to the result's metrics array
     unsafe {
         result.metrics = array_ensure_append_n_func(
-            result.metrics as *mut std::ffi::c_void,
-            new_metrics as *mut std::ffi::c_void,
+            result.metrics as *mut _,
+            new_metrics as *mut _,
             1,
             std::mem::size_of::<RSYieldableMetric>() as u16,
         ) as *mut RSYieldableMetric;
@@ -61,7 +62,7 @@ impl<'index> Metric<'index> {
         debug_assert!(ids.len() == metric_data.len());
 
         Metric {
-            base: IdList::new_with_result(ids, RSIndexResult::metric()),
+            base: IdList::with_result(ids, RSIndexResult::metric()),
             metric_data,
             type_: MetricType::VectorDistance,
         }

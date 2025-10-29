@@ -7,10 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
-
 use inverted_index::RSResultKind;
 use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, metric::Metric};
+use std::ptr::NonNull;
 use value::RSValueTrait;
 mod c_mocks;
 

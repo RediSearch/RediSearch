@@ -26,6 +26,7 @@ fn benchmark_metric(c: &mut Criterion) {
     let bencher = benchers::metric::Bencher::default();
     bencher.bench(c);
 }
+
 fn benchmark_wildcard(c: &mut Criterion) {
     let bencher = benchers::wildcard::Bencher::default();
     bencher.bench(c);

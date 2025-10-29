@@ -51,7 +51,7 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Reset(metrics: *mut RSYieldableMetric) {
+pub extern "C" fn ResultMetrics_Reset_func(metrics: *mut RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }
@@ -88,9 +88,9 @@ pub extern "C" fn RSValue_Free(val: *mut RSValue) {
     if val.is_null() {
         return;
     }
-    let _ = unsafe {
-        Box::from_raw(val);
-    };
+    unsafe {
+        drop(Box::from_raw(val));
+    }
 }
 
 #[unsafe(no_mangle)]
