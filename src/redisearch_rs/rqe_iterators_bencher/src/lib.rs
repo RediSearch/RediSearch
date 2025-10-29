@@ -14,8 +14,8 @@
 )]
 
 use ::ffi::{
-    __BindgenBitfieldUnit, RSValue, RSValue__bindgen_ty_1, RSYieldableMetric, array_clear_func,
-    array_free, array_len_func,
+    __BindgenBitfieldUnit, RSValue, RSValue__bindgen_ty_1, RSValueType_RSValueType_Number,
+    RSYieldableMetric, array_clear_func, array_free, array_len_func,
 };
 use std::ffi::c_void;
 
@@ -66,15 +66,14 @@ pub extern "C" fn ResultMetrics_Reset_func(metrics: *mut RSYieldableMetric) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_Number(val: f64) -> RSValue {
-    let rs_val = Box::new(RSValue {
+    RSValue {
         __bindgen_anon_1: RSValue__bindgen_ty_1 {
             _numval: val, // Store the number value in the union
         },
         _refcount: 1,
-        _bitfield_align_1: [0; 0],
-        _bitfield_1: __BindgenBitfieldUnit::new([0; 1]),
-    });
-    *rs_val
+        _bitfield_align_1: [0u8; 0],
+        _bitfield_1: __BindgenBitfieldUnit::new([RSValueType_RSValueType_Number as u8; 1]),
+    }
 }
 
 #[unsafe(no_mangle)]
