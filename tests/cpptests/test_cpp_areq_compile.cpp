@@ -487,3 +487,50 @@ TEST_F(AREQTest, testHumanReadableSlotRangeInsufficientArgs) {
     QueryError_ClearError(&status);
     AREQ_Free(req);
 }
+
+// Test complex aggregate query with cursor, scorer, and slot ranges
+TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
+    AREQ* req = AREQ_New();
+    ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
+
+    QueryError status = QueryError_Default();
+
+    // Create argument list matching the MRCommand
+    std::vector<RedisModuleString*> argv;
+    argv.push_back(RedisModule_CreateString(ctx, "hello world", 11));        // query
+    argv.push_back(RedisModule_CreateString(ctx, "WITHCURSOR", 10));
+    argv.push_back(RedisModule_CreateString(ctx, "_NUM_SSTRING", 12));
+    argv.push_back(RedisModule_CreateString(ctx, "_INDEX_PREFIXES", 15));
+    argv.push_back(RedisModule_CreateString(ctx, "1", 1));
+    argv.push_back(RedisModule_CreateString(ctx, "", 0));                    // empty prefix
+    argv.push_back(RedisModule_CreateString(ctx, "SCORER", 6));
+    argv.push_back(RedisModule_CreateString(ctx, "BM25STD", 7));
+    argv.push_back(RedisModule_CreateString(ctx, "ADDSCORES", 9));
+    argv.push_back(RedisModule_CreateString(ctx, "LOAD", 4));
+    argv.push_back(RedisModule_CreateString(ctx, "2", 1));
+    argv.push_back(RedisModule_CreateString(ctx, "@__key", 6));
+    argv.push_back(RedisModule_CreateString(ctx, "@__score", 8));
+    argv.push_back(RedisModule_CreateString(ctx, "_RANGE_SLOTS_HR", 15));
+    argv.push_back(RedisModule_CreateString(ctx, "1", 1));                   // num_ranges
+    argv.push_back(RedisModule_CreateString(ctx, "5462", 4));                // start
+    argv.push_back(RedisModule_CreateString(ctx, "10923", 5));               // end
+
+    // Test AREQ_Compile
+    int result = AREQ_Compile(req, argv.data(), argv.size(), &status);
+
+    EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
+    EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error";
+
+    // Verify slot ranges were set
+    EXPECT_NE(req->coordSlotRanges, nullptr) << "coordSlotRanges should be set";
+    EXPECT_EQ(req->coordSlotRanges->num_ranges, 1) << "Should have 1 range";
+    EXPECT_EQ(req->coordSlotRanges->ranges[0].start, 5462) << "Range start should be 5462";
+    EXPECT_EQ(req->coordSlotRanges->ranges[0].end, 10923) << "Range end should be 10923";
+
+    // Clean up
+    for (auto* str : argv) {
+        RedisModule_FreeString(ctx, str);
+    }
+    QueryError_ClearError(&status);
+    AREQ_Free(req);
+}

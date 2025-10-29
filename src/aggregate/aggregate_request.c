@@ -388,6 +388,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
     // Create a SharedSlotRangeArray wrapper using the helper function
+    RS_ASSERT(*papCtx->coordSlotRanges == NULL);
     *papCtx->coordSlotRanges = slot_array;
   } else if (AC_AdvanceIfMatch(ac, "_RANGE_SLOTS_HR")) {
     // Parse human-readable slot range format: _RANGE_SLOTS_HR <num_ranges> <start1> <end1> <start2> <end2> ...
@@ -1121,7 +1122,8 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .cursorConfig = &req->cursorConfig,
     .requiredFields = &req->requiredFields,
     .maxSearchResults = &req->maxSearchResults,
-    .maxAggregateResults = &req->maxAggregateResults
+    .maxAggregateResults = &req->maxAggregateResults,
+    .coordSlotRanges = &req->coordSlotRanges
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
