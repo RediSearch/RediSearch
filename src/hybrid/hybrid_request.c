@@ -187,7 +187,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
         areq->profileClocks.initClock = now;
         AREQ_QueryProcessingCtx(areq)->initTime = now;
     }
-    hybridReq->initClock = now;
+    hybridReq->profileClocks.initClock = now;
     hybridReq->tailPipeline->qctx.initTime = now;
     return hybridReq;
 }

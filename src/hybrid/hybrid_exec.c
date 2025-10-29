@@ -292,14 +292,14 @@ done:
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
     // execution_time
-    const rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&hreq->initClock);
+    const rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock);
     double executionTime = rs_wall_clock_convert_ns_to_ms_d(duration);
     RedisModule_ReplyKV_Double(reply, "execution_time", executionTime);
     // Prepare profile printer context
     ProfilePrinterCtx profileCtx = {
       .req = NULL,
       .hreq = hreq,
-      .timedout = timeoutInSubquery,
+      .timedout = rc == RS_RESULT_TIMEDOUT,
       .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
       .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),

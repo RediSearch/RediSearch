@@ -30,7 +30,6 @@ typedef struct HybridRequest {
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
     CursorConfig cursorConfig;
-    rs_wall_clock initClock;  // For timing execution
     RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
     RedisSearchCtx *sctx;
     QEFlags reqflags;
