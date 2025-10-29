@@ -607,7 +607,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       return REDISMODULE_ERR;
   }
 
-  if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
+  if (!optimization_specified &&
+        ( req->reqConfig.dialectVersion >= 4 || (IsAggregate(req)))
+     ) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }

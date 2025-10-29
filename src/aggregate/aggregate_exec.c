@@ -427,9 +427,6 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     RedisModule_Reply_Array(reply);
 
-    RedisModule_Reply_LongLong(reply, qctx->totalResults);
-    nelem++;
-
     // Once we get here, we want to return the results we got from the pipeline (with no error)
     if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_2;
@@ -437,21 +434,61 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (results != NULL) {
+      RedisModule_Reply_LongLong(reply, qctx->totalResults);
+      nelem++;
       nelem += populateReplyWithResults(reply, results, req, &cv);
       results = NULL;
       goto done_2;
     }
 
-    if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-      nelem += serializeResult(req, reply, &r, &cv);
-      SearchResult_Clear(&r);
-    } else {
-      goto done_2;
-    }
+    if (IsAggregate(req) && !IsOptimized(req)) {
+      // For FT.AGGREGATE + WITHCOUNT we need to fetch all results first to get
+      // the correct accumulated count, then send it.
+      // Buffer results for the current chunk (limited by resultLimit, typically 1000 per chunk)
+      SearchResult **buffered_results = NULL;
 
-    while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-      nelem += serializeResult(req, reply, &r, &cv);
-      SearchResult_Clear(&r);
+      if (results != NULL) {
+        // Results already aggregated
+        buffered_results = results;
+        results = NULL;
+      } else {
+        // Fetch results into buffer to accumulate count before sending
+        buffered_results = array_new(SearchResult *, 8);
+        if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
+          array_append(buffered_results, SearchResult_AllocateMove(&r));
+          rp->parent->resultLimit--;
+          r = (SearchResult){0};
+        }
+        while (rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+          array_append(buffered_results, SearchResult_AllocateMove(&r));
+          rp->parent->resultLimit--;
+          r = (SearchResult){0};
+        }
+      }
+
+      // Now send the count (which has been accumulated while fetching results)
+      RedisModule_Reply_LongLong(reply, qctx->totalResults);
+      nelem++;
+
+      // Send the buffered results
+      if (buffered_results) {
+        nelem += populateReplyWithResults(reply, buffered_results, req, &cv);
+        buffered_results = NULL;
+      }
+    } else {
+      RedisModule_Reply_LongLong(reply, qctx->totalResults);
+      nelem++;
+      if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
+        nelem += serializeResult(req, reply, &r, &cv);
+        SearchResult_Clear(&r);
+      } else {
+        goto done_2;
+      }
+
+      while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+        nelem += serializeResult(req, reply, &r, &cv);
+        SearchResult_Clear(&r);
+      }
     }
 
 done_2:
