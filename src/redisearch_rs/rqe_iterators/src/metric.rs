@@ -38,7 +38,7 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64) {
 
     // SAFETY: reset the metrics c_array
     unsafe {
-        ResultMetrics_Reset_func(result.metrics);
+        ResultMetrics_Reset_func(result);
     }
 
     let value = RSValueFFI::create_num(val);

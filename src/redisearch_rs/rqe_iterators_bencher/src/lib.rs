@@ -14,8 +14,9 @@
 )]
 
 use ::ffi::{
-    __BindgenBitfieldUnit, RSValue, RSValue__bindgen_ty_1, RSValueType_RSValueType_Number,
-    RSYieldableMetric, array_clear_func, array_free, array_len_func,
+    __BindgenBitfieldUnit, RSIndexResult, RSValue, RSValue__bindgen_ty_1,
+    RSValueType_RSValueType_Number, RSYieldableMetric, array_clear_func, array_free,
+    array_len_func,
 };
 use std::ffi::c_void;
 
@@ -62,7 +63,8 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Reset_func(metrics: *mut RSYieldableMetric) {
+pub extern "C" fn ResultMetrics_Reset_func(result: *mut RSIndexResult) {
+    let metrics: *mut RSYieldableMetric = unsafe { (*result).metrics };
     if metrics.is_null() {
         return;
     }

@@ -47,7 +47,8 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Reset_func(metrics: *mut ffi::RSYieldableMetric) {
+pub extern "C" fn ResultMetrics_Reset_func(result: *mut ffi::RSIndexResult) {
+    let metrics: *mut ffi::RSYieldableMetric = unsafe { (*result).metrics };
     if metrics.is_null() {
         return;
     }
@@ -103,5 +104,8 @@ pub extern "C" fn RSValue_DecrRef() {}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_Free(val: *mut ffi::RSValue) {
+    if val.is_null() {
+        return;
+    }
     unsafe { drop(Box::from_raw(val)) }
 }

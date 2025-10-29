@@ -39,7 +39,7 @@ unsafe extern "C" {
     ///
     /// # Safety
     /// The caller must ensure that the `metrics` pointer is either `null` or valid and points to a `*mut RSYieldableMetric`.
-    pub unsafe fn ResultMetrics_Reset_func(metrics: *mut RSYieldableMetric);
+    pub unsafe fn ResultMetrics_Reset_func(result: *mut RSIndexResult);
 
     /// Free a [`RSQueryTerm`]
     ///

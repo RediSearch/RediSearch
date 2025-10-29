@@ -1553,8 +1553,8 @@ dependencies = [
  "rqe_iterators",
  "triemap_ffi",
  "types_ffi",
- "varint_ffi",
  "value_ffi",
+ "varint_ffi",
 ]
 
 [[package]]

@@ -39,6 +39,7 @@ fn main() {
         let inverted_index = src.join("inverted_index");
         let vecsim = deps.join("VectorSimilarity").join("src");
         let buffer = src.join("buffer");
+
         [
             redis_modules,
             src,
