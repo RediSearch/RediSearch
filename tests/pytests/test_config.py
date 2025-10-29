@@ -77,6 +77,11 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
     env.expect('ft.config', 'set', 'INDEX_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SEARCH_THREADS', 1).equal('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'BM25STD').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('ft.config', 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect('ft.config', 'set', 'DEFAULT_SCORER', 'TFIDF').ok()
+
     if MT_BUILD:
         env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'FRISOINI', 1).equal('Not modifiable at runtime')
@@ -119,6 +124,8 @@ def testAllConfig(env):
     env.assertIn(res_dict['TIMEOUT'][0], ['500', '0'])
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
+    env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'TFIDF')
+
     if MT_BUILD:
         env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
         env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_OFF')
@@ -258,3 +265,35 @@ def testImmutable(env):
 @skip(cluster=True)
 def test_setIndexingMemoryLimit_overflow(env):
     env.expect('ft.config', 'set', '_BG_INDEX_MEM_PCT_THR', 101).error().contains("Memory limit for indexing cannot be greater then 100%")
+
+
+@skip(cluster=True)
+def testDefaultScorerConfig(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+    env.expect('FT.CONFIG', 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).equal('OK')
+        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('Invalid default scorer')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('Invalid default scorer value')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
+
+@skip(cluster=True)
+def testDefaultScorerConfigDisabled(env):
+    """Test DEFAULT_SCORER configuration via FT.CONFIG and CONFIG commands"""
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    valid_scorers = ['TFIDF', 'BM25', 'TFIDF.DOCNORM', 'BM25STD', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scorers:
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])
+
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'NOTHING').error().contains('`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`')
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'TFIDF']])  # Should still be the last valid value

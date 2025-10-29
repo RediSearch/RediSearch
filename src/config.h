@@ -95,6 +95,8 @@ typedef struct {
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
+  // Default scorer name to use when no scorer is specified (default: TFIDF)
+  const char *defaultScorer;
 
   IteratorsConfig iteratorsConfigParams;
 
@@ -161,6 +163,8 @@ typedef struct {
   long long indexCursorLimit;
   // The maximum ratio between current memory and max memory for which background indexing is allowed
   uint8_t indexingMemoryLimit;
+  // Enable to execute unstable features
+  bool enableUnstableFeatures;
   // Set how much time after OOM is detected we should wait to enable the resource manager to
   // allocate more memory. Note: has different default values for OSS and Enterprise.
   uint32_t bgIndexingOomPauseTimeBeforeRetry;
@@ -245,6 +249,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
 #define DEFAULT_INDEXING_MEMORY_LIMIT 100
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 0 // Note: The config value default is changed to 5 in enterprise
+#define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG .numWorkerThreads = 0,                                                                     \
@@ -259,6 +264,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define RS_DEFAULT_CONFIG {                                                                                           \
     .concurrentMode = 0,                                                                                              \
     .extLoad = NULL,                                                                                                  \
+    .frisoIni = NULL,                                                     \
+    .defaultScorer = NULL ,                                        \
     .gcConfigParams.enableGC = 1,                                                                                                    \
     .iteratorsConfigParams.minTermPrefix = 2,                                                                                               \
     .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                                       \
@@ -296,6 +303,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .numBGIndexingIterationsBeforeSleep = 100,                                                                        \
     .prioritizeIntersectUnionChildren = false       ,                                                                        \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                                                             \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE ,                \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                       \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY  \
