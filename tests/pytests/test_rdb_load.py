@@ -26,7 +26,7 @@ def test_rdb_load_no_deadlock():
     test_env.expect('PING').equal(True)
 
     # Download the RDB file
-    if not downloadFiles([rdb_filename]):
+    if not downloadFile(test_env, rdb_filename):
         test_env.assertTrue(False, message=f'Failed to download RDB file: {rdb_filename}')
         return
 
