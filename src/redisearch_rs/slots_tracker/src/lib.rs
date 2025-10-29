@@ -412,6 +412,97 @@ pub extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotR
     }
 }
 
+/// Reserved version value indicating unstable/partial availability.
+///
+/// This value will never equal a real version counter, so comparisons will always fail.
+/// Used when slots are available but partially or the coverage doesn't exactly match.
+pub const SLOTS_TRACKER_UNSTABLE_VERSION: u32 = u32::MAX;
+
+/// Reserved version value indicating slots are not available.
+///
+/// This value indicates that the query cannot proceed because required slots are not available.
+pub const SLOTS_TRACKER_UNAVAILABLE: u32 = u32::MAX - 1;
+
+/// Checks if all requested slots are available and returns version information.
+///
+/// This function performs an optimized availability check:
+///
+/// **Fast path (common case)**: If sets 2 & 3 are empty and input exactly matches set 1,
+/// returns the current version immediately.
+///
+/// **Full check**: If sets 2 or 3 are not empty:
+/// - Checks if sets 1+2 cover all input slots
+/// - If not covered: returns `SLOTS_TRACKER_UNAVAILABLE`
+/// - If covered exactly AND set 3 is empty: returns current version
+/// - If covered but not exactly OR set 3 is not empty: returns `SLOTS_TRACKER_UNSTABLE_VERSION`
+///
+/// Return values:
+/// - Current version (0..u32::MAX-2): Slots match exactly and are stable
+/// - `SLOTS_TRACKER_UNSTABLE_VERSION` (u32::MAX): Slots available but partial/inexact match
+/// - `SLOTS_TRACKER_UNAVAILABLE` (u32::MAX-1): Required slots are not available
+///
+/// # Safety
+///
+/// This function must be called from the main thread only.
+/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` valid elements.
+/// All ranges must be sorted and have start <= end, with values in [0, 16383].
+#[unsafe(no_mangle)]
+pub extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray) -> u32 {
+    // SAFETY: The caller guarantees this is called from the main thread
+    // and that the pointer is valid
+    unsafe {
+        // Validate the pointer
+        if ranges.is_null() {
+            return SLOTS_TRACKER_UNAVAILABLE;
+        }
+
+        let ranges_ref = &*ranges;
+        
+        // Validate num_ranges is non-negative
+        if ranges_ref.num_ranges < 0 {
+            return SLOTS_TRACKER_UNAVAILABLE;
+        }
+
+        // Create a slice from the flexible array member
+        let ranges_slice = if ranges_ref.num_ranges == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(
+                ranges_ref.ranges.as_ptr(),
+                ranges_ref.num_ranges as usize,
+            )
+        };
+
+        // Get access to all sets
+        let local_slots = LOCAL_SLOTS.get_mut();
+        let fully_available = FULLY_AVAILABLE_SLOTS.get_mut();
+        let partially_available = PARTIALLY_AVAILABLE_SLOTS.get_mut();
+
+        // TODO: Implement in SlotsSet:
+        // Fast path: Check if sets 2 & 3 are empty
+        // if fully_available.is_empty() && partially_available.is_empty() {
+        //     if local_slots.equals(ranges_slice) {
+        //         return VERSION.load(Ordering::Relaxed);
+        //     }
+        // }
+        //
+        // Full check:
+        // 1. Check if local_slots + fully_available covers ranges_slice
+        //    Use: local_slots.union_covers(fully_available, ranges_slice)
+        // 2. If not covered: return SLOTS_TRACKER_UNAVAILABLE
+        // 3. If covered:
+        //    a. Check if local_slots + fully_available equals ranges_slice exactly
+        //       AND partially_available.is_empty()
+        //    b. If yes: return VERSION.load(Ordering::Relaxed)
+        //    c. If no: return SLOTS_TRACKER_UNSTABLE_VERSION
+        
+        // Placeholder: return unavailable for now
+        let _ = (local_slots, fully_available, partially_available, ranges_slice);
+        SLOTS_TRACKER_UNAVAILABLE
+    }
+}
+
 /// Returns the current version of the slots configuration.
 ///
 /// This function can be called from any thread to check if the configuration has changed.

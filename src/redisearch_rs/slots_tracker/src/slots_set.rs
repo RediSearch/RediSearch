@@ -65,6 +65,22 @@ impl SlotsSet {
     //     result should be true (overlaps with 200-250)
     //   - Used by: slots_tracker_has_fully_available_overlap
     
+    // TODO: pub(crate) fn is_empty(&self) -> bool
+    //   - Returns true if this set contains no ranges, false otherwise
+    //   - Used by: slots_tracker_check_availability (fast path optimization)
+    
+    // TODO: pub(crate) fn union_covers(&self, other: &SlotsSet, ranges: &[super::SlotRange]) -> bool
+    //   - Check if the union of this set and another set covers all given ranges
+    //   - Returns true if every slot in the input ranges is covered by either this set or other set
+    //   - Example: if self=[0-100], other=[200-300], ranges=[50-75, 250-280], returns true
+    //   - Example: if self=[0-100], other=[200-300], ranges=[150-250], returns false (150-199 not covered)
+    //   - Used by: slots_tracker_check_availability
+    
+    // TODO: pub(crate) fn union_equals(&self, other: &SlotsSet, ranges: &[super::SlotRange]) -> bool
+    //   - Check if the union of this set and another set exactly equals the given ranges
+    //   - Returns true only if the union matches the input ranges exactly (no more, no less)
+    //   - Used by: slots_tracker_check_availability
+    
     // ========================================================================
     // Additional helper methods:
     // ========================================================================
