@@ -31,16 +31,42 @@ impl SlotsSet {
         Self { ranges: Vec::new() }
     }
 
+    // ========================================================================
+    // Required methods for slots_tracker_set_local_slots API:
+    // ========================================================================
+    
+    // TODO: pub(crate) fn equals(&self, ranges: &[super::SlotRange]) -> bool
+    //   - Compare if this SlotsSet contains the exact same ranges as the input
+    //   - Assumes both are sorted
+    //   - Return true if identical, false otherwise
+    
+    // TODO: pub(crate) fn set_from_ranges(&mut self, ranges: &[super::SlotRange])
+    //   - Replace the entire contents of this SlotsSet with the given ranges
+    //   - Should validate ranges (start <= end, values in [0, 16383])
+    //   - Should normalize/merge overlapping and adjacent ranges
+    //   - Assumes input is sorted
+    
+    // TODO: pub(crate) fn remove_ranges(&mut self, ranges: &[super::SlotRange])
+    //   - Remove any slots that overlap with the given ranges
+    //   - For each range [start, end] in input:
+    //     - Remove all slots in [start, end] from this set
+    //     - This may split existing ranges or remove them entirely
+    //   - Example: if self has [50-150] and input has [100-200],
+    //     result should be [50-99]
+    
+    // ========================================================================
+    // Additional helper methods:
+    // ========================================================================
+    
     // TODO: Implement internal methods:
-    // - insert/add range
-    // - remove range
+    // - insert_range(start, end) - add a single range
+    // - contains(slot) - check if a slot is in any range
+    // - clear() - remove all ranges
+    // - merge/normalize overlapping and adjacent ranges
+    // - validate range (start <= end, within 0-16383)
+    // - binary search for range lookup
     // - union with another SlotsSet
     // - intersection with another SlotsSet
     // - difference with another SlotsSet
-    // - contains check (whether a slot or range is in the set)
-    // - clear all ranges
-    // - merge overlapping/adjacent ranges (normalization)
     // - iterate over ranges
-    // - validate ranges (start <= end, within 0-16383)
-    // - binary search for range lookup
 }
