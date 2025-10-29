@@ -1530,6 +1530,7 @@ dependencies = [
  "inverted_index",
  "pretty_assertions",
  "proptest",
+ "thiserror",
  "redis_mock",
  "rqe_iterators",
  "types_ffi",
@@ -1550,7 +1551,9 @@ dependencies = [
  "itertools 0.14.0",
  "redis_mock",
  "rqe_iterators",
+ "triemap_ffi",
  "types_ffi",
+ "varint_ffi",
  "value_ffi",
 ]
 

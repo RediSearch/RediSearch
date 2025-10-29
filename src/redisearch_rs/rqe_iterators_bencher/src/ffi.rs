@@ -24,10 +24,12 @@ mod bindings {
     // Type aliases for C bindings - types without lifetimes for C interop
     pub type RSIndexResult = inverted_index::RSIndexResult<'static>;
     pub type RSOffsetVector = inverted_index::RSOffsetVector<'static>;
+    pub type IndexDecoderCtx = inverted_index::ReadFilter<'static>;
 
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
+pub use bindings::IndexFlags_Index_StoreNumeric;
 use bindings::{IteratorStatus, ValidateStatus};
 use ffi::RedisModule_Alloc;
 use inverted_index::RSIndexResult;
@@ -92,6 +94,11 @@ impl QueryIterator {
     #[inline(always)]
     pub fn new_wildcard(max_id: u64, num_docs: usize) -> Self {
         Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, num_docs, 1f64) })
+    }
+
+    #[inline(always)]
+    pub unsafe fn new_numeric_full(ii: *mut bindings::InvertedIndex) -> Self {
+        Self(unsafe { bindings::NewInvIndIterator_NumericFull(ii) })
     }
 
     #[inline(always)]
@@ -175,12 +182,47 @@ impl QueryIterator {
     }
 }
 
+/// Simple wrapper around the C InvertedIndex.
+/// All methods are inlined to avoid the overhead when benchmarking.
+pub struct InvertedIndex(pub *mut bindings::InvertedIndex);
+
+impl InvertedIndex {
+    #[inline(always)]
+    pub fn new(flags: bindings::IndexFlags) -> Self {
+        let mut memsize = 0;
+        let ptr = unsafe { bindings::NewInvertedIndex(flags, &mut memsize) };
+        Self(ptr)
+    }
+
+    #[inline(always)]
+    pub fn write_numeric_entry(&self, doc_id: u64, value: f64) {
+        unsafe {
+            bindings::InvertedIndex_WriteNumericEntry(self.0, doc_id, value);
+        }
+    }
+
+    #[inline(always)]
+    pub fn iterator_numeric_full(&self) -> QueryIterator {
+        unsafe { QueryIterator::new_numeric_full(self.0) }
+    }
+}
+
+impl Drop for InvertedIndex {
+    #[inline(always)]
+    fn drop(&mut self) {
+        unsafe { bindings::InvertedIndex_Free(self.0) };
+    }
+}
+
 #[cfg(test)]
 // `miri` can't handle FFI.
 #[cfg(not(miri))]
 mod tests {
     use super::*;
-    use bindings::{IteratorStatus_ITERATOR_EOF, ValidateStatus_VALIDATE_OK};
+    use bindings::{
+        IndexFlags_Index_StoreNumeric, IteratorStatus_ITERATOR_EOF,
+        IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK, ValidateStatus_VALIDATE_OK,
+    };
 
     #[test]
     fn empty_iterator() {
@@ -195,6 +237,32 @@ mod tests {
         assert!(it.at_eof());
         assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
 
+        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
+
+        it.free();
+    }
+
+    #[test]
+    fn numeric_full_iterator() {
+        let ii = InvertedIndex::new(IndexFlags_Index_StoreNumeric);
+        ii.write_numeric_entry(1, 1.0);
+        ii.write_numeric_entry(10, 10.0);
+        ii.write_numeric_entry(100, 100.0);
+
+        let it = unsafe { QueryIterator::new_numeric_full(ii.0) };
+        assert_eq!(it.num_estimated(), 3);
+
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
+        assert!(it.at_eof());
+
+        it.rewind();
+        assert_eq!(it.skip_to(10), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.skip_to(20), IteratorStatus_ITERATOR_NOTFOUND);
+
+        it.rewind();
         assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
 
         it.free();

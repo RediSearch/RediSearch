@@ -13,6 +13,7 @@ unittest = []
 [dependencies]
 ffi.workspace = true
 inverted_index.workspace = true
+thiserror.workspace = true
 redis_mock.workspace = true
 value_ffi = { path = "../c_entrypoint/value_ffi" }
 types_ffi = { path = "../c_entrypoint/types_ffi" }
