@@ -1018,24 +1018,8 @@ static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
     jobs[i].arg_p = &job_arg;
     jobs[i].function_p = admin_job_change_state;
   }
-
   redisearch_thpool_add_n_work(thpool, jobs, n_threads, THPOOL_PRIORITY_ADMIN);
-
-  extern RedisModuleCtx *RSDummyContext;
-  if (RSDummyContext) {
-    extern void (*RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx);
-    extern void (*RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx);
-
-    // Release the GIL to allow workers to complete their work
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-
-    // Wait for workers to reach the barrier
-    barrier_wait_and_destroy(&barrier);
-
-    // Re-acquire the GIL
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
-  } else {
-    // Fallback if RSDummyContext is not available (e.g., during tests)
-    barrier_wait_and_destroy(&barrier);
-  }
+  /* Wait on for the threads to pass the barrier and then destroy the barrier*/
+  
+  barrier_wait_and_destroy(&barrier);
 }
