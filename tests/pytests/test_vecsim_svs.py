@@ -52,7 +52,7 @@ where SVS crashes during topk search if CONSTRUCTION_WINDOW_SIZE given in creati
 NOTE: This test is being skipped because the crash issue has returned and we're waiting for a fix - 
 see MOD-12011 for details.
 '''
-@skip()
+# @skip()
 def test_small_window_size():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
