@@ -69,19 +69,42 @@ protected:
     RedisModuleString* createBinaryString(const std::vector<uint8_t>& data) {
         return RedisModule_CreateString(ctx, reinterpret_cast<const char*>(data.data()), data.size());
     }
+
+    // Helper function to compare two slot range arrays exactly (borrowed from test_slot_ranges)
+    bool compareExactly(const RedisModuleSlotRangeArray* a, const RedisModuleSlotRangeArray* b) {
+        if (a->num_ranges != b->num_ranges) {
+            return false;
+        }
+        for (int i = 0; i < a->num_ranges; i++) {
+            if (a->ranges[i].start != b->ranges[i].start || a->ranges[i].end != b->ranges[i].end) {
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
-// Test binary slot range parsing with multiple ranges
-TEST_F(AREQTest, testBinarySlotRangeParsing) {
+// Parameterized test data structure
+struct SlotRangeTestData {
+    std::vector<std::pair<uint16_t, uint16_t>> ranges;
+    std::string description;
+};
+
+// Parameterized test class
+class AREQBinarySlotRangeTest : public AREQTest, public ::testing::WithParamInterface<SlotRangeTestData> {};
+
+// Test binary slot range parsing with different ranges (parameterized)
+TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
+    const auto& test_data = GetParam();
+
     AREQ* req = AREQ_New();
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 
     QueryError status = QueryError_Default();
 
-    // Create test slot ranges
-    std::vector<std::pair<uint16_t, uint16_t>> ranges = {{0, 5460}, {5461, 10922}, {10923, 16383}};
-    auto binary_data = createBinarySlotRangeData(ranges);
-    ASSERT_FALSE(binary_data.empty()) << "Binary data creation should succeed";
+    // Create test slot ranges from parameter
+    auto binary_data = createBinarySlotRangeData(test_data.ranges);
+    ASSERT_FALSE(binary_data.empty()) << "Binary data creation should succeed for: " << test_data.description;
 
     // Create argument list
     std::vector<RedisModuleString*> argv;
@@ -92,26 +115,75 @@ TEST_F(AREQTest, testBinarySlotRangeParsing) {
     // Test AREQ_Compile
     int result = AREQ_Compile(req, argv.data(), argv.size(), &status);
 
-    EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
-    EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error";
+    EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed for: " << test_data.description;
+    EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error for: " << test_data.description;
 
     // Verify that coordSlotRanges was set correctly
-    EXPECT_NE(req->coordSlotRanges, nullptr) << "coordSlotRanges should be set";
-    EXPECT_EQ(req->coordSlotRanges->num_ranges, 3) << "Should have 3 ranges";
-    EXPECT_EQ(req->coordSlotRanges->ranges[0].start, 0) << "First range start should be 0";
-    EXPECT_EQ(req->coordSlotRanges->ranges[0].end, 5460) << "First range end should be 5460";
-    EXPECT_EQ(req->coordSlotRanges->ranges[1].start, 5461) << "Second range start should be 5461";
-    EXPECT_EQ(req->coordSlotRanges->ranges[1].end, 10922) << "Second range end should be 10922";
-    EXPECT_EQ(req->coordSlotRanges->ranges[2].start, 10923) << "Third range start should be 10923";
-    EXPECT_EQ(req->coordSlotRanges->ranges[2].end, 16383) << "Third range end should be 16383";
+    EXPECT_NE(req->coordSlotRanges, nullptr) << "coordSlotRanges should be set for: " << test_data.description;
+    EXPECT_EQ(req->coordSlotRanges->num_ranges, test_data.ranges.size()) << "Should have " << test_data.ranges.size() << " ranges for: " << test_data.description;
+
+    // Create expected slot range array for comparison
+    size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * test_data.ranges.size();
+    RedisModuleSlotRangeArray* expected = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
+    expected->num_ranges = test_data.ranges.size();
+    for (size_t i = 0; i < test_data.ranges.size(); i++) {
+        expected->ranges[i].start = test_data.ranges[i].first;
+        expected->ranges[i].end = test_data.ranges[i].second;
+    }
+
+    // Use exact comparison from test_slot_ranges
+    EXPECT_TRUE(compareExactly(expected, req->coordSlotRanges)) << "Slot ranges should match exactly for: " << test_data.description;
 
     // Clean up
+    rm_free(expected);
     for (auto* str : argv) {
         RedisModule_FreeString(ctx, str);
     }
     QueryError_ClearError(&status);
     AREQ_Free(req);
 }
+
+// Test data for parameterized tests - includes ranges that create null bytes in binary data
+INSTANTIATE_TEST_SUITE_P(
+    BinarySlotRangeVariations,
+    AREQBinarySlotRangeTest,
+    ::testing::Values(
+        // Original test case - standard cluster ranges
+        SlotRangeTestData{{{0, 5460}, {5461, 10922}, {10923, 16383}}, "standard_cluster_ranges"},
+
+        // Single range
+        SlotRangeTestData{{{0, 16383}}, "single_full_range"},
+
+        // Ranges with null bytes in binary representation
+        // Range 0-0 creates 0x0000 0x0000 in binary (4 null bytes)
+        SlotRangeTestData{{{0, 0}, {1, 1}}, "ranges_with_zero_slots"},
+
+        // Ranges with null bytes in binary representation
+        // Range 0-0 creates 0x0000 0x0000 in binary (4 null bytes)
+        SlotRangeTestData{{{1, 1}, {0, 0}}, "ranges_with_zero_slots"},
+
+        // Range 0-255 creates 0x0000 0x00FF in binary (2 null bytes at start)
+        SlotRangeTestData{{{0, 255}, {256, 511}}, "ranges_starting_with_zero"},
+
+        // Range 256-256 creates 0x0100 0x0100 in binary (null byte in middle)
+        SlotRangeTestData{{{256, 256}, {512, 512}}, "ranges_with_embedded_nulls"},
+
+        // Multiple ranges with various null byte patterns
+        SlotRangeTestData{{{0, 0}, {256, 256}, {512, 768}, {1024, 1024}}, "mixed_null_byte_patterns"},
+
+        // Edge case: maximum slot values
+        SlotRangeTestData{{{16383, 16383}}, "max_slot_range"},
+
+        // Ranges that create 0x0000 patterns in different positions
+        SlotRangeTestData{{{0, 256}, {512, 768}, {1024, 1280}}, "ranges_creating_null_sequences"},
+
+        // Small ranges with potential null bytes
+        SlotRangeTestData{{{0, 1}, {2, 3}, {4, 5}}, "small_consecutive_ranges"},
+
+        // Ranges where end values create null bytes (e.g., 256 = 0x0100)
+        SlotRangeTestData{{{100, 256}, {300, 512}, {600, 768}}, "ranges_ending_with_null_patterns"}
+    )
+);
 
 // Test binary slot range parsing with single range
 TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {

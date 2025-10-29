@@ -77,7 +77,7 @@ bool verifyCommandArgsPrefix(const MRCommand* cmd, const std::vector<std::string
 }
 
 bool hasSlotRangeInfo(const MRCommand* cmd) {
-    for (int i = 0; i < cmd->num - 2; i++) {
+    for (int i = 0; i < cmd->num - 1; i++) {
         if (cmd->lens[i] == strlen("_RANGE_SLOTS_BINARY") &&
             memcmp(cmd->strs[i], "_RANGE_SLOTS_BINARY", strlen("_RANGE_SLOTS_BINARY")) == 0) {
             return true;
@@ -319,15 +319,13 @@ TEST_F(MRCommandTest, testAddSlotRangeInfoToSearchCommand) {
     EXPECT_TRUE(hasSlotRangeInfo(&cmd)) << "FT.SEARCH command should contain slot range information";
 
     // Verify the original command arguments are preserved and slot range info is added
-    EXPECT_EQ(cmd.num, 8) << "Command should have 8 arguments after adding slot range info";
+    EXPECT_EQ(cmd.num, 7) << "Command should have 7 arguments after adding slot range info";
     EXPECT_TRUE(verifyCommandArgsPrefix(&cmd, {"FT.SEARCH", "myindex", "hello", "LIMIT", "10"})) << "Original arguments should be preserved";
 
     // Verify slot range arguments are at the end
     int rangePos = findArgPosition(&cmd, "_RANGE_SLOTS_BINARY");
     EXPECT_EQ(rangePos, 5) << "_RANGE_SLOTS_BINARY should be at position 5";
-    std::string sizeArg(cmd.strs[rangePos + 1], cmd.lens[rangePos + 1]);
-    EXPECT_EQ(sizeArg, "8") << "Size argument should be '8'";
-    EXPECT_GT(cmd.lens[rangePos + 2], 0) << "Binary data should be present";
+    EXPECT_GT(cmd.lens[rangePos + 1], 0) << "Binary data should be present";
 
     MRCommand_Free(&cmd);
 }
@@ -342,15 +340,13 @@ TEST_F(MRCommandTest, testAddSlotRangeInfoToAggregateCommand) {
     EXPECT_TRUE(hasSlotRangeInfo(&cmd)) << "FT.AGGREGATE command should contain slot range information";
 
     // Verify the original command arguments are preserved and slot range info is added
-    EXPECT_EQ(cmd.num, 9) << "Command should have 9 arguments after adding slot range info";
+    EXPECT_EQ(cmd.num, 8) << "Command should have 8 arguments after adding slot range info";
     EXPECT_TRUE(verifyCommandArgsPrefix(&cmd, {"FT.AGGREGATE", "myindex", "*", "GROUPBY", "1", "@category"})) << "Original arguments should be preserved";
 
     // Verify slot range arguments are at the end
     int rangePos = findArgPosition(&cmd, "_RANGE_SLOTS_BINARY");
     EXPECT_EQ(rangePos, 6) << "_RANGE_SLOTS_BINARY should be at position 6";
-    std::string sizeArg(cmd.strs[rangePos + 1], cmd.lens[rangePos + 1]);
-    EXPECT_EQ(sizeArg, "8") << "Size argument should be '8'";
-    EXPECT_GT(cmd.lens[rangePos + 2], 0) << "Binary data should be present";
+    EXPECT_GT(cmd.lens[rangePos + 1], 0) << "Binary data should be present";
 
     MRCommand_Free(&cmd);
 }
@@ -373,33 +369,25 @@ RedisModuleSlotRangeArray* extractSlotRangeFromArgs(RedisModuleString **argv, in
                 // Found the token, advance past it
                 AC_Advance(&ac);
 
-                // Get the size argument
-                const char *size_str;
-                if (AC_GetString(&ac, &size_str, NULL, 0) == AC_OK) {
-                    size_t expected_size = strtoul(size_str, NULL, 10);
+                // Get the binary data argument
+                RedisModuleString *binary_rms;
+                if (AC_GetRString(&ac, &binary_rms, 0) == AC_OK) {
+                    size_t binary_len;
+                    const char *binary_data = RedisModule_StringPtrLen(binary_rms, &binary_len);
 
-                    // Get the binary data argument
-                    RedisModuleString *binary_rms;
-                    if (AC_GetRString(&ac, &binary_rms, 0) == AC_OK) {
-                        size_t binary_len;
-                        const char *binary_data = RedisModule_StringPtrLen(binary_rms, &binary_len);
+                    // Allocate space for the slot range array
+                    // Note: In real code, you'd need to know the max possible ranges
+                    // or parse the binary data first to get the count
+                    size_t num_ranges = binary_len / sizeof(RedisModuleSlotRange);
+                    RedisModuleSlotRangeArray *slot_array = (RedisModuleSlotRangeArray*)rm_malloc(
+                        sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges);
 
-                        if (binary_len == expected_size) {
-                            // Allocate space for the slot range array
-                            // Note: In real code, you'd need to know the max possible ranges
-                            // or parse the binary data first to get the count
-                            size_t num_ranges = binary_len / sizeof(RedisModuleSlotRange);
-                            RedisModuleSlotRangeArray *slot_array = (RedisModuleSlotRangeArray*)rm_malloc(
-                                sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges);
-
-                            // Deserialize the binary data
-                            if (RedisModuleSlotRangeArray_DeserializeBinary(
-                                    (const unsigned char*)binary_data, binary_len, slot_array)) {
-                                return slot_array;
-                            } else {
-                                rm_free(slot_array);
-                            }
-                        }
+                    // Deserialize the binary data
+                    if (RedisModuleSlotRangeArray_DeserializeBinary(
+                            (const unsigned char*)binary_data, binary_len, slot_array)) {
+                        return slot_array;
+                    } else {
+                        rm_free(slot_array);
                     }
                 }
                 break;
@@ -495,7 +483,13 @@ INSTANTIATE_TEST_SUITE_P(
         std::vector<std::pair<uint16_t, uint16_t>>{{0, 0}, {100, 100}, {16383, 16383}},
 
         // Irregular ranges
-        std::vector<std::pair<uint16_t, uint16_t>>{{0, 1000}, {5000, 6000}, {10000, 16383}}
+        std::vector<std::pair<uint16_t, uint16_t>>{{0, 1000}, {5000, 6000}, {10000, 16383}},
+
+        // Ranges with null bytes in binary representation
+        std::vector<std::pair<uint16_t, uint16_t>>{{0, 0}, {1, 1}, {2, 2}},
+
+        // Add more test cases as needed
+        std::vector<std::pair<uint16_t, uint16_t>>{{0, 1}, {2, 3}, {3, 4}, {5, 6}, {7, 8}, {9, 10}, {11, 12}, {13, 14}, {15, 16}, {17, 18}, {19, 20}, {21, 22}, {23, 24}, {25, 26}, {27, 28}, {29, 30}, {31, 32}}
     )
 );
 
@@ -509,16 +503,12 @@ TEST_P(MRCommandSlotRangeTest, testAddSlotRangeInfo) {
     EXPECT_TRUE(result) << "Adding slot range info should succeed";
 
     // Verify the command structure
-    EXPECT_EQ(cmd.num, 6) << "Command should have 6 arguments after adding slot range info";
+    EXPECT_EQ(cmd.num, 5) << "Command should have 5 arguments after adding slot range info";
     EXPECT_STREQ(cmd.strs[3], "_RANGE_SLOTS_BINARY") << "Fourth argument should be _RANGE_SLOTS_BINARY";
-
-    // Verify the size argument
-    std::string expected_size = std::to_string(testSlotArray->num_ranges * sizeof(RedisModuleSlotRange));
-    EXPECT_STREQ(cmd.strs[4], expected_size.c_str()) << "Fifth argument should be the binary data size";
 
     // Verify binary data length
     size_t expected_binary_len = testSlotArray->num_ranges * sizeof(RedisModuleSlotRange);
-    EXPECT_EQ(cmd.lens[5], expected_binary_len) << "Binary data length should match expected size";
+    EXPECT_EQ(cmd.lens[4], expected_binary_len) << "Binary data length should match expected size";
 
     MRCommand_Free(&cmd);
 }
