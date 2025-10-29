@@ -715,45 +715,70 @@ def testProfileHybrid(env):
 
   # Verify the response structure contains profile data
   env.assertTrue(isinstance(actual_res, list))
-  env.assertTrue(len(actual_res) >= 2)
+  env.assertTrue(len(actual_res) >= 5)  # Updated to expect at least 5 elements
 
-  # Check that we have results (hybrid response format)
-  results = actual_res[0]
-  env.assertTrue(isinstance(results, dict))
-  env.assertTrue('total_results' in results)
-  env.assertTrue('results' in results)
+  # Check that we have results in the new format
+  # Format: [total_results, results, warnings, execution_time, Profile]
+  total_results = actual_res[0]
+  results = actual_res[1]
+  warnings = actual_res[2]
+  execution_time = actual_res[3]
+  profile_data = actual_res[4]
 
-  # Check that we have profile data
-  profile_data = actual_res[1]
+  # Verify basic response structure
+  env.assertTrue(isinstance(total_results, int))
+  env.assertTrue(isinstance(results, list))
+  env.assertTrue(isinstance(warnings, list))
+  env.assertTrue(isinstance(execution_time, (int, float)))
   env.assertTrue(isinstance(profile_data, dict))
-  env.assertTrue('Subqueries' in profile_data)
 
-  # Verify subqueries structure
-  subqueries = profile_data['Subqueries']
-  env.assertTrue(isinstance(subqueries, dict))
-  env.assertTrue('SEARCH' in subqueries)
-  env.assertTrue('VSIM' in subqueries)
+  # Check that we have profile data with Shards
+  env.assertTrue('Shards' in profile_data)
+  shards = profile_data['Shards']
+  env.assertTrue(isinstance(shards, list))
+  env.assertTrue(len(shards) >= 1)
+
+  # Verify shard structure - should contain SEARCH, VSIM, and COMBINE
+  shard = shards[0]
+  env.assertTrue(isinstance(shard, dict))
+  env.assertTrue('SEARCH' in shard)
+  env.assertTrue('VSIM' in shard)
+  env.assertTrue('COMBINE' in shard)
 
   # Check SEARCH subquery profile
-  search_profile = subqueries['SEARCH']
+  search_profile = shard['SEARCH']
+  env.assertTrue('Total profile time' in search_profile)
+  env.assertTrue('Parsing time' in search_profile)
+  env.assertTrue('Pipeline creation time' in search_profile)
   env.assertTrue('Iterators profile' in search_profile)
   env.assertTrue('Result processors profile' in search_profile)
 
   # Check VSIM subquery profile
-  vsim_profile = subqueries['VSIM']
+  vsim_profile = shard['VSIM']
+  env.assertTrue('Total profile time' in vsim_profile)
+  env.assertTrue('Parsing time' in vsim_profile)
+  env.assertTrue('Pipeline creation time' in vsim_profile)
   env.assertTrue('Iterators profile' in vsim_profile)
   env.assertTrue('Result processors profile' in vsim_profile)
+
+  # Check COMBINE profile
+  combine_profile = shard['COMBINE']
+  env.assertTrue('Total profile time' in combine_profile)
+  env.assertTrue('Result processors profile' in combine_profile)
+
+  # Check Coordinator section exists
+  env.assertTrue('Coordinator' in profile_data)
 
   # Test FT.PROFILE with FT.HYBRID LIMITED
   actual_res = conn.execute_command('ft.profile', 'idx', 'hybrid', 'limited', 'query', 'search', 'hello',
                                     'vsim', '@v', 'aaaaaaaa', 'knn', '2', 'k', '10',
                                     'combine', 'rrf', '2', 'constant', '60')
 
-  # Verify LIMITED profile also works
+  # Verify LIMITED profile also works with new format
   env.assertTrue(isinstance(actual_res, list))
-  env.assertTrue(len(actual_res) >= 2)
-  profile_data = actual_res[1]
-  env.assertTrue('Subqueries' in profile_data)
+  env.assertTrue(len(actual_res) >= 5)
+  profile_data = actual_res[4]
+  env.assertTrue('Shards' in profile_data)
 
   # Test with PARAMS
   actual_res = conn.execute_command('ft.profile', 'idx', 'hybrid', 'query', 'search', '($term)',
@@ -761,7 +786,8 @@ def testProfileHybrid(env):
                                     'combine', 'rrf', '2', 'constant', '60',
                                     'params', '4', 'term', 'hello', 'vec', 'aaaaaaaa')
 
-  # Verify PARAMS profile works
+  # Verify PARAMS profile works with new format
   env.assertTrue(isinstance(actual_res, list))
-  profile_data = actual_res[1]
-  env.assertTrue('Subqueries' in profile_data)
+  env.assertTrue(len(actual_res) >= 5)
+  profile_data = actual_res[4]
+  env.assertTrue('Shards' in profile_data)
