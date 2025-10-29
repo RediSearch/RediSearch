@@ -131,7 +131,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                              ARG_OPT_END);
 
         ArgParser_AddSubArgsV(parser, "_RANGE_SLOTS_BINARY", "Slot ranges",
-                            &subArgs, 1, -1,
+                            &subArgs, 1, 1,
                             ARG_OPT_OPTIONAL,
                             ARG_OPT_CALLBACK, handleRangeSlotsBinary, ctx,
                             ARG_OPT_END);

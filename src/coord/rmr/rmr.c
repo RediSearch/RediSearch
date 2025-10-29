@@ -598,7 +598,6 @@ void iterCursorMappingCb(void *p) {
   it->ctx.pending = numShardsWithMapping;
   it->ctx.inProcess = numShardsWithMapping; // Initially all commands are in process
 
-
   it->cbxs = rm_realloc(it->cbxs, numShardsWithMapping * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
   // The mappings are not sorted by targetShard, so we need to find the first one
@@ -609,7 +608,7 @@ void iterCursorMappingCb(void *p) {
   sprintf(buf, "%lld", vsimOrSearch->mappings[0].cursorId);
   MRCommand_Append(cmd, buf, strlen(buf));
 
-  // Create FT.CURSOR READ commands for each mapping (TODO(Joan): Is this comment accurate?)
+  // Create FT.CURSOR READ commands for each mapping
   for (size_t i = 1; i < numShardsWithMapping; i++) {
     size_t targetShard = vsimOrSearch->mappings[i].targetShard;
     it->cbxs[i].it = it;
@@ -622,16 +621,6 @@ void iterCursorMappingCb(void *p) {
     char buf[128];
     sprintf(buf, "%lld", vsimOrSearch->mappings[i].cursorId);
     MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, strlen(buf));
-
-    if (io_runtime_ctx->topo->shards[targetShard].slotRanges != NULL) {
-      // Add slot range information to the command (For FT AGGREGATE)
-      MRCommand_AddSlotRangeInfo(&it->cbxs[i].cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
-    }
-  }
-
-  if (io_runtime_ctx->topo->shards[firstTargetShard].slotRanges != NULL) {
-    // Add slot range information to the first command (For FT AGGREGATE)
-    MRCommand_AddSlotRangeInfo(cmd, io_runtime_ctx->topo->shards[firstTargetShard].slotRanges);
   }
 
   // Send commands to all shards
