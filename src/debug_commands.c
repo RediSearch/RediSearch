@@ -600,8 +600,12 @@ DEBUG_COMMAND(DumpTagIndex) {
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
-    QueryIterator *iterator = NewInvIndIterator_TagFull(iv, tagIndex);
-    ReplyIteratorResultsIDs(iterator, sctx->redisCtx);
+    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+    IndexReader *reader = NewIndexReader(iv, decoderCtx);
+    RSIndexResult *res = NewTokenRecord(NULL, 1);
+    res->freq = 1;
+    res->fieldMask = RS_FIELDMASK_ALL;
+    ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
     ++resultSize;
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
@@ -1167,8 +1171,12 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
-      QueryIterator *reader = NewInvIndIterator_TagFull(iv, idx);
-      ReplyIteratorResultsIDs(reader, sctx->redisCtx);
+      IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+      IndexReader *reader = NewIndexReader(iv, decoderCtx);
+      RSIndexResult *res = NewTokenRecord(NULL, 1);
+      res->freq = 1;
+      res->fieldMask = RS_FIELDMASK_ALL;
+      ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
     }
 
     RedisModule_ReplySetArrayLength(ctx, nsubelem);
