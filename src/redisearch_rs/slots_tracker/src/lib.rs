@@ -200,6 +200,62 @@ pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
     }
 }
 
+/// Sets the partially available slot ranges.
+///
+/// This function updates the PARTIALLY_AVAILABLE_SLOTS set to match the provided ranges.
+/// It also removes the given slots from LOCAL_SLOTS and FULLY_AVAILABLE_SLOTS, and
+/// increments the VERSION counter.
+///
+/// # Safety
+///
+/// This function must be called from the main thread only.
+/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` valid elements.
+/// All ranges must be sorted and have start <= end, with values in [0, 16383].
+#[unsafe(no_mangle)]
+pub extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const SlotRangeArray) {
+    // SAFETY: The caller guarantees this is called from the main thread
+    // and that the pointer is valid
+    unsafe {
+        // Validate the pointer
+        if ranges.is_null() {
+            return;
+        }
+
+        let ranges_ref = &*ranges;
+        
+        // Validate num_ranges is non-negative
+        if ranges_ref.num_ranges < 0 {
+            return;
+        }
+
+        // Create a slice from the flexible array member
+        let ranges_slice = if ranges_ref.num_ranges == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(
+                ranges_ref.ranges.as_ptr(),
+                ranges_ref.num_ranges as usize,
+            )
+        };
+
+        // Get mutable access to the sets
+        let local_slots = LOCAL_SLOTS.get_mut();
+        let fully_available = FULLY_AVAILABLE_SLOTS.get_mut();
+        let partially_available = PARTIALLY_AVAILABLE_SLOTS.get_mut();
+
+        // TODO: Implement in SlotsSet:
+        // 1. partially_available.set_from_ranges(ranges_slice)
+        // 2. local_slots.remove_ranges(ranges_slice)
+        // 3. fully_available.remove_ranges(ranges_slice)
+        // 4. VERSION.fetch_add(1, Ordering::Relaxed);
+        
+        // Placeholder: Always increment version for now
+        let _ = (local_slots, fully_available, partially_available, ranges_slice);
+        VERSION.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// Returns the current version of the slots configuration.
 ///
 /// This function can be called from any thread to check if the configuration has changed.

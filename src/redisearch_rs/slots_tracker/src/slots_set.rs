@@ -32,19 +32,21 @@ impl SlotsSet {
     }
 
     // ========================================================================
-    // Required methods for slots_tracker_set_local_slots API:
+    // Required methods for the C API:
     // ========================================================================
     
     // TODO: pub(crate) fn equals(&self, ranges: &[super::SlotRange]) -> bool
     //   - Compare if this SlotsSet contains the exact same ranges as the input
     //   - Assumes both are sorted
     //   - Return true if identical, false otherwise
+    //   - Used by: slots_tracker_set_local_slots
     
     // TODO: pub(crate) fn set_from_ranges(&mut self, ranges: &[super::SlotRange])
     //   - Replace the entire contents of this SlotsSet with the given ranges
     //   - Should validate ranges (start <= end, values in [0, 16383])
     //   - Should normalize/merge overlapping and adjacent ranges
     //   - Assumes input is sorted
+    //   - Used by: slots_tracker_set_local_slots, slots_tracker_set_partially_available_slots
     
     // TODO: pub(crate) fn remove_ranges(&mut self, ranges: &[super::SlotRange])
     //   - Remove any slots that overlap with the given ranges
@@ -53,6 +55,7 @@ impl SlotsSet {
     //     - This may split existing ranges or remove them entirely
     //   - Example: if self has [50-150] and input has [100-200],
     //     result should be [50-99]
+    //   - Used by: slots_tracker_set_local_slots, slots_tracker_set_partially_available_slots
     
     // ========================================================================
     // Additional helper methods:
