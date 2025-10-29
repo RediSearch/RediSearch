@@ -85,6 +85,12 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // Numeric responses are encoded as simple strings.
   array_append(tmparr, "_NUM_SSTRING");
 
+  // Preserve WITHCOUNT flag from the original command
+  int argOffset  = RMUtil_ArgIndex("WITHCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1) {
+    array_append(tmparr, "WITHCOUNT");
+  }
+
   // Add the index prefixes to the command, for validation in the shard
   array_append(tmparr, "_INDEX_PREFIXES");
   arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
@@ -95,7 +101,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
   }
 
-  int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
     array_append(tmparr, "DIALECT");
     array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the dialect

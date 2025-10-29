@@ -145,6 +145,7 @@ typedef struct {
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
+#define IsAggregate(r) ((r)->reqflags & QEXEC_F_IS_AGGREGATE)
 #define IsHybridTail(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_TAIL)
 #define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
 #define IsHybridVectorSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY)
