@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 ffi.workspace = true
 inverted_index.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
