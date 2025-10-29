@@ -47,7 +47,7 @@ static RSValue *MRReply_ToValue(MRReply *r) {
       RSValueMap map = RSValueMap_AllocUninit(map_len);
       for (size_t i = 0; i < map_len; i++) {
         MRReply *e_k = MRReply_ArrayElement(r, i * 2);
-        // RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
+        RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
         MRReply *e_v = MRReply_ArrayElement(r, (i * 2) + 1);
         RSValueMap_SetEntry(&map, i,  MRReply_ToValue(e_k), MRReply_ToValue(e_v));
       }
