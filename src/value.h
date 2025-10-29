@@ -52,10 +52,9 @@ typedef enum {
 
 } RSValueType;
 
-/* Enumerate sub-types of C strings, basically the free() strategy */
+/* Enumerate sub-types of C strings, indicates whether or not it should be rm_free'd */
 typedef enum {
   RSStringType_Const = 0x00,
-  RSStringType_Malloc = 0x01,
   RSStringType_RMAlloc = 0x02,
 } RSStringType;
 
@@ -194,15 +193,6 @@ RSValue RSValue_String(char *str, uint32_t len);
 RSValue *RSValue_NewString(char *str, uint32_t len);
 
 /**
- * Creates a heap-allocated RSValue wrapping a string with explicit string type.
- * @param str The string to wrap (ownership is transferred based on type)
- * @param len The length of the string
- * @param t The RSStringType specifying ownership/allocation strategy
- * @return A pointer to a heap-allocated RSValue
- */
-RSValue *RSValue_NewStringWithType(char *str, uint32_t len, RSStringType t);
-
-/**
  * Creates a heap-allocated RSValue wrapping a null-terminated C string.
  * @param s The null-terminated string to wrap (ownership is transferred)
  * @return A pointer to a heap-allocated RSValue
@@ -212,12 +202,11 @@ static inline RSValue *RSValue_NewCString(char *s) {
 }
 /**
  * Creates a heap-allocated RSValue wrapping a const null-terminated C string.
- * @param s The null-terminated string to wrap (ownership is transferred)
+ * @param str The string to wrap (ownership is transferred)
+ * @param len The length of the string
  * @return A pointer to a heap-allocated RSValue wrapping a constant C string
  */
-static inline RSValue *RSValue_NewConstString(const char *s, size_t n) {
-  return RSValue_NewStringWithType((char *)s, n, RSStringType_Const);
-}
+RSValue *RSValue_NewConstString(const char *str, uint32_t len);
 /**
  * Like RSValue_NewConstString, but uses strlen to determine
  * the length of the passed null-terminated C string.
@@ -336,13 +325,12 @@ RSValue *RSValue_NewVStringArray(uint32_t sz, ...);
 RSValue *RSValue_NewStringArray(char **strs, uint32_t sz);
 
 /**
- * Creates a heap-allocated RSValue array with strings of a specific type.
+ * Creates a heap-allocated RSValue array with strings of type `RSStringType_Const`.
  * @param strs Array of string pointers
  * @param sz Number of strings in the array
- * @param st The RSStringType to use for all strings
  * @return A pointer to a heap-allocated RSValue array
  */
-RSValue *RSValue_NewStringArrayT(char **strs, uint32_t sz, RSStringType st);
+RSValue *RSValue_NewConstStringArray(char **strs, uint32_t szx);
 
 /**
  * Creates a heap-allocated RSValue Trio from three RSValues.
