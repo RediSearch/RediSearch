@@ -311,6 +311,107 @@ pub extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const SlotRan
     }
 }
 
+/// Removes deleted slot ranges from the partially available slots.
+///
+/// This function removes the given slot ranges from PARTIALLY_AVAILABLE_SLOTS (set 3).
+/// These slots are expected to be found in set 3 only, as they represent slots that
+/// were just deleted.
+///
+/// # Safety
+///
+/// This function must be called from the main thread only.
+/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` valid elements.
+/// All ranges must be sorted and have start <= end, with values in [0, 16383].
+#[unsafe(no_mangle)]
+pub extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArray) {
+    // SAFETY: The caller guarantees this is called from the main thread
+    // and that the pointer is valid
+    unsafe {
+        // Validate the pointer
+        if ranges.is_null() {
+            return;
+        }
+
+        let ranges_ref = &*ranges;
+        
+        // Validate num_ranges is non-negative
+        if ranges_ref.num_ranges < 0 {
+            return;
+        }
+
+        // Create a slice from the flexible array member
+        let ranges_slice = if ranges_ref.num_ranges == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(
+                ranges_ref.ranges.as_ptr(),
+                ranges_ref.num_ranges as usize,
+            )
+        };
+
+        // Get mutable access to set 3 only
+        let partially_available = PARTIALLY_AVAILABLE_SLOTS.get_mut();
+
+        // TODO: Implement in SlotsSet:
+        // 1. partially_available.remove_ranges(ranges_slice)
+        // Note: Do NOT increment VERSION, only remove from set 3
+        
+        // Placeholder
+        let _ = (partially_available, ranges_slice);
+    }
+}
+
+/// Checks if there is any overlap between the given slot ranges and the fully available slots.
+///
+/// This function checks if any of the provided slot ranges overlap with FULLY_AVAILABLE_SLOTS (set 2).
+/// Returns true if there is at least one overlapping slot, false otherwise.
+///
+/// # Safety
+///
+/// This function must be called from the main thread only.
+/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` valid elements.
+/// All ranges must be sorted and have start <= end, with values in [0, 16383].
+#[unsafe(no_mangle)]
+pub extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotRangeArray) -> bool {
+    // SAFETY: The caller guarantees this is called from the main thread
+    // and that the pointer is valid
+    unsafe {
+        // Validate the pointer
+        if ranges.is_null() {
+            return false;
+        }
+
+        let ranges_ref = &*ranges;
+        
+        // Validate num_ranges is non-negative
+        if ranges_ref.num_ranges < 0 {
+            return false;
+        }
+
+        // Create a slice from the flexible array member
+        let ranges_slice = if ranges_ref.num_ranges == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(
+                ranges_ref.ranges.as_ptr(),
+                ranges_ref.num_ranges as usize,
+            )
+        };
+
+        // Get access to set 2
+        let fully_available = FULLY_AVAILABLE_SLOTS.get_mut();
+
+        // TODO: Implement in SlotsSet:
+        // 1. Return fully_available.has_overlap(ranges_slice)
+        
+        // Placeholder: return false for now
+        let _ = (fully_available, ranges_slice);
+        false
+    }
+}
+
 /// Returns the current version of the slots configuration.
 ///
 /// This function can be called from any thread to check if the configuration has changed.

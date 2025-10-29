@@ -55,7 +55,15 @@ impl SlotsSet {
     //     - This may split existing ranges or remove them entirely
     //   - Example: if self has [50-150] and input has [100-200],
     //     result should be [50-99]
-    //   - Used by: slots_tracker_set_local_slots, slots_tracker_set_partially_available_slots
+    //   - Used by: slots_tracker_set_local_slots, slots_tracker_set_partially_available_slots,
+    //     slots_tracker_remove_deleted_slots
+    
+    // TODO: pub(crate) fn has_overlap(&self, ranges: &[super::SlotRange]) -> bool
+    //   - Check if any of the given ranges overlap with any ranges in this set
+    //   - Returns true if there is at least one overlapping slot, false otherwise
+    //   - Example: if self has [50-100, 200-300] and input has [150-250],
+    //     result should be true (overlaps with 200-250)
+    //   - Used by: slots_tracker_has_fully_available_overlap
     
     // ========================================================================
     // Additional helper methods:
