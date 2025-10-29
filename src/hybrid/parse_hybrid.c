@@ -467,7 +467,8 @@ static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
   subqueryRequest->maxSearchResults = maxHybridResults;
   subqueryRequest->maxAggregateResults = maxHybridResults;
 
-  ApplyProfileOptions(&subqueryRequest->qiter, &subqueryRequest->reqflags, profileOptions);
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(subqueryRequest);
+  ApplyProfileOptions(qctx, &subqueryRequest->reqflags, profileOptions);
 }
 
 /**
@@ -703,22 +704,21 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   );
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
+  // Copy hybrid request configuration to each subquery
+  copyHybridConfigToSubquery(searchRequest, parsedCmdCtx,
+                            &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+  copyHybridConfigToSubquery(vectorRequest, parsedCmdCtx,
+                            &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+
+  // Clean up merge search options after copying
+  if (mergeSearchopts.params) {
+    Param_DictFree(mergeSearchopts.params);
+    mergeSearchopts.params = NULL;
+  }
+
   const bool hadArgumentBesidesCombine = (hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0;
-  const bool isProfile = (profileOptions & EXEC_WITH_PROFILE) != 0;
-  if (hadArgumentBesidesCombine || isProfile) {
+  if (hadArgumentBesidesCombine) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
-
-    // Copy hybrid request configuration to each subquery
-    copyHybridConfigToSubquery(searchRequest, parsedCmdCtx,
-                              &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
-    copyHybridConfigToSubquery(vectorRequest, parsedCmdCtx,
-                              &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
-
-    // Clean up merge search options after copying
-    if (mergeSearchopts.params) {
-      Param_DictFree(mergeSearchopts.params);
-      mergeSearchopts.params = NULL;
-    }
 
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;

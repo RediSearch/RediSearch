@@ -18,6 +18,7 @@
 #include "iterators/optimizer_reader.h"
 #include "reply_macros.h"
 #include "util/units.h"
+#include "hybrid/hybrid_request.h"
 
 typedef struct {
     IteratorsConfig *iteratorsConfig;
@@ -133,34 +134,47 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
 
 void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   ProfilePrinterCtx *profileCtx = ctx;
-  AREQ *req = profileCtx->req;
   bool timedout = profileCtx->timedout;
   bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
   bool bgScanOOM = profileCtx->bgScanOOM;
   bool queryOOM = profileCtx->queryOOM;
-  req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  bool profileVerbose = false;
+  ProfileClocks *clocks = NULL;
+  QueryProcessingCtx *qctx = NULL;
+  QEFlags reqFlags = 0;
+  if (profileCtx->hreq) {
+    profileVerbose = profileCtx->hreq->reqConfig.printProfileClock;
+    clocks = &profileCtx->hreq->profileClocks;
+    qctx = &profileCtx->hreq->tailPipeline->qctx;
+    reqFlags = profileCtx->hreq->reqflags;
+  } else if (profileCtx->req) {
+    profileVerbose = profileCtx->req->reqConfig.printProfileClock;
+    clocks = &profileCtx->req->profileClocks;
+    qctx = AREQ_QueryProcessingCtx(profileCtx->req);
+    reqFlags = AREQ_RequestFlags(profileCtx->req);
+  }
 
+  clocks->profileTotalTime += rs_wall_clock_elapsed_ns(&clocks->initClock);
+  
   //-------------------------------------------------------------------------------------------
   RedisModule_Reply_Map(reply);
-      int profile_verbose = req->reqConfig.printProfileClock;
       // Print total time
-      if (profile_verbose)
+      if (profileVerbose)
         RedisModule_ReplyKV_Double(reply, "Total profile time",
-          rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
+          rs_wall_clock_convert_ns_to_ms_d(clocks->profileTotalTime));
 
       // Print query parsing time
-      if (profile_verbose)
+      if (profileVerbose)
         RedisModule_ReplyKV_Double(reply, "Parsing time",
-          rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
+          rs_wall_clock_convert_ns_to_ms_d(clocks->profileParseTime));
 
       // Print iterators creation time
-        if (profile_verbose)
+        if (profileVerbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-            rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
+            rs_wall_clock_convert_ns_to_ms_d(clocks->profilePipelineBuildTime));
 
       //Print total GIL time
-        if (profile_verbose){
+        if (profileVerbose){
           if (RunInThread()){
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
             rs_wall_clock_convert_ns_to_ms_d(qctx->GILTime));
@@ -191,10 +205,11 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print profile of iterators
       QueryIterator *root = QITR_GetRootFilter(qctx);
       // Coordinator does not have iterators
-      if (root) {
+      if (root && profileCtx->req) {
+        AREQ *req = profileCtx->req;
         RedisModule_Reply_SimpleString(reply, "Iterators profile");
         PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
-                                     .printProfileClock = profile_verbose};
+                                     .printProfileClock = profileVerbose};
         printIteratorProfile(reply, root, 0, 0, 2, AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED, &config);
       }
 
@@ -202,7 +217,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       ResultProcessor *rp = qctx->endProc;
       RedisModule_ReplyKV_Array(reply, "Result processors profile");
         if (rp != NULL) {
-          printProfileRP(reply, rp, req->reqConfig.printProfileClock);
+          printProfileRP(reply, rp, profileVerbose);
         }
         // If rp is NULL (e.g., in hybrid search where individual AREQ pipelines are consumed),
         // we just create an empty array - no placeholder entries needed

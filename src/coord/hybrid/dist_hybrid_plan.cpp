@@ -84,7 +84,6 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     HybridPipelineParams *hybridParams,
     RLookup **lookups,
     QueryError *status) {
-
     // The score alias for text is not part of a step to be distributed at this present time
     // We need to open the alias in the distributed lookup
     AREQ *searchReq = hreq->requests[SEARCH_INDEX];
@@ -98,7 +97,12 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     RLookup_Init(tailLookup, IndexSpec_GetSpecCache(hreq->sctx->spec));
 
     int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
-    if (rc != REDISMODULE_OK) return NULL;
+    if (rc != REDISMODULE_OK) {
+      // The error is set at either the tail or the subquries error array
+      // need to copy it to the status so it will be visible to the user
+      HybridRequest_GetError(hreq, status);
+      return NULL;
+    }
 
     HybridLookupContext *lookupCtx = InitializeHybridLookupContext(hreq->requests, tailLookup);
     // Open the key outside the RLOOKUP_OPT_UNRESOLVED_OK scope so it won't be marked as unresolved
@@ -108,7 +112,11 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     tailLookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
     rc = HybridRequest_BuildMergePipeline(hreq, lookupCtx, scoreKey, hybridParams);
     tailLookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
-    if (rc != REDISMODULE_OK) return NULL;
+    if (rc != REDISMODULE_OK) {
+      // The error is set at the tail, copy it into status
+      QueryError_CloneFrom(&hreq->tailPipelineError, status);
+      return NULL;
+    }
 
     std::vector<const RLookupKey *> unresolvedKeys;
     for (RLookupKey *kk = tailLookup->head; kk; kk = kk->next) {

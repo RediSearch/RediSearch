@@ -19,6 +19,7 @@
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
 #include "profile/profile.h"
+#include "dist_profile.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -128,14 +129,24 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams) {
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
-  // Build _FT.HYBRID command (no profiling support)
-  *xcmd = MR_NewCommand(2, "_FT.HYBRID", index_name);
+  int cmdArgCount = 2;
+  const char *cmdArgs[5] = {"_FT.HYBRID", index_name};
+  
+  if (profileOptions != EXEC_NO_FLAGS) {
+    cmdArgs[0] = "_FT.PROFILE";
+    cmdArgs[cmdArgCount++] = "HYBRID";
+    if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
+      cmdArgs[cmdArgCount++] = "LIMITED";
+    }
+    cmdArgs[cmdArgCount++] = "QUERY";
+  }  
+  *xcmd = MR_NewCommandArgv(cmdArgCount, cmdArgs);
 
   // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
   int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
@@ -307,19 +318,17 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
   }
 }
 
-void printDistHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
-  // profileRP replace netRP as end PR
+void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
   ProfilePrinterCtx *cCtx = ctx;
-  RedisModule_ReplyKV_Map(reply, "Subqueries");
+  // [{"SEARCH": [#1, #2, #3], "VSIM": [#1, #2, #3]"}]
+  RedisModule_Reply_Map(reply);
   for (size_t i = 0; i < cCtx->hreq->nrequests; i++) {
     AREQ *areq = cCtx->hreq->requests[i];
     RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(areq)->rootProc;
-    ProfilePrinterCtx sCtx = {
-      .req = areq,
-      .timedout = cCtx->timedout,
-      .reachedMaxPrefixExpansions = cCtx->reachedMaxPrefixExpansions,
-      .bgScanOOM = cCtx->bgScanOOM,
-      .queryOOM = cCtx->queryOOM,
+    PrintShardProfile_ctx sCtx = {
+      .count = array_len(rpnet->shardsProfile),
+      .replies = rpnet->shardsProfile,
+      .isSearch = false,
     };
     const char *subqueryType = "N/A";
     if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
@@ -327,17 +336,16 @@ void printDistHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
     } else if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
       subqueryType = "VSIM";
     }
-    RedisModule_ReplyKV_Map(reply, subqueryType);
-    Profile_Print(reply, &sCtx);
-    RedisModule_Reply_MapEnd(reply);
+    RedisModule_ReplyKV_Array(reply, subqueryType);
+    PrintShardProfile(reply, &sCtx);
+    RedisModule_Reply_ArrayEnd(reply);
   }
   RedisModule_Reply_MapEnd(reply);
 }
 
 void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
-  Profile_PrintInFormat(reply, printDistHybridProfileShards, ctx, NULL, NULL);
+  Profile_PrintInFormat(reply, printShardsHybridProfile, ctx, Profile_Print, ctx);
 }
-
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
         RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
@@ -356,13 +364,24 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     cmd.reqConfig = &hreq->reqConfig;
 
     ArgsCursor ac = {0};
-    HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
-    int rc = parseHybridCommand(ctx, &ac, hreq->sctx, &cmd, status, false, EXEC_NO_FLAGS);
+    ArgsCursor_InitRString(&ac, argv, argc);
+    ProfileOptions profileOptions = EXEC_NO_FLAGS;
+    int rc = ParseProfile(&ac, status, &profileOptions);
+    if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
+    
+    if (profileOptions == EXEC_NO_FLAGS) {
+      // No profile args, we can use the original args cursor to skip past the command name and index
+      HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
+    }
+
+    hreq->tailPipeline->qctx.isProfile = profileOptions != EXEC_NO_FLAGS;
+    rc = parseHybridCommand(ctx, &ac, hreq->sctx, &cmd, status, false, profileOptions);
     // we only need parse the combine and what comes after it
     // we can manually create the subqueries pipelines (depleter -> sorter(window)-> RPNet(shared dispatcher ))
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
+
 
     // Initialize timeout for all subqueries BEFORE building pipelines
     // but after the parsing to know the timeout values
@@ -372,8 +391,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     }
     SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
 
-    // // Set request flags from hybridParams
-    // hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
+    hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags;
 
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];
@@ -392,22 +410,22 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, &xcmd, serialized, sp, &hybridParams);
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized, sp, &hybridParams);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
-    xcmd.forProfiling = false;  // No profiling support for hybrid yet
+    xcmd.forProfiling = profileOptions != EXEC_NO_FLAGS;
     xcmd.rootCommand = C_READ;
 
     // UPDATED: Use new start function with mappings (no dispatcher needed)
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext_StartWithMappings);
     HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, lookups[1], rpnetNext_StartWithMappings);
 
-    if (IsProfile(hreq)) {
+    if (profileOptions != EXEC_NO_FLAGS) {
       rs_wall_clock parseClock;
       rs_wall_clock_init(&parseClock);
       // Calculate the time elapsed for profileParseTime by using the initialized parseClock
-      hreq->profileParseTime = rs_wall_clock_diff_ns(&hreq->initClock, &parseClock);
+      hreq->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hreq->profileClocks.initClock, &parseClock);
     }
 
     // Free the command

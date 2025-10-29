@@ -34,10 +34,7 @@ typedef struct HybridRequest {
     RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
     RedisSearchCtx *sctx;
     QEFlags reqflags;
-    rs_wall_clock profileClock;
-    rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
-    rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
-    rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
+    ProfileClocks profileClocks;
     profiler_func profile;
 } HybridRequest;
 

@@ -55,6 +55,14 @@ typedef struct {
   bool queryOOM;
 } ProfilePrinterCtx; // Context for the profile printing callback
 
+typedef struct {
+  /** Profile variables */
+  rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
+  rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
+  rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
+  rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
+} ProfileClocks;
+
 void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx);
 
 typedef void (*ProfilePrinterCB)(RedisModule_Reply *reply, void *ctx);

@@ -12,7 +12,8 @@
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
 extern "C" {
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, MRCommand *xcmd, arrayof(char *) serialized,
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
+                            MRCommand *xcmd, arrayof(char *) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams);
 }
 
@@ -61,7 +62,7 @@ protected:
 
         // Build MR command
         MRCommand xcmd;
-        HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, nullptr, &hybridParams);
+        HybridRequest_buildMRCommand(args, args.size(), 0, &xcmd, NULL, nullptr, &hybridParams);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -98,7 +99,7 @@ protected:
 
       // Build MR command
       MRCommand xcmd;
-      HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, sp, &hybridParams);
+      HybridRequest_buildMRCommand(args, args.size(), 0, &xcmd, NULL, sp, &hybridParams);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
         // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT

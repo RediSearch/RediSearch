@@ -47,7 +47,7 @@ static RSValue *MRReply_ToValue(MRReply *r) {
       RSValueMap map = RSValueMap_AllocUninit(map_len);
       for (size_t i = 0; i < map_len; i++) {
         MRReply *e_k = MRReply_ArrayElement(r, i * 2);
-        RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
+        // RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
         MRReply *e_v = MRReply_ArrayElement(r, (i * 2) + 1);
         RSValueMap_SetEntry(&map, i,  MRReply_ToValue(e_k), MRReply_ToValue(e_v));
       }
@@ -140,13 +140,14 @@ static int getNextReply(RPNet *nc) {
     if (nc->cmd.forProfiling) {
       meta = MRReply_MapElement(meta, "results"); // profile has an extra level
     }
+    
     rows = MRReply_MapElement(meta, "results");
   } else { // RESP2
     rows = MRReply_ArrayElement(root, 0);
   }
 
   const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
-  RS_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY);
+  RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY, rows ? "rows is not an array" : "rows is NULL");
   if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
     MRReply_Free(root);
@@ -183,6 +184,7 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     // Create cursor read command using the copied index name
     nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx_copy);
     nc->cmd.rootCommand = C_READ;
+    nc->cmd.forProfiling = IsProfile(nc->areq);
     nc->cmd.protocol = 3;
     rm_free(idx_copy);
 
