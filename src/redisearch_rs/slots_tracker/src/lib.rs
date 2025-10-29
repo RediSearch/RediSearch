@@ -85,18 +85,38 @@ static PARTIALLY_AVAILABLE_SLOTS: UnsafeSyncCell<SlotsSet> = UnsafeSyncCell::new
 /// This is atomic so it can be safely read from any thread.
 static VERSION: AtomicU32 = AtomicU32::new(0);
 
-// TODO: Add helper function to get the appropriate static instance by ID
-// fn get_slots_set(instance_id: u8) -> Result<&'static mut SlotsSet, SlotTrackerError> {
-//     // SAFETY: The caller must ensure single-threaded access
-//     unsafe {
-//         match instance_id {
-//             0 => Ok(SLOTS_SET_1.get_mut()),
-//             1 => Ok(SLOTS_SET_2.get_mut()),
-//             2 => Ok(SLOTS_SET_3.get_mut()),
-//             _ => Err(SlotTrackerError::InvalidInstance),
-//         }
-//     }
-// }
+/// Reserved version value indicating unstable/partial availability.
+///
+/// This value will never equal a real version counter, so comparisons will always fail.
+/// Used when slots are available but partially or the coverage doesn't exactly match.
+pub const SLOTS_TRACKER_UNSTABLE_VERSION: u32 = u32::MAX;
+
+/// Reserved version value indicating slots are not available.
+///
+/// This value indicates that the query cannot proceed because required slots are not available.
+pub const SLOTS_TRACKER_UNAVAILABLE: u32 = u32::MAX - 1;
+
+/// Maximum valid version value before wrapping to 0.
+const MAX_VALID_VERSION: u32 = u32::MAX - 2;
+
+/// Increments the version counter, skipping reserved values.
+///
+/// If the current version is `MAX_VALID_VERSION` (u32::MAX - 2), wraps to 0
+/// instead of incrementing to reserved values (u32::MAX - 1 or u32::MAX).
+///
+/// # Safety
+///
+/// This function assumes single-threaded access (main thread only).
+fn increment_version() {
+    let current = VERSION.load(Ordering::Relaxed);
+    assert!(current <= MAX_VALID_VERSION, "Version counter out of valid range");
+    let next = if current < MAX_VALID_VERSION {
+        current + 1
+    } else {
+        0 // Wrap around to 0
+    };
+    VERSION.store(next, Ordering::Relaxed);
+}
 
 // ============================================================================
 // C FFI Interface - Public API
@@ -255,11 +275,11 @@ pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
     //    a. local_slots.set_from_ranges(ranges_slice)
     //    b. fully_available.remove_ranges(ranges_slice)
     //    c. partially_available.remove_ranges(ranges_slice)
-    //    d. VERSION.fetch_add(1, Ordering::Relaxed);
+    //    d. increment_version();
     
     // Placeholder: Always increment version for now
     let _ = (local_slots, fully_available, partially_available, ranges_slice);
-    VERSION.fetch_add(1, Ordering::Relaxed);
+    increment_version();
 }
 
 /// Sets the partially available slot ranges.
@@ -289,11 +309,11 @@ pub extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const Slo
     // 1. partially_available.set_from_ranges(ranges_slice)
     // 2. local_slots.remove_ranges(ranges_slice)
     // 3. fully_available.remove_ranges(ranges_slice)
-    // 4. VERSION.fetch_add(1, Ordering::Relaxed);
+    // 4. increment_version();
     
     // Placeholder: Always increment version for now
     let _ = (local_slots, fully_available, partially_available, ranges_slice);
-    VERSION.fetch_add(1, Ordering::Relaxed);
+    increment_version();
 }
 
 /// Sets the fully available non-owned slot ranges.
@@ -392,17 +412,6 @@ pub extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotR
     let _ = (fully_available, ranges_slice);
     false
 }
-
-/// Reserved version value indicating unstable/partial availability.
-///
-/// This value will never equal a real version counter, so comparisons will always fail.
-/// Used when slots are available but partially or the coverage doesn't exactly match.
-pub const SLOTS_TRACKER_UNSTABLE_VERSION: u32 = u32::MAX;
-
-/// Reserved version value indicating slots are not available.
-///
-/// This value indicates that the query cannot proceed because required slots are not available.
-pub const SLOTS_TRACKER_UNAVAILABLE: u32 = u32::MAX - 1;
 
 /// Checks if all requested slots are available and returns version information.
 ///
