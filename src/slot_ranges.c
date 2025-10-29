@@ -18,6 +18,29 @@
 #include <limits.h>
 #include <arpa/inet.h>
 
+// Cross-platform byte order conversion functions
+#ifdef __linux__
+  #include <endian.h>
+#elif defined(__APPLE__)
+  #include <libkern/OSByteOrder.h>
+  #define htole16(x) OSSwapHostToLittleInt16(x)
+  #define le16toh(x) OSSwapLittleToHostInt16(x)
+#elif defined(_WIN32)
+  #include <winsock2.h>
+  #define htole16(x) (x)  // Windows is little-endian
+  #define le16toh(x) (x)
+#else
+  // Generic fallback using htons/ntohs
+  #include <arpa/inet.h>
+  #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    #define htole16(x) (x)
+    #define le16toh(x) (x)
+  #else
+    #define htole16(x) __builtin_bswap16(x)
+    #define le16toh(x) __builtin_bswap16(x)
+  #endif
+#endif
+
 extern RedisModuleCtx *RSDummyContext;
 
 struct SharedSlotRangeArray {
@@ -74,16 +97,16 @@ size_t RedisModuleSlotRangeArray_SerializedSize_Binary(uint32_t num_ranges) {
   return /*space for num_ranges*/(size_t)num_ranges * (sizeof(uint16_t) + sizeof(uint16_t));
 }
 
-static bool write_u16_be(uint8_t *buf, size_t len, size_t *off, uint16_t v) {
+static bool write_u16_le(uint8_t *buf, size_t len, size_t *off, uint16_t v) {
     if (*off > len || len - *off < 2) return false;
-    uint16_t be = htons(v);
-    memcpy(buf + *off, &be, 2); *off += 2; return true;
+    uint16_t le = htole16(v);  // No-op on little-endian
+    memcpy(buf + *off, &le, 2); *off += 2; return true;
 }
 
-static bool read_u16_be(const uint8_t *buf, size_t len, size_t *off, uint16_t *out) {
+static bool read_u16_le(const uint8_t *buf, size_t len, size_t *off, uint16_t *out) {
     if (*off > len || len - *off < 2) return false;
-    uint16_t be; memcpy(&be, buf + *off, 2);
-    *out = ntohs(be); *off += 2; return true;
+    uint16_t le; memcpy(&le, buf + *off, 2);
+    *out = le16toh(le); *off += 2; return true;  // No-op on little-endian
 }
 
 /* ===== Binary (client-managed buffers) ===== */
@@ -96,8 +119,8 @@ bool RedisModuleSlotRangeArray_SerializeBinary(const RedisModuleSlotRangeArray *
     uint32_t n = (uint32_t)slot_range_array->num_ranges;
     size_t off = 0;
     for (uint32_t i = 0; i < n; ++i) {
-        if (!write_u16_be(out_buf, buf_len, &off, slot_range_array->ranges[i].start) ||
-            !write_u16_be(out_buf, buf_len, &off, slot_range_array->ranges[i].end)) {
+        if (!write_u16_le(out_buf, buf_len, &off, slot_range_array->ranges[i].start) ||
+            !write_u16_le(out_buf, buf_len, &off, slot_range_array->ranges[i].end)) {
             return false;
         }
     }
@@ -121,12 +144,10 @@ bool RedisModuleSlotRangeArray_DeserializeBinary(const uint8_t *in_buf,
 
     for (uint32_t i = 0; i < out->num_ranges; ++i) {
         uint16_t s, e;
-        if (!read_u16_be(in_buf, in_len, &off, &s) ||
-            !read_u16_be(in_buf, in_len, &off, &e)) {
+        if (!read_u16_le(in_buf, in_len, &off, &s) ||
+            !read_u16_le(in_buf, in_len, &off, &e)) {
             return false;
         }
-        /* Optional domain checks for cluster slots:
-            if (s > 16383 || e > 16383 || s > e) { return false; } */
         out->ranges[i].start = s;
         out->ranges[i].end   = e;
     }
