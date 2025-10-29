@@ -1,5 +1,4 @@
 import os
-import subprocess
 from includes import *
 from common import *
 from RLTest import Env

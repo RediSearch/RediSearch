@@ -20,6 +20,7 @@ from scipy import spatial
 from pprint import pprint as pp
 import inspect
 from unittest import SkipTest
+import subprocess
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/rdbcompat'
