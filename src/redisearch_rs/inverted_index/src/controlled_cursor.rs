@@ -1,26 +1,28 @@
-/*
- * Copyright (c) 2006-Present, Redis Ltd.
- * All rights reserved.
- *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
- * GNU Affero General Public License v3 (AGPLv3).
-*/
+//! Custom implementation of [`std::io::Cursor`] which uses a conservative growth strategy
+//! when writing to the underlying vec. This is needed because the default Cursor uses a
+//! [`Vec::reserve`] call which uses a doubling strategy. This can lead to excessive memory usage
+//! for inverted index leafs with a small number of documents and therefore a small buffer inside
+//! [`crate::IndexBlock`]s. This is common for text indexes where many terms are rare and only appear in a
+//! few documents.
+//!
+//! This implementation uses a [`Vec::reserve_exact`] call to only allocate the exact amount of memory
+//! needed to write the data. This can lead to more frequent allocations, but avoids the excessive
+//! memory usage caused by the doubling strategy. There is a `CHANGED` comment to mark this section.
+//!
+//! The rest of this code is a verbatim copy of the [`std::io::Cursor`] implementation.
+//!
+//! ## License
+//!
+//! Portions of this code are derived from the Rust standard library
+//! ([`std::io::Cursor`](https://github.com/rust-lang/rust)), which is dual-licensed under:
+//!
+//! - [Apache License 2.0](./LICENSE-APACHE)
+//! - [MIT License](./LICENSE-MIT)
+//!
+//! We have kept the same license(s) for this codebase.
 
 use std::io::{IoSlice, Seek, SeekFrom, Write};
 
-/// Custom implementation of [`std::io::Cursor`] which uses a custom a conservative growth strategy
-/// when writing to the underlying vec. This is needed because the default Cursor uses a
-/// [`Vec::reserve`] call which uses a doubling strategy. This can lead to excessive memory usage
-/// for inverted index leafs with a small number of documents and therefore a small buffer inside
-/// [`crate::IndexBlock`]s. This is common for text indexes where many terms are rare and only appear in a
-/// few documents.
-///
-/// This implementation uses a [`Vec::reserve_exact`] call to only allocate the exact amount of memory
-/// needed to write the data. This can lead to more frequent allocations, but avoids the excessive
-/// memory usage caused by the doubling strategy. There is a `CHANGED` comment to mark this section.
-///
-/// The rest of this code is a verbatim copy of the [`std::io::Cursor`] implementation.
 pub struct ControlledCursor<'buf> {
     inner: &'buf mut Vec<u8>,
     pos: u64,
