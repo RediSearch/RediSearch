@@ -42,7 +42,17 @@ impl<'buf> ControlledCursor<'buf> {
 /// `vec` must have `buf.len()` spare capacity.
 unsafe fn vec_write_all_unchecked(pos: usize, vec: &mut Vec<u8>, buf: &[u8]) -> usize {
     debug_assert!(vec.capacity() >= pos + buf.len());
-    unsafe { vec.as_mut_ptr().add(pos).copy_from(buf.as_ptr(), buf.len()) };
+
+    // SAFETY: we just checked the position is within the capacity
+    let vec = unsafe { vec.as_mut_ptr().add(pos) };
+
+    // SAFETY: we are meeting the following safety conditions
+    // - vec is valid for writes of buf.len() bytes because of the capacity check above
+    // - vec is properly aligned because it comes from a Vec<u8>
+    // - buf.as_ptr() is valid for reads of buf.len() bytes because buf is a valid slice
+    // - buf.as_ptr() is properly aligned because it comes from a &[u8]
+    unsafe { vec.copy_from(buf.as_ptr(), buf.len()) };
+
     pos + buf.len()
 }
 
@@ -64,10 +74,16 @@ fn vec_write_all(pos_mut: &mut u64, vec: &mut Vec<u8>, buf: &[u8]) -> std::io::R
     // and that all bytes get written up to pos
     unsafe {
         pos = vec_write_all_unchecked(pos, vec, buf);
-        if pos > vec.len() {
+    }
+
+    if pos > vec.len() {
+        // SAFETY: we meet the following safety conditions
+        // - `new_len` is equal or less than `capacity()` because of the `reserve_and_pad()` call
+        // - All the elements from `old_len..new_len` was initialized in the `vec_write_all_unchecked()` call
+        unsafe {
             vec.set_len(pos);
         }
-    };
+    }
 
     // Bump us forward
     *pos_mut += buf_len as u64;
@@ -93,14 +109,19 @@ fn vec_write_all_vectored(
     let buf_len = bufs.iter().fold(0usize, |a, b| a.saturating_add(b.len()));
     let mut pos = reserve_and_pad(pos_mut, vec, buf_len)?;
 
-    // Write the buf then progress the vec forward if necessary
-    // Safety: we have ensured that the capacity is available
-    // and that all bytes get written up to the last pos
-    unsafe {
-        for buf in bufs {
+    for buf in bufs {
+        // Write the buf then progress the vec forward if necessary
+        // Safety: we have ensured that the capacity is available
+        // and that all bytes get written up to the last pos
+        unsafe {
             pos = vec_write_all_unchecked(pos, vec, buf);
         }
-        if pos > vec.len() {
+    }
+    if pos > vec.len() {
+        // SAFETY: we meet the following safety conditions
+        // - `new_len` is equal or less than `capacity()` because of the `reserve_and_pad()` call
+        // - All the elements from `old_len..new_len` was initialized in the `vec_write_all_unchecked()` call
+        unsafe {
             vec.set_len(pos);
         }
     }
@@ -152,6 +173,12 @@ fn reserve_and_pad(pos_mut: &mut u64, vec: &mut Vec<u8>, buf_len: usize) -> std:
             spare
                 .get_unchecked_mut(..diff)
                 .fill(core::mem::MaybeUninit::new(0));
+        }
+
+        // Safety: we meet the following safety conditions
+        // - `new_len` is equal or less than `capacity()` because of the `reserve_exact` code block
+        // - All the elements from `old_len..new_len` was just intialized with 0s
+        unsafe {
             vec.set_len(pos);
         }
     }
