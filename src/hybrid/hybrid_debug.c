@@ -19,6 +19,7 @@
 typedef struct {
   RedisModuleString **debug_argv;
   unsigned long long debug_params_count;
+  unsigned long long debug_params_count_add;
 
   // Component-specific timeouts only
   unsigned long long search_timeout_count;
@@ -45,13 +46,15 @@ static HybridDebugParams parseHybridDebugParamsCount(RedisModuleString **argv, i
   }
 
   // The idea here is to support the cases where _RANGE_SLOTS_BINARY or _RANGE_SLOTS_HR is used, and where it is not used.
-  int debug_params_count_arg_index = argc < 4 ? argc - 2 : argc - 4;
+  int debug_params_count_add = argc < 4 ? 2 : 4;
+  int debug_params_count_arg_index = argc - debug_params_count_add;
   size_t n;
   const char *arg = RedisModule_StringPtrLen(argv[debug_params_count_arg_index], &n);
   if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
     // Try in the position it may be it _RANGE_SLOTS_BINARY is not used
     // May be doing it twice, but it's ok (it is an uncommon path anyway)
-    debug_params_count_arg_index = argc - 2;
+    debug_params_count_add = 2;
+    debug_params_count_arg_index = argc - debug_params_count_add;
     arg = RedisModule_StringPtrLen(argv[debug_params_count_arg_index], &n);
     if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
@@ -67,8 +70,10 @@ static HybridDebugParams parseHybridDebugParamsCount(RedisModuleString **argv, i
   }
 
   debug_params.debug_params_count = debug_params_count;
-  int debug_argv_count = debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+  debug_params.debug_params_count_add = debug_params_count_add;
+  int debug_argv_count = debug_params_count + debug_params_count_add;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   debug_params.debug_argv = argv + (argc - debug_argv_count);
+
 
   return debug_params;
 }
@@ -201,7 +206,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   }
 
   // Calculate the number of arguments for the actual hybrid command (excluding debug params)
-  int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>`
+  int debug_argv_count = debug_params.debug_params_count + debug_params.debug_params_count_add;  // account for `DEBUG_PARAMS_COUNT` `<count>`
   int hybrid_argc = argc - debug_argv_count;
 
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
