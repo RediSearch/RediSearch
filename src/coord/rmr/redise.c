@@ -19,7 +19,6 @@ typedef struct {
 
 static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   // New shard
-  //TODO(Joan): Create slot ranges and pass info from RLShard or parse directly into the new type and refactor
   size_t num_ranges = 1; // For now CLUSTERSET only supports a single range per shard
   size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges;
   RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
