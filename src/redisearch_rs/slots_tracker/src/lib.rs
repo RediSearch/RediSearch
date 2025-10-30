@@ -24,7 +24,7 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 mod slots_set;
-use slots_set::SlotsSet;
+use slots_set::{SlotsSet, CoverageRelation};
 
 // ============================================================================
 // Thread-unsafe wrapper for single-threaded access
@@ -269,16 +269,15 @@ pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees single-threaded access
     let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
 
-    // TODO: Implement in SlotsSet:
-    // 1. Check if local_slots.equals(ranges_slice)
-    // 2. If different:
-    //    a. local_slots.set_from_ranges(ranges_slice)
-    //    b. fully_available.remove_ranges(ranges_slice)
-    //    c. partially_available.remove_ranges(ranges_slice)
-    //    d. increment_version();
+    // Check if the ranges are already equal (no change needed)
+    if local_slots.equals(ranges_slice) {
+        return;
+    }
     
-    // Placeholder: Always increment version for now
-    let _ = (local_slots, fully_available, partially_available, ranges_slice);
+    // Update local slots and remove from other sets
+    local_slots.set_from_ranges(ranges_slice);
+    fully_available.remove_ranges(ranges_slice);
+    partially_available.remove_ranges(ranges_slice);
     increment_version();
 }
 
@@ -305,14 +304,10 @@ pub extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const Slo
     // SAFETY: Caller guarantees single-threaded access
     let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
 
-    // TODO: Implement in SlotsSet:
-    // 1. partially_available.set_from_ranges(ranges_slice)
-    // 2. local_slots.remove_ranges(ranges_slice)
-    // 3. fully_available.remove_ranges(ranges_slice)
-    // 4. increment_version();
-    
-    // Placeholder: Always increment version for now
-    let _ = (local_slots, fully_available, partially_available, ranges_slice);
+    // Set partially available slots and remove from other sets
+    partially_available.set_from_ranges(ranges_slice);
+    local_slots.remove_ranges(ranges_slice);
+    fully_available.remove_ranges(ranges_slice);
     increment_version();
 }
 
@@ -343,13 +338,10 @@ pub extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const SlotRan
     // SAFETY: Caller guarantees single-threaded access
     let fully_available = unsafe { get_fully_available_slots() };
 
-    // TODO: Implement in SlotsSet:
-    // 1. fully_available.set_from_ranges(ranges_slice)
-    // 2. local_slots.remove_ranges(ranges_slice)
+    // Set fully available slots and remove from local slots
     // Note: Do NOT increment VERSION, do NOT remove from partially_available
-    
-    // Placeholder
-    let _ = (local_slots, fully_available, ranges_slice);
+    fully_available.add_ranges(ranges_slice);
+    local_slots.remove_ranges(ranges_slice);
 }
 
 /// Removes deleted slot ranges from the partially available slots.
@@ -375,12 +367,9 @@ pub extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArr
     // SAFETY: Caller guarantees single-threaded access
     let partially_available = unsafe { get_partially_available_slots() };
 
-    // TODO: Implement in SlotsSet:
-    // 1. partially_available.remove_ranges(ranges_slice)
+    // Remove deleted slots from partially available set only
     // Note: Do NOT increment VERSION, only remove from set 3
-    
-    // Placeholder
-    let _ = (partially_available, ranges_slice);
+    partially_available.remove_ranges(ranges_slice);
 }
 
 /// Checks if there is any overlap between the given slot ranges and the fully available slots.
@@ -405,12 +394,8 @@ pub extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotR
     // SAFETY: Caller guarantees single-threaded access
     let fully_available = unsafe { get_fully_available_slots() };
 
-    // TODO: Implement in SlotsSet:
-    // 1. Return fully_available.has_overlap(ranges_slice)
-    
-    // Placeholder: return false for now
-    let _ = (fully_available, ranges_slice);
-    false
+    // Check if any of the ranges overlap with fully available slots
+    fully_available.has_overlap(ranges_slice)
 }
 
 /// Checks if all requested slots are available and returns version information.
@@ -448,27 +433,27 @@ pub extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray
     // SAFETY: Caller guarantees single-threaded access
     let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
 
-    // TODO: Implement in SlotsSet:
-    // Fast path: Check if sets 2 & 3 are empty
-    // if fully_available.is_empty() && partially_available.is_empty() {
-    //     if local_slots.equals(ranges_slice) {
-    //         return VERSION.load(Ordering::Relaxed);
-    //     }
-    // }
-    //
-    // Full check:
-    // 1. Check if local_slots + fully_available covers ranges_slice
-    //    Use: local_slots.union_covers(fully_available, ranges_slice)
-    // 2. If not covered: return SLOTS_TRACKER_UNAVAILABLE
-    // 3. If covered:
-    //    a. Check if local_slots + fully_available equals ranges_slice exactly
-    //       AND partially_available.is_empty()
-    //    b. If yes: return VERSION.load(Ordering::Relaxed)
-    //    c. If no: return SLOTS_TRACKER_UNSTABLE_VERSION
+    // Fast path: If sets 2 & 3 are empty and input exactly matches set 1
+    if fully_available.is_empty() && partially_available.is_empty()
+        && local_slots.equals(ranges_slice) {
+        return VERSION.load(Ordering::Relaxed);
+    }
     
-    // Placeholder: return unavailable for now
-    let _ = (local_slots, fully_available, partially_available, ranges_slice);
-    SLOTS_TRACKER_UNAVAILABLE
+    // Full check: Use union_relation to check coverage
+    match local_slots.union_relation(fully_available, ranges_slice) {
+        CoverageRelation::Equals if partially_available.is_empty() => {
+            // Exact match and no partial slots
+            VERSION.load(Ordering::Relaxed)
+        }
+        CoverageRelation::Equals | CoverageRelation::Covers => {
+            // Covered but not exact, or has partial slots
+            SLOTS_TRACKER_UNSTABLE_VERSION
+        }
+        CoverageRelation::NoMatch => {
+            // Not all slots are available
+            SLOTS_TRACKER_UNAVAILABLE
+        }
+    }
 }
 
 /// Returns the current version of the slots configuration.
