@@ -28,7 +28,10 @@ pub struct ControlledCursor<'buf> {
 
 impl<'buf> ControlledCursor<'buf> {
     pub const fn new(inner: &'buf mut Vec<u8>) -> Self {
-        Self { inner, pos: 0 }
+        Self {
+            pos: inner.len() as u64,
+            inner,
+        }
     }
 }
 

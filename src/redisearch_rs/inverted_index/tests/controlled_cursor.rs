@@ -34,7 +34,7 @@ fn test_write_seek_and_vectored_write_with_padding() {
     let bytes_written = {
         let mut cursor = ControlledCursor::new(&mut buffer);
         cursor
-            .seek(SeekFrom::Start(9)) // Position at 9 for the write
+            .seek(SeekFrom::Current(5)) // Position at 9 for the write
             .expect("Failed to seek from current position");
 
         let vec_data1 = b"abc";

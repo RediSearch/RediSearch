@@ -61,7 +61,7 @@ impl Encoder for Dummy {
     ) -> std::io::Result<usize> {
         writer.write_all(&delta.to_be_bytes())?;
 
-        Ok(8)
+        Ok(4)
     }
 }
 
@@ -85,8 +85,8 @@ fn adding_records() {
     let mem_growth = ii.add_record(&record).unwrap();
 
     assert_eq!(
-        mem_growth, 56,
-        "size of the index block plus initial buffer capacity"
+        mem_growth, 52,
+        "size of the index block (48 bytes) plus 4 bytes for the delta"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -99,7 +99,10 @@ fn adding_records() {
 
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(mem_growth, 0, "buffer should not need to grow again");
+    assert_eq!(
+        mem_growth, 5,
+        "buffer needs to grow to 9 bytes to hold a total of 8 bytes"
+    );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0, 0, 0, 0, 1]);
     assert_eq!(ii.blocks[0].num_entries, 2);
@@ -215,19 +218,19 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
 
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
     assert_eq!(
-        mem_growth, 56,
-        "size of the index block plus initial buffer capacity"
+        mem_growth, 49,
+        "size of the index block (48 bytes) plus the byte written"
     );
     assert_eq!(ii.blocks.len(), 1);
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(11)).unwrap();
-    assert_eq!(mem_growth, 0, "buffer does not need to grow again");
+    assert_eq!(mem_growth, 1, "buffer needs to grow for the new byte");
     assert_eq!(ii.blocks.len(), 1);
 
     // 3 entry should create a new block
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(12)).unwrap();
     assert_eq!(
-        mem_growth, 56,
-        "size of the new index block plus initial buffer capacity"
+        mem_growth, 49,
+        "size of the new index block (48 bytes) plus the byte written"
     );
     assert_eq!(
         ii.blocks.len(),
@@ -235,12 +238,12 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         "should create a new block after reaching the limit"
     );
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(13)).unwrap();
-    assert_eq!(mem_growth, 0, "buffer does not need to grow again");
+    assert_eq!(mem_growth, 1, "buffer needs to grow for the new byte");
     assert_eq!(ii.blocks.len(), 2);
 
     // But duplicate entry does not go in new block even if the current block is full
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(13)).unwrap();
-    assert_eq!(mem_growth, 0, "buffer does not need to grow again");
+    assert_eq!(mem_growth, 1, "buffer needs to grow again");
     assert_eq!(
         ii.blocks.len(),
         2,
@@ -261,8 +264,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        8 + 48,
-        "should write 8 bytes for delta and 48 bytes for the index block"
+        4 + 48,
+        "should write 4 bytes for delta and 48 bytes for the index block"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -279,8 +282,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        8 + 48,
-        "should write 8 bytes for delta and 48 bytes for the new index block"
+        4 + 48,
+        "should write 4 bytes for delta and 48 bytes for the new index block"
     );
     assert_eq!(ii.blocks.len(), 2);
     assert_eq!(ii.blocks[1].buffer, [0, 0, 0, 0]);
@@ -319,19 +322,19 @@ fn adding_track_field_mask() {
     let record = RSIndexResult::default().doc_id(10).field_mask(0b101);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(mem_growth, 56);
+    assert_eq!(mem_growth, 52);
     assert_eq!(ii.field_mask(), 0b101);
 
     let record = RSIndexResult::default().doc_id(11).field_mask(0b101);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(mem_growth, 0);
+    assert_eq!(mem_growth, 5);
     assert_eq!(ii.field_mask(), 0b101);
 
     let record = RSIndexResult::default().doc_id(12).field_mask(0b011);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(mem_growth, 8);
+    assert_eq!(mem_growth, 5);
     assert_eq!(ii.field_mask(), 0b111);
 }
 
@@ -1947,7 +1950,7 @@ fn ii_apply_gc_entries_tracking_index() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 64,
+            bytes_freed: 65,
             bytes_allocated: 56,
             entries_removed: 2,
             blocks_ignored: 0

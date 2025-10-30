@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use controlled_cursor::ControlledCursor;
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
@@ -360,13 +361,8 @@ impl IndexBlock {
         &self.buffer
     }
 
-    const fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
-        let pos = self.buffer.len();
-        let mut buffer = Cursor::new(&mut self.buffer);
-
-        buffer.set_position(pos as u64);
-
-        buffer
+    const fn writer(&mut self) -> ControlledCursor<'_> {
+        ControlledCursor::new(&mut self.buffer)
     }
 
     /// Returns the total number of index blocks in existence.
