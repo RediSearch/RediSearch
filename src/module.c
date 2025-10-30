@@ -3820,6 +3820,7 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfiguration, int isClusterEnabled) {
   // register the module configuration with redis, use loaded values from command line as defaults
+  g_isLoadingConfig = true;
   if (registerConfiguration) {
     if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Error registering module configuration");
@@ -3875,10 +3876,12 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
 
   legacySpecRules = dictCreate(&dictTypeHeapHiddenStrings, NULL);
-
+  g_isLoadingConfig = true;
   if (RediSearch_InitModuleConfig(ctx, argv, argc, unprefixedConfigSupported, isClusterEnabled) == REDISMODULE_ERR) {
+    g_isLoadingConfig = false;
     return REDISMODULE_ERR;
   }
+  g_isLoadingConfig = false;
 
   // Init RediSearch internal search
   if (RediSearch_InitModuleInternal(ctx) == REDISMODULE_ERR) {

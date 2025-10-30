@@ -15,6 +15,8 @@
 #include "util/config_macros.h"
 #include "ext/default.h"
 
+extern bool g_isLoadingConfig;
+
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
@@ -47,7 +49,6 @@ static const char *on_oom_vals[3] = {
   "fail",
   "ignore"
 };
-
 
 typedef enum { GCPolicy_Fork = 0 } GCPolicy;
 
