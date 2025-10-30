@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use controlled_cursor::ControlledCursor;
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
@@ -15,6 +14,7 @@ use std::{
     sync::atomic::{self, AtomicUsize},
 };
 
+use controlled_cursor::ControlledCursor;
 use debug::{BlockSummary, Summary};
 use ffi::{
     FieldSpec, GeoFilter, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue,
