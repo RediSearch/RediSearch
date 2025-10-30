@@ -115,7 +115,6 @@ void HybridRequest_SyncrhonizeLookupKeys(HybridRequest *req);
  * Depleter3 /
  *
  * @param req The HybridRequest containing the tail pipeline for merging
- * @param initializedTailLookup The tail lookup to use for merging, must be initialized before calling this function
  * @param scoreKey The score key to use for writing the final score, could be null - won't write score in this case to the rlookup
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
