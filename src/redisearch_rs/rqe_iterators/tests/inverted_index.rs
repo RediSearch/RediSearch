@@ -77,7 +77,7 @@ impl<E: Encoder + Default> BaseTest<E> {
         );
         assert!(it.at_eof());
         assert_eq!(it.num_estimated(), self.doc_ids.len());
-        assert_eq!(it.num_estimated(), self.ii.unique_docs());
+        assert_eq!(it.num_estimated(), self.ii.unique_docs() as usize);
 
         // try reading at eof
         assert!(matches!(it.read(), Ok(None)));
