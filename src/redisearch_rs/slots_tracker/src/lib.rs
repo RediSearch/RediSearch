@@ -181,25 +181,6 @@ unsafe fn parse_slot_ranges(ranges: *const SlotRangeArray) -> &'static [SlotRang
     }
 }
 
-/// Gets mutable references to all three slot sets.
-///
-/// # Safety
-///
-/// The caller must ensure single-threaded access to the static instances.
-unsafe fn get_all_sets() -> (
-    &'static mut SlotsSet,
-    &'static mut SlotsSet,
-    &'static mut SlotsSet,
-) {
-    // SAFETY: Caller guarantees single-threaded access
-    let local = unsafe { &mut *STATE.local.get() };
-    // SAFETY: Caller guarantees single-threaded access
-    let fully = unsafe { &mut *STATE.fully_available.get() };
-    // SAFETY: Caller guarantees single-threaded access
-    let partial = unsafe { &mut *STATE.partially_available.get() };
-    (local, fully, partial)
-}
-
 /// Gets mutable reference to the local slots set.
 ///
 /// # Safety
@@ -228,6 +209,25 @@ unsafe fn get_fully_available_slots() -> &'static mut SlotsSet {
 unsafe fn get_partially_available_slots() -> &'static mut SlotsSet {
     // SAFETY: Caller guarantees single-threaded access
     unsafe { &mut *STATE.partially_available.get() }
+}
+
+/// Gets mutable references to all three slot sets.
+///
+/// # Safety
+///
+/// The caller must ensure single-threaded access to the static instances.
+unsafe fn get_all_sets() -> (
+    &'static mut SlotsSet,
+    &'static mut SlotsSet,
+    &'static mut SlotsSet,
+) {
+    // SAFETY: Caller guarantees single-threaded access
+    let local = unsafe { get_local_slots() };
+    // SAFETY: Caller guarantees single-threaded access
+    let fully = unsafe { get_fully_available_slots() };
+    // SAFETY: Caller guarantees single-threaded access
+    let partial = unsafe { get_partially_available_slots() };
+    (local, fully, partial)
 }
 
 // ============================================================================
