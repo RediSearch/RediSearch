@@ -26,6 +26,7 @@ pub use index_result::{
 };
 use smallvec::SmallVec;
 
+pub mod controlled_cursor;
 pub mod debug;
 pub mod doc_ids_only;
 pub mod fields_offsets;
