@@ -179,7 +179,7 @@ fn reserve_and_pad(pos_mut: &mut u64, vec: &mut Vec<u8>, buf_len: usize) -> std:
 
         // Safety: we meet the following safety conditions
         // - `new_len` is equal or less than `capacity()` because of the `reserve_exact` code block
-        // - All the elements from `old_len..new_len` was just intialized with 0s
+        // - All the elements from `old_len..new_len` was just initialized with 0s
         unsafe {
             vec.set_len(pos);
         }
