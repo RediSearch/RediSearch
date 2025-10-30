@@ -30,7 +30,9 @@ use redis_module::KeyType;
 use scan_key_cursor::*;
 use string::*;
 
+/// A test context that can be used to hold state for testing with the mock.
 pub struct TestContext {
+    /// The key type that will be returned by `RedisModule_KeyType` when opening a key with this context.
     pub(crate) open_key_type: redis_module::KeyType,
 
     /// Contains key value pairs to be injected during scan key cursor iterations or
