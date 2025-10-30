@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Internal implementation of the SlotsSet data structure.
+//! Internal implementation of the SlotSet data structure.
 //!
 //! This module contains the private implementation of slot range tracking.
 //! It is not exposed outside of the slots_tracker crate.
@@ -62,13 +62,13 @@ fn debug_assert_valid_normalized_input(ranges: &[SlotRange]) {
 /// - No adjacent ranges (they are merged)
 /// - All ranges are valid (start <= end, values in [0, 16383])
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct SlotsSet {
+pub(crate) struct SlotSet {
     /// Vector of slot ranges (start, end), kept sorted and normalized.
     ranges: Vec<SlotRange>,
 }
 
-impl SlotsSet {
-    /// Creates a new empty `SlotsSet`.
+impl SlotSet {
+    /// Creates a new empty `SlotSet`.
     pub(crate) const fn new() -> Self {
         Self { ranges: Vec::new() }
     }
@@ -77,7 +77,7 @@ impl SlotsSet {
     // Public API methods required for the C FFI:
     // ========================================================================
 
-    /// Replaces the entire contents of this SlotsSet with the given ranges (hard reset).
+    /// Replaces the entire contents of this SlotSet with the given ranges (hard reset).
     ///
     /// **Assumes input is already sorted and normalized** (no overlaps, no adjacent ranges).
     /// In debug builds, validates this assumption.
@@ -204,7 +204,7 @@ impl SlotsSet {
     /// Returns `CoverageRelation` indicating: `Equals`, `Covers`, or `NoMatch`.
     pub(crate) fn union_relation(
         &self,
-        other: &SlotsSet,
+        other: &SlotSet,
         ranges: &[SlotRange],
     ) -> CoverageRelation {
         // Build the union set
@@ -286,26 +286,26 @@ impl SlotsSet {
 }
 
 // Implement PartialEq with slices for convenient comparisons
-impl PartialEq<[SlotRange]> for SlotsSet {
+impl PartialEq<[SlotRange]> for SlotSet {
     fn eq(&self, other: &[SlotRange]) -> bool {
         self.ranges == other
     }
 }
 
-impl PartialEq<&[SlotRange]> for SlotsSet {
+impl PartialEq<&[SlotRange]> for SlotSet {
     fn eq(&self, other: &&[SlotRange]) -> bool {
         self.ranges == *other
     }
 }
 
-impl PartialEq<SlotsSet> for [SlotRange] {
-    fn eq(&self, other: &SlotsSet) -> bool {
+impl PartialEq<SlotSet> for [SlotRange] {
+    fn eq(&self, other: &SlotSet) -> bool {
         self == other.ranges
     }
 }
 
-impl PartialEq<SlotsSet> for &[SlotRange] {
-    fn eq(&self, other: &SlotsSet) -> bool {
+impl PartialEq<SlotSet> for &[SlotRange] {
+    fn eq(&self, other: &SlotSet) -> bool {
         *self == other.ranges
     }
 }

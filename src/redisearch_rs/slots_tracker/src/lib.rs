@@ -23,11 +23,11 @@
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-mod slots_set;
-use slots_set::{CoverageRelation, SlotsSet};
+mod slot_set;
+use slot_set::{CoverageRelation, SlotSet};
 
 #[cfg(test)]
-mod slots_set_tests;
+mod slot_set_tests;
 
 // ============================================================================
 // Global State Structure
@@ -49,11 +49,11 @@ mod slots_set_tests;
 /// The version field is atomic and can be safely read from any thread.
 struct SlotsTrackerState {
     /// Local responsibility slots - owned by this Redis instance in the cluster topology.
-    local: UnsafeCell<SlotsSet>,
+    local: UnsafeCell<SlotSet>,
     /// Fully available non-owned slots - locally available but not owned by this instance.
-    fully_available: UnsafeCell<SlotsSet>,
+    fully_available: UnsafeCell<SlotSet>,
     /// Partially available non-owned slots - partially available and not owned by this instance.
-    partially_available: UnsafeCell<SlotsSet>,
+    partially_available: UnsafeCell<SlotSet>,
     /// Version counter for tracking changes to the slots configuration.
     /// Incremented whenever the slot configuration changes. Wraps around safely.
     /// Atomic so it can be safely read from any thread.
@@ -68,9 +68,9 @@ unsafe impl Sync for SlotsTrackerState {}
 impl SlotsTrackerState {
     const fn new() -> Self {
         Self {
-            local: UnsafeCell::new(SlotsSet::new()),
-            fully_available: UnsafeCell::new(SlotsSet::new()),
-            partially_available: UnsafeCell::new(SlotsSet::new()),
+            local: UnsafeCell::new(SlotSet::new()),
+            fully_available: UnsafeCell::new(SlotSet::new()),
+            partially_available: UnsafeCell::new(SlotSet::new()),
             version: AtomicU32::new(0),
         }
     }
@@ -186,7 +186,7 @@ unsafe fn parse_slot_ranges(ranges: *const SlotRangeArray) -> &'static [SlotRang
 /// # Safety
 ///
 /// The caller must ensure single-threaded access to the static instance.
-unsafe fn get_local_slots() -> &'static mut SlotsSet {
+unsafe fn get_local_slots() -> &'static mut SlotSet {
     // SAFETY: Caller guarantees single-threaded access
     unsafe { &mut *STATE.local.get() }
 }
@@ -196,7 +196,7 @@ unsafe fn get_local_slots() -> &'static mut SlotsSet {
 /// # Safety
 ///
 /// The caller must ensure single-threaded access to the static instance.
-unsafe fn get_fully_available_slots() -> &'static mut SlotsSet {
+unsafe fn get_fully_available_slots() -> &'static mut SlotSet {
     // SAFETY: Caller guarantees single-threaded access
     unsafe { &mut *STATE.fully_available.get() }
 }
@@ -206,7 +206,7 @@ unsafe fn get_fully_available_slots() -> &'static mut SlotsSet {
 /// # Safety
 ///
 /// The caller must ensure single-threaded access to the static instance.
-unsafe fn get_partially_available_slots() -> &'static mut SlotsSet {
+unsafe fn get_partially_available_slots() -> &'static mut SlotSet {
     // SAFETY: Caller guarantees single-threaded access
     unsafe { &mut *STATE.partially_available.get() }
 }
@@ -217,9 +217,9 @@ unsafe fn get_partially_available_slots() -> &'static mut SlotsSet {
 ///
 /// The caller must ensure single-threaded access to the static instances.
 unsafe fn get_all_sets() -> (
-    &'static mut SlotsSet,
-    &'static mut SlotsSet,
-    &'static mut SlotsSet,
+    &'static mut SlotSet,
+    &'static mut SlotSet,
+    &'static mut SlotSet,
 ) {
     // SAFETY: Caller guarantees single-threaded access
     let local = unsafe { get_local_slots() };
