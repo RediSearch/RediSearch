@@ -72,16 +72,15 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
     array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
     array_append(tmparr, index_name);  // Index name
   } else {
+    profileArgs += 2; // SEARCH/AGGREGATE + QUERY
     array_append(tmparr, RS_PROFILE_CMD);
     array_append(tmparr, index_name);  // Index name
     array_append(tmparr, "AGGREGATE");
-    profileArgs = 3;
     if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
       array_append(tmparr, "LIMITED");
       profileArgs++;
     }
     array_append(tmparr, "QUERY");
-    profileArgs++;
   }
 
   array_append(tmparr, RedisModule_StringPtrLen(argv[2 + profileArgs], NULL));  // Query
