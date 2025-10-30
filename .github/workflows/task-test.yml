@@ -61,6 +61,7 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
         if: inputs.pre-steps-script && inputs.container == 'alpine:3'
@@ -110,6 +111,14 @@ jobs:
         id: mode
         run: |
           [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+      - name: Free up disk space
+        run: |
+          df -h
+          ${{ steps.mode.outputs.mode }} rm -rf /usr/share/dotnet || true
+          ${{ steps.mode.outputs.mode }} rm -rf /usr/local/lib/android || true
+          ${{ steps.mode.outputs.mode }} rm -rf /opt/ghc || true
+          ${{ steps.mode.outputs.mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
+          df -h
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
@@ -310,6 +319,7 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
+
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
@@ -324,6 +334,43 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
+
+      - name: Check test logs folder size
+        if: always()
+        run: |
+          echo "=== Test Logs Folder Size ==="
+          if [ -d "tests" ]; then
+            echo "Total tests directory size:"
+            du -sh tests/ 2>/dev/null || echo "tests/ directory not found"
+            echo ""
+            echo "Logs subdirectories size:"
+            find tests -type d -name "logs" -exec du -sh {} \; 2>/dev/null || echo "No logs directories found"
+          else
+            echo "tests/ directory does not exist"
+          fi
+          echo "=========================="
+
+      - name: Check coverage files size
+        if: inputs.coverage
+        run: |
+          echo "=== Coverage Files Size ==="
+          if [ -d "bin" ]; then
+            echo "Coverage files in bin/:"
+            ls -lh bin/*.info 2>/dev/null || echo "No .info files found in bin/"
+            echo ""
+            echo "Total size of coverage files:"
+            du -ch bin/*.info 2>/dev/null | tail -1 || echo "No coverage files to measure"
+            echo ""
+            echo "Individual coverage file sizes:"
+            for file in bin/*.info; do
+              if [ -f "$file" ]; then
+                echo "  $(basename $file): $(du -h "$file" | cut -f1)"
+              fi
+            done
+          else
+            echo "bin/ directory does not exist"
+          fi
+          echo "=========================="
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
@@ -374,3 +421,4 @@ jobs:
           flags: unit
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
+
