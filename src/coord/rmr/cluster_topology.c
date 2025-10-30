@@ -45,7 +45,13 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
   MRClusterTopology *topo = MR_NewTopology(t->numShards);
   for (int s = 0; s < t->numShards; s++) {
     MRClusterShard *original_shard = &t->shards[s];
-    MRClusterShard new_shard = MR_NewClusterShard(&original_shard->node, original_shard->slotRanges);
+    RedisModuleSlotRangeArray *slot_ranges = NULL;
+    if (original_shard->slotRanges != NULL) {
+      size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * original_shard->slotRanges->num_ranges;
+      slot_ranges = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
+      memcpy(slot_ranges, original_shard->slotRanges, total_size);
+    }
+    MRClusterShard new_shard = MR_NewClusterShard(&original_shard->node, slot_ranges);
 
     new_shard.node.id = rm_strdup(original_shard->node.id);
     MREndpoint_Copy(&new_shard.node.endpoint, &original_shard->node.endpoint);
