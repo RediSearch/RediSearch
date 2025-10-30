@@ -65,9 +65,6 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
     const RLookupKey *scoreKey = NULL;
     if (scoreAlias) {
       scoreKey = RLookup_GetKey_Write(tailLookup, scoreAlias, RLOOKUP_F_NOFLAGS);
-      // it is impossible for a collision to occur here
-      // this is the first key we ever open on the tail lookup
-      // to be future proof we check for it
       if (!scoreKey) {
         QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", ", score alias: %s", scoreAlias);
         return NULL;
@@ -101,9 +98,6 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
       array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
     }
 
-    // Add keys from all source lookups to create unified schema
-    HybridRequest_SyncrhonizeLookupKeys(req);
-
     // the doc key is only relevant in coordinator mode, in standalone we can simply use the dmd
     // HybridRequest_SyncrhonizeLookupKeys copied all the rlookup keys from the upstreams to the tail lookup
     // we open the docKey as hidden in case the user didn't request it, if it already exists it will stay as it was
@@ -129,6 +123,9 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     // Init lookup since we dont call buildQueryPart
     RLookup_Init(tailLookup, IndexSpec_GetSpecCache(req->sctx->spec));
+
+    // Add keys from all source lookups to create unified schema before opening the score key
+    HybridRequest_SyncrhonizeLookupKeys(req);
 
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, params->aggregationParams.common.scoreAlias, &req->tailPipelineError);
     if (QueryError_HasError(&req->tailPipelineError)) {
