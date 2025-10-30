@@ -53,7 +53,7 @@ static void workersThreadPool_OnDeactivation(size_t old_num) {
 int workersThreadPool_CreatePool(size_t worker_count) {
   RS_ASSERT(_workers_thpool == NULL);
   _workers_thpool = redisearch_thpool_create(worker_count, RSGlobalConfig.highPriorityBiasNum, LogCallback, "workers");
-  if (_workers_thpool == NULL) REDISMODULE_ERR;
+  if (_workers_thpool == NULL) return REDISMODULE_ERR;
   if (worker_count > 0) {
     workersThreadPool_OnActivation(worker_count);
   } else {
@@ -68,14 +68,14 @@ int workersThreadPool_CreatePool(size_t worker_count) {
  * @param numWorkerThreads (from RSGlobalConfig),
  * @param minOperationWorkers (from RSGlobalConfig).
  * @param in_event (global flag in this file).
+ * @param loading - (parameter) true if we are in the module loading config. (then we cannot unlock the GIL)
  * New workers number should be `in_event ? MAX(numWorkerThreads, minOperationWorkers) : numWorkerThreads`.
  * This function also handles the cases where the thread pool is turned on/off.
  * If new worker count is 0, the current living workers will continue to execute pending jobs and then terminate.
  * No new jobs should be added after setting the number of workers to 0.
  *
- * @warning This function should only be called without holding the GIL.
  */
-void workersThreadPool_SetNumWorkers() {
+void workersThreadPool_SetNumWorkers(bool loading) {
   if (_workers_thpool == NULL) return;
 
   size_t worker_count = RSGlobalConfig.numWorkerThreads;
@@ -90,14 +90,26 @@ void workersThreadPool_SetNumWorkers() {
 
   size_t new_num_threads = worker_count;
   if (worker_count == 0 && curr_workers > 0) {
+    if (!loading) {
+      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    }
     redisearch_thpool_terminate_when_empty(_workers_thpool);
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
     workersThreadPool_OnDeactivation(curr_workers);
+    if (!loading) {
+      RedisModule_ThreadSafeContextLock(RSDummyContext);
+    }
   } else if (worker_count > curr_workers) {
     new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
     if (!curr_workers) workersThreadPool_OnActivation(worker_count);
   } else if (worker_count < curr_workers) {
+    if (!loading) {
+      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    }
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
+    if (!loading) {
+      RedisModule_ThreadSafeContextLock(RSDummyContext);
+    }
   }
 
   RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
@@ -141,16 +153,14 @@ void workersThreadPool_Destroy(void) {
   redisearch_thpool_destroy(_workers_thpool);
 }
 
-void workersThreadPool_OnEventStart() {
+void workersThreadPool_OnEventStart(bool loading) {
   in_event++;
-  //TODO(Joan): Are we guaranteeing here that we do not hold the GIL?
-  workersThreadPool_SetNumWorkers();
+  workersThreadPool_SetNumWorkers(loading);
 }
 
-int workersThreadPool_OnEventEnd(bool wait) {
+int workersThreadPool_OnEventEnd(bool wait, bool loading) {
   in_event--;
-  //TODO(Joan): Are we guaranteeing here that we do not hold the GIL?
-  workersThreadPool_SetNumWorkers();
+  workersThreadPool_SetNumWorkers(loading);
   // Wait until all the threads are finished the jobs currently in the queue. Note that we call
   // block main thread while we wait, so we have to make sure that number of jobs isn't too large.
   // no-op if numWorkerThreads == minOperationWorkers == 0

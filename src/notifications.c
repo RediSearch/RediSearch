@@ -321,7 +321,7 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED:
       RedisModule_Log(ctx, "notice", "%s", "Got trimming started event, enter trimming phase.");
       isTrimming = true;
-      workersThreadPool_OnEventStart();
+      workersThreadPool_OnEventStart(false);
       break;
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED:
       RedisModule_Log(ctx, "notice", "%s", "Got trimming ended event, exit trimming phase.");
@@ -329,7 +329,7 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
       // Since trimming is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs (in RCE mode), and terminate the threads
       // ONCE ALL PENDING JOBS ARE DONE.
-      workersThreadPool_OnEventEnd(false);
+      workersThreadPool_OnEventEnd(false, false);
       break;
     default:
       RedisModule_Log(RSDummyContext, "warning", "Bad subevent given, ignored.");
@@ -349,7 +349,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import started event.");
       in_asm_import = true;
       should_filter_slots = true;
-      workersThreadPool_OnEventStart();
+      workersThreadPool_OnEventStart(false);
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
       Slots_DropCachedLocalSlots(); // Local slots have changed, drop the cache
@@ -359,7 +359,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       should_filter_slots = in_asm_trim;
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
-      workersThreadPool_OnEventEnd(false);
+      workersThreadPool_OnEventEnd(false, false);
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
@@ -395,7 +395,7 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
       RedisModule_Log(RSDummyContext, "notice", "Got ASM trim started event.");
       in_asm_trim = true;
       should_filter_slots = true;
-      workersThreadPool_OnEventStart();
+      workersThreadPool_OnEventStart(false);
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM trim completed event.");
@@ -403,7 +403,7 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
       should_filter_slots = in_asm_import;
       // Since trimming is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
-      workersThreadPool_OnEventEnd(false);
+      workersThreadPool_OnEventEnd(false, false);
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND:
@@ -578,17 +578,17 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
   case REDISMODULE_SUBEVENT_LOADING_AOF_START:
   case REDISMODULE_SUBEVENT_LOADING_REPL_START:
     Indexes_StartRDBLoadingEvent();
-    workersThreadPool_OnEventStart();
+    workersThreadPool_OnEventStart(true);
     RedisModule_Log(RSDummyContext, "notice", "Loading event started");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
     Indexes_EndRDBLoadingEvent(ctx);
-    workersThreadPool_OnEventEnd(true);
+    workersThreadPool_OnEventEnd(true, true);
     Indexes_EndLoading();
     RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
     break;
   case REDISMODULE_SUBEVENT_LOADING_FAILED:
-    workersThreadPool_OnEventEnd(true);
+    workersThreadPool_OnEventEnd(true, true);
     Indexes_EndLoading();
     RedisModule_Log(RSDummyContext, "notice", "Loading event failed");
     break;

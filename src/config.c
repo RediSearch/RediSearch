@@ -415,17 +415,11 @@ CONFIG_SETTER(setWorkThreads) {
   if (newNumThreads > MAX_WORKER_THREADS) {
     return errorTooManyThreads(status);
   }
-  if (!g_isLoadingConfig) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-  }
   config->numWorkerThreads = newNumThreads;
 
-  workersThreadPool_SetNumWorkers();
+  workersThreadPool_SetNumWorkers(g_isLoadingConfig);
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
   COORDINATOR_TRIGGER();
-  if (!g_isLoadingConfig) {
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
-  }
   return REDISMODULE_OK;
 }
 
@@ -437,18 +431,12 @@ CONFIG_GETTER(getWorkThreads) {
 // workers
 int set_workers(const char *name, long long val, void *privdata,
 RedisModuleString **err) {
-  if (!g_isLoadingConfig) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-  }
   uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
   config->numWorkerThreads = val;
-  workersThreadPool_SetNumWorkers();
+  workersThreadPool_SetNumWorkers(g_isLoadingConfig);
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
   COORDINATOR_TRIGGER();
-  if (!g_isLoadingConfig) {
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
-  }
   return REDISMODULE_OK;
 }
 
@@ -465,16 +453,10 @@ CONFIG_SETTER(setMinOperationWorkers) {
   if (newNumThreads > MAX_WORKER_THREADS) {
     return errorTooManyThreads(status);
   }
-  if (!g_isLoadingConfig) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-  }
   config->minOperationWorkers = newNumThreads;
   // Will only change the number of workers if we are in an event,
   // and `numWorkerThreads` is less than `minOperationWorkers`.
-  workersThreadPool_SetNumWorkers();
-  if (!g_isLoadingConfig) {
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
-  }
+  workersThreadPool_SetNumWorkers(g_isLoadingConfig);
   return REDISMODULE_OK;
 }
 
@@ -491,13 +473,7 @@ int set_min_operation_workers(const char *name,
   *(size_t *)privdata = (size_t) val;
   // Will only change the number of workers if we are in an event,
   // and `numWorkerThreads` is less than `minOperationWorkers`.
-  if (!g_isLoadingConfig) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-  }
-  workersThreadPool_SetNumWorkers();
-  if (!g_isLoadingConfig) {
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
-  }
+  workersThreadPool_SetNumWorkers(g_isLoadingConfig);
   return REDISMODULE_OK;
 }
 

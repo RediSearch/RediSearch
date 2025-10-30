@@ -21,7 +21,7 @@ int workersThreadPool_CreatePool(size_t worker_count);
 
 // Set the number of workers according to the configuration and server state
 // Should only be called from the main thread
-void workersThreadPool_SetNumWorkers(void);
+void workersThreadPool_SetNumWorkers(bool loading);
 
 // return n_threads value.
 size_t workersThreadPool_NumThreads(void);
@@ -37,14 +37,16 @@ void workersThreadPool_Destroy(void);
 
 /// Configure the thread pool for operation start according to module configuration.
 /// @warning Should only be called from the main thread
-void workersThreadPool_OnEventStart(void);
+/// @param loading - true if we are in the module loading config. (then we cannot unlock the GIL)
+void workersThreadPool_OnEventStart(bool loading);
 
 /** Configure the thread pool for operation end according to module configuration.
  * @param wait - if true, the function will wait for all pending jobs to finish.
+ * @param loading - true if we are in the module loading config. (then we cannot unlock the GIL)
  * @return REDISMODULE_ERR if `wait` is true but another event is already in progress, REDISMODULE_OK otherwise.
  * @warning Should only be called from the main thread
  */
-int workersThreadPool_OnEventEnd(bool wait);
+int workersThreadPool_OnEventEnd(bool wait, bool loading);
 
 /********************************************* for debugging **********************************/
 
