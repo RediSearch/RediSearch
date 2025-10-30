@@ -1448,6 +1448,9 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     if (workerThreadPool_isPaused()) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool is not running");
     }
+    // Log that we're waiting for the workers to finish.
+    RedisModule_Log(RSDummyContext, "notice", "Debug workers drain");
+
     workersThreadPool_Drain(RSDummyContext, 0);
     // After we drained the thread pool and there are no more jobs in the queue, we wait until all
     // threads are idle, so we can be sure that all jobs were executed.

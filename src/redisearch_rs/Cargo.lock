@@ -1529,6 +1529,7 @@ dependencies = [
  "inverted_index",
  "pretty_assertions",
  "proptest",
+ "thiserror",
 ]
 
 [[package]]
@@ -1544,7 +1545,9 @@ dependencies = [
  "itertools 0.14.0",
  "redis_mock",
  "rqe_iterators",
+ "triemap_ffi",
  "types_ffi",
+ "varint_ffi",
 ]
 
 [[package]]
