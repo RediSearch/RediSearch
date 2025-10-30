@@ -23,9 +23,6 @@ int workersThreadPool_CreatePool(size_t worker_count);
 // Should only be called from the main thread
 void workersThreadPool_SetNumWorkers(void);
 
-// return number of currently working threads
-size_t workersThreadPool_WorkingThreadCount(void);
-
 // return n_threads value.
 size_t workersThreadPool_NumThreads(void);
 
@@ -34,9 +31,6 @@ int workersThreadPool_AddWork(redisearch_thpool_proc, void *arg_p);
 
 // Wait until the workers job queue contains no more than <threshold> jobs.
 void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold);
-
-// Terminate threads, allows threads to exit gracefully (without deallocating).
-void workersThreadPool_Terminate(void);
 
 // Destroys thread pool, can be called on uninitialized threadpool.
 void workersThreadPool_Destroy(void);

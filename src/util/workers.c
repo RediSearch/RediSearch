@@ -22,7 +22,6 @@
 //------------------------------------------------------------------------------
 
 redisearch_thpool_t *_workers_thpool = NULL;
-pthread_mutex_t _workers_thpool_mutex;
 size_t yield_counter = 0;
 size_t in_event = 0; // event counter, >0 means we should be in event mode (some events can start before others end)
 
@@ -53,11 +52,8 @@ static void workersThreadPool_OnDeactivation(size_t old_num) {
 // set up workers' thread pool
 int workersThreadPool_CreatePool(size_t worker_count) {
   RS_ASSERT(_workers_thpool == NULL);
-
-  pthread_mutex_init(&_workers_thpool_mutex, NULL);
-
   _workers_thpool = redisearch_thpool_create(worker_count, RSGlobalConfig.highPriorityBiasNum, LogCallback, "workers");
-  if (_workers_thpool == NULL) return REDISMODULE_ERR;
+  if (_workers_thpool == NULL) REDISMODULE_ERR;
   if (worker_count > 0) {
     workersThreadPool_OnActivation(worker_count);
   } else {
@@ -82,8 +78,6 @@ int workersThreadPool_CreatePool(size_t worker_count) {
 void workersThreadPool_SetNumWorkers() {
   if (_workers_thpool == NULL) return;
 
-  pthread_mutex_lock(&_workers_thpool_mutex);
-
   size_t worker_count = RSGlobalConfig.numWorkerThreads;
   if (in_event && RSGlobalConfig.minOperationWorkers > worker_count) {
     worker_count = RSGlobalConfig.minOperationWorkers;
@@ -105,34 +99,24 @@ void workersThreadPool_SetNumWorkers() {
   } else if (worker_count < curr_workers) {
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
   }
-  pthread_mutex_unlock(&_workers_thpool_mutex);
 
   RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
     "Attempt to change the workers thpool size to %lu "
     "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
 }
 
-// return number of currently working threads
-size_t workersThreadPool_WorkingThreadCount(void) {
-  RS_ASSERT(_workers_thpool != NULL);
-
-  return redisearch_thpool_num_jobs_in_progress(_workers_thpool);
-}
-
 // return n_threads value.
 size_t workersThreadPool_NumThreads(void) {
   RS_ASSERT(_workers_thpool);
-  return redisearch_thpool_get_num_threads(_workers_thpool);
+  size_t num_threads = redisearch_thpool_get_num_threads(_workers_thpool);
+  return num_threads;
 }
 
 // add task for worker thread
 // DvirDu: I think we should add a priority parameter to this function
 int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
   RS_ASSERT(_workers_thpool != NULL);
-  pthread_mutex_lock(&_workers_thpool_mutex);
-
   int rc = redisearch_thpool_add_work(_workers_thpool, function_p, arg_p, THPOOL_PRIORITY_HIGH);
-  pthread_mutex_unlock(&_workers_thpool_mutex);
   return rc;
 }
 
@@ -141,7 +125,6 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
-  pthread_mutex_lock(&_workers_thpool_mutex);
   if (RedisModule_Yield) {
     // Wait until all the threads in the pool run the jobs until there are no more than <threshold>
     // jobs in the queue. Periodically return and call RedisModule_Yield, so redis can answer PINGs
@@ -152,25 +135,21 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
     // In Redis versions < 7, RedisModule_Yield doesn't exist. Just wait for without yield.
     redisearch_thpool_wait(_workers_thpool);
   }
-  pthread_mutex_unlock(&_workers_thpool_mutex);
-}
-
-void workersThreadPool_Terminate(void) {
-  redisearch_thpool_terminate_threads(_workers_thpool);
 }
 
 void workersThreadPool_Destroy(void) {
   redisearch_thpool_destroy(_workers_thpool);
-  pthread_mutex_destroy(&_workers_thpool_mutex);
 }
 
 void workersThreadPool_OnEventStart() {
   in_event++;
+  //TODO(Joan): Are we guaranteeing here that we do not hold the GIL?
   workersThreadPool_SetNumWorkers();
 }
 
 int workersThreadPool_OnEventEnd(bool wait) {
   in_event--;
+  //TODO(Joan): Are we guaranteeing here that we do not hold the GIL?
   workersThreadPool_SetNumWorkers();
   // Wait until all the threads are finished the jobs currently in the queue. Note that we call
   // block main thread while we wait, so we have to make sure that number of jobs isn't too large.
