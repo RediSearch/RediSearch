@@ -87,24 +87,34 @@ jobs:
           BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
-        run: redisbench-admin run-remote
-              --module_path ../../${{ inputs.module_path }}
-              --required-module search
-              --github_actor ${{ github.triggering_actor }}
-              --github_repo ${{ github.event.repository.name }}
-              --github_org ${{ github.repository_owner }}
-              --module_path ../../${{ inputs.rejson_module_path }}
-              --required-module ReJSON
-              --github_sha ${{ github.sha }}
-              --github_branch ${{ github.head_ref || github.ref_name }}
-              --upload_results_s3
-              --triggering_env ${{ inputs.triggering_env }}
-              --allowed-envs ${{ inputs.allowed_envs }}
-              --allowed-setups ${{ inputs.allowed_setups }}
-              --push_results_redistimeseries
-              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
-              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
-              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+        run: |
+          for i in {1..3}; do
+            redisbench-admin run-remote
+                --module_path ../../${{ inputs.module_path }}
+                --required-module search
+                --github_actor ${{ github.triggering_actor }}
+                --github_repo ${{ github.event.repository.name }}
+                --github_org ${{ github.repository_owner }}
+                --module_path ../../${{ inputs.rejson_module_path }}
+                --required-module ReJSON
+                --github_sha ${{ github.sha }}
+                --github_branch ${{ github.head_ref || github.ref_name }}
+                --upload_results_s3
+                --triggering_env ${{ inputs.triggering_env }}
+                --allowed-envs ${{ inputs.allowed_envs }}
+                --allowed-setups ${{ inputs.allowed_setups }}
+                --push_results_redistimeseries
+                --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
+                --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
+                --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+            if [ $? -eq 0 ]; then
+              break
+            fi
+            if [ $i -lt 3 ]; then
+              echo "redisbench-admin run-remote failed, attempt $i of 3, error code $?", retrying in 30 seconds..."
+              sleep 60
+            fi
+          done
       - name: Generate Pull Request Performance info
         if: github.event.number
         env:
