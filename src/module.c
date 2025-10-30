@@ -3242,6 +3242,9 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
+    // Update global stats
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1);
+
     // If we are in a single shard cluster, we should fail the query if we are out of memory
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
       return QueryMemoryGuardFailure_WithReply(ctx);
@@ -3308,6 +3311,10 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
+
+    // Update global stats
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1);
+
     // If we are in a single shard cluster, we should fail the query if we are out of memory
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
       return QueryMemoryGuardFailure_WithReply(ctx);
@@ -3650,6 +3657,10 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
+
+    // Update global stats
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1);
+
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
       return QueryMemoryGuardFailure_WithReply(ctx);
     }

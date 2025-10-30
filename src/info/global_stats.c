@@ -91,6 +91,10 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.total_queries_processed = READ(RSGlobalStats.totalStats.queries.total_queries_processed);
   stats.total_query_commands = READ(RSGlobalStats.totalStats.queries.total_query_commands);
   stats.total_query_execution_time = rs_wall_clock_convert_ns_to_ms(READ(RSGlobalStats.totalStats.queries.total_query_execution_time));
+  stats.errors.timeout = READ(RSGlobalStats.totalStats.queries.errors.timeout);
+  stats.errors.oom = READ(RSGlobalStats.totalStats.queries.errors.oom);
+  stats.errors.syntax = READ(RSGlobalStats.totalStats.queries.errors.syntax);
+  stats.errors.arguments = READ(RSGlobalStats.totalStats.queries.errors.arguments);
   return stats;
 }
 
@@ -100,4 +104,23 @@ void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd) {
 
 size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
   return READ(RSGlobalStats.totalStats.logically_deleted);
+}
+
+void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd) {
+  switch (code) {
+    case QUERY_ETIMEDOUT:
+      INCR_BY(RSGlobalStats.totalStats.queries.errors.timeout, toAdd);
+      break;
+    case QUERY_EOOM:
+      INCR_BY(RSGlobalStats.totalStats.queries.errors.oom, toAdd);
+      break;
+    case QUERY_ESYNTAX:
+      INCR_BY(RSGlobalStats.totalStats.queries.errors.syntax, toAdd);
+      break;
+    case QUERY_EADDARGS:
+      INCR_BY(RSGlobalStats.totalStats.queries.errors.arguments, toAdd);
+      break;
+    default:
+      RS_LOG_ASSERT(false, "Query error code is not supported in global stats");
+  }
 }

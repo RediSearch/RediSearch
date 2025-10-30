@@ -240,6 +240,10 @@ void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_commands", stats.total_query_commands);
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_execution_time_ms", stats.total_query_execution_time);
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_queries", total_info->total_active_queries);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_timeout", stats.errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_oom", stats.errors.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_syntax", stats.errors.syntax);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_arguments", stats.errors.arguments);
 }
 
 void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
