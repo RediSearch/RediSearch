@@ -563,11 +563,17 @@ impl<'a> KeyList<'a> {
     /// Returns a [`Cursor`] starting at the first element.
     ///
     /// The [`Cursor`] type can be used as Iterator over this list.
-    #[allow(clippy::missing_const_for_fn)]
+    #[cfg(debug_assertions)]
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
-        #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front");
 
+        Cursor {
+            _rlookup: self,
+            current: self.head,
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    pub const fn cursor_front(&self) -> Cursor<'_, 'a> {
         Cursor {
             _rlookup: self,
             current: self.head,
@@ -577,11 +583,17 @@ impl<'a> KeyList<'a> {
     /// Returns a [`CursorMut`] starting at the first element.
     ///
     /// The [`CursorMut`] type can be used as Iterator over this list. In addition, it may be used to manipulate the list.
-    #[allow(clippy::missing_const_for_fn)]
+    #[cfg(debug_assertions)]
     pub fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
-        #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front_mut");
 
+        CursorMut {
+            current: self.head,
+            _rlookup: self,
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    pub const fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
         CursorMut {
             current: self.head,
             _rlookup: self,
