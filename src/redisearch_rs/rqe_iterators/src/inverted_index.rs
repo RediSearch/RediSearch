@@ -108,7 +108,7 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.reader.unique_docs()
+        self.reader.unique_docs() as usize
     }
 
     fn last_doc_id(&self) -> t_docId {
