@@ -26,6 +26,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 mod slots_set;
 use slots_set::{SlotsSet, CoverageRelation};
 
+#[cfg(test)]
+mod slots_set_tests;
+
 // ============================================================================
 // Thread-unsafe wrapper for single-threaded access
 // ============================================================================
