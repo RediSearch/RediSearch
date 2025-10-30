@@ -6,6 +6,7 @@
 #include "dist_plan.h"
 #include "index_utils.h"
 #include "common.h"
+#include "profile/options.h"
 
 #include <vector>
 
@@ -62,7 +63,7 @@ protected:
 
         // Build MR command
         MRCommand xcmd;
-        HybridRequest_buildMRCommand(args, args.size(), 0, &xcmd, NULL, nullptr, &hybridParams);
+        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL, nullptr, &hybridParams);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -99,7 +100,7 @@ protected:
 
       // Build MR command
       MRCommand xcmd;
-      HybridRequest_buildMRCommand(args, args.size(), 0, &xcmd, NULL, sp, &hybridParams);
+      HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL, sp, &hybridParams);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
         // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
