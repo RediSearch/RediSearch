@@ -14,7 +14,7 @@ def test_MOD_11658_workers_reduction_under_load():
     3. Runs concurrent queries in background threads (100 threads, no delays)
     4. Changes WORKERS to 0 (simulating QPF=0 change)
     5. Verifies the shard remains responsive
-    
+
     """
     # This test requires coordinator mode (OSS cluster)
 

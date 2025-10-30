@@ -93,6 +93,8 @@ configPair_t __configPairs[] = {
   {"ON_OOM",                          "search-on-oom"},
 };
 
+static bool g_isReadingConfig = false;
+
 static const char* FTConfigNameToConfigName(const char *name) {
   size_t num_configs = sizeof(__configPairs) / sizeof(configPair_t);
   for (size_t i = 0; i < num_configs; ++i) {
@@ -407,7 +409,9 @@ static inline int errorTooManyThreads(QueryError *status) {
 
 // WORKERS
 CONFIG_SETTER(setWorkThreads) {
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  if (!g_isReadingConfig) {
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  }
   size_t newNumThreads;
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
@@ -419,7 +423,9 @@ CONFIG_SETTER(setWorkThreads) {
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
   COORDINATOR_TRIGGER();
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
+  if (!g_isReadingConfig) {
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+  }
   return REDISMODULE_OK;
 }
 
@@ -1140,6 +1146,7 @@ void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
 }
 
 int ReadConfig(RedisModuleString **argv, int argc, char **err) {
+  g_isReadingConfig = true;
   *err = NULL;
   QueryError status = QueryError_Default();
 
@@ -1174,6 +1181,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     LogWarningDeprecatedModuleArgs(name);
   }
 
+  g_isReadingConfig = false;
   return REDISMODULE_OK;
 }
 
