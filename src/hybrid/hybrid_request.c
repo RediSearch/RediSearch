@@ -270,30 +270,6 @@ void HybridRequest_Free(HybridRequest *req) {
     rm_free(req);
 }
 
-QueryErrorCode HybridRequest_GetErrorCode(HybridRequest *req) {
-  if (QueryError_HasError(&req->tailPipelineError)) {
-    return QueryError_GetCode(&req->tailPipelineError);
-  }
-  for (size_t i = 0; i < req->nrequests; i++) {
-    if (QueryError_HasError(&req->errors[i])) {
-      return QueryError_GetCode(&req->errors[i]);
-    }
-  }
-  return QUERY_OK;
-}
-
-const char *HybridRequest_GetUserError(HybridRequest *req) {
-  if (QueryError_HasError(&req->tailPipelineError)) {
-    return QueryError_GetUserError(&req->tailPipelineError);
-  }
-  for (size_t i = 0; i < req->nrequests; i++) {
-    if (QueryError_HasError(&req->errors[i])) {
-      return QueryError_GetUserError(&req->errors[i]);
-    }
-  }
-  return NULL;
-}
-
 /**
  * Get error information from a HybridRequest.
  * This function checks for errors in priority order:

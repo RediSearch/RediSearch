@@ -134,9 +134,6 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
 
 void HybridRequest_Free(HybridRequest *req);
 
-QueryErrorCode HybridRequest_GetErrorCode(HybridRequest *req);
-const char *HybridRequest_GetUserError(HybridRequest *req);
-
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 void HybridRequest_ClearErrors(HybridRequest *req);
