@@ -115,6 +115,7 @@ jobs:
               sleep 60
             fi
           done
+          exit $?
       - name: Generate Pull Request Performance info
         if: github.event.number
         env:
