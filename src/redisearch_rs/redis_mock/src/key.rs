@@ -32,7 +32,7 @@ impl UserKey {
 /// # Safety
 ///
 /// 1. ctx must be a valid pointer to a [crate::TestContext].
-/// 2. keyname must be a valid pointer to a RedisModuleString create by this mock, and thus a pointer to [crate::string::UserString].
+/// 2. keyname must be a valid pointer to a RedisModuleString create by this mock, and thus a pointer to crate::string::UserString.
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_OpenKey(
     ctx: *mut redis_module::raw::RedisModuleCtx,

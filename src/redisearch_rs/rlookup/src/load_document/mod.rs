@@ -378,6 +378,7 @@ impl std::fmt::Display for LoadDocumentError {
 }
 
 impl LoadDocumentError {
+    #[cfg(debug_assertions)]
     pub const fn key_does_not_exist(key: Option<String>) -> Self {
         Self::InvalidKey {
             sub_error: KeyError::DoesNotExist,
@@ -386,6 +387,14 @@ impl LoadDocumentError {
         }
     }
 
+    #[cfg(not(debug_assertions))]
+    pub fn key_does_not_exist(_key: Option<String>) -> Self {
+        Self::InvalidKey {
+            sub_error: KeyError::DoesNotExist,
+        }
+    }
+
+    #[cfg(debug_assertions)]
     pub const fn key_is_no_hash(key: Option<String>) -> Self {
         Self::InvalidKey {
             sub_error: KeyError::IsNoHash,
@@ -394,6 +403,14 @@ impl LoadDocumentError {
         }
     }
 
+    #[cfg(not(debug_assertions))]
+    pub fn key_is_no_hash(_key: Option<String>) -> Self {
+        Self::InvalidKey {
+            sub_error: KeyError::IsNoHash,
+        }
+    }
+
+    #[cfg(debug_assertions)]
     pub const fn key_is_no_json(key: Option<String>) -> Self {
         Self::InvalidKey {
             sub_error: KeyError::IsNoJson,
@@ -402,11 +419,25 @@ impl LoadDocumentError {
         }
     }
 
+    #[cfg(not(debug_assertions))]
+    pub fn key_is_no_json(_key: Option<String>) -> Self {
+        Self::InvalidKey {
+            sub_error: KeyError::IsNoJson,
+        }
+    }
+
+    #[cfg(debug_assertions)]
     pub const fn key_is_somehow_invalid(key: Option<String>) -> Self {
         Self::InvalidKey {
             sub_error: KeyError::DoesNotExistOrIsWrongType,
-            #[cfg(debug_assertions)]
             key,
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub fn key_is_somehow_invalid(_key: Option<String>) -> Self {
+        Self::InvalidKey {
+            sub_error: KeyError::DoesNotExistOrIsWrongType,
         }
     }
 
