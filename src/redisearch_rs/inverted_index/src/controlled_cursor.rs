@@ -18,7 +18,7 @@ use std::io::{IoSlice, Seek, SeekFrom, Write};
 ///
 /// This implementation uses a [`Vec::reserve_exact`] call to only allocate the exact amount of memory
 /// needed to write the data. This can lead to more frequent allocations, but avoids the excessive
-/// memory usage caused by the doubling strategy.
+/// memory usage caused by the doubling strategy. There is a `CHANGED` comment to mark this section.
 ///
 /// The rest of this code is a verbatim copy of the [`std::io::Cursor`] implementation.
 pub struct ControlledCursor<'buf> {
@@ -123,6 +123,8 @@ fn reserve_and_pad(pos_mut: &mut u64, vec: &mut Vec<u8>, buf_len: usize) -> std:
     // otherwise our allocation won't be enough
     let desired_cap = pos.saturating_add(buf_len);
     if desired_cap > vec.capacity() {
+        // CHANGED: only the code in this code branch is different from the standard library
+        // implementation.
         let mut new_cap = vec.capacity();
 
         while new_cap < desired_cap {
