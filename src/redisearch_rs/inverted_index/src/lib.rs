@@ -523,7 +523,7 @@ impl<E: Encoder> InvertedIndex<E> {
                 let (new_block, block_size) = IndexBlock::new(doc_id);
 
                 // We won't use the block so make sure to put it back
-                // We can also same some memory by compacting the old block first
+                // We can also safe some memory by compacting the old block first.
                 block.buffer.shrink_to_fit();
                 self.blocks.push(block);
                 block = new_block;
