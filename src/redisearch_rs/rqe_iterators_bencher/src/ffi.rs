@@ -29,7 +29,11 @@ mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
-pub use bindings::IndexFlags_Index_StoreNumeric;
+pub use bindings::{
+    IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
+    IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
+    IndexFlags_Index_StoreTermOffsets,
+};
 use bindings::{IteratorStatus, ValidateStatus};
 use ffi::RedisModule_Alloc;
 use inverted_index::RSIndexResult;
@@ -85,6 +89,11 @@ impl QueryIterator {
     #[inline(always)]
     pub unsafe fn new_numeric_full(ii: *mut bindings::InvertedIndex) -> Self {
         Self(unsafe { bindings::NewInvIndIterator_NumericFull(ii) })
+    }
+
+    #[inline(always)]
+    pub unsafe fn new_term_full(ii: *mut bindings::InvertedIndex) -> Self {
+        Self(unsafe { bindings::NewInvIndIterator_TermFull(ii) })
     }
 
     #[inline(always)]
@@ -187,9 +196,36 @@ impl InvertedIndex {
         }
     }
 
+    /// `term_ptr` and `offsets` must be valid for the lifetime of the index.
+    #[inline(always)]
+    pub fn write_term_entry(
+        &self,
+        doc_id: u64,
+        freq: u32,
+        field_mask: u32,
+        term_ptr: *mut ::ffi::RSQueryTerm,
+        offsets: &[u8],
+    ) {
+        let record = RSIndexResult::term_with_term_ptr(
+            term_ptr,
+            inverted_index::RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
+            doc_id,
+            field_mask as u128,
+            freq,
+        );
+        unsafe {
+            bindings::InvertedIndex_WriteEntryGeneric(self.0, &record as *const _ as *mut _);
+        }
+    }
+
     #[inline(always)]
     pub fn iterator_numeric_full(&self) -> QueryIterator {
         unsafe { QueryIterator::new_numeric_full(self.0) }
+    }
+
+    #[inline(always)]
+    pub fn iterator_term_full(&self) -> QueryIterator {
+        unsafe { QueryIterator::new_term_full(self.0) }
     }
 }
 
@@ -252,5 +288,52 @@ mod tests {
         assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
 
         it.free();
+    }
+
+    #[test]
+    fn term_full_iterator() {
+        let ii = InvertedIndex::new(
+            IndexFlags_Index_StoreFreqs
+                | IndexFlags_Index_StoreTermOffsets
+                | IndexFlags_Index_StoreFieldFlags
+                | IndexFlags_Index_StoreByteOffsets,
+        );
+
+        let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        const TEST_STR: &str = "term";
+        let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+        let term = Box::new(ffi::RSQueryTerm {
+            str_: test_str_ptr,
+            len: TEST_STR.len(),
+            idf: 5.0,
+            id: 1,
+            flags: 0,
+            bm25_idf: 10.0,
+        });
+        let term = Box::into_raw(term);
+
+        ii.write_term_entry(1, 1, 1, term, &offsets);
+        ii.write_term_entry(10, 1, 1, term, &offsets);
+        ii.write_term_entry(100, 1, 1, term, &offsets);
+
+        let it = unsafe { QueryIterator::new_term_full(ii.0) };
+        assert_eq!(it.num_estimated(), 3);
+
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
+        assert!(it.at_eof());
+
+        it.rewind();
+        assert_eq!(it.skip_to(10), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.skip_to(20), IteratorStatus_ITERATOR_NOTFOUND);
+
+        it.rewind();
+        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
+
+        it.free();
+
+        let _ = unsafe { Box::from_raw(term) };
     }
 }

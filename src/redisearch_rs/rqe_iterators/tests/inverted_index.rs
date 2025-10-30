@@ -7,11 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{IndexFlags, IndexFlags_Index_StoreNumeric, t_docId};
-use inverted_index::{
-    Encoder, FilterNumericReader, InvertedIndex, NumericFilter, RSIndexResult, numeric::Numeric,
+use ffi::{
+    IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
+    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
+    t_docId, t_fieldMask,
 };
-use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index::NumericFull};
+use inverted_index::{
+    Encoder, FilterNumericReader, InvertedIndex, NumericFilter, RSIndexResult, RSOffsetVector,
+    RSResultKind, full::Full, numeric::Numeric, test_utils::TermRecordCompare,
+};
+use rqe_iterators::{
+    RQEIterator, SkipToOutcome,
+    inverted_index::{NumericFull, TermFull},
+};
 
 mod c_mocks;
 
@@ -20,6 +28,16 @@ struct BaseTest<E> {
     doc_ids: Vec<t_docId>,
     ii: InvertedIndex<E>,
     expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+}
+
+/// assert that both records are equal
+fn check_record(record: &RSIndexResult, expected: &RSIndexResult) {
+    if record.kind() == RSResultKind::Term {
+        // the term record is not encoded in the II so we can't compare it directly
+        assert_eq!(TermRecordCompare(record), TermRecordCompare(expected));
+    } else {
+        assert_eq!(record, expected);
+    }
 }
 
 impl<E: Encoder + Default> BaseTest<E> {
@@ -60,13 +78,13 @@ impl<E: Encoder + Default> BaseTest<E> {
             let result = it.read();
             match result {
                 Ok(Some(record)) => {
-                    assert_eq!(record, &expected_record(record.doc_id));
+                    check_record(record, &expected_record(record.doc_id));
                     assert_eq!(it.last_doc_id(), self.doc_ids[i]);
                     assert!(!it.at_eof());
-                    i += 1;
                 }
                 _ => break,
             }
+            i += 1;
         }
 
         assert_eq!(
@@ -109,7 +127,7 @@ impl<E: Encoder + Default> BaseTest<E> {
                     panic!("skip_to {i} should succeed with NotFound: {res:?}");
                 };
 
-                assert_eq!(record, &expected_record(id));
+                check_record(record, &expected_record(id));
                 assert_eq!(it.last_doc_id(), id);
                 i += 1;
             }
@@ -120,7 +138,7 @@ impl<E: Encoder + Default> BaseTest<E> {
             let Ok(Some(SkipToOutcome::Found(record))) = res else {
                 panic!("skip_to {id} should succeed with Found: {res:?}");
             };
-            assert_eq!(record, &expected_record(id));
+            check_record(record, &expected_record(id));
             assert_eq!(it.last_doc_id(), id);
             i += 1;
         }
@@ -141,7 +159,7 @@ impl<E: Encoder + Default> BaseTest<E> {
             let Ok(Some(SkipToOutcome::Found(record))) = res else {
                 panic!("skip_to {id} should succeed with Found: {res:?}");
             };
-            assert_eq!(record, &expected_record(id));
+            check_record(record, &expected_record(id));
             assert_eq!(it.last_doc_id(), id);
         }
 
@@ -201,5 +219,78 @@ fn numeric_full_skip_to() {
     let test = NumericTest::new(100);
     let reader = test.test.ii.reader();
     let mut it = NumericFull::new(reader);
+    test.test.skip_to(&mut it);
+}
+
+struct TermTest {
+    test: BaseTest<Full>,
+}
+
+impl TermTest {
+    // # Safety
+    // The returned RSIndexResult contains raw pointers to `term` and `offsets`.
+    // These pointers are valid for 'static because the data is moved into the closure
+    // in `new()` and lives for the entire duration of the test. The raw pointers are
+    // only used within the test's lifetime, making this safe despite the 'static claim.
+    fn expected_record(
+        doc_id: t_docId,
+        term: &Box<ffi::RSQueryTerm>,
+        offsets: &Vec<u8>,
+    ) -> RSIndexResult<'static> {
+        let term: *const _ = &*term;
+
+        RSIndexResult::term_with_term_ptr(
+            term as _,
+            RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
+            doc_id,
+            (doc_id / 2) as t_fieldMask + 1,
+            (doc_id / 2) as u32 + 1,
+        )
+    }
+
+    fn new(n_docs: u64) -> Self {
+        let flags = IndexFlags_Index_StoreFreqs
+            | IndexFlags_Index_StoreTermOffsets
+            | IndexFlags_Index_StoreFieldFlags
+            | IndexFlags_Index_StoreByteOffsets;
+
+        const TEST_STR: &str = "term";
+        let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+        let term = Box::new(ffi::RSQueryTerm {
+            str_: test_str_ptr,
+            len: TEST_STR.len(),
+            idf: 5.0,
+            id: 1,
+            flags: 0,
+            bm25_idf: 10.0,
+        });
+
+        let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+        Self {
+            test: BaseTest::new(
+                flags,
+                Box::new(move |doc_id| Self::expected_record(doc_id, &term, &offsets)),
+                n_docs,
+            ),
+        }
+    }
+}
+
+#[test]
+/// test reading from TermFull iterator
+fn term_full_read() {
+    let test = TermTest::new(100);
+    let reader = test.test.ii.reader();
+    let mut it = TermFull::new(reader);
+    test.test.read(&mut it);
+}
+
+#[test]
+/// test skipping from TermFull iterator
+fn term_full_skip_to() {
+    let test = TermTest::new(100);
+    let reader = test.test.ii.reader();
+    let mut it = TermFull::new(reader);
     test.test.skip_to(&mut it);
 }
