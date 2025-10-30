@@ -527,7 +527,7 @@ impl<E: Encoder> InvertedIndex<E> {
                 // We won't use the block so make sure to put it back
                 // We can also safe some memory by compacting the old block first.
                 block.buffer.shrink_to_fit();
-                self.blocks.push(block);
+                self.add_block(block);
                 block = new_block;
                 mem_growth += block_size;
 
@@ -550,7 +550,7 @@ impl<E: Encoder> InvertedIndex<E> {
         block.last_doc_id = doc_id;
 
         // We took ownership of the block so put it back
-        self.blocks.push(block);
+        self.add_block(block);
 
         if !same_doc {
             self.n_unique_docs += 1;
@@ -592,6 +592,16 @@ impl<E: Encoder> InvertedIndex<E> {
                 0,
             )
         }
+    }
+
+    /// Add a block back to the index. This allows us to control the growth strategy used by the
+    /// `blocks` vector.
+    fn add_block(&mut self, block: IndexBlock) {
+        if self.blocks.len() == self.blocks.capacity() {
+            self.blocks.reserve_exact(1);
+        }
+
+        self.blocks.push(block);
     }
 
     /// Returns the number of unique documents in the index.
@@ -832,6 +842,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
+        self.blocks.shrink_to_fit();
         self.gc_marker_inc();
 
         info

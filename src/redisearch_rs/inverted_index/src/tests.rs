@@ -293,6 +293,116 @@ fn adding_big_delta_makes_new_block() {
     assert_eq!(ii.n_unique_docs, 2);
 }
 
+// An `IndexBlock` is 48 bytes so we want to carefully control the growth strategy used by it to
+// limit memory usage. This test ensures the blocks field of an inverted index only grows by one
+// element at a time.
+#[test]
+fn adding_ii_blocks_growth_strategy() {
+    /// Dummy encoder which only allows 2 entries per block for testing
+    #[derive(Clone)]
+    struct SmallBlocksDummy;
+
+    impl Encoder for SmallBlocksDummy {
+        type Delta = u32;
+
+        const ALLOW_DUPLICATES: bool = true;
+        const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            mut writer: W,
+            _delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&[1])?;
+
+            Ok(1)
+        }
+    }
+
+    impl Decoder for SmallBlocksDummy {
+        fn decode<'index>(
+            &self,
+            _cursor: &mut Cursor<&'index [u8]>,
+            _base: t_docId,
+            _result: &mut RSIndexResult<'index>,
+        ) -> std::io::Result<()> {
+            unimplemented!("not used by this test")
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            unimplemented!("not used by this test")
+        }
+    }
+
+    impl DecodedBy for SmallBlocksDummy {
+        type Decoder = Self;
+
+        fn decoder() -> Self::Decoder {
+            Self
+        }
+    }
+
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, SmallBlocksDummy);
+
+    assert_eq!(
+        ii.blocks.capacity(),
+        0,
+        "initially there are no blocks allocated"
+    );
+
+    // Test when a new block are added normally
+    ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
+    ii.add_record(&RSIndexResult::default().doc_id(11)).unwrap();
+    assert_eq!(
+        ii.blocks.capacity(),
+        1,
+        "we should only have grown the capacity by one"
+    );
+
+    ii.add_record(&RSIndexResult::default().doc_id(12)).unwrap();
+    assert_eq!(
+        ii.blocks.capacity(),
+        2,
+        "only one new capacity should be added"
+    );
+
+    // Test when a new block is added due to delta overflow
+    ii.add_record(&RSIndexResult::default().doc_id(u32::MAX as u64 + 13))
+        .unwrap();
+    assert_eq!(
+        ii.blocks.capacity(),
+        3,
+        "only one new capacity should be added"
+    );
+
+    // Make sure GC is also smart to remove extra capacity
+    ii.apply_gc(GcScanDelta {
+        last_block_idx: 2,
+        last_block_num_entries: 1,
+        deltas: vec![
+            BlockGcScanResult {
+                index: 0,
+                repair: RepairType::Delete {
+                    n_unique_docs_removed: 1,
+                },
+            },
+            BlockGcScanResult {
+                index: 1,
+                repair: RepairType::Delete {
+                    n_unique_docs_removed: 1,
+                },
+            },
+        ],
+    });
+
+    assert_eq!(
+        ii.blocks.capacity(),
+        1,
+        "no extra capacity should be dangling"
+    );
+}
+
 #[test]
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
