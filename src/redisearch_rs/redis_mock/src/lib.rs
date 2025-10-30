@@ -40,20 +40,20 @@ pub struct TestContext {
     key_value_injections: Vec<(CString, CString)>,
 }
 
-impl TestContext {
-    pub const fn new() -> Self {
-        Self {
-            key_value_injections: vec![],
-            open_key_type: redis_module::KeyType::Empty,
-        }
-    }
+/// A builder for [TestContext] to ensure the internal vectors will not grow after construction.
+///
+/// A grow on the internal vectors would invalidate any pointers handed out.
+pub struct TestContextBuilder {
+    inner: TestContext,
+}
 
+impl TestContextBuilder {
     pub fn set_key_values(&mut self, kvs: Vec<(CString, CString)>) {
-        self.key_value_injections = kvs;
+        self.inner.key_value_injections = kvs;
     }
 
     pub fn inject_key_value(&mut self, key: CString, value: CString) {
-        self.key_value_injections.push((key, value));
+        self.inner.key_value_injections.push((key, value));
     }
 
     pub const fn with_key_type(&mut self, ty: &redis_module::KeyType) -> &mut Self {
@@ -62,7 +62,7 @@ impl TestContext {
         // `text_ctx`. An alternative is to use `num_traits` crate, but then we have
         // convert to u32 and back which is unnecessary code bloat, still.
         // See MOD-12173
-        self.open_key_type = match ty {
+        self.inner.open_key_type = match ty {
             KeyType::Empty => KeyType::Empty,
             KeyType::String => KeyType::String,
             KeyType::List => KeyType::List,
@@ -75,6 +75,21 @@ impl TestContext {
         self
     }
 
+    pub fn build(self) -> TestContext {
+        self.inner
+    }
+}
+
+impl TestContext {
+    pub const fn builder() -> TestContextBuilder {
+        TestContextBuilder {
+            inner: Self {
+                key_value_injections: vec![],
+                open_key_type: redis_module::KeyType::Empty,
+            },
+        }
+    }
+
     pub const fn access_key_values(&self) -> &Vec<(CString, CString)> {
         &self.key_value_injections
     }
@@ -82,7 +97,7 @@ impl TestContext {
 
 impl Default for TestContext {
     fn default() -> Self {
-        Self::new()
+        Self::builder().build()
     }
 }
 

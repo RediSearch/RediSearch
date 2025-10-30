@@ -426,7 +426,7 @@ mod tests {
 
     use super::*;
     #[cfg(not(miri))]
-    use redis_mock::TestContext;
+    use redis_mock::{TestContext, TestContextBuilder};
     use value::RSValueMock;
 
     /// A test context implementation for load document tests, allowing to mock out various features.
@@ -443,7 +443,7 @@ mod tests {
 
         /// This is the underlying Redis module mock context
         #[cfg(not(miri))]
-        redis_ctx: TestContext,
+        redis_ctx: Option<TestContext>,
     }
 
     impl LoadDocumentTestContext {
@@ -460,11 +460,13 @@ mod tests {
         }
 
         #[cfg(not(miri))]
-        pub fn adapt_redis_ctx<F>(&mut self, f: F)
+        pub fn construct_redis_test_ctx<F>(&mut self, f: F)
         where
-            F: FnOnce(&mut TestContext),
+            F: FnOnce(&mut TestContextBuilder),
         {
-            f(&mut self.redis_ctx);
+            let mut builder = TestContext::builder();
+            f(&mut builder);
+            self.redis_ctx = Some(builder.build());
         }
     }
 
@@ -474,7 +476,7 @@ mod tests {
                 is_crdt: false,
                 has_scan_key_feature: true,
                 #[cfg(not(miri))]
-                redis_ctx: TestContext::new(),
+                redis_ctx: None,
             }
         }
     }
@@ -552,7 +554,7 @@ mod tests {
         fn two_fields_empty_row_and_lookup(
             ctx: &mut LoadDocumentTestContext,
         ) -> Result<(), LoadDocumentError> {
-            ctx.adapt_redis_ctx(|ctx| {
+            ctx.construct_redis_test_ctx(|ctx| {
                 ctx.with_key_type(&KeyType::Hash);
                 ctx.set_key_values(vec![
                     (c"field1".to_owned(), c"value1".to_owned()),
@@ -668,7 +670,7 @@ mod tests {
 
             for case in &cases {
                 ctx.with_scan_key_feature(case.has_scan_key_feature);
-                ctx.adapt_redis_ctx(|ctx| {
+                ctx.construct_redis_test_ctx(|ctx| {
                     ctx.set_key_values(vec![]);
                     ctx.with_key_type(&case.key_type);
                 });
