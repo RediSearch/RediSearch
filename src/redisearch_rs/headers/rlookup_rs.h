@@ -370,8 +370,8 @@ void RLookupRow_Reset(struct RLookupRow *row);
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. `src` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 3. `dst` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 2. `src` must be a [valid], non-null pointer to an [`rlookup::RLookupRow`].
+ * 3. `dst` must be a [valid], non-null pointer to an [`rlookup::RLookupRow`].
  * 4. `src` and `dst` must not be the same lookup row.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

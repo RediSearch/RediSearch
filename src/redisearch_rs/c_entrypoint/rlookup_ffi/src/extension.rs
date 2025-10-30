@@ -1,5 +1,6 @@
 /// An extension trait for convenience methods attached to `Opaque` for
 /// using it in an FFI context as an opaque sized type.
+#[allow(dead_code)]
 pub trait OpaqueExt {
     type OpaqueType;
 

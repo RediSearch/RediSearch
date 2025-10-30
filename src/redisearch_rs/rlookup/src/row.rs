@@ -233,7 +233,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     ///
     /// # Safety
     /// The caller does not own the returned pointer and must not attempt to free it.
-    pub unsafe fn get_sorting_vector(&self) -> *const RSSortingVector<T> {
+    pub const unsafe fn get_sorting_vector(&self) -> *const RSSortingVector<T> {
         match self.sorting_vector {
             Some(sv) => sv as *const RSSortingVector<T>,
             None => std::ptr::null(),

@@ -87,8 +87,13 @@ impl<'index> SearchResult<'index> {
         }
     }
 
-    /// Clears the search result, removing all values from the [`RLookupRow`][ffi::RLookupRow].
+    /// Clears the search result, removing all values from the [`RLookupRow`].
     /// This has no effect on the allocated capacity of the lookup row.
+    ///
+    #[expect(
+        unreachable_code,
+        reason = "todo! will be handled in follow up PR related to SearchResult"
+    )]
     pub fn clear(&mut self) {
         self.score = 0.0;
 
@@ -182,12 +187,12 @@ impl<'index> SearchResult<'index> {
         self.index_result = index_result;
     }
 
-    /// Returns an immutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
+    /// Returns an immutable reference to the [`RLookupRow`] of this search result.
     pub const fn row_data(&self) -> &ffi::RLookupRow {
         &self.row_data
     }
 
-    /// Returns a mutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
+    /// Returns a mutable reference to the [`RLookupRow`] of this search result.
     pub const fn row_data_mut(&mut self) -> &mut ffi::RLookupRow {
         &mut self.row_data
     }
