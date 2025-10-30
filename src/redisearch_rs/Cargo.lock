@@ -1356,7 +1356,7 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "99.99.99"
-source = "git+https://github.com/hdoordt/redismodule-rs.git?branch=patches-redisearch#97bc3c2cf26939f4a8a92d21ddc497d5e547bafe"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git"
 dependencies = [
  "backtrace",
  "bindgen 0.66.1",
@@ -1378,7 +1378,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "99.99.99"
-source = "git+https://github.com/hdoordt/redismodule-rs.git?branch=patches-redisearch#97bc3c2cf26939f4a8a92d21ddc497d5e547bafe"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -1389,6 +1389,11 @@ dependencies = [
 [[package]]
 name = "redis_mock"
 version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+ "value",
+]
 
 [[package]]
 name = "redisearch_rs"
@@ -1474,8 +1479,11 @@ dependencies = [
  "libc",
  "pin-project",
  "proptest",
+ "redis-module",
+ "redis_mock",
  "sorting_vector",
  "strum",
+ "thiserror",
  "value",
 ]
 
@@ -1521,6 +1529,7 @@ dependencies = [
  "inverted_index",
  "pretty_assertions",
  "proptest",
+ "thiserror",
 ]
 
 [[package]]
@@ -1536,7 +1545,9 @@ dependencies = [
  "itertools 0.14.0",
  "redis_mock",
  "rqe_iterators",
+ "triemap_ffi",
  "types_ffi",
+ "varint_ffi",
 ]
 
 [[package]]
