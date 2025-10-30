@@ -115,6 +115,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     if (rc != REDISMODULE_OK) {
       // The error is set at the tail, copy it into status
       QueryError_CloneFrom(&hreq->tailPipelineError, status);
+      QueryError_ClearError(&hreq->tailPipelineError);
       return NULL;
     }
 
