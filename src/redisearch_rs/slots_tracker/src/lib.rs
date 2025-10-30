@@ -270,7 +270,7 @@ pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
     let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
 
     // Check if the ranges are already equal (no change needed)
-    if local_slots.equals(ranges_slice) {
+    if local_slots == ranges_slice {
         return;
     }
     
@@ -435,7 +435,7 @@ pub extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray
 
     // Fast path: If sets 2 & 3 are empty and input exactly matches set 1
     if fully_available.is_empty() && partially_available.is_empty()
-        && local_slots.equals(ranges_slice) {
+        && local_slots == ranges_slice {
         return VERSION.load(Ordering::Relaxed);
     }
     

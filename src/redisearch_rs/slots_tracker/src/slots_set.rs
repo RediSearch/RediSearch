@@ -62,7 +62,7 @@ fn debug_assert_valid_normalized_input(ranges: &[SlotRange]) {
 /// - No overlapping ranges
 /// - No adjacent ranges (they are merged)
 /// - All ranges are valid (start <= end, values in [0, 16383])
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct SlotsSet {
     /// Vector of slot ranges (start, end), kept sorted and normalized.
     ranges: Vec<SlotRange>,
@@ -78,16 +78,6 @@ impl SlotsSet {
     // Public API methods required for the C FFI:
     // ========================================================================
 
-    /// Checks if this SlotsSet contains exactly the same ranges as the input.
-    ///
-    /// Assumes both the internal ranges and input are sorted and normalized.
-    pub(crate) fn equals(&self, ranges: &[SlotRange]) -> bool {
-        if self.ranges.len() != ranges.len() {
-            return false;
-        }
-        self.ranges.iter().zip(ranges.iter()).all(|(a, b)| a == b)
-    }
-
     /// Replaces the entire contents of this SlotsSet with the given ranges (hard reset).
     ///
     /// **Assumes input is already sorted and normalized** (no overlaps, no adjacent ranges).
@@ -96,9 +86,8 @@ impl SlotsSet {
     pub(crate) fn set_from_ranges(&mut self, ranges: &[SlotRange]) {
         debug_assert_valid_normalized_input(ranges);
         
-        // Input is already normalized, just copy it
-        self.ranges.clear();
-        self.ranges.extend_from_slice(ranges);
+        // Input is already normalized, just replace our vector
+        self.ranges = ranges.to_vec();
     }
 
     /// Adds/merges ranges into the set (union operation).
@@ -124,14 +113,10 @@ impl SlotsSet {
     pub(crate) fn remove_ranges(&mut self, ranges: &[SlotRange]) {
         debug_assert_valid_normalized_input(ranges);
         
-        if ranges.is_empty() {
-            return;
-        }
-        
         let old_ranges = std::mem::take(&mut self.ranges);
         let mut remove_iter = ranges.iter().peekable();
         
-        for mut current in old_ranges {
+        'outer: for mut current in old_ranges {
             // Skip remove ranges that end before current starts
             while remove_iter.peek().is_some_and(|&&r| r.end < current.start) {
                 remove_iter.next();
@@ -146,9 +131,9 @@ impl SlotsSet {
                 // Handle overlap cases
                 match (remove.start <= current.start, remove.end >= current.end) {
                     (true, true) => {
-                        // Complete overlap - discard current
-                        remove_iter.next();
-                        continue; // Skip to next our_range
+                        // Complete overlap - discard current and move to next
+                        // Don't advance iterator - next range might also be completely covered
+                        continue 'outer;
                     }
                     (true, false) => {
                         // Remove overlaps left side - trim left
@@ -157,6 +142,7 @@ impl SlotsSet {
                     }
                     (false, true) => {
                         // Remove overlaps right side - trim right and done
+                        // Don't advance iterator - next range might start within this remove range
                         current.end = remove.start - 1;
                         break;
                     }
@@ -222,17 +208,13 @@ impl SlotsSet {
         let mut union = self.clone();
         union.add_ranges(&other.ranges);
 
-        // Build a normalized copy of input
-        let mut input = SlotsSet::new();
-        input.set_from_ranges(ranges);
-
         // Check for exact match
-        if union.equals(&input.ranges) {
+        if union == ranges {
             return CoverageRelation::Equals;
         }
 
         // Check if union covers all input slots
-        for &range in &input.ranges {
+        for &range in ranges {
             if !union.range_is_covered(range.start, range.end) {
                 return CoverageRelation::NoMatch;
             }
@@ -248,30 +230,31 @@ impl SlotsSet {
 
     /// Normalizes the internal ranges: sorts and merges overlapping/adjacent ranges.
     fn normalize(&mut self) {
-        if self.ranges.is_empty() {
+        if self.ranges.len() <= 1 {
             return;
         }
 
         // Sort by start position
-        self.ranges.sort_by_key(|r| r.start);
+        self.ranges.sort_unstable_by_key(|r| r.start);
 
-        // Merge overlapping and adjacent ranges
-        let mut merged = Vec::with_capacity(self.ranges.len());
-        let mut current = self.ranges[0];
-
-        for &range in &self.ranges[1..] {
-            if current.end + 1 >= range.start {
-                // Overlapping or adjacent - merge
-                current.end = current.end.max(range.end);
+        // Merge overlapping and adjacent ranges in-place
+        let mut write_pos = 0;
+        
+        for read_pos in 1..self.ranges.len() {
+            let current = self.ranges[read_pos];
+            
+            if self.ranges[write_pos].end + 1 >= current.start {
+                // Overlapping or adjacent - merge into write_pos
+                self.ranges[write_pos].end = self.ranges[write_pos].end.max(current.end);
             } else {
-                // Not adjacent - push current and start new
-                merged.push(current);
-                current = range;
+                // Not adjacent - advance write position and copy
+                write_pos += 1;
+                self.ranges[write_pos] = current;
             }
         }
-        merged.push(current);
-
-        self.ranges = merged;
+        
+        // Truncate to the merged length
+        self.ranges.truncate(write_pos + 1);
     }
 
     /// Checks if a single range is completely covered by this set.
@@ -296,5 +279,30 @@ impl SlotsSet {
 
         // Didn't cover everything
         false
+    }
+}
+
+// Implement PartialEq with slices for convenient comparisons
+impl PartialEq<[SlotRange]> for SlotsSet {
+    fn eq(&self, other: &[SlotRange]) -> bool {
+        self.ranges == other
+    }
+}
+
+impl PartialEq<&[SlotRange]> for SlotsSet {
+    fn eq(&self, other: &&[SlotRange]) -> bool {
+        self.ranges == *other
+    }
+}
+
+impl PartialEq<SlotsSet> for [SlotRange] {
+    fn eq(&self, other: &SlotsSet) -> bool {
+        self == other.ranges
+    }
+}
+
+impl PartialEq<SlotsSet> for &[SlotRange] {
+    fn eq(&self, other: &SlotsSet) -> bool {
+        *self == other.ranges
     }
 }
