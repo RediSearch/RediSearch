@@ -407,6 +407,7 @@ static inline int errorTooManyThreads(QueryError *status) {
 
 // WORKERS
 CONFIG_SETTER(setWorkThreads) {
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
   size_t newNumThreads;
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
@@ -418,6 +419,7 @@ CONFIG_SETTER(setWorkThreads) {
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
   COORDINATOR_TRIGGER();
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
   return REDISMODULE_OK;
 }
 
