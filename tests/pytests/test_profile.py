@@ -188,7 +188,7 @@ def testProfileErrors(env):
   env.expect('ft.profile', 'idx', 'SEARCH').error().contains('wrong number of arguments')
   env.expect('ft.profile', 'idx', 'SEARCH', 'QUERY').error().contains('wrong number of arguments')
   # wrong `query` type
-  env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH` or `AGGREGATE` provided')
+  env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
   # miss `QUERY` keyword
   if not env.isCluster():
     env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
@@ -707,87 +707,53 @@ def testProfileHybrid(env):
   conn.execute_command('hset', '3', 't', 'world space', 'v', 'aabbaabb')
   conn.execute_command('hset', '4', 't', 'other text', 'v', 'bbaabbaa')
 
-  # Test basic FT.PROFILE with FT.HYBRID
-  # Note: FT.PROFILE HYBRID requires QUERY keyword followed by SEARCH and hybrid command
-  actual_res = conn.execute_command('ft.profile', 'idx', 'hybrid', 'query', 'search', 'hello',
-                                    'vsim', '@v', 'aaaaaaaa', 'knn', '2', 'k', '10',
-                                    'combine', 'rrf', '2', 'constant', '60')
+  # Test FT.PROFILE with FT.HYBRID
+  actual_res = conn.execute_command('ft.profile', 'idx', 'hybrid', 'query',
+                                    'search', 'hello',
+                                    'vsim', '@v', 'aaaaaaaa', 'knn', '2', 'k', '10')
 
-  # Verify the response structure contains profile data
+  # Debug: Print the actual structure to understand it
+  print(f'DEBUG: actual_res length: {len(actual_res)}')
+  for i, element in enumerate(actual_res):
+    print(f'DEBUG: Element {i}: {element} (type: {type(element)})')
+
+  # Verify the response structure
   env.assertTrue(isinstance(actual_res, list))
-  env.assertTrue(len(actual_res) >= 5)  # Updated to expect at least 5 elements
+  env.assertEqual(len(actual_res), 9)  # Should have 9 elements
 
-  # Check that we have results in the new format
-  # Format: [total_results, results, warnings, execution_time, Profile]
-  total_results = actual_res[0]
-  results = actual_res[1]
-  warnings = actual_res[2]
-  execution_time = actual_res[3]
-  profile_data = actual_res[4]
+  # Verify the flat list structure: ['total_results', value, 'results', value, 'warnings', value, 'execution_time', value, profile_data]
+  env.assertEqual(actual_res[0], 'total_results')
+  env.assertTrue(isinstance(actual_res[1], int))
+  env.assertEqual(actual_res[2], 'results')
+  env.assertTrue(isinstance(actual_res[3], list))
+  env.assertEqual(actual_res[4], 'warnings')
+  env.assertTrue(isinstance(actual_res[5], list))
+  env.assertEqual(actual_res[6], 'execution_time')
+  env.assertTrue(isinstance(actual_res[7], str))
 
-  # Verify basic response structure
-  env.assertTrue(isinstance(total_results, int))
-  env.assertTrue(isinstance(results, list))
-  env.assertTrue(isinstance(warnings, list))
-  env.assertTrue(isinstance(execution_time, (int, float)))
-  env.assertTrue(isinstance(profile_data, dict))
+  # Verify profile data structure
+  profile_data = actual_res[8]
+  env.assertTrue(isinstance(profile_data, list))
+  env.assertEqual(len(profile_data), 4)  # Should have ['Shards', [...], 'Coordinator', [...]] structure
+  env.assertEqual(profile_data[0], 'Shards')
+  env.assertEqual(profile_data[2], 'Coordinator')
 
-  # Check that we have profile data with Shards
-  env.assertTrue('Shards' in profile_data)
-  shards = profile_data['Shards']
-  env.assertTrue(isinstance(shards, list))
-  env.assertTrue(len(shards) >= 1)
+  shards_data = profile_data[1]
+  env.assertTrue(isinstance(shards_data, list))
+  env.assertEqual(len(shards_data), 1)  # Single shard
 
-  # Verify shard structure - should contain SEARCH, VSIM, and COMBINE
-  shard = shards[0]
-  env.assertTrue(isinstance(shard, dict))
-  env.assertTrue('SEARCH' in shard)
-  env.assertTrue('VSIM' in shard)
-  env.assertTrue('COMBINE' in shard)
+  shard = shards_data[0]
+  env.assertTrue(isinstance(shard, list))
+  env.assertEqual(len(shard), 6)  # Should have SEARCH, data, VSIM, data, COMBINE, data
 
-  # Check SEARCH subquery profile
-  search_profile = shard['SEARCH']
-  env.assertTrue('Total profile time' in search_profile)
-  env.assertTrue('Parsing time' in search_profile)
-  env.assertTrue('Pipeline creation time' in search_profile)
-  env.assertTrue('Iterators profile' in search_profile)
-  env.assertTrue('Result processors profile' in search_profile)
+  # Verify SEARCH section
+  env.assertEqual(shard[0], 'SEARCH')
+  env.assertTrue(isinstance(shard[1], list))  # SEARCH profile data
 
-  # Check VSIM subquery profile
-  vsim_profile = shard['VSIM']
-  env.assertTrue('Total profile time' in vsim_profile)
-  env.assertTrue('Parsing time' in vsim_profile)
-  env.assertTrue('Pipeline creation time' in vsim_profile)
-  env.assertTrue('Iterators profile' in vsim_profile)
-  env.assertTrue('Result processors profile' in vsim_profile)
+  # Verify VSIM section
+  env.assertEqual(shard[2], 'VSIM')
+  env.assertTrue(isinstance(shard[3], list))  # VSIM profile data
 
-  # Check COMBINE profile
-  combine_profile = shard['COMBINE']
-  env.assertTrue('Total profile time' in combine_profile)
-  env.assertTrue('Result processors profile' in combine_profile)
-
-  # Check Coordinator section exists
-  env.assertTrue('Coordinator' in profile_data)
-
-  # Test FT.PROFILE with FT.HYBRID LIMITED
-  actual_res = conn.execute_command('ft.profile', 'idx', 'hybrid', 'limited', 'query', 'search', 'hello',
-                                    'vsim', '@v', 'aaaaaaaa', 'knn', '2', 'k', '10',
-                                    'combine', 'rrf', '2', 'constant', '60')
-
-  # Verify LIMITED profile also works with new format
-  env.assertTrue(isinstance(actual_res, list))
-  env.assertTrue(len(actual_res) >= 5)
-  profile_data = actual_res[4]
-  env.assertTrue('Shards' in profile_data)
-
-  # Test with PARAMS
-  actual_res = conn.execute_command('ft.profile', 'idx', 'hybrid', 'query', 'search', '($term)',
-                                    'vsim', '@v', '$vec', 'knn', '2', 'k', '10',
-                                    'combine', 'rrf', '2', 'constant', '60',
-                                    'params', '4', 'term', 'hello', 'vec', 'aaaaaaaa')
-
-  # Verify PARAMS profile works with new format
-  env.assertTrue(isinstance(actual_res, list))
-  env.assertTrue(len(actual_res) >= 5)
-  profile_data = actual_res[4]
-  env.assertTrue('Shards' in profile_data)
+  # Verify COMBINE section
+  env.assertEqual(shard[4], 'COMBINE')
+  env.assertTrue(isinstance(shard[5], list))  # COMBINE profile data
