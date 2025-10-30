@@ -86,14 +86,14 @@ impl Display for QueryErrorCode {
 }
 
 impl QueryErrorCode {
-    pub fn is_ok(self) -> bool {
+    pub const fn is_ok(self) -> bool {
         matches!(self, Self::Ok)
     }
 
     // TODO(enricozb): this should be moved to either a thiserror or strum macro.
     // This is done as &'static CStr because we need to provide *const c_char
     // representations of the error codes for FFI into C code.
-    pub fn to_c_str(self) -> &'static CStr {
+    pub const fn to_c_str(self) -> &'static CStr {
         match self {
             Self::Ok => c"Success (not an error)",
             Self::Generic => c"Generic error evaluating the query",
@@ -167,15 +167,15 @@ pub struct QueryError {
 }
 
 impl QueryError {
-    pub fn is_ok(&self) -> bool {
+    pub const fn is_ok(&self) -> bool {
         self.code.is_ok()
     }
 
-    pub fn code(&self) -> QueryErrorCode {
+    pub const fn code(&self) -> QueryErrorCode {
         self.code
     }
 
-    pub fn set_code(&mut self, code: QueryErrorCode) {
+    pub const fn set_code(&mut self, code: QueryErrorCode) {
         if !self.is_ok() {
             return;
         }
@@ -205,11 +205,11 @@ impl QueryError {
         self.private_message = message;
     }
 
-    pub fn warnings(&self) -> &Warnings {
+    pub const fn warnings(&self) -> &Warnings {
         &self.warnings
     }
 
-    pub fn warnings_mut(&mut self) -> &mut Warnings {
+    pub const fn warnings_mut(&mut self) -> &mut Warnings {
         &mut self.warnings
     }
 
@@ -225,19 +225,19 @@ pub struct Warnings {
 }
 
 impl Warnings {
-    pub fn reached_max_prefix_expansions(&self) -> bool {
+    pub const fn reached_max_prefix_expansions(&self) -> bool {
         self.reached_max_prefix_expansions
     }
 
-    pub fn set_reached_max_prefix_expansions(&mut self) {
+    pub const fn set_reached_max_prefix_expansions(&mut self) {
         self.reached_max_prefix_expansions = true;
     }
 
-    pub fn out_of_memory(&self) -> bool {
+    pub const fn out_of_memory(&self) -> bool {
         self.out_of_memory
     }
 
-    pub fn set_out_of_memory(&mut self) {
+    pub const fn set_out_of_memory(&mut self) {
         self.out_of_memory = true;
     }
 }
