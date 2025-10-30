@@ -544,6 +544,7 @@ impl<E: Encoder> InvertedIndex<E> {
         // has increased (if any).
         let buf_growth = block.buffer.capacity() - buf_cap;
 
+        debug_assert!(block.num_entries.saturating_add(1) < u16::MAX);
         block.num_entries += 1;
         block.last_doc_id = doc_id;
 
