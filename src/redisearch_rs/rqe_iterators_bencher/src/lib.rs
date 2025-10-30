@@ -150,7 +150,6 @@ stub_c_fn! {
     TimeToLiveTable_VerifyDocAndField,
     TimeToLiveTable_VerifyDocAndFieldMask,
     TimeToLiveTable_VerifyDocAndWideFieldMask,
-    array_new_sz,
     fast_float_strtod,
     isWithinRadius,
     nu_bytenlen,
