@@ -17,9 +17,9 @@ use crate::SlotRange;
 /// Enum describing the relationship between a set and a query.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) enum CoverageRelation {
-    Equals,   // Set == query (exact match)
-    Covers,   // Set ⊇ query (covers but has extra)
-    NoMatch,  // Set ⊉ query (doesn't cover all)
+    Equals,  // Set == query (exact match)
+    Covers,  // Set ⊇ query (covers but has extra)
+    NoMatch, // Set ⊉ query (doesn't cover all)
 }
 
 // ============================================================================
@@ -50,7 +50,6 @@ fn debug_assert_valid_normalized_input(ranges: &[SlotRange]) {
     debug_assert_valid_ranges(ranges);
     debug_assert_normalized_ranges(ranges);
 }
-
 
 /// A collection of slot ranges with set operation capabilities.
 ///
@@ -85,7 +84,7 @@ impl SlotsSet {
     /// Used only by `slots_tracker_set_local_slots`.
     pub(crate) fn set_from_ranges(&mut self, ranges: &[SlotRange]) {
         debug_assert_valid_normalized_input(ranges);
-        
+
         // Input is already normalized, just replace our vector
         self.ranges = ranges.to_vec();
     }
@@ -97,7 +96,7 @@ impl SlotsSet {
     /// Used by `slots_tracker_set_partially_available_slots` and `slots_tracker_set_fully_available_slots`.
     pub(crate) fn add_ranges(&mut self, ranges: &[SlotRange]) {
         debug_assert_valid_normalized_input(ranges);
-        
+
         // Simply add all ranges and normalize once at the end
         self.ranges.extend_from_slice(ranges);
         self.normalize();
@@ -108,26 +107,26 @@ impl SlotsSet {
     /// **Assumes input is already sorted and normalized**.
     /// In debug builds, validates this assumption.
     /// May split existing ranges or remove them entirely.
-    /// 
+    ///
     /// **Optimized**: Takes advantage of sorted input to avoid re-scanning from the beginning.
     pub(crate) fn remove_ranges(&mut self, ranges: &[SlotRange]) {
         debug_assert_valid_normalized_input(ranges);
-        
+
         let old_ranges = std::mem::take(&mut self.ranges);
         let mut remove_iter = ranges.iter().peekable();
-        
+
         'outer: for mut current in old_ranges {
             // Skip remove ranges that end before current starts
             while remove_iter.peek().is_some_and(|&&r| r.end < current.start) {
                 remove_iter.next();
             }
-            
+
             // Apply all overlapping remove ranges to current
             while let Some(&&remove) = remove_iter.peek() {
                 if remove.start > current.end {
                     break; // No more overlaps for current
                 }
-                
+
                 // Handle overlap cases
                 match (remove.start <= current.start, remove.end >= current.end) {
                     (true, true) => {
@@ -157,7 +156,7 @@ impl SlotsSet {
                     }
                 }
             }
-            
+
             // Keep what remains of current
             self.ranges.push(current);
         }
@@ -168,20 +167,20 @@ impl SlotsSet {
     /// **Assumes input is already sorted and normalized**.
     /// In debug builds, validates this assumption.
     /// Returns true if there is at least one overlapping slot.
-    /// 
+    ///
     /// **Optimized**: Uses iterators with two-pointer technique since both inputs are sorted.
     pub(crate) fn has_overlap(&self, ranges: &[SlotRange]) -> bool {
         debug_assert_valid_normalized_input(ranges);
-        
+
         let mut our_iter = self.ranges.iter();
         let mut their_iter = ranges.iter().peekable();
-        
+
         for &our_range in our_iter.by_ref() {
             // Skip their ranges that end before our current range starts
             while their_iter.peek().is_some_and(|&&r| r.end < our_range.start) {
                 their_iter.next();
             }
-            
+
             // Check if next their range overlaps with our current range
             if let Some(&&their_range) = their_iter.peek() {
                 if their_range.start <= our_range.end {
@@ -191,7 +190,7 @@ impl SlotsSet {
                 break; // No more their ranges to check
             }
         }
-        
+
         false
     }
 
@@ -203,7 +202,11 @@ impl SlotsSet {
     /// Checks the relationship between the union of this set and another set vs input ranges.
     ///
     /// Returns `CoverageRelation` indicating: `Equals`, `Covers`, or `NoMatch`.
-    pub(crate) fn union_relation(&self, other: &SlotsSet, ranges: &[SlotRange]) -> CoverageRelation {
+    pub(crate) fn union_relation(
+        &self,
+        other: &SlotsSet,
+        ranges: &[SlotRange],
+    ) -> CoverageRelation {
         // Build the union set
         let mut union = self.clone();
         union.add_ranges(&other.ranges);
@@ -239,10 +242,10 @@ impl SlotsSet {
 
         // Merge overlapping and adjacent ranges in-place
         let mut write_pos = 0;
-        
+
         for read_pos in 1..self.ranges.len() {
             let current = self.ranges[read_pos];
-            
+
             if self.ranges[write_pos].end + 1 >= current.start {
                 // Overlapping or adjacent - merge into write_pos
                 self.ranges[write_pos].end = self.ranges[write_pos].end.max(current.end);
@@ -252,7 +255,7 @@ impl SlotsSet {
                 self.ranges[write_pos] = current;
             }
         }
-        
+
         // Truncate to the merged length
         self.ranges.truncate(write_pos + 1);
     }

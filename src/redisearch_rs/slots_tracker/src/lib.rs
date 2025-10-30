@@ -24,7 +24,7 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 mod slots_set;
-use slots_set::{SlotsSet, CoverageRelation};
+use slots_set::{CoverageRelation, SlotsSet};
 
 #[cfg(test)]
 mod slots_set_tests;
@@ -112,7 +112,10 @@ const MAX_VALID_VERSION: u32 = u32::MAX - 2;
 /// This function assumes single-threaded access (main thread only).
 fn increment_version() {
     let current = VERSION.load(Ordering::Relaxed);
-    assert!(current <= MAX_VALID_VERSION, "Version counter out of valid range");
+    assert!(
+        current <= MAX_VALID_VERSION,
+        "Version counter out of valid range"
+    );
     let next = if current < MAX_VALID_VERSION {
         current + 1
     } else {
@@ -176,7 +179,7 @@ unsafe fn parse_slot_ranges(ranges: *const SlotRangeArray) -> Option<&'static [S
 
     // SAFETY: Caller guarantees valid pointer
     let ranges_ref = unsafe { &*ranges };
-    
+
     if ranges_ref.num_ranges < 0 {
         return None;
     }
@@ -187,12 +190,9 @@ unsafe fn parse_slot_ranges(ranges: *const SlotRangeArray) -> Option<&'static [S
 
     // SAFETY: Caller guarantees the flexible array has num_ranges elements
     let slice = unsafe {
-        std::slice::from_raw_parts(
-            ranges_ref.ranges.as_ptr(),
-            ranges_ref.num_ranges as usize,
-        )
+        std::slice::from_raw_parts(ranges_ref.ranges.as_ptr(), ranges_ref.num_ranges as usize)
     };
-    
+
     Some(slice)
 }
 
@@ -201,7 +201,11 @@ unsafe fn parse_slot_ranges(ranges: *const SlotRangeArray) -> Option<&'static [S
 /// # Safety
 ///
 /// The caller must ensure single-threaded access to the static instances.
-unsafe fn get_all_sets() -> (&'static mut SlotsSet, &'static mut SlotsSet, &'static mut SlotsSet) {
+unsafe fn get_all_sets() -> (
+    &'static mut SlotsSet,
+    &'static mut SlotsSet,
+    &'static mut SlotsSet,
+) {
     // SAFETY: Caller guarantees single-threaded access
     let local = unsafe { &mut *LOCAL_SLOTS.get() };
     // SAFETY: Caller guarantees single-threaded access
@@ -276,7 +280,7 @@ pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
     if local_slots == ranges_slice {
         return;
     }
-    
+
     // Update local slots and remove from other sets
     local_slots.set_from_ranges(ranges_slice);
     fully_available.remove_ranges(ranges_slice);
@@ -318,7 +322,7 @@ pub extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const Slo
 ///
 /// This function updates the FULLY_AVAILABLE_SLOTS set to match the provided ranges.
 /// It also removes the given slots from LOCAL_SLOTS.
-/// 
+///
 /// Note: This does NOT increment the VERSION counter, as slots are moving from owned
 /// to not-owned with no data changes. It also does NOT remove from PARTIALLY_AVAILABLE_SLOTS.
 ///
@@ -437,11 +441,10 @@ pub extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray
     let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
 
     // Fast path: If sets 2 & 3 are empty and input exactly matches set 1
-    if fully_available.is_empty() && partially_available.is_empty()
-        && local_slots == ranges_slice {
+    if fully_available.is_empty() && partially_available.is_empty() && local_slots == ranges_slice {
         return VERSION.load(Ordering::Relaxed);
     }
-    
+
     // Full check: Use union_relation to check coverage
     match local_slots.union_relation(fully_available, ranges_slice) {
         CoverageRelation::Equals if partially_available.is_empty() => {

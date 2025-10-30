@@ -9,7 +9,10 @@
 
 //! Tests for the SlotsSet data structure.
 
-use crate::{SlotRange, slots_set::{SlotsSet, CoverageRelation}};
+use crate::{
+    SlotRange,
+    slots_set::{CoverageRelation, SlotsSet},
+};
 
 #[cfg(test)]
 mod tests {
@@ -225,7 +228,10 @@ mod tests {
         let mut set = SlotsSet::new();
         set.set_from_ranges(&[range(0, 100)]);
         set.remove_ranges(&[range(10, 20), range(30, 40), range(50, 60)]);
-        assert_eq!(set, &[range(0, 9), range(21, 29), range(41, 49), range(61, 100)][..]);
+        assert_eq!(
+            set,
+            &[range(0, 9), range(21, 29), range(41, 49), range(61, 100)][..]
+        );
     }
 
     #[test]
@@ -436,18 +442,18 @@ mod tests {
     #[test]
     fn test_complex_operations_sequence() {
         let mut set = SlotsSet::new();
-        
+
         // Start with some ranges
         set.set_from_ranges(&[range(0, 100), range(200, 300)]);
-        
+
         // Add overlapping ranges
         set.add_ranges(&[range(50, 150), range(250, 350)]);
         assert_eq!(set, &[range(0, 150), range(200, 350)][..]);
-        
+
         // Remove from middle
         set.remove_ranges(&[range(75, 275)]);
         assert_eq!(set, &[range(0, 74), range(276, 350)][..]);
-        
+
         // Check overlap
         assert!(set.has_overlap(&[range(70, 80)]));
         assert!(!set.has_overlap(&[range(100, 200)]));
