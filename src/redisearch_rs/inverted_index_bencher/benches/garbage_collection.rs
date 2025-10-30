@@ -15,9 +15,9 @@ use criterion::{
 };
 use ffi::IndexFlags_Index_DocIdsOnly;
 use inverted_index::{IndexBlock, InvertedIndex, RSIndexResult, numeric};
-// Force linking to the library that contains the mock implementations
+// Ensure the symbol is not discarded by the linker.
 #[allow(unused_imports)]
-use inverted_index_bencher;
+use inverted_index_bencher::ResultMetrics_Free;
 
 fn benchmark_garbage_collection(c: &mut Criterion) {
     let mut group = c.benchmark_group("GC");

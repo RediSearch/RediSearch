@@ -46,6 +46,8 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64) {
         key: std::ptr::null_mut(),
         value: value.as_ptr(),
     };
+    // Prevent value::drop() from being called to avoid use-after-free as the C code now owns this value.
+    std::mem::forget(value);
     // SAFETY: calling a C function to append a new metric to the result's metrics array
     unsafe {
         result.metrics = array_ensure_append_n_func(
