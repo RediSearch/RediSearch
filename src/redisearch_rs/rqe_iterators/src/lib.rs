@@ -17,6 +17,7 @@ pub mod id_list;
 pub mod inverted_index;
 pub mod metric;
 pub mod wildcard;
+pub mod not_iterator;
 
 #[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
