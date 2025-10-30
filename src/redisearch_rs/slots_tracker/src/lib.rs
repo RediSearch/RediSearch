@@ -30,63 +30,67 @@ use slots_set::{CoverageRelation, SlotsSet};
 mod slots_set_tests;
 
 // ============================================================================
-// Thread-unsafe wrapper for single-threaded access
+// Global State Structure
 // ============================================================================
 
-/// A wrapper around `UnsafeCell` that implements `Sync` to allow static storage.
+/// Encapsulates all slot tracking state in a single structure.
+///
+/// This groups the three slot sets and version counter together for better
+/// organization while maintaining the same zero-cost abstraction as individual
+/// statics.
 ///
 /// # Safety
 ///
-/// This type is NOT thread-safe. The caller must ensure that access is single-threaded.
-/// Using this from multiple threads will cause undefined behavior.
-struct UnsafeSyncCell<T>(UnsafeCell<T>);
-
-impl<T> UnsafeSyncCell<T> {
-    const fn new(value: T) -> Self {
-        UnsafeSyncCell(UnsafeCell::new(value))
-    }
-
-    /// Get a mutable pointer to the inner value.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that:
-    /// - Only one thread accesses this at a time
-    /// - No other references (mutable or immutable) exist while this reference is alive
-    const fn get(&self) -> *mut T {
-        self.0.get()
-    }
+/// This type is NOT thread-safe. Access to the UnsafeCell fields must be
+/// single-threaded. The caller must ensure that:
+/// - Only one thread accesses the slot sets at a time
+/// - No other references exist while mutable references are alive
+///
+/// The version field is atomic and can be safely read from any thread.
+struct SlotsTrackerState {
+    /// Local responsibility slots - owned by this Redis instance in the cluster topology.
+    local: UnsafeCell<SlotsSet>,
+    /// Fully available non-owned slots - locally available but not owned by this instance.
+    fully_available: UnsafeCell<SlotsSet>,
+    /// Partially available non-owned slots - partially available and not owned by this instance.
+    partially_available: UnsafeCell<SlotsSet>,
+    /// Version counter for tracking changes to the slots configuration.
+    /// Incremented whenever the slot configuration changes. Wraps around safely.
+    /// Atomic so it can be safely read from any thread.
+    version: AtomicU32,
 }
 
 // SAFETY: This is marked as Sync to allow use in static variables, but the caller
-// MUST ensure single-threaded access. This is enforced by the C API contract.
-unsafe impl<T> Sync for UnsafeSyncCell<T> {}
+// MUST ensure single-threaded access to the UnsafeCell fields. This is enforced
+// by the C API contract. The AtomicU32 is inherently Sync.
+unsafe impl Sync for SlotsTrackerState {}
+
+impl SlotsTrackerState {
+    const fn new() -> Self {
+        Self {
+            local: UnsafeCell::new(SlotsSet::new()),
+            fully_available: UnsafeCell::new(SlotsSet::new()),
+            partially_available: UnsafeCell::new(SlotsSet::new()),
+            version: AtomicU32::new(0),
+        }
+    }
+}
 
 // ============================================================================
-// Global Static Instances (Private)
+// Global Static Instance (Private)
 // ============================================================================
 
-/// Global instance #1: Local responsibility slots
+/// Global slots tracker state.
 ///
-/// Contains slot ranges that are owned by this Redis instance in the cluster topology.
-static LOCAL_SLOTS: UnsafeSyncCell<SlotsSet> = UnsafeSyncCell::new(SlotsSet::new());
-
-/// Global instance #2: Fully available non-owned slots
+/// Contains all three slot sets and the version counter in a single structure
+/// for better organization and encapsulation.
 ///
-/// Contains slot ranges that are locally fully available but not owned by this instance.
-static FULLY_AVAILABLE_SLOTS: UnsafeSyncCell<SlotsSet> = UnsafeSyncCell::new(SlotsSet::new());
-
-/// Global instance #3: Partially available non-owned slots
+/// # Safety
 ///
-/// Contains slot ranges that are partially available and not owned by this instance.
-static PARTIALLY_AVAILABLE_SLOTS: UnsafeSyncCell<SlotsSet> = UnsafeSyncCell::new(SlotsSet::new());
-
-/// Version counter for tracking changes to the slots configuration.
-///
-/// This counter is incremented whenever the slot configuration changes.
-/// It can wrap around safely as we only care about equality checks, not ordering.
-/// This is atomic so it can be safely read from any thread.
-static VERSION: AtomicU32 = AtomicU32::new(0);
+/// All mutation functions accessing this state are `unsafe extern "C"` and
+/// documented to require single-threaded access. Violating this contract
+/// (e.g., calling from multiple threads) is undefined behavior.
+static STATE: SlotsTrackerState = SlotsTrackerState::new();
 
 /// Reserved version value indicating unstable/partial availability.
 ///
@@ -111,8 +115,8 @@ const MAX_VALID_VERSION: u32 = u32::MAX - 2;
 ///
 /// This function assumes single-threaded access (main thread only).
 fn increment_version() {
-    let current = VERSION.load(Ordering::Relaxed);
-    assert!(
+    let current = STATE.version.load(Ordering::Relaxed);
+    debug_assert!(
         current <= MAX_VALID_VERSION,
         "Version counter out of valid range"
     );
@@ -121,7 +125,7 @@ fn increment_version() {
     } else {
         0 // Wrap around to 0
     };
-    VERSION.store(next, Ordering::Relaxed);
+    STATE.version.store(next, Ordering::Relaxed);
 }
 
 // ============================================================================
@@ -145,55 +149,36 @@ pub struct SlotRangeArray {
     pub ranges: [SlotRange; 0], // Flexible array member
 }
 
-/// C-compatible error codes for FFI operations.
-#[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum SlotTrackerError {
-    /// Operation completed successfully.
-    Success = 0,
-    /// Invalid slot range provided.
-    InvalidRange = 1,
-    /// Failed to acquire lock on the slots set.
-    LockFailed = 2,
-    /// Invalid instance ID provided.
-    InvalidInstance = 3,
-}
-
 // ============================================================================
 // Private Helper Functions
 // ============================================================================
 
 /// Converts a C SlotRangeArray pointer to a Rust slice.
 ///
-/// Returns None if the pointer is null or num_ranges is negative.
+/// # Panics
+///
+/// Panics if the pointer is null or num_ranges is less than 1.
 ///
 /// # Safety
 ///
 /// The caller must ensure the pointer is valid and points to a properly initialized
 /// SlotRangeArray with at least `num_ranges` elements in the flexible array.
-#[allow(clippy::missing_const_for_fn)] // Can't be const due to slice::from_raw_parts
-unsafe fn parse_slot_ranges(ranges: *const SlotRangeArray) -> Option<&'static [SlotRange]> {
-    if ranges.is_null() {
-        return None;
-    }
+unsafe fn parse_slot_ranges(ranges: *const SlotRangeArray) -> &'static [SlotRange] {
+    assert!(!ranges.is_null(), "SlotRangeArray pointer is null");
 
     // SAFETY: Caller guarantees valid pointer
     let ranges_ref = unsafe { &*ranges };
 
-    if ranges_ref.num_ranges < 0 {
-        return None;
-    }
-
-    if ranges_ref.num_ranges == 0 {
-        return Some(&[]);
-    }
+    assert!(
+        ranges_ref.num_ranges >= 1,
+        "num_ranges must be at least 1, got {}",
+        ranges_ref.num_ranges
+    );
 
     // SAFETY: Caller guarantees the flexible array has num_ranges elements
-    let slice = unsafe {
+    unsafe {
         std::slice::from_raw_parts(ranges_ref.ranges.as_ptr(), ranges_ref.num_ranges as usize)
-    };
-
-    Some(slice)
+    }
 }
 
 /// Gets mutable references to all three slot sets.
@@ -207,11 +192,11 @@ unsafe fn get_all_sets() -> (
     &'static mut SlotsSet,
 ) {
     // SAFETY: Caller guarantees single-threaded access
-    let local = unsafe { &mut *LOCAL_SLOTS.get() };
+    let local = unsafe { &mut *STATE.local.get() };
     // SAFETY: Caller guarantees single-threaded access
-    let fully = unsafe { &mut *FULLY_AVAILABLE_SLOTS.get() };
+    let fully = unsafe { &mut *STATE.fully_available.get() };
     // SAFETY: Caller guarantees single-threaded access
-    let partial = unsafe { &mut *PARTIALLY_AVAILABLE_SLOTS.get() };
+    let partial = unsafe { &mut *STATE.partially_available.get() };
     (local, fully, partial)
 }
 
@@ -222,7 +207,7 @@ unsafe fn get_all_sets() -> (
 /// The caller must ensure single-threaded access to the static instance.
 unsafe fn get_local_slots() -> &'static mut SlotsSet {
     // SAFETY: Caller guarantees single-threaded access
-    unsafe { &mut *LOCAL_SLOTS.get() }
+    unsafe { &mut *STATE.local.get() }
 }
 
 /// Gets mutable reference to the fully available slots set.
@@ -232,7 +217,7 @@ unsafe fn get_local_slots() -> &'static mut SlotsSet {
 /// The caller must ensure single-threaded access to the static instance.
 unsafe fn get_fully_available_slots() -> &'static mut SlotsSet {
     // SAFETY: Caller guarantees single-threaded access
-    unsafe { &mut *FULLY_AVAILABLE_SLOTS.get() }
+    unsafe { &mut *STATE.fully_available.get() }
 }
 
 /// Gets mutable reference to the partially available slots set.
@@ -242,7 +227,7 @@ unsafe fn get_fully_available_slots() -> &'static mut SlotsSet {
 /// The caller must ensure single-threaded access to the static instance.
 unsafe fn get_partially_available_slots() -> &'static mut SlotsSet {
     // SAFETY: Caller guarantees single-threaded access
-    unsafe { &mut *PARTIALLY_AVAILABLE_SLOTS.get() }
+    unsafe { &mut *STATE.partially_available.get() }
 }
 
 // ============================================================================
@@ -269,9 +254,7 @@ unsafe fn get_partially_available_slots() -> &'static mut SlotsSet {
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
-        return;
-    };
+    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
@@ -304,15 +287,13 @@ pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
-        return;
-    };
+    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
 
-    // Set partially available slots and remove from other sets
-    partially_available.set_from_ranges(ranges_slice);
+    // Update partially available slots and remove from other sets
+    partially_available.add_ranges(ranges_slice);
     local_slots.remove_ranges(ranges_slice);
     fully_available.remove_ranges(ranges_slice);
     increment_version();
@@ -336,16 +317,14 @@ pub extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const Slo
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
-        return;
-    };
+    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let local_slots = unsafe { get_local_slots() };
     // SAFETY: Caller guarantees single-threaded access
     let fully_available = unsafe { get_fully_available_slots() };
 
-    // Set fully available slots and remove from local slots
+    // Update fully available slots and remove from local slots
     // Note: Do NOT increment VERSION, do NOT remove from partially_available
     fully_available.add_ranges(ranges_slice);
     local_slots.remove_ranges(ranges_slice);
@@ -367,9 +346,7 @@ pub extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const SlotRan
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
-        return;
-    };
+    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let partially_available = unsafe { get_partially_available_slots() };
@@ -394,9 +371,7 @@ pub extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArr
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotRangeArray) -> bool {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
-        return false;
-    };
+    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let fully_available = unsafe { get_fully_available_slots() };
@@ -433,23 +408,21 @@ pub extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotR
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray) -> u32 {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let Some(ranges_slice) = (unsafe { parse_slot_ranges(ranges) }) else {
-        return SLOTS_TRACKER_UNAVAILABLE;
-    };
+    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
 
     // Fast path: If sets 2 & 3 are empty and input exactly matches set 1
     if fully_available.is_empty() && partially_available.is_empty() && local_slots == ranges_slice {
-        return VERSION.load(Ordering::Relaxed);
+        return STATE.version.load(Ordering::Relaxed);
     }
 
     // Full check: Use union_relation to check coverage
     match local_slots.union_relation(fully_available, ranges_slice) {
         CoverageRelation::Equals if partially_available.is_empty() => {
             // Exact match and no partial slots
-            VERSION.load(Ordering::Relaxed)
+            STATE.version.load(Ordering::Relaxed)
         }
         CoverageRelation::Equals | CoverageRelation::Covers => {
             // Covered but not exact, or has partial slots
@@ -472,77 +445,5 @@ pub extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray
 /// This function is safe to call from any thread.
 #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_get_version() -> u32 {
-    VERSION.load(Ordering::Relaxed)
+    STATE.version.load(Ordering::Relaxed)
 }
-
-// ============================================================================
-// Placeholder Functions (to be removed or implemented)
-// ============================================================================
-
-// TODO: Implement C extern functions for:
-// - Initializing/clearing a slots set instance
-// - Adding slot ranges to an instance
-// - Removing slot ranges from an instance
-// - Checking if a slot is in an instance
-// - Performing set operations between instances
-// - Querying the state of an instance (e.g., get all ranges)
-
-/*
-/// Adds a slot range to the specified global slots set instance.
-///
-/// # Safety
-///
-/// This function is safe to call from C code. All parameters are passed by value.
-/// The function validates inputs and returns appropriate error codes.
-#[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_add_range(
-    _instance_id: u8,
-    _start: u16,
-    _end: u16,
-) -> SlotTrackerError {
-    // TODO: Implement
-    // - Validate instance_id (must be 0, 1, or 2)
-    // - Validate range (start <= end, values in valid slot range 0-16383)
-    // - Lock the appropriate global instance
-    // - Add the range to the set
-    // - Return appropriate error code
-    SlotTrackerError::Success
-}
-
-/// Checks if a slot is contained in the specified global slots set instance.
-///
-/// # Safety
-///
-/// This function is safe to call from C code. All parameters are passed by value.
-#[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_contains(_instance_id: u8, _slot: u16) -> bool {
-    // TODO: Implement
-    // - Validate instance_id
-    // - Lock the appropriate global instance
-    // - Check if the slot is in any of the ranges
-    // - Return true/false (returns false on error)
-    false
-}
-
-/// Clears all slot ranges from the specified global slots set instance.
-///
-/// # Safety
-///
-/// This function is safe to call from C code. All parameters are passed by value.
-#[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_clear(_instance_id: u8) -> SlotTrackerError {
-    // TODO: Implement
-    // - Validate instance_id
-    // - Lock the appropriate global instance
-    // - Clear all ranges
-    // - Return appropriate error code
-    SlotTrackerError::Success
-}
-*/
-
-// TODO: Add more FFI functions as needed:
-// - slots_tracker_remove_range
-// - slots_tracker_union
-// - slots_tracker_intersection
-// - slots_tracker_difference
-// - slots_tracker_get_ranges (return array of ranges to C)
