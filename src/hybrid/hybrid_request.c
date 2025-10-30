@@ -31,25 +31,28 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
 
+        const bool isProfile = IsProfile(areq);
+        if (isProfile) {
+          // Set initClock right before parsing this specific subquery
+          rs_wall_clock_init(&areq->profileClocks.initClock);
+        }
+
+        // Parse subquery: Convert AST to iterator tree
         areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
 
-        const bool isProfile = IsProfile(areq);
+        rs_wall_clock parseClock;
         if (isProfile) {
           // Add a Profile iterators before every iterator in the tree
           Profile_AddIters(&areq->rootiter);
-        }
-        rs_wall_clock parseClock;
-        if (isProfile) {
+          // Initialize parseClock after adding profile iterators, we want that to be accounted in the parsing timing
           rs_wall_clock_init(&parseClock);
-          // Calculate the time elapsed for profileParseTime by using the initialized parseClock
+          // Calculate the time elapsed for subquery parsing (AST to iterator + profile setup)
           areq->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&areq->profileClocks.initClock, &parseClock);
         }
+
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
         int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
-        if (isProfile) {
-          areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
-        }
         if (rc != REDISMODULE_OK) {
             StrongRef_Release(sync_ref);
             return REDISMODULE_ERR;
@@ -71,6 +74,9 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         QITR_PushRP(qctx, depleter);
         if (isProfile) {
           QITR_PushRP(qctx, RPProfile_New(qctx->endProc, qctx));
+        }
+        if (isProfile) {
+          areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
         }
     }
 
@@ -184,11 +190,8 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
         initializeAREQ(areq);
         hybridReq->errors[i] = QueryError_Default();
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
-        areq->profileClocks.initClock = now;
-        AREQ_QueryProcessingCtx(areq)->initTime = now;
     }
     hybridReq->profileClocks.initClock = now;
-    hybridReq->tailPipeline->qctx.initTime = now;
     return hybridReq;
 }
 

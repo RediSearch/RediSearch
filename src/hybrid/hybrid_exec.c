@@ -516,7 +516,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     // Mark the hreq as running in the background
     hreq->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
     if (hreq->tailPipeline->qctx.isProfile){
-      hreq->tailPipeline->qctx.GILTime += rs_wall_clock_elapsed_ns(&hreq->tailPipeline->qctx.initTime);
+      hreq->tailPipeline->qctx.GILTime += rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock);
     }
     // Mark the requests as thread safe, so that the pipeline will be built in a thread safe manner
     for (size_t i = 0; i < hreq->nrequests; i++) {
@@ -648,6 +648,13 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal, profileOptions) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
+  }
+
+  if (profileOptions != EXEC_NO_FLAGS) {
+    rs_wall_clock parseClock;
+    rs_wall_clock_init(&parseClock);
+    // Calculate the time elapsed for profileParseTime by using the initialized parseClock
+    hybridRequest->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hybridRequest->profileClocks.initClock, &parseClock);
   }
 
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {

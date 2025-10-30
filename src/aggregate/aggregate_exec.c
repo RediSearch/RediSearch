@@ -887,10 +887,6 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
     rs_wall_clock_init(&r->profileClocks.initClock);
   }
 
-  if (IsProfile(r)) {
-    rs_wall_clock_init(&AREQ_QueryProcessingCtx(r)->initTime);
-  }
-
   // This function also builds the RedisSearchCtx
   // It will search for the spec according to the name given in the argv array,
   // and ensure the spec is valid.
@@ -914,7 +910,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
     if (qctx->isProfile){
-      qctx->GILTime += rs_wall_clock_elapsed_ns(&qctx->initTime);
+      qctx->GILTime += rs_wall_clock_elapsed_ns(&r->profileClocks.initClock);
     }
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);

@@ -179,7 +179,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
             rs_wall_clock_convert_ns_to_ms_d(qctx->GILTime));
           } else {
-            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&qctx->initTime);
+            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&clocks->initClock);
             RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
           }
         }

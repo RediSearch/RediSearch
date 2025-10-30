@@ -382,6 +382,13 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
       return REDISMODULE_ERR;
     }
 
+    rs_wall_clock parseClock;
+    if (profileOptions != EXEC_NO_FLAGS) {
+      // Initialize parseClock after parsing is done, we want that to be accounted in the parsing timing
+      rs_wall_clock_init(&parseClock);
+      // Calculate the time elapsed for profileParseTime by using the initialized parseClock
+      hreq->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hreq->profileClocks.initClock, &parseClock);
+    }
 
     // Initialize timeout for all subqueries BEFORE building pipelines
     // but after the parsing to know the timeout values
@@ -422,10 +429,10 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, lookups[1], rpnetNext_StartWithMappings);
 
     if (profileOptions != EXEC_NO_FLAGS) {
-      rs_wall_clock parseClock;
-      rs_wall_clock_init(&parseClock);
+      rs_wall_clock pipelineClock;
+      rs_wall_clock_init(&pipelineClock);
       // Calculate the time elapsed for profileParseTime by using the initialized parseClock
-      hreq->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hreq->profileClocks.initClock, &parseClock);
+      hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_diff_ns(&parseClock, &pipelineClock);
     }
 
     // Free the command
