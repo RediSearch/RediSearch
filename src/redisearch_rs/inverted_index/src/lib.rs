@@ -14,6 +14,7 @@ use std::{
     sync::atomic::{self, AtomicU32, AtomicUsize},
 };
 
+use controlled_cursor::ControlledCursor;
 use debug::{BlockSummary, Summary};
 use ffi::{
     FieldSpec, GeoFilter, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue,
@@ -26,6 +27,7 @@ pub use index_result::{
 };
 use smallvec::SmallVec;
 
+pub mod controlled_cursor;
 pub mod debug;
 pub mod doc_ids_only;
 pub mod fields_offsets;
@@ -361,13 +363,8 @@ impl IndexBlock {
         &self.buffer
     }
 
-    const fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
-        let pos = self.buffer.len();
-        let mut buffer = Cursor::new(&mut self.buffer);
-
-        buffer.set_position(pos as u64);
-
-        buffer
+    const fn writer(&mut self) -> ControlledCursor<'_> {
+        ControlledCursor::new(&mut self.buffer)
     }
 
     /// Returns the total number of index blocks in existence.
@@ -528,6 +525,8 @@ impl<E: Encoder> InvertedIndex<E> {
                 let (new_block, block_size) = IndexBlock::new(doc_id);
 
                 // We won't use the block so make sure to put it back
+                // We can also safe some memory by compacting the old block first.
+                block.buffer.shrink_to_fit();
                 self.blocks.push(block);
                 block = new_block;
                 mem_growth += block_size;
@@ -569,16 +568,21 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Take a block that can be written to and report by how much memory grew
     fn take_block(&mut self, doc_id: t_docId, same_doc: bool) -> (IndexBlock, usize) {
-        if self.blocks.is_empty() ||
-            // If the block is full
-        (!same_doc
+        if self.blocks.is_empty() {
+            IndexBlock::new(doc_id)
+        } else if
+        // If the block is full
+        !same_doc
             && self
                 .blocks
                 .last()
                 .expect("we just confirmed there are blocks")
                 .num_entries
-                >= E::RECOMMENDED_BLOCK_ENTRIES)
+                >= E::RECOMMENDED_BLOCK_ENTRIES
         {
+            // Since the last block is full, let's safe memory by compacting it
+            self.blocks.last_mut().unwrap().buffer.shrink_to_fit();
+
             IndexBlock::new(doc_id)
         } else {
             (
