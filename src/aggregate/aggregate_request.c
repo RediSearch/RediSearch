@@ -533,7 +533,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
 
-  // FT.AGGREGATE is optimized (WITHCOUNT) by default
+  // FT.AGGREGATE is optimized (WITHOUTCOUNT) by default
   if (IsAggregate(req)) {
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
