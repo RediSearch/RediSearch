@@ -531,6 +531,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
+
+  // FT.AGGREGATE is optimized by default (WITHCOUNT by default)
+  if (IsAggregate(req)) {
+    AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+  }
+
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
     int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
@@ -609,6 +615,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
+    AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+  }
+
+  if (!optimization_specified && req->reqConfig.dialectVersion < 4
+      && IsAggregate(req) && (req->reqflags & QEXEC_F_NO_SORT)) {
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
 

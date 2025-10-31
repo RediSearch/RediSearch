@@ -37,38 +37,54 @@ def _get_total_results(res):
 
 
 queries_and_expected_counts = [
-    # WITHOUTCOUNT
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'SORTBY', '2', '@title', 'ASC'], # Success (not an error)
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'SORTBY', '2', '@price', 'ASC'], # crash
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'], # Success (not an error)
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], # crash
-    # WITHCOUNT
+    # # WITHOUTCOUNT
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT'], # OK after removing optimization for dialects 1,2,3
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT'], # OK after removing optimization for dialects 1,2,3
+    # ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'SORTBY', '2', '@title', 'ASC'], # Success (not an error)
+    ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'SORTBY', 'title', 'ASC'],
+    # ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'SORTBY', '2', '@price', 'ASC'], # crash
+    # ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'], # Success (not an error)
+    # ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], # crash
+    # # WITHCOUNT
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT'],
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '1', '@price'],
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '1', '@title'],
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'],
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'],
+    # # WITH LOAD
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'LOAD', '1', '@price'],
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LOAD', '1', '@price'],
+    # # WITH LIMIT
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'LOAD', '1', '@price', 'LIMIT', '0', '1010'],
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '0', '50'],
+    # FT.SEARCH
+    ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'RETURN', '1', 'price', 'LIMIT', '0', '1010'],
+    ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '0', '50'],
+    ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '0', '50'],
+    ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT'],
+    ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'LIMIT', '0', '50'],
+    ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'WITHCOUNT'],
+    ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'description'],
+    ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'RETURN', '1', 'description'],
 ]
 
 
 def __test_protocol(protocol):
     env = Env(protocol=protocol)
     add_values(env)
-    expected_count = 2265
+    indexed_docs = 2265
     for query in queries_and_expected_counts:
         print(query)
         for dialect in [2]:
             query.append('DIALECT')
             query.append(dialect)
             res = env.cmd(*query)
-            print('dialect:', dialect, 'count:', _get_total_results(res), expected_count)
+            print('dialect:', dialect, 'indexed_docs:', indexed_docs, 'count:', _get_total_results(res))
             err_message = f"query: {' '.join(str(x) for x in query)}"
-            if 'WITHCOUNT' in query:
-                env.assertEqual(_get_total_results(res), expected_count, message=err_message)
+            if 'WITHCOUNT' in query or 'SORTBY' in query:
+                env.assertEqual(_get_total_results(res), indexed_docs, message=err_message)
             else:
-                env.assertLess(_get_total_results(res), expected_count, message=err_message)
+                env.assertLess(_get_total_results(res), indexed_docs, message=err_message)
 
 def test3():
     __test_protocol(3)

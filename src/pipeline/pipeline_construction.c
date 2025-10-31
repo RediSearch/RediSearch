@@ -202,12 +202,19 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsHybrid(&params->common) ||
+    } else if ((IsHybrid(&params->common) ||
                IsSearch(&params->common) && !IsOptimized(&params->common) ||
-               HasScorer(&params->common)) {
+               HasScorer(&params->common)) && !IsAggregate(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
+      up = pushRP(&pipeline->qctx, rp, up);
+    } else if (IsAggregate(&params->common) && !IsOptimized(&params->common)) {
+      // Set unlimited results so depleter consumes everything
+      pipeline->qctx.resultLimit = UINT32_MAX;
+      // In non-optimized aggregate queries, we need to add a synchronous depleter
+      // Use RPDepleter_NewSync to run synchronously (no background thread)
+      rp = RPDepleter_NewSync(DepleterSync_New(1, false), params->common.sctx, params->common.sctx);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
@@ -613,7 +620,9 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
-  if (!hasArrange && (IsSearch(&params->common) || IsHybridSearchSubquery(&params->common))) {
+  if (!hasArrange && (IsSearch(&params->common)
+        || (IsAggregate(&params->common) && !IsOptimized(&params->common))
+        || IsHybridSearchSubquery(&params->common))) {
     rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
     if (!rp) {
       goto error;
