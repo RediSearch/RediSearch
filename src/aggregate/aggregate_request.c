@@ -533,7 +533,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
 
-  // FT.AGGREGATE is optimized by default (WITHCOUNT by default)
+  // FT.AGGREGATE is optimized (WITHCOUNT) by default
   if (IsAggregate(req)) {
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
@@ -1051,10 +1051,20 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     goto error;
   }
 
-  // If FT.AGGREGATE has a SORTBY step, disable optimization
-  int hasSortBy = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
-  if (IsAggregate(req) && hasSortBy) {
-      AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+  // Backwards compatibility:
+  // Disable optimization for FT.AGGREGATE if SORTBY or LIMIT is specified
+  if (IsAggregate(req)) {
+    bool disableOptimization = false;
+    // Check if SORTBY is specified
+    disableOptimization = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
+    if (!disableOptimization) {
+      // Check if LIMIT is specified
+      PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
+      disableOptimization |= (arng != NULL && arng->isLimited == 1);
+    }
+    if (disableOptimization) {
+        AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+    }
   }
 
   return REDISMODULE_OK;
