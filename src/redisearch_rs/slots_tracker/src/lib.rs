@@ -26,9 +26,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 mod slot_set;
 use slot_set::{CoverageRelation, SlotSet};
 
-#[cfg(test)]
-mod slot_set_tests;
-
 // ============================================================================
 // Global State Structure
 // ============================================================================
