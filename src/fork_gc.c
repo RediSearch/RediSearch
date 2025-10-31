@@ -526,17 +526,20 @@ static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocks
   size_t startIdx = InvertedIndex_NumBlocks(range->entries) - blocksSinceFork; // Here `blocksSinceFork` > 0
   IndexBlock *startBlock = InvertedIndex_BlockRef(range->entries, startIdx);
   t_docId startId = IndexBlock_FirstId(startBlock);
-  QueryIterator *iter = NewInvIndIterator_NumericFull(range->entries);
-  // Skip to the starting ID
-  IteratorStatus status = iter->SkipTo(iter, startId);
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
+  IndexReader *reader = NewIndexReader(range->entries, decoderCtx);
+  RSIndexResult *res = NewNumericResult();
+  IndexReader_SkipTo(reader, startId);
+  bool reading = IndexReader_Next(reader, res);
 
   // Continue reading the rest
-  while (status == ITERATOR_OK) {
-    double value = IndexResult_NumValue(iter->current);
+  while (reading) {
+    double value = IndexResult_NumValue(res);
     hll_add(&range->hll, &value, sizeof(value));
-    status = iter->Read(iter);
+    reading = IndexReader_Next(reader, res);
   }
-  iter->Free(iter);
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
 }
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
