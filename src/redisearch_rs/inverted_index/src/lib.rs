@@ -566,17 +566,17 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Take a block that can be written to and report by how much memory grew
     fn take_block(&mut self, doc_id: t_docId, same_doc: bool) -> (IndexBlock, usize) {
-        if self.blocks.is_empty() {
-            IndexBlock::new(doc_id)
-        } else if
-        // If the block is full
-        !same_doc
-            && self
-                .blocks
-                .last()
-                .expect("we just confirmed there are blocks")
-                .num_entries
-                >= E::RECOMMENDED_BLOCK_ENTRIES
+        if self.blocks.is_empty()
+            || (
+                // If the block is full
+                !same_doc
+                    && self
+                        .blocks
+                        .last()
+                        .expect("we just confirmed there are blocks")
+                        .num_entries
+                        >= E::RECOMMENDED_BLOCK_ENTRIES
+            )
         {
             IndexBlock::new(doc_id)
         } else {
