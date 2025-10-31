@@ -222,7 +222,8 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   if (astp->offset || (astp->limit && !rp)) {
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);
-  } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
+  } else if ((IsSearch(&params->common) || IsAggregate(&params->common))
+              && IsOptimized(&params->common) && !rp) {
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
   }

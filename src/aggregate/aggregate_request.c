@@ -292,6 +292,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
     const char *firstArg;
+    REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SORTBY);
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
     if (isSortby0 && *papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) {
@@ -615,11 +616,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
-    AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
-  }
-
-  if (!optimization_specified && req->reqConfig.dialectVersion < 4
-      && IsAggregate(req) && (req->reqflags & QEXEC_F_NO_SORT)) {
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
@@ -1053,6 +1049,12 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
+  }
+
+  // If FT.AGGREGATE has a SORTBY step, disable optimization
+  int hasSortBy = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
+  if (IsAggregate(req) && hasSortBy) {
+      AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
   return REDISMODULE_OK;

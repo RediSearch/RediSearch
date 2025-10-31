@@ -119,6 +119,9 @@ typedef enum {
   // Currently only used in when QEXEC_F_IS_HYBRID_TAIL is set - i.e this is the tail part
   QEXEC_F_NO_SORT = 0x4000000,
 
+  // The query has an explicit SORTBY x - sort by a field
+  QEXEC_F_SORTBY = 0x8000000,
+
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 

@@ -38,25 +38,29 @@ def _get_total_results(res):
 
 queries_and_expected_counts = [
     # # WITHOUTCOUNT
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT'], # OK after removing optimization for dialects 1,2,3
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT'], # OK after removing optimization for dialects 1,2,3
-    # ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'SORTBY', '2', '@title', 'ASC'], # Success (not an error)
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT'],
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT'],
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'SORTBY', '2', '@title', 'ASC'],
     ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'SORTBY', 'title', 'ASC'],
-    # ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'SORTBY', '2', '@price', 'ASC'], # crash
-    # ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'], # Success (not an error)
-    # ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], # crash
-    # # WITHCOUNT
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'SORTBY', '2', '@price', 'ASC'],
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'SORTBY', '2', '@title', 'ASC'],
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'],
+    # ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', 'title', 'ASC'], # different behavior from FT.AGGREGATE
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'],
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'],
+    # WITHCOUNT
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT'],
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '1', '@price'],
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '1', '@title'],
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'],
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'],
-    # # WITH LOAD
+    # WITH LOAD
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'LOAD', '1', '@price'],
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LOAD', '1', '@price'],
-    # # WITH LIMIT
+    # WITH LIMIT
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'LOAD', '1', '@price', 'LIMIT', '0', '1010'],
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '0', '50'],
+    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '0', '1'],
     # FT.SEARCH
     ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'RETURN', '1', 'price', 'LIMIT', '0', '1010'],
     ['FT.SEARCH', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '0', '50'],
