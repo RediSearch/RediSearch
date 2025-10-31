@@ -525,8 +525,6 @@ impl<E: Encoder> InvertedIndex<E> {
                 let (new_block, block_size) = IndexBlock::new(doc_id);
 
                 // We won't use the block so make sure to put it back
-                // We can also safe some memory by compacting the old block first.
-                block.buffer.shrink_to_fit();
                 self.add_block(block);
                 block = new_block;
                 mem_growth += block_size;
@@ -580,9 +578,6 @@ impl<E: Encoder> InvertedIndex<E> {
                 .num_entries
                 >= E::RECOMMENDED_BLOCK_ENTRIES
         {
-            // Since the last block is full, let's safe memory by compacting it
-            self.blocks.last_mut().unwrap().buffer.shrink_to_fit();
-
             IndexBlock::new(doc_id)
         } else {
             (
