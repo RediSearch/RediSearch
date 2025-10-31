@@ -202,11 +202,7 @@ impl SlotSet {
     /// Checks the relationship between the union of this set and another set vs input ranges.
     ///
     /// Returns `CoverageRelation` indicating: `Equals`, `Covers`, or `NoMatch`.
-    pub(crate) fn union_relation(
-        &self,
-        other: &SlotSet,
-        ranges: &[SlotRange],
-    ) -> CoverageRelation {
+    pub(crate) fn union_relation(&self, other: &SlotSet, ranges: &[SlotRange]) -> CoverageRelation {
         // Build the union set
         let mut union = self.clone();
         union.add_ranges(&other.ranges);
@@ -310,7 +306,6 @@ impl PartialEq<SlotSet> for &[SlotRange] {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,26 +321,26 @@ mod tests {
 
     #[test]
     fn test_new_is_empty() {
-    let set = SlotSet::new();
+        let set = SlotSet::new();
         assert!(set.is_empty());
     }
 
     #[test]
     fn test_default_is_empty() {
-    let set = SlotSet::default();
+        let set = SlotSet::default();
         assert!(set.is_empty());
     }
 
     #[test]
     fn test_equality_with_self() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[range(0, 10)]);
         assert_eq!(set, set.clone());
     }
 
     #[test]
     fn test_equality_with_slice() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         let ranges = [range(0, 10), range(20, 30)];
         set.set_from_ranges(&ranges);
         assert_eq!(set, ranges[..]);
@@ -360,21 +355,21 @@ mod tests {
 
     #[test]
     fn test_set_from_ranges_empty() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[]);
         assert!(set.is_empty());
     }
 
     #[test]
     fn test_set_from_ranges_single() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[range(5, 10)]);
         assert_eq!(set, &[range(5, 10)][..]);
     }
 
     #[test]
     fn test_set_from_ranges_multiple() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         let ranges = [range(0, 5), range(10, 15), range(20, 25)];
         set.set_from_ranges(&ranges);
         assert_eq!(set, &ranges[..]);
@@ -382,7 +377,7 @@ mod tests {
 
     #[test]
     fn test_set_from_ranges_replaces_existing() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[range(0, 100)]);
         set.set_from_ranges(&[range(200, 300)]);
         assert_eq!(set, &[range(200, 300)][..]);
@@ -394,14 +389,14 @@ mod tests {
 
     #[test]
     fn test_add_ranges_to_empty() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.add_ranges(&[range(10, 20)]);
         assert_eq!(set, &[range(10, 20)][..]);
     }
 
     #[test]
     fn test_add_ranges_non_overlapping() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[range(0, 10)]);
         set.add_ranges(&[range(20, 30)]);
         assert_eq!(set, &[range(0, 10), range(20, 30)][..]);
@@ -409,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_add_ranges_overlapping() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[range(0, 10)]);
         set.add_ranges(&[range(5, 15)]);
         assert_eq!(set, &[range(0, 15)][..]);
@@ -417,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_add_ranges_adjacent_merges() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[range(0, 10)]);
         set.add_ranges(&[range(11, 20)]);
         assert_eq!(set, &[range(0, 20)][..]);
@@ -425,7 +420,7 @@ mod tests {
 
     #[test]
     fn test_add_ranges_subset() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[range(0, 100)]);
         set.add_ranges(&[range(10, 20)]);
         assert_eq!(set, &[range(0, 100)][..]);
@@ -433,7 +428,7 @@ mod tests {
 
     #[test]
     fn test_add_ranges_superset() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[range(10, 20)]);
         set.add_ranges(&[range(0, 100)]);
         assert_eq!(set, &[range(0, 100)][..]);
@@ -441,7 +436,7 @@ mod tests {
 
     #[test]
     fn test_add_ranges_multiple_merges() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[range(0, 5), range(10, 15), range(20, 25)]);
         set.add_ranges(&[range(6, 19)]);
         assert_eq!(set, &[range(0, 25)][..]);
@@ -449,7 +444,7 @@ mod tests {
 
     #[test]
     fn test_add_ranges_empty() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[range(0, 10)]);
         set.add_ranges(&[]);
         assert_eq!(set, &[range(0, 10)][..]);
@@ -457,16 +452,16 @@ mod tests {
 
     #[test]
     fn test_add_multiple_ranges() {
-    let mut set = SlotSet::new();
-        set.set_from_ranges(&[range( 10, 15)]);
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(10, 15)]);
         set.add_ranges(&[range(0, 5), range(20, 30)]);
         assert_eq!(set, &[range(0, 5), range(10, 15), range(20, 30)][..]);
     }
 
     #[test]
     fn test_add_multiple_ranges_adjacent() {
-    let mut set = SlotSet::new();
-        set.set_from_ranges(&[range( 5, 10), range(15, 20)]);
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(5, 10), range(15, 20)]);
         set.add_ranges(&[range(0, 5), range(10, 15), range(20, 30)]);
         assert_eq!(set, &[range(0, 30)][..]);
     }
@@ -477,14 +472,14 @@ mod tests {
 
     #[test]
     fn test_remove_ranges_from_empty() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.remove_ranges(&[range(10, 20)]);
         assert!(set.is_empty());
     }
 
     #[test]
     fn test_remove_ranges_no_overlap() {
-    let mut set = SlotSet::new();
+        let mut set = SlotSet::new();
         set.set_from_ranges(&[range(0, 10)]);
         set.remove_ranges(&[range(20, 30)]);
         assert_eq!(set, &[range(0, 10)][..]);
@@ -573,7 +568,6 @@ mod tests {
         set.remove_ranges(&[range(0, 3), range(13, 15), range(18, 19)]);
         assert_eq!(set, &[range(5, 10), range(12, 12), range(20, 25)][..]);
     }
-
 
     // ========================================================================
     // has_overlap tests
@@ -676,7 +670,7 @@ mod tests {
     fn test_union_relation_equals() {
         let mut set1 = SlotSet::new();
         set1.set_from_ranges(&[range(0, 10)]);
-    let mut set2 = SlotSet::new();
+        let mut set2 = SlotSet::new();
         set2.set_from_ranges(&[range(20, 30)]);
         assert_eq!(
             set1.union_relation(&set2, &[range(0, 10), range(20, 30)]),
@@ -710,7 +704,7 @@ mod tests {
     fn test_union_relation_partial_coverage() {
         let mut set1 = SlotSet::new();
         set1.set_from_ranges(&[range(0, 10)]);
-    let mut set2 = SlotSet::new();
+        let mut set2 = SlotSet::new();
         set2.set_from_ranges(&[range(20, 30)]);
         assert_eq!(
             set1.union_relation(&set2, &[range(0, 30)]),
@@ -722,7 +716,7 @@ mod tests {
     fn test_union_relation_with_gaps() {
         let mut set1 = SlotSet::new();
         set1.set_from_ranges(&[range(0, 10), range(30, 40)]);
-    let mut set2 = SlotSet::new();
+        let mut set2 = SlotSet::new();
         set2.set_from_ranges(&[range(11, 29)]);
         assert_eq!(
             set1.union_relation(&set2, &[range(0, 40)]),

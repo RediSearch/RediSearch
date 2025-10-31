@@ -33,8 +33,7 @@ use slot_set::{CoverageRelation, SlotSet};
 /// Encapsulates all slot tracking state in a single structure.
 ///
 /// This groups the three slot sets and version counter together for better
-/// organization while maintaining the same zero-cost abstraction as individual
-/// statics.
+/// organization.
 ///
 /// # Safety
 ///
