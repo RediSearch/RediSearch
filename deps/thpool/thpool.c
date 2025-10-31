@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -467,6 +468,49 @@ void redisearch_thpool_drain(redisearch_thpool_t *thpool_p, long timeout,
     if (yieldCB)
       yieldCB(yield_ctx);
   }
+}
+
+static size_t priority_queue_num_high_priority_incomplete_jobs(priorityJobqueue *priority_queue_p) {
+  size_t ret = 0;
+  pthread_mutex_lock(&priority_queue_p->lock);
+  // Only count pending high priority jobs in the queue
+  // We can't reliably count in-progress high priority jobs when bias is set to max
+  ret = priority_queue_p->high_priority_jobqueue.len;
+  pthread_mutex_unlock(&priority_queue_p->lock);
+  return ret;
+}
+
+void redisearch_thpool_drain_high_priority(redisearch_thpool_t *thpool_p,
+                                           long timeout, yieldFunc yieldCB,
+                                           void *yield_ctx) {
+  if (!thpool_p) return;
+
+  priorityJobqueue *priority_queue_p = &thpool_p->jobqueues;
+  long usec_timeout = 1000 * timeout;
+
+  // Save the original high priority bias threshold
+  redisearch_thpool_lock(thpool_p);
+  size_t original_bias = priority_queue_p->n_high_priority_bias;
+  size_t original_tickets = priority_queue_p->high_priority_tickets;
+
+  // Set high priority bias threshold to maximum possible value for unsigned char
+  // This ensures all threads will prioritize high-priority jobs
+  priority_queue_p->n_high_priority_bias = UCHAR_MAX;
+  priority_queue_p->high_priority_tickets = UCHAR_MAX;
+  redisearch_thpool_unlock(thpool_p);
+
+  // Wait until no more high-priority jobs are running or pending
+  while (priority_queue_num_high_priority_incomplete_jobs(priority_queue_p) > 0) {
+    usleep(usec_timeout);
+    if (yieldCB)
+      yieldCB(yield_ctx);
+  }
+
+  // Restore the original bias threshold
+  redisearch_thpool_lock(thpool_p);
+  priority_queue_p->n_high_priority_bias = original_bias;
+  priority_queue_p->high_priority_tickets = original_tickets;
+  redisearch_thpool_unlock(thpool_p);
 }
 
 void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {

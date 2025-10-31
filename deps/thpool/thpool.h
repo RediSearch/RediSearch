@@ -220,6 +220,23 @@ void redisearch_thpool_drain(redisearch_thpool_t *, long timeout,
                              size_t threshold);
 
 /**
+ * @brief Drain only high-priority jobs from the threadpool
+ *
+ * This function temporarily sets the high-priority bias threshold to infinity,
+ * waits until no more high-priority jobs are running or pending, then restores
+ * the original bias threshold. This ensures that all high-priority jobs are
+ * completed while allowing low-priority jobs to continue being queued.
+ *
+ * @param threadpool     the threadpool to drain high-priority jobs from
+ * @param timeout        timeout in milliseconds between checks
+ * @param yieldCB        callback to call periodically (can be NULL)
+ * @param yield_ctx      context to pass to yieldCB (can be NULL)
+ */
+void redisearch_thpool_drain_high_priority(redisearch_thpool_t *threadpool,
+                                           long timeout, yieldFunc yieldCB,
+                                           void *yield_ctx);
+
+/**
  * @brief Terminate the working threads (without deallocating the threadpool members).
  */
 void redisearch_thpool_terminate_threads(redisearch_thpool_t *);

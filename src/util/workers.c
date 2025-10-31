@@ -204,3 +204,12 @@ void workersThreadPool_wait() {
   }
   redisearch_thpool_wait(_workers_thpool);
 }
+
+// Drain only high-priority jobs from the workers' threadpool
+void workersThreadPool_DrainHighPriority(RedisModuleCtx *ctx) {
+  if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
+    return;
+  }
+  redisearch_thpool_drain_high_priority(_workers_thpool, 100, yieldCallback, ctx);
+  yield_counter = 0;  // reset
+}
