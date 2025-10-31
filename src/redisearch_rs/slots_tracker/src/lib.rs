@@ -73,7 +73,7 @@ impl SlotsTrackerState {
 }
 
 // ============================================================================
-// Global Static Instance (Private)
+// Global Static State Instance (Private)
 // ============================================================================
 
 /// Global slots tracker state.
@@ -122,6 +122,55 @@ fn increment_version() {
         0 // Wrap around to 0
     };
     STATE.version.store(next, Ordering::Relaxed);
+}
+
+/// Gets mutable reference to the local slots set.
+///
+/// # Safety
+///
+/// The caller must ensure single-threaded access to the static instance.
+unsafe fn get_local_slots() -> &'static mut SlotSet {
+    // SAFETY: Caller guarantees single-threaded access
+    unsafe { &mut *STATE.local.get() }
+}
+
+/// Gets mutable reference to the fully available slots set.
+///
+/// # Safety
+///
+/// The caller must ensure single-threaded access to the static instance.
+unsafe fn get_fully_available_slots() -> &'static mut SlotSet {
+    // SAFETY: Caller guarantees single-threaded access
+    unsafe { &mut *STATE.fully_available.get() }
+}
+
+/// Gets mutable reference to the partially available slots set.
+///
+/// # Safety
+///
+/// The caller must ensure single-threaded access to the static instance.
+unsafe fn get_partially_available_slots() -> &'static mut SlotSet {
+    // SAFETY: Caller guarantees single-threaded access
+    unsafe { &mut *STATE.partially_available.get() }
+}
+
+/// Gets mutable references to all three slot sets.
+///
+/// # Safety
+///
+/// The caller must ensure single-threaded access to the static instances.
+unsafe fn get_all_sets() -> (
+    &'static mut SlotSet,
+    &'static mut SlotSet,
+    &'static mut SlotSet,
+) {
+    // SAFETY: Caller guarantees single-threaded access
+    let local = unsafe { get_local_slots() };
+    // SAFETY: Caller guarantees single-threaded access
+    let fully = unsafe { get_fully_available_slots() };
+    // SAFETY: Caller guarantees single-threaded access
+    let partial = unsafe { get_partially_available_slots() };
+    (local, fully, partial)
 }
 
 // ============================================================================
@@ -175,55 +224,6 @@ unsafe fn parse_slot_ranges(ranges: *const SlotRangeArray) -> &'static [SlotRang
     unsafe {
         std::slice::from_raw_parts(ranges_ref.ranges.as_ptr(), ranges_ref.num_ranges as usize)
     }
-}
-
-/// Gets mutable reference to the local slots set.
-///
-/// # Safety
-///
-/// The caller must ensure single-threaded access to the static instance.
-unsafe fn get_local_slots() -> &'static mut SlotSet {
-    // SAFETY: Caller guarantees single-threaded access
-    unsafe { &mut *STATE.local.get() }
-}
-
-/// Gets mutable reference to the fully available slots set.
-///
-/// # Safety
-///
-/// The caller must ensure single-threaded access to the static instance.
-unsafe fn get_fully_available_slots() -> &'static mut SlotSet {
-    // SAFETY: Caller guarantees single-threaded access
-    unsafe { &mut *STATE.fully_available.get() }
-}
-
-/// Gets mutable reference to the partially available slots set.
-///
-/// # Safety
-///
-/// The caller must ensure single-threaded access to the static instance.
-unsafe fn get_partially_available_slots() -> &'static mut SlotSet {
-    // SAFETY: Caller guarantees single-threaded access
-    unsafe { &mut *STATE.partially_available.get() }
-}
-
-/// Gets mutable references to all three slot sets.
-///
-/// # Safety
-///
-/// The caller must ensure single-threaded access to the static instances.
-unsafe fn get_all_sets() -> (
-    &'static mut SlotSet,
-    &'static mut SlotSet,
-    &'static mut SlotSet,
-) {
-    // SAFETY: Caller guarantees single-threaded access
-    let local = unsafe { get_local_slots() };
-    // SAFETY: Caller guarantees single-threaded access
-    let fully = unsafe { get_fully_available_slots() };
-    // SAFETY: Caller guarantees single-threaded access
-    let partial = unsafe { get_partially_available_slots() };
-    (local, fully, partial)
 }
 
 // ============================================================================
