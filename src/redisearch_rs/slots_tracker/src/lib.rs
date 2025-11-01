@@ -140,21 +140,21 @@ pub struct SlotRangeArray {
 ///
 /// The caller must ensure the pointer is valid and points to a properly initialized
 /// SlotRangeArray with at least `num_ranges` elements in the flexible array.
-unsafe fn parse_slot_ranges(ranges: *const SlotRangeArray) -> &'static [SlotRange] {
+unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange] {
     assert!(!ranges.is_null(), "SlotRangeArray pointer is null");
 
     // SAFETY: Caller guarantees valid pointer
-    let ranges_ref = unsafe { &*ranges };
+    let ranges = unsafe { &*ranges };
 
     assert!(
-        ranges_ref.num_ranges >= 1,
+        ranges.num_ranges >= 1,
         "num_ranges must be at least 1, got {}",
-        ranges_ref.num_ranges
+        ranges.num_ranges
     );
 
     // SAFETY: Caller guarantees the flexible array has num_ranges elements
     unsafe {
-        std::slice::from_raw_parts(ranges_ref.ranges.as_ptr(), ranges_ref.num_ranges as usize)
+        std::slice::from_raw_parts(ranges.ranges.as_ptr(), ranges.num_ranges as usize)
     }
 }
 
@@ -179,16 +179,15 @@ unsafe fn parse_slot_ranges(ranges: *const SlotRangeArray) -> &'static [SlotRang
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
+pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
+    let ranges = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let tracker = unsafe { get_tracker() };
 
     // Delegate to the safe implementation
-    tracker.set_local_slots(ranges_slice);
+    tracker.set_local_slots(ranges);
 
     sync_version(tracker);
 }
@@ -206,16 +205,15 @@ pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const SlotRangeArray) {
+pub unsafe extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
+    let ranges = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let tracker = unsafe { get_tracker() };
 
     // Delegate to the safe implementation
-    tracker.set_partially_available_slots(ranges_slice);
+    tracker.set_partially_available_slots(ranges);
 
     // Sync the atomic version counter
     sync_version(tracker);
@@ -236,17 +234,16 @@ pub extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const Slo
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const SlotRangeArray) {
+pub unsafe extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
+    let ranges = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let tracker = unsafe { get_tracker() };
 
     // Delegate to the safe implementation
     // Note: This does NOT increment the version
-    tracker.set_fully_available_slots(ranges_slice);
+    tracker.set_fully_available_slots(ranges);
 }
 
 /// Removes deleted slot ranges from the partially available slots.
@@ -262,17 +259,16 @@ pub extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const SlotRan
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArray) {
+pub unsafe extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
+    let ranges = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let tracker = unsafe { get_tracker() };
 
     // Delegate to the safe implementation
     // Note: This does NOT increment the version
-    tracker.remove_deleted_slots(ranges_slice);
+    tracker.remove_deleted_slots(ranges);
 }
 
 /// Checks if there is any overlap between the given slot ranges and the fully available slots.
@@ -287,16 +283,15 @@ pub extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArr
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotRangeArray) -> bool {
+pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotRangeArray) -> bool {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
+    let ranges = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let tracker = unsafe { get_tracker() };
 
     // Delegate to the safe implementation
-    tracker.has_fully_available_overlap(ranges_slice)
+    tracker.has_fully_available_overlap(ranges)
 }
 
 /// Checks if all requested slots are available and returns version information.
@@ -324,16 +319,15 @@ pub extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotR
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // Function is marked unsafe via #[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray) -> u32 {
+pub unsafe extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray) -> u32 {
     // SAFETY: Caller guarantees valid pointer and main thread access
-    let ranges_slice = unsafe { parse_slot_ranges(ranges) };
+    let ranges = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
     let tracker = unsafe { get_tracker() };
 
     // Delegate to the safe implementation
-    tracker.check_availability(ranges_slice)
+    tracker.check_availability(ranges)
 }
 
 /// Returns the current version of the slots configuration.
