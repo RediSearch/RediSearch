@@ -20,14 +20,14 @@
 //! The version counter is atomic and can be safely read from any thread to check if the
 //! slots configuration has changed.
 
+use slots_tracker::SlotsTracker;
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 mod slot_set;
-
 mod slots_tracker;
-use slots_tracker::SlotsTracker;
-pub use slots_tracker::{SLOTS_TRACKER_UNAVAILABLE, SLOTS_TRACKER_UNSTABLE_VERSION};
+
+pub use slots_tracker::SLOTS_TRACKER_UNAVAILABLE;
 
 // ============================================================================
 // Global State Structure
@@ -311,9 +311,9 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
 /// - If covered but not exactly OR set 3 is not empty: returns `SLOTS_TRACKER_UNSTABLE_VERSION`
 ///
 /// Return values:
-/// - Current version (0..u32::MAX-2): Slots match exactly and are stable
-/// - `SLOTS_TRACKER_UNSTABLE_VERSION` (u32::MAX): Slots available but partial/inexact match
-/// - `SLOTS_TRACKER_UNAVAILABLE` (u32::MAX-1): Required slots are not available
+/// - `SLOTS_TRACKER_UNAVAILABLE`: Required slots are not available
+/// - Some other version (u32): All required slots are available; Compare this value
+///   with `slots_tracker_get_version` to detect changes.
 ///
 /// # Safety
 ///
