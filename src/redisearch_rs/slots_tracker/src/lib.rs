@@ -99,12 +99,10 @@ unsafe fn get_tracker() -> &'static mut SlotsTracker {
 /// Syncs the atomic version counter with the tracker's internal version.
 ///
 /// This should be called after any operation that modifies the tracker's version.
-///
-/// # Safety
-///
-/// The caller must ensure single-threaded access to the static instance.
 fn sync_version(tracker: &SlotsTracker) {
-    STATE.version.store(tracker.get_version(), Ordering::Relaxed);
+    STATE
+        .version
+        .store(tracker.get_version(), Ordering::Relaxed);
 }
 
 // ============================================================================

@@ -310,4 +310,143 @@ mod tests {
 
         assert_eq!(tracker.get_version(), 0);
     }
+
+    #[test]
+    fn test_partially_available_increments_version() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 50 }]);
+        let v1 = tracker.get_version();
+        tracker.set_partially_available_slots(&[SlotRange { start: 60, end: 70 }]);
+        assert_eq!(tracker.get_version(), v1 + 1);
+    }
+
+    #[test]
+    fn test_fully_available_does_not_increment_version() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
+        let v1 = tracker.get_version();
+        tracker.set_fully_available_slots(&[SlotRange { start: 10, end: 20 }]);
+        assert_eq!(
+            tracker.get_version(),
+            v1,
+            "Fully available should not bump version"
+        );
+    }
+
+    #[test]
+    fn test_check_availability_unstable_due_to_fully_available_extra() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 50 }]);
+        tracker.set_fully_available_slots(&[SlotRange {
+            start: 100,
+            end: 120,
+        }]);
+        let res = tracker.check_availability(&[SlotRange { start: 0, end: 50 }]);
+        // Implementation marks as UNSTABLE since union covers exact local but extra disjoint slots exist.
+        assert_eq!(
+            res, SLOTS_TRACKER_UNSTABLE_VERSION,
+            "Extra disjoint fully-available slots make local-only query unstable"
+        );
+        let res2 = tracker.check_availability(&[SlotRange { start: 0, end: 120 }]);
+        assert_eq!(
+            res2, SLOTS_TRACKER_UNAVAILABLE,
+            "Query spanning gap with uncovered range should be unavailable"
+        );
+    }
+
+    #[test]
+    fn test_check_availability_unavailable_when_not_covered() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]);
+        let res = tracker.check_availability(&[SlotRange { start: 0, end: 20 }]);
+        assert_eq!(res, SLOTS_TRACKER_UNAVAILABLE);
+    }
+
+    #[test]
+    fn test_partially_available_makes_unstable() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
+        tracker.set_partially_available_slots(&[SlotRange {
+            start: 150,
+            end: 160,
+        }]);
+        let res = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
+        assert_eq!(
+            res, SLOTS_TRACKER_UNSTABLE_VERSION,
+            "Exact local query becomes unstable when partial slots exist"
+        );
+        let res2 = tracker.check_availability(&[SlotRange { start: 0, end: 160 }]);
+        assert_eq!(
+            res2, SLOTS_TRACKER_UNAVAILABLE,
+            "Query including partial-only slots should be unavailable"
+        );
+    }
+
+    #[test]
+    fn test_remove_deleted_slots_only_affects_partially_available() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_partially_available_slots(&[SlotRange {
+            start: 200,
+            end: 210,
+        }]);
+        let v1 = tracker.get_version();
+        tracker.remove_deleted_slots(&[SlotRange {
+            start: 205,
+            end: 207,
+        }]);
+        assert_eq!(
+            tracker.get_version(),
+            v1,
+            "Remove deleted should not bump version"
+        );
+        // Querying partially-available slots (not covered by local/fully) should be UNAVAILABLE
+        let res = tracker.check_availability(&[SlotRange {
+            start: 200,
+            end: 210,
+        }]);
+        assert_eq!(res, SLOTS_TRACKER_UNAVAILABLE);
+    }
+
+    #[test]
+    fn test_sequential_version_changes() {
+        let mut tracker = SlotsTracker::new();
+        assert_eq!(tracker.get_version(), 0);
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]); // v1
+        assert_eq!(tracker.get_version(), 1);
+        tracker.set_partially_available_slots(&[SlotRange { start: 20, end: 30 }]); // v2
+        assert_eq!(tracker.get_version(), 2);
+        tracker.set_fully_available_slots(&[SlotRange { start: 5, end: 6 }]); // still v2
+        assert_eq!(tracker.get_version(), 2);
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 5 }]); // v3 (changed local)
+        assert_eq!(tracker.get_version(), 3);
+    }
+
+    #[test]
+    fn test_sets_content_after_operations() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]);
+        tracker.set_fully_available_slots(&[SlotRange { start: 0, end: 5 }]); // moves 0-5 out of local
+        assert_eq!(tracker.local, [SlotRange { start: 6, end: 10 }].as_slice());
+        assert_eq!(
+            tracker.fully_available,
+            [SlotRange { start: 0, end: 5 }].as_slice()
+        );
+        tracker.set_partially_available_slots(&[SlotRange { start: 50, end: 55 }]);
+        assert_eq!(
+            tracker.partially_available,
+            [SlotRange { start: 50, end: 55 }].as_slice()
+        );
+    }
+
+    #[test]
+    fn test_mixed_local_and_partial_query_unavailable() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]);
+        tracker.set_partially_available_slots(&[SlotRange { start: 20, end: 25 }]);
+        let res = tracker.check_availability(&[SlotRange { start: 0, end: 25 }]);
+        assert_eq!(
+            res, SLOTS_TRACKER_UNAVAILABLE,
+            "Query including partial-only slots should be unavailable"
+        );
+    }
 }
