@@ -26,7 +26,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 mod slot_set;
 
 mod slots_tracker;
-pub use slots_tracker::{SLOTS_TRACKER_UNAVAILABLE, SLOTS_TRACKER_UNSTABLE_VERSION, SlotsTracker};
+use slots_tracker::SlotsTracker;
+pub use slots_tracker::{SLOTS_TRACKER_UNAVAILABLE, SLOTS_TRACKER_UNSTABLE_VERSION};
 
 // ============================================================================
 // Global State Structure
