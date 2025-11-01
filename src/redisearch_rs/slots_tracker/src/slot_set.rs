@@ -13,6 +13,7 @@
 //! It is not exposed outside of the slots_tracker crate.
 
 use crate::SlotRange;
+use std::borrow::Cow;
 
 /// Enum describing the relationship between a set and a query.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -29,19 +30,13 @@ pub(crate) enum CoverageRelation {
 /// Validates that all ranges are valid.
 #[inline]
 fn debug_assert_valid_ranges(ranges: &[SlotRange]) {
-    debug_assert!(
-        ranges.iter().all(|r| r.start <= r.end && r.end <= 16383),
-        "All ranges must be valid (start <= end, end <= 16383)"
-    );
+    debug_assert!(ranges.iter().all(|r| r.start <= r.end && r.end <= 16383));
 }
 
 /// Validates that ranges are sorted and normalized (no overlaps or adjacent ranges).
 #[inline]
 fn debug_assert_normalized_ranges(ranges: &[SlotRange]) {
-    debug_assert!(
-        ranges.windows(2).all(|w| w[0].end + 1 < w[1].start),
-        "Ranges must be sorted and normalized (no overlaps or adjacent ranges)"
-    );
+    debug_assert!(ranges.windows(2).all(|w| w[0].end + 1 < w[1].start));
 }
 
 /// Validates that ranges are valid, sorted, and normalized.
@@ -131,7 +126,7 @@ impl SlotSet {
                 match (remove.start <= current.start, remove.end >= current.end) {
                     (true, true) => {
                         // Complete overlap - discard current and move to next
-                        // Don't advance iterator - next range might also be completely covered
+                        // Don't advance remove iterator - next range might also start within this remove range
                         continue 'outer;
                     }
                     (true, false) => {
@@ -141,7 +136,7 @@ impl SlotSet {
                     }
                     (false, true) => {
                         // Remove overlaps right side - trim right and done
-                        // Don't advance iterator - next range might start within this remove range
+                        // Don't advance remove iterator - next range might also start within this remove range
                         current.end = remove.start - 1;
                         break;
                     }
@@ -203,12 +198,19 @@ impl SlotSet {
     ///
     /// Returns `CoverageRelation` indicating: `Equals`, `Covers`, or `NoMatch`.
     pub(crate) fn union_relation(&self, other: &SlotSet, ranges: &[SlotRange]) -> CoverageRelation {
-        // Build the union set
-        let mut union = self.clone();
-        union.add_ranges(&other.ranges);
+        // Build (or borrow) the union set. Uses Cow for clarity + zero alloc in empty cases.
+        let union = if self.is_empty() {
+            Cow::Borrowed(other)
+        } else if other.is_empty() {
+            Cow::Borrowed(self)
+        } else {
+            let mut combined = self.clone();
+            combined.add_ranges(&other.ranges);
+            Cow::Owned(combined)
+        };
 
         // Check for exact match
-        if union == ranges {
+        if *union == ranges {
             return CoverageRelation::Equals;
         }
 
