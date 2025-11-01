@@ -24,7 +24,9 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 mod slot_set;
-use slot_set::{CoverageRelation, SlotSet};
+
+mod slots_tracker;
+pub use slots_tracker::{SLOTS_TRACKER_UNAVAILABLE, SLOTS_TRACKER_UNSTABLE_VERSION, SlotsTracker};
 
 // ============================================================================
 // Global State Structure
@@ -32,41 +34,34 @@ use slot_set::{CoverageRelation, SlotSet};
 
 /// Encapsulates all slot tracking state in a single structure.
 ///
-/// This groups the three slot sets and version counter together for better
-/// organization.
+/// Wraps the safe `SlotsTracker` implementation with unsafe access for the C FFI.
+/// The atomic version counter mirrors the internal tracker's version for thread-safe reads.
 ///
 /// # Safety
 ///
-/// This type is NOT thread-safe. Access to the UnsafeCell fields must be
+/// This type is NOT thread-safe for mutations. Access to the UnsafeCell must be
 /// single-threaded. The caller must ensure that:
-/// - Only one thread accesses the slot sets at a time
+/// - Only one thread (the main thread) accesses the tracker for mutations
 /// - No other references exist while mutable references are alive
 ///
 /// The version field is atomic and can be safely read from any thread.
 struct SlotsTrackerState {
-    /// Local responsibility slots - owned by this Redis instance in the cluster topology.
-    local: UnsafeCell<SlotSet>,
-    /// Fully available non-owned slots - locally available but not owned by this instance.
-    fully_available: UnsafeCell<SlotSet>,
-    /// Partially available non-owned slots - partially available and not owned by this instance.
-    partially_available: UnsafeCell<SlotSet>,
-    /// Version counter for tracking changes to the slots configuration.
-    /// Incremented whenever the slot configuration changes. Wraps around safely.
-    /// Atomic so it can be safely read from any thread.
+    /// The safe slots tracker implementation wrapped in UnsafeCell for static access.
+    tracker: UnsafeCell<SlotsTracker>,
+    /// Atomic version counter that mirrors the tracker's internal version.
+    /// This allows thread-safe reads of the version without accessing the tracker.
     version: AtomicU32,
 }
 
 // SAFETY: This is marked as Sync to allow use in static variables, but the caller
-// MUST ensure single-threaded access to the UnsafeCell fields. This is enforced
+// MUST ensure single-threaded access to the UnsafeCell field. This is enforced
 // by the C API contract. The AtomicU32 is inherently Sync.
 unsafe impl Sync for SlotsTrackerState {}
 
 impl SlotsTrackerState {
     const fn new() -> Self {
         Self {
-            local: UnsafeCell::new(SlotSet::new()),
-            fully_available: UnsafeCell::new(SlotSet::new()),
-            partially_available: UnsafeCell::new(SlotSet::new()),
+            tracker: UnsafeCell::new(SlotsTracker::new()),
             version: AtomicU32::new(0),
         }
     }
@@ -78,8 +73,7 @@ impl SlotsTrackerState {
 
 /// Global slots tracker state.
 ///
-/// Contains all three slot sets and the version counter in a single structure
-/// for better organization and encapsulation.
+/// Contains the safe SlotsTracker wrapped in UnsafeCell for static access.
 ///
 /// # Safety
 ///
@@ -88,89 +82,29 @@ impl SlotsTrackerState {
 /// (e.g., calling from multiple threads) is undefined behavior.
 static STATE: SlotsTrackerState = SlotsTrackerState::new();
 
-/// Reserved version value indicating unstable/partial availability.
-///
-/// This value will never equal a real version counter, so comparisons will always fail.
-/// Used when slots are available but partially or the coverage doesn't exactly match.
-pub const SLOTS_TRACKER_UNSTABLE_VERSION: u32 = u32::MAX;
+// ============================================================================
+// Private Helper Functions
+// ============================================================================
 
-/// Reserved version value indicating slots are not available.
-///
-/// This value indicates that the query cannot proceed because required slots are not available.
-pub const SLOTS_TRACKER_UNAVAILABLE: u32 = u32::MAX - 1;
-
-/// Maximum valid version value before wrapping to 0.
-const MAX_VALID_VERSION: u32 = u32::MAX - 2;
-
-/// Increments the version counter, skipping reserved values.
-///
-/// If the current version is `MAX_VALID_VERSION` (u32::MAX - 2), wraps to 0
-/// instead of incrementing to reserved values (u32::MAX - 1 or u32::MAX).
-///
-/// # Safety
-///
-/// This function assumes single-threaded access (main thread only).
-fn increment_version() {
-    let current = STATE.version.load(Ordering::Relaxed);
-    debug_assert!(
-        current <= MAX_VALID_VERSION,
-        "Version counter out of valid range"
-    );
-    let next = if current < MAX_VALID_VERSION {
-        current + 1
-    } else {
-        0 // Wrap around to 0
-    };
-    STATE.version.store(next, Ordering::Relaxed);
-}
-
-/// Gets mutable reference to the local slots set.
+/// Gets mutable reference to the tracker.
 ///
 /// # Safety
 ///
 /// The caller must ensure single-threaded access to the static instance.
-unsafe fn get_local_slots() -> &'static mut SlotSet {
+unsafe fn get_tracker() -> &'static mut SlotsTracker {
     // SAFETY: Caller guarantees single-threaded access
-    unsafe { &mut *STATE.local.get() }
+    unsafe { &mut *STATE.tracker.get() }
 }
 
-/// Gets mutable reference to the fully available slots set.
+/// Syncs the atomic version counter with the tracker's internal version.
+///
+/// This should be called after any operation that modifies the tracker's version.
 ///
 /// # Safety
 ///
 /// The caller must ensure single-threaded access to the static instance.
-unsafe fn get_fully_available_slots() -> &'static mut SlotSet {
-    // SAFETY: Caller guarantees single-threaded access
-    unsafe { &mut *STATE.fully_available.get() }
-}
-
-/// Gets mutable reference to the partially available slots set.
-///
-/// # Safety
-///
-/// The caller must ensure single-threaded access to the static instance.
-unsafe fn get_partially_available_slots() -> &'static mut SlotSet {
-    // SAFETY: Caller guarantees single-threaded access
-    unsafe { &mut *STATE.partially_available.get() }
-}
-
-/// Gets mutable references to all three slot sets.
-///
-/// # Safety
-///
-/// The caller must ensure single-threaded access to the static instances.
-unsafe fn get_all_sets() -> (
-    &'static mut SlotSet,
-    &'static mut SlotSet,
-    &'static mut SlotSet,
-) {
-    // SAFETY: Caller guarantees single-threaded access
-    let local = unsafe { get_local_slots() };
-    // SAFETY: Caller guarantees single-threaded access
-    let fully = unsafe { get_fully_available_slots() };
-    // SAFETY: Caller guarantees single-threaded access
-    let partial = unsafe { get_partially_available_slots() };
-    (local, fully, partial)
+fn sync_version(tracker: &SlotsTracker) {
+    STATE.version.store(tracker.get_version(), Ordering::Relaxed);
 }
 
 // ============================================================================
@@ -253,18 +187,12 @@ pub extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
     let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
-    let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
+    let tracker = unsafe { get_tracker() };
 
-    // Check if the ranges are already equal (no change needed)
-    if local_slots == ranges_slice {
-        return;
-    }
+    // Delegate to the safe implementation
+    tracker.set_local_slots(ranges_slice);
 
-    // Update local slots and remove from other sets
-    local_slots.set_from_ranges(ranges_slice);
-    fully_available.remove_ranges(ranges_slice);
-    partially_available.remove_ranges(ranges_slice);
-    increment_version();
+    sync_version(tracker);
 }
 
 /// Sets the partially available slot ranges.
@@ -286,13 +214,13 @@ pub extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const Slo
     let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
-    let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
+    let tracker = unsafe { get_tracker() };
 
-    // Update partially available slots and remove from other sets
-    partially_available.add_ranges(ranges_slice);
-    local_slots.remove_ranges(ranges_slice);
-    fully_available.remove_ranges(ranges_slice);
-    increment_version();
+    // Delegate to the safe implementation
+    tracker.set_partially_available_slots(ranges_slice);
+
+    // Sync the atomic version counter
+    sync_version(tracker);
 }
 
 /// Sets the fully available non-owned slot ranges.
@@ -316,14 +244,11 @@ pub extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const SlotRan
     let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
-    let local_slots = unsafe { get_local_slots() };
-    // SAFETY: Caller guarantees single-threaded access
-    let fully_available = unsafe { get_fully_available_slots() };
+    let tracker = unsafe { get_tracker() };
 
-    // Update fully available slots and remove from local slots
-    // Note: Do NOT increment VERSION, do NOT remove from partially_available
-    fully_available.add_ranges(ranges_slice);
-    local_slots.remove_ranges(ranges_slice);
+    // Delegate to the safe implementation
+    // Note: This does NOT increment the version
+    tracker.set_fully_available_slots(ranges_slice);
 }
 
 /// Removes deleted slot ranges from the partially available slots.
@@ -345,11 +270,11 @@ pub extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArr
     let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
-    let partially_available = unsafe { get_partially_available_slots() };
+    let tracker = unsafe { get_tracker() };
 
-    // Remove deleted slots from partially available set only
-    // Note: Do NOT increment VERSION, only remove from set 3
-    partially_available.remove_ranges(ranges_slice);
+    // Delegate to the safe implementation
+    // Note: This does NOT increment the version
+    tracker.remove_deleted_slots(ranges_slice);
 }
 
 /// Checks if there is any overlap between the given slot ranges and the fully available slots.
@@ -370,10 +295,10 @@ pub extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotR
     let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
-    let fully_available = unsafe { get_fully_available_slots() };
+    let tracker = unsafe { get_tracker() };
 
-    // Check if any of the ranges overlap with fully available slots
-    fully_available.has_overlap(ranges_slice)
+    // Delegate to the safe implementation
+    tracker.has_fully_available_overlap(ranges_slice)
 }
 
 /// Checks if all requested slots are available and returns version information.
@@ -407,28 +332,10 @@ pub extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray
     let ranges_slice = unsafe { parse_slot_ranges(ranges) };
 
     // SAFETY: Caller guarantees single-threaded access
-    let (local_slots, fully_available, partially_available) = unsafe { get_all_sets() };
+    let tracker = unsafe { get_tracker() };
 
-    // Fast path: If sets 2 & 3 are empty and input exactly matches set 1
-    if fully_available.is_empty() && partially_available.is_empty() && local_slots == ranges_slice {
-        return STATE.version.load(Ordering::Relaxed);
-    }
-
-    // Full check: Use union_relation to check coverage
-    match local_slots.union_relation(fully_available, ranges_slice) {
-        CoverageRelation::Equals if partially_available.is_empty() => {
-            // Exact match and no partial slots
-            STATE.version.load(Ordering::Relaxed)
-        }
-        CoverageRelation::Equals | CoverageRelation::Covers => {
-            // Covered but not exact, or has partial slots
-            SLOTS_TRACKER_UNSTABLE_VERSION
-        }
-        CoverageRelation::NoMatch => {
-            // Not all slots are available
-            SLOTS_TRACKER_UNAVAILABLE
-        }
-    }
+    // Delegate to the safe implementation
+    tracker.check_availability(ranges_slice)
 }
 
 /// Returns the current version of the slots configuration.
