@@ -69,10 +69,7 @@ impl SlotsTracker {
     /// If the current version is `MAX_VALID_VERSION` (u32::MAX - 2), wraps to 0
     /// instead of incrementing to reserved values (u32::MAX - 1 or u32::MAX).
     fn increment_version(&mut self) {
-        debug_assert!(
-            self.version <= MAX_VALID_VERSION,
-            "Version counter out of valid range"
-        );
+        debug_assert!(self.version <= MAX_VALID_VERSION);
         self.version = if self.version < MAX_VALID_VERSION {
             self.version + 1
         } else {
@@ -267,6 +264,14 @@ mod tests {
         assert_eq!(result, current_version);
         assert_ne!(result, SLOTS_TRACKER_UNSTABLE_VERSION);
         assert_ne!(result, SLOTS_TRACKER_UNAVAILABLE);
+
+        // Also test with fully available slots that do not affect the query
+        tracker.set_fully_available_slots(&[SlotRange { start: 0, end: 50 }]);
+        let result2 = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
+        assert_eq!(result2, current_version);
+
+        // Check that the version remains the same
+        assert_eq!(tracker.get_version(), current_version);
     }
 
     #[test]
