@@ -153,9 +153,7 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
     );
 
     // SAFETY: Caller guarantees the flexible array has num_ranges elements
-    unsafe {
-        std::slice::from_raw_parts(ranges.ranges.as_ptr(), ranges.num_ranges as usize)
-    }
+    unsafe { std::slice::from_raw_parts(ranges.ranges.as_ptr(), ranges.num_ranges as usize) }
 }
 
 // ============================================================================
@@ -205,7 +203,9 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeA
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_set_partially_available_slots(ranges: *const SlotRangeArray) {
+pub unsafe extern "C" fn slots_tracker_set_partially_available_slots(
+    ranges: *const SlotRangeArray,
+) {
     // SAFETY: Caller guarantees valid pointer and main thread access
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
@@ -283,7 +283,9 @@ pub unsafe extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotR
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(ranges: *const SlotRangeArray) -> bool {
+pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
+    ranges: *const SlotRangeArray,
+) -> bool {
     // SAFETY: Caller guarantees valid pointer and main thread access
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
