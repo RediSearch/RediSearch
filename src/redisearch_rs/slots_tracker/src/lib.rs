@@ -135,7 +135,7 @@ pub struct SlotRangeArray {
 ///
 /// # Panics
 ///
-/// Panics if the pointer is null or num_ranges is less than 1.
+/// Panics if the pointer is null or num_ranges is less than 0.
 ///
 /// # Safety
 ///
@@ -148,8 +148,8 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
     let ranges = unsafe { &*ranges };
 
     assert!(
-        ranges.num_ranges >= 1,
-        "num_ranges must be at least 1, got {}",
+        ranges.num_ranges >= 0,
+        "num_ranges must be at least 0, got {}",
         ranges.num_ranges
     );
 
