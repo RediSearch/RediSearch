@@ -1052,16 +1052,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   }
 
   // Backwards compatibility:
-  // Disable optimization for FT.AGGREGATE if SORTBY or LIMIT is specified
+  // Disable optimization for FT.AGGREGATE if SORTBY is specified
   if (IsAggregate(req)) {
     bool disableOptimization = false;
-    // Check if SORTBY is specified
     disableOptimization = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
-    if (!disableOptimization) {
-      // Check if LIMIT is specified
-      PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-      disableOptimization |= (arng != NULL && arng->isLimited == 1);
-    }
     if (disableOptimization) {
         AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
     }

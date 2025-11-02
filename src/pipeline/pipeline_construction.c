@@ -209,9 +209,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsAggregate(&params->common) && !IsOptimized(&params->common) &&
-                !astp->isLimited) {
-      // For backward compatibility, FT.AGGREGATE with LIMIT should not be optimized.
+    } else if (IsAggregate(&params->common) && !IsOptimized(&params->common)) {
       // Set unlimited results so depleter consumes everything
       pipeline->qctx.resultLimit = UINT32_MAX;
       // In non-optimized aggregate queries, we need to add a synchronous depleter
