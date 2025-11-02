@@ -534,13 +534,13 @@ mod tests {
         }]);
         assert_eq!(tracker, ([(0, 50)], [], [(100, 150)], Some(v1 + 1)));
         assert_eq!(
-            tracker.check_availability(&[SlotRange {
-                start: 0,
-                end: 50
-            }, SlotRange {
-                start: 100,
-                end: 150
-            }]),
+            tracker.check_availability(&[
+                SlotRange { start: 0, end: 50 },
+                SlotRange {
+                    start: 100,
+                    end: 150
+                }
+            ]),
             SLOTS_TRACKER_UNAVAILABLE,
             "Query including partial-only slots should be unavailable"
         );
@@ -555,13 +555,13 @@ mod tests {
             "Slots promoted to local, removed from partial, version unchanged"
         );
         assert_eq!(
-            tracker.check_availability(&[SlotRange {
-                start: 0,
-                end: 50
-            }, SlotRange {
-                start: 100,
-                end: 150
-            }]),
+            tracker.check_availability(&[
+                SlotRange { start: 0, end: 50 },
+                SlotRange {
+                    start: 100,
+                    end: 150
+                }
+            ]),
             v1 + 1,
             "Query now fully covered by local slots"
         );
@@ -595,10 +595,16 @@ mod tests {
         let v1 = tracker.get_version();
         assert_eq!(tracker, ([(0, 50)], [], [], Some(v1)));
 
-        tracker.set_partially_available_slots(&[SlotRange { start: 51, end: 100 }]);
+        tracker.set_partially_available_slots(&[SlotRange {
+            start: 51,
+            end: 100,
+        }]);
         assert_eq!(tracker, ([(0, 50)], [], [(51, 100)], Some(v1 + 1)));
 
-        tracker.promote_to_local_slots(&[SlotRange { start: 51, end: 100 }]);
+        tracker.promote_to_local_slots(&[SlotRange {
+            start: 51,
+            end: 100,
+        }]);
         assert_eq!(
             tracker,
             ([(0, 100)], [], [], Some(v1 + 1)),
@@ -642,7 +648,10 @@ mod tests {
             start: 100,
             end: 150,
         }]);
-        assert_eq!(tracker, ([(0, 50)], [(200, 250)], [(100, 150)], Some(v1 + 1)));
+        assert_eq!(
+            tracker,
+            ([(0, 50)], [(200, 250)], [(100, 150)], Some(v1 + 1))
+        );
 
         tracker.promote_to_local_slots(&[SlotRange {
             start: 100,
@@ -720,7 +729,12 @@ mod tests {
         ]);
         assert_eq!(
             tracker,
-            ([(100, 150), (350, 400)], [], [(151, 200), (300, 349)], Some(v2)),
+            (
+                [(100, 150), (350, 400)],
+                [],
+                [(151, 200), (300, 349)],
+                Some(v2)
+            ),
             "Multiple ranges should be promoted correctly"
         );
     }

@@ -224,8 +224,8 @@ pub unsafe extern "C" fn slots_tracker_set_partially_available_slots(
 ///
 /// This function adds the provided ranges to "local slots" and removes them from
 /// "partially available slots". Does NOT modify "fully available slots" and does NOT
-/// increment the version counter (the version was already bumped when slots became 
-/// partially available, and while partially available slots exist, `check_availability` 
+/// increment the version counter (the version was already bumped when slots became
+/// partially available, and while partially available slots exist, `check_availability`
 /// returns unstable/unavailable anyway).
 ///
 /// # Safety
@@ -328,7 +328,7 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
 ///
 /// This function performs an optimized availability check:
 ///
-/// **Fast path (common case)**: If "fully available slots" and "partially available slots" 
+/// **Fast path (common case)**: If "fully available slots" and "partially available slots"
 /// are empty and input exactly matches "local slots", returns the current version immediately.
 ///
 /// **Full check**: If "fully available slots" or "partially available slots" are not empty:
