@@ -15,16 +15,15 @@
 use crate::SlotRange;
 use crate::slot_set::{CoverageRelation, SlotSet};
 
-/// Reserved version value indicating unstable/partial availability.
-///
-/// This value will never equal a real version counter, so comparisons will always fail.
-/// Used when slots are available but partially or the coverage doesn't exactly match.
-pub const SLOTS_TRACKER_UNSTABLE_VERSION: u32 = u32::MAX;
-
 /// Reserved version value indicating slots are not available.
 ///
 /// This value indicates that the query cannot proceed because required slots are not available.
-pub const SLOTS_TRACKER_UNAVAILABLE: u32 = u32::MAX - 1;
+pub const SLOTS_TRACKER_UNAVAILABLE: u32 = u32::MAX;
+
+/// Reserved version value indicating unstable/partial availability.
+///
+/// This value will never equal a real version counter, so comparisons will always fail.
+const SLOTS_TRACKER_UNSTABLE_VERSION: u32 = u32::MAX - 1;
 
 /// Maximum valid version value before wrapping to 0.
 const MAX_VALID_VERSION: u32 = u32::MAX - 2;
@@ -175,8 +174,8 @@ impl SlotsTracker {
     /// # Returns
     ///
     /// - Current version (0..u32::MAX-2): Slots match exactly and are stable
-    /// - `SLOTS_TRACKER_UNSTABLE_VERSION` (u32::MAX): Slots available but partial/inexact match
-    /// - `SLOTS_TRACKER_UNAVAILABLE` (u32::MAX-1): Required slots are not available
+    /// - `SLOTS_TRACKER_UNAVAILABLE` (u32::MAX): Required slots are not available
+    /// - `SLOTS_TRACKER_UNSTABLE_VERSION` (u32::MAX-1): Slots available but partial/inexact match
     pub fn check_availability(&self, ranges: &[SlotRange]) -> u32 {
         // Fast path: If sets 2 & 3 are empty and input exactly matches set 1
         if self.fully_available.is_empty()
