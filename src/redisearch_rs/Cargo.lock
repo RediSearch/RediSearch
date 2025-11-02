@@ -1275,6 +1275,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "query_error"
+version = "0.0.1"
+dependencies = [
+ "strum",
+]
+
+[[package]]
 name = "quote"
 version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"

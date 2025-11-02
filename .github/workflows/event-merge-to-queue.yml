@@ -82,7 +82,7 @@ jobs:
       - lint
       - test-linux
       - test-macos
-      # - coverage
+      - coverage
       - run-on-intel
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}

@@ -11,9 +11,10 @@ use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
     io::{Cursor, Seek, Write},
-    sync::atomic::{self, AtomicUsize},
+    sync::atomic::{self, AtomicU32, AtomicUsize},
 };
 
+use controlled_cursor::ControlledCursor;
 use debug::{BlockSummary, Summary};
 use ffi::{
     FieldSpec, GeoFilter, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue,
@@ -26,6 +27,7 @@ pub use index_result::{
 };
 use smallvec::SmallVec;
 
+pub mod controlled_cursor;
 pub mod debug;
 pub mod doc_ids_only;
 pub mod fields_offsets;
@@ -159,7 +161,7 @@ pub trait Encoder: Clone {
     const ALLOW_DUPLICATES: bool = false;
 
     /// The suggested number of entries that can be written in a single block. Defaults to 100.
-    const RECOMMENDED_BLOCK_ENTRIES: usize = 100;
+    const RECOMMENDED_BLOCK_ENTRIES: u16 = 100;
 
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
@@ -249,6 +251,8 @@ pub trait Decoder {
 
 /// Marker trait for decoders producing numeric results.
 pub trait NumericDecoder: Decoder {}
+/// Marker trait for decoders producing term results.
+pub trait TermDecoder: Decoder {}
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
@@ -261,7 +265,7 @@ pub struct InvertedIndex<E> {
 
     /// Number of unique documents in the index. This is not the total number of entries, but rather the
     /// number of unique documents that have been indexed.
-    n_unique_docs: usize,
+    n_unique_docs: u32,
 
     /// The flags of this index. This is used to determine the type of index and how it should be
     /// handled.
@@ -269,7 +273,7 @@ pub struct InvertedIndex<E> {
 
     /// A marker used by the garbage collector to determine if the index has been modified since
     /// the last GC pass. This is used to reset a reader if the index has been modified.
-    gc_marker: AtomicUsize,
+    gc_marker: AtomicU32,
 
     /// The encoder to use when adding new entries to the index
     encoder: E,
@@ -291,7 +295,7 @@ pub struct IndexBlock {
     last_doc_id: t_docId,
 
     /// The total number of non-unique entries in this block
-    num_entries: usize,
+    num_entries: u16,
 
     /// The encoded entries in this block
     buffer: Vec<u8>,
@@ -305,7 +309,7 @@ enum RepairType {
     /// This block can be deleted completely.
     Delete {
         /// Number of unique records this will remove
-        n_unique_docs_removed: usize,
+        n_unique_docs_removed: u32,
     },
 
     /// The block contains GCed entries, and should be replaced with the following blocks.
@@ -314,7 +318,7 @@ enum RepairType {
         blocks: SmallVec<[IndexBlock; 3]>,
 
         /// How many unique documents were removed from the block being replaced.
-        n_unique_docs_removed: usize,
+        n_unique_docs_removed: u32,
     },
 }
 
@@ -350,7 +354,7 @@ impl IndexBlock {
     }
 
     /// Get the number of entries in this block. This is only needed for some C tests.
-    pub const fn num_entries(&self) -> usize {
+    pub const fn num_entries(&self) -> u16 {
         self.num_entries
     }
 
@@ -359,13 +363,8 @@ impl IndexBlock {
         &self.buffer
     }
 
-    const fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
-        let pos = self.buffer.len();
-        let mut buffer = Cursor::new(&mut self.buffer);
-
-        buffer.set_position(pos as u64);
-
-        buffer
+    const fn writer(&mut self) -> ControlledCursor<'_> {
+        ControlledCursor::new(&mut self.buffer)
     }
 
     /// Returns the total number of index blocks in existence.
@@ -447,7 +446,7 @@ impl<E: Encoder> InvertedIndex<E> {
             blocks: Vec::new(),
             n_unique_docs: 0,
             flags,
-            gc_marker: AtomicUsize::new(0),
+            gc_marker: AtomicU32::new(0),
             encoder,
         }
     }
@@ -466,13 +465,13 @@ impl<E: Encoder> InvertedIndex<E> {
             "blocks must have valid ranges"
         );
 
-        let n_unique_docs = blocks.iter().map(|b| b.num_entries).sum();
+        let n_unique_docs = blocks.iter().map(|b| b.num_entries as u32).sum();
 
         Self {
             blocks,
             n_unique_docs,
             flags,
-            gc_marker: AtomicUsize::new(0),
+            gc_marker: AtomicU32::new(0),
             encoder,
         }
     }
@@ -526,6 +525,8 @@ impl<E: Encoder> InvertedIndex<E> {
                 let (new_block, block_size) = IndexBlock::new(doc_id);
 
                 // We won't use the block so make sure to put it back
+                // We can also safe some memory by compacting the old block first.
+                block.buffer.shrink_to_fit();
                 self.blocks.push(block);
                 block = new_block;
                 mem_growth += block_size;
@@ -544,6 +545,7 @@ impl<E: Encoder> InvertedIndex<E> {
         // has increased (if any).
         let buf_growth = block.buffer.capacity() - buf_cap;
 
+        debug_assert!(block.num_entries.saturating_add(1) < u16::MAX);
         block.num_entries += 1;
         block.last_doc_id = doc_id;
 
@@ -566,16 +568,21 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Take a block that can be written to and report by how much memory grew
     fn take_block(&mut self, doc_id: t_docId, same_doc: bool) -> (IndexBlock, usize) {
-        if self.blocks.is_empty() ||
-            // If the block is full
-        (!same_doc
+        if self.blocks.is_empty() {
+            IndexBlock::new(doc_id)
+        } else if
+        // If the block is full
+        !same_doc
             && self
                 .blocks
                 .last()
                 .expect("we just confirmed there are blocks")
                 .num_entries
-                >= E::RECOMMENDED_BLOCK_ENTRIES)
+                >= E::RECOMMENDED_BLOCK_ENTRIES
         {
+            // Since the last block is full, let's safe memory by compacting it
+            self.blocks.last_mut().unwrap().buffer.shrink_to_fit();
+
             IndexBlock::new(doc_id)
         } else {
             (
@@ -588,7 +595,7 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 
     /// Returns the number of unique documents in the index.
-    pub const fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> u32 {
         self.n_unique_docs
     }
 
@@ -601,7 +608,7 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn summary(&self) -> Summary {
         Summary {
             number_of_docs: self.n_unique_docs,
-            number_of_entries: self.n_unique_docs,
+            number_of_entries: self.n_unique_docs as usize,
             last_doc_id: self.last_doc_id().unwrap_or(0),
             flags: self.flags as _,
             number_of_blocks: self.blocks.len(),
@@ -633,7 +640,7 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 
     /// Get the current GC marker of this index. This is only used by the some C tests.
-    pub fn gc_marker(&self) -> usize {
+    pub fn gc_marker(&self) -> u32 {
         self.gc_marker.load(atomic::Ordering::Relaxed)
     }
 
@@ -652,7 +659,7 @@ pub struct GcScanDelta {
 
     /// The number of entries in the last block at the time of the scan. This is used to ensure
     /// that the index has not changed since the scan was performed.
-    last_block_num_entries: usize,
+    last_block_num_entries: u16,
 
     /// The results of the scan for each block that needs to be repaired or deleted.
     deltas: Vec<BlockGcScanResult>,
@@ -798,7 +805,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                         RepairType::Delete {
                             n_unique_docs_removed,
                         } => {
-                            info.entries_removed += block.num_entries;
+                            info.entries_removed += block.num_entries as usize;
                             info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
                             self.n_unique_docs -= n_unique_docs_removed;
                         }
@@ -806,12 +813,12 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                             blocks,
                             n_unique_docs_removed,
                         } => {
-                            info.entries_removed += block.num_entries;
+                            info.entries_removed += block.num_entries as usize;
                             info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
                             self.n_unique_docs -= n_unique_docs_removed;
 
                             for block in blocks {
-                                info.entries_removed -= block.num_entries;
+                                info.entries_removed -= block.num_entries as usize;
                                 info.bytes_allocated += IndexBlock::SIZE + block.buffer.capacity();
                                 self.blocks.push(block);
                             }
@@ -880,7 +887,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Returns the number of unique documents in the index.
-    pub const fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> u32 {
         self.index.unique_docs()
     }
 
@@ -920,7 +927,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Get the current GC marker of this index. This is only used by the some C tests.
-    pub fn gc_marker(&self) -> usize {
+    pub fn gc_marker(&self) -> u32 {
         self.index.gc_marker()
     }
 
@@ -1014,7 +1021,7 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     }
 
     /// Returns the number of unique documents in the index.
-    pub const fn unique_docs(&self) -> usize {
+    pub const fn unique_docs(&self) -> u32 {
         self.index.unique_docs()
     }
 
@@ -1049,7 +1056,7 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     }
 
     /// Get the current GC marker of this index. This is only used by the some C tests.
-    pub fn gc_marker(&self) -> usize {
+    pub fn gc_marker(&self) -> u32 {
         self.index.gc_marker()
     }
 
@@ -1120,7 +1127,7 @@ pub struct IndexReaderCore<'index, E, D> {
     /// The marker of the inverted index when this reader last read from it. This is used to
     /// detect if the index has been modified since the last read, in which case the reader
     /// should be reset.
-    gc_marker: usize,
+    gc_marker: u32,
 }
 
 /// A reader is something which knows how to read / decode the records from an `[InvertedIndex]`.
@@ -1146,7 +1153,7 @@ pub trait IndexReader<'index> {
     fn reset(&mut self);
 
     /// Return the number of unique documents in the underlying index.
-    fn unique_docs(&self) -> usize;
+    fn unique_docs(&self) -> u32;
 
     /// Returns true if the underlying index has duplicate document IDs.
     fn has_duplicates(&self) -> bool;
@@ -1162,8 +1169,17 @@ pub trait IndexReader<'index> {
 /// Marker trait for readers producing numeric values.
 pub trait NumericReader<'index>: IndexReader<'index> {}
 
+/// Marker trait for readers producing term values.
+pub trait TermReader<'index>: IndexReader<'index> {}
+
 // Automatically implemented if the IndexReaderCore uses a NumericDecoder.
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + NumericDecoder> NumericReader<'index>
+    for IndexReaderCore<'index, E, D>
+{
+}
+
+/// Automatically implemented if the IndexReaderCore uses a TermDecoder.
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + TermDecoder> TermReader<'index>
     for IndexReaderCore<'index, E, D>
 {
 }
@@ -1262,7 +1278,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
     }
 
-    fn unique_docs(&self) -> usize {
+    fn unique_docs(&self) -> u32 {
         self.ii.unique_docs()
     }
 
@@ -1411,7 +1427,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> usize {
+    fn unique_docs(&self) -> u32 {
         self.inner.unique_docs()
     }
 
@@ -1452,6 +1468,12 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
     pub const fn internal_index(&self) -> &InvertedIndex<E> {
         self.inner.internal_index()
     }
+}
+
+/// Automatically implemented if the IndexReaderCore uses a TermDecoder.
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + TermDecoder> TermReader<'index>
+    for FilterMaskReader<IndexReaderCore<'index, E, D>>
+{
 }
 
 /// A reader that filters out records that do not match a given numeric filter. It is used to
@@ -1542,7 +1564,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> usize {
+    fn unique_docs(&self) -> u32 {
         self.inner.unique_docs()
     }
 
@@ -1704,7 +1726,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         self.inner.reset();
     }
 
-    fn unique_docs(&self) -> usize {
+    fn unique_docs(&self) -> u32 {
         self.inner.unique_docs()
     }
 

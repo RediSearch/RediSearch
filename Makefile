@@ -299,6 +299,7 @@ endef
 lint:
 	@echo "Running linters..."
 	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) -- -D warnings
+	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace --release $(call get_rust_exclude_crates) -- -D warnings
 	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates)
 
 fmt:

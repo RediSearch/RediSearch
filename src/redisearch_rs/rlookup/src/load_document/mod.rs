@@ -367,7 +367,10 @@ impl std::fmt::Display for LoadDocumentError {
                 #[cfg(not(debug_assertions))]
                 write!(f, "Key is not a hash document")
             }
-            Self::KeyIsNoJson { key } => {
+            Self::KeyIsNoJson {
+                #[cfg(debug_assertions)]
+                key,
+            } => {
                 #[cfg(debug_assertions)]
                 if let Some(key) = key {
                     write!(f, "Key is not a json document: {}", key)
@@ -400,25 +403,34 @@ impl std::fmt::Display for LoadDocumentError {
 }
 
 impl LoadDocumentError {
+    #[cfg(debug_assertions)]
     pub const fn key_does_not_exist(key: Option<String>) -> Self {
-        Self::KeyDoesNotExist {
-            #[cfg(debug_assertions)]
-            key,
-        }
+        Self::KeyDoesNotExist { key }
     }
 
+    #[cfg(not(debug_assertions))]
+    pub fn key_does_not_exist(_key: Option<String>) -> Self {
+        Self::KeyDoesNotExist {}
+    }
+
+    #[cfg(debug_assertions)]
     pub const fn key_is_no_hash(key: Option<String>) -> Self {
-        Self::KeyIsNoHash {
-            #[cfg(debug_assertions)]
-            key,
-        }
+        Self::KeyIsNoHash { key }
     }
 
+    #[cfg(not(debug_assertions))]
+    pub fn key_is_no_hash(_key: Option<String>) -> Self {
+        Self::KeyIsNoHash {}
+    }
+
+    #[cfg(debug_assertions)]
     pub const fn invalid_arguments(details: Option<String>) -> Self {
-        Self::InvalidArguments {
-            #[cfg(debug_assertions)]
-            details,
-        }
+        Self::InvalidArguments { details }
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub fn invalid_arguments(_details: Option<String>) -> Self {
+        Self::InvalidArguments {}
     }
 }
 

@@ -8,8 +8,9 @@
 */
 
 //! Inverted index iterator implementation
+
 use ffi::t_docId;
-use inverted_index::{IndexReader, NumericReader, RSIndexResult};
+use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
@@ -108,7 +109,7 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.reader.unique_docs()
+        self.reader.unique_docs() as usize
     }
 
     fn last_doc_id(&self) -> t_docId {
@@ -117,6 +118,34 @@ where
 
     fn at_eof(&self) -> bool {
         self.at_eos
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // TODO: NumericCheckAbort when implementing queries
+
+        if !self.reader.needs_revalidation() {
+            return Ok(RQEValidateStatus::Ok);
+        }
+
+        // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
+        // anymore. This means that we need to seek the last docId we were at
+        let last_doc_id = self.last_doc_id();
+        // reset the state of the reader
+        self.rewind();
+
+        if last_doc_id == 0 {
+            // Cannot skip to 0
+            return Ok(RQEValidateStatus::Ok);
+        }
+
+        // try restoring the last docId
+        let res = match self.skip_to(last_doc_id)? {
+            Some(SkipToOutcome::Found(_)) => RQEValidateStatus::Ok,
+            Some(SkipToOutcome::NotFound(doc)) => RQEValidateStatus::Moved { current: Some(doc) },
+            None => RQEValidateStatus::Moved { current: None },
+        };
+
+        Ok(res)
     }
 }
 
@@ -147,6 +176,70 @@ where
 impl<'index, R> RQEIterator<'index> for NumericFull<'index, R>
 where
     R: NumericReader<'index>,
+{
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        self.it.skip_to(doc_id)
+    }
+
+    fn rewind(&mut self) {
+        self.it.rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.it.last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        self.it.at_eof()
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        self.it.revalidate()
+    }
+}
+
+/// An iterator over term inverted index entries.
+///
+/// This iterator provides full index scan to all document IDs in a term inverted index.
+/// It is not suitable for queries.
+///
+/// Note that 'full' is this context refers to the iterator being used for a full index scan.
+/// It is not directly related to the ['inverted_inndex::full::Full'] encoder/decoder as
+/// any decoder producing term results can be used with this iterator.
+///
+/// # Type Parameters
+///
+/// * `'index` - The lifetime of the index being iterated over.
+pub struct TermFull<'index, R> {
+    it: FullIterator<'index, R>,
+}
+
+impl<'index, R> TermFull<'index, R>
+where
+    R: TermReader<'index>,
+{
+    pub fn new(reader: R) -> Self {
+        let result = RSIndexResult::term();
+        Self {
+            it: FullIterator::new(reader, result),
+        }
+    }
+}
+
+impl<'index, R> RQEIterator<'index> for TermFull<'index, R>
+where
+    R: TermReader<'index>,
 {
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         self.it.read()
