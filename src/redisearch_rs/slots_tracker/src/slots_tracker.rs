@@ -207,6 +207,43 @@ impl SlotsTracker {
 mod tests {
     use super::*;
 
+    fn slot_ranges_slice(ranges: &[(u16, u16)]) -> &[SlotRange] {
+        unsafe { std::slice::from_raw_parts(ranges.as_ptr() as *const SlotRange, ranges.len()) }
+    }
+
+    impl<const N1: usize, const N2: usize, const N3: usize>
+        PartialEq<(
+            [(u16, u16); N1],
+            [(u16, u16); N2],
+            [(u16, u16); N3],
+            Option<u32>,
+        )> for SlotsTracker
+    {
+        fn eq(
+            &self,
+            other: &(
+                [(u16, u16); N1],
+                [(u16, u16); N2],
+                [(u16, u16); N3],
+                Option<u32>,
+            ),
+        ) -> bool {
+            let other = (
+                slot_ranges_slice(other.0.as_slice()),
+                slot_ranges_slice(other.1.as_slice()),
+                slot_ranges_slice(other.2.as_slice()),
+                other.3,
+            );
+            self.local == other.0
+                && self.fully_available == other.1
+                && self.partially_available == other.2
+                && match other.3 {
+                    Some(v) => self.version == v,
+                    None => true,
+                }
+        }
+    }
+
     #[test]
     fn test_new_tracker_has_version_zero() {
         let tracker = SlotsTracker::new();
@@ -219,70 +256,71 @@ mod tests {
         let initial_version = tracker.get_version();
 
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
-
-        assert_eq!(tracker.get_version(), initial_version + 1);
+        assert_eq!(tracker, ([(0, 100)], [], [], Some(initial_version + 1)));
     }
 
     #[test]
     fn test_set_same_local_slots_does_not_increment_version() {
         let mut tracker = SlotsTracker::new();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
-        let version_after_first = tracker.get_version();
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([(0, 100)], [], [], Some(v1)));
 
-        tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
-
-        assert_eq!(tracker.get_version(), version_after_first);
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]); // no change
+        assert_eq!(tracker, ([(0, 100)], [], [], Some(v1)));
     }
 
     #[test]
     fn test_remove_deleted_slots_does_not_increment_version() {
         let mut tracker = SlotsTracker::new();
+        let v1 = tracker.get_version();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
+        assert_eq!(tracker, ([(0, 100)], [], [], Some(v1 + 1)));
+
         tracker.set_partially_available_slots(&[SlotRange {
             start: 200,
             end: 300,
         }]);
-        let version_before = tracker.get_version();
+        assert_eq!(tracker, ([(0, 100)], [], [(200, 300)], Some(v1 + 2)));
 
         tracker.remove_deleted_slots(&[SlotRange {
             start: 250,
             end: 280,
         }]);
-
-        assert_eq!(tracker.get_version(), version_before);
+        assert_eq!(
+            tracker,
+            ([(0, 100)], [], [(200, 249), (281, 300)], Some(v1 + 2))
+        );
     }
 
     #[test]
     fn test_check_availability_returns_version_for_exact_match() {
         let mut tracker = SlotsTracker::new();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
-        let current_version = tracker.get_version();
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([(0, 100)], [], [], Some(v1)));
 
         let result = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
+        assert_eq!(result, v1);
 
-        assert_eq!(result, current_version);
-        assert_ne!(result, SLOTS_TRACKER_UNSTABLE_VERSION);
-        assert_ne!(result, SLOTS_TRACKER_UNAVAILABLE);
-
-        // Also test with fully available slots that do not affect the query
         tracker.set_fully_available_slots(&[SlotRange { start: 0, end: 50 }]);
-        let result2 = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
-        assert_eq!(result2, current_version);
+        assert_eq!(tracker, ([(51, 100)], [(0, 50)], [], Some(v1)));
 
-        // Check that the version remains the same
-        assert_eq!(tracker.get_version(), current_version);
+        let result2 = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
+        assert_eq!(result2, v1);
     }
 
     #[test]
     fn test_check_availability_returns_unavailable_for_missing_slots() {
         let mut tracker = SlotsTracker::new();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([(0, 100)], [], [], Some(v1)));
 
         let result = tracker.check_availability(&[SlotRange {
             start: 200,
             end: 300,
         }]);
-
         assert_eq!(result, SLOTS_TRACKER_UNAVAILABLE);
     }
 
@@ -290,10 +328,14 @@ mod tests {
     fn test_has_fully_available_overlap() {
         let mut tracker = SlotsTracker::new();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 200 }]);
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([(0, 200)], [], [], Some(v1)));
+
         tracker.set_fully_available_slots(&[SlotRange {
             start: 50,
             end: 150,
         }]);
+        assert_eq!(tracker, ([(0, 49), (151, 200)], [(50, 150)], [], Some(v1)));
 
         assert!(tracker.has_fully_available_overlap(&[SlotRange {
             start: 100,
@@ -311,8 +353,7 @@ mod tests {
         tracker.version = MAX_VALID_VERSION;
 
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
-
-        assert_eq!(tracker.get_version(), 0);
+        assert_eq!(tracker, ([(0, 100)], [], [], Some(0)));
     }
 
     #[test]
@@ -320,8 +361,9 @@ mod tests {
         let mut tracker = SlotsTracker::new();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 50 }]);
         let v1 = tracker.get_version();
+        assert_eq!(tracker, ([(0, 50)], [], [], Some(v1)));
         tracker.set_partially_available_slots(&[SlotRange { start: 60, end: 70 }]);
-        assert_eq!(tracker.get_version(), v1 + 1);
+        assert_eq!(tracker, ([(0, 50)], [], [(60, 70)], Some(v1 + 1)));
     }
 
     #[test]
@@ -329,22 +371,23 @@ mod tests {
         let mut tracker = SlotsTracker::new();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
         let v1 = tracker.get_version();
+        assert_eq!(tracker, ([(0, 100)], [], [], Some(v1)));
         tracker.set_fully_available_slots(&[SlotRange { start: 10, end: 20 }]);
-        assert_eq!(
-            tracker.get_version(),
-            v1,
-            "Fully available should not bump version"
-        );
+        assert_eq!(tracker, ([(0, 9), (21, 100)], [(10, 20)], [], Some(v1)));
     }
 
     #[test]
     fn test_check_availability_unstable_due_to_fully_available_extra() {
         let mut tracker = SlotsTracker::new();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 50 }]);
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([(0, 50)], [], [], Some(v1)));
         tracker.set_fully_available_slots(&[SlotRange {
             start: 100,
             end: 120,
         }]);
+        assert_eq!(tracker, ([(0, 50)], [(100, 120)], [], Some(v1)));
+
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 50 }]);
         // Implementation marks as UNSTABLE since union covers exact local but extra disjoint slots exist.
         assert_eq!(
@@ -362,6 +405,7 @@ mod tests {
     fn test_check_availability_unavailable_when_not_covered() {
         let mut tracker = SlotsTracker::new();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]);
+        assert_eq!(tracker, ([(0, 10)], [], [], None));
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 20 }]);
         assert_eq!(res, SLOTS_TRACKER_UNAVAILABLE);
     }
@@ -369,11 +413,15 @@ mod tests {
     #[test]
     fn test_partially_available_makes_unstable() {
         let mut tracker = SlotsTracker::new();
+        let v0 = tracker.get_version();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
+        assert_eq!(tracker, ([(0, 100)], [], [], Some(v0 + 1)));
         tracker.set_partially_available_slots(&[SlotRange {
             start: 150,
             end: 160,
         }]);
+        assert_eq!(tracker, ([(0, 100)], [], [(150, 160)], Some(v0 + 2)));
+
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
         assert_eq!(
             res, SLOTS_TRACKER_UNSTABLE_VERSION,
@@ -394,15 +442,13 @@ mod tests {
             end: 210,
         }]);
         let v1 = tracker.get_version();
+        assert_eq!(tracker, ([], [], [(200, 210)], Some(v1)));
         tracker.remove_deleted_slots(&[SlotRange {
             start: 205,
             end: 207,
         }]);
-        assert_eq!(
-            tracker.get_version(),
-            v1,
-            "Remove deleted should not bump version"
-        );
+        assert_eq!(tracker, ([], [], [(200, 204), (208, 210)], Some(v1)));
+
         // Querying partially-available slots (not covered by local/fully) should be UNAVAILABLE
         let res = tracker.check_availability(&[SlotRange {
             start: 200,
@@ -415,38 +461,44 @@ mod tests {
     fn test_sequential_version_changes() {
         let mut tracker = SlotsTracker::new();
         assert_eq!(tracker.get_version(), 0);
+        assert!(tracker.local.is_empty());
+        assert!(tracker.fully_available.is_empty());
+        assert!(tracker.partially_available.is_empty());
+
         tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]); // v1
-        assert_eq!(tracker.get_version(), 1);
+        assert_eq!(tracker, ([(0, 10)], [], [], Some(1)));
+
         tracker.set_partially_available_slots(&[SlotRange { start: 20, end: 30 }]); // v2
-        assert_eq!(tracker.get_version(), 2);
+        assert_eq!(tracker, ([(0, 10)], [], [(20, 30)], Some(2)));
+
         tracker.set_fully_available_slots(&[SlotRange { start: 5, end: 6 }]); // still v2
-        assert_eq!(tracker.get_version(), 2);
+        assert_eq!(tracker, ([(0, 4), (7, 10)], [(5, 6)], [(20, 30)], Some(2)));
+
         tracker.set_local_slots(&[SlotRange { start: 0, end: 5 }]); // v3 (changed local)
-        assert_eq!(tracker.get_version(), 3);
+        assert_eq!(tracker, ([(0, 5)], [(6, 6)], [(20, 30)], Some(3)));
     }
 
     #[test]
     fn test_sets_content_after_operations() {
         let mut tracker = SlotsTracker::new();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]);
-        tracker.set_fully_available_slots(&[SlotRange { start: 0, end: 5 }]); // moves 0-5 out of local
-        assert_eq!(tracker.local, [SlotRange { start: 6, end: 10 }].as_slice());
-        assert_eq!(
-            tracker.fully_available,
-            [SlotRange { start: 0, end: 5 }].as_slice()
-        );
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([(0, 10)], [], [], Some(v1)));
+        tracker.set_fully_available_slots(&[SlotRange { start: 0, end: 5 }]);
+        assert_eq!(tracker, ([(6, 10)], [(0, 5)], [], Some(v1)));
         tracker.set_partially_available_slots(&[SlotRange { start: 50, end: 55 }]);
-        assert_eq!(
-            tracker.partially_available,
-            [SlotRange { start: 50, end: 55 }].as_slice()
-        );
+        assert_eq!(tracker, ([(6, 10)], [(0, 5)], [(50, 55)], Some(v1 + 1)));
     }
 
     #[test]
     fn test_mixed_local_and_partial_query_unavailable() {
         let mut tracker = SlotsTracker::new();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]);
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([(0, 10)], [], [], Some(v1)));
         tracker.set_partially_available_slots(&[SlotRange { start: 20, end: 25 }]);
+        assert_eq!(tracker, ([(0, 10)], [], [(20, 25)], Some(v1 + 1)));
+
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 25 }]);
         assert_eq!(
             res, SLOTS_TRACKER_UNAVAILABLE,
