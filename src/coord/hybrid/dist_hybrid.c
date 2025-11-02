@@ -469,17 +469,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     QueryError status = {0};
 
-    if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
-      // OOM guardrail
-      if (estimateOOM(ctx)) {
-        RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-        QueryError_SetCode(&status, QUERY_EOOM);
-        // Cleanup
-        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
-        return;
-      }
-    }
-
     // CMD, index, expr, args...
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
     RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
