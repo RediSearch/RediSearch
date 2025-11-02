@@ -164,15 +164,15 @@ static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
 // OOM check with heuristics
 // TODO: add heuristics
 // Assumes the GIL is held by the caller
-bool estimateOOM(RedisModuleCtx *ctx) {
+static inline bool estimateOOM(RedisModuleCtx *ctx) {
   return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
 }
 
-// OOM guardrail for distributed queries function
-// Such as DistSearchCommand, DistAggregateCommand and DistHybridCommand
+// OOM guardrail for queries function
+// Such as DistSearchCommand/DistAggregateCommand and hybridCommandHandler
 // Assumes the GIL is held by the caller
 // Returns true if the query should be aborted due to OOM
-static bool DistQueryMemoryGuard(RedisModuleCtx *ctx) {
+bool QueryMemoryGuard(RedisModuleCtx *ctx) {
   // Check OOM if OOM policy is not ignore
   if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
     // No need to hold the GIL since we are not in a background thread
@@ -3221,7 +3221,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   // Memory guardrail
-  if (DistQueryMemoryGuard(ctx)) {
+  if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
     return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
   }
@@ -3277,7 +3277,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Memory guardrail
-  if (DistQueryMemoryGuard(ctx)) {
+  if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
     return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
   }
@@ -3612,7 +3612,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Memory guardrail
-  if (DistQueryMemoryGuard(ctx)) {
+  if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
     return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
   }
