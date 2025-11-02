@@ -10,11 +10,11 @@
 //! Slots tracking module for managing Redis cluster slot ranges.
 //!
 //! This module provides a C FFI interface for tracking slot ranges using pairs of u16 values
-//! and performing set operations on them. It maintains three global instances that can
-//! be modified through the C API.
+//! and performing set operations on them. It maintains a global instance of the slots tracker
+//! that can be modified through the C API.
 //!
-//! **Thread Safety**: The global instances are designed to be accessed from a single thread only.
-//! They do not use synchronization primitives like `Mutex`. If you need to access them from
+//! **Thread Safety**: The global instance is designed to be accessed from a single thread only.
+//! It does not use synchronization primitives like `Mutex`. If you need to access it from
 //! multiple threads, you must provide your own synchronization at the C level.
 //!
 //! The version counter is atomic and can be safely read from any thread to check if the
@@ -163,11 +163,11 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
 
 /// Sets the local responsibility slot ranges.
 ///
-/// This function updates the LOCAL_SLOTS set to match the provided ranges.
+/// This function updates the "local slots" set to match the provided ranges.
 /// If the ranges differ from the current configuration:
-/// - Updates LOCAL_SLOTS to the new ranges
-/// - Removes any overlapping slots from FULLY_AVAILABLE_SLOTS and PARTIALLY_AVAILABLE_SLOTS
-/// - Increments the VERSION counter
+/// - Updates "local slots" to the new ranges
+/// - Removes any overlapping slots from "fully available slots" and "partially available slots"
+/// - Increments the version counter
 ///
 /// If the ranges are identical to the current configuration, no changes are made.
 ///
@@ -193,9 +193,9 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeA
 
 /// Sets the partially available slot ranges.
 ///
-/// This function updates the PARTIALLY_AVAILABLE_SLOTS set to match the provided ranges.
-/// It also removes the given slots from LOCAL_SLOTS and FULLY_AVAILABLE_SLOTS, and
-/// increments the VERSION counter.
+/// This function updates the "partially available slots" set by adding the provided ranges.
+/// It also removes the given slots from "local slots" and "fully available slots", and
+/// increments the version counter.
 ///
 /// # Safety
 ///
@@ -222,11 +222,11 @@ pub unsafe extern "C" fn slots_tracker_set_partially_available_slots(
 
 /// Sets the fully available non-owned slot ranges.
 ///
-/// This function updates the FULLY_AVAILABLE_SLOTS set to match the provided ranges.
-/// It also removes the given slots from LOCAL_SLOTS.
+/// This function updates the "fully available slots" set by adding the provided ranges.
+/// It also removes the given slots from "local slots".
 ///
-/// Note: This does NOT increment the VERSION counter, as slots are moving from owned
-/// to not-owned with no data changes. It also does NOT remove from PARTIALLY_AVAILABLE_SLOTS.
+/// Note: This does NOT increment the version counter (slots availability is unchanged).
+/// It also does NOT remove from "partially available slots".
 ///
 /// # Safety
 ///
@@ -249,9 +249,8 @@ pub unsafe extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const 
 
 /// Removes deleted slot ranges from the partially available slots.
 ///
-/// This function removes the given slot ranges from PARTIALLY_AVAILABLE_SLOTS (set 3).
-/// These slots are expected to be found in set 3 only, as they represent slots that
-/// were just deleted.
+/// This function removes the given slot ranges from "partially available slots" only.
+/// It does NOT modify "local slots" or "fully available slots", and does NOT increment the version.
 ///
 /// # Safety
 ///
@@ -274,7 +273,7 @@ pub unsafe extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotR
 
 /// Checks if there is any overlap between the given slot ranges and the fully available slots.
 ///
-/// This function checks if any of the provided slot ranges overlap with FULLY_AVAILABLE_SLOTS (set 2).
+/// This function checks if any of the provided slot ranges overlap with "fully available slots".
 /// Returns true if there is at least one overlapping slot, false otherwise.
 ///
 /// # Safety
@@ -301,14 +300,14 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
 ///
 /// This function performs an optimized availability check:
 ///
-/// **Fast path (common case)**: If sets 2 & 3 are empty and input exactly matches set 1,
-/// returns the current version immediately.
+/// **Fast path (common case)**: If "fully available slots" and "partially available slots" 
+/// are empty and input exactly matches "local slots", returns the current version immediately.
 ///
-/// **Full check**: If sets 2 or 3 are not empty:
-/// - Checks if sets 1+2 cover all input slots
+/// **Full check**: If "fully available slots" or "partially available slots" are not empty:
+/// - Uses union_relation to check if "local slots" ∪ "fully available slots" covers all input slots
 /// - If not covered: returns `SLOTS_TRACKER_UNAVAILABLE`
-/// - If covered exactly AND set 3 is empty: returns current version
-/// - If covered but not exactly OR set 3 is not empty: returns `SLOTS_TRACKER_UNSTABLE_VERSION`
+/// - If covered exactly AND "partially available slots" is empty: returns current version
+/// - If covered but not exactly OR "partially available slots" is not empty: returns `SLOTS_TRACKER_UNSTABLE_VERSION`
 ///
 /// Return values:
 /// - `SLOTS_TRACKER_UNAVAILABLE`: Required slots are not available
