@@ -405,15 +405,9 @@ mod tests {
 
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 50 }]);
         // Implementation marks as UNSTABLE since union covers exact local but extra disjoint slots exist.
-        assert_eq!(
-            res, SLOTS_TRACKER_UNSTABLE_VERSION,
-            "Extra disjoint fully-available slots make local-only query unstable"
-        );
+        assert_eq!(res, SLOTS_TRACKER_UNSTABLE_VERSION);
         let res2 = tracker.check_availability(&[SlotRange { start: 0, end: 120 }]);
-        assert_eq!(
-            res2, SLOTS_TRACKER_UNAVAILABLE,
-            "Query spanning gap with uncovered range should be unavailable"
-        );
+        assert_eq!(res2, SLOTS_TRACKER_UNAVAILABLE);
     }
 
     #[test]
@@ -438,15 +432,9 @@ mod tests {
         assert_eq!(tracker, ([(0, 100)], [], [(150, 160)], Some(v0 + 2)));
 
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
-        assert_eq!(
-            res, SLOTS_TRACKER_UNSTABLE_VERSION,
-            "Exact local query becomes unstable when partial slots exist"
-        );
+        assert_eq!(res, SLOTS_TRACKER_UNSTABLE_VERSION);
         let res2 = tracker.check_availability(&[SlotRange { start: 0, end: 160 }]);
-        assert_eq!(
-            res2, SLOTS_TRACKER_UNAVAILABLE,
-            "Query including partial-only slots should be unavailable"
-        );
+        assert_eq!(res2, SLOTS_TRACKER_UNAVAILABLE);
     }
 
     #[test]
@@ -515,10 +503,7 @@ mod tests {
         assert_eq!(tracker, ([(0, 10)], [], [(20, 25)], Some(v1 + 1)));
 
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 25 }]);
-        assert_eq!(
-            res, SLOTS_TRACKER_UNAVAILABLE,
-            "Query including partial-only slots should be unavailable"
-        );
+        assert_eq!(res, SLOTS_TRACKER_UNAVAILABLE);
     }
 
     #[test]
@@ -541,19 +526,14 @@ mod tests {
                     end: 150
                 }
             ]),
-            SLOTS_TRACKER_UNAVAILABLE,
-            "Query including partial-only slots should be unavailable"
+            SLOTS_TRACKER_UNAVAILABLE
         );
 
         tracker.promote_to_local_slots(&[SlotRange {
             start: 100,
             end: 150,
         }]);
-        assert_eq!(
-            tracker,
-            ([(0, 50), (100, 150)], [], [], Some(v1 + 1)),
-            "Slots promoted to local, removed from partial, version unchanged"
-        );
+        assert_eq!(tracker, ([(0, 50), (100, 150)], [], [], Some(v1 + 1)));
         assert_eq!(
             tracker.check_availability(&[
                 SlotRange { start: 0, end: 50 },
@@ -562,8 +542,7 @@ mod tests {
                     end: 150
                 }
             ]),
-            v1 + 1,
-            "Query now fully covered by local slots"
+            v1 + 1
         );
     }
 
@@ -583,8 +562,7 @@ mod tests {
         }]);
         assert_eq!(
             tracker,
-            ([(150, 175)], [], [(100, 149), (176, 200)], Some(v1)),
-            "Version should not change during promotion"
+            ([(150, 175)], [], [(100, 149), (176, 200)], Some(v1))
         );
     }
 
@@ -605,11 +583,7 @@ mod tests {
             start: 51,
             end: 100,
         }]);
-        assert_eq!(
-            tracker,
-            ([(0, 100)], [], [], Some(v1 + 1)),
-            "Adjacent ranges should merge"
-        );
+        assert_eq!(tracker, ([(0, 100)], [], [], Some(v1 + 1)));
     }
 
     #[test]
@@ -626,11 +600,7 @@ mod tests {
             start: 150,
             end: 250,
         }]);
-        assert_eq!(
-            tracker,
-            ([(150, 250)], [], [(100, 149)], Some(v1)),
-            "Should promote overlapping portion and keep non-overlapping partial"
-        );
+        assert_eq!(tracker, ([(150, 250)], [], [(100, 149)], Some(v1)));
     }
 
     #[test]
@@ -659,8 +629,7 @@ mod tests {
         }]);
         assert_eq!(
             tracker,
-            ([(0, 50), (100, 150)], [(200, 250)], [], Some(v1 + 1)),
-            "Fully available slots should remain unchanged"
+            ([(0, 50), (100, 150)], [(200, 250)], [], Some(v1 + 1))
         );
     }
 
@@ -675,11 +644,7 @@ mod tests {
         assert_eq!(tracker, ([], [], [(100, 200)], Some(v1)));
 
         tracker.promote_to_local_slots(&[]);
-        assert_eq!(
-            tracker,
-            ([], [], [(100, 200)], Some(v1)),
-            "Empty promotion should not change state"
-        );
+        assert_eq!(tracker, ([], [], [(100, 200)], Some(v1)));
     }
 
     #[test]
@@ -696,11 +661,7 @@ mod tests {
             start: 300,
             end: 400,
         }]);
-        assert_eq!(
-            tracker,
-            ([(300, 400)], [], [(100, 200)], Some(v1)),
-            "Non-overlapping promotion should add to local without affecting partial"
-        );
+        assert_eq!(tracker, ([(300, 400)], [], [(100, 200)], Some(v1)));
     }
 
     #[test]
@@ -734,8 +695,7 @@ mod tests {
                 [],
                 [(151, 200), (300, 349)],
                 Some(v2)
-            ),
-            "Multiple ranges should be promoted correctly"
+            )
         );
     }
 }
