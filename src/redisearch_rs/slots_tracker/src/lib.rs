@@ -220,6 +220,34 @@ pub unsafe extern "C" fn slots_tracker_set_partially_available_slots(
     sync_version(tracker);
 }
 
+/// Promotes slot ranges to local ownership.
+///
+/// This function adds the provided ranges to "local slots" and removes them from
+/// "partially available slots". Does NOT modify "fully available slots" and does NOT
+/// increment the version counter (the version was already bumped when slots became 
+/// partially available, and while partially available slots exist, `check_availability` 
+/// returns unstable/unavailable anyway).
+///
+/// # Safety
+///
+/// This function must be called from the main thread only.
+/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
+/// The ranges array must contain `num_ranges` valid elements.
+/// All ranges must be sorted and have start <= end, with values in [0, 16383].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn slots_tracker_promote_to_local_slots(ranges: *const SlotRangeArray) {
+    // SAFETY: Caller guarantees valid pointer and main thread access
+    let ranges = unsafe { parse_slot_ranges(ranges) };
+
+    // SAFETY: Caller guarantees single-threaded access
+    let tracker = unsafe { get_tracker() };
+
+    // Delegate to the safe implementation
+    tracker.promote_to_local_slots(ranges);
+
+    // Note: Version is NOT incremented here
+}
+
 /// Sets the fully available non-owned slot ranges.
 ///
 /// This function updates the "fully available slots" set by adding the provided ranges.

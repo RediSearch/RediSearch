@@ -116,6 +116,21 @@ impl SlotsTracker {
         self.increment_version();
     }
 
+    /// Promotes slot ranges to local ownership.
+    ///
+    /// This function adds the provided ranges to `local` and removes them from `partially_available`.
+    /// Does NOT modify `fully_available` and does NOT increment the version counter
+    /// (the version was already bumped when slots became partially available, and while partially
+    /// available slots exist, `check_availability` returns unstable/unavailable anyway).
+    ///
+    /// # Arguments
+    ///
+    /// * `ranges` - Slice of slot ranges. Must be sorted and normalized (no overlaps, no adjacent ranges).
+    pub fn promote_to_local_slots(&mut self, ranges: &[SlotRange]) {
+        self.local.add_ranges(ranges);
+        self.partially_available.remove_ranges(ranges);
+    }
+
     /// Sets the fully available non-owned slot ranges.
     ///
     /// This function updates the `fully_available` set by adding the provided ranges.
