@@ -338,7 +338,10 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   if (new_reply) {
     if (resp3) { // RESP3
       nc->curIdx = 0;
-      nc->base.parent->totalResults += MRReply_Length(rows);
+      MRReply *total_results_reply = MRReply_MapElement(nc->current.meta, "total_results");
+      RS_LOG_ASSERT(total_results_reply && MRReply_Type(total_results_reply) == MR_REPLY_INTEGER,
+                    "total_results must be present in RESP3 metadata");
+      nc->base.parent->totalResults += MRReply_Integer(total_results_reply);
       processResultFormat(&nc->areq->reqflags, nc->current.meta);
     } else { // RESP2
       // Get the index from the first
