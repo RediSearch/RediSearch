@@ -64,8 +64,8 @@ def test_query_oom_ignore(env):
 
     _common_test_scenario(env)
 
-    # The test should ignore OOM since 'ignore' is the default config
-    # TODO : change/ remove test if default config is changed
+    change_oom_policy(env, 'ignore')
+
     res = env.cmd('FT.SEARCH', 'idx', '*')
     env.assertEqual(res, [1, 'doc', ['name', 'hello']])
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
@@ -77,8 +77,7 @@ def test_query_oom_cluster_ignore(env):
 
     n_docs = _common_cluster_test_scenario(env)
 
-    # The test should ignore OOM since 'ignore' is the default config
-    # TODO : change/remove test if default config is changed
+    allShards_change_oom_policy(env, 'ignore')
 
     res = env.cmd('FT.SEARCH', 'idx', '*')
     env.assertEqual(res[0] , n_docs)
@@ -87,8 +86,7 @@ def test_query_oom_cluster_ignore(env):
 
 @skip(cluster=True)
 def test_query_oom_standalone(env):
-    # Change oom policy to fail
-    # TODO : Change if default value is changed
+
     change_oom_policy(env, 'fail')
 
     _common_test_scenario(env)
@@ -273,8 +271,7 @@ def _common_hybrid_cluster_test_scenario(env):
 def test_hybrid_oom_ignore(env):
     _common_hybrid_test_scenario(env)
 
-    # The test should ignore OOM since 'ignore' is the default config
-    # TODO : change/ remove test if default config is changed
+    change_oom_policy(env, 'ignore')
 
     query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector)
@@ -285,8 +282,6 @@ def test_hybrid_oom_ignore(env):
 # Test fail policy for FT.HYBRID in standalone
 @skip(cluster=True)
 def test_hybrid_oom_standalone(env):
-    # Change oom policy to fail
-    # TODO : Change if default value is changed
     change_oom_policy(env, 'fail')
 
     _common_hybrid_test_scenario(env)
