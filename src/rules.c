@@ -112,10 +112,10 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
   }
 
   rule->prefixes = array_new(sds, args->nprefixes);
-  for (int i = 0; i < args->nprefixes; ++i) {
-    sds p = sdsnew(args->prefixes[i]);
-    array_append(rule->prefixes, p);
-  }
+  // for (int i = 0; i < args->nprefixes; ++i) {
+  //   sds p = sdsnew(args->prefixes[i]);
+  //   array_append(rule->prefixes, p);
+  // }
 
   if (rule->filter_exp_str) {
     rule->filter_exp = ExprAST_Parse(rule->filter_exp_str, strlen(rule->filter_exp_str), status);
