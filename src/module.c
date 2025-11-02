@@ -181,6 +181,11 @@ bool QueryMemoryGuard(RedisModuleCtx *ctx) {
   return false;
 }
 
+static inline int QueryMemoryGuardFailure(RedisModuleCtx *ctx) {
+  RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+  return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+}
+
 // Returns true if the current context has permission to execute debug commands
 // See redis docs regarding `enable-debug-command` for more information
 // Falls back to true when the redis version is below the one we started
@@ -3222,8 +3227,11 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    // If we are in a single shard cluster, we should fail the query if we are out of memory
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail || NumShards == 1) {
+      return QueryMemoryGuardFailure(ctx);
+    }
+    // Assuming OOM policy is return
   }
 
   // Coord callback
@@ -3278,8 +3286,11 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    // If we are in a single shard cluster, we should fail the query if we are out of memory
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail || NumShards == 1) {
+      return QueryMemoryGuardFailure(ctx);
+    }
+    // Assuming OOM policy is return
   }
 
   // Coord callback
@@ -3613,8 +3624,11 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    // If we are in a single shard cluster, we should fail the query if we are out of memory
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail || NumShards == 1) {
+      return QueryMemoryGuardFailure(ctx);
+    }
+    // Assuming OOM policy is return
   }
 
   // Coord callback
