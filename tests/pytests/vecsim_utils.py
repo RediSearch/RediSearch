@@ -104,7 +104,7 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
             index_size = get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE']
             env.assertGreater(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"wait_for_background_indexing: shard: {id}, index size: {index_size}" + message)
             if OS == 'macos':
-                env.debugPrint(f"wait_for_background_indexing: iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, {message})")
+                env.debugPrint(f"wait_for_background_indexing: iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, {message})", force=True)
     except Exception as e:
         message = f"wait_for_background_indexing: iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, {message})"
         raise Exception(f'Timeout: {message}')
