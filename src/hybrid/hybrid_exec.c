@@ -533,7 +533,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   QueryError status = QueryError_Default();
 
   // Memory guardrail
-  if (SingleShardQueryMemoryGuard(ctx)) {
+  if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
     QueryError_SetCode(&status, QUERY_EOOM);
     return QueryError_ReplyAndClear(ctx, &status);
