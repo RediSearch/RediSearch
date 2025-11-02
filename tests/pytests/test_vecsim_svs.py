@@ -422,7 +422,7 @@ def change_threads(initial_workers, final_workers):
             prev_last_reserved_num_threads = last_reserved_num_threads
 
     set_up_database_with_vectors(env, dim, num_docs=training_threshold, alg='SVS-VAMANA')
-    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=message_prefix)
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=f"{message_prefix}, add more vectors to trigger training")
     verify_num_threads(initial_workers, initial_workers, message=f"{message_prefix}, after training trigger")
 
     env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
@@ -434,7 +434,7 @@ def change_threads(initial_workers, final_workers):
 
     # Add more vectors to trigger background indexing
     populate_with_vectors(env, dim=dim, num_docs=update_threshold, datatype='FLOAT32', initial_doc_id=training_threshold + 1)
-    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=message_prefix)
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=f"{message_prefix}, add more vectors to trigger update")
     # Since VecSim doesn't get notified when RediSearch worker count changes, when RediSearch worker count changes
     # svs index continues to request the original number of threads during operations
     #
@@ -494,10 +494,12 @@ def test_drop_index_memory():
 def test_drop_index_during_query():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1')
     dim = 2
+    data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
-    set_up_database_with_vectors(env, dim, num_docs=training_threshold)
-
+    set_up_database_with_vectors(env, dim, num_docs=training_threshold, index_name=DEFAULT_INDEX_NAME, datatype=data_type, alg='SVS-VAMANA')
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], training_threshold)
+
     query = create_random_np_array_typed(dim, 'FLOAT32')
     query_cmd = ['FT.SEARCH', DEFAULT_INDEX_NAME, f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT']
     # Build threads

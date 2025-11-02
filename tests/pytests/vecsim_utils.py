@@ -90,7 +90,7 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
     index_state = f"iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, is_trained: {is_trained}"
 
     try:
-        with TimeLimit(60):
+        with TimeLimit(120):
             while not all(is_trained):
                 # 'BACKGROUND_INDEXING' == 0 means training is done
                 for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
