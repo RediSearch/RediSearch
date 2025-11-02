@@ -1,5 +1,5 @@
 from RLTest import Env
-
+from includes import *
 from common import (
     getConnectionByEnv,
     to_dict,
@@ -9,7 +9,6 @@ from common import (
     create_random_np_array_typed,
 )
 import numpy as np
-import sys
 import time
 from redis import exceptions as redis_exceptions
 
@@ -104,6 +103,8 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
         for id, con in enumerate(env.getOSSMasterNodesConnectionList()):
             index_size = get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE']
             env.assertGreater(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"wait_for_background_indexing: shard: {id}, index size: {index_size}" + message)
+            if OS == 'macos':
+                env.debugPrint(f"wait_for_background_indexing: iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, {message})")
     except Exception as e:
         message = f"wait_for_background_indexing: iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, {message})"
         raise Exception(f'Timeout: {message}')

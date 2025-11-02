@@ -133,7 +133,7 @@ def test_rdb_load_trained_svs_vamana():
         # We are in writeInPlace mode, so once the index is trained, all vectors are transferred to the backend index in place.
         env.assertEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"shard_id: {i}, datatype: {data_type}, shard_keys: {shard_keys}, after adding {num_docs} vectors")
         env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
-        env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
+        env.assertEqual(get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
 
     # reload rdb
     for _ in env.reloadingIterator():
@@ -309,12 +309,12 @@ def queries_sanity(test_name, data_type, metric, workers):
     for compression_type in compression_types:
         index_name = f"idx_{compression_type}"
         indexes_list.append(index_name)
-        compression_params = None
+        index_params = ['CONSTRUCTION_WINDOW_SIZE', num_docs, 'SEARCH_WINDOW_SIZE', num_docs]
         if compression_type != 'NO_COMPRESSION':
-            compression_params = ['COMPRESSION', compression_type, 'TRAINING_THRESHOLD', training_threshold]
+            index_params.extend(['COMPRESSION', compression_type, 'TRAINING_THRESHOLD', training_threshold])
 
         create_vector_index(env, dim, index_name=index_name, datatype=data_type, metric=metric, alg='SVS-VAMANA',
-                            additional_vec_params=compression_params, message=f"datatype: {data_type}, metric: {metric}, compression: {compression_type}")
+                            additional_vec_params=index_params, message=f"datatype: {data_type}, metric: {metric}, compression: {compression_type}")
 
     env.assertEqual(sorted(env.cmd('FT._LIST')), sorted(indexes_list))
     # add vectors with the same field name so they will be indexed in all indexes
