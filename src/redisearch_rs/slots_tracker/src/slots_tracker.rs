@@ -520,4 +520,208 @@ mod tests {
             "Query including partial-only slots should be unavailable"
         );
     }
+
+    #[test]
+    fn test_promote_to_local_slots_basic() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 50 }]);
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([(0, 50)], [], [], Some(v1)));
+
+        tracker.set_partially_available_slots(&[SlotRange {
+            start: 100,
+            end: 150,
+        }]);
+        assert_eq!(tracker, ([(0, 50)], [], [(100, 150)], Some(v1 + 1)));
+        assert_eq!(
+            tracker.check_availability(&[SlotRange {
+                start: 0,
+                end: 50
+            }, SlotRange {
+                start: 100,
+                end: 150
+            }]),
+            SLOTS_TRACKER_UNAVAILABLE,
+            "Query including partial-only slots should be unavailable"
+        );
+
+        tracker.promote_to_local_slots(&[SlotRange {
+            start: 100,
+            end: 150,
+        }]);
+        assert_eq!(
+            tracker,
+            ([(0, 50), (100, 150)], [], [], Some(v1 + 1)),
+            "Slots promoted to local, removed from partial, version unchanged"
+        );
+        assert_eq!(
+            tracker.check_availability(&[SlotRange {
+                start: 0,
+                end: 50
+            }, SlotRange {
+                start: 100,
+                end: 150
+            }]),
+            v1 + 1,
+            "Query now fully covered by local slots"
+        );
+    }
+
+    #[test]
+    fn test_promote_to_local_slots_does_not_increment_version() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_partially_available_slots(&[SlotRange {
+            start: 100,
+            end: 200,
+        }]);
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([], [], [(100, 200)], Some(v1)));
+
+        tracker.promote_to_local_slots(&[SlotRange {
+            start: 150,
+            end: 175,
+        }]);
+        assert_eq!(
+            tracker,
+            ([(150, 175)], [], [(100, 149), (176, 200)], Some(v1)),
+            "Version should not change during promotion"
+        );
+    }
+
+    #[test]
+    fn test_promote_to_local_slots_merges_with_existing_local() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 50 }]);
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([(0, 50)], [], [], Some(v1)));
+
+        tracker.set_partially_available_slots(&[SlotRange { start: 51, end: 100 }]);
+        assert_eq!(tracker, ([(0, 50)], [], [(51, 100)], Some(v1 + 1)));
+
+        tracker.promote_to_local_slots(&[SlotRange { start: 51, end: 100 }]);
+        assert_eq!(
+            tracker,
+            ([(0, 100)], [], [], Some(v1 + 1)),
+            "Adjacent ranges should merge"
+        );
+    }
+
+    #[test]
+    fn test_promote_to_local_slots_partial_overlap() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_partially_available_slots(&[SlotRange {
+            start: 100,
+            end: 200,
+        }]);
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([], [], [(100, 200)], Some(v1)));
+
+        tracker.promote_to_local_slots(&[SlotRange {
+            start: 150,
+            end: 250,
+        }]);
+        assert_eq!(
+            tracker,
+            ([(150, 250)], [], [(100, 149)], Some(v1)),
+            "Should promote overlapping portion and keep non-overlapping partial"
+        );
+    }
+
+    #[test]
+    fn test_promote_to_local_slots_does_not_affect_fully_available() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 50 }]);
+        let v1 = tracker.get_version();
+        tracker.set_fully_available_slots(&[SlotRange {
+            start: 200,
+            end: 250,
+        }]);
+        assert_eq!(tracker, ([(0, 50)], [(200, 250)], [], Some(v1)));
+
+        tracker.set_partially_available_slots(&[SlotRange {
+            start: 100,
+            end: 150,
+        }]);
+        assert_eq!(tracker, ([(0, 50)], [(200, 250)], [(100, 150)], Some(v1 + 1)));
+
+        tracker.promote_to_local_slots(&[SlotRange {
+            start: 100,
+            end: 150,
+        }]);
+        assert_eq!(
+            tracker,
+            ([(0, 50), (100, 150)], [(200, 250)], [], Some(v1 + 1)),
+            "Fully available slots should remain unchanged"
+        );
+    }
+
+    #[test]
+    fn test_promote_to_local_slots_empty_ranges() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_partially_available_slots(&[SlotRange {
+            start: 100,
+            end: 200,
+        }]);
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([], [], [(100, 200)], Some(v1)));
+
+        tracker.promote_to_local_slots(&[]);
+        assert_eq!(
+            tracker,
+            ([], [], [(100, 200)], Some(v1)),
+            "Empty promotion should not change state"
+        );
+    }
+
+    #[test]
+    fn test_promote_to_local_slots_non_overlapping() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_partially_available_slots(&[SlotRange {
+            start: 100,
+            end: 200,
+        }]);
+        let v1 = tracker.get_version();
+        assert_eq!(tracker, ([], [], [(100, 200)], Some(v1)));
+
+        tracker.promote_to_local_slots(&[SlotRange {
+            start: 300,
+            end: 400,
+        }]);
+        assert_eq!(
+            tracker,
+            ([(300, 400)], [], [(100, 200)], Some(v1)),
+            "Non-overlapping promotion should add to local without affecting partial"
+        );
+    }
+
+    #[test]
+    fn test_promote_to_local_slots_multiple_ranges() {
+        let mut tracker = SlotsTracker::new();
+        tracker.set_partially_available_slots(&[SlotRange {
+            start: 100,
+            end: 200,
+        }]);
+        tracker.set_partially_available_slots(&[SlotRange {
+            start: 300,
+            end: 400,
+        }]);
+        let v2 = tracker.get_version();
+        assert_eq!(tracker, ([], [], [(100, 200), (300, 400)], Some(v2)));
+
+        tracker.promote_to_local_slots(&[
+            SlotRange {
+                start: 100,
+                end: 150,
+            },
+            SlotRange {
+                start: 350,
+                end: 400,
+            },
+        ]);
+        assert_eq!(
+            tracker,
+            ([(100, 150), (350, 400)], [], [(151, 200), (300, 349)], Some(v2)),
+            "Multiple ranges should be promoted correctly"
+        );
+    }
 }
