@@ -24,7 +24,6 @@
 redisearch_thpool_t *_workers_thpool = NULL;
 size_t yield_counter = 0;
 size_t in_event = 0; // event counter, >0 means we should be in event mode (some events can start before others end)
-static bool module_fully_initialized = false; // Set to true after RedisModule_OnLoad completes
 
 static void yieldCallback(void *yieldCtx) {
   yield_counter++;
@@ -48,11 +47,6 @@ static void workersThreadPool_OnActivation(size_t new_num) {
 static void workersThreadPool_OnDeactivation(size_t old_num) {
   RedisModule_Log(RSDummyContext, "notice", "Disabled workers threadpool of size %lu", old_num);
   VecSim_SetWriteMode(VecSim_WriteInPlace);
-}
-
-void workersThreadPool_SetModuleInitialized(void) {
-  module_fully_initialized = true;
-  RedisModule_Log(RSDummyContext, "verbose", "Module initialization complete - GIL unlocking enabled for worker changes");
 }
 
 // set up workers' thread pool
@@ -81,7 +75,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
  * If new worker count is 0, the current living workers will continue to execute pending jobs and then terminate.
  * No new jobs should be added after setting the number of workers to 0.
  */
-static void workersThreadPool_SetNumWorkers_internal(bool called_from_event_handler) {
+void workersThreadPool_SetNumWorkers() {
   if (_workers_thpool == NULL) return;
 
   size_t worker_count = RSGlobalConfig.numWorkerThreads;
@@ -96,24 +90,8 @@ static void workersThreadPool_SetNumWorkers_internal(bool called_from_event_hand
 
   size_t new_num_threads = worker_count;
   if (worker_count == 0 && curr_workers > 0) {
-    // Only unlock GIL if:
-    // 1. Module is fully initialized (not during module load)
-    // 2. We're NOT in an event handler (called_from_event_handler == false)
-    // During module initialization or event handlers, execution_nesting > 1, so we cannot unlock GIL
-    // During module initialization, there are no worker threads running yet, so no deadlock risk
-    bool can_unlock_gil = module_fully_initialized && !called_from_event_handler;
-
-    if (can_unlock_gil) {
-      RedisModule_Log(RSDummyContext, "verbose", "Unlocking GIL before terminating %zu workers", curr_workers);
-      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    }
 
     redisearch_thpool_terminate_when_empty(_workers_thpool);
-
-    if (can_unlock_gil) {
-      RedisModule_ThreadSafeContextLock(RSDummyContext);
-      RedisModule_Log(RSDummyContext, "verbose", "GIL re-locked after terminating workers");
-    }
 
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
     workersThreadPool_OnDeactivation(curr_workers);
@@ -127,11 +105,6 @@ static void workersThreadPool_SetNumWorkers_internal(bool called_from_event_hand
   RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
     "Attempt to change the workers thpool size to %lu "
     "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
-}
-
-// Public wrapper that calls the internal function with called_from_event_handler = false
-void workersThreadPool_SetNumWorkers() {
-  workersThreadPool_SetNumWorkers_internal(false);
 }
 
 // return number of currently working threads
@@ -183,7 +156,7 @@ void workersThreadPool_Destroy(void) {
 void workersThreadPool_OnEventStart() {
   in_event++;
   // Called from event handler, so pass true to prevent GIL unlocking
-  workersThreadPool_SetNumWorkers_internal(true);
+  workersThreadPool_SetNumWorkers();
 }
 
 int workersThreadPool_OnEventEnd(bool wait) {
@@ -191,7 +164,7 @@ int workersThreadPool_OnEventEnd(bool wait) {
   RS_LOG_ASSERT(in_event > 0, "in_event should be > 0 when OnEventEnd is called");
   in_event--;
   // Called from event handler, so pass true to prevent GIL unlocking
-  workersThreadPool_SetNumWorkers_internal(true);
+  workersThreadPool_SetNumWorkers();
   // Wait until all the threads are finished the jobs currently in the queue. Note that we call
   // block main thread while we wait, so we have to make sure that number of jobs isn't too large.
   // no-op if numWorkerThreads == minOperationWorkers == 0

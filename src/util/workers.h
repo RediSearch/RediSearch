@@ -21,7 +21,6 @@ int workersThreadPool_CreatePool(size_t worker_count);
 
 // Mark that module initialization is complete
 // This allows safe GIL unlocking during runtime worker changes
-void workersThreadPool_SetModuleInitialized(void);
 
 // Set the number of workers according to the configuration and server state
 // Should only be called from the main thread

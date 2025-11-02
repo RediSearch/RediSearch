@@ -3977,8 +3977,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read slow dangerous", false))
 
-  // Mark module as fully initialized - this enables safe GIL unlocking during runtime worker changes
-  workersThreadPool_SetModuleInitialized();
 
   return REDISMODULE_OK;
 }
