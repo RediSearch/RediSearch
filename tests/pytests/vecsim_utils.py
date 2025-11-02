@@ -100,11 +100,12 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
 
                 time.sleep(0.1)
                 iter += 1
+        index_state = f"iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, is_trained: {is_trained}"
         for id, con in enumerate(env.getOSSMasterNodesConnectionList()):
             index_size = get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE']
             env.assertGreater(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"wait_for_background_indexing: shard: {id}, index size: {index_size}" + message)
             if OS == 'macos':
-                env.debugPrint(f"wait_for_background_indexing: iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, {message})", force=True)
+                env.debugPrint(f"wait_for_background_indexing: {index_state}, {message})", force=True)
     except Exception as e:
-        message = f"wait_for_background_indexing: iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, {message})"
+        message = f"wait_for_background_indexing: {index_state}, {message})"
         raise Exception(f'Timeout: {message}')
