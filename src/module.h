@@ -126,7 +126,8 @@ void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
 
 bool should_return_error(QueryErrorCode errCode);
 
-bool QueryMemoryGuard(RedisModuleCtx *ctx);
+bool DistQueryMemoryGuard(RedisModuleCtx *ctx);
+bool SingleShardQueryMemoryGuard(RedisModuleCtx *ctx);
 
 #ifdef __cplusplus
 }
