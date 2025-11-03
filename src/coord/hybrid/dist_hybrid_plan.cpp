@@ -96,7 +96,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
 
     int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
     if (rc != REDISMODULE_OK) {
-      // The error is set at either the tail or the subquries error array
+      // The error is set at either the tail or the subqueries error array
       // need to copy it to the status so it will be visible to the user
       HybridRequest_GetError(hreq, status);
       HybridRequest_ClearErrors(hreq);
@@ -104,7 +104,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     }
 
     // Add keys from all source lookups to create unified schema before opening the score key
-    HybridRequest_SyncrhonizeLookupKeys(hreq);
+    HybridRequest_SynchronizeLookupKeys(hreq);
 
     // Open the key outside the RLOOKUP_OPT_UNRESOLVED_OK scope so it won't be marked as unresolved
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, hybridParams->aggregationParams.common.scoreAlias, status);

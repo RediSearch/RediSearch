@@ -100,7 +100,7 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
  *
  * @param req The HybridRequest containing multiple AREQ search requests
  */
-void HybridRequest_SyncrhonizeLookupKeys(HybridRequest *req);
+void HybridRequest_SynchronizeLookupKeys(HybridRequest *req);
 
 /**
  * Build the merge pipeline for hybrid search processing.

@@ -75,7 +75,7 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
     return scoreKey;
 }
 
-void HybridRequest_SyncrhonizeLookupKeys(HybridRequest *req) {
+void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
   RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
   // Add keys from all source lookups to create unified schema
   for (size_t i = 0; i < req->nrequests; i++) {
@@ -99,7 +99,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     }
 
     // the doc key is only relevant in coordinator mode, in standalone we can simply use the dmd
-    // HybridRequest_SyncrhonizeLookupKeys copied all the rlookup keys from the upstreams to the tail lookup
+    // HybridRequest_SynchronizeLookupKeys copied all the rlookup keys from the upstreams to the tail lookup
     // we open the docKey as hidden in case the user didn't request it, if it already exists it will stay as it was
     // if it didn't then it will be marked as unresolved
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
@@ -125,7 +125,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     RLookup_Init(tailLookup, IndexSpec_GetSpecCache(req->sctx->spec));
 
     // Add keys from all source lookups to create unified schema before opening the score key
-    HybridRequest_SyncrhonizeLookupKeys(req);
+    HybridRequest_SynchronizeLookupKeys(req);
 
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, params->aggregationParams.common.scoreAlias, &req->tailPipelineError);
     if (QueryError_HasError(&req->tailPipelineError)) {
