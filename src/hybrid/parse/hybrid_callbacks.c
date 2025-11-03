@@ -434,10 +434,12 @@ void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) 
   QueryError *status = ctx->status;
   while (!AC_IsAtEnd(paramsArgs)) {
     const char *prefix;
-    if (AC_GetString(paramsArgs, &prefix, NULL, 0) != AC_OK) {
+    size_t prefixLen;
+    if (AC_GetString(paramsArgs, &prefix, &prefixLen, 0) != AC_OK) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for _INDEX_PREFIXES");
       return;
     }
-    array_ensure_append_1(*ctx->prefixes, prefix);
+    sds prefixSds = sdsnewlen(prefix, prefixLen);
+    array_ensure_append_1(*ctx->prefixes, prefixSds);
   }
 }
