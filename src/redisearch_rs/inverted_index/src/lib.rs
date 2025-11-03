@@ -319,6 +319,9 @@ impl<'de> Deserialize<'de> for IndexBlock {
 
         let ib = IB::deserialize(deserializer)?;
 
+        // We are about to create a new `IndexBlock` object, so be sure to increment the global
+        // counter correctly. Without this the `Drop` implementation will eventually cause an
+        // underflow of the counter. This correctly counter balances the decrement in the `Drop`.
         TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
 
         Ok(IndexBlock {
