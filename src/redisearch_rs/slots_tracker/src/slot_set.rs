@@ -194,6 +194,71 @@ impl SlotSet {
         self.ranges.is_empty()
     }
 
+    /// Checks the relationship between this set and input ranges in a single pass.
+    ///
+    /// Returns `CoverageRelation` indicating: `Equals`, `Covers`, or `NoMatch`.
+    ///
+    /// # Single-Pass Algorithm
+    ///
+    /// Walks through both sorted range lists simultaneously, tracking coverage and extras:
+    /// - If we don't cover all input slots: returns `NoMatch`
+    /// - If we cover exactly the input slots: returns `Equals`
+    /// - If we cover all input slots plus extras: returns `Covers`
+    pub(crate) fn coverage_relation(&self, ranges: &[SlotRange]) -> CoverageRelation {
+        debug_assert_valid_normalized_input(ranges);
+
+        let mut our_iter = self.ranges.iter().peekable();
+        let mut their_iter = ranges.iter();
+        let mut has_extra = false;
+
+        while let Some(their_range) = their_iter.next() {
+            // Find the first of our ranges that does not end before their range starts
+            let current_our = loop {
+                match our_iter.peek() {
+                    Some(&current) if current.end < their_range.start => {
+                        has_extra = true; // Skipped an entire our range
+                        our_iter.next();
+                    }
+                    Some(&current) => break current,
+                    None => return CoverageRelation::NoMatch,
+                }
+            };
+
+            // Check if our range starts before their range
+            if current_our.start > their_range.start {
+                // Gap found - doesn't cover
+                return CoverageRelation::NoMatch;
+            }
+            // Check if our range ends before their range.
+            // If so, we don't cover `current_our.end + 1` (not even in the next range, as our ranges are normalized), while their range does.
+            if current_our.end < their_range.end {
+                // Gap found - doesn't cover
+                return CoverageRelation::NoMatch;
+            }
+
+            // Our range completely covers their range:
+            // current_our.start <= their_range.start, current_our.end >= their_range.end
+            // If it's not an exact match, we have extra slots
+            // We also don't want to advance our iterator if it ends past their range, as it may cover their next range as well.
+            has_extra |= current_our != their_range;
+            if current_our.end == their_range.end {
+                // Exact match - advance our iterator
+                our_iter.next();
+            }
+        }
+
+        // Check if we have leftover ranges
+        if our_iter.peek().is_some() {
+            has_extra = true;
+        }
+
+        if has_extra {
+            CoverageRelation::Covers
+        } else {
+            CoverageRelation::Equals
+        }
+    }
+
     /// Checks the relationship between the union of this set and another set vs input ranges.
     ///
     /// Returns `CoverageRelation` indicating: `Equals`, `Covers`, or `NoMatch`.
@@ -655,6 +720,242 @@ mod tests {
         let mut set = SlotSet::new();
         set.set_from_ranges(&[range(0, 10), range(20, 30), range(40, 50)]);
         assert!(!set.has_overlap(&[range(11, 19), range(31, 39)]));
+    }
+
+    // ========================================================================
+    // coverage_relation tests
+    // ========================================================================
+
+    #[test]
+    fn test_coverage_relation_empty_both() {
+        let set = SlotSet::new();
+        assert_eq!(set.coverage_relation(&[]), CoverageRelation::Equals);
+    }
+
+    #[test]
+    fn test_coverage_relation_empty_self() {
+        let set = SlotSet::new();
+        assert_eq!(
+            set.coverage_relation(&[range(10, 20)]),
+            CoverageRelation::NoMatch
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_empty_input() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(10, 20)]);
+        assert_eq!(set.coverage_relation(&[]), CoverageRelation::Covers);
+    }
+
+    #[test]
+    fn test_coverage_relation_equals_single() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(10, 20)]);
+        assert_eq!(
+            set.coverage_relation(&[range(10, 20)]),
+            CoverageRelation::Equals
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_equals_multiple() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 10), range(20, 30), range(40, 50)]);
+        assert_eq!(
+            set.coverage_relation(&[range(0, 10), range(20, 30), range(40, 50)]),
+            CoverageRelation::Equals
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_covers_superset() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 100)]);
+        assert_eq!(
+            set.coverage_relation(&[range(10, 20)]),
+            CoverageRelation::Covers
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_covers_extra_range() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 10), range(20, 30)]);
+        assert_eq!(
+            set.coverage_relation(&[range(0, 10)]),
+            CoverageRelation::Covers
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_covers_multiple_inputs() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 100)]);
+        assert_eq!(
+            set.coverage_relation(&[range(10, 20), range(30, 40), range(50, 60)]),
+            CoverageRelation::Covers
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_covers_one_range_spans_multiple_inputs() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 50)]);
+        assert_eq!(
+            set.coverage_relation(&[range(10, 20), range(25, 35)]),
+            CoverageRelation::Covers
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_no_match_gap_at_start() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(10, 20)]);
+        assert_eq!(
+            set.coverage_relation(&[range(5, 15)]),
+            CoverageRelation::NoMatch
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_no_match_gap_at_end() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(10, 20)]);
+        assert_eq!(
+            set.coverage_relation(&[range(15, 25)]),
+            CoverageRelation::NoMatch
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_no_match_gap_in_middle() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 10), range(30, 40)]);
+        assert_eq!(
+            set.coverage_relation(&[range(0, 40)]),
+            CoverageRelation::NoMatch
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_no_match_disjoint() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 10)]);
+        assert_eq!(
+            set.coverage_relation(&[range(20, 30)]),
+            CoverageRelation::NoMatch
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_no_match_partial_coverage() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 15), range(25, 40)]);
+        assert_eq!(
+            set.coverage_relation(&[range(10, 30)]),
+            CoverageRelation::NoMatch
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_covers_exact_with_extras() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 5), range(10, 15), range(20, 30)]);
+        assert_eq!(
+            set.coverage_relation(&[range(0, 5), range(10, 15)]),
+            CoverageRelation::Covers
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_covers_with_leftover_prefix() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 30)]);
+        assert_eq!(
+            set.coverage_relation(&[range(10, 30)]),
+            CoverageRelation::Covers
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_covers_with_leftover_suffix() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 30)]);
+        assert_eq!(
+            set.coverage_relation(&[range(0, 20)]),
+            CoverageRelation::Covers
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_single_slot() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(15, 15)]);
+        assert_eq!(
+            set.coverage_relation(&[range(15, 15)]),
+            CoverageRelation::Equals
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_covers_single_slot_in_range() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(10, 20)]);
+        assert_eq!(
+            set.coverage_relation(&[range(15, 15)]),
+            CoverageRelation::Covers
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_complex_equals() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 5), range(10, 15), range(20, 25), range(30, 35)]);
+        assert_eq!(
+            set.coverage_relation(&[range(0, 5), range(10, 15), range(20, 25), range(30, 35)]),
+            CoverageRelation::Equals
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_multiple_ranges_cover_one_input() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 10), range(12, 20), range(22, 30)]);
+        assert_eq!(
+            set.coverage_relation(&[range(5, 25)]),
+            CoverageRelation::NoMatch // Gap at 11 and 21
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_one_range_covers_multiple_with_gaps() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 50)]);
+        assert_eq!(
+            set.coverage_relation(&[range(5, 10), range(15, 20), range(25, 30)]),
+            CoverageRelation::Covers
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_adjacent_ranges() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 10), range(20, 30)]);
+        assert_eq!(
+            set.coverage_relation(&[range(0, 10), range(20, 30)]),
+            CoverageRelation::Equals
+        );
+    }
+
+    #[test]
+    fn test_coverage_relation_no_match_insufficient_ranges() {
+        let mut set = SlotSet::new();
+        set.set_from_ranges(&[range(0, 5)]);
+        assert_eq!(
+            set.coverage_relation(&[range(0, 5), range(10, 15)]),
+            CoverageRelation::NoMatch
+        );
     }
 
     // ========================================================================
