@@ -179,7 +179,8 @@ static priorityJobCtx (*const pull_and_execute_ht[2])(priorityJobqueue *) = {
 typedef struct {
   barrier_t *barrier; /* The calling thread blocks until the required number of
                                 threads have called barrier_wait() */
-  const ThreadState new_state;
+  ThreadState new_state;
+  atomic_size_t ref_count; /* Reference count for async cleanup when barrier is NULL */
 } SignalThreadCtx;
 static void admin_job_change_state(void *job_arg);
 static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
@@ -1001,26 +1002,37 @@ static void admin_job_change_state(void *job_arg_) {
   ThreadState new_state = signal_struct->new_state;
   job_arg->thread_ctx->thread_state = new_state;
 
-  /* Wait all threads to get the barrier */
-  barrier_wait(signal_struct->barrier);
+  if (signal_struct->barrier != NULL) {
+    /* Synchronous mode - wait on barrier */
+    barrier_wait(signal_struct->barrier);
+  } else {
+    /* Asynchronous mode - decrement ref count and cleanup if last */
+    if (atomic_fetch_sub(&signal_struct->ref_count, 1) == 1) {
+      rm_free(signal_struct);
+    }
+  }
 }
 static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
                                                   size_t n_threads,
                                                   ThreadState new_state) {
-  /* Create a barrier. */
-  barrier_t barrier;
-  barrier_init(&barrier, NULL, n_threads);
-  /* Create jobs and their args. */
+  /* Heap-allocate the job context so it persists after function returns.
+   * This allows async execution without blocking the main thread (which may hold the GIL).
+   * Workers will execute admin jobs when they finish their current work, avoiding deadlock. */
+  SignalThreadCtx *job_arg = rm_malloc(sizeof(SignalThreadCtx));
+  job_arg->barrier = NULL;  /* No barrier - async execution to avoid GIL deadlock */
+  job_arg->new_state = new_state;
+  atomic_init(&job_arg->ref_count, n_threads);  /* Track references for cleanup */
+
+  /* Create jobs that will execute asynchronously */
   redisearch_thpool_work_t jobs[n_threads];
-  SignalThreadCtx job_arg = {.barrier = &barrier, .new_state = new_state};
-  /* Set new state of all threads to 'new_state'. */
   for (size_t i = 0; i < n_threads; i++) {
-    jobs[i].arg_p = &job_arg;
+    jobs[i].arg_p = job_arg;
     jobs[i].function_p = admin_job_change_state;
   }
 
   redisearch_thpool_add_n_work(thpool, jobs, n_threads, THPOOL_PRIORITY_ADMIN);
 
-  /* Wait on for the threads to pass the barrier and then destroy the barrier*/
-  barrier_wait_and_destroy(&barrier);
+  /* Return immediately without waiting - caller will poll for completion if needed.
+   * This prevents deadlock where main thread holds GIL and waits for workers,
+   * while workers need GIL to complete their current jobs. */
 }

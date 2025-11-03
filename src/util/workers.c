@@ -24,6 +24,7 @@
 redisearch_thpool_t *_workers_thpool = NULL;
 size_t yield_counter = 0;
 size_t in_event = 0; // event counter, >0 means we should be in event mode (some events can start before others end)
+static bool _workers_resize_in_progress = false; // flag to prevent concurrent resize operations
 
 static void yieldCallback(void *yieldCtx) {
   yield_counter++;
@@ -77,15 +78,30 @@ int workersThreadPool_CreatePool(size_t worker_count) {
 void workersThreadPool_SetNumWorkers() {
   if (_workers_thpool == NULL) return;
 
+  /* Prevent concurrent resize operations. Since redisearch_thpool_broadcast_new_state() is now
+   * asynchronous (to avoid GIL deadlock), we need to ensure that a previous resize operation
+   * has completed before starting a new one. */
+  if (_workers_resize_in_progress) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Skipping worker pool resize - previous resize still in progress");
+    return;
+  }
+
   size_t worker_count = RSGlobalConfig.numWorkerThreads;
   if (in_event && RSGlobalConfig.minOperationWorkers > worker_count) {
     worker_count = RSGlobalConfig.minOperationWorkers;
   }
   size_t curr_workers = redisearch_thpool_get_num_threads(_workers_thpool);
 
-  if (worker_count != curr_workers) {
-    RedisModule_Log(RSDummyContext, "notice", "Changing workers threadpool size from %zu to %zu", curr_workers, worker_count);
+  /* No change needed */
+  if (worker_count == curr_workers) {
+    return;
   }
+
+  RedisModule_Log(RSDummyContext, "notice", "Changing workers threadpool size from %zu to %zu", curr_workers, worker_count);
+
+  /* Mark resize as in progress */
+  _workers_resize_in_progress = true;
 
   size_t new_num_threads = worker_count;
   if (worker_count == 0 && curr_workers > 0) {
@@ -98,6 +114,9 @@ void workersThreadPool_SetNumWorkers() {
   } else if (worker_count < curr_workers) {
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
   }
+
+  /* Mark resize as complete */
+  _workers_resize_in_progress = false;
 
   RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
     "Attempt to change the workers thpool size to %lu "
