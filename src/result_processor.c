@@ -1622,7 +1622,7 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
  * and ensure totalResults is fully populated before yielding results.
  * Consumes the StrongRef given.
  */
-ResultProcessor *RPDepleter_NewSync(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx) {
+ResultProcessor *RPDepleter_NewSync(StrongRef sync_ref, RedisSearchCtx *sctx) {
   RPDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPDepleter_Next_Sync;  // Use synchronous version
@@ -1630,8 +1630,8 @@ ResultProcessor *RPDepleter_NewSync(StrongRef sync_ref, RedisSearchCtx *depletin
   ret->base.type = RP_DEPLETER;
   ret->first_call = true;
   ret->sync_ref = sync_ref;
-  ret->depletingThreadCtx = depletingThreadCtx;
-  ret->nextThreadCtx = nextThreadCtx;
+  ret->depletingThreadCtx = sctx;
+  ret->nextThreadCtx = sctx;
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
   return &ret->base;

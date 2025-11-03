@@ -214,7 +214,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       pipeline->qctx.resultLimit = UINT32_MAX;
       // In non-optimized aggregate queries, we need to add a synchronous depleter
       // Use RPDepleter_NewSync to run synchronously (no background thread)
-      rp = RPDepleter_NewSync(DepleterSync_New(1, false), params->common.sctx, params->common.sctx);
+      rp = RPDepleter_NewSync(DepleterSync_New(1, false), params->common.sctx);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }

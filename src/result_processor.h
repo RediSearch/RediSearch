@@ -285,14 +285,10 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
 * thread.
 * Unlike RPDepleter_New, this does not spawn a background thread and depletes
 * all results on the first call to Next().
-* This is useful for single-pipeline scenarios where you want to avoid threading
-* overhead and ensure totalResults is fully populated before
-* yielding results.
 * @param sync_ref Reference to shared synchronization object
-* @param depletingThreadCtx Search context for the upstream processor
-* @param nextThreadCtx Search context for the downstream processor
+* @param sctx Search context
 */
-ResultProcessor *RPDepleter_NewSync(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
+ResultProcessor *RPDepleter_NewSync(StrongRef sync_ref, RedisSearchCtx *sctx);
 
 /**
 * Starts the depletion for all the depleters in the array, waits until all finished depleting, and returns.
