@@ -240,10 +240,6 @@ void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_commands", stats.total_query_commands);
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_execution_time_ms", stats.total_query_execution_time);
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_queries", total_info->total_active_queries);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_timeout", stats.errors.timeout);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_oom", stats.errors.oom);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_syntax", stats.errors.syntax);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_arguments", stats.errors.arguments);
 }
 
 void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -252,6 +248,12 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   // highest number of failures out of all specs
   RedisModule_InfoAddFieldULongLong(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
   RedisModule_InfoAddFieldULongLong(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
+  // Queries errors or warnings
+  QueriesGlobalStats stats = TotalGlobalStats_GetQueryStats();
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_timeout", stats.errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_oom", stats.errors.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_syntax", stats.errors.syntax);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_arguments", stats.errors.arguments);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
