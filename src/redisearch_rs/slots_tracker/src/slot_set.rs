@@ -263,31 +263,15 @@ impl SlotSet {
     ///
     /// Returns `CoverageRelation` indicating: `Equals`, `Covers`, or `NoMatch`.
     pub(crate) fn union_relation(&self, other: &SlotSet, ranges: &[SlotRange]) -> CoverageRelation {
-        // Build (or borrow) the union set. Uses Cow for clarity + zero alloc in empty cases.
-        let union = if self.is_empty() {
-            Cow::Borrowed(other)
+        if self.is_empty() {
+            other.coverage_relation(ranges)
         } else if other.is_empty() {
-            Cow::Borrowed(self)
+            self.coverage_relation(ranges)
         } else {
             let mut combined = self.clone();
             combined.add_ranges(&other.ranges);
-            Cow::Owned(combined)
-        };
-
-        // Check for exact match
-        if *union == ranges {
-            return CoverageRelation::Equals;
+            combined.coverage_relation(ranges)
         }
-
-        // Check if union covers all input slots
-        for &range in ranges {
-            if !union.range_is_covered(range.start, range.end) {
-                return CoverageRelation::NoMatch;
-            }
-        }
-
-        // Union covers input but has extra slots
-        CoverageRelation::Covers
     }
 
     // ========================================================================
@@ -323,29 +307,6 @@ impl SlotSet {
         self.ranges.truncate(write_pos + 1);
     }
 
-    /// Checks if a single range is completely covered by this set.
-    fn range_is_covered(&self, start: u16, end: u16) -> bool {
-        let mut current = start;
-
-        for &range in &self.ranges {
-            // Range starts after current position - gap found
-            if range.start > current {
-                return false;
-            }
-            // Range covers current position
-            // No need to check `range.start <= current` due to previous condition
-            if range.end >= current {
-                current = range.end + 1;
-                if current > end {
-                    // Covered everything
-                    return true;
-                }
-            }
-        }
-
-        // Didn't cover everything
-        false
-    }
 }
 
 // Implement PartialEq with slices for convenient comparisons
