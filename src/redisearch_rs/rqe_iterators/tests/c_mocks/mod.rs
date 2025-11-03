@@ -107,3 +107,50 @@ pub extern "C" fn RSValue_Free(val: *mut ffi::RSValue) {
     }
     unsafe { drop(Box::from_raw(val)) }
 }
+
+/// Define an empty stub function for each given symbols.
+/// This is used to define C functions the linker requires but which are not actually used by the tests.
+macro_rules! stub_c_fn {
+    ($($fn_name:ident),* $(,)?) => {
+        $(
+            #[unsafe(no_mangle)]
+            pub extern "C" fn $fn_name() {
+                panic!(concat!(stringify!($fn_name), " should not be called by any of the tests"));
+            }
+        )*
+    };
+}
+
+// Those C symbols are required for the c benchmarking code to build and run.
+// They have been added by adding them until it runs fine.
+stub_c_fn! {
+    DocTable_Exists,
+    IndexSpec_GetFormattedKey,
+    RS_dictFetchValue,
+    RedisModule_CreateStringFromLongDouble,
+    RedisModule_GetSwapKeyMetadata,
+    RedisModule_IsKeyInRam,
+    RedisModule_LoadDefaultConfigs,
+    RedisModule_LoadLongDouble,
+    RedisModule_ReplyWithLongDouble,
+    RedisModule_SaveLongDouble,
+    RedisModule_SetDataTypeExtensions,
+    RedisModule_SetSwapKeyMetadata,
+    RedisModule_ShardingGetKeySlot,
+    RedisModule_ShardingGetSlotRange,
+    RedisModule_StringToLongDouble,
+    RedisModule_SwapPrefetchKey,
+    Redis_OpenInvertedIndex,
+    TagIndex_OpenIndex,
+    TimeToLiveTable_VerifyDocAndField,
+    TimeToLiveTable_VerifyDocAndFieldMask,
+    TimeToLiveTable_VerifyDocAndWideFieldMask,
+    fast_float_strtod,
+    isWithinRadius,
+    nu_bytenlen,
+    nu_strtransformnlen,
+    nu_tolower,
+    nu_utf8_write,
+    nu_writenstr,
+    openNumericKeysDict,
+}
