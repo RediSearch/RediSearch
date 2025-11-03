@@ -1565,6 +1565,7 @@ dependencies = [
  "criterion",
  "ffi",
  "inverted_index",
+ "inverted_index_ffi",
  "itertools 0.14.0",
  "redis_mock",
  "rqe_iterators",
