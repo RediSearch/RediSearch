@@ -306,7 +306,6 @@ impl SlotSet {
         // Truncate to the merged length
         self.ranges.truncate(write_pos + 1);
     }
-
 }
 
 // Implement PartialEq with slices for convenient comparisons
