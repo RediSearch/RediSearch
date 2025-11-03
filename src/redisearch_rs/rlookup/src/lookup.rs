@@ -1040,20 +1040,6 @@ impl<'a> RLookup<'a> {
         self.id
     }
 
-    /// Returns a [`Cursor`] starting at the first key.
-    ///
-    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
-    pub fn cursor(&self) -> Cursor<'_, 'a> {
-        self.keys.cursor_front()
-    }
-
-    /// Returns a [`Cursor`] starting at the first key.
-    ///
-    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
-    pub fn cursor_mut(&mut self) -> CursorMut<'_, 'a> {
-        self.keys.cursor_front_mut()
-    }
-
     // ===== Get key for reading (create only if in schema and sortable) =====
 
     /// Gets a key by its name from the lookup table, if not found it uses the schema as a fallback to search the key.
