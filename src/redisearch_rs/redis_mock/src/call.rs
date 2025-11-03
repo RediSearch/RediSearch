@@ -29,7 +29,7 @@ impl MockCallReply {
     fn new_array_from_strings(strings: Vec<CString>) -> Self {
         Self {
             reply_type: redis_module::raw::REDISMODULE_REPLY_ARRAY as c_int,
-            string_data: CString::new("").unwrap(), // Empty for arrays
+            string_data: CString::default(), // Empty for arrays
             array_data: strings,
             gc: vec![],
             is_nested: false,

@@ -150,8 +150,8 @@ pub fn init_redis_module_mock() {
             *const (),
             unsafe extern "C" fn(
                 *mut redis_module::RedisModuleCtx,
-                *const i8,
-                *const i8,
+                *const ::std::os::raw::c_char,
+                *const ::std::os::raw::c_char,
                 ...
             ) -> *mut redis_module::RedisModuleCallReply,
         >(raw_ptr)
