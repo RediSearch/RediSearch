@@ -1720,6 +1720,15 @@ name = "slots_tracker"
 version = "0.0.1"
 
 [[package]]
+name = "slots_tracker_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "slots_tracker",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
