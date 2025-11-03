@@ -284,7 +284,7 @@ pub struct InvertedIndex<E> {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -302,6 +302,36 @@ pub struct IndexBlock {
 }
 
 static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
+
+/// Custom deserialization for `IndexBlock` to track the total number of blocks correctly.
+impl<'de> Deserialize<'de> for IndexBlock {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct IB {
+            first_doc_id: t_docId,
+            last_doc_id: t_docId,
+            num_entries: u16,
+            buffer: Vec<u8>,
+        }
+
+        let ib = IB::deserialize(deserializer)?;
+
+        // We are about to create a new `IndexBlock` object, so be sure to increment the global
+        // counter correctly. Without this the `Drop` implementation will eventually cause an
+        // underflow of the counter. This correctly counter balances the decrement in the `Drop`.
+        TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
+
+        Ok(IndexBlock {
+            first_doc_id: ib.first_doc_id,
+            last_doc_id: ib.last_doc_id,
+            num_entries: ib.num_entries,
+            buffer: ib.buffer,
+        })
+    }
+}
 
 /// The type of repair needed for a block after a garbage collection scan.
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
