@@ -63,19 +63,8 @@ static void SearchDisk_Close_Dummy(void *value) {
   // Do nothing
 }
 
-void *SearchDisk_LoadFromRDB(RedisModuleIO *rdb, int encver) {
-  if (!disk) return NULL;
-  disk_mem_obj = disk->memObject.fromRDB(rdb);
-  return disk_mem_obj;
-}
-
-void SearchDisk_SaveToRDB(RedisModuleIO *rdb, void *value) {
-  if (!disk) return;
-  disk->memObject.toRDB((RedisSearchDiskMemObject*)value, rdb);
-}
-
 int SearchDisk_AuxLoadFromRDB(RedisModuleIO *rdb, int encver, int when) {
-  if (!disk) return REDISMODULE_ERR;
+  RS_ASSERT(disk);
   disk_mem_obj = disk->memObject.fromRDB(rdb);
   if (!disk_mem_obj) return REDISMODULE_ERR;
   return REDISMODULE_OK;
@@ -88,44 +77,44 @@ void SearchDisk_AuxSaveToRDB(RedisModuleIO *rdb, int when) {
 
 // Basic API wrappers
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, DocumentType type) {
-    RS_ASSERT(disk_db);
-    return disk->basic.openIndexSpec(disk_db, indexName, type);
+  RS_ASSERT(disk_db);
+  return disk->basic.openIndexSpec(disk_db, indexName, type);
 }
 
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(index);
-    disk->basic.closeIndexSpec(index);
+  RS_ASSERT(index);
+  disk->basic.closeIndexSpec(index);
 }
 
 // Index API wrappers
 bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, t_docId docId, t_fieldMask fieldMask) {
-    RS_ASSERT(disk && index);
-    return disk->index.indexDocument(index, term, docId, fieldMask);
+  RS_ASSERT(disk && index);
+  return disk->index.indexDocument(index, term, docId, fieldMask);
 }
 
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, t_fieldMask fieldMask, double weight) {
-    RS_ASSERT(disk && index && term);
-    return disk->index.newTermIterator(index, term, fieldMask, weight);
+  RS_ASSERT(disk && index && term);
+  return disk->index.newTermIterator(index, term, fieldMask, weight);
 }
 
 QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
-    RS_ASSERT(disk && index);
-    return disk->index.newWildcardIterator(index, weight);
+  RS_ASSERT(disk && index);
+  return disk->index.newWildcardIterator(index, weight);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, double score, uint32_t flags, uint32_t maxFreq) {
-    RS_ASSERT(disk && handle);
-    return disk->docTable.putDocument(handle, key, score, flags, maxFreq);
+  RS_ASSERT(disk && handle);
+  return disk->docTable.putDocument(handle, key, score, flags, maxFreq);
 }
 
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd) {
-    RS_ASSERT(disk && handle);
-    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen);
+  RS_ASSERT(disk && handle);
+  return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen);
 }
 
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
-    RS_ASSERT(disk && handle);
-    return disk->docTable.isDocIdDeleted(handle, docId);
+  RS_ASSERT(disk && handle);
+  return disk->docTable.isDocIdDeleted(handle, docId);
 }
 
 bool SearchDisk_IsEnabled(RedisModuleCtx *ctx) {
@@ -141,9 +130,8 @@ bool SearchDisk_IsEnabled(RedisModuleCtx *ctx) {
 int SearchDisk_RegisterType(RedisModuleCtx *ctx) {
   RS_ASSERT(disk);
   // rdb_load and aux_load are equivalent because disk_db is a singleton, so no multiple instances of this type are created
+  //We don't create any keys of this type, so practically the rdb_save/load are not needed.
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
-    .rdb_load = SearchDisk_LoadFromRDB,
-    .rdb_save = SearchDisk_SaveToRDB,
     .aux_load = SearchDisk_AuxLoadFromRDB,
     .aux_save2 = SearchDisk_AuxSaveToRDB,
     .free = SearchDisk_Close_Dummy,

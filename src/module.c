@@ -1356,7 +1356,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
   RM_TRY_F(RegisterLegacyTypes, ctx);
 
-  if (isFlex && SearchDisk_Initialize(ctx)) {
+  if (isFlex) {
     RM_TRY_F(SearchDisk_RegisterType, ctx);
   }
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, RDB_LoadingEvent);
