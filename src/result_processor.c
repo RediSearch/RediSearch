@@ -1895,8 +1895,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
    // Free lookup context if it exists
    if (self->lookupCtx) {
-     array_free(self->lookupCtx->sourceLookups);
-     rm_free(self->lookupCtx);
+     HybridLookupContext_Free(self->lookupCtx);
    }
 
    // Free the processor itself

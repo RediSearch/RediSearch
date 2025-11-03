@@ -176,23 +176,22 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
-static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration) {
+static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration, QueryError *err) {
   if (results) {
     destroyResults(results);
   } else {
     SearchResult_Destroy(r);
   }
 
-  // TODO: take to error using HybridRequest_GetError
-  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-  if (QueryError_IsOk(qctx->err) || hasTimeoutError(qctx->err)) {
+  if (QueryError_IsOk(err) || hasTimeoutError(err)) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
   }
 
   // Reset the total results length
+  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   qctx->totalResults = 0;
-  QueryError_ClearError(qctx->err);
+  QueryError_ClearError(err);
 }
 
 static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
@@ -236,7 +235,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     // If an error occurred, or a timeout in strict mode - return a simple error
     QueryError err = QueryError_Default();
     HybridRequest_GetError(hreq, &err);
-    if (ShouldReplyWithError(&err, hreq->reqConfig.timeoutPolicy, false)) {
+    HybridRequest_ClearErrors(hreq);
+    if (ShouldReplyWithError(QueryError_GetCode(&err), hreq->reqConfig.timeoutPolicy, false)) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
@@ -298,7 +298,7 @@ done:
     RedisModule_Reply_MapEnd(reply);
 
 done_err:
-    finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock);
+    finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock, &err);
 }
 
 static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
@@ -532,13 +532,11 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   QueryError status = QueryError_Default();
 
-  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
-    // OOM guardrail
-    if (estimateOOM(ctx)) {
-      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-      QueryError_SetCode(&status, QUERY_EOOM);
-      return QueryError_ReplyAndClear(ctx, &status);
-    }
+  // Memory guardrail
+  if (QueryMemoryGuard(ctx)) {
+    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+    QueryError_SetCode(&status, QUERY_EOOM);
+    return QueryError_ReplyAndClear(ctx, &status);
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
