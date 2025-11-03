@@ -7,9 +7,6 @@
 #include <stdbool.h>
 
 __attribute__((weak))
-bool SearchDisk_HasAPI();
-
-__attribute__((weak))
  RedisSearchDiskAPI *SearchDisk_GetAPI();
 
 extern RedisSearchDisk *disk_db;

@@ -67,6 +67,7 @@ fn main() {
         root.join("src").join("doc_table.h"),
         root.join("src").join("score_explain.h"),
         root.join("src").join("rlookup.h"),
+        root.join("src").join("search_disk_api.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();

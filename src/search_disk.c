@@ -1,14 +1,10 @@
 #include "search_disk.h"
+#include "search_on_disk_rs.h"
 #include "config.h"
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
 // Weak default implementations for when disk API is not available
-__attribute__((weak))
-bool SearchDisk_HasAPI() {
-  return false;
-}
-
 __attribute__((weak))
 RedisSearchDiskAPI *SearchDisk_GetAPI() {
   return NULL;
@@ -81,11 +77,12 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
 }
 
 bool SearchDisk_IsEnabled(RedisModuleCtx *ctx) {
-  bool isFlex = false;
-  char *isFlexStr = getRedisConfigValue(ctx, "bigredis-enabled");
-  if (isFlexStr && !strcasecmp(isFlexStr, "yes")) {
-    isFlex = true;
-  } // Default is false, so nothing to change in that case.
-  rm_free(isFlexStr);
-  return isFlex;
+  // bool isFlex = false;
+  // char *isFlexStr = getRedisConfigValue(ctx, "bigredis-enabled");
+  // if (isFlexStr && !strcasecmp(isFlexStr, "yes")) {
+  //   isFlex = true;
+  // } // Default is false, so nothing to change in that case.
+  // rm_free(isFlexStr);
+  // return isFlex;
+  return true;
 }

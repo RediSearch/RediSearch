@@ -22,3 +22,5 @@ pub use result_processor_ffi as result_processor;
 pub use triemap_ffi as triemap;
 pub use types_ffi as types;
 pub use varint_ffi as varint;
+
+pub use search_on_disk as search_disk;

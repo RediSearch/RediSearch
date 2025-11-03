@@ -32,6 +32,8 @@ triemap_ffi = { path = "../triemap_ffi" }
 types_ffi = { path = "../types_ffi" }
 varint_ffi = { path = "../varint_ffi" }
 
+search_on_disk = { path = "../search_on_disk" }
+
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
 # necessary on Alpine.
