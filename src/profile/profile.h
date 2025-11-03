@@ -9,7 +9,6 @@
 #pragma once
 
 #include "value.h"
-#include "aggregate/aggregate.h"
 #include "util/timeout.h"
 #include "iterators/profile_iterator.h"
 
@@ -45,13 +44,24 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx);
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply);
 
+typedef struct AREQ AREQ;
+typedef struct HybridRequest HybridRequest;
 typedef struct {
   AREQ *req;
+  HybridRequest *hreq;
   bool timedout;
   bool reachedMaxPrefixExpansions;
   bool bgScanOOM;
   bool queryOOM;
 } ProfilePrinterCtx; // Context for the profile printing callback
+
+typedef struct {
+  /** Profile variables */
+  rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
+  rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
+  rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
+  rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
+} ProfileClocks;
 
 void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx);
 

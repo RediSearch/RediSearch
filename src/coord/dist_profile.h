@@ -10,9 +10,15 @@
 
 #include "reply.h"
 #include "rmr/reply.h"
+#include "../profile/options.h"
 
 typedef struct PrintShardProfile_ctx {
   MRReply **replies;
   int count;
   bool isSearch;
 } PrintShardProfile_ctx;
+
+// Parse profile options, returns REDISMODULE_OK if parsing succeeded, otherwise returns REDISMODULE_ERR
+int ParseProfile(ArgsCursor *ac, QueryError *status, ProfileOptions *options);
+
+void PrintShardProfile(RedisModule_Reply *reply, void *ctx);

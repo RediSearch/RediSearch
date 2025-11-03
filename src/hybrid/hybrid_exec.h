@@ -16,6 +16,7 @@
 #include "aggregate/aggregate.h"
 #include "query_error.h"
 #include "cursor.h"
+#include "profile/options.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,9 +32,10 @@ extern "C" {
  * @param argv Command arguments array (starting with "FT.HYBRID")
  * @param argc Number of arguments in argv
  * @param internal Whether the request is internal (true - shard in cluster setup, false - Coordinator in cluster setup or standalone)
+ * @param profileOptions Profile options for the command
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal);
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal, ProfileOptions profileOptions);
 
 void HybridRequest_StartCursor(HybridRequest *req, RedisModuleCtx *ctx, arrayof(ResultProcessor*) depleters, QueryError *status, bool coord);
 

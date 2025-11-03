@@ -37,7 +37,6 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 pub struct QueryProcessingCtx {
     pub rootProc: UnsafeCell<*mut ResultProcessor>,
     pub endProc: UnsafeCell<*mut ResultProcessor>,
-    pub initTime: rs_wall_clock,
     pub GILTime: rs_wall_clock_ns_t,
     pub minScore: f64,
     pub totalResults: u32,
@@ -52,10 +51,6 @@ impl QueryProcessingCtx {
         let ctx = Self {
             rootProc: UnsafeCell::new(ptr::null_mut()),
             endProc: UnsafeCell::new(ptr::null_mut()),
-            initTime: timespec {
-                tv_sec: 0,
-                tv_nsec: 0,
-            },
             GILTime: 0,
             minScore: 0.0,
             totalResults: 0,
