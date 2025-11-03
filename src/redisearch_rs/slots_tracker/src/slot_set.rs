@@ -13,7 +13,6 @@
 //! It is not exposed outside of the slots_tracker crate.
 
 use crate::SlotRange;
-use std::borrow::Cow;
 
 /// Enum describing the relationship between a set and a query.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -208,10 +207,9 @@ impl SlotSet {
         debug_assert_valid_normalized_input(ranges);
 
         let mut our_iter = self.ranges.iter().peekable();
-        let mut their_iter = ranges.iter();
         let mut has_extra = false;
 
-        while let Some(their_range) = their_iter.next() {
+        for their_range in ranges {
             // Find the first of our ranges that does not end before their range starts
             let current_our = loop {
                 match our_iter.peek() {
