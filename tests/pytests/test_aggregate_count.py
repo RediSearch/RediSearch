@@ -60,7 +60,6 @@ def _test_query_results(env, queries, assertion_func, docs):
             res = env.cmd(*query)
             protocol_str = 'RESP3' if env.protocol == 3 else 'RESP2'
             err_message = f"{protocol_str}, dialect: {dialect}, {' '.join(str(x) for x in query)}"
-            print(f"Testing query: {err_message}", "total_results: ", _get_total_results(res))
             assertion_func(env, _get_total_results(res), docs, message=err_message)
 
 
@@ -124,7 +123,7 @@ queries_withoutcount_sortby = [
 def test_resp2():
     protocol = 2
     env = Env(protocol=protocol)
-    add_values_iterations = 1
+    add_values_iterations = 2
     _setup_index_and_data(env, number_of_iterations=add_values_iterations)
     indexed_docs = 2265 * add_values_iterations
 
@@ -158,7 +157,7 @@ def test_resp2():
 def test_resp3():
     protocol = 3
     env = Env(protocol=protocol)
-    add_values_iterations = 1
+    add_values_iterations = 2
     _setup_index_and_data(env, number_of_iterations=add_values_iterations)
     indexed_docs = 2265 * add_values_iterations
     # For WITHCOUNT total_results is always accurate
