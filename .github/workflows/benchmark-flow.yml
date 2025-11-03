@@ -111,7 +111,7 @@ jobs:
               break
             fi
             if [ $i -lt 3 ]; then
-              echo "redisbench-admin run-remote failed, attempt $i of 3, error code $?", retrying in 30 seconds..."
+              echo "redisbench-admin run-remote failed, attempt $i of 3, error code $?, retrying in 30 seconds..."
               sleep 60
             fi
           done
