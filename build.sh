@@ -585,9 +585,12 @@ run_rust_tests() {
     RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
   fi
 
+  # Needs the C code to link on gcov
+  export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
+
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings }" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
