@@ -548,16 +548,38 @@ static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_re
     return QueryError_ReplyAndClear(ctx, status);
 }
 
-static void printHybridProfileCommon(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
-   for (size_t i = 0; i < ctx->hreq->nrequests; i++) {
-    AREQ *areq = ctx->hreq->requests[i];
+void printHybridProfileCoordinator(RedisModule_Reply *reply, void *ctx) {
+  // only print the coordinator if we are not internal
+  ProfilePrinterCtx *cCtx = ctx;
+  if ((cCtx->hreq->reqflags & QEXEC_F_INTERNAL) != QEXEC_F_INTERNAL) {
+    ProfilePrinterCtx combine = {
+      .hreq = cCtx->hreq,
+      .req = NULL,
+      .timedout = cCtx->timedout,
+      .reachedMaxPrefixExpansions = cCtx->reachedMaxPrefixExpansions,
+      .bgScanOOM = cCtx->bgScanOOM,
+      .queryOOM = cCtx->queryOOM,
+    };
+    Profile_Print(reply, &combine);
+  } else {
+    RedisModule_Reply_EmptyMap(reply);
+  }
+}
+
+// output "SEARCH", "VSIM" and "COMBINE"(if we are standalone)
+void printHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
+  ProfilePrinterCtx *printerCtx = ctx;
+  HybridRequest *hreq = printerCtx->hreq;
+  RedisModule_Reply_Map(reply);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *areq = hreq->requests[i];
     ProfilePrinterCtx sCtx = {
       .req = areq,
       .hreq = NULL,
-      .timedout = ctx->timedout,
-      .reachedMaxPrefixExpansions = ctx->reachedMaxPrefixExpansions,
-      .bgScanOOM = ctx->bgScanOOM,
-      .queryOOM = ctx->queryOOM,
+      .timedout = printerCtx->timedout,
+      .reachedMaxPrefixExpansions = printerCtx->reachedMaxPrefixExpansions,
+      .bgScanOOM = printerCtx->bgScanOOM,
+      .queryOOM = printerCtx->queryOOM,
     };
     const char *subqueryType = "N/A";
     if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
@@ -568,32 +590,12 @@ static void printHybridProfileCommon(RedisModule_Reply *reply, ProfilePrinterCtx
     RedisModule_Reply_SimpleString(reply, subqueryType);
     Profile_Print(reply, &sCtx);
   }
-}
-
-
-// output "SEARCH", "VSIM" and "COMBINE"(if we are standalone)
-void printHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
-  ProfilePrinterCtx *cCtx = ctx;
-  RedisModule_Reply_Map(reply);
-  printHybridProfileCommon(reply, cCtx);
-  if ((cCtx->hreq->reqflags & QEXEC_F_INTERNAL) != QEXEC_F_INTERNAL) {
-    ProfilePrinterCtx combine = {
-      .hreq = cCtx->hreq,
-      .req = NULL,
-      .timedout = cCtx->timedout,
-      .reachedMaxPrefixExpansions = cCtx->reachedMaxPrefixExpansions,
-      .bgScanOOM = cCtx->bgScanOOM,
-      .queryOOM = cCtx->queryOOM,
-    };
-    RedisModule_Reply_SimpleString(reply, "COMBINE");
-    Profile_Print(reply, &combine);
-  }
   RedisModule_Reply_MapEnd(reply);  // End shard map
 }
 
 void printHybridProfile(RedisModule_Reply *reply, void *ctx) {
   ProfilePrinterCtx *cCtx = ctx;
-  Profile_PrintInFormat(reply, printHybridProfileShards, ctx, NULL, NULL);
+  Profile_PrintInFormat(reply, printHybridProfileShards, ctx, printHybridProfileCoordinator, ctx);
 }
 
 /**
