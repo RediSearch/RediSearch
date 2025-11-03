@@ -958,7 +958,7 @@ impl<'a> RLookup<'a> {
         self.keys.find_by_name(name)
     }
 
-    /// Add all on-overridden keys from `src` to `self`.
+    /// Add all non-overridden keys from `src` to `self`.
     ///
     /// For each key in src, check if it already exists *by name*.
     /// - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
@@ -986,6 +986,7 @@ impl<'a> RLookup<'a> {
     /// Returns a [`Cursor`] starting at the first key.
     ///
     /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
+    #[inline(always)]
     pub fn cursor(&self) -> Cursor<'_, 'a> {
         self.keys.cursor_front()
     }
@@ -993,6 +994,7 @@ impl<'a> RLookup<'a> {
     /// Returns a [`Cursor`] starting at the first key.
     ///
     /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
+    #[inline(always)]
     pub fn cursor_mut(&mut self) -> CursorMut<'_, 'a> {
         self.keys.cursor_front_mut()
     }
