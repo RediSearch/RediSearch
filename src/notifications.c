@@ -487,9 +487,13 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
 
-  RedisModule_Log(ctx, "notice", "%s", "Subscribe to cluster slot migration events");
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
+  if (RedisModule_ClusterGetLocalSlotRanges == NULL || RedisModule_ClusterFreeSlotRanges == NULL) {
+    RedisModule_Log(ctx, "warning", "Failed to subscribe to cluster slot migration events");
+  } else {
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to cluster slot migration events");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
+  }
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {

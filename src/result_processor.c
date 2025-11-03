@@ -150,7 +150,7 @@ validate_current:
         continue;
       }
     }
-    if (should_filter_slots) {
+    if (should_filter_slots && RedisModule_ClusterKeySlotC) {
       RS_ASSERT(self->slotRanges != NULL);
       int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
       if (!Slots_CanAccessKeysInSlot(self->slotRanges, slot)) {
