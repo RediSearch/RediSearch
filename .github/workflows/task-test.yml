@@ -286,16 +286,16 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
-      # - name: Unit tests
-      #   timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
-      #   id: unit_tests
-      #   continue-on-error: true
-      #   env:
-      #     SAN: ${{ inputs.san }}
-      #     LOG: 1
-      #     CLEAR_LOGS: 0
-      #     ENABLE_ASSERT: 1
-      #   run: make unit-tests rust-tests
+      - name: Unit tests
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: unit_tests
+        continue-on-error: true
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          ENABLE_ASSERT: 1
+        run: make unit-tests rust-tests
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
