@@ -47,10 +47,16 @@ typedef struct {
 } QueryErrorsGlobalStats;
 
 typedef struct {
+  size_t timeout;
+  size_t oom;
+} QueryWarningsGlobalStats;
+
+typedef struct {
   size_t total_queries_processed;       // Number of successful queries. If using cursors, not counting reading from the cursor
   size_t total_query_commands;          // Number of successful query commands, including `FT.CURSOR READ`
   rs_wall_clock_ns_t total_query_execution_time;   // Total time spent on queries, aggregated in ns and reported in ms
-  QueryErrorsGlobalStats errors;
+  QueryErrorsGlobalStats errors; // Number of queries that failed with an error
+  QueryWarningsGlobalStats warnings; // Number of queries that completed with a warning
 } QueriesGlobalStats;
 
 typedef struct {
@@ -112,3 +118,9 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs();
  * `toAdd` can be negative to decrease the counter.
  */
 void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd);
+
+/**
+ * Add or increase `toAdd` number of warnings to the global query warnings counter of warning.
+ * `toAdd` can be negative to decrease the counter.
+ */
+void QueryWarningsGlobalStats_UpdateWarning(QueryErrorCode warning, int toAdd);

@@ -124,3 +124,16 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd) {
       RS_LOG_ASSERT(false, "Query error code is not supported in global stats");
   }
 }
+
+void QueryWarningsGlobalStats_UpdateWarning(QueryErrorCode code, int toAdd) {
+  switch (code) {
+    case QUERY_ETIMEDOUT:
+      INCR_BY(RSGlobalStats.totalStats.queries.warnings.timeout, toAdd);
+      break;
+    case QUERY_EOOM:
+      INCR_BY(RSGlobalStats.totalStats.queries.warnings.oom, toAdd);
+      break;
+    default:
+      RS_LOG_ASSERT(false, "Query warning code is not supported in global stats");
+  }
+}

@@ -254,6 +254,8 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_oom", stats.errors.oom);
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_syntax", stats.errors.syntax);
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_arguments", stats.errors.arguments);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_warnings_timeout", stats.warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_warnings_oom", stats.warnings.oom);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
