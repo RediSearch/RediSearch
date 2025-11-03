@@ -201,13 +201,6 @@ int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *optio
 void RLookup_Init(RLookup *l, IndexSpecCache *cache);
 
 /**
- * Releases any resources created by this lookup object. Note that if there are
- * lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
- * valid after this call!
- */
-void RLookup_Cleanup(RLookup *l);
-
-/**
  * Frees an individual RLookupKey, cleaning up its allocated strings
  */
 void RLookupKey_Free(RLookupKey *k);

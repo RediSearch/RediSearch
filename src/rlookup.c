@@ -286,19 +286,6 @@ void RLookupKey_Free(RLookupKey *k) {
   rm_free(k);
 }
 
-void RLookup_Cleanup(RLookup *lk) {
-  RLookupKey *next, *cur = lk->head;
-  while (cur) {
-    next = cur->next;
-    RLookupKey_Free(cur);
-    cur = next;
-  }
-  IndexSpecCache_Decref(lk->spcache);
-
-  lk->head = lk->tail = NULL;
-  memset(lk, 0xff, sizeof(*lk));
-}
-
 RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll;
