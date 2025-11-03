@@ -120,8 +120,6 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd) {
     case QUERY_EADDARGS:
       INCR_BY(RSGlobalStats.totalStats.queries.errors.arguments, toAdd);
       break;
-    default:
-      RS_LOG_ASSERT(false, "Query error code is not supported in global stats");
   }
 }
 
