@@ -97,7 +97,7 @@ impl QueryErrorExt for QueryError {
     }
 
     fn as_opaque_ptr(&self) -> *const OpaqueQueryError {
-        std::ptr::from_ref(&self).cast()
+        std::ptr::from_ref(self).cast()
     }
 
     fn as_opaque_mut_ptr(&mut self) -> *mut OpaqueQueryError {
