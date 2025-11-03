@@ -38,7 +38,7 @@ static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply
 
 static void processHybridUnknownReplyType(processCursorMappingCallbackContext *ctx, int replyType) {
     QueryError error = QueryError_Default();
-    QueryError_SetWithoutUserDataFmt(&error, QUERY_EUNSUPPTYPE, "Unsupported reply type: %d", replyType);
+    QueryError_SetWithoutUserDataFmt(&error, QUERY_ERROR_CODE_UNSUPP_TYPE, "Unsupported reply type: %d", replyType);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
 
@@ -160,7 +160,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to communicate with shards");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
         cleanupCtx(ctx);
         return false;
     }
@@ -174,10 +174,10 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     bool success = true;
     if (array_len(ctx->errors)) {
         for (size_t i = 0; i < array_len(ctx->errors); i++) {
-            if (QueryError_GetCode(&ctx->errors[i]) == QUERY_EOOM && oomPolicy == OomPolicy_Return ) {
+            if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
                 QueryError_SetQueryOOMWarning(status);
             } else {
-                QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process shard responses, first error: %s, total error count: %zu",
+                QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to process shard responses, first error: %s, total error count: %zu",
                     QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));
                 success = false;
                 break;

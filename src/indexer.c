@@ -352,7 +352,7 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   }
 
   if (!ctx.spec) {
-    QueryError_SetCode(&aCtx->status, QUERY_ENOINDEX);
+    QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_NO_INDEX);
     aCtx->stateFlags |= ACTX_F_ERRORED;
     return;
   }
