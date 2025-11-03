@@ -83,6 +83,7 @@ typedef struct PLN_BaseStep {
  */
 typedef struct {
   PLN_BaseStep base;
+  // lookup is zero initialized by `AGPLN_Init()`
   RLookup lookup;
 } PLN_FirstStep;
 
@@ -124,6 +125,7 @@ typedef struct {
 /* Group step - group by properties and reduce by several reducers */
 typedef struct {
   PLN_BaseStep base;
+  // lookup is zero-initialized by `PLNGroupStep_New()`
   RLookup lookup;
 
   StrongRef properties_ref;  // StrongRef to properties array

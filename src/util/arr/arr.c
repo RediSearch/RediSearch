@@ -18,7 +18,7 @@ void array_free(array_t arr) {
 /* Initialize a new array with a given element size and capacity. Should not be used directly - use
  * array_new instead */
 array_t array_new_sz(uint16_t elem_sz, uint16_t remain_cap, uint32_t len) {
-  array_hdr_t *hdr = (array_hdr_t *)array_alloc_fn(sizeof(array_hdr_t) + (uint64_t) (len + remain_cap) * elem_sz);
+  array_hdr_t *hdr = (array_hdr_t *)array_alloc_fn(sizeof(array_hdr_t) + (uint64_t) (len + remain_cap), elem_sz);
   hdr->remain_cap = remain_cap;
   hdr->len = len;
   hdr->elem_sz = elem_sz;

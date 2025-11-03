@@ -138,7 +138,9 @@ typedef struct ExprEval {
  */
 
 typedef struct EvalCtx {
+  // lookup is zero initialized by `EvalCtx_Create()`.
   RLookup lk;
+  // lookup row construction is called by `EvalCtx_Create()`.
   RLookupRow row;
   QueryError status;
   ExprEval ee;

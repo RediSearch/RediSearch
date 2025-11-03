@@ -38,6 +38,11 @@ typedef struct Option_Cow_CStr Option_Cow_CStr;
 typedef struct Option_IndexSpecCache Option_IndexSpecCache;
 
 #if defined(RUST_DEBUG)
+/**
+ * Unique identifier for a RLookup instance, encapsulated a u64.
+ *
+ * This struct provides a method to generate the next unique identifier which is thread-safe.
+ */
 typedef struct RLookupId RLookupId;
 #endif
 

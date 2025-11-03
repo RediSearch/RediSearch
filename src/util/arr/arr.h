@@ -46,7 +46,7 @@ extern "C" {
  * to those of the RM_ family
  */
 #ifndef array_alloc_fn
-#define array_alloc_fn rm_malloc
+#define array_alloc_fn rm_calloc
 #define array_realloc_fn rm_realloc
 #define array_free_fn rm_free
 #endif

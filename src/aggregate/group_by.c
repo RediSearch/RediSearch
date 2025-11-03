@@ -87,6 +87,8 @@ static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals
   size_t elemSize = GROUP_BYTESIZE(g);
   Group *group = BlkAlloc_Alloc(&g->groupsAlloc, elemSize, GROUPS_PER_BLOCK * elemSize);
   memset(group, 0, elemSize);
+  // tj: TODO
+  group->rowdata = RLookupRow_CreateOnStack(NULL);
 
   for (size_t ii = 0; ii < numReducers; ++ii) {
     group->accumdata[ii] = g->reducers[ii]->NewInstance(g->reducers[ii]);
