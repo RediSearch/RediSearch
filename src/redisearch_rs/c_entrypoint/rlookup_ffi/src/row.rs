@@ -122,16 +122,19 @@ pub unsafe extern "C-unwind" fn RLookupRow_Move(
     // Safety: ensured by caller (3.)
     let dst = unsafe { dst.expect("`dst` must not be null").as_mut() };
     debug_assert!(dst.is_empty(), "expected `dst` to be pre-cleared");
-    debug_assert_eq!(
-        src.rlookup_id(),
-        lookup.id(),
-        "`src` must belong to `rlookup`"
-    );
-    debug_assert_eq!(
-        dst.rlookup_id(),
-        lookup.id(),
-        "`dst` must belong to `rlookup`"
-    );
+    #[cfg(debug_assertions)]
+    {
+        assert_eq!(
+            src.rlookup_id(),
+            lookup.id(),
+            "`src` must belong to `rlookup`"
+        );
+        assert_eq!(
+            dst.rlookup_id(),
+            lookup.id(),
+            "`dst` must belong to `rlookup`"
+        );
+    }
 
     let mut c = lookup.cursor();
     while let Some(key) = c.current() {
