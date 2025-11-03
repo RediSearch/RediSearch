@@ -532,13 +532,11 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   QueryError status = QueryError_Default();
 
-  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
-    // OOM guardrail
-    if (estimateOOM(ctx)) {
-      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-      QueryError_SetCode(&status, QUERY_EOOM);
-      return QueryError_ReplyAndClear(ctx, &status);
-    }
+  // Memory guardrail
+  if (QueryMemoryGuard(ctx)) {
+    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+    QueryError_SetCode(&status, QUERY_EOOM);
+    return QueryError_ReplyAndClear(ctx, &status);
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);

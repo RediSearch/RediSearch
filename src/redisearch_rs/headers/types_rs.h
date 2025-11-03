@@ -438,14 +438,14 @@ typedef struct AggregateRecordsSlice {
 typedef struct IIBlockSummary {
   t_docId first_doc_id;
   t_docId last_doc_id;
-  uintptr_t number_of_entries;
+  uint16_t number_of_entries;
 } IIBlockSummary;
 
 /**
  * Summary information about an inverted index containing all key metrics
  */
 typedef struct IISummary {
-  uintptr_t number_of_docs;
+  uint32_t number_of_docs;
   uintptr_t number_of_entries;
   t_docId last_doc_id;
   uint64_t flags;

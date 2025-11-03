@@ -52,6 +52,7 @@ pub unsafe extern "C" fn RSValue_NewCString(str: Option<NonNull<c_char>>) -> Sha
         .try_into()
         .expect("Length of str cannot be more than u32::MAX");
     #[cfg(not(debug_assertions))]
+    // Safety: Caller has to ensure that str is a valid C string, so its length cannot exceed u32::MAX
     let len = unsafe { len.try_into().unwrap_unchecked() };
 
     SharedRsValue_NewString(str, len)
