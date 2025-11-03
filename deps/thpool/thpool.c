@@ -185,14 +185,6 @@ static void admin_job_change_state(void *job_arg);
 static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
                                                   size_t n_threads,
                                                   ThreadState new_state);
-/* Async state-change context (used when we cannot wait synchronously). */
-typedef struct AsyncSignalThreadCtx {
-  ThreadState new_state;
-  _Atomic size_t remaining; /* countdown of acknowledgments */
-  redisearch_thpool_t *thpool; /* for potential future use (telemetry, flags) */
-  int free_self; /* boolean: last job frees this context */
-} AsyncSignalThreadCtx;
-static void admin_job_change_state_async(void *job_arg_);
 /* ========================== THREADPOOL ============================ */
 
 /* Create thread pool */
@@ -345,13 +337,9 @@ size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
   redisearch_thpool_broadcast_new_state(thpool_p, n_threads_to_remove,
                                         THREAD_TERMINATE_ASAP);
 
-  /* Wait until `num_threads_alive` == `n_threads`.
-   * If n_threads==0 we avoid a synchronous wait to prevent potential deadlocks with
-   * the Redis GIL; termination will complete asynchronously. */
-  if (n_threads != 0) {
-    while (thpool_p->num_threads_alive != n_threads) {
-      usleep(1);
-    }
+  /* Wait until `num_threads_alive` == `n_threads` */
+  while (thpool_p->num_threads_alive != n_threads) {
+    usleep(1);
   }
 
   LOG_IF_EXISTS("verbose", "Thread pool size decreased to %zu successfully", n_threads)
@@ -1019,46 +1007,20 @@ static void admin_job_change_state(void *job_arg_) {
 static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
                                                   size_t n_threads,
                                                   ThreadState new_state) {
-  /*
-   * Previous implementation waited synchronously on a barrier (with an explicit
-   * unlock of the Redis ThreadSafeContext) which could deadlock when worker
-   * threads required the GIL to finish current jobs before executing the admin
-   * job. We replace this with an asynchronous countdown: enqueue one admin job
-   * per target thread, each job updates its state then decrements a counter.
-   * No waiting occurs here, so we never block while holding the GIL.
-   */
-  if (n_threads == 0) {
-    return; /* nothing to do */
-  }
-  AsyncSignalThreadCtx *async_ctx = rm_malloc(sizeof(*async_ctx));
-  async_ctx->new_state = new_state;
-  async_ctx->remaining = n_threads;
-  async_ctx->thpool = thpool;
-  async_ctx->free_self = 1;
-
+  /* Create a barrier. */
+  barrier_t barrier;
+  barrier_init(&barrier, NULL, n_threads);
+  /* Create jobs and their args. */
   redisearch_thpool_work_t jobs[n_threads];
+  SignalThreadCtx job_arg = {.barrier = &barrier, .new_state = new_state};
+  /* Set new state of all threads to 'new_state'. */
   for (size_t i = 0; i < n_threads; i++) {
-    jobs[i].arg_p = async_ctx;
-    jobs[i].function_p = admin_job_change_state_async;
+    jobs[i].arg_p = &job_arg;
+    jobs[i].function_p = admin_job_change_state;
   }
+
   redisearch_thpool_add_n_work(thpool, jobs, n_threads, THPOOL_PRIORITY_ADMIN);
-}
 
-static void admin_job_change_state_async(void *job_arg_) {
-  /*
-   * job_arg_ arrives as adminJobArg* because the worker loop wraps the 'arg'
-   * we passed (AsyncSignalThreadCtx*) inside an adminJobArg to attach the
-   * thread_ctx pointer. See thread_do() where admin_job_arg is prepared.
-   */
-  adminJobArg *job_arg = job_arg_;
-  AsyncSignalThreadCtx *async_ctx = job_arg->arg;
-  job_arg->thread_ctx->thread_state = async_ctx->new_state;
-
-  /* countdown */
-  if (atomic_fetch_sub(&async_ctx->remaining, 1) == 1) {
-    /* last thread */
-    if (async_ctx->free_self) {
-      rm_free(async_ctx);
-    }
-  }
+  /* Wait on for the threads to pass the barrier and then destroy the barrier*/
+  barrier_wait_and_destroy(&barrier);
 }

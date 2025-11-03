@@ -329,10 +329,6 @@ int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
 // Assumes that the number of connections is less than the current number of connections,
 // and that the new number of connections is greater than 0
 void MRConnManager_Shrink(MRConnManager *m, size_t num) {
-  RedisModule_Log(RSDummyContext, "warning",
-                  "MOD-11658: MRConnManager_Shrink called: shrinking from %d to %zu connections per node",
-                  m->nodeConns, num);
-
   dictIterator *it = dictGetIterator(m->map);
   dictEntry *entry;
   while ((entry = dictNext(it))) {
