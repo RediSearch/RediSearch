@@ -521,6 +521,8 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
+      // Assuming in-shards OOM errors are returned prior to sendChunk, there is no extra counting
+      QueryErrorsGlobalStats_UpdateError(rp->parent->err, 1);
       goto done_3_err;
     } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       ReplyWithTimeoutError(reply);
@@ -1083,6 +1085,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
+    // Update global stats
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1);
+
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
