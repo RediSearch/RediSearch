@@ -15,7 +15,7 @@ jobs:
     # TODO: Revert when 8.4 is released
     runs-on: ubuntu-latest
     outputs:
-      tag: unstable
+      tag: d0f705b3cc65154f3bec8b8652bb1e7b1dd2ba9f
     steps:
       - run: echo "Dummy step to set output"
     # uses: ./.github/workflows/task-get-latest-tag.yml
