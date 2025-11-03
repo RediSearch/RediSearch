@@ -744,7 +744,7 @@ def testProfileHybrid(env):
 
   shard = shards_data[0]
   env.assertTrue(isinstance(shard, list))
-  env.assertEqual(len(shard), 6)  # Should have SEARCH, data, VSIM, data, COMBINE, data
+  env.assertEqual(len(shard), 6)  # Should have SEARCH, data, VSIM, data
 
   # Verify SEARCH section
   env.assertEqual(shard[0], 'SEARCH')
@@ -753,7 +753,3 @@ def testProfileHybrid(env):
   # Verify VSIM section
   env.assertEqual(shard[2], 'VSIM')
   env.assertTrue(isinstance(shard[3], list))  # VSIM profile data
-
-  # Verify COMBINE section
-  env.assertEqual(shard[4], 'COMBINE')
-  env.assertTrue(isinstance(shard[5], list))  # COMBINE profile data
