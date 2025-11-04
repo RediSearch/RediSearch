@@ -900,12 +900,12 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   StrongRef ref = IndexSpec_LoadUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    QueryError_SetError(error, QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
+    QueryError_SetError(error, QUERY_ERROR_CODE_NO_INDEX, "Unknown index name (or name is an alias itself)");
     return REDISMODULE_ERR;
   }
 
   if (!checkEnterpriseACL(ctx, sp)) {
-    QueryError_SetError(error, QUERY_EGENERIC, NOPERM_ERR);
+    QueryError_SetError(error, QUERY_ERROR_CODE_GENERIC, NOPERM_ERR);
     return REDISMODULE_ERR;
   }
 
@@ -916,7 +916,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   HiddenString *alias = NewHiddenString(rawAlias, length, false);
   if (dictFetchValue(specDict_g, alias)) {
     HiddenString_Free(alias, false);
-    QueryError_SetCode(error, QUERY_EALIASCONFLICT);
+    QueryError_SetCode(error, QUERY_ERROR_CODE_ALIAS_CONFLICT);
     CurrentThread_ClearIndexSpec();
     return REDISMODULE_ERR;
   }
@@ -1941,7 +1941,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
     if (k > MAX_KNN_K) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
       goto cleanup;
     }
     specialCaseCtx *ctx = SpecialCaseCtx_New();
@@ -2897,11 +2897,11 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
 // TODO - get RequestConfig ptr as parameter instead of global config
 bool should_return_error(QueryErrorCode errCode) {
   // Check if this is a timeout error with non-fail policy
-  if (errCode == QUERY_ETIMEDOUT) {
+  if (errCode == QUERY_ERROR_CODE_TIMED_OUT) {
     return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
   }
   // Check if this is an OOM error with non-fail policy
-  if (errCode == QUERY_EOOM) {
+  if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
     return RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail;
   }
 
@@ -2943,7 +2943,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
         goto cleanup;
       } else {
         // Check if OOM
-        if (errCode == QUERY_EOOM) {
+        if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
           req->queryOOM = true;
         }
       }
@@ -2989,7 +2989,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
       // If we timed out on strict timeout policy, return a timeout error
       if (should_return_timeout_error(req)) {
-        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
         goto cleanup;
       }
     }
@@ -3000,7 +3000,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       // Check that the reply is not an error, can be caused if a shard failed to execute the query (i.e OOM).
       if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
         // Since we expect this to happen only with OOM, we assert it until this invariant changes.
-        RS_ASSERT(QueryError_GetCodeFromMessage(MRReply_String(replies[i], NULL)) == QUERY_EOOM);
+        RS_ASSERT(QueryError_GetCodeFromMessage(MRReply_String(replies[i], NULL)) == QUERY_ERROR_CODE_OUT_OF_MEMORY);
         continue;
       }
 
@@ -3013,7 +3013,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
       // If we timed out on strict timeout policy, return a timeout error
       if (should_return_timeout_error(req)) {
-        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
         goto cleanup;
       }
     }
@@ -3223,7 +3223,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
   }
 
   // Coord callback
@@ -3278,7 +3278,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
   }
 
   // Coord callback
@@ -3504,7 +3504,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
-    QueryError_SetCode(status, QUERY_EDROPPEDBACKGROUND);
+    QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
 
     bailOut(bc, status);
     return REDISMODULE_ERR;
@@ -3611,7 +3611,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
   }
 
   // Coord callback

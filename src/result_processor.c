@@ -2167,7 +2167,7 @@ bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, boo
 
   if (!RPPauseAfterCount) {
     // Set query error
-    QueryError_SetError(status, QUERY_EGENERIC, "Failed to create pause RP or another debug RP is already set");
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to create pause RP or another debug RP is already set");
     return false;
   }
 
@@ -2180,7 +2180,7 @@ bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, boo
   // Free if failed
   if (!success) {
     RPPauseAfterCount->Free(RPPauseAfterCount);
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "%s RP type not found in stream or tried to insert after last RP", RPTypeToString(rp_type));
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "%s RP type not found in stream or tried to insert after last RP", RPTypeToString(rp_type));
   }
   return success;
 

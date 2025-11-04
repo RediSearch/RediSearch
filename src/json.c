@@ -69,7 +69,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (fieldType & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO | INDEXFLD_T_GEOMETRY)) {
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field");
     }
     break;
   }
@@ -79,7 +79,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (fieldType == INDEXFLD_T_NUMERIC) {
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: Numeric type can represent only NUMERIC field");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid JSON type: Numeric type can represent only NUMERIC field");
     }
     break;
   // Boolean values can be represented only as TAG
@@ -87,7 +87,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (fieldType == INDEXFLD_T_TAG) {
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: Boolean type can be represent only TAG field");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid JSON type: Boolean type can be represent only TAG field");
     }
     break;
   case JSONType_Null:
@@ -97,7 +97,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (!(fieldType & INDEXFLD_T_GEOMETRY)) { // TODO: GEOMETRY Handle multi-value geometry
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: Array type cannot represent GEOMETRY field");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid JSON type: Array type cannot represent GEOMETRY field");
     }
     break;
   case JSONType_Object:
@@ -105,12 +105,12 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
       // A GEOSHAPE field can be represented as GEOJSON "geoshape" object
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: Object type can represent only GEOMETRY fields");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid JSON type: Object type can represent only GEOMETRY fields");
     }
     break;
   // null type is not supported
   case JSONType__EOF: {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: Null type is not supported");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid JSON type: Null type is not supported");
       break;
     }
   }
@@ -226,7 +226,7 @@ int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement,
   RedisJSONPtr element = japi->allocJson();
   for (int i = 0; i < len; ++i) {
     if (japi->getAt(arr, i, element) != REDISMODULE_OK || getElement(*element, target) != REDISMODULE_OK) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector element at index %d", i);
       japi->freeJson(element);
       return REDISMODULE_ERR;
     }
@@ -284,21 +284,21 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
       dim = params->algoParams.svsParams.dim;
       break;
     default: {
-      QueryError_SetError(status, QUERY_EGENERIC, "Invalid vector similarity algorithm");
+      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector similarity algorithm");
       return REDISMODULE_ERR;
     }
   }
   size_t arrLen;
   japi->getLen(arr, &arrLen);
   if (arrLen != dim) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
     return REDISMODULE_ERR;
   }
 
   getElement = VecSimGetJSONCallback(type);
 
   if (!(df->strval = rm_malloc(fs->vectorOpts.expBlobSize))) {
-    QueryError_SetError(status, QUERY_EGENERIC, "Failed to allocate memory for vector");
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to allocate memory for vector");
     return REDISMODULE_ERR;
   }
   df->strlen = fs->vectorOpts.expBlobSize;
@@ -400,7 +400,7 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
   size_t len;
   japi->getLen(arr, &len);
   if (len == 0) {
-    QueryError_SetError(status, QUERY_EBADVAL, "Empty array for vector field on JSON document");
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Empty array for vector field on JSON document");
     return REDISMODULE_ERR;
   }
 
@@ -458,7 +458,7 @@ int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct Document
       nulls++; // Skip Nulls
     } else {
       // Text/Tag fields can handle only strings or Nulls
-      QueryError_SetError(status, QUERY_EBADVAL, "TEXT/TAG fields can only contain strings or nulls");
+      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "TEXT/TAG fields can only contain strings or nulls");
       goto error;
     }
   }
@@ -507,7 +507,7 @@ int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct Docum
       ++nulls; // Skip Nulls (TODO: consider also failing or converting to a specific value, e.g., zero)
     } else {
       // Numeric fields can handle only numeric or Nulls
-      QueryError_SetError(status, QUERY_EBADVAL, "NUMERIC fields can only contain numeric or nulls");
+      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "NUMERIC fields can only contain numeric or nulls");
       goto error;
     }
   }
@@ -590,17 +590,17 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
           break;
         case INDEXFLD_T_GEOMETRY:
           rv = REDISMODULE_ERR; // TODO: GEOMETRY = JSON_StoreGeometryInDocFieldFromArr(json, df);
-          QueryError_SetError(status, QUERY_EGENERIC, "GEOMETRY field does not support array type");
+          QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "GEOMETRY field does not support array type");
           break;
         default:
           rv = REDISMODULE_ERR;
-          QueryError_SetError(status, QUERY_EGENERIC, "Unsupported field type");
+          QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Unsupported field type");
           break;
       }
       break;
     case JSONType_Object:
       rv = REDISMODULE_ERR;
-      QueryError_SetError(status, QUERY_EGENERIC, "Object type is not supported");
+      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Object type is not supported");
       break;
     case JSONType__EOF:
       RS_ABORT("Should not happen");
@@ -644,7 +644,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
         break;
       default:
         rv = REDISMODULE_ERR;
-        QueryError_SetError(status, QUERY_EGENERIC, "Unsupported field type");
+        QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Unsupported field type");
         break;
     }
   }
@@ -663,14 +663,14 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
       df->multisv = rsv;
     } else {
       rv = REDISMODULE_ERR;
-      QueryError_SetError(status, QUERY_EGENERIC, "Failed to get value from iterator");
+      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to get value from iterator");
     }
   }
   return rv;
 }
 
 void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName) {
-  QueryError_SetWithUserDataFmt(status, QUERY_EINVALPATH,
+  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL_PATH,
                          "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",
                          HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
   RedisModule_FreeString(RSDummyContext, err_msg);
