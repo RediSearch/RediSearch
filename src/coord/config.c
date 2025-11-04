@@ -278,6 +278,7 @@ SearchClusterConfig clusterConfig = {0};
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.
  * If we cannot determine, we return OSS type anyway
+ * @warning This function must be called from the main thread
  */
 MRClusterType DetectClusterType() {
   RedisModuleCallReply *r = RedisModule_Call(RSDummyContext, "INFO", "c", "SERVER");

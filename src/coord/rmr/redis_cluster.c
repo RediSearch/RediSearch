@@ -112,6 +112,9 @@ static void sortShards(MRClusterTopology *topo) {
   }
 }
 
+/*
+ * @warning This function must be called from the main thread
+ */
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   RS_AutoMemory(ctx);
 

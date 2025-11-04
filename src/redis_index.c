@@ -215,6 +215,9 @@ err:
   return NULL;
 }
 
+/*
+* @warning This function must be called from the main thread
+*/
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
   // extract the term from the key
   RedisSearchCtx *sctx = opaque;
@@ -242,6 +245,9 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   return REDISMODULE_OK;
 }
 
+/*
+* @warning This function must be called from the main thread
+*/
 int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "s", s);
   RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
@@ -250,6 +256,9 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return res;
 }
 
+/*
+* @warning This function must be called from the main thread
+*/
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
   // Send command and args to replicas and AOF
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "c!", cstr);

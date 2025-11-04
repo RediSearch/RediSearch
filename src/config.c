@@ -1507,6 +1507,7 @@ void UpgradeDeprecatedMTConfigs() {
 }
 
 char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName) {
+  // This RedisModule_Call is protected by the SharedExclusiveLock mechanism from the caller.
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
   RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
   if (RedisModule_CallReplyLength(rep) == 0){

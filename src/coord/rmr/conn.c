@@ -607,7 +607,7 @@ extern RedisModuleCtx *RSDummyContext;
 static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass){
   int ret = 1;
   RedisModuleCtx *ctx = RSDummyContext;
-  RedisModule_ThreadSafeContextLock(ctx);
+  SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(ctx);
   char* clusterTls = NULL;
   char* tlsPort = NULL;
 
@@ -649,7 +649,7 @@ done:
   if (tlsPort) {
     rm_free(tlsPort);
   }
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  SharedExclusiveLock_Release(ctx, lockType);
   return ret;
 }
 
