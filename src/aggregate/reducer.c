@@ -14,48 +14,33 @@ typedef struct {
   ReducerFactory fn;
 } FuncEntry;
 
-// Maximum number of reducers (builtin + potential future additions)
-#define MAX_REDUCERS 14
+// Static registry of all builtin reducers - no runtime registration needed
+static const FuncEntry globalRegistry[] = {
+  {"COUNT", RDCRCount_New},
+  {"SUM", RDCRSum_New},
+  {"TOLIST", RDCRToList_New},
+  {"MIN", RDCRMin_New},
+  {"MAX", RDCRMax_New},
+  {"AVG", RDCRAvg_New},
+  {"COUNT_DISTINCT", RDCRCountDistinct_New},
+  {"COUNT_DISTINCTISH", RDCRCountDistinctish_New},
+  {"QUANTILE", RDCRQuantile_New},
+  {"STDDEV", RDCRStdDev_New},
+  {"FIRST_VALUE", RDCRFirstValue_New},
+  {"RANDOM_SAMPLE", RDCRRandomSample_New},
+  {"HLL", RDCRHLL_New},
+  {"HLL_SUM", RDCRHLLSum_New}
+};
 
-static FuncEntry globalRegistry[MAX_REDUCERS];
-static size_t registryCount = 0;
-
-void RDCR_RegisterFactory(const char *name, ReducerFactory factory) {
-  RS_ASSERT(registryCount < MAX_REDUCERS);
-  globalRegistry[registryCount].name = name;
-  globalRegistry[registryCount].fn = factory;
-  registryCount++;
-}
+#define REGISTRY_SIZE 14
 
 ReducerFactory RDCR_GetFactory(const char *name) {
-  for (size_t ii = 0; ii < registryCount; ++ii) {
+  for (size_t ii = 0; ii < REGISTRY_SIZE; ++ii) {
     if (!strcasecmp(globalRegistry[ii].name, name)) {
       return globalRegistry[ii].fn;
     }
   }
   return NULL;
-}
-
-#define RDCR_XBUILTIN(X)                           \
-  X(RDCRCount_New, "COUNT")                        \
-  X(RDCRSum_New, "SUM")                            \
-  X(RDCRToList_New, "TOLIST")                      \
-  X(RDCRMin_New, "MIN")                            \
-  X(RDCRMax_New, "MAX")                            \
-  X(RDCRAvg_New, "AVG")                            \
-  X(RDCRCountDistinct_New, "COUNT_DISTINCT")       \
-  X(RDCRCountDistinctish_New, "COUNT_DISTINCTISH") \
-  X(RDCRQuantile_New, "QUANTILE")                  \
-  X(RDCRStdDev_New, "STDDEV")                      \
-  X(RDCRFirstValue_New, "FIRST_VALUE")             \
-  X(RDCRRandomSample_New, "RANDOM_SAMPLE")         \
-  X(RDCRHLL_New, "HLL")                            \
-  X(RDCRHLLSum_New, "HLL_SUM")
-
-void RDCR_RegisterBuiltins(void) {
-#define X(fn, n) RDCR_RegisterFactory(n, fn);
-  RDCR_XBUILTIN(X);
-#undef X
 }
 
 int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {

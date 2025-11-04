@@ -163,8 +163,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Handle deprecated MT configurations
   UpgradeDeprecatedMTConfigs();
 
-  RDCR_RegisterBuiltins();
-
   // Init threadpool.
   if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
