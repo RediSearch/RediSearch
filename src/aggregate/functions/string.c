@@ -213,9 +213,12 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
     APPEND_OUT(last, end - last);
   }
   RS_DEBUG_LOG(out);
+  
+  APPEND_OUT("\0", 1);
 
 #undef APPEND_OUT
-  RSValue_SetString(result, out, out_tail - out);
+  // Don't count the null terminator
+  RSValue_SetString(result, out, out_tail - out - 1);
   return EXPR_EVAL_OK;
 
 error:
