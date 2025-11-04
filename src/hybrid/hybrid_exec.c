@@ -30,6 +30,7 @@
 #include "util/units.h"
 #include "value.h"
 #include "module.h"
+#include "util/shared_exclusive_lock.h"
 
 #include <time.h>
 
@@ -545,6 +546,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
   }
+  SharedExclusiveLock_SetOwned(true);
 
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
   CurrentThread_SetIndexSpec(spec_ref);
@@ -565,6 +567,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
 
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
+    SharedExclusiveLock_SetOwned(false);
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
 
@@ -577,6 +580,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);
+    SharedExclusiveLock_SetOwned(false);
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
 
@@ -585,6 +589,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   SET_DIALECT(RSGlobalStats.totalStats.used_dialects, hybridRequest->reqConfig.dialectVersion);
 
   DefaultCleanup(hybrid_ref);
+  SharedExclusiveLock_SetOwned(false);
   return REDISMODULE_OK;
 }
 

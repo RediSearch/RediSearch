@@ -29,6 +29,7 @@
 #include "hybrid/hybrid_request.h"
 #include "module.h"
 #include "result_processor.h"
+#include "util/shared_exclusive_lock.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -967,6 +968,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 
 /**
  * @param execOptions is a bitmask of EXEC_* flags defined in ExecOptions enum.
+ *
+ * @warning This function can only be called from the main thread.
  */
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              CommandType type, int execOptions) {
@@ -983,6 +986,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     QueryError_SetCode(&status, QUERY_EOOM);
     return QueryError_ReplyAndClear(ctx, &status);
   }
+  SharedExclusiveLock_SetOwned(true);
 
   AREQ *r = AREQ_New();
 
@@ -993,13 +997,14 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {
     goto error;
   }
-
+  SharedExclusiveLock_SetOwned(false);
   return REDISMODULE_OK;
 
 error:
   if (r) {
     AREQ_Free(r);
   }
+  SharedExclusiveLock_SetOwned(false);
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
@@ -1304,6 +1309,7 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
   if (!debug_req) {
     goto error;
   }
+  SharedExclusiveLock_SetOwned(true);
   r = &debug_req->r;
   AREQ_Debug_params debug_params = debug_req->debug_params;
 
@@ -1317,13 +1323,14 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
   if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {
     goto error;
   }
-
+  SharedExclusiveLock_SetOwned(false);
   return REDISMODULE_OK;
 
 error:
   if (r) {
     AREQ_Free(r);
   }
+  SharedExclusiveLock_SetOwned(false);
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
