@@ -6,9 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "slots_tracker.h"
 #include "redismodule.h"
-
 
 #ifdef __cplusplus
 extern "C" {
