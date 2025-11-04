@@ -1525,6 +1525,9 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
 }
 
 bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
+  if (!spec || !spec->rule) {
+    return false;
+  }
   arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
   if (n_prefixes != array_len(spec_prefixes)) {
     return false;

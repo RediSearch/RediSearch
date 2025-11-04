@@ -577,7 +577,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
   // Prefixes for the index
-  arrayof(const char*) prefixes = array_new(const char*, 0);
+  arrayof(sds) prefixes = array_new(sds, 0);
 
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
@@ -690,6 +690,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
+  IndexSpec *spec = parsedCmdCtx->search->sctx->spec;
   if (!IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, array_len(*hybridParseCtx.prefixes))) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
