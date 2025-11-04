@@ -33,7 +33,6 @@
 #include "profile.h"
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
-#include "aggregate/reducer.h"
 
 #define DEPLETER_POOL_SIZE 4
 
