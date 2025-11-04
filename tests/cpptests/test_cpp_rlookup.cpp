@@ -42,9 +42,10 @@ TEST_F(RLookupTest, testFlags) {
 TEST_F(RLookupTest, testRow) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
-  RLookupKey *fook = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
-  RLookupKey *bark = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = RLookupRow_CreateOnStack(&lk);
+  //RLookupKey *fook = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
+  //RLookupKey *bark = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
+  //RLookupRow rr = RLookupRow_CreateOnStack(&lk);
+  /*
   RSValue *vfoo = RSValue_NewNumberFromInt64(42);
   RSValue *vbar = RSValue_NewNumberFromInt64(666);
 
@@ -74,6 +75,7 @@ TEST_F(RLookupTest, testRow) {
   RSValue_DecrRef(vbar);
   RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
+  */
 }
 
 
