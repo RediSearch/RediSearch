@@ -143,6 +143,23 @@ int redisearch_thpool_add_n_work(redisearch_thpool_t *,
 size_t redisearch_thpool_remove_threads(redisearch_thpool_t *, size_t n_threads_to_remove);
 
 /**
+ * @brief Remove threads from a threadpool without waiting for them to terminate
+ *
+ * This is a non-blocking version of redisearch_thpool_remove_threads that signals
+ * threads to terminate but returns immediately without waiting for them to finish.
+ * This is useful when the calling thread holds locks (e.g., Redis GIL) that worker
+ * threads might need, which would cause a deadlock.
+ *
+ * The caller is responsible for ensuring threads have terminated before calling
+ * this function again or performing operations that require all threads to be stopped.
+ *
+ * @param threadpool     the threadpool to modify
+ * @param n_threads_to_remove     number of threads to remove
+ * @return The target number of threads in the threadpool (may not be reached yet)
+ */
+size_t redisearch_thpool_remove_threads_no_wait(redisearch_thpool_t *, size_t n_threads_to_remove);
+
+/**
  * @brief Add threads to a threadpool
  *
  * If the threadpool in initialized, the operation will be performed immediately.
@@ -295,6 +312,8 @@ int redisearch_thpool_is_initialized(redisearch_thpool_t *);
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *);
 
 size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *);
+
+size_t redisearch_thpool_get_num_threads_alive(redisearch_thpool_t *);
 
 #ifdef __cplusplus
 }

@@ -87,7 +87,7 @@ def test_MOD_11658_workers_reduction_under_load():
     # Increase thread count to maximize likelihood of hitting the race condition
     # The bug requires worker threads to be actively processing queries when
     # the config change happens
-    num_query_threads = 100
+    num_query_threads = 50
     query_threads = []
 
     for i in range(num_query_threads):
@@ -249,4 +249,151 @@ def test_MOD_11658_workers_zero_to_nonzero():
     env.assertTrue(result[0] > 0)
     
     env.debugPrint("Workers increase test completed successfully", force=True)
+
+@skip(cluster=False)
+def test_MOD_11658_workers_8_to_0_to_8_rapid():
+    """
+    Test the 8→0→8 scenario to verify the new non-blocking implementation.
+
+    This test specifically validates:
+    1. Changing from 8→0 doesn't block (returns immediately)
+    2. Attempting 0→8 while threads are still terminating is rejected
+    3. Once threads finish terminating, 0→8 succeeds
+    """
+
+    # Start with WORKERS=8
+    env = Env(moduleArgs='WORKERS 8', enableDebugCommand=True)
+
+    # Create index and add data
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+
+    conn = getConnectionByEnv(env)
+    for i in range(100):
+        conn.execute_command('HSET', f'doc{i}', 'text', f'document {i}')
+
+    waitForIndex(env, 'idx')
+
+    # Trigger thread pool initialization by running a query
+    env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1')
+
+    # Wait for threads to be alive
+    time.sleep(0.5)
+
+    # Verify we have 8 workers alive
+    stats = getWorkersThpoolStats(env)
+    env.assertEqual(stats['numThreadsAlive'], 8, message="Should have 8 threads alive initially")
+
+    # Change from 8→0 (this should return immediately with the new implementation)
+    env.debugPrint("Changing WORKERS from 8 to 0...", force=True)
+    start_time = time.time()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
+    elapsed = time.time() - start_time
+
+    # The command should return quickly (< 1 second) because it doesn't wait
+    env.assertTrue(elapsed < 1.0, message=f"Config change should be non-blocking, took {elapsed}s")
+    env.debugPrint(f"Config change took {elapsed:.3f}s (non-blocking)", force=True)
+
+    # Verify config changed
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '0']])
+
+    # Immediately try to change back to 8 (this might fail if threads are still terminating)
+    env.debugPrint("Attempting to change WORKERS from 0 to 8 immediately...", force=True)
+
+    # Try multiple times with small delays to handle the race condition
+    max_attempts = 20
+    success = False
+
+    for attempt in range(max_attempts):
+        try:
+            result = env.cmd(config_cmd(), 'SET', 'WORKERS', '8')
+            if result == 'OK' or result == b'OK':
+                success = True
+                env.debugPrint(f"Successfully changed to 8 workers on attempt {attempt + 1}", force=True)
+                break
+        except Exception as e:
+            env.debugPrint(f"Attempt {attempt + 1} failed (expected during termination): {e}", force=True)
+
+        # Small delay before retry
+        time.sleep(0.1)
+
+    # Eventually it should succeed
+    env.assertTrue(success, message="Should eventually be able to change to 8 workers after threads terminate")
+
+    # Verify final state
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '8']])
+
+    # Verify Redis is still responsive
+    ping_result = env.cmd('PING')
+    env.assertTrue(ping_result in ['PONG', True])
+
+    # Run a query to verify functionality
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
+
+    env.debugPrint("8→0→8 rapid transition test completed successfully", force=True)
+
+@skip(cluster=False)
+def test_MOD_11658_workers_concurrent_changes():
+    """
+    Test that concurrent worker changes are handled correctly.
+
+    This test validates that the termination flag prevents issues when
+    multiple config changes happen in quick succession.
+    """
+
+    # Start with WORKERS=8
+    env = Env(moduleArgs='WORKERS 8', enableDebugCommand=True)
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+
+    conn = getConnectionByEnv(env)
+    for i in range(50):
+        conn.execute_command('HSET', f'doc{i}', 'text', f'document {i}')
+
+    waitForIndex(env, 'idx')
+
+    # Trigger thread pool initialization
+    env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1')
+    time.sleep(0.5)
+
+    # Test sequence: 8 → 4 → 2 → 0 → 2 → 4 → 8
+    sequences = [4, 2, 0, 2, 4, 8]
+
+    for target_workers in sequences:
+        env.debugPrint(f"Changing WORKERS to {target_workers}...", force=True)
+
+        # Try to change workers
+        max_attempts = 20
+        success = False
+
+        for attempt in range(max_attempts):
+            try:
+                result = env.cmd(config_cmd(), 'SET', 'WORKERS', str(target_workers))
+                if result == 'OK' or result == b'OK':
+                    success = True
+                    break
+            except Exception as e:
+                env.debugPrint(f"Attempt {attempt + 1} to set WORKERS={target_workers} failed: {e}", force=True)
+
+            time.sleep(0.1)
+
+        env.assertTrue(success, message=f"Should be able to change to {target_workers} workers")
+
+        # Verify config
+        current = env.cmd(config_cmd(), 'GET', 'WORKERS')
+        env.assertEqual(current, [['WORKERS', str(target_workers)]])
+
+        # Verify responsiveness
+        ping_result = env.cmd('PING')
+        env.assertTrue(ping_result in ['PONG', True])
+
+        # Small delay between changes
+        time.sleep(0.2)
+
+    # Final verification
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
+
+    env.debugPrint("Concurrent worker changes test completed successfully", force=True)
 

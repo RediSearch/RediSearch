@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
@@ -185,6 +186,9 @@ static void admin_job_change_state(void *job_arg);
 static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
                                                   size_t n_threads,
                                                   ThreadState new_state);
+static void redisearch_thpool_broadcast_new_state_no_wait(redisearch_thpool_t *thpool,
+                                                          size_t n_threads,
+                                                          ThreadState new_state);
 /* ========================== THREADPOOL ============================ */
 
 /* Create thread pool */
@@ -343,6 +347,40 @@ size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
   }
 
   LOG_IF_EXISTS("verbose", "Thread pool size decreased to %zu successfully", n_threads)
+
+  return n_threads;
+}
+
+size_t redisearch_thpool_remove_threads_no_wait(redisearch_thpool_t *thpool_p,
+                                                size_t n_threads_to_remove) {
+  /* n_threads is only configured and read by the main thread (protected by the GIL). */
+  assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
+  thpool_p->n_threads -= n_threads_to_remove;
+  size_t n_threads = thpool_p->n_threads;
+
+  /** THPOOL_UNINITIALIZED means either:
+   * 1. thpool->n_threads > 0, and there are no threads alive
+   * 2. There are threads alive in terminate_when_empty state.
+   * In both cases only calling `verify_init` will add/remove threads to adjust
+   * `num_threads_alive` to `n_threads` */
+  if (thpool_p->state == THPOOL_UNINITIALIZED)
+    return n_threads;
+
+  size_t jobs_count = priority_queue_len(&thpool_p->jobqueues);
+  if (n_threads == 0 && jobs_count > 0) {
+    LOG_IF_EXISTS("warning",
+                  "redisearch_thpool_remove_threads_no_wait(): "
+                  "Killing all threads while jobqueue contains %zu jobs",
+                  jobs_count);
+  }
+
+  assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
+
+  /* Signal threads to terminate but don't wait for them */
+  redisearch_thpool_broadcast_new_state_no_wait(thpool_p, n_threads_to_remove,
+                                                THREAD_TERMINATE_ASAP);
+
+  LOG_IF_EXISTS("verbose", "Thread pool size decrease to %zu initiated (non-blocking)", n_threads)
 
   return n_threads;
 }
@@ -524,8 +562,9 @@ void redisearch_thpool_terminate_when_empty(redisearch_thpool_t *thpool_p) {
   if (thpool_p->state == THPOOL_UNINITIALIZED)
     return;
   size_t n_threads = thpool_p->n_threads;
-  redisearch_thpool_broadcast_new_state(thpool_p, n_threads,
-                                        THREAD_TERMINATE_WHEN_EMPTY);
+  /* Use non-blocking version to avoid deadlock when called while holding GIL */
+  redisearch_thpool_broadcast_new_state_no_wait(thpool_p, n_threads,
+                                                THREAD_TERMINATE_WHEN_EMPTY);
 
   /* Change thpool state to uninitialized */
   thpool_p->state = THPOOL_UNINITIALIZED;
@@ -557,6 +596,10 @@ size_t redisearch_thpool_num_jobs_in_progress(redisearch_thpool_t *thpool_p) {
 
 size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *thpool_p) {
   return thpool_p->n_threads;
+}
+
+size_t redisearch_thpool_get_num_threads_alive(redisearch_thpool_t *thpool_p) {
+  return thpool_p->num_threads_alive;
 }
 
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *thpool_p) {
@@ -1023,4 +1066,33 @@ static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
 
   /* Wait on for the threads to pass the barrier and then destroy the barrier*/
   barrier_wait_and_destroy(&barrier);
+}
+
+/* Job to change thread state without using a barrier.
+ * Used when we can't block the main thread (e.g., when holding Redis GIL).
+ * The new_state is passed directly as a pointer value (cast to void*). */
+static void admin_job_change_state_no_barrier(void *job_arg_) {
+  adminJobArg *job_arg = job_arg_;
+  /* The arg contains the new_state value directly (cast from ThreadState to void*) */
+  ThreadState new_state = (ThreadState)(uintptr_t)job_arg->arg;
+  job_arg->thread_ctx->thread_state = new_state;
+  /* No barrier wait - just change state and return */
+}
+
+/* Non-blocking version of redisearch_thpool_broadcast_new_state that doesn't wait on barrier.
+ * This is used when we can't block the main thread (e.g., when holding Redis GIL). */
+static void redisearch_thpool_broadcast_new_state_no_wait(redisearch_thpool_t *thpool,
+                                                          size_t n_threads,
+                                                          ThreadState new_state) {
+  /* Create jobs and pass the new_state directly as the arg (cast to void*). */
+  redisearch_thpool_work_t jobs[n_threads];
+  void *state_arg = (void *)(uintptr_t)new_state;
+  /* Set new state of all threads to 'new_state'. */
+  for (size_t i = 0; i < n_threads; i++) {
+    jobs[i].arg_p = state_arg;
+    jobs[i].function_p = admin_job_change_state_no_barrier;
+  }
+
+  redisearch_thpool_add_n_work(thpool, jobs, n_threads, THPOOL_PRIORITY_ADMIN);
+  /* Return immediately without waiting */
 }
