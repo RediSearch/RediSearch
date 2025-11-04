@@ -17,6 +17,8 @@
 #include <thread>
 #include <vector>
 #include <mutex>
+#include <set>
+#include <unordered_set>
 
 // Test-specific state for controlling GIL behavior
 static std::atomic<bool> test_gil_owned{false};
@@ -43,6 +45,7 @@ struct WorkerThreadData {
     int *counter;
     std::atomic<int> *threads_ready;
     std::atomic<bool> *start_flag;
+    std::unordered_set<int> *thread_ids_set;
     int thread_id;
     int work_iterations;
 };
@@ -59,6 +62,8 @@ void* worker_thread_func(void* arg) {
 
     // Try to acquire the lock and do some work
     SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
+    data->thread_ids_set->insert(data->thread_id);
+
     // Simulate some work
     for (int i = 0; i < data->work_iterations; ++i) {
         *(data->counter) += 1;
@@ -75,8 +80,7 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
     int counter = 0;
     std::atomic<bool> start_flag{false};
     std::atomic<int> threads_ready{0};
-    std::mutex order_mutex;
-
+    std::unordered_set<int> thread_ids_set;
     std::vector<pthread_t> threads(num_threads);
     std::vector<WorkerThreadData> thread_data(num_threads);
 
@@ -87,6 +91,7 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
             &counter,
             &threads_ready,
             &start_flag,
+            &thread_ids_set,
             i,
             work_iterations,
         };
@@ -118,4 +123,13 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
         ASSERT_EQ(rc, 0) << "Failed to join thread " << i;
     }
     ASSERT_EQ(counter, num_threads * work_iterations);
+
+    // Verify that all threads were properly recorded in the set
+    ASSERT_EQ(thread_ids_set.size(), num_threads) << "Not all thread IDs were recorded in the set";
+
+    // Verify that each created thread ID is in the set
+    for (int i = 0; i < num_threads; ++i) {
+        ASSERT_TRUE(thread_ids_set.find(i) != thread_ids_set.end())
+            << "Thread " << i << " was not found in the thread IDs set";
+    }
 }
