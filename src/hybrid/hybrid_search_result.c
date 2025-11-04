@@ -156,6 +156,7 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
       SearchResult_MergeFlags(primary, hybridResult->searchResults[i]);
     }
   }
+  
   // Transfer ownership: Remove primary result from HybridSearchResult to prevent double-free
   hybridResult->searchResults[targetIndex] = NULL;
   hybridResult->hasResults[targetIndex] = false;

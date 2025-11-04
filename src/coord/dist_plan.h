@@ -18,6 +18,7 @@ extern "C" {
 
 typedef struct PLN_DistributeStep {
   PLN_BaseStep base;
+  // lookup is zero-initialized and only created in `AGGPLN_Distribute()`.
   RLookup lk;
   AGGPlan *plan;
   PLN_GroupStep **oldSteps;  // Old step which this distribute breaks down

@@ -14,6 +14,8 @@
 #include "gtest/gtest.h"
 #include "search_result.h"
 
+#include "rlookup_rs.h"
+
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
     memset(static_cast<ResultProcessor *>(this), 0, sizeof(ResultProcessor));
@@ -74,7 +76,7 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
     count++;
     ASSERT_EQ(count, SearchResult_GetDocId(&r));
     ASSERT_EQ(count, SearchResult_GetScore(&r));
-    RSValue *v = RLookup_GetItem(p->kout, SearchResult_GetRowData(&r));
+    const RSValue *v = RLookup_GetItem(p->kout, SearchResult_GetRowDataMut(&r));
     ASSERT_TRUE(v != NULL);
     ASSERT_EQ(RSValueType_Number, RSValue_Type(v));
     ASSERT_EQ(count, RSValue_Number_Get(v));

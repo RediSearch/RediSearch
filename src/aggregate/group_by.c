@@ -11,6 +11,7 @@
 #include <util/block_alloc.h>
 #include <util/khash.h>
 #include "reducer.h"
+#include "rlookup_rs.h"
 
 /**
  * A group represents the allocated context of all reducers in a group, and the
@@ -72,6 +73,9 @@ typedef struct Grouper {
 
   // Used for maintaining state when yielding groups
   khiter_t iter;
+
+  // Used for ownership tracking, group reductions create RLookupRows that require to know their owning RLookup
+  const RLookup* dstLookup;
 } Grouper;
 
 /**
@@ -86,6 +90,8 @@ static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals
   size_t elemSize = GROUP_BYTESIZE(g);
   Group *group = BlkAlloc_Alloc(&g->groupsAlloc, elemSize, GROUPS_PER_BLOCK * elemSize);
   memset(group, 0, elemSize);
+  // tj: TODO
+  group->rowdata = RLookupRow_CreateOnStack(g->dstLookup);
 
   for (size_t ii = 0; ii < numReducers; ++ii) {
     group->accumdata[ii] = g->reducers[ii]->NewInstance(g->reducers[ii]);
@@ -276,10 +282,11 @@ void Grouper_Free(Grouper *g) {
   g->base.Free(&g->base);
 }
 
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t nkeys) {
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t nkeys, const RLookup* dstlookup) {
   Grouper *g = rm_calloc(1, sizeof(*g));
   BlkAlloc_Init(&g->groupsAlloc);
   g->groups = kh_init(khid);
+  g->dstLookup = dstlookup;
 
   g->nkeys = nkeys;
   if (nkeys) {

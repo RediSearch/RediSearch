@@ -40,7 +40,8 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties);
+  // gstp->lookup is the destination lookup
+  Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties, &gstp->lookup);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {

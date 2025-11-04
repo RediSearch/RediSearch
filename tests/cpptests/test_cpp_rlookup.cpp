@@ -11,6 +11,8 @@
 #include "value.h"
 #include "gtest/gtest.h"
 
+#include "rlookup_rs.h"
+
 class RLookupTest : public ::testing::Test {};
 
 TEST_F(RLookupTest, testInit) {
@@ -42,7 +44,7 @@ TEST_F(RLookupTest, testRow) {
   RLookup_Init(&lk, NULL);
   RLookupKey *fook = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *bark = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_CreateOnStack(&lk);
   RSValue *vfoo = RSValue_NewNumberFromInt64(42);
   RSValue *vbar = RSValue_NewNumberFromInt64(666);
 
@@ -50,10 +52,11 @@ TEST_F(RLookupTest, testRow) {
   RLookup_WriteKey(fook, &rr, vfoo);
   ASSERT_EQ(2, RSValue_Refcount(vfoo));
 
-  RSValue *vtmp = RLookup_GetItem(fook, &rr);
+  const RSValue *vtmp = RLookup_GetItem(fook, &rr);
   ASSERT_EQ(vfoo, vtmp);
   ASSERT_EQ(2, RSValue_Refcount(vfoo));
-  ASSERT_EQ(1, rr.ndyn);
+  ASSERT_EQ(2, vfoo->_refcount);
+  ASSERT_EQ(1, RLookupRow_GetDynLen(&rr));
 
   // Write a NULL value
   RLookup_WriteKey(fook, &rr, RSValue_NullStatic());
@@ -123,7 +126,7 @@ void verify_values_by_names(RLookup* lookup, RLookupRow* row,
     RLookupKey* key = RLookup_GetKey_Read(lookup, fieldNames[i], RLOOKUP_F_NOFLAGS);
     EXPECT_TRUE(key != nullptr) << "Field not found: " << fieldNames[i];
 
-    RSValue* value = RLookup_GetItem(key, row);
+    const RSValue* value = RLookup_GetItem(key, row);
     EXPECT_TRUE(value != nullptr) << "No value for field: " << fieldNames[i];
 
     double actualValue;
@@ -139,7 +142,7 @@ void verify_fields_empty(RLookup* lookup, RLookupRow* row, const std::vector<con
     RLookupKey* key = RLookup_GetKey_Read(lookup, fieldName, RLOOKUP_F_NOFLAGS);
     EXPECT_TRUE(key != nullptr) << "Field not found: " << fieldName;
 
-    RSValue* value = RLookup_GetItem(key, row);
+    const RSValue* value = RLookup_GetItem(key, row);
     EXPECT_EQ(nullptr, value) << "Field should be empty: " << fieldName;
   }
 }
@@ -328,7 +331,8 @@ TEST_F(RLookupTest, testWriteFieldsBasic) {
   RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create test data and write to source row
-  RLookupRow srcRow = {0}, destRow = {0};
+  RLookupRow srcRow = RLookupRow_CreateOnStack(&source);
+  RLookupRow destRow = RLookupRow_CreateOnStack(&dest);;
   std::vector<RSValue*> values = create_test_values({100, 200});
   write_values_to_row(srcKeys, &srcRow, values);
 
@@ -377,7 +381,8 @@ TEST_F(RLookupTest, testWriteFieldsEmptySource) {
   RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create empty rows
-  RLookupRow srcRow = {0}, destRow = {0};
+  RLookupRow srcRow = RLookupRow_CreateOnStack(&source);
+  RLookupRow destRow = RLookupRow_CreateOnStack(&dest);
 
   // Write from empty source
   RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest);
@@ -414,7 +419,8 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
   ASSERT_TRUE(dest_key1 && dest_key2 && dest_key3);
 
   // Create rows and add data with distinct values
-  RLookupRow srcRow = {0}, destRow = {0};
+  RLookupRow srcRow = RLookupRow_CreateOnStack(&source);
+  RLookupRow destRow = RLookupRow_CreateOnStack(&dest);;
 
   // Create test values with distinct data
   std::vector<RSValue*> values = create_test_values({111, 222, 333});
@@ -431,7 +437,7 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
   // Verify shared ownership (same pointers) - need to check individual values
   std::vector<RLookupKey*> dest_keys = {dest_key1, dest_key2, dest_key3};
   for (int i = 0; i < 3; i++) {
-    RSValue *dest_val = RLookup_GetItem(dest_keys[i], &destRow);
+    const RSValue *dest_val = RLookup_GetItem(dest_keys[i], &destRow);
     ASSERT_EQ(values[i], dest_val) << "dest_vals[" << i << "] should point to values[" << i << "]";
   }
 
@@ -553,7 +559,7 @@ TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
   // Verify field2 contains src2 data (last write wins)
   RLookupKey *dest_field2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(dest_field2);
-  RSValue *field2_val = RLookup_GetItem(dest_field2, &destRow);
+  const RSValue *field2_val = RLookup_GetItem(dest_field2, &destRow);
   ASSERT_TRUE(field2_val);
 
   // Verify it's the same pointer (shared ownership, not copy)
@@ -642,13 +648,13 @@ TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
   RLookupKey *d_key3 = RLookup_GetKey_Read(&dest, "field3", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(d_key1 && d_key2 && d_key3);
 
-  RSValue *dest_val1 = RLookup_GetItem(d_key1, &destRow);
-  RSValue *dest_val2 = RLookup_GetItem(d_key2, &destRow);
-  RSValue *dest_val3 = RLookup_GetItem(d_key3, &destRow);
+  const RSValue *dest_val1 = RLookup_GetItem(d_key1, &destRow);
+  const RSValue *dest_val2 = RLookup_GetItem(d_key2, &destRow);
+  const RSValue *dest_val3 = RLookup_GetItem(d_key3, &destRow);
   ASSERT_TRUE(dest_val1 && dest_val2 && dest_val3);
 
   // Verify pointers are from src2 (shared ownership, same pointers)
-  std::vector<RSValue*> dest_vals = {dest_val1, dest_val2, dest_val3};
+  std::vector<const RSValue*> dest_vals = {dest_val1, dest_val2, dest_val3};
   std::vector<double> expected_nums = {999.0, 888.0, 777.0};
 
   for (int i = 0; i < 3; i++) {

@@ -13,6 +13,7 @@
 #include "aggregate/reducer.h"
 #include "util/arr.h"
 #include "dist_plan.h"
+#include "rlookup_rs.h"
 
 #include <vector>
 #include <string>

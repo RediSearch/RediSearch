@@ -12,6 +12,7 @@
 #include "util/minmax.h"
 #include "toksep.h"
 #include <ctype.h>
+#include "rlookup_rs.h"
 
 typedef struct {
   ResultProcessor base;

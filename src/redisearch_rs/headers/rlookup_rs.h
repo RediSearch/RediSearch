@@ -6,118 +6,45 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+// Required to ensure that the alignment declared by cbindgen is respected on
+// the C/C++ side.
+#define ALIGNED(n) __attribute__((aligned(n)))
+
 // forward declarations for bitflags type names
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
 
+typedef struct RLookup {
+  struct RLookupKey *head;
+  struct RLookupKey *tail;
+  // Length of the data row. This is not necessarily the number
+  // of lookup keys
+  uint32_t rowlen;
+  // Flags/options
+  uint32_t options;
+  // If present, then GetKey will consult this list if the value is not found in
+  // the existing list of keys.
+  IndexSpecCache *spcache;
+} RLookup;
+
 // forward declarations for types that are only used as a pointer
-typedef struct RLookupRow RLookupRow;
 typedef struct RSValue RSValue;
 
 
-enum RLookupKeyFlag
-#ifdef __cplusplus
-  : uint32_t
-#endif // __cplusplus
- {
-  /**
-   * This field is (or assumed to be) part of the document itself.
-   * This is a basic flag for a loaded key.
-   */
-  DocSrc = 1,
-  /**
-   * This field is part of the index schema.
-   */
-  SchemaSrc = 2,
-  /**
-   * Check the sorting table, if necessary, for the index of the key.
-   */
-  SvSrc = 4,
-  /**
-   * This key was created by the query itself (not in the document)
-   */
-  QuerySrc = 8,
-  /**
-   * Copy the key string via strdup. `name` may be freed
-   */
-  NameAlloc = 16,
-  /**
-   * If the key is already present, then overwrite it (relevant only for LOAD or WRITE modes)
-   */
-  Override = 32,
-  /**
-   * Request that the key is returned for loading even if it is already loaded.
-   */
-  ForceLoad = 64,
-  /**
-   * This key is unresolved. Its source needs to be derived from elsewhere
-   */
-  Unresolved = 128,
-  /**
-   * This field is hidden within the document and is only used as a transient
-   * field for another consumer. Don't output this field.
-   */
-  Hidden = 256,
-  /**
-   * The opposite of [`RLookupKeyFlag::Hidden`]. This field is specified as an explicit return in
-   * the RETURN list, so ensure that this gets emitted. Only set if
-   * explicitReturn is true in the aggregation request.
-   */
-  ExplicitReturn = 512,
-  /**
-   * This key's value is already available in the RLookup table,
-   * if it was opened for read but the field is sortable and not normalized,
-   * so the data should be exactly the same as in the doc.
-   */
-  ValAvailable = 1024,
-  /**
-   * This key's value was loaded (by a loader) from the document itself.
-   */
-  IsLoaded = 2048,
-  /**
-   * This key type is numeric
-   */
-  Numeric = 4096,
-};
-#ifndef __cplusplus
-typedef uint32_t RLookupKeyFlag;
-#endif // __cplusplus
-
-enum RLookupOption
-#ifdef __cplusplus
-  : uint32_t
-#endif // __cplusplus
- {
-  /**
-   * If the key cannot be found, do not mark it as an error, but create it and
-   * mark it as F_UNRESOLVED
-   */
-  AllowUnresolved = 1,
-  /**
-   * If a loader was added to load the entire document, this flag will allow
-   * later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
-   */
-  AllLoaded = 2,
-};
-#ifndef __cplusplus
-typedef uint32_t RLookupOption;
-#endif // __cplusplus
-
 typedef struct IndexSpecCache IndexSpecCache;
 
+typedef struct Option_Cow_CStr Option_Cow_CStr;
+
+typedef struct Option_IndexSpecCache Option_IndexSpecCache;
+
+#if defined(RUST_DEBUG)
 /**
- * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
- * or from dynamic values stored in the row during processing.
+ * Unique identifier for a RLookup instance, encapsulated a u64.
  *
- * The type itself exposes the dynamic values, [`RLookupRow::dyn_values`], as a vector of `Option<T>`, where `T` is the type
- * of the value and it also provides methods to get the length of the dynamic values and check if they are empty.
- *
- * The type `T` is the type of the value stored in the row, which must implement the [`RSValueTrait`].
- * [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
- *
- * The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
+ * This struct provides a method to generate the next unique identifier which is thread-safe.
  */
-typedef struct RLookupRow RLookupRow;
+typedef struct RLookupId RLookupId;
+#endif
 
 typedef struct RLookupKey {
   /**
@@ -163,11 +90,21 @@ typedef struct KeyList {
   uint32_t rowlen;
 } KeyList;
 
-typedef struct RLookup {
+typedef struct RLookupHeader {
   struct KeyList keys;
-} RLookup;
+} RLookupHeader;
 
-typedef struct RLookupRow RLookupRow;
+#if !defined(RUST_DEBUG)
+typedef struct ALIGNED(8) RLookupRow {
+  uint8_t _0[40];
+} RLookupRow;
+#endif
+
+#if defined(RUST_DEBUG)
+typedef struct ALIGNED(8) RLookupRow {
+  uint8_t _0[48];
+} RLookupRow;
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -379,7 +316,7 @@ void RLookup_Cleanup(struct RLookup *lookup);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_WriteKey(const struct RLookupKey *key,
-                      RLookupRow *row,
+                      struct RLookupRow *row,
                       RSValue *value);
 
 /**
@@ -394,8 +331,18 @@ void RLookup_WriteKey(const struct RLookupKey *key,
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_WriteOwnKey(const struct RLookupKey *key,
-                         RLookupRow *row,
+                         struct RLookupRow *row,
                          RSValue *value);
+
+/**
+ * Creates a RLookupRow on the stack associated with the given lookup.
+ *
+ * The lookup is only tracked in Debug builds
+ *
+ * # Safety
+ * /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ */
+struct RLookupRow RLookupRow_CreateOnStack(struct RLookup *lookup);
 
 /**
  * Wipes a RLookupRow by decrementing all values and resetting the row.
@@ -406,7 +353,7 @@ void RLookup_WriteOwnKey(const struct RLookupKey *key,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Wipe(RLookupRow *row);
+void RLookupRow_Wipe(struct RLookupRow *row);
 
 /**
  * Resets a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory of the dynamic values.
@@ -419,7 +366,7 @@ void RLookupRow_Wipe(RLookupRow *row);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Reset(RLookupRow *row);
+void RLookupRow_Reset(struct RLookupRow *row);
 
 /**
  * Move data from the source row to the destination row. The source row is cleared.
@@ -428,13 +375,92 @@ void RLookupRow_Reset(RLookupRow *row);
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. `src` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 3. `dst` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 2. `src` must be a [valid], non-null pointer to an [`rlookup::RLookupRow`].
+ * 3. `dst` must be a [valid], non-null pointer to an [`rlookup::RLookupRow`].
  * 4. `src` and `dst` must not be the same lookup row.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Move(const struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
+void RLookupRow_Move(struct RLookup *lookup, struct RLookupRow *src, struct RLookupRow *dst);
+
+/**
+ * Write fields from a source row into a destination row, the fields must exist in both lookups (schemas).
+ *
+ * Iterate through the source lookup keys, if it finds a corresponding key in the destination
+ * lookup by name, then it's value is written to this row as a destination.
+ *
+ * If a source key is not found in the destination lookup the function will panic (same as C behavior).
+ *
+ * If a source key has no value in the source row, it is skipped.
+ *
+ * # Safety
+ * 1. `src_lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 3. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 4. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ */
+void RLookupRow_WriteFieldsFrom(struct RLookupRow *src_row,
+                                struct RLookup *src_lookup,
+                                struct RLookupRow *dst_row,
+                                struct RLookup *dst_lookup);
+
+/**
+ * Add all on-overridden keys from `src` to `self`.
+ *
+ * For each key in src, check if it already exists *by name*.
+ * - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+ * - If it doesn't a new key will ne created.
+ *
+ * Flag handling:
+ *  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+ *  * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+ *  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+ *  * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+ *
+ * # Safety:
+ * 1. `src` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. `dst` must be a [valid], non-null pointer to an [`RLookup`].
+ */
+void RLookup_AddKeysFrom(struct RLookup *src,
+                         struct RLookup *dst,
+                         uint32_t flags);
+
+/**
+ * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
+ * The function first checks for dynamic values, and if not found, it checks the sorting vector
+ * if the `SvSrc` flag is set in the key.
+ * If the item is not found in either location, it returns `None`.
+ *
+ * # Safety
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ */
+const RSValue *RLookup_GetItem(struct RLookupKey *key, struct RLookupRow *row);
+
+/**
+ * Sets a sorting vector for the row.
+ * Safety:
+ * 1. `row` must be a valid pointer to an [`RLookupRow`].
+ * 2. `sv` must be a valid pointer to an [`ffi::RSSortingVector`].
+ */
+void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *sv);
+
+/**
+ * Returns a pointer to the sorting vector if it exists, or null otherwise.
+ *
+ * Safety:
+ * 1. `row` must be a valid pointer to an [`RLookupRow`].
+ */
+const RSSortingVector *RLookupRow_GetSortingVector(struct RLookupRow *row);
+
+/**
+ * Returns the number of dynamic values in the row.
+ *
+ * # Safety
+ * Safety:
+ * 1. `row` must be a valid pointer to an [`RLookupRow`].
+ */
+uint32_t RLookupRow_GetDynLen(struct RLookupRow *row);
 
 #ifdef __cplusplus
 }  // extern "C"

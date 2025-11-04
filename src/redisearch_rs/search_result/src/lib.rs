@@ -10,8 +10,9 @@
 pub mod bindings;
 
 use enumflags2::{BitFlags, bitflags};
+use ffi::RLookupRow;
 use inverted_index::RSIndexResult;
-use std::ptr::{self, NonNull};
+use std::ptr::NonNull;
 
 use crate::bindings::DocumentMetadata;
 
@@ -52,7 +53,7 @@ pub struct SearchResult<'index> {
     index_result: Option<&'index RSIndexResult<'index>>,
 
     // Row data. Use RLookup_* functions to access
-    row_data: ffi::RLookupRow,
+    row_data: RLookupRow,
 
     flags: SearchResultFlags,
 }
@@ -60,10 +61,7 @@ pub struct SearchResult<'index> {
 impl Drop for SearchResult<'_> {
     fn drop(&mut self) {
         self.clear();
-        // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
-        unsafe {
-            ffi::RLookupRow_Reset(ptr::from_mut(&mut self.row_data));
-        }
+        todo!("RLookupRow_Reset");
     }
 }
 
@@ -82,16 +80,20 @@ impl<'index> SearchResult<'index> {
             document_metadata: None,
             index_result: None,
             row_data: ffi::RLookupRow {
-                sv: ptr::null(),
-                dyn_: ptr::null_mut(),
-                ndyn: 0,
+                // Safety: zeroed RLookupRow is valid
+                ..unsafe { std::mem::zeroed() }
             },
             flags: SearchResultFlags::from_bits_truncate_c(0, BitFlags::CONST_TOKEN),
         }
     }
 
-    /// Clears the search result, removing all values from the [`RLookupRow`][ffi::RLookupRow].
+    /// Clears the search result, removing all values from the [`RLookupRow`].
     /// This has no effect on the allocated capacity of the lookup row.
+    ///
+    #[expect(
+        unreachable_code,
+        reason = "todo! will be handled in follow up PR related to SearchResult"
+    )]
     pub fn clear(&mut self) {
         self.score = 0.0;
 
@@ -109,9 +111,7 @@ impl<'index> SearchResult<'index> {
         self.index_result = None;
 
         // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
-        unsafe {
-            ffi::RLookupRow_Wipe(ptr::from_mut(&mut self.row_data));
-        }
+        todo!("RLookupRow_Wipe");
 
         self.flags = SearchResultFlags::empty();
     }
@@ -187,12 +187,12 @@ impl<'index> SearchResult<'index> {
         self.index_result = index_result;
     }
 
-    /// Returns an immutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
+    /// Returns an immutable reference to the [`RLookupRow`] of this search result.
     pub const fn row_data(&self) -> &ffi::RLookupRow {
         &self.row_data
     }
 
-    /// Returns a mutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
+    /// Returns a mutable reference to the [`RLookupRow`] of this search result.
     pub const fn row_data_mut(&mut self) -> &mut ffi::RLookupRow {
         &mut self.row_data
     }

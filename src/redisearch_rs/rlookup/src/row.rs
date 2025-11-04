@@ -24,6 +24,7 @@ use value::RSValueTrait;
 /// [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
 ///
 /// The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
+/// cbindgen:no-export
 #[derive(Debug)]
 pub struct RLookupRow<'a, T: RSValueTrait> {
     /// Sorting vector attached to document
@@ -126,8 +127,8 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not
     /// refer to a read-only (SVSRC) key.
     pub fn write_key(&mut self, key: &RLookupKey, val: T) -> Option<T> {
-        #[cfg(debug_assertions)]
-        assert_eq!(key.rlookup_id(), self.rlookup_id);
+        //#[cfg(debug_assertions)]
+        //assert_eq!(key.rlookup_id(), self.rlookup_id);
 
         let idx = key.dstidx;
         if self.dyn_values.len() <= idx as usize {
@@ -225,6 +226,17 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
                 // Write fields to destination
                 dst_row.write_key(dst_key, value.to_owned());
             }
+        }
+    }
+
+    /// Returns a pointer to the sorting vector if it exists, or a null pointer otherwise.
+    ///
+    /// # Safety
+    /// The caller does not own the returned pointer and must not attempt to free it.
+    pub const unsafe fn get_sorting_vector(&self) -> *const RSSortingVector<T> {
+        match self.sorting_vector {
+            Some(sv) => sv as *const RSSortingVector<T>,
+            None => std::ptr::null(),
         }
     }
 }

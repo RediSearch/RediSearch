@@ -24,6 +24,8 @@
 #include <iostream>
 #include <cstdarg>
 
+#include "rlookup_rs.h"
+
 class AggTest : public ::testing::Test {};
 using RS::addDocument;
 
@@ -167,7 +169,7 @@ TEST_F(AggTest, testGroupBy) {
   RLookupKey *score_out = RLookup_GetKey_Write(&rk_out, "SCORE", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&rk_out, "COUNT", RLOOKUP_F_NOFLAGS);
 
-  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1);
+  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1, &rk_out);
   ASSERT_TRUE(gr != NULL);
 
   ArgsCursor args = {0};
@@ -211,7 +213,7 @@ TEST_F(AggTest, testGroupSplit) {
   gen.kvalue = RLookup_GetKey_Write(&lk_in, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *val_out = RLookup_GetKey_Write(&lk_out, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);
-  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1);
+  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1, &lk_out);
   ArgsCursor args = {0};
   ReducerOptions opt = {0};
   opt.args = &args;
@@ -235,7 +237,7 @@ TEST_F(AggTest, testGroupSplit) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    RSValue *rv = RLookup_GetItem(val_out, SearchResult_GetRowData(&res));
+    const RSValue *rv = RLookup_GetItem(val_out, SearchResult_GetRowDataMut(&res));
     ASSERT_FALSE(NULL == rv);
     ASSERT_FALSE(RSValue_IsNull(rv));
     ASSERT_TRUE(RSValue_IsString(rv));

@@ -317,5 +317,10 @@ pub unsafe extern "C" fn RLookup_Init(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
     // Safety: ensured by caller (1.,2.)
-    unsafe { lookup.unwrap().drop_in_place() };
+    // this isn't working if the lookup is on the stack or if any elements are null:
+    // unsafe { lookup.unwrap().drop_in_place() };
+
+    // todo: how to distinguish between stack and non-stack allocations?
+    // Safety: ensured by caller (1.,2.)
+    // let lookup = unsafe { lookup.unwrap().as_mut() };
 }

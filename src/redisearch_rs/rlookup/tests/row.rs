@@ -530,7 +530,7 @@ fn rlookuprow_write_fields_basic() {
     let src_key1_name = CString::new("field1").unwrap();
     let src_key2_name = CString::new("field2").unwrap();
 
-    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new(&src_lookup);
 
     // Write values to source row
     let value1 = RSValueMock::create_num(100.0);
@@ -543,7 +543,7 @@ fn rlookuprow_write_fields_basic() {
     dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
     dst_lookup.get_key_write(src_key2_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write fields from source to destination
     unsafe { dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup) };
@@ -590,8 +590,8 @@ fn rlookuprow_write_fields_empty_source() {
     dst_lookup.get_key_write(key2_name.to_owned(), RLookupKeyFlags::empty());
 
     // Create empty rows
-    let src_row: RLookupRow<RSValueMock> = RLookupRow::new();
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let src_row: RLookupRow<RSValueMock> = RLookupRow::new(&src_lookup);
+    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write from empty source row, will result in error
     unsafe { dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup) };
@@ -619,7 +619,7 @@ fn rlookuprow_write_fields_different_mapping() {
     let key2_name = CString::new("field2").unwrap();
     let key3_name = CString::new("field3").unwrap();
 
-    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new(&src_lookup);
 
     // Add values to source
     let value1 = RSValueMock::create_num(111.0);
@@ -639,7 +639,7 @@ fn rlookuprow_write_fields_different_mapping() {
     dst_lookup.get_key_write(key2_name.to_owned(), RLookupKeyFlags::empty());
     dst_lookup.get_key_write(key3_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write fields
     unsafe { dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup) };
@@ -675,8 +675,8 @@ fn rlookuprow_write_fields_multiple_sources_no_overlap() {
     let field3_name = CString::new("field3").unwrap();
     let field4_name = CString::new("field4").unwrap();
 
-    let mut src1_row: RLookupRow<RSValueMock> = RLookupRow::new();
-    let mut src2_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src1_row: RLookupRow<RSValueMock> = RLookupRow::new(&src1_lookup);
+    let mut src2_row: RLookupRow<RSValueMock> = RLookupRow::new(&src2_lookup);
 
     // Create test data and populate source rows
     let value1 = RSValueMock::create_num(10.0);
@@ -696,7 +696,7 @@ fn rlookuprow_write_fields_multiple_sources_no_overlap() {
     dst_lookup.get_key_write(field3_name.to_owned(), RLookupKeyFlags::empty());
     dst_lookup.get_key_write(field4_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write data from both sources to single destination row
     unsafe { dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup) };
@@ -734,8 +734,8 @@ fn rlookuprow_write_fields_multiple_sources_partial_overlap() {
     let field4_name = CString::new("field4").unwrap();
     let field5_name = CString::new("field5").unwrap();
 
-    let mut src1_row: RLookupRow<RSValueMock> = RLookupRow::new();
-    let mut src2_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src1_row: RLookupRow<RSValueMock> = RLookupRow::new(&src1_lookup);
+    let mut src2_row: RLookupRow<RSValueMock> = RLookupRow::new(&src2_lookup);
 
     // Create src1 values: field1=1, field2=100, field3=3
     let s1_val1 = RSValueMock::create_num(1.0);
@@ -763,7 +763,7 @@ fn rlookuprow_write_fields_multiple_sources_partial_overlap() {
     dst_lookup.get_key_write(field4_name.to_owned(), RLookupKeyFlags::empty());
     dst_lookup.get_key_write(field5_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write src1 first, then src2
     unsafe { dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup) };
@@ -805,8 +805,8 @@ fn rlookuprow_write_fields_multiple_sources_full_overlap() {
     let field2_name = CString::new("field2").unwrap();
     let field3_name = CString::new("field3").unwrap();
 
-    let mut src1_row: RLookupRow<RSValueMock> = RLookupRow::new();
-    let mut src2_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src1_row: RLookupRow<RSValueMock> = RLookupRow::new(&src1_lookup);
+    let mut src2_row: RLookupRow<RSValueMock> = RLookupRow::new(&src2_lookup);
 
     // Create rows with different data for same field names
     let s1_val1 = RSValueMock::create_num(100.0);
@@ -831,7 +831,7 @@ fn rlookuprow_write_fields_multiple_sources_full_overlap() {
     dst_lookup.get_key_write(field2_name.to_owned(), RLookupKeyFlags::empty());
     dst_lookup.get_key_write(field3_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write src1 first, then src2 - src2 should overwrite all values
     unsafe { dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup) };
