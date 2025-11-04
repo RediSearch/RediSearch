@@ -11,6 +11,7 @@
 #include "src/coord/config.h"
 #include "module.h"
 #include "hiredis/adapters/libuv.h"
+
 #include <uv.h>
 #include <signal.h>
 #include <sys/param.h>

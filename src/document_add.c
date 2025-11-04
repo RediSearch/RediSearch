@@ -142,9 +142,6 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   return REDISMODULE_OK;
 }
 
-/**
- * @warning This function must be called from the main thread
- */
 int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocumentOptions *opts,
                    QueryError *status) {
   int rc = REDISMODULE_ERR;

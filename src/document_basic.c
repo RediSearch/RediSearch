@@ -275,9 +275,7 @@ done:
   return rv;
 }
 
-/*
- * @warning This function must be called from the main thread
- * used only by unit tests */
+/* used only by unit tests */
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
@@ -318,9 +316,6 @@ done:
   return rc;
 }
 
-/**
- * @warning This function must be called from the main thread
- */
 int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *id) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
@@ -477,9 +472,6 @@ void freeGlobalAddStrings() {
   }
 }
 
-/**
- * @warning This function must be called from the main thread
- */
 int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, QueryError *status) {
   if (globalAddRSstrings[0] == NULL) {
     initGlobalAddStrings();
