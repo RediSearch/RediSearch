@@ -11,6 +11,10 @@
 #include <stdbool.h>
 #include "redismodule.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
   GIL_Locked,
   Internal_Locked,
@@ -22,3 +26,7 @@ void SharedExclusiveLock_SetOwned();
 void SharedExclusiveLock_UnsetOwned();
 SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx);
 void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType type);
+
+#ifdef __cplusplus
+}
+#endif
