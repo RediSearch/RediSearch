@@ -377,6 +377,9 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       return REDISMODULE_ERR;
     }
     arrayof(ResultProcessor*) depleters = NULL; 
+    if (async) {
+      depleters = array_new(ResultProcessor *, req->nrequests);
+    }
     arrayof(Cursor*) cursors = array_new(Cursor*, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
