@@ -9,7 +9,7 @@
 
 //! Safe implementation of the slots tracker state.
 //!
-//! This module provides a safe, non-thread-safe implementation of the slots tracker.
+//! This module provides a single-thread-safe implementation of the slots tracker.
 //! All methods take `&mut self`, making the borrowing rules enforce single-threaded access.
 
 use crate::SlotRange;
@@ -93,13 +93,13 @@ impl SlotsTracker {
         }
 
         // Update local slots and remove from other sets
-        self.local.set_from_ranges(ranges);
+        self.local = SlotSet::from_ranges(ranges);
         self.fully_available.remove_ranges(ranges);
         self.partially_available.remove_ranges(ranges);
         self.increment_version();
     }
 
-    /// Sets the partially available slot ranges.
+    /// Marks the given slot ranges as partially available.
     ///
     /// This function updates the `partially_available` set by adding the provided ranges.
     /// It also removes the given slots from `local` and `fully_available`, and
@@ -108,7 +108,7 @@ impl SlotsTracker {
     /// # Arguments
     ///
     /// * `ranges` - Slice of slot ranges. Must be sorted and normalized (no overlaps, no adjacent ranges).
-    pub fn set_partially_available_slots(&mut self, ranges: &[SlotRange]) {
+    pub fn mark_partially_available_slots(&mut self, ranges: &[SlotRange]) {
         // Update partially available slots and remove from other sets
         self.partially_available.add_ranges(ranges);
         self.local.remove_ranges(ranges);
@@ -131,7 +131,7 @@ impl SlotsTracker {
         self.partially_available.remove_ranges(ranges);
     }
 
-    /// Sets the fully available non-owned slot ranges.
+    /// Marks the given slot ranges as fully available non-owned.
     ///
     /// This function updates the `fully_available` set by adding the provided ranges.
     /// It removes the given slots from `local`.
@@ -140,7 +140,7 @@ impl SlotsTracker {
     /// # Arguments
     ///
     /// * `ranges` - Slice of slot ranges. Must be sorted and normalized (no overlaps, no adjacent ranges).
-    pub fn set_fully_available_slots(&mut self, ranges: &[SlotRange]) {
+    pub fn mark_fully_available_slots(&mut self, ranges: &[SlotRange]) {
         self.fully_available.add_ranges(ranges);
         self.local.remove_ranges(ranges);
     }
@@ -292,7 +292,7 @@ mod tests {
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
         assert_eq!(tracker, ([(0, 100)], [], [], Some(v1 + 1)));
 
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 200,
             end: 300,
         }]);
@@ -318,7 +318,7 @@ mod tests {
         let result = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
         assert_eq!(result, v1);
 
-        tracker.set_fully_available_slots(&[SlotRange { start: 0, end: 50 }]);
+        tracker.mark_fully_available_slots(&[SlotRange { start: 0, end: 50 }]);
         assert_eq!(tracker, ([(51, 100)], [(0, 50)], [], Some(v1)));
 
         let result2 = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
@@ -346,7 +346,7 @@ mod tests {
         let v1 = tracker.get_version();
         assert_eq!(tracker, ([(0, 200)], [], [], Some(v1)));
 
-        tracker.set_fully_available_slots(&[SlotRange {
+        tracker.mark_fully_available_slots(&[SlotRange {
             start: 50,
             end: 150,
         }]);
@@ -377,7 +377,7 @@ mod tests {
         tracker.set_local_slots(&[SlotRange { start: 0, end: 50 }]);
         let v1 = tracker.get_version();
         assert_eq!(tracker, ([(0, 50)], [], [], Some(v1)));
-        tracker.set_partially_available_slots(&[SlotRange { start: 60, end: 70 }]);
+        tracker.mark_partially_available_slots(&[SlotRange { start: 60, end: 70 }]);
         assert_eq!(tracker, ([(0, 50)], [], [(60, 70)], Some(v1 + 1)));
     }
 
@@ -387,7 +387,7 @@ mod tests {
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
         let v1 = tracker.get_version();
         assert_eq!(tracker, ([(0, 100)], [], [], Some(v1)));
-        tracker.set_fully_available_slots(&[SlotRange { start: 10, end: 20 }]);
+        tracker.mark_fully_available_slots(&[SlotRange { start: 10, end: 20 }]);
         assert_eq!(tracker, ([(0, 9), (21, 100)], [(10, 20)], [], Some(v1)));
     }
 
@@ -397,7 +397,7 @@ mod tests {
         tracker.set_local_slots(&[SlotRange { start: 0, end: 50 }]);
         let v1 = tracker.get_version();
         assert_eq!(tracker, ([(0, 50)], [], [], Some(v1)));
-        tracker.set_fully_available_slots(&[SlotRange {
+        tracker.mark_fully_available_slots(&[SlotRange {
             start: 100,
             end: 120,
         }]);
@@ -425,7 +425,7 @@ mod tests {
         let v0 = tracker.get_version();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
         assert_eq!(tracker, ([(0, 100)], [], [], Some(v0 + 1)));
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 150,
             end: 160,
         }]);
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn test_remove_deleted_slots_only_affects_partially_available() {
         let mut tracker = SlotsTracker::new();
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 200,
             end: 210,
         }]);
@@ -471,10 +471,10 @@ mod tests {
         tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]); // v1
         assert_eq!(tracker, ([(0, 10)], [], [], Some(1)));
 
-        tracker.set_partially_available_slots(&[SlotRange { start: 20, end: 30 }]); // v2
+        tracker.mark_partially_available_slots(&[SlotRange { start: 20, end: 30 }]); // v2
         assert_eq!(tracker, ([(0, 10)], [], [(20, 30)], Some(2)));
 
-        tracker.set_fully_available_slots(&[SlotRange { start: 5, end: 6 }]); // still v2
+        tracker.mark_fully_available_slots(&[SlotRange { start: 5, end: 6 }]); // still v2
         assert_eq!(tracker, ([(0, 4), (7, 10)], [(5, 6)], [(20, 30)], Some(2)));
 
         tracker.set_local_slots(&[SlotRange { start: 0, end: 5 }]); // v3 (changed local)
@@ -487,9 +487,9 @@ mod tests {
         tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]);
         let v1 = tracker.get_version();
         assert_eq!(tracker, ([(0, 10)], [], [], Some(v1)));
-        tracker.set_fully_available_slots(&[SlotRange { start: 0, end: 5 }]);
+        tracker.mark_fully_available_slots(&[SlotRange { start: 0, end: 5 }]);
         assert_eq!(tracker, ([(6, 10)], [(0, 5)], [], Some(v1)));
-        tracker.set_partially_available_slots(&[SlotRange { start: 50, end: 55 }]);
+        tracker.mark_partially_available_slots(&[SlotRange { start: 50, end: 55 }]);
         assert_eq!(tracker, ([(6, 10)], [(0, 5)], [(50, 55)], Some(v1 + 1)));
     }
 
@@ -499,7 +499,7 @@ mod tests {
         tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]);
         let v1 = tracker.get_version();
         assert_eq!(tracker, ([(0, 10)], [], [], Some(v1)));
-        tracker.set_partially_available_slots(&[SlotRange { start: 20, end: 25 }]);
+        tracker.mark_partially_available_slots(&[SlotRange { start: 20, end: 25 }]);
         assert_eq!(tracker, ([(0, 10)], [], [(20, 25)], Some(v1 + 1)));
 
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 25 }]);
@@ -513,7 +513,7 @@ mod tests {
         let v1 = tracker.get_version();
         assert_eq!(tracker, ([(0, 50)], [], [], Some(v1)));
 
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 100,
             end: 150,
         }]);
@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn test_promote_to_local_slots_does_not_increment_version() {
         let mut tracker = SlotsTracker::new();
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 100,
             end: 200,
         }]);
@@ -573,7 +573,7 @@ mod tests {
         let v1 = tracker.get_version();
         assert_eq!(tracker, ([(0, 50)], [], [], Some(v1)));
 
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 51,
             end: 100,
         }]);
@@ -589,7 +589,7 @@ mod tests {
     #[test]
     fn test_promote_to_local_slots_partial_overlap() {
         let mut tracker = SlotsTracker::new();
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 100,
             end: 200,
         }]);
@@ -608,13 +608,13 @@ mod tests {
         let mut tracker = SlotsTracker::new();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 50 }]);
         let v1 = tracker.get_version();
-        tracker.set_fully_available_slots(&[SlotRange {
+        tracker.mark_fully_available_slots(&[SlotRange {
             start: 200,
             end: 250,
         }]);
         assert_eq!(tracker, ([(0, 50)], [(200, 250)], [], Some(v1)));
 
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 100,
             end: 150,
         }]);
@@ -636,7 +636,7 @@ mod tests {
     #[test]
     fn test_promote_to_local_slots_empty_ranges() {
         let mut tracker = SlotsTracker::new();
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 100,
             end: 200,
         }]);
@@ -650,7 +650,7 @@ mod tests {
     #[test]
     fn test_promote_to_local_slots_non_overlapping() {
         let mut tracker = SlotsTracker::new();
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 100,
             end: 200,
         }]);
@@ -667,11 +667,11 @@ mod tests {
     #[test]
     fn test_promote_to_local_slots_multiple_ranges() {
         let mut tracker = SlotsTracker::new();
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 100,
             end: 200,
         }]);
-        tracker.set_partially_available_slots(&[SlotRange {
+        tracker.mark_partially_available_slots(&[SlotRange {
             start: 300,
             end: 400,
         }]);
