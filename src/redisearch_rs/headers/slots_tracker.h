@@ -35,7 +35,7 @@ extern "C" {
 void slots_tracker_set_local_slots(const RedisModuleSlotRangeArray *ranges);
 
 /**
- * Sets the partially available slot ranges.
+ * Marks the given slot ranges as partially available.
  *
  * This function updates the "partially available slots" set by adding the provided ranges.
  * It also removes the given slots from "local slots" and "fully available slots", and
@@ -48,7 +48,7 @@ void slots_tracker_set_local_slots(const RedisModuleSlotRangeArray *ranges);
  * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
-void slots_tracker_set_partially_available_slots(const RedisModuleSlotRangeArray *ranges);
+void slots_tracker_mark_partially_available_slots(const RedisModuleSlotRangeArray *ranges);
 
 /**
  * Promotes slot ranges to local ownership.
@@ -69,7 +69,7 @@ void slots_tracker_set_partially_available_slots(const RedisModuleSlotRangeArray
 void slots_tracker_promote_to_local_slots(const RedisModuleSlotRangeArray *ranges);
 
 /**
- * Sets the fully available non-owned slot ranges.
+ * Marks the given slot ranges as fully available non-owned.
  *
  * This function updates the "fully available slots" set by adding the provided ranges.
  * It also removes the given slots from "local slots".
@@ -84,7 +84,7 @@ void slots_tracker_promote_to_local_slots(const RedisModuleSlotRangeArray *range
  * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
-void slots_tracker_set_fully_available_slots(const RedisModuleSlotRangeArray *ranges);
+void slots_tracker_mark_fully_available_slots(const RedisModuleSlotRangeArray *ranges);
 
 /**
  * Removes deleted slot ranges from the partially available slots.

@@ -164,7 +164,7 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeA
     sync_version(tracker);
 }
 
-/// Sets the partially available slot ranges.
+/// Marks the given slot ranges as partially available.
 ///
 /// This function updates the "partially available slots" set by adding the provided ranges.
 /// It also removes the given slots from "local slots" and "fully available slots", and
@@ -177,7 +177,7 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeA
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_set_partially_available_slots(
+pub unsafe extern "C" fn slots_tracker_mark_partially_available_slots(
     ranges: *const SlotRangeArray,
 ) {
     // SAFETY: Caller guarantees valid pointer and main thread access
@@ -187,7 +187,7 @@ pub unsafe extern "C" fn slots_tracker_set_partially_available_slots(
     let tracker = unsafe { get_tracker() };
 
     // Delegate to the safe implementation
-    tracker.set_partially_available_slots(ranges);
+    tracker.mark_partially_available_slots(ranges);
 
     // Sync the atomic version counter
     sync_version(tracker);
@@ -221,7 +221,7 @@ pub unsafe extern "C" fn slots_tracker_promote_to_local_slots(ranges: *const Slo
     // Note: Version is NOT incremented here
 }
 
-/// Sets the fully available non-owned slot ranges.
+/// Marks the given slot ranges as fully available non-owned.
 ///
 /// This function updates the "fully available slots" set by adding the provided ranges.
 /// It also removes the given slots from "local slots".
@@ -236,7 +236,7 @@ pub unsafe extern "C" fn slots_tracker_promote_to_local_slots(ranges: *const Slo
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const SlotRangeArray) {
+pub unsafe extern "C" fn slots_tracker_mark_fully_available_slots(ranges: *const SlotRangeArray) {
     // SAFETY: Caller guarantees valid pointer and main thread access
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
@@ -245,7 +245,7 @@ pub unsafe extern "C" fn slots_tracker_set_fully_available_slots(ranges: *const 
 
     // Delegate to the safe implementation
     // Note: This does NOT increment the version
-    tracker.set_fully_available_slots(ranges);
+    tracker.mark_fully_available_slots(ranges);
 }
 
 /// Removes deleted slot ranges from the partially available slots.
