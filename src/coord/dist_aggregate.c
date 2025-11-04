@@ -230,7 +230,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, cCtx);
 }
 
-static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
+int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r) {
   // Profile args
   int profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
@@ -254,7 +254,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
   rs_wall_clock_init(&r->initClock);
 
-  int profileArgs = parseProfile(argv, argc, r);
+  int profileArgs = parseProfileArgs(argv, argc, r);
   if (profileArgs == -1) return REDISMODULE_ERR;
   int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;

@@ -412,7 +412,7 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
-void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, QEFlags reqFlags, QueryError* err);
+void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, AREQ *req);
 void AREQ_Free(AREQ *req);
 
 /**
@@ -450,6 +450,10 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status);
 
+// From aggregate_dist.c
+// Allows calling parseProfileArgs from reply_empty.c
+int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
+void parseProfileExecOptions(AREQ *r, int execOptions);
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 

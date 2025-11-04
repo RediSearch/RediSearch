@@ -1849,7 +1849,7 @@ static void searchRequestCtx_Free(searchRequestCtx *r) {
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
 
-static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
+int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     req->profileArgs += 2;
@@ -2801,23 +2801,6 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   rm_free(results);
 }
 
-// Coordinator reply with empty search results for FT.SEARCH command.
-// Creates a dummy searchReducerCtx with empty heap to use existing sendSearchResults logic.
-// Handles RESP2/RESP3 protocol and formatting.
-// Currently used during OOM conditions for early bailout and return empty results instead of failing.
-void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req) {
-    // Setup a dummy searchReducerCtx that will be used by sendSearchResults
-    searchReducerCtx rCtx = {NULL};
-    rCtx.postProcess = (postProcessReplyCB)(noOpPostProcess);
-    rCtx.searchCtx = req;
-    // Create empty heap (dynamic allocation is necessary for heap_free in sendSearchResults)
-    heap_t* emptyHeap = heap_new(cmp_results, req);
-    rCtx.pq = emptyHeap;
-
-    // The empty heap will result in an empty reply
-    sendSearchResults(reply, &rCtx);
-}
-
 /**
  * This function is used to print profiles received from the shards.
  * It is used by both SEARCH and AGGREGATE.
@@ -2905,6 +2888,27 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     Profile_PrintInFormat(reply, PrintShardProfile, &shardsCtx, profileSearchReplyCoordinator, &coordCtx);
 
     RedisModule_Reply_MapEnd(reply); // >root
+}
+
+// Coordinator reply with empty search results for FT.SEARCH command.
+// Creates a dummy searchReducerCtx with empty heap to use existing sendSearchResults logic.
+// Handles RESP2/RESP3 protocol and formatting.
+// Currently used during OOM conditions for early bailout and return empty results instead of failing.
+void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req) {
+    // Setup a dummy searchReducerCtx that will be used by sendSearchResults
+    searchReducerCtx rCtx = {NULL};
+    rCtx.postProcess = (postProcessReplyCB)(noOpPostProcess);
+    rCtx.searchCtx = req;
+    // Create empty heap (dynamic allocation is necessary for heap_free in sendSearchResults)
+    heap_t* emptyHeap = heap_new(cmp_results, req);
+    // The empty heap will result in an empty reply
+    rCtx.pq = emptyHeap;
+
+    if (req->profileArgs > 0) {
+      profileSearchReply(reply, &rCtx, 0, NULL, &req->profileClock, rs_wall_clock_now_ns());
+    } else {
+      sendSearchResults(reply, &rCtx);
+    }
 }
 
 static void searchResultReducer_wrapper(void *mc_v) {
@@ -3246,11 +3250,17 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
-    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail || NumShards == 1) {
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
       return QueryMemoryGuardFailure(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
-    return coord_aggregate_query_reply_empty(ctx, argv, argc);
+    if (NumShards > 1) {
+      // Handle OOM policy return in Coord, return empty results
+      return coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_EOOM);
+    } else {
+      // Handle OOM policy return in single-shard, return empty results
+      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_EOOM);
+    }
   }
 
   // Coord callback
@@ -3310,7 +3320,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       return QueryMemoryGuardFailure(ctx);
     }
     // Assuming OOM policy is return
-    return common_hybrid_query_reply_empty(ctx);
+    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM);
   }
 
   // Coord callback
@@ -3647,11 +3657,13 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
       return QueryMemoryGuardFailure(ctx);
     }
-    // Handle OOM policy return in Coord, return empty results
     // Assuming policy is return, since we didn't ignore the memory guardrail
-    // Single shard is handled in RSSearchCommand
     if (NumShards > 1) {
-      return coord_search_query_reply_empty(ctx);
+      // Handle OOM policy return in Coord, return empty results
+      return coord_search_query_reply_empty(ctx, argv, argc, QUERY_EOOM);
+    } else {
+      // Handle OOM policy return in single-shard, return empty results
+      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_EOOM);
     }
   }
 

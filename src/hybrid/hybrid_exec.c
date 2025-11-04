@@ -318,7 +318,7 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
     RedisModule_Reply_ArrayEnd(reply);
 
     // warning
-    RedisModule_Reply_SimpleString(reply, "warning");
+    RedisModule_Reply_SimpleString(reply, "warnings");
     if (QueryError_HasQueryOOMWarning(err)) {
         RedisModule_Reply_Array(reply);
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
@@ -570,7 +570,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       return QueryMemoryGuardFailure(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
-    return common_hybrid_query_reply_empty(ctx);
+    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM);
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);

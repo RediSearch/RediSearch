@@ -13,22 +13,23 @@
 #pragma once
 
 #include "redismodule.h"
+#include "query_error.h"
 
 // Coordinator empty reply for FT.SEARCH commands.
 // Handles both RESP2 and RESP3 with proper search result formatting.
-int coord_search_query_reply_empty(RedisModuleCtx *ctx);
+int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryErrorCode errCode);
 
 // Coordinator empty reply for FT.AGGREGATE commands.
 // Handles both RESP2 and RESP3 with proper aggregate result formatting.
 // Requires command arguments to extract formatting requirements.
-int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryErrorCode errCode);
 
 // Empty reply for hybrid queries.
 // Uses RESP3 map structure with proper hybrid result formatting.
 // Works for both coordinator and single-shard hybrid queries.
-int common_hybrid_query_reply_empty(RedisModuleCtx *ctx);
+int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode);
 
 // Single-shard empty reply for SEARCH and AGGREGATE commands.
 // Handles both RESP2 and RESP3 with command-appropriate formatting.
 // Works for both SEARCH and AGGREGATE by compiling query for format detection.
-int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int execOptions, QueryErrorCode errCode);

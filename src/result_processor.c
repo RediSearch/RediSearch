@@ -188,7 +188,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const SharedSlotRangeA
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
   /* On coordinator, the root result processor will be a network result processor and we should ignore it */
-  if (it->rootProc->type == RP_INDEX) {
+  if (it->rootProc && it->rootProc->type == RP_INDEX) {
     return ((RPQueryIterator *)it->rootProc)->iterator;
   }
   return NULL;

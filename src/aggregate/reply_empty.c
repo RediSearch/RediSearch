@@ -14,20 +14,19 @@
 #include "../module.h"
 #include "../aggregate/aggregate.h"
 #include "../hybrid/hybrid_exec.h"
+#include "../rmutil/util.h"
+#include "reply_empty.h"
 
 // Helper function for empty replies for aggregate-style queries.
 // Compiles the query to get request flags and formatting, then uses sendChunk_ReplyOnly_EmptyResults.
 // Works for both single-shard and coordinator aggregate queries.
-static int empty_sendChunk_common(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+// Assumes req has already been compiled, including REQFLAGS and AREQ_QueryProcessingCtx(req)->err has been set.
+static int empty_sendChunk_common(RedisModuleCtx *ctx, AREQ *req) {
+
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    AREQ *req = AREQ_New();
-    QueryError status = QueryError_Default();
-    int rc = AREQ_Compile(req, argv + 2, argc - 2, &status);
-    if (rc != REDISMODULE_OK) {
-      return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
-    }
-    QueryError_SetQueryOOMWarning(&status);
-    sendChunk_ReplyOnly_EmptyResults(reply, AREQ_RequestFlags(req), &status);
+
+    sendChunk_ReplyOnly_EmptyResults(reply, req);
+
     AREQ_Free(req);
     RedisModule_EndReply(reply);
     return REDISMODULE_OK;
@@ -35,33 +34,98 @@ static int empty_sendChunk_common(RedisModuleCtx *ctx, RedisModuleString **argv,
 
 // Coordinator empty reply for FT.SEARCH commands. Currently used during OOM conditions.
 // Creates a minimal searchRequestCtx with OOM flag and uses sendSearchResults_EmptyResults.
-int coord_search_query_reply_empty(RedisModuleCtx *ctx) {
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryErrorCode errCode) {
     searchRequestCtx req = {0};
-    req.queryOOM = true;
+
+    // The clock is not important for the empty reply, but is required for profiling
+    rs_wall_clock_init(&req.initClock);
+
+    // PROFILE for FT.SEARCH requires no additional parsing
+    if (rscParseProfile(&req, argv) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
+
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
+    // Handle known errors supported by empty reply module
+    req.queryOOM = errCode == QUERY_EOOM;
+
     sendSearchResults_EmptyResults(reply, &req);
+
     RedisModule_EndReply(reply);
     return REDISMODULE_OK;
 }
 
 // Coordinator empty reply for FT.AGGREGATE commands. Currently used during OOM conditions.
 // Uses the common helper which compiles the query to get formatting requirements.
-int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    return empty_sendChunk_common(ctx, argv, argc);
+int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryErrorCode errCode) {
+
+    AREQ *req = AREQ_New();
+    QueryError status = QueryError_Default();
+    AREQ_QueryProcessingCtx(req)->err = &status;
+
+    int profileArgs = parseProfileArgs(argv, argc, req);
+    if (profileArgs == -1) return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+
+    int rc = AREQ_Compile(req, argv + 2 + profileArgs, argc - 2 - profileArgs, &status);
+    if (rc != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+    }
+
+    // Set the error code after compiling the query, since we don't want to overwrite
+    // any errors that might have occurred during compilation
+    QueryError_SetError(&status, errCode, NULL);
+    QueryError_SetCode(&status, errCode);
+    if (errCode == QUERY_EOOM) {
+        status._queryOOM = true;
+    }
+
+    return empty_sendChunk_common(ctx, req);
 }
 
 // Empty reply for hybrid queries. Currently used during OOM conditions.
 // Creates QueryError with OOM warning and uses sendChunk_ReplyOnly_HybridEmptyResults.
-int common_hybrid_query_reply_empty(RedisModuleCtx *ctx) {
+int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode) {
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    QueryError qerr = QueryError_Default();
-    QueryError_SetQueryOOMWarning(&qerr);
-    sendChunk_ReplyOnly_HybridEmptyResults(reply, &qerr);
+
+    QueryError status = QueryError_Default();
+    QueryError_SetError(&status, errCode, NULL);
+    QueryError_SetCode(&status, errCode);
+    if (errCode == QUERY_EOOM) {
+        status._queryOOM = true;
+    }
+
+    sendChunk_ReplyOnly_HybridEmptyResults(reply, &status);
     return REDISMODULE_OK;
 }
 
 // Single-shard empty reply for both SEARCH and AGGREGATE commands. Currently used during OOM conditions.
 // Uses the common helper which compiles the query and works for both command types.
-int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    return empty_sendChunk_common(ctx, argv, argc);
+int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int execOptions, QueryErrorCode errCode) {
+
+    AREQ *req = AREQ_New();
+    // Clock init required for profiling
+    rs_wall_clock_init(&req->initClock);
+    rs_wall_clock_init(&AREQ_QueryProcessingCtx(req)->initTime);
+
+    QueryError status = QueryError_Default();
+    AREQ_QueryProcessingCtx(req)->err = &status;
+
+    parseProfileExecOptions(req, execOptions);
+
+    int rc = AREQ_Compile(req, argv + 2, argc - 2, &status);
+    if (rc != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+    }
+
+    // Set the error code after compiling the query, since we don't want to overwrite
+    // any errors that might have occurred during compilation
+    QueryError_SetError(&status, errCode, NULL);
+    QueryError_SetCode(&status, errCode);
+    if (errCode == QUERY_EOOM) {
+        status._queryOOM = true;
+    }
+
+
+    return empty_sendChunk_common(ctx, req);
 }

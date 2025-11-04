@@ -132,6 +132,8 @@ int QueryMemoryGuardFailure(RedisModuleCtx *ctx);
 
 void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req);
 
+int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv);
+
 #ifdef __cplusplus
 }
 #endif
