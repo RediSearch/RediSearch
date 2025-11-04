@@ -170,6 +170,7 @@ static void testSplit() {
 
 int main(int, char **) {
   RMCK::init();
+  RDCR_RegisterBuiltins();
   testAverage();
   testCountDistinct();
   RMCK_Shutdown();
