@@ -12,7 +12,9 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
+};
 
 /// Iterator that extends a [`RQEIterator`] up to a given upper bound
 /// by emitting virtual results after the child iterator is exhausted.
@@ -39,7 +41,7 @@ pub struct Optional<'index, I> {
     /// [`RQEValidateStatus::Aborted`] during a delegated call
     /// to [`RQEIterator::revalidate`]. In which case it will
     /// start acting like an "Empty" iterator.
-    child: Option<I>,
+    child: MaybeEmpty<I>,
 
     /// Reused result object to avoid allocating on each read.
     result: RSIndexResult<'index>,
@@ -66,7 +68,7 @@ where
             last_doc_id: 0,
             result: RSIndexResult::virt().frequency(1),
 
-            child: Some(child),
+            child: MaybeEmpty::new(child),
         }
     }
 }

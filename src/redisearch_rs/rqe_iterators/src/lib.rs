@@ -15,10 +15,9 @@ use ::inverted_index::RSIndexResult;
 pub mod empty;
 pub mod id_list;
 pub mod inverted_index;
+pub mod maybe_empty;
 pub mod optional;
 pub mod wildcard;
-
-mod option;
 
 #[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
