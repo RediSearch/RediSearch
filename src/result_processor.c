@@ -1595,6 +1595,7 @@ static int RPDepleter_Next_Sync(ResultProcessor *base, SearchResult *r) {
   }
 
   // Should never reach here since we switch to yield mode on first call
+  RS_LOG_ASSERT(0, "Unreachable code");
   return RS_RESULT_ERROR;
 }
 

@@ -86,6 +86,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   array_append(tmparr, "_NUM_SSTRING");
 
   // Preserve WITHCOUNT flag from the original command
+  // It's not necessary to pass WITHOUTCOUNT because it's the default.
   int argOffset  = RMUtil_ArgIndex("WITHCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1) {
     array_append(tmparr, "WITHCOUNT");
