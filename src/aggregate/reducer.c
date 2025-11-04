@@ -33,6 +33,7 @@ static const FuncEntry globalRegistry[] = {
 };
 
 #define REGISTRY_SIZE 14
+static_assert(sizeof(globalRegistry) == sizeof(FuncEntry) * REGISTRY_SIZE);
 
 ReducerFactory RDCR_GetFactory(const char *name) {
   for (size_t ii = 0; ii < REGISTRY_SIZE; ++ii) {
