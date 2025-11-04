@@ -20,10 +20,6 @@ use inverted_index::{
 };
 use itertools::Itertools;
 
-// The encode C implementation relies on this symbol. Re-export it to ensure it is not discarded by the linker.
-#[allow(unused_imports)]
-pub use varint_ffi::WriteVarintFieldMask;
-
 pub struct Bencher {
     test_values: Vec<TestValue>,
     wide: bool,

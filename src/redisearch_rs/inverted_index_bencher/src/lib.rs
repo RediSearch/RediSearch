@@ -13,27 +13,11 @@
     clippy::multiple_unsafe_ops_per_block
 )]
 
-use std::ffi::{c_char, c_void};
+use std::ffi::c_void;
 
 pub mod benchers;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
-
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
-
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RSDummyContext: *const c_void = std::ptr::null();
-
-#[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RedisModule_Log(
-    _ctx: *mut redis_module::RedisModuleCtx,
-    _level: *const c_char,
-    _fmt: *const c_char,
-) {
-}
 
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
