@@ -107,6 +107,18 @@ static void ReplyIteratorResultsIDs(QueryIterator *iterator, RedisModuleCtx *ctx
   iterator->Free(iterator);
 }
 
+static void ReplyReaderResultsIDs(IndexReader *reader, RSIndexResult *res, RedisModuleCtx *ctx) {
+  size_t resultSize = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  while (IndexReader_Next(reader, res)) {
+      RedisModule_ReplyWithLongLong(ctx, res->docId);
+      ++resultSize;
+  }
+  RedisModule_ReplySetArrayLength(ctx, resultSize);
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
+}
+
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
   size_t len;
@@ -230,8 +242,12 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
-  QueryIterator *iter = NewInvIndIterator_TermFull(invidx);
-  ReplyIteratorResultsIDs(iter, sctx->redisCtx);
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+  IndexReader *reader = NewIndexReader(invidx, decoderCtx);
+  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  res->freq = 1;
+  res->fieldMask = RS_FIELDMASK_ALL;
+  ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
 
 end:
   SearchCtx_Free(sctx);
@@ -392,12 +408,15 @@ InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *
 
   REPLY_WITH_STR("values", ARRAY_LEN_VAR(invertedIndexDump));
   START_POSTPONED_LEN_ARRAY(invertedIndexValues);
-  QueryIterator *iter = NewInvIndIterator_NumericFull(idx);
-  while (iter->Read(iter) == ITERATOR_OK) {
-    REPLY_WITH_DOUBLE("value", IndexResult_NumValue(iter->current), ARRAY_LEN_VAR(invertedIndexValues));
-    REPLY_WITH_LONG_LONG("docId", iter->current->docId, ARRAY_LEN_VAR(invertedIndexValues));
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
+  IndexReader *reader = NewIndexReader(idx, decoderCtx);
+  RSIndexResult *res = NewNumericResult();
+  while (IndexReader_Next(reader, res)) {
+    REPLY_WITH_DOUBLE("value", IndexResult_NumValue(res), ARRAY_LEN_VAR(invertedIndexValues));
+    REPLY_WITH_LONG_LONG("docId", res->docId, ARRAY_LEN_VAR(invertedIndexValues));
   }
-  iter->Free(iter);
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
   END_POSTPONED_LEN_ARRAY(invertedIndexValues);
   ARRAY_LEN_VAR(invertedIndexDump)++;
 
@@ -581,8 +600,12 @@ DEBUG_COMMAND(DumpTagIndex) {
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
-    QueryIterator *iterator = NewInvIndIterator_TagFull(iv, tagIndex);
-    ReplyIteratorResultsIDs(iterator, sctx->redisCtx);
+    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+    IndexReader *reader = NewIndexReader(iv, decoderCtx);
+    RSIndexResult *res = NewTokenRecord(NULL, 1);
+    res->freq = 1;
+    res->fieldMask = RS_FIELDMASK_ALL;
+    ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
     ++resultSize;
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
@@ -1148,8 +1171,12 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
-      QueryIterator *reader = NewInvIndIterator_TagFull(iv, idx);
-      ReplyIteratorResultsIDs(reader, sctx->redisCtx);
+      IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+      IndexReader *reader = NewIndexReader(iv, decoderCtx);
+      RSIndexResult *res = NewTokenRecord(NULL, 1);
+      res->freq = 1;
+      res->fieldMask = RS_FIELDMASK_ALL;
+      ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
     }
 
     RedisModule_ReplySetArrayLength(ctx, nsubelem);
@@ -1448,6 +1475,9 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     if (workerThreadPool_isPaused()) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool is not running");
     }
+    // Log that we're waiting for the workers to finish.
+    RedisModule_Log(RSDummyContext, "notice", "Debug workers drain");
+
     workersThreadPool_Drain(RSDummyContext, 0);
     // After we drained the thread pool and there are no more jobs in the queue, we wait until all
     // threads are idle, so we can be sure that all jobs were executed.

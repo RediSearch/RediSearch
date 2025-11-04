@@ -46,10 +46,8 @@ void rpnetFree(ResultProcessor *rp);
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *));
 void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
-
-// NEW: Start function for RPNet with cursor mappings
+int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
 int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r);
-
 
 
 #ifdef __cplusplus

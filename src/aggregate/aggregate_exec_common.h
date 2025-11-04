@@ -14,7 +14,7 @@
 
 bool hasTimeoutError(QueryError *err);
 
-bool ShouldReplyWithError(QueryError *status, RSTimeoutPolicy timeoutPolicy, bool isProfile);
+bool ShouldReplyWithError(QueryErrorCode code, RSTimeoutPolicy timeoutPolicy, bool isProfile);
 
 bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isProfile);
 

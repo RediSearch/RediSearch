@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, RSIndexResult, TermDecoder};
 
 /// Encode and decode the delta, frequency and field mask of a record.
 ///
@@ -54,6 +54,7 @@ impl DecodedBy for FreqsFields {
 }
 
 impl Decoder for FreqsFields {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -110,6 +111,7 @@ impl DecodedBy for FreqsFieldsWide {
 }
 
 impl Decoder for FreqsFieldsWide {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -130,3 +132,6 @@ impl Decoder for FreqsFieldsWide {
         RSIndexResult::term()
     }
 }
+
+impl TermDecoder for FreqsFields {}
+impl TermDecoder for FreqsFieldsWide {}

@@ -21,6 +21,8 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx);
 void Initialize_CommandFilter(RedisModuleCtx *ctx);
 void Initialize_RdbNotifications(RedisModuleCtx *ctx);
 void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx);
+void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
+void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
 
 #ifdef __cplusplus
 }

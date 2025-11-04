@@ -24,7 +24,7 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "rpnet.h"
-#include "hybrid/dist_utils.h"
+#include "coord/hybrid/dist_utils.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   for (const RLookupKey *kk = nc->lookup->head; kk; kk = kk->next) {

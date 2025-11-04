@@ -39,7 +39,9 @@ typedef struct {
  * @param tailLookup The destination lookup to populate with unified schema (non-null)
  * @return HybridLookupContext* to an initialized HybridLookupContext
  */
-HybridLookupContext* InitializeHybridLookupContext(arrayof(AREQ*) requests, RLookup *tailLookup);
+HybridLookupContext* HybridLookupContext_New(arrayof(AREQ*) requests, RLookup *tailLookup);
+
+void HybridLookupContext_Free(HybridLookupContext *lookupCtx);
 
 #ifdef __cplusplus
 }

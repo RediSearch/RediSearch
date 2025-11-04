@@ -529,19 +529,19 @@ fn rewind_hybrid_virtual() {
 #[test]
 fn revalidate_pure_virtual() {
     let mut it = Optional::new(5, 1., Empty::default());
-    assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
 }
 
 #[test]
 fn revalidate_pure_wildcard() {
     let mut it = Optional::new(5, 1., Wildcard::new(8));
-    assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
 }
 
 #[test]
 fn revalidate_hybrid() {
     let mut it = Optional::new(5, 1., Wildcard::new(2));
-    assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
 }
 
 // TODO: once there is a Moved/Aborted scenario

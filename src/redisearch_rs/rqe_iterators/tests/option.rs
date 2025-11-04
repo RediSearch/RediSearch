@@ -158,11 +158,11 @@ fn rewind_some_wildcard() {
 #[test]
 fn revalidate_none() {
     let mut it: Option<Wildcard> = None;
-    assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
 }
 
 #[test]
 fn revalidate_some_wildcard() {
     let mut it = Some(Wildcard::new(10));
-    assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
 }

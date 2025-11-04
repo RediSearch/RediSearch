@@ -12,6 +12,9 @@
 #include "util/arg_parser.h"
 #include <string.h>
 
+#define HYBRID_DEFAULT_ALPHA 0.3
+#define HYBRID_DEFAULT_BETA 0.7
+
 static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const char *clause, QueryError* status) {
   unsigned int count = 0;
   int rc = AC_GetUnsigned(ac, &count, 0);
@@ -80,21 +83,21 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RS
     return;
   }
 
-  // Check that both required arguments were parsed
-  if (!ArgParser_WasParsed(parser, "ALPHA")) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for ALPHA");
-    ArgParser_Free(parser);
-    return;
-  }
-  if (!ArgParser_WasParsed(parser, "BETA")) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for BETA");
+  bool hasAlpha = ArgParser_WasParsed(parser, "ALPHA");
+  bool hasBeta = ArgParser_WasParsed(parser, "BETA");
+  if (hasAlpha ^ hasBeta) { // all or none of ALPHA and BETA must be present
+    if (hasAlpha) {
+      QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for BETA");
+    } else {
+      QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for ALPHA");
+    }
     ArgParser_Free(parser);
     return;
   }
 
   // Store the parsed values
-  linearCtx->linearWeights[0] = alphaValue;
-  linearCtx->linearWeights[1] = betaValue;
+  linearCtx->linearWeights[0] = hasAlpha ? alphaValue : HYBRID_DEFAULT_ALPHA;
+  linearCtx->linearWeights[1] = hasBeta ? betaValue : HYBRID_DEFAULT_BETA;
   linearCtx->window = windowValue;
 
   ArgParser_Free(parser);

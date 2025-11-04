@@ -40,10 +40,10 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> RQEValidateStatus {
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match self {
             Some(it) => it.revalidate(),
-            None => RQEValidateStatus::Ok,
+            None => Ok(RQEValidateStatus::Ok),
         }
     }
 

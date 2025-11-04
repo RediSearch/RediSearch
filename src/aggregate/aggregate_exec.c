@@ -396,7 +396,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    if (ShouldReplyWithError(rp->parent->err, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+    if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_2_err;
@@ -515,7 +515,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &results, &r, &rc);
 
-    if (ShouldReplyWithError(rp->parent->err, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+    if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_3_err;
@@ -585,7 +585,8 @@ done_3:
 
     // <error>
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-    if (sctx->spec && sctx->spec->scan_failed_OOM) {
+    // qctx->bgScanOOM for coordinator, sctx->spec->scan_failed_OOM for shards
+    if ((qctx->bgScanOOM)||(sctx->spec && sctx->spec->scan_failed_OOM)) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
@@ -976,13 +977,11 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   QueryError status = QueryError_Default();
 
-  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
-    // OOM guardrail
-    if (estimateOOM(ctx)) {
-      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-      QueryError_SetCode(&status, QUERY_EOOM);
-      return QueryError_ReplyAndClear(ctx, &status);
-    }
+  // Memory guardrail
+  if (QueryMemoryGuard(ctx)) {
+    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+    QueryError_SetCode(&status, QUERY_EOOM);
+    return QueryError_ReplyAndClear(ctx, &status);
   }
 
   AREQ *r = AREQ_New();

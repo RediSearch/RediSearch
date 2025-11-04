@@ -14,7 +14,7 @@ use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
 use crate::{
-    DecodedBy, Decoder, Encoder, RSIndexResult, RSResultData,
+    DecodedBy, Decoder, Encoder, RSIndexResult, RSResultData, TermDecoder,
     full::{decode_term_record_offsets, offsets},
 };
 
@@ -66,6 +66,7 @@ impl DecodedBy for FieldsOffsets {
 }
 
 impl Decoder for FieldsOffsets {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -173,6 +174,7 @@ impl DecodedBy for FieldsOffsetsWide {
 }
 
 impl Decoder for FieldsOffsetsWide {
+    #[inline(always)]
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -237,3 +239,6 @@ impl Decoder for FieldsOffsetsWide {
         Ok(true)
     }
 }
+
+impl TermDecoder for FieldsOffsets {}
+impl TermDecoder for FieldsOffsetsWide {}

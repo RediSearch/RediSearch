@@ -571,7 +571,7 @@ impl<Data> LabelBuffer<'_, Data> {
     /// 1. The number of elements in `src` must be less than or equal to the capacity of the label buffer.
     /// 2. `src` and the label buffer must not overlap.
     /// 3. You have exclusive access to the label buffer.
-    pub(super) unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[u8]) {
+    pub(super) const unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[u8]) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -614,7 +614,7 @@ impl<Data> LabelBuffer<'_, Data> {
     /// 1. `offset` + `n_elements` must not exceed the capacity of the label buffer.
     /// 2. You must have exclusive access to the label buffer.
     /// 3. The first `n_elements` elements in the buffer must be correctly initialized.
-    pub(super) unsafe fn shift_right(&mut self, offset: usize, n_elements: usize) {
+    pub(super) const unsafe fn shift_right(&mut self, offset: usize, n_elements: usize) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -661,7 +661,7 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     /// 1. The number of elements in `src` must be less than or equal to the capacity of the buffer.
     /// 2. `src` and the destination buffer must not overlap.
     /// 3. You have exclusive access to the children first-bytes buffer.
-    pub(super) unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[u8]) {
+    pub(super) const unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[u8]) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -707,7 +707,12 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     /// 1. `target + by + n_elements` must not exceed the capacity of the buffer.
     /// 2. You must have exclusive access to the children first-bytes buffer.
     /// 3. The elements in `[target + by..(target + n_elements - 1) + by]` must be correctly initialized.
-    pub(super) unsafe fn shift_left(&mut self, target: usize, by: NonZeroUsize, n_elements: usize) {
+    pub(super) const unsafe fn shift_left(
+        &mut self,
+        target: usize,
+        by: NonZeroUsize,
+        n_elements: usize,
+    ) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -736,7 +741,7 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     ///
     /// 1. The number of elements in `bytes` must be less than or equal to the capacity of the buffer.
     /// 2. You have exclusive access to the children first-bytes buffer.
-    pub(super) unsafe fn write<const N: usize>(&mut self, bytes: [u8; N]) {
+    pub(super) const unsafe fn write<const N: usize>(&mut self, bytes: [u8; N]) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -775,7 +780,7 @@ impl<Data> ChildrenBuffer<'_, Data> {
     ///
     /// 1. The number of elements in `source` must be less than or equal to the capacity of the buffer.
     /// 2. You have exclusive access to the children buffer.
-    pub(super) unsafe fn write<const N: usize>(&mut self, source: [Node<Data>; N]) {
+    pub(super) const unsafe fn write<const N: usize>(&mut self, source: [Node<Data>; N]) {
         #[cfg(debug_assertions)]
         {
             assert!(

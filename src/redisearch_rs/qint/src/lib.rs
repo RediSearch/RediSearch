@@ -175,6 +175,7 @@ where
 ///
 /// # Returns
 /// A tuple of (decoded_values as an array, bytes_consumed) or an io error
+#[inline(always)]
 pub fn qint_decode<const N: usize, R>(reader: &mut R) -> Result<([u32; N], usize), std::io::Error>
 where
     [u32; N]: ValidQIntSize,

@@ -21,9 +21,9 @@ use std::{
 
 #[derive(Default, Copy, Clone)]
 #[repr(C)]
-struct UserString {
-    user: *const c_char,
-    length: usize,
+pub(crate) struct UserString {
+    pub(crate) user: *const c_char,
+    pub(crate) length: usize,
 }
 
 /// Mock implementation of `HiddenString_GetUnsafe` from obfuscation/hidden.h for testing purposes
@@ -134,5 +134,17 @@ extern "C" fn IndexSpecCache_Decref(s: Option<NonNull<ffi::IndexSpecCache>>) {
 
     if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
         drop(unsafe { Box::from_raw(s.as_ptr()) });
+    }
+}
+
+/// Mock implementation of `sdslen` from sds.h for testing purposes,
+/// instead of using a dynamic string type, we just use C strings here.
+#[unsafe(no_mangle)]
+extern "C" fn sdslen__(s: *const c_char) -> usize {
+    if s.is_null() {
+        0
+    } else {
+        // Safety: Caller provides valid C string pointer
+        unsafe { libc::strlen(s) }
     }
 }

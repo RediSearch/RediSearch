@@ -410,6 +410,7 @@ where
     /// # Safety
     ///
     /// 1. `me` must be a well-aligned, valid pointer to a result processor (struct [`Header`]).
+    #[allow(clippy::missing_const_for_fn)]
     unsafe fn debug_assert_same_type(_me: NonNull<Header>) {
         #[cfg(debug_assertions)]
         {

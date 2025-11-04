@@ -11,6 +11,9 @@ crate-type = ["staticlib", "rlib"]
 bench = false
 
 [dependencies]
+ffi.workspace = true
+redis-module.workspace = true
+value.workspace = true
 
 [lints]
 workspace = true

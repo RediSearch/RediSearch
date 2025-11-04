@@ -143,19 +143,20 @@ where
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
     }
 
-    fn revalidate(&mut self) -> RQEValidateStatus {
-        match self.child.revalidate() {
-            RQEValidateStatus::Ok => RQEValidateStatus::Ok,
-            RQEValidateStatus::Moved => {
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        match self.child.revalidate()? {
+            RQEValidateStatus::Ok => Ok(RQEValidateStatus::Ok),
+            moved @ RQEValidateStatus::Moved { .. } => {
                 // Current result is real and child was moved (or aborted) - we need to re-read
                 // NOTE: old c code: base->Read(base)
                 // TODO: ^^^ should we return read as well?
-                RQEValidateStatus::Moved
+                Ok(moved)
             }
             RQEValidateStatus::Aborted => {
                 // Handle child validation results (but continue processing)
-                self.child = None; // NOTE: C code used empty iterator for this, this is equivalent;
-                RQEValidateStatus::Ok
+                // self.child = None; // NOTE: C code used empty iterator for this, this is equivalent;
+                // TODO: do the above line despite &mut borrow
+                Ok(RQEValidateStatus::Ok)
             }
         }
     }

@@ -7,17 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::t_docId;
+use thiserror::Error;
+
+use ::inverted_index::RSIndexResult;
+
 pub mod empty;
 pub mod id_list;
+pub mod inverted_index;
 pub mod optional;
 pub mod wildcard;
 
 mod option;
 
-use ffi::t_docId;
-use inverted_index::RSIndexResult;
-
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
 pub enum SkipToOutcome<'iterator, 'index> {
     /// The iterator has a valid entry for the requested `doc_id`.
@@ -27,20 +30,27 @@ pub enum SkipToOutcome<'iterator, 'index> {
     NotFound(&'iterator mut RSIndexResult<'index>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 /// An iterator failure indications
 pub enum RQEIteratorError {
     /// The iterator has reached the time limit for execution.
+    #[error("reached time limit")]
     TimedOut,
+    /// Iterator failed to read from the inverted index.
+    #[error("failed to read from inverted index")]
+    IoError(#[from] std::io::Error),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 /// The status of the iterator after a call to `revalidate`
-pub enum RQEValidateStatus {
+pub enum RQEValidateStatus<'iterator, 'index> {
     /// The iterator is still valid and at the same position.
     Ok,
     /// The iterator is still valid but its internal state has changed.
-    Moved,
+    Moved {
+        /// The new current current document the iterator is at, or `None` if the iterator is at EOF.
+        current: Option<&'iterator mut RSIndexResult<'index>>,
+    },
     /// The iterator is no longer valid, and should not be used or rewound. Should be dropped.
     Aborted,
 }
@@ -69,9 +79,9 @@ pub trait RQEIterator<'index> {
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
     /// The iterator should check if it is still valid.
-    fn revalidate(&mut self) -> RQEValidateStatus {
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Default implementation does nothing.
-        RQEValidateStatus::Ok
+        Ok(RQEValidateStatus::Ok)
     }
 
     ///Rewind the iterator to the beginning and reset its properties.

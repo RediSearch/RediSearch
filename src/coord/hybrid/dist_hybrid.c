@@ -397,16 +397,24 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     StrongRef searchMappingsRef = StrongRef_New(search, FreeCursorMappings);
     StrongRef vsimMappingsRef = StrongRef_New(vsim, FreeCursorMappings);
 
-
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
     int numShards = GetNumShards_UnSafe();
 
-    if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, status)) {
+    const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
+    if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
         return REDISMODULE_ERR;
+    }
+
+    RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));
+    if (array_len(search->mappings) == 0) {
+      // No mappings available - set next function to EOF.
+      // Error handling relies on QueryError status and return codes, not on mapping availability.
+      searchRPNet->base.Next = rpnetNext_EOF;
+      vsimRPNet->base.Next = rpnetNext_EOF;
     }
 
     // Store mappings in RPNet structures
@@ -467,7 +475,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (!sctx) {
         QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
         // return QueryError_ReplyAndClear(ctx, &status);
-        goto err;
+        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+        return;
     }
 
     // Check if the index still exists, and promote the ref accordingly
@@ -475,24 +484,23 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     IndexSpec *sp = StrongRef_Get(strong_ref);
     if (!sp) {
         QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
-        goto err;
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        return;
     }
 
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
-        goto err;
+      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+      return;
     }
 
 
     if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
-        goto err;
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+        return;
     }
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpecRef_Release(strong_ref);
     RedisModule_EndReply(reply);
-    return;
-
-err:
-    DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
 }

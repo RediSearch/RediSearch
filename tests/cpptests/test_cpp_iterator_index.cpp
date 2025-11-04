@@ -25,8 +25,6 @@ extern "C" {
 }
 
 typedef enum IndexIteratorType {
-  TYPE_TERM_FULL,
-  TYPE_NUMERIC_FULL,
   TYPE_TERM,
   TYPE_NUMERIC,
 } IndexIteratorType;
@@ -58,14 +56,6 @@ protected:
         }
 
         switch (indexIteratorType) {
-            case TYPE_TERM_FULL:
-                SetTermsInvIndex();
-                it_base = NewInvIndIterator_TermFull(idx);
-                break;
-            case TYPE_NUMERIC_FULL:
-                SetNumericInvIndex();
-                it_base = NewInvIndIterator_NumericFull(idx);
-                break;
             case TYPE_TERM:
                 SetTermsInvIndex();
                 it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
@@ -132,8 +122,6 @@ private:
 
 INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTest, ::testing::Combine(
   ::testing::Values(
-      TYPE_TERM_FULL,
-      TYPE_NUMERIC_FULL,
       TYPE_TERM,
       TYPE_NUMERIC
   ),
@@ -449,11 +437,8 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
 
 typedef enum RevalidateIndexType {
     REVALIDATE_INDEX_TYPE_NUMERIC_QUERY,
-    REVALIDATE_INDEX_TYPE_NUMERIC_FULL,
     REVALIDATE_INDEX_TYPE_TERM_QUERY,
-    REVALIDATE_INDEX_TYPE_TERM_FULL,
     REVALIDATE_INDEX_TYPE_TAG_QUERY,
-    REVALIDATE_INDEX_TYPE_TAG_FULL,
     REVALIDATE_INDEX_TYPE_WILDCARD_QUERY,
     REVALIDATE_INDEX_TYPE_MISSING_QUERY,
 } RevalidateIndexType;
@@ -535,22 +520,13 @@ protected:
         // Create the appropriate index based on the parameter
         switch (GetParam()) {
             case REVALIDATE_INDEX_TYPE_NUMERIC_QUERY:
-                SetupNumericIndex(true);  // Query version
-                break;
-            case REVALIDATE_INDEX_TYPE_NUMERIC_FULL:
-                SetupNumericIndex(false); // Full version
+                SetupNumericIndex();
                 break;
             case REVALIDATE_INDEX_TYPE_TERM_QUERY:
-                SetupTermIndex(true);     // Query version
-                break;
-            case REVALIDATE_INDEX_TYPE_TERM_FULL:
-                SetupTermIndex(false);    // Full version
+                SetupTermIndex();
                 break;
             case REVALIDATE_INDEX_TYPE_TAG_QUERY:
-                SetupTagIndex(true);      // Query version
-                break;
-            case REVALIDATE_INDEX_TYPE_TAG_FULL:
-                SetupTagIndex(false);     // Full version
+                SetupTagIndex();
                 break;
             case REVALIDATE_INDEX_TYPE_WILDCARD_QUERY:
                 SetupWildcardIndex();     // Wildcard query version
@@ -612,7 +588,7 @@ protected:
     }
 
 private:
-    void SetupNumericIndex(bool useQuery) {
+    void SetupNumericIndex() {
         // Create IndexSpec for NUMERIC field
         const char *args[] = {"SCHEMA", "num_field", "NUMERIC"};
         QueryError err = QueryError_Default();
@@ -628,69 +604,55 @@ private:
         sctx = NewSearchCtxC(ctx, "numeric_idx", false);
         ASSERT_TRUE(sctx != nullptr);
 
-        if (useQuery) {
-            // For query version, we need to properly set up the numeric range tree
-            // so that NumericCheckAbort can find it and check revision IDs
-            const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "num_field", strlen("num_field"));
-            ASSERT_TRUE(fs != nullptr);
+        // For query version, we need to properly set up the numeric range tree
+        // so that NumericCheckAbort can find it and check revision IDs
+        const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "num_field", strlen("num_field"));
+        ASSERT_TRUE(fs != nullptr);
 
-            // Create the numeric range tree through the proper API
-            RedisModuleString *numField = IndexSpec_GetFormattedKey(spec, fs, INDEXFLD_T_NUMERIC);
-            numericRangeTree = openNumericKeysDict(spec, numField, CREATE_INDEX);
-            ASSERT_TRUE(numericRangeTree != nullptr);
+        // Create the numeric range tree through the proper API
+        RedisModuleString *numField = IndexSpec_GetFormattedKey(spec, fs, INDEXFLD_T_NUMERIC);
+        numericRangeTree = openNumericKeysDict(spec, numField, CREATE_INDEX);
+        ASSERT_TRUE(numericRangeTree != nullptr);
 
-            // Add numeric data to the range tree
-            for (size_t i = 0; i < n_docs; ++i) {
-                NumericRangeTree_Add(numericRangeTree, resultSet[i], static_cast<double>(i * 10), false);
-            }
-
-            // Create a numeric filter to find ranges
-            NumericFilter tempFilter = {
-                .fieldSpec = fs,
-                .min = -INFINITY,
-                .max = INFINITY,
-                .geoFilter = nullptr,
-                .minInclusive = 1,
-                .maxInclusive = 1,
-                .ascending = false,
-                .limit = 0,
-                .offset = 0
-            };
-
-            // Find a range that covers our data to get the inverted index
-            Vector *ranges = NumericRangeTree_Find(numericRangeTree, &tempFilter);
-            ASSERT_TRUE(ranges != nullptr && Vector_Size(ranges) > 0);
-            NumericRange *range;
-            Vector_Get(ranges, 0, &range);
-            numericIdx = range->entries;
-
-            // Create the numeric filter with the field spec
-            numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, fs);
-
-            // Create the iterator with proper sctx so NumericCheckAbort can work
-            FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = fs->index}};
-            FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-            iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, fs, -INFINITY, INFINITY);
-
-            Vector_Free(ranges);
-            RedisModule_FreeString(ctx, numField);
-            numericIdxNeedsFreeing = false; // Managed by IndexSpec
-        } else {
-            // Full version (simpler, no context needed)
-            size_t memsize;
-            numericIdx = NewInvertedIndex(Index_StoreNumeric, &memsize);
-
-            // Populate with numeric data
-            for (size_t i = 0; i < n_docs; ++i) {
-                InvertedIndex_WriteNumericEntry(numericIdx, resultSet[i], static_cast<double>(i * 10));
-            }
-
-            iterator = NewInvIndIterator_NumericFull(numericIdx);
-            numericIdxNeedsFreeing = true; // Created standalone, needs manual freeing
+        // Add numeric data to the range tree
+        for (size_t i = 0; i < n_docs; ++i) {
+            NumericRangeTree_Add(numericRangeTree, resultSet[i], static_cast<double>(i * 10), false);
         }
+
+        // Create a numeric filter to find ranges
+        NumericFilter tempFilter = {
+            .fieldSpec = fs,
+            .min = -INFINITY,
+            .max = INFINITY,
+            .geoFilter = nullptr,
+            .minInclusive = 1,
+            .maxInclusive = 1,
+            .ascending = false,
+            .limit = 0,
+            .offset = 0
+        };
+
+        // Find a range that covers our data to get the inverted index
+        Vector *ranges = NumericRangeTree_Find(numericRangeTree, &tempFilter);
+        ASSERT_TRUE(ranges != nullptr && Vector_Size(ranges) > 0);
+        NumericRange *range;
+        Vector_Get(ranges, 0, &range);
+        numericIdx = range->entries;
+
+        // Create the numeric filter with the field spec
+        numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, fs);
+
+        // Create the iterator with proper sctx so NumericCheckAbort can work
+        FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = fs->index}};
+        FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+        iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, fs, -INFINITY, INFINITY);
+
+        Vector_Free(ranges);
+        RedisModule_FreeString(ctx, numField);
+        numericIdxNeedsFreeing = false; // Managed by IndexSpec
     }
 
-    void SetupTermIndex(bool useQuery) {
+    void SetupTermIndex() {
         // Create IndexSpec for TEXT field
         const char *args[] = {"SCHEMA", "text_field", "TEXT"};
         QueryError err = QueryError_Default();
@@ -727,20 +689,14 @@ private:
             VVW_Free(h.vw);
         }
 
-        // Create iterator based on type
-        if (useQuery) {
-            // Query version with proper context and term data
-            RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
-            queryTerm = NewQueryTerm(&tok, 1);
-            FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
-            iterator = NewInvIndIterator_TermQuery(termIdx, sctx, fieldMaskOrIndex, queryTerm, 1.0);
-        } else {
-            // Full version (simpler, no context needed)
-            iterator = NewInvIndIterator_TermFull(termIdx);
-        }
+        // Query version with proper context and term data
+        RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
+        queryTerm = NewQueryTerm(&tok, 1);
+        FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+        iterator = NewInvIndIterator_TermQuery(termIdx, sctx, fieldMaskOrIndex, queryTerm, 1.0);
     }
 
-    void SetupTagIndex(bool useQuery) {
+    void SetupTagIndex() {
         // Create IndexSpec for TAG field
         const char *args[] = {"SCHEMA", "tag_field", "TAG"};
         QueryError err = QueryError_Default();
@@ -775,17 +731,11 @@ private:
             InvertedIndex_WriteEntryGeneric(tagInvIdx, &rec);
         }
 
-        // Create iterator based on type
-        if (useQuery) {
-            // Query version with proper context and term data
-            RSToken tagTok = {.str = const_cast<char*>("test_tag"), .len = 8, .flags = 0};
-            tagQueryTerm = NewQueryTerm(&tagTok, 1);
-            FieldMaskOrIndex tagFieldMaskOrIndex = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
-            iterator = NewInvIndIterator_TagQuery(tagInvIdx, tagIdx, sctx, tagFieldMaskOrIndex, tagQueryTerm, 1.0);
-        } else {
-            // Full version (simpler, no context needed)
-            iterator = NewInvIndIterator_TagFull(tagInvIdx, tagIdx);
-        }
+        // Query version with proper context and term data
+        RSToken tagTok = {.str = const_cast<char*>("test_tag"), .len = 8, .flags = 0};
+        tagQueryTerm = NewQueryTerm(&tagTok, 1);
+        FieldMaskOrIndex tagFieldMaskOrIndex = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+        iterator = NewInvIndIterator_TagQuery(tagInvIdx, tagIdx, sctx, tagFieldMaskOrIndex, tagQueryTerm, 1.0);
     }
 
     void SetupWildcardIndex() {
@@ -864,18 +814,15 @@ private:
 public:
     // Helper functions to determine iterator type
     bool IsNumericIterator() const {
-        return GetParam() == REVALIDATE_INDEX_TYPE_NUMERIC_QUERY ||
-               GetParam() == REVALIDATE_INDEX_TYPE_NUMERIC_FULL;
+        return GetParam() == REVALIDATE_INDEX_TYPE_NUMERIC_QUERY;
     }
 
     bool IsTermIterator() const {
-        return GetParam() == REVALIDATE_INDEX_TYPE_TERM_QUERY ||
-               GetParam() == REVALIDATE_INDEX_TYPE_TERM_FULL;
+        return GetParam() == REVALIDATE_INDEX_TYPE_TERM_QUERY;
     }
 
     bool IsTagIterator() const {
-        return GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY ||
-               GetParam() == REVALIDATE_INDEX_TYPE_TAG_FULL;
+        return GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY;
     }
 
     bool IsWildcardIterator() const {
@@ -893,21 +840,12 @@ public:
                GetParam() == REVALIDATE_INDEX_TYPE_WILDCARD_QUERY ||
                GetParam() == REVALIDATE_INDEX_TYPE_MISSING_QUERY;
     }
-
-    bool IsFullIterator() const {
-        return GetParam() == REVALIDATE_INDEX_TYPE_NUMERIC_FULL ||
-               GetParam() == REVALIDATE_INDEX_TYPE_TERM_FULL ||
-               GetParam() == REVALIDATE_INDEX_TYPE_TAG_FULL;
-    }
 };
 
 INSTANTIATE_TEST_SUITE_P(InvIndIteratorRevalidate, InvIndIteratorRevalidateTest, ::testing::Values(
     REVALIDATE_INDEX_TYPE_NUMERIC_QUERY,
-    REVALIDATE_INDEX_TYPE_NUMERIC_FULL,
     REVALIDATE_INDEX_TYPE_TERM_QUERY,
-    REVALIDATE_INDEX_TYPE_TERM_FULL,
     REVALIDATE_INDEX_TYPE_TAG_QUERY,
-    REVALIDATE_INDEX_TYPE_TAG_FULL,
     REVALIDATE_INDEX_TYPE_WILDCARD_QUERY,
     REVALIDATE_INDEX_TYPE_MISSING_QUERY
 ));

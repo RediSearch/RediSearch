@@ -124,11 +124,9 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
 
-QueryErrorCode extractQueryErrorFromReply(MRReply *reply);
-
 bool should_return_error(QueryErrorCode errCode);
 
-bool estimateOOM(RedisModuleCtx *ctx);
+bool QueryMemoryGuard(RedisModuleCtx *ctx);
 
 #ifdef __cplusplus
 }
