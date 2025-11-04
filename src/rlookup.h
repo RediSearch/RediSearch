@@ -442,6 +442,20 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags);
 void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
                                RLookupRow *destRow, RLookup *destLookup);
 
+// exposed to be called from Rust, was inline before that.
+int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
+
+// exposed to be called from Rust, was inline before that.
+int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
+
+// exposed to be called from Rust, was inline before that.
+RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type);
+
+// exposed to be called from Rust, was inline before that.
+RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype);
+
+// exposed to be called from Rust, is part of a dependency and was inline before that.
+size_t sdslen__(const char* s);
 
 #ifdef __cplusplus
 }

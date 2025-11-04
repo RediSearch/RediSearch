@@ -9,6 +9,7 @@ members = [
     "fnv",
     "low_memory_thin_vec",
     "qint",
+    "query_error",
     "redis_mock",
     "result_processor",
     "rlookup",
@@ -68,6 +69,7 @@ redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
+query_error = { path = "./query_error" }
 result_processor = { path = "./result_processor" }
 sorting_vector = { path = "./sorting_vector"}
 value = { path = "./value" }
@@ -108,9 +110,7 @@ version = "0.72"
 default-features = false
 
 [workspace.dependencies.redis-module]
-# Patched version. See https://github.com/RedisLabsModules/redismodule-rs/pull/413
-git = "https://github.com/hdoordt/redismodule-rs.git"
-branch = "patches-redisearch"
+git = "https://github.com/RedisLabsModules/redismodule-rs.git"
 default-features = false
 
 [profile.release]

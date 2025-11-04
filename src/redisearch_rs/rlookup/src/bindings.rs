@@ -24,6 +24,39 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+/// Three Loading modes for RLookup
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
+pub enum RLookupLoadMode {
+    /// Use keylist to load a number of [RLookupLoadOptions::n_keys] from [RLookupLoadOptions::keys]
+    KeyList = 0,
+
+    /// Load only cached keys from the [sorting_vector::RSSortingVector] and do not load from [crate::row::RLookupRow]
+    SortingVectorKeys = 1,
+
+    /// Load all keys from both the [sorting_vector::RSSortingVector] and from the [crate::row::RLookupRow]
+    AllKeys = 2,
+}
+
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
+#[expect(unused, reason = "Used by followup PRs")]
+pub enum DocumentType {
+    Hash = 0,
+    Json = 1,
+    Unsupported = 2,
+}
+
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
+#[expect(unused, reason = "Used by followup PRs")]
+pub enum RLookupCoerceType {
+    Str = 0,
+    Int = 1,
+    Dbl = 2,
+    Bool = 3,
+}
+
 // TODO [MOD-10333] remove once FieldSpec is ported to Rust
 #[bitflags]
 #[repr(u32)] // should be c_unit

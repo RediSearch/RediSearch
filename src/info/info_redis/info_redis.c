@@ -200,17 +200,17 @@ void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
 void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "memory");
 
-	// Total
+  // Total
   RedisModule_InfoAddFieldULongLong(ctx, "used_memory_indexes", total_info->total_mem);
   RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", MEMORY_MB(total_info->total_mem));
-	// Min
+  // Min
   RedisModule_InfoAddFieldULongLong(ctx, "smallest_memory_index", total_info->min_mem);
   RedisModule_InfoAddFieldDouble(ctx, "smallest_memory_index_human", MEMORY_MB(total_info->min_mem));
-	// Max
+  // Max
   RedisModule_InfoAddFieldULongLong(ctx, "largest_memory_index", total_info->max_mem);
   RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index_human", MEMORY_MB(total_info->max_mem));
 
-	// Vector memory
+  // Vector memory
   RedisModule_InfoAddFieldULongLong(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
 }
 

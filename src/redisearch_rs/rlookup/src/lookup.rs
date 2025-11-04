@@ -17,7 +17,7 @@ use std::{
     ffi::{CStr, c_char},
     mem,
     ops::{Deref, DerefMut},
-    pin::{Pin, pin},
+    pin::Pin,
     ptr::{self, NonNull},
     slice,
 };
@@ -230,13 +230,13 @@ struct KeyList<'a> {
     rowlen: u32,
 }
 
-/// A cursor over an [`RLookup`] key list.
+/// A cursor over an [`RLookup`]s key list.
 pub struct Cursor<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
-/// A cursor over an [`RLookup`] key list with editing operations.
+/// A cursor over an [`RLookup`]s key list with editing operations.
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
@@ -563,10 +563,17 @@ impl<'a> KeyList<'a> {
     /// Returns a [`Cursor`] starting at the first element.
     ///
     /// The [`Cursor`] type can be used as Iterator over this list.
+    #[cfg(debug_assertions)]
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
-        #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front");
 
+        Cursor {
+            _rlookup: self,
+            current: self.head,
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    pub const fn cursor_front(&self) -> Cursor<'_, 'a> {
         Cursor {
             _rlookup: self,
             current: self.head,
@@ -576,10 +583,17 @@ impl<'a> KeyList<'a> {
     /// Returns a [`CursorMut`] starting at the first element.
     ///
     /// The [`CursorMut`] type can be used as Iterator over this list. In addition, it may be used to manipulate the list.
+    #[cfg(debug_assertions)]
     pub fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
-        #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front_mut");
 
+        CursorMut {
+            current: self.head,
+            _rlookup: self,
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    pub const fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
         CursorMut {
             current: self.head,
             _rlookup: self,
@@ -942,6 +956,47 @@ impl<'a> RLookup<'a> {
     /// and return a [`Cursor`] pointing to the key if found.
     pub fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
         self.keys.find_by_name(name)
+    }
+
+    /// Add all non-overridden keys from `src` to `self`.
+    ///
+    /// For each key in src, check if it already exists *by name*.
+    /// - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+    /// - If it doesn't a new key will ne created.
+    ///
+    /// Flag handling:
+    ///  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+    ///  * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+    ///  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+    ///  * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+    pub fn add_keys_from(&mut self, src: &RLookup<'a>, flags: RLookupKeyFlags) {
+        // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
+        for src_key in src.cursor() {
+            // Combine caller's control flags with source key's persistent properties
+            // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
+            // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
+            let combined_flags = flags | src_key.flags & !TRANSIENT_FLAGS;
+
+            // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
+            // In this case, we just want to move on to the next key
+            let _ = self.get_key_write(src_key._name.clone(), combined_flags);
+        }
+    }
+
+    /// Returns a [`Cursor`] starting at the first key.
+    ///
+    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
+    #[inline(always)]
+    pub fn cursor(&self) -> Cursor<'_, 'a> {
+        self.keys.cursor_front()
+    }
+
+    /// Returns a [`Cursor`] starting at the first key.
+    ///
+    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
+    #[inline(always)]
+    pub fn cursor_mut(&mut self) -> CursorMut<'_, 'a> {
+        self.keys.cursor_front_mut()
     }
 
     // ===== Get key for reading (create only if in schema and sortable) =====
@@ -2119,6 +2174,87 @@ mod tests {
         assert_eq!(retrieved_key._path.as_ref().unwrap().as_ref(), field_name);
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
+    }
+
+    #[test]
+    fn rlookup_add_fields_from_empty_dst() {
+        let mut src = RLookup::new();
+        src.get_key_write(c"foo", RLookupKeyFlags::empty()).unwrap();
+        src.get_key_write(c"bar", RLookupKeyFlags::empty()).unwrap();
+        src.get_key_write(c"baz", RLookupKeyFlags::empty()).unwrap();
+
+        let mut dst = RLookup::new();
+        dst.add_keys_from(&src, RLookupKeyFlags::empty());
+
+        assert!(dst.keys.find_by_name(c"foo").is_some());
+        assert!(dst.keys.find_by_name(c"bar").is_some());
+        assert!(dst.keys.find_by_name(c"baz").is_some());
+    }
+
+    /// Asserts that if a key already exists in `dst` AND the `Override` flag is set, it will override that key.
+    #[test]
+    fn rlookup_add_fields_exists_override() {
+        let mut src = RLookup::new();
+        src.get_key_write(c"foo", RLookupKeyFlags::empty()).unwrap();
+        src.get_key_write(c"bar", RLookupKeyFlags::empty()).unwrap();
+        let src_baz = &raw const *src
+            .get_key_write(c"baz", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
+            .unwrap();
+
+        let mut dst = RLookup::new();
+        let old_dst_baz = &raw const *dst.get_key_write(c"baz", RLookupKeyFlags::empty()).unwrap();
+
+        dst.add_keys_from(&src, make_bitflags!(RLookupKeyFlag::Override));
+
+        assert!(dst.keys.find_by_name(c"foo").is_some());
+        assert!(dst.keys.find_by_name(c"bar").is_some());
+        assert!(dst.keys.find_by_name(c"baz").is_some());
+        let dst_baz = dst
+            .keys
+            .find_by_name(c"baz")
+            .unwrap()
+            .into_current()
+            .unwrap();
+
+        // the new key should have a different address than both src and old dst keys
+        assert!(!ptr::addr_eq(src_baz, &raw const *dst_baz));
+        assert!(!ptr::addr_eq(old_dst_baz, &raw const *dst_baz));
+
+        // BUT the new key should contain the `src` flags
+        assert!(dst_baz.flags == make_bitflags!(RLookupKeyFlag::{ExplicitReturn | QuerySrc}));
+    }
+
+    /// Asserts that if a key already exists in `dst` AND the `Override` flag is NOT set, it will skip copying that key.
+    #[test]
+    fn rlookup_add_fields_exists_skip() {
+        let mut src = RLookup::new();
+        src.get_key_write(c"foo", RLookupKeyFlags::empty()).unwrap();
+        src.get_key_write(c"bar", RLookupKeyFlags::empty()).unwrap();
+        let src_baz = &raw const *src.get_key_write(c"baz", RLookupKeyFlags::empty()).unwrap();
+
+        let mut dst = RLookup::new();
+        let old_dst_baz = &raw const *dst
+            .get_key_write(c"baz", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
+            .unwrap();
+
+        dst.add_keys_from(&src, RLookupKeyFlags::empty());
+
+        assert!(dst.keys.find_by_name(c"foo").is_some());
+        assert!(dst.keys.find_by_name(c"bar").is_some());
+        assert!(dst.keys.find_by_name(c"baz").is_some());
+        let dst_baz = dst
+            .keys
+            .find_by_name(c"baz")
+            .unwrap()
+            .into_current()
+            .unwrap();
+
+        // the new key should have a different address than the src key
+        assert!(!ptr::addr_eq(src_baz, &raw const *dst_baz));
+        // but the same address as the old baz
+        assert!(ptr::addr_eq(old_dst_baz, &raw const *dst_baz));
+        // and should still contain all the old flags
+        assert!(dst_baz.flags == make_bitflags!(RLookupKeyFlag::{ExplicitReturn | QuerySrc}));
     }
 
     #[cfg(not(miri))]

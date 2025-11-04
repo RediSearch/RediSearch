@@ -144,7 +144,7 @@ use std::io::{Cursor, IoSlice, Read, Write};
 
 use ffi::t_docId;
 
-use crate::{DecodedBy, Decoder, Encoder, IdDelta, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, IdDelta, NumericDecoder, RSIndexResult};
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
@@ -755,3 +755,5 @@ fn write_all_vectored<const N: usize, W: Write>(
 
     Ok(total_len)
 }
+
+impl NumericDecoder for Numeric {}
