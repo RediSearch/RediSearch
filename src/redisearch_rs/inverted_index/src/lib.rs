@@ -23,7 +23,7 @@ use ffi::{
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
-    RSResultData, RSResultKind, RSResultKindMask, RSTermRecord,
+    RSResultData, RSResultKind, RSResultKindMask, RSTermRecord, ResultMetrics_Reset_func,
 };
 use smallvec::SmallVec;
 

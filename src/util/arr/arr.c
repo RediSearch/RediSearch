@@ -8,6 +8,11 @@
 */
 #include "arr.h"
 
+// define a function to be used from Rust
+uint32_t array_len_func(array_t arr) {
+  return array_len(arr);
+}
+
 void array_free(array_t arr) {
   if (arr != NULL) {
     // like free(), shouldn't explode if NULL

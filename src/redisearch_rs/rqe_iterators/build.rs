@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub mod empty;
-pub mod id_list;
-pub mod inverted_index;
-pub mod metric;
-pub mod wildcard;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Link the static libraries that contain our array functions
+    #[cfg(feature = "unittest")]
+    build_utils::link_static_libraries(&[("src/util/arr", "arr")]);
+
+    Ok(())
+}
