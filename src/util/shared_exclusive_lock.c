@@ -19,7 +19,7 @@ atomic_bool GILOwned;
 
 
 void SharedExclusiveLock_Init() {
-  GILOwned = ATOMIC_VAR_INIT(false);
+  atomic_init(&GILOwned, false);
   pthread_mutex_init(&InternalLock, NULL);
   pthread_cond_init(&GILCondition, NULL);
 }
@@ -29,10 +29,16 @@ void SharedExclusiveLock_Destroy() {
   pthread_cond_destroy(&GILCondition);
 }
 
-void SharedExclusiveLock_SetOwned(bool value) {
-  atomic_store_explicit(&GILOwned, value, memory_order_release);
-  // Signal waiting threads when GIL ownership changes
+void SharedExclusiveLock_SetOwned() {
+  atomic_store_explicit(&GILOwned, true, memory_order_release);
   pthread_cond_broadcast(&GILCondition);
+}
+
+void SharedExclusiveLock_UnsetOwned() {
+  atomic_store_explicit(&GILOwned, false, memory_order_release);
+  // Here we make sure that any thread that may assume the GIL is protected by the main thread releases the lock before returning.
+  pthread_mutex_lock(&InternalLock);
+  pthread_mutex_unlock(&InternalLock);
 }
 
 SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {

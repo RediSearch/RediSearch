@@ -80,7 +80,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
 void workersThreadPool_SetNumWorkers() {
   if (_workers_thpool == NULL) return;
 
-  SharedExclusiveLock_SetOwned(true);
+  SharedExclusiveLock_SetOwned();
   size_t worker_count = RSGlobalConfig.numWorkerThreads;
   if (in_event && RSGlobalConfig.minOperationWorkers > worker_count) {
     worker_count = RSGlobalConfig.minOperationWorkers;
@@ -107,7 +107,7 @@ void workersThreadPool_SetNumWorkers() {
     "Attempt to change the workers thpool size to %lu "
     "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
 
-  SharedExclusiveLock_SetOwned(false);
+  SharedExclusiveLock_UnsetOwned();
 }
 
 // return number of currently working threads

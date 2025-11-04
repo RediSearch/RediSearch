@@ -18,6 +18,7 @@ typedef enum {
 
 void SharedExclusiveLock_Init();
 void SharedExclusiveLock_Destroy();
-void SharedExclusiveLock_SetOwned(bool value);
+void SharedExclusiveLock_SetOwned();
+void SharedExclusiveLock_UnsetOwned();
 SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx);
 void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType type);
