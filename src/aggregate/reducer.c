@@ -14,17 +14,21 @@ typedef struct {
   ReducerFactory fn;
 } FuncEntry;
 
-static FuncEntry *globalRegistry = NULL;
+// Maximum number of reducers (builtin + potential future additions)
+#define MAX_REDUCERS 14
+
+static FuncEntry globalRegistry[MAX_REDUCERS];
+static size_t registryCount = 0;
 
 void RDCR_RegisterFactory(const char *name, ReducerFactory factory) {
-  FuncEntry ent = {.name = name, .fn = factory};
-  FuncEntry *tail = array_ensure_tail(&globalRegistry, FuncEntry);
-  *tail = ent;
+  RS_ASSERT(registryCount < MAX_REDUCERS);
+  globalRegistry[registryCount].name = name;
+  globalRegistry[registryCount].fn = factory;
+  registryCount++;
 }
 
 ReducerFactory RDCR_GetFactory(const char *name) {
-  size_t n = array_len(globalRegistry);
-  for (size_t ii = 0; ii < n; ++ii) {
+  for (size_t ii = 0; ii < registryCount; ++ii) {
     if (!strcasecmp(globalRegistry[ii].name, name)) {
       return globalRegistry[ii].fn;
     }
