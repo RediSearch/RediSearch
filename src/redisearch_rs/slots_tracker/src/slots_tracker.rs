@@ -222,8 +222,13 @@ impl SlotsTracker {
 mod tests {
     use super::*;
 
-    fn slot_ranges_slice(ranges: &[(u16, u16)]) -> &[SlotRange] {
-        unsafe { std::slice::from_raw_parts(ranges.as_ptr() as *const SlotRange, ranges.len()) }
+    impl From<(u16, u16)> for SlotRange {
+        fn from(range: (u16, u16)) -> Self {
+            SlotRange {
+                start: range.0,
+                end: range.1,
+            }
+        }
     }
 
     impl<const N1: usize, const N2: usize, const N3: usize>
@@ -243,19 +248,15 @@ mod tests {
                 Option<u32>,
             ),
         ) -> bool {
-            let other = (
-                slot_ranges_slice(other.0.as_slice()),
-                slot_ranges_slice(other.1.as_slice()),
-                slot_ranges_slice(other.2.as_slice()),
-                other.3,
-            );
-            self.local == other.0
-                && self.fully_available == other.1
-                && self.partially_available == other.2
-                && match other.3 {
-                    Some(v) => self.version == v,
-                    None => true,
-                }
+            let local: Vec<SlotRange> = other.0.iter().map(|&r| r.into()).collect();
+            let fully_available: Vec<SlotRange> = other.1.iter().map(|&r| r.into()).collect();
+            let partially_available: Vec<SlotRange> = other.2.iter().map(|&r| r.into()).collect();
+            let version = other.3.unwrap_or(self.version);
+
+            self.local == local.as_slice()
+                && self.fully_available == fully_available.as_slice()
+                && self.partially_available == partially_available.as_slice()
+                && self.version == version
         }
     }
 
