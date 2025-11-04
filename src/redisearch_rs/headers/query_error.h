@@ -164,6 +164,22 @@ const char *QueryError_Strerror(uint8_t maybe_code);
  * - `query_error` must have been created by [`QueryError_Default`].
  * - `message` must be a valid C string or a NULL pointer.
  */
+QueryErrorCode QueryError_GetCodeFromMessage(const char *message);
+
+/**
+ * Sets the [`QueryErrorCode`] and error message for a [`QueryError`].
+ *
+ * This does not mutate `query_error` if it already has an error set.
+ *
+ * # Panics
+ *
+ * - `code` must be a valid variant of [`QueryErrorCode`].
+ *
+ * # Safety
+ *
+ * - `query_error` must have been created by [`QueryError_Default`].
+ * - `message` must be a valid C string or a NULL pointer.
+ */
 void QueryError_SetError(struct QueryError *query_error, uint8_t code, const char *message);
 
 /**
