@@ -642,11 +642,11 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     *keyobj = RedisModule_OpenKey(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
     RedisModule_FreeString(ctx, keyName);
     if (!*keyobj) {
-      QueryError_SetCode(options->status, QUERY_ENODOC);
+      QueryError_SetCode(options->status, QUERY_ERROR_CODE_NO_DOC);
       return REDISMODULE_ERR;
     }
     if (RedisModule_KeyType(*keyobj) != REDISMODULE_KEYTYPE_HASH) {
-      QueryError_SetCode(options->status, QUERY_EREDISKEYTYPE);
+      QueryError_SetCode(options->status, QUERY_ERROR_CODE_REDIS_KEY_TYPE);
       return REDISMODULE_ERR;
     }
   }
@@ -679,7 +679,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
                         RedisJSON *keyobj) {
   if (!japi) {
-    QueryError_SetCode(options->status, QUERY_EUNSUPPTYPE);
+    QueryError_SetCode(options->status, QUERY_ERROR_CODE_UNSUPP_TYPE);
     RedisModule_Log(RSDummyContext, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
     return REDISMODULE_ERR;
   }
@@ -699,7 +699,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     RedisModule_FreeString(ctx, keyName);
 
     if (!*keyobj) {
-      QueryError_SetCode(options->status, QUERY_ENODOC);
+      QueryError_SetCode(options->status, QUERY_ERROR_CODE_NO_DOC);
       return REDISMODULE_ERR;
     }
   }

@@ -59,7 +59,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   bool timeoutOccurred = false;
 
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
-    ReplyWarning(reply, QueryError_Strerror(QUERY_ETIMEDOUT), suffix);
+    ReplyWarning(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT), suffix);
     timeoutOccurred = true;
   } else if (returnCode == RS_RESULT_ERROR) {
     // Non-fatal error
@@ -374,7 +374,7 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
 int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, QueryError *status) {
     HybridRequest *req = StrongRef_Get(hybrid_ref);
     if (req->nrequests == 0) {
-      QueryError_SetError(&req->tailPipelineError, QUERY_EGENERIC, "No subqueries in hybrid request");
+      QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
       return REDISMODULE_ERR;
     }
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor*, req->nrequests);
@@ -409,9 +409,9 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     if (rc != RS_RESULT_OK) {
       array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
       if (rc == RS_RESULT_TIMEDOUT) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ETIMEDOUT, "Depleting timed out");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
       } else {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to deplete set of results, rc=%d", rc);
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
       }
       return REDISMODULE_ERR;
     }
@@ -536,14 +536,14 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    QueryError_SetCode(&status, QUERY_EOOM);
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_OUT_OF_MEMORY);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
+    QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
   }
   SharedExclusiveLock_SetOwned(true);
@@ -625,7 +625,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
-    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     QueryError_ReplyAndClear(outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientHybridCtx_destroy(BCHCtx);

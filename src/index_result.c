@@ -31,6 +31,10 @@ void ResultMetrics_Free(RSYieldableMetric *metrics) {
   array_free_ex(metrics, RSValue_DecrRef(((RSYieldableMetric *)ptr)->value));
 }
 
+void ResultMetrics_Reset_func(RSIndexResult *r) {
+  ResultMetrics_Reset(r);
+}
+
 RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src) {
    // Create a copy of the array and increase the refcount for each element's value
     RSYieldableMetric* ret = NULL;

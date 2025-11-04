@@ -33,7 +33,7 @@ static RSValue *counterFinalize(Reducer *r, void *instance) {
 
 Reducer *RDCRCount_New(const ReducerOptions *options) {
   if (options->args->argc != 0) {
-    QueryError_SetError(options->status, QUERY_EBADATTR, "Count accepts 0 values only");
+    QueryError_SetError(options->status, QUERY_ERROR_CODE_BAD_ATTR, "Count accepts 0 values only");
     return NULL;
   }
   Reducer *r = rm_calloc(1, sizeof(*r));
