@@ -292,13 +292,13 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
     const char *firstArg;
-    REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SORTBY);
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
     if (isSortby0 && *papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) {
       AC_Advance(ac);  // Advance without adding SortBy step to the plan
       *papCtx->reqflags |= QEXEC_F_NO_SORT;
     } else {
+      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SORTBY);
       PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
       if (parseSortby(arng, ac, status, papCtx) != REDISMODULE_OK) {
         return ARG_ERROR;
