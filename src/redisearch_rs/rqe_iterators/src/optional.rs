@@ -124,9 +124,10 @@ where
         debug_assert!(doc_id > self.last_doc_id);
 
         if doc_id > self.max_doc_id || self.at_eof() {
-            self.last_doc_id = doc_id;
+            self.last_doc_id = self.max_doc_id;
             return Ok(None);
         }
+
         if doc_id > self.child.last_doc_id()
             && let Some(SkipToOutcome::Found(ris)) = self.child.skip_to(doc_id)?
             && ris.doc_id == doc_id
