@@ -265,6 +265,17 @@ void redisearch_thpool_resume_threads(redisearch_thpool_t *);
 void redisearch_thpool_terminate_when_empty(redisearch_thpool_t *);
 
 /**
+ * @brief Set all threads to terminate when the job queue is empty (non-blocking version)
+ *
+ * This is a non-blocking version of redisearch_thpool_terminate_when_empty() that
+ * returns immediately without waiting for threads to acknowledge the state change.
+ * Use this version when calling from a context that holds the Redis GIL to avoid deadlocks.
+ *
+ * @param thpool_p Thread pool pointer
+ */
+void redisearch_thpool_terminate_when_empty_no_wait(redisearch_thpool_t *);
+
+/**
  * @brief Destroy the threadpool
  *
  * This will wait for the currently active threads to finish and free all the

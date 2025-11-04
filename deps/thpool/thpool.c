@@ -562,6 +562,18 @@ void redisearch_thpool_terminate_when_empty(redisearch_thpool_t *thpool_p) {
   if (thpool_p->state == THPOOL_UNINITIALIZED)
     return;
   size_t n_threads = thpool_p->n_threads;
+  redisearch_thpool_broadcast_new_state(thpool_p, n_threads,
+                                        THREAD_TERMINATE_WHEN_EMPTY);
+
+  /* Change thpool state to uninitialized */
+  thpool_p->state = THPOOL_UNINITIALIZED;
+}
+
+void redisearch_thpool_terminate_when_empty_no_wait(redisearch_thpool_t *thpool_p) {
+  assert(thpool_p->jobqueues.state == JOBQ_RUNNING);
+  if (thpool_p->state == THPOOL_UNINITIALIZED)
+    return;
+  size_t n_threads = thpool_p->n_threads;
   /* Use non-blocking version to avoid deadlock when called while holding GIL */
   redisearch_thpool_broadcast_new_state_no_wait(thpool_p, n_threads,
                                                 THREAD_TERMINATE_WHEN_EMPTY);

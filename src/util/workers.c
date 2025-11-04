@@ -112,8 +112,10 @@ void workersThreadPool_SetNumWorkers() {
 
   size_t new_num_threads = worker_count;
   if (worker_count == 0 && curr_workers > 0) {
-    redisearch_thpool_terminate_when_empty(_workers_thpool);
+    // Remove all threads (non-blocking to avoid deadlock while holding GIL)
+    // This will send THREAD_TERMINATE_ASAP to all threads
     new_num_threads = redisearch_thpool_remove_threads_no_wait(_workers_thpool, curr_workers);
+    // After remove_threads, the thpool state becomes THPOOL_UNINITIALIZED
     workersThreadPool_OnDeactivation(curr_workers);
     // Set flag to prevent concurrent calls until termination completes
     workers_termination_in_progress = true;
