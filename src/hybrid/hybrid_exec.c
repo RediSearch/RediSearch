@@ -302,13 +302,11 @@ done_err:
     finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock);
 }
 
-/**
- * This function is a shallow version of sendChunk_hybrid, that replies with empty results.
- * Handles both RESP2 and RESP3 protocols and various search options.
- * Handles OOM warning if needed.
- * This function should be used for an early reply bailout, such as in case of an OOM.
- * Based on sendChunk_hybrid
- */
+// Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
+// Handles RESP3 protocol with map structure including total_results, results, warning, and execution_time.
+// Includes OOM warning when QueryError has OOM status.
+// Currently used during OOM conditions early bailout and return empty results instead of failing.
+// Based on sendChunk_hybrid patterns.
 void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError *err) {
     RedisModule_Reply_Map(reply);
 

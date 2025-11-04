@@ -676,13 +676,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 }
 
 
-/**
- * This function is a shallow version of sendChunk, that replies with empty results.
- * Handles both RESP2 and RESP3 protocols and various search options.
- * Handles OOM warning if needed.
- * This function should be used for an early reply bailout, such as in case of an OOM.
- * Based on sendChunk_Resp2/3
- */
+// Simple version of sendChunk that returns empty results for aggregate queries.
+// Handles both RESP2 and RESP3 protocols with cursor support.
+// Includes OOM warning when QueryError has OOM status.
+// Currently used during OOM conditions to return empty results instead of failing.
+// Based on sendChunk_Resp2/3 patterns.
  void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, QEFlags reqFlags, QueryError* err) {
   if (reply->resp3) {
     if (reqFlags & QEXEC_F_IS_CURSOR) {

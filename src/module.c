@@ -2801,12 +2801,10 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   rm_free(results);
 }
 
-/**
- * Coordinator reply with empty search results for FT.SEARCH command.
- * Handles both RESP2 and RESP3 protocols.
- * Handles OOM warning if needed.
- * This function should be used for an early reply bailout, such as in case of an OOM.
- */
+// Coordinator reply with empty search results for FT.SEARCH command.
+// Creates a dummy searchReducerCtx with empty heap to use existing sendSearchResults logic.
+// Handles RESP2/RESP3 protocol and formatting.
+// Currently used during OOM conditions for early bailout and return empty results instead of failing.
 void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req) {
     // Setup a dummy searchReducerCtx that will be used by sendSearchResults
     searchReducerCtx rCtx = {NULL};
