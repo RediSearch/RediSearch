@@ -169,8 +169,6 @@ Reducer *RDCRHLLSum_New(const ReducerOptions *);
 
 typedef Reducer *(*ReducerFactory)(const ReducerOptions *);
 ReducerFactory RDCR_GetFactory(const char *name);
-void RDCR_RegisterFactory(const char *name, ReducerFactory factory);
-void RDCR_RegisterBuiltins(void);
 
 #ifdef __cplusplus
 }
