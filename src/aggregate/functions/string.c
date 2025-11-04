@@ -20,6 +20,9 @@
 #include <ctype.h>
 
 #define STRING_BLOCK_SIZE 512
+#define FMT_OUT_STR_MIN_PREALLOC 8
+#define FMT_OUT_STR_MAX_PREALLOC (1024 * 1024)
+#define MAX(i, j) (((i) > (j)) ? (i) : (j))
 
 static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   int maxTerms = 100;
@@ -82,7 +85,8 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   size_t sz;
   const char *str = RSValue_StringPtrLen(&argv[0], &sz);
   if (!str) {
-    QueryError_SetError(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid type for substr. Expected string");
+    QueryError_SetError(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Invalid type for substr. Expected string");
     return EXPR_EVAL_ERR;
   }
 
@@ -113,7 +117,8 @@ int func_to_number(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   if (!RSValue_ToNumber(&argv[0], &n)) {
     size_t sz = 0;
     const char *p = RSValue_StringPtrLen(&argv[0], &sz);
-    QueryError_SetWithUserDataFmt(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS, "to_number: cannot convert string", " '%s'", p);
+    QueryError_SetWithUserDataFmt(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS,
+                                  "to_number: cannot convert string", " '%s'", p);
     return EXPR_EVAL_ERR;
   }
 
@@ -126,22 +131,34 @@ int func_to_str(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   return EXPR_EVAL_OK;
 }
 
+// Helper for stringfunc_format that appends `src`
+// to `dst`, keeping track of capacity and reallocating
+// when needed.
+void append_to_string(char **dst, char **dst_tail, size_t *dst_cap, const char *src,
+                      size_t src_len) {
+  size_t dst_len = *dst_tail - *dst;
+  size_t dst_free = *dst_cap - dst_len;
+
+  if (src_len > dst_free) {
+    size_t new_cap = *dst_cap + src_len;
+    if (new_cap < FMT_OUT_STR_MIN_PREALLOC) {
+      new_cap = FMT_OUT_STR_MIN_PREALLOC;
+    } else if (new_cap >= FMT_OUT_STR_MAX_PREALLOC) {
+      new_cap += FMT_OUT_STR_MAX_PREALLOC;
+    } else {
+      new_cap *= 2;
+    }
+
+    *dst = rm_realloc(*dst, new_cap);
+    *dst_cap = new_cap;
+    RS_ASSERT(*dst != NULL);
+    *dst_tail = *dst + dst_len;
+  }
+  memcpy(*dst_tail, src, src_len);
+  *dst_tail += src_len;
+}
+
 static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
-
-  #define APPEND_OUT(src, src_len)                                                           \
-  do {                                                                                       \
-    size_t out_len = out_tail - out;                                                         \
-    size_t out_free = out_cap - out_len;                                                     \
-    if (src_len > out_free) {                                                                \
-      out_cap += src_len;                                                                    \
-      out = rm_realloc(out, out_cap);                                                        \
-      RS_ASSERT(out != NULL);                                                                \
-      out_tail = out + out_len;                                                              \
-    }                                                                                        \
-    memcpy(out_tail, src, src_len);                                                          \
-    out_tail += src_len;                                                                     \
-  } while (0)
-
   VALIDATE_ARG_ISSTRING("format", argv, 0);
 
   size_t argix = 1;
@@ -166,13 +183,13 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
 
     // Detected a format string. Write from 'last' up to 'fmt'
     size_t len = (fmt + ii) - last;
-    APPEND_OUT(last, len);
-
+    append_to_string(&out, &out_tail, &out_cap, last, len);
     last = fmt + ii + 2;
+
     char type = fmt[++ii];
     if (type == '%') {
       // Append literal '%'
-      APPEND_OUT("%", 1);
+      append_to_string(&out, &out_tail, &out_cap, "%", 1);
       continue;
     }
 
@@ -185,7 +202,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
     if (type == 's') {
       if (arg == RSValue_NullStatic()) {
         // write null value
-        APPEND_OUT("(null)", 6);
+        append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
         continue;
       } else if (!RSValue_IsAnyString(arg)) {
 
@@ -194,15 +211,15 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
         size_t sz;
         const char *str = RSValue_StringPtrLen(&strval, &sz);
         if (!str) {
-          APPEND_OUT("(null)", 6);
+          append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
         } else {
-          APPEND_OUT(str, sz);
+          append_to_string(&out, &out_tail, &out_cap, str, sz);
         }
         RSValue_Free(&strval);
       } else {
         size_t sz;
         const char *str = RSValue_StringPtrLen(arg, &sz);
-        APPEND_OUT(str, sz);
+        append_to_string(&out, &out_tail, &out_cap, str, sz);
       }
     } else {
       QueryError_SetError(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown format specifier passed");
@@ -211,12 +228,10 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   }
 
   if (last && last < end) {
-    APPEND_OUT(last, end - last);
+    append_to_string(&out, &out_tail, &out_cap, last, end - last);
   }
-  RS_DEBUG_LOG(out);
-  APPEND_OUT("\0", 1);
+  append_to_string(&out, &out_tail, &out_cap, "\0", 1);
 
-#undef APPEND_OUT
   // Don't count the null terminator
   RSValue_SetString(result, out, out_tail - out - 1);
   return EXPR_EVAL_OK;
