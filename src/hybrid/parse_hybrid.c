@@ -691,7 +691,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
   IndexSpec *spec = parsedCmdCtx->search->sctx->spec;
-  if (!IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, array_len(*hybridParseCtx.prefixes))) {
+  const size_t prefixCount = array_len(*hybridParseCtx.prefixes);
+  if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
   }
