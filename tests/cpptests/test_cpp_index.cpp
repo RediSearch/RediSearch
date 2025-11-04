@@ -216,7 +216,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(200, InvertedIndex_LastId(idx));
 
   for (int xx = 0; xx < 1; xx++) {
-    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_None, .field_mask = RS_FIELDMASK_ALL};
+    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
     IndexReader *reader = NewIndexReader(idx, decoderCtx);
     RSIndexResult *res = NewTokenRecord(NULL, 1);
     res->freq = 1;
@@ -1380,7 +1380,7 @@ TEST_F(IndexTest, testDeltaSplits) {
   InvertedIndex_WriteForwardIndexEntry(idx, &ent);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_None, .field_mask = RS_FIELDMASK_ALL};
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
   IndexReader *reader = NewIndexReader(idx, decoderCtx);
   RSIndexResult *res = NewTokenRecord(NULL, 1);
   res->freq = 1;
