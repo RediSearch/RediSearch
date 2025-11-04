@@ -11,7 +11,7 @@
 #include "src/coord/config.h"
 #include "module.h"
 #include "hiredis/adapters/libuv.h"
-
+#include "src/util/shared_exclusive_lock.h"
 #include <uv.h>
 #include <signal.h>
 #include <sys/param.h>
@@ -517,7 +517,7 @@ static int MRConn_SendAuth(MRConn *conn) {
 
   if (!IsEnterprise()) {
     // Take the GIL before calling the internal function getter
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
+    SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(RSDummyContext);
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
     // Create a local copy of the secret so we can release the GIL.
     int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, loop,
@@ -525,7 +525,7 @@ static int MRConn_SendAuth(MRConn *conn) {
     if (status == REDIS_ERR) {
       MRConn_SwitchState(conn, MRConn_ReAuth);
     }
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    SharedExclusiveLock_Release(RSDummyContext, lockType);
     return status;
   } else {
     // On Enterprise, we use the password we got from `CLUSTERSET`.
