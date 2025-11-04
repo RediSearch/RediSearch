@@ -30,6 +30,7 @@
 #include "util/units.h"
 #include "value.h"
 #include "module.h"
+#include "aggregate/reply_empty.h"
 
 #include <time.h>
 
@@ -301,6 +302,39 @@ done_err:
     finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock);
 }
 
+/**
+ * This function is a shallow version of sendChunk_hybrid, that replies with empty results.
+ * Handles both RESP2 and RESP3 protocols and various search options.
+ * Handles OOM warning if needed.
+ * This function should be used for an early reply bailout, such as in case of an OOM.
+ * Based on sendChunk_hybrid
+ */
+void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError *err) {
+    RedisModule_Reply_Map(reply);
+
+    // total_results
+    RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
+
+    // results (empty array)
+    RedisModule_ReplyKV_Array(reply, "results");
+    RedisModule_Reply_ArrayEnd(reply);
+
+    // warning
+    RedisModule_Reply_SimpleString(reply, "warning");
+    if (QueryError_HasQueryOOMWarning(err)) {
+        RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+        RedisModule_Reply_ArrayEnd(reply);
+    } else {
+        RedisModule_Reply_EmptyArray(reply);
+    }
+
+    // execution_time
+    RedisModule_ReplyKV_Double(reply, "execution_time", 0.0);
+
+    RedisModule_Reply_MapEnd(reply);
+}
+
 static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
   if (hybridParams == NULL) {
     return;
@@ -534,9 +568,11 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    QueryError_SetCode(&status, QUERY_EOOM);
-    return QueryError_ReplyAndClear(ctx, &status);
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      return QueryMemoryGuardFailure(ctx);
+    }
+    // Assuming OOM policy is return since we didn't ignore the memory guardrail
+    return common_hybrid_query_reply_empty(ctx);
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);

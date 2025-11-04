@@ -29,6 +29,8 @@
 #include "hybrid/hybrid_request.h"
 #include "module.h"
 #include "result_processor.h"
+#include "reply_empty.h"
+
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -673,6 +675,75 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   }
 }
 
+
+/**
+ * This function is a shallow version of sendChunk, that replies with empty results.
+ * Handles both RESP2 and RESP3 protocols and various search options.
+ * Handles OOM warning if needed.
+ * This function should be used for an early reply bailout, such as in case of an OOM.
+ * Based on sendChunk_Resp2/3
+ */
+ void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, QEFlags reqFlags, QueryError* err) {
+  if (reply->resp3) {
+    if (reqFlags & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_Array(reply);
+    }
+    // RESP3 format - use map structure
+    RedisModule_Reply_Map(reply);
+
+    // attributes (field names)
+    RedisModule_Reply_SimpleString(reply, "attributes");
+    RedisModule_Reply_EmptyArray(reply);
+
+    // <format>
+    if (reqFlags & QEXEC_FORMAT_EXPAND) {
+    RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+    } else {
+    RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    }
+
+    // results (empty array)
+    RedisModule_ReplyKV_Array(reply, "results");
+    RedisModule_Reply_ArrayEnd(reply);
+
+    // total_results
+    RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
+
+    // warning
+    RedisModule_Reply_SimpleString(reply, "warning");
+    if (QueryError_HasQueryOOMWarning(err)) {
+        RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+        RedisModule_Reply_ArrayEnd(reply);
+    } else {
+        RedisModule_Reply_EmptyArray(reply);
+    }
+
+    RedisModule_Reply_MapEnd(reply);
+    if (reqFlags & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_LongLong(reply, 0);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
+  } else {
+    if (reqFlags & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_Array(reply);
+    }
+    // RESP2 format - use array structure
+    RedisModule_Reply_Array(reply);
+
+    // First element is always the total count (0 for empty results)
+    RedisModule_Reply_LongLong(reply, 0);
+
+    // No individual results to add for empty results
+
+    RedisModule_Reply_ArrayEnd(reply);
+    if (reqFlags & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_LongLong(reply, 0);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
+  }
+}
+
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   sendChunk(req, reply, UINT64_MAX);
@@ -979,9 +1050,11 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    QueryError_SetCode(&status, QUERY_EOOM);
-    return QueryError_ReplyAndClear(ctx, &status);
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      return QueryMemoryGuardFailure(ctx);
+    }
+    // Assuming OOM policy is return since we didn't ignore the memory guardrail
+    return single_shard_common_query_reply_empty(ctx, argv, argc);
   }
 
   AREQ *r = AREQ_New();

@@ -72,6 +72,7 @@
 #include "hybrid/hybrid_exec.h"
 #include "util/redis_mem_info.h"
 #include "notifications.h"
+#include "aggregate/reply_empty.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -181,7 +182,7 @@ bool QueryMemoryGuard(RedisModuleCtx *ctx) {
   return false;
 }
 
-static inline int QueryMemoryGuardFailure(RedisModuleCtx *ctx) {
+int QueryMemoryGuardFailure(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
   return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
 }
@@ -2801,6 +2802,25 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 }
 
 /**
+ * Coordinator reply with empty search results for FT.SEARCH command.
+ * Handles both RESP2 and RESP3 protocols.
+ * Handles OOM warning if needed.
+ * This function should be used for an early reply bailout, such as in case of an OOM.
+ */
+void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req) {
+    // Setup a dummy searchReducerCtx that will be used by sendSearchResults
+    searchReducerCtx rCtx = {NULL};
+    rCtx.postProcess = (postProcessReplyCB)(noOpPostProcess);
+    rCtx.searchCtx = req;
+    // Create empty heap (dynamic allocation is necessary for heap_free in sendSearchResults)
+    heap_t* emptyHeap = heap_new(cmp_results, req);
+    rCtx.pq = emptyHeap;
+
+    // The empty heap will result in an empty reply
+    sendSearchResults(reply, &rCtx);
+}
+
+/**
  * This function is used to print profiles received from the shards.
  * It is used by both SEARCH and AGGREGATE.
  */
@@ -3231,7 +3251,8 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail || NumShards == 1) {
       return QueryMemoryGuardFailure(ctx);
     }
-    // Assuming OOM policy is return
+    // Assuming OOM policy is return since we didn't ignore the memory guardrail
+    return coord_aggregate_query_reply_empty(ctx, argv, argc);
   }
 
   // Coord callback
@@ -3287,10 +3308,11 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
-    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail || NumShards == 1) {
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
       return QueryMemoryGuardFailure(ctx);
     }
     // Assuming OOM policy is return
+    return common_hybrid_query_reply_empty(ctx);
   }
 
   // Coord callback
@@ -3624,11 +3646,15 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    // If we are in a single shard cluster, we should fail the query if we are out of memory
-    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail || NumShards == 1) {
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
       return QueryMemoryGuardFailure(ctx);
     }
-    // Assuming OOM policy is return
+    // Handle OOM policy return in Coord, return empty results
+    // Assuming policy is return, since we didn't ignore the memory guardrail
+    // Single shard is handled in RSSearchCommand
+    if (NumShards > 1) {
+      return coord_search_query_reply_empty(ctx);
+    }
   }
 
   // Coord callback
