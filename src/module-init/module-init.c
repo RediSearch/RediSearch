@@ -33,6 +33,7 @@
 #include "profile.h"
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
+#include "aggregate/reducer.h"
 
 #define DEPLETER_POOL_SIZE 4
 
@@ -161,6 +162,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   // Handle deprecated MT configurations
   UpgradeDeprecatedMTConfigs();
+
+  RDCR_RegisterBuiltins();
 
   // Init threadpool.
   if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
