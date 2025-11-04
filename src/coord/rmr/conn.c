@@ -11,7 +11,6 @@
 #include "src/coord/config.h"
 #include "module.h"
 #include "hiredis/adapters/libuv.h"
-#include "src/util/shared_exclusive_lock.h"
 #include <uv.h>
 #include <signal.h>
 #include <sys/param.h>
@@ -517,7 +516,7 @@ static int MRConn_SendAuth(MRConn *conn) {
 
   if (!IsEnterprise()) {
     // Take the GIL before calling the internal function getter
-    SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(RSDummyContext);
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
     // Create a local copy of the secret so we can release the GIL.
     int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, loop,
@@ -525,7 +524,7 @@ static int MRConn_SendAuth(MRConn *conn) {
     if (status == REDIS_ERR) {
       MRConn_SwitchState(conn, MRConn_ReAuth);
     }
-    SharedExclusiveLock_Release(RSDummyContext, lockType);
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     return status;
   } else {
     // On Enterprise, we use the password we got from `CLUSTERSET`.
@@ -607,7 +606,7 @@ extern RedisModuleCtx *RSDummyContext;
 static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass){
   int ret = 1;
   RedisModuleCtx *ctx = RSDummyContext;
-  SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(ctx);
+  RedisModule_ThreadSafeContextLock(ctx);
   char* clusterTls = NULL;
   char* tlsPort = NULL;
 
@@ -649,7 +648,7 @@ done:
   if (tlsPort) {
     rm_free(tlsPort);
   }
-  SharedExclusiveLock_Release(ctx, lockType);
+  RedisModule_ThreadSafeContextUnlock(ctx);
   return ret;
 }
 
