@@ -21,10 +21,13 @@
 extern "C" {
 #endif
 
-int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool async) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
-    StrongRef sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
+    StrongRef sync_ref = {0};
+    if (async) {
+      sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
+    }
 
     // Build individual pipelines for each search request
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -48,16 +51,19 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         } else if (IsHybridSearchSubquery(areq)) {
           qctx->resultLimit = areq->maxSearchResults;
         }
-        // Create a depleter processor to extract results from this pipeline
-        // The depleter will feed results to the hybrid merger
-        RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
-        RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-        ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
-        QITR_PushRP(qctx, depleter);
+        if (async) {
+          // Create a depleter processor to extract results from this pipeline
+          // The depleter will feed results to the hybrid merger
+          RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
+          RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
+          ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
+          QITR_PushRP(qctx, depleter);
+        }
     }
-
-    // Release the sync reference as depleters now hold their own references
-    StrongRef_Release(sync_ref);
+    if (async) {
+      // Release the sync reference as depleters now hold their own references
+      StrongRef_Release(sync_ref);
+    }
     return REDISMODULE_OK;
 }
 
@@ -86,16 +92,11 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
 }
 
 int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params) {
-    // Array to collect depleter processors from each individual request pipeline
-    arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
+    // Array to collect upstream from each individual request pipeline
+    arrayof(ResultProcessor*) upstreams = array_new(ResultProcessor *, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
-      if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
-        QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "Failed to build hybrid pipeline, expected depleter processor");
-        array_free(depleters);
-        return REDISMODULE_ERR;
-      }
-      array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
+      array_ensure_append_1(upstreams, areq->pipeline.qctx.endProc);
     }
 
     // the doc key is only relevant in coordinator mode, in standalone we can simply use the dmd
@@ -105,7 +106,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
     HybridLookupContext *lookupCtx = HybridLookupContext_New(req->requests, tailLookup);
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, upstreams, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
     // Build the aggregation part of the tail pipeline for final result processing
@@ -115,9 +116,9 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     return rc;
 }
 
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params) {
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool async) {
     // Build the depletion pipeline for extracting results from individual search requests
-    if (HybridRequest_BuildDepletionPipeline(req, params) != REDISMODULE_OK) {
+    if (HybridRequest_BuildDepletionPipeline(req, params, async) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
