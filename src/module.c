@@ -3616,8 +3616,6 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
   }
 
-  SharedExclusiveLock_SetOwned(true);
-
   // Coord callback
   void (*dist_callback)(void *) = DistSearchCommandHandler;
 
@@ -3635,7 +3633,6 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    SharedExclusiveLock_SetOwned(false);
     return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
   }
 
@@ -3668,7 +3665,6 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_BlockedClientMeasureTimeStart(bc);
 
   ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_THREADPOOL);
-  SharedExclusiveLock_SetOwned(false);
   return REDISMODULE_OK;
 }
 

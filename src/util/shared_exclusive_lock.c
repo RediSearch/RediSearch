@@ -40,7 +40,7 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   while (true) {
     int rc;
     if (atomic_load_explicit(&GILOwned, memory_order_acquire)) {
-      // The GIL is owned in a safe manner by the module in the main thread
+      // The GIL is owned in a safe manner by the module in the main thread, so we hold the internal lock and return.
       return Internal_Locked; // internal handle is the non-GIL lock
     } else {
       rc = RedisModule_ThreadSafeContextTryLock(ctx);
@@ -53,6 +53,11 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
     timeout.tv_nsec += TIMEOUT_NANOSECONDS;
+    // Handle nanosecond overflow to comply with POSIX timespec requirements
+    if (timeout.tv_nsec >= 1000000000) {
+      timeout.tv_sec += timeout.tv_nsec / 1000000000;
+      timeout.tv_nsec %= 1000000000;
+    }
     pthread_cond_timedwait(&GILCondition, &InternalLock, &timeout);
   }
 }
