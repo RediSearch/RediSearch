@@ -59,17 +59,9 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
     int rc;
     if (atomic_load_explicit(&GILOwned, memory_order_acquire)) {
       // Keep InternalLock held while acquiring alternative lock
-      rc = pthread_mutex_lock(&GILAlternativeLock);
-      // Double-check GILOwned while holding both locks (double check can be okey because common path for now is GIL is not owned)
-      if (atomic_load_explicit(&GILOwned, memory_order_acquire)) {
-        GILAlternativeLockHeld = true;
-        pthread_mutex_unlock(&InternalLock);
-        return Internal_Locked;
-      } else {
-        // GIL was released, release alternative lock and retry
-        pthread_mutex_unlock(&GILAlternativeLock);
-        continue;
-      }
+      pthread_mutex_lock(&GILAlternativeLock);
+      pthread_mutex_unlock(&InternalLock);
+      return Internal_Locked;
     } else {
       rc = RedisModule_ThreadSafeContextTryLock(ctx);
     }
