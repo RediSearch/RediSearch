@@ -891,6 +891,7 @@ def testBM25STDScoreWithWeight(env: Env):
 def testBM25ScoreWithWeight(env: Env):
     scorer_with_weight_test(env, 'BM25')
 
+@skip(cluster=True)
 def testBM25STDUnderflow(env: Env):
     """
     Tests that we do not underflow when calculating the BM25STD score.

@@ -547,9 +547,8 @@ static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
   // Yet, that can happen in some scenarios of deletions/updates, until fixed in
   // the next GC run.
   // In that case, we set totalDocs to termDocs, as a temporary fix.
-  return totalDocs < termDocs ?
-    log(1.0F + 0.5F / (termDocs + 0.5F)) :
-    log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
+  totalDocs = MAX(totalDocs, termDocs);
+  return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
 }
 
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
