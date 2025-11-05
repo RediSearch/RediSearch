@@ -127,6 +127,10 @@ impl SlotsTracker {
     ///
     /// * `ranges` - Slice of slot ranges. Must be sorted and normalized (no overlaps, no adjacent ranges).
     pub fn promote_to_local_slots(&mut self, ranges: &[SlotRange]) {
+        debug_assert!(matches!(
+            self.partially_available.coverage_relation(ranges),
+            CoverageRelation::Equals | CoverageRelation::Covers
+        ));
         self.local.add_ranges(ranges);
         self.partially_available.remove_ranges(ranges);
     }
