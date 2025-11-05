@@ -3453,6 +3453,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
   if (DocTable_DeleteR(&spec->docs, key)) {
     spec->stats.numDocuments--;
+    // TODO: Update totalDocsLen as well. We no longer have the dmd which contains the len at this point
+    // -> Propagate it or update  down the stack.
 
     // Increment the index's garbage collector's scanning frequency after document deletions
     if (spec->gc) {

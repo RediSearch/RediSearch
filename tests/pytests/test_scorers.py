@@ -921,3 +921,45 @@ def testBM25STDUnderflow(env: Env):
     # Reschedule the gc - add a job to the queue
     env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+
+def testBM25DocLen(env: Env):
+    """
+    Tests that the total document length is calculated correctly (MOD-122234).
+    Relevant for the BM25 and BM25STD scorers.
+    This test currently tests updates only, i.e., for an existing doc.
+    TODO: Test for deletion once that is fixed as well.
+    """
+
+    def get_avg_doc_len(response: str, std: bool = True):
+        score_exp = response[2][1][1][0]
+        split_by = 'Average Doc Len ' if std else 'Average Len'
+        avg_doc_len = float(score_exp.split(split_by)[1].split(')')[0])
+        return avg_doc_len
+
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a TEXT field
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Add the first document
+    conn.execute_command('HSET', 'doc0', 'title', 'hello world')
+
+    # The average doc length should be 2
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD')
+    score_before = get_avg_doc_len(res)
+    env.assertEqual(score_before, 2)
+
+    # Same for BM25
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25')
+    env.assertEqual(get_avg_doc_len(res, False), 2)
+
+    # Add the same document -> we re-index, and the avg doc length should stay
+    # the same
+    conn.execute_command('HSET', 'doc0', 'title', 'hello world')
+
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD')
+    env.assertEqual(get_avg_doc_len(res), score_before)
+
+    # Same for BM25
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25')
+    env.assertEqual(get_avg_doc_len(res, False), score_before)

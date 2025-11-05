@@ -136,8 +136,9 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   if (replace) {
     RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
-      // decrease the number of documents in the index stats only if the document was there
+      // Update stats of the index only if the document was there
       --spec->stats.numDocuments;
+      spec->stats.totalDocsLen -= aCtx->fwIdx->totalFreq;
       DMD_Return(aCtx->oldMd);
       aCtx->oldMd = dmd;
       if (spec->gc) {
