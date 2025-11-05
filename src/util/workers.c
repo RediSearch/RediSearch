@@ -33,7 +33,10 @@ static void yieldCallback(void *yieldCtx) {
                     " waiting for workers to finish: call number %zu", yield_counter);
   }
   RedisModuleCtx *ctx = yieldCtx;
+  SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(ctx);
+  RS_ASSERT(lockType == Internal_Locked);
   RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+  SharedExclusiveLock_Release(ctx, lockType);
 }
 
 /* Configure here anything that needs to know it can use the thread pool */
@@ -136,6 +139,7 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
+  SharedExclusiveLock_SetOwned();
   if (RedisModule_Yield) {
     // Wait until all the threads in the pool run the jobs until there are no more than <threshold>
     // jobs in the queue. Periodically return and call RedisModule_Yield, so redis can answer PINGs
@@ -146,6 +150,7 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
     // In Redis versions < 7, RedisModule_Yield doesn't exist. Just wait for without yield.
     redisearch_thpool_wait(_workers_thpool);
   }
+  SharedExclusiveLock_UnsetOwned();
 }
 
 void workersThreadPool_Terminate(void) {
