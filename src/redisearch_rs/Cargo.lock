@@ -1278,6 +1278,7 @@ dependencies = [
 name = "query_error"
 version = "0.0.1"
 dependencies = [
+ "c_ffi_utils",
  "strum",
 ]
 
@@ -1286,6 +1287,7 @@ name = "query_error_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_ffi_utils",
  "cbindgen",
  "query_error",
 ]

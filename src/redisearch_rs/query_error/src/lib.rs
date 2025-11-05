@@ -241,3 +241,22 @@ impl Warnings {
         self.out_of_memory = true;
     }
 }
+
+pub mod opaque {
+    use super::QueryError;
+    use c_ffi_utils::opaque::{Size, Transmute};
+
+    /// An opaque query error which can be passed by value to C.
+    ///
+    /// The size and alignment of this struct must match the Rust `QueryError`
+    /// structure exactly.
+    #[repr(C, align(8))]
+    pub struct OpaqueQueryError(Size<38>);
+
+    // Safety: `OpaqueQueryError` is defined as a `MaybeUninit` slice of
+    // bytes with the same size and alignment as `QueryError`, so any valid
+    // `QueryError` has a bit pattern which is a valid `OpaqueQueryError`.
+    unsafe impl Transmute<QueryError> for OpaqueQueryError {}
+
+    c_ffi_utils::opaque!(QueryError, OpaqueQueryError);
+}

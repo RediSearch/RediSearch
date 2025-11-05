@@ -84,15 +84,15 @@ impl RsValue {
 }
 
 pub mod opaque {
-    use c_ffi_utils::opaque::Transmute;
+    use c_ffi_utils::opaque::{Size, Transmute};
 
-    pub use super::RsValue;
+    use super::RsValue;
 
-    #[repr(C, align(8))]
     /// Opaque variant of [`RsValue`], allowing the
     /// non-FFI-safe [`RsValue`] to be passed to C
     /// and even allow C land to place it on the stack.
-    pub struct OpaqueRsValue(c_ffi_utils::opaque::Size<24>);
+    #[repr(C, align(8))]
+    pub struct OpaqueRsValue(Size<24>);
 
     // Safety: `OpaqueRsValue` is defined as a `MaybeUninit` slice of
     // bytes with the same size and alignment as `RsValue`, so any valid
