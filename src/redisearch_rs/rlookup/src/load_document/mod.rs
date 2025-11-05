@@ -598,6 +598,8 @@ mod tests {
                 ]);
             });
 
+            println!("HERE WE GO!");
+
             let test_ctx = &mut ctx.redis_ctx;
             let redis_ctx =
                 std::ptr::from_mut(test_ctx).cast::<redis_module::raw::RedisModuleCtx>();
@@ -654,6 +656,29 @@ mod tests {
             let mut ctx = LoadDocumentTestContext::default();
             ctx.with_scan_key_feature(false);
             two_fields_empty_row_and_lookup(&mut ctx, DocumentType::Hash, RLookupLoadMode::AllKeys)
+        }
+
+        #[test]
+        fn add_two_fields_json() -> Result<(), LoadDocumentError> {
+            redis_mock::init_redis_module_mock();
+            let mut ctx = LoadDocumentTestContext::default();
+            ctx.with_scan_key_feature(false);
+            two_fields_empty_row_and_lookup(&mut ctx, DocumentType::Json, RLookupLoadMode::AllKeys)
+        }
+        #[test]
+        fn add_two_fields_individual_keys_hash() -> Result<(), LoadDocumentError> {
+            redis_mock::init_redis_module_mock();
+            let mut ctx = LoadDocumentTestContext::default();
+            ctx.with_scan_key_feature(false);
+            two_fields_empty_row_and_lookup(&mut ctx, DocumentType::Hash, RLookupLoadMode::KeyList)
+        }
+
+        #[test]
+        fn add_two_fields_individual_keys_json() -> Result<(), LoadDocumentError> {
+            redis_mock::init_redis_module_mock();
+            let mut ctx = LoadDocumentTestContext::default();
+            ctx.with_scan_key_feature(false);
+            two_fields_empty_row_and_lookup(&mut ctx, DocumentType::Json, RLookupLoadMode::KeyList)
         }
 
         #[test]
