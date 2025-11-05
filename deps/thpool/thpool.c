@@ -92,8 +92,11 @@ typedef struct priority_queue {
   jobqueue admin_priority_jobqueue; /* job queue for administration tasks */
   pthread_mutex_t lock;             /* used for queue r/w access */
   unsigned char alternating_pulls;  /* number of pulls by non-bias threads from queue */
+  size_t n_high_priority_bias; /* minimal number of high priority jobs to run in
+  * parallel (if there are enough threads) */
   atomic_size_t high_priority_tickets; /* number of currently available priority
                                        * tickets to reach the high priority bias */
+
   pthread_cond_t has_jobs; /* Conditional variable to wake up threads waiting
                               for new jobs */
   volatile atomic_size_t num_jobs_in_progress; /* threads currently working */
@@ -469,10 +472,10 @@ void redisearch_thpool_drain(redisearch_thpool_t *thpool_p, long timeout,
   }
 }
 
-static size_t priority_queue_num_high_priority_incomplete_jobs_with_infinite_bias(priorityJobqueue *priority_queue_p) {
+static size_t priority_queye_high_priority_queue_len(priorityJobqueue *priority_queue_p) {
   pthread_mutex_lock(&priority_queue_p->lock);
   // Since we have set bias to maximum, all threads will be high priority. Therefore, we can count all jobs in progress as high priority.
-  size_t ret = priority_queue_p->high_priority_jobqueue.len + priority_queue_p->num_jobs_in_progress;
+  size_t ret = priority_queue_p->high_priority_jobqueue.len;
   pthread_mutex_unlock(&priority_queue_p->lock);
   return ret;
 }
@@ -481,22 +484,33 @@ void redisearch_thpool_drain_high_priority(redisearch_thpool_t *thpool_p,
                                            long timeout, yieldFunc yieldCB,
                                            void *yield_ctx) {
   priorityJobqueue *priority_queue_p = &thpool_p->jobqueues;
-  const unsigned char original_tickets = atomic_load_explicit(&priority_queue_p->high_priority_tickets, memory_order_acquire);
-  // Set high priority bias threshold to the size of the high priority queue.
+  // Set high priority bias threshold to cover all threads.
   // This ensures all threads will prioritize high-priority jobs
   // Since this is called in main thread, we assume no more high priority jobs are added.
-  pthread_mutex_lock(&priority_queue_p->lock);
-  atomic_store_explicit(&priority_queue_p->high_priority_tickets, priority_queue_p->high_priority_jobqueue.len, memory_order_release);
-  pthread_mutex_unlock(&priority_queue_p->lock);
+  size_t tickets_to_add = 0;
+  if (thpool_p->n_threads >= priority_queue_p->n_high_priority_bias) {
+    tickets_to_add = thpool_p->n_threads - priority_queue_p->n_high_priority_bias;
+    atomic_fetch_add_explicit(&priority_queue_p->high_priority_tickets, tickets_to_add, memory_order_release);
+  }
   // Wait until no more high-priority jobs are running or pending
   long usec_timeout = 1000 * timeout;
-  while (priority_queue_num_high_priority_incomplete_jobs_with_infinite_bias(priority_queue_p) > 0) {
+  while (priority_queye_high_priority_queue_len(priority_queue_p) > 0) {
     usleep(usec_timeout);
     if (yieldCB)
       yieldCB(yield_ctx);
   }
 
-  atomic_store_explicit(&priority_queue_p->high_priority_tickets, original_tickets, memory_order_release);
+  // Here we know that the queue length is below threshold. However, jobs are still in progress, which may be high priority.
+  // But we can wait for the high priority tickets to be up to n_threads meaning no more high priority jobs are running.
+  while (atomic_load_explicit(&priority_queue_p->high_priority_tickets, memory_order_acquire) < thpool_p->n_threads) {
+    usleep(usec_timeout);
+    if (yieldCB)
+      yieldCB(yield_ctx);
+  }
+
+  if (tickets_to_add > 0) {
+    atomic_fetch_sub_explicit(&priority_queue_p->high_priority_tickets, tickets_to_add, memory_order_release);
+  }
 }
 
 void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
@@ -873,6 +887,7 @@ static int priority_queue_init(priorityJobqueue *priority_queue_p,
   jobqueue_init(&priority_queue_p->admin_priority_jobqueue);
   pthread_mutex_init(&priority_queue_p->lock, NULL);
   priority_queue_p->alternating_pulls = 0;
+  priority_queue_p->n_high_priority_bias = high_priority_bias_threshold;
   priority_queue_p->high_priority_tickets = high_priority_bias_threshold;
   priority_queue_p->state = JOBQ_RUNNING;
   priority_queue_p->num_jobs_in_progress = 0;

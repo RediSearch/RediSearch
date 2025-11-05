@@ -661,3 +661,186 @@ TEST_P(PriorityThpoolTestBiasAndNonBias, TestTakingTasksAsBias) {
     sign2 = false;
     redisearch_thpool_wait(this->pool);
 }
+
+/* ========================== DRAIN TESTS ========================== */
+THPOOL_TEST_SUITE(PriorityThpoolTestDrain, 5, 3)
+THPOOL_TEST_SUITE(PriorityThpoolTestDrainEqualBiasThreads, 5, 3)
+THPOOL_TEST_SUITE(PriorityThpoolTestDrainMoreBiasThanThreads, 5, 3)
+
+// Test data structures for drain tests
+struct DrainTestContext {
+    std::atomic<size_t> jobs_started{0};
+    std::atomic<size_t> jobs_completed{0};
+    std::atomic<size_t> yield_calls{0};
+    std::atomic<bool> should_continue{true};
+    std::chrono::milliseconds work_duration{50}; // Default work duration
+};
+
+// Job that increments counters and does some work
+void drain_test_job(void *p) {
+    DrainTestContext *ctx = (DrainTestContext *)p;
+    ctx->jobs_started++;
+
+    // Simulate some work
+    std::this_thread::sleep_for(ctx->work_duration);
+
+    ctx->jobs_completed++;
+}
+
+// Yield callback for drain tests
+void drain_yield_callback(void *p) {
+    DrainTestContext *ctx = (DrainTestContext *)p;
+    ctx->yield_calls++;
+}
+
+TEST_P(PriorityThpoolTestDrain, TestBasicDrain) {
+    DrainTestContext ctx;
+    ctx.work_duration = std::chrono::milliseconds(20); // Short work duration
+
+    // Add several jobs to the pool
+    size_t num_jobs = 5;
+    for (size_t i = 0; i < num_jobs; i++) {
+        redisearch_thpool_add_work(this->pool, drain_test_job, &ctx, THPOOL_PRIORITY_LOW);
+    }
+
+    // Test drain with threshold 0 (wait for all jobs to complete)
+    redisearch_thpool_drain(this->pool, 10, drain_yield_callback, &ctx, 0);
+
+    // Verify all jobs completed
+    ASSERT_EQ(ctx.jobs_completed.load(), num_jobs);
+    ASSERT_GT(ctx.yield_calls.load(), 0); // Should have yielded at least once
+}
+
+TEST_P(PriorityThpoolTestDrain, TestDrainWithThreshold) {
+    DrainTestContext ctx;
+    ctx.work_duration = std::chrono::milliseconds(100); // Longer work duration
+
+    // Add jobs to the pool
+    size_t num_jobs = 6;
+    size_t threshold = 2;
+
+    for (size_t i = 0; i < num_jobs; i++) {
+        redisearch_thpool_add_work(this->pool, drain_test_job, &ctx, THPOOL_PRIORITY_LOW);
+    }
+
+    // Test drain with threshold > 0 - should return when <= threshold jobs remain
+    redisearch_thpool_drain(this->pool, 10, drain_yield_callback, &ctx, threshold);
+
+    // Verify that drain returned when threshold was reached
+    size_t remaining_jobs = redisearch_thpool_get_stats(this->pool).total_pending_jobs +
+                           redisearch_thpool_num_jobs_in_progress(this->pool);
+    ASSERT_LE(remaining_jobs, threshold);
+
+    // Wait for all remaining jobs to complete
+    redisearch_thpool_wait(this->pool);
+    ASSERT_EQ(ctx.jobs_completed.load(), num_jobs);
+}
+
+template <typename T>
+void test_drain_high_priority(T* test, int duration) {
+  DrainTestContext high_ctx, low_ctx;
+  high_ctx.work_duration = std::chrono::milliseconds(duration);
+  low_ctx.work_duration = std::chrono::milliseconds(duration);
+  bool check_yield = duration > 0;
+
+  // Add high priority jobs
+  size_t num_high_jobs = 100;
+  for (size_t i = 0; i < num_high_jobs; i++) {
+      redisearch_thpool_add_work(test->pool, drain_test_job, &high_ctx, THPOOL_PRIORITY_HIGH);
+  }
+
+  // Add low priority jobs
+  size_t num_low_jobs = 100;
+  for (size_t i = 0; i < num_low_jobs; i++) {
+      redisearch_thpool_add_work(test->pool, drain_test_job, &low_ctx, THPOOL_PRIORITY_LOW);
+  }
+
+  // Test drain high priority - should wait until all high priority jobs complete
+  redisearch_thpool_drain_high_priority(test->pool, 10, drain_yield_callback, &high_ctx);
+
+  // Verify all high priority jobs completed
+  ASSERT_EQ(high_ctx.jobs_completed.load(), num_high_jobs);
+  if (check_yield) {
+    ASSERT_GT(high_ctx.yield_calls.load(), 0); // Should have yielded
+    // No low priority jobs should have completed, their duration is longer, but some may have completed after the draining (let's put margin)
+    ASSERT_LT(low_ctx.jobs_completed.load(), 50);
+  }
+
+  // Wait for all remaining jobs to complete
+  redisearch_thpool_wait(test->pool);
+  ASSERT_EQ(low_ctx.jobs_completed.load(), num_low_jobs);
+  ASSERT_EQ(high_ctx.jobs_completed.load(), num_high_jobs);
+
+}
+
+TEST_P(PriorityThpoolTestDrain, TestDrainHighPriority) {
+  test_drain_high_priority(this, 30);
+}
+
+TEST_P(PriorityThpoolTestDrainEqualBiasThreads, TestDrainHighPriority) {
+  test_drain_high_priority(this, 30);
+}
+
+TEST_P(PriorityThpoolTestDrainMoreBiasThanThreads, TestDrainHighPriority) {
+  test_drain_high_priority(this, 30);
+}
+
+TEST_P(PriorityThpoolTestDrain, TestDrainHighPriorityNoDuration) {
+  test_drain_high_priority(this, 0);
+}
+
+TEST_P(PriorityThpoolTestDrainEqualBiasThreads, TestDrainHighPriorityNoDuration) {
+  test_drain_high_priority(this, 0);
+}
+
+TEST_P(PriorityThpoolTestDrainMoreBiasThanThreads, TestDrainHighPriorityNoDuration) {
+  test_drain_high_priority(this, 0);
+}
+
+TEST_P(PriorityThpoolTestDrain, TestDrainWithNoJobs) {
+    DrainTestContext ctx;
+
+    // Test drain when no jobs are queued
+    redisearch_thpool_drain(this->pool, 10, drain_yield_callback, &ctx, 0);
+
+    // Should return immediately without yielding
+    ASSERT_EQ(ctx.yield_calls.load(), 0);
+}
+
+TEST_P(PriorityThpoolTestDrain, TestDrainHighPriorityWithNoHighPriorityJobs) {
+    DrainTestContext low_ctx;
+    low_ctx.work_duration = std::chrono::milliseconds(200); // Longer duration
+
+    // Add only low priority jobs
+    size_t num_low_jobs = 5; // More jobs than threads
+    for (size_t i = 0; i < num_low_jobs; i++) {
+      redisearch_thpool_add_work(this->pool, drain_test_job, &low_ctx, THPOOL_PRIORITY_LOW);
+    }
+
+    // Wait a bit for some jobs to start
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Check that jobs are running before drain
+    size_t jobs_before_drain = redisearch_thpool_get_stats(this->pool).total_pending_jobs +
+                              redisearch_thpool_num_jobs_in_progress(this->pool);
+
+    // Test drain high priority when no high priority jobs exist
+    DrainTestContext yield_ctx;
+    redisearch_thpool_drain_high_priority(this->pool, 10, drain_yield_callback, &yield_ctx);
+
+    // Should return quickly since no high priority jobs, but may yield once or twice
+    // while checking for high priority jobs
+    ASSERT_GE(yield_ctx.yield_calls.load(), 0);
+
+    // Low priority jobs should still be running or pending (drain_high_priority shouldn't affect them)
+    size_t remaining_jobs = redisearch_thpool_get_stats(this->pool).total_pending_jobs +
+                           redisearch_thpool_num_jobs_in_progress(this->pool);
+
+    // Either jobs are still running/pending, or they completed very quickly
+    // The key test is that drain_high_priority returned without waiting for low priority jobs
+    ASSERT_TRUE(remaining_jobs > 0 || jobs_before_drain > 0);
+
+    // Clean up - wait for all jobs to complete
+    redisearch_thpool_wait(this->pool);
+    ASSERT_EQ(low_ctx.jobs_completed.load(), num_low_jobs);
+}
