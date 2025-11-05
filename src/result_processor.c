@@ -1441,7 +1441,11 @@ static void RPDepleter_Deplete(void *arg) {
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
   }
+
+  // Clean up the last allocated SearchResult that wasn't used
+  SearchResult_Destroy(r);
   rm_free(r);
+
   // Save the last return code from the upstream.
   self->last_rc = rc;
 
