@@ -66,7 +66,7 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
     if (scoreAlias) {
       scoreKey = RLookup_GetKey_Write(tailLookup, scoreAlias, RLOOKUP_F_NOFLAGS);
       if (!scoreKey) {
-        QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", ", score alias: %s", scoreAlias);
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_DUP_FIELD, "Could not create score alias, name already exists in query", ", score alias: %s", scoreAlias);
         return NULL;
       }
     } else {
@@ -75,25 +75,36 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
     return scoreKey;
 }
 
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridLookupContext *lookupCtx, const RLookupKey *scoreKey, HybridPipelineParams *params) {
+void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
+  RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+  // Add keys from all source lookups to create unified schema
+  for (size_t i = 0; i < req->nrequests; i++) {
+    RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(req->requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
+    RS_ASSERT(srcLookup);
+    RLookup_AddKeysFrom(srcLookup, tailLookup, RLOOKUP_F_NOFLAGS);
+  }
+}
+
+int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params) {
     // Array to collect depleter processors from each individual request pipeline
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
-        AREQ *areq = req->requests[i];
-        if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
-            array_free(depleters);
-            return REDISMODULE_ERR;
-        }
-        array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
+      AREQ *areq = req->requests[i];
+      if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
+        QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "Failed to build hybrid pipeline, expected depleter processor");
+        array_free(depleters);
+        return REDISMODULE_ERR;
+      }
+      array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
     }
 
-    RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-
     // the doc key is only relevant in coordinator mode, in standalone we can simply use the dmd
-    // InitializeHybridLookupContext copied all the rlookup keys from the upstreams to the tail lookup
+    // HybridRequest_SynchronizeLookupKeys copied all the rlookup keys from the upstreams to the tail lookup
     // we open the docKey as hidden in case the user didn't request it, if it already exists it will stay as it was
     // if it didn't then it will be marked as unresolved
+    RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
+    HybridLookupContext *lookupCtx = HybridLookupContext_New(req->requests, tailLookup);
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
@@ -113,9 +124,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     // Init lookup since we dont call buildQueryPart
     RLookup_Init(tailLookup, IndexSpec_GetSpecCache(req->sctx->spec));
 
-    // a lookup construct to help us translate an upstream rlookup to the tail lookup
-    // Assumes all upstreams have non-null lookups
-    HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, tailLookup);
+    // Add keys from all source lookups to create unified schema before opening the score key
+    HybridRequest_SynchronizeLookupKeys(req);
 
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, params->aggregationParams.common.scoreAlias, &req->tailPipelineError);
     if (QueryError_HasError(&req->tailPipelineError)) {
@@ -123,7 +133,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     }
 
     // Build the merge pipeline for combining and processing results from the depletion pipeline
-    return HybridRequest_BuildMergePipeline(req, lookupCtx, scoreKey, params);
+    return HybridRequest_BuildMergePipeline(req, scoreKey, params);
 }
 
 /**
@@ -340,21 +350,21 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
   RS_ASSERT (isHybridVectorSubquery ^ isHybridSearchSubquery);
   QueryErrorCode currentCode = QueryError_GetCode(status);
 
-  if (currentCode == QUERY_EVECTOR_NOT_ALLOWED) {
+  if (currentCode == QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED) {
     // Enhance generic vector error with hybrid context
     QueryError_ClearError(status);
     if (isHybridVectorSubquery) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED,
                                        "Vector expressions are not allowed in FT.HYBRID VSIM FILTER");
     } else if (isHybridSearchSubquery) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED,
                                        "Vector expressions are not allowed in FT.HYBRID SEARCH");
     } // won't reach here
-  } else if (currentCode == QUERY_EWEIGHT_NOT_ALLOWED) {
+  } else if (currentCode == QUERY_ERROR_CODE_WEIGHT_NOT_ALLOWED) {
     // Enhance generic weight error with hybrid context
     if (isHybridVectorSubquery) {
       QueryError_ClearError(status);
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EWEIGHT_NOT_ALLOWED,
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_WEIGHT_NOT_ALLOWED,
                                        "Weight attributes are not allowed in FT.HYBRID VSIM FILTER");
     }
   }

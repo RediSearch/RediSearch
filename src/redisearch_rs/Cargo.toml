@@ -69,6 +69,7 @@ redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
+query_error = { path = "./query_error" }
 result_processor = { path = "./result_processor" }
 sorting_vector = { path = "./sorting_vector"}
 value = { path = "./value" }
