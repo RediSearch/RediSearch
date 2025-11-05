@@ -33,7 +33,10 @@ static void yieldCallback(void *yieldCtx) {
                     " waiting for workers to finish: call number %zu", yield_counter);
   }
   RedisModuleCtx *ctx = yieldCtx;
+  SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(ctx);
+  RS_ASSERT(lockType == Internal_Locked);
   RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+  SharedExclusiveLock_Release(ctx, lockType);
 }
 
 /* Configure here anything that needs to know it can use the thread pool */
@@ -133,6 +136,7 @@ int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
 
 // Wait until job queue contains no more than <threshold> pending jobs.
 void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
+  SharedExclusiveLock_SetOwned();
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
@@ -146,6 +150,7 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
     // In Redis versions < 7, RedisModule_Yield doesn't exist. Just wait for without yield.
     redisearch_thpool_wait(_workers_thpool);
   }
+  SharedExclusiveLock_UnsetOwned();
 }
 
 void workersThreadPool_Terminate(void) {
@@ -213,9 +218,11 @@ void workersThreadPool_wait() {
 
 // Drain only high-priority jobs from the workers' threadpool
 void workersThreadPool_DrainHighPriority(RedisModuleCtx *ctx) {
+  SharedExclusiveLock_SetOwned();
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
   redisearch_thpool_drain_high_priority(_workers_thpool, 100, yieldCallback, ctx);
   yield_counter = 0;  // reset
+  SharedExclusiveLock_UnsetOwned();
 }

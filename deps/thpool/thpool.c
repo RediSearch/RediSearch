@@ -482,13 +482,10 @@ void redisearch_thpool_drain_high_priority(redisearch_thpool_t *thpool_p,
                                            long timeout, yieldFunc yieldCB,
                                            void *yield_ctx) {
   priorityJobqueue *priority_queue_p = &thpool_p->jobqueues;
-  size_t original_tickets = priority_queue_p->high_priority_tickets;
-
+  const char original_tickets = atomic_load_explicit(&priority_queue_p->high_priority_tickets, memory_order_acquire);
   // Set high priority bias threshold to maximum possible value for unsigned char
   // This ensures all threads will prioritize high-priority jobs
-  redisearch_thpool_lock(thpool_p);
-  priority_queue_p->high_priority_tickets = UCHAR_MAX;
-  redisearch_thpool_unlock(thpool_p);
+  atomic_store_explicit(&priority_queue_p->high_priority_tickets, UCHAR_MAX, memory_order_release);
 
   // Wait until no more high-priority jobs are running or pending
   long usec_timeout = 1000 * timeout;
@@ -498,10 +495,7 @@ void redisearch_thpool_drain_high_priority(redisearch_thpool_t *thpool_p,
       yieldCB(yield_ctx);
   }
 
-  // Restore the original bias threshold
-  redisearch_thpool_lock(thpool_p);
-  priority_queue_p->high_priority_tickets = original_tickets;
-  redisearch_thpool_unlock(thpool_p);
+  atomic_store_explicit(&priority_queue_p->high_priority_tickets, original_tickets, memory_order_release);
 }
 
 void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
