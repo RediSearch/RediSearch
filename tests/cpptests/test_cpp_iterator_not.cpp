@@ -698,7 +698,6 @@ TEST_F(NotIteratorReducerTest, TestNotWithReaderWildcardChild) {
   size_t memsize;
   InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
   ASSERT_TRUE(idx != nullptr);
-  ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,

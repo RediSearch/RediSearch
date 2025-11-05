@@ -199,7 +199,7 @@ impl InvertedIndex {
     #[inline(always)]
     pub fn new(flags: bindings::IndexFlags) -> Self {
         let mut memsize = 0;
-        let ptr = unsafe { bindings::NewInvertedIndex(flags, &mut memsize) };
+        let ptr = unsafe { bindings::NewInvertedIndex_Ex(flags, false, false, &mut memsize) };
         Self(ptr)
     }
 
