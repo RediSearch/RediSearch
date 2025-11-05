@@ -69,10 +69,41 @@ fn with_temp_ffi_types<R>(
             .cast::<*mut ffi::RSValue>(),
     };
 
-    let options = options
-        .tmp_cstruct
-        .expect("We are calling from C and the C type got provided")
-        .as_ptr();
+    let (options, _) = if let Some(options) = &options.tmp_cstruct {
+        (options.as_ptr(), None)
+    } else {
+        let keys = options.keys.as_ref().map_or(std::ptr::null_mut(), |keys| {
+            let reval = keys.as_ptr();
+            let mut reval = reval as *const ffi::RLookupKey;
+            &mut reval
+        });
+        let nkeys = options.keys.as_ref().map_or(0, |keys| keys.len());
+
+        println!("Num Keys: {}", nkeys);
+
+        let mut options = ffi::RLookupLoadOptions {
+            sctx: options.context.map_or(ptr::null_mut(), |ctx| {
+                let rm_ctx = ctx.as_ptr();
+                let ffi_ctx: *mut ffi::RedisSearchCtx = rm_ctx.cast();
+                ffi_ctx
+            }),
+            dmd: std::ptr::null_mut(),
+            keyPtr: options.key_ptr.map_or(ptr::null(), |ptr| ptr.as_ptr()),
+            type_: DocumentType_DocumentType_Json, // todo: either JSON or HASH
+            keys,
+            nkeys,
+            mode: match options.mode {
+                RLookupLoadMode::KeyList => ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
+                RLookupLoadMode::SortingVectorKeys => ffi::RLookupLoadFlags_RLOOKUP_LOAD_SVKEYS,
+                RLookupLoadMode::AllKeys => ffi::RLookupLoadFlags_RLOOKUP_LOAD_ALLKEYS,
+            },
+            forceLoad: options.force_load,
+            forceString: options.force_string,
+            status: std::ptr::null_mut(),
+        };
+        let options: *mut ffi::RLookupLoadOptions = &mut options;
+        (options, Some(options))
+    };
 
     let res = cb(
         // RLookups first field of type RLookupHeader is compatible with ffi::RLookup
