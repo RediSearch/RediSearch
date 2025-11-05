@@ -82,13 +82,13 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
 }
 
 void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType type) {
-  if (type == Internal_Locked) {
-    pthread_mutex_unlock(&InternalLock);
-    pthread_cond_broadcast(&GILCondition); // Attempt to wake up some waiting thread
+  if (type == Internal_Locked) {// Attempt to wake up some waiting thread
     pthread_mutex_lock(&AuxLock);
     InternalLockHeld = false;
     pthread_cond_signal(&AuxLockCondition);
     pthread_mutex_unlock(&AuxLock);
+    pthread_mutex_unlock(&InternalLock);
+    pthread_cond_broadcast(&GILCondition);
   } else {
     RedisModule_ThreadSafeContextUnlock(ctx);
   }
