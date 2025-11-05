@@ -958,8 +958,8 @@ def testBM25DocLen(env: Env):
     conn.execute_command('HSET', 'doc0', 'title', 'hello world baby')
 
     res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD')
-    env.assertEqual(get_avg_doc_len(res), score_before + 1)
+    env.assertEqual(get_avg_doc_len(res), 3)
 
     # Same for BM25
     res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25')
-    env.assertEqual(get_avg_doc_len(res, False), score_before + 1)
+    env.assertEqual(get_avg_doc_len(res, False), 3)
