@@ -18,9 +18,7 @@ use value::RSValueFFI;
 use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow,
     bindings::RLookupCoerceType,
-    load_document::{
-        LoadDocumentContext, LoadDocumentError, LoadDocumentOptions, ValueSrc, ccalls,
-    },
+    load_document::{LoadDocumentContext, LoadDocumentError, LoadDocumentOptions, ValueSrc},
 };
 
 pub(super) struct LoadDocumentImpl;
@@ -57,6 +55,7 @@ impl LoadDocumentContext for LoadDocumentImpl {
         }
     }
 
+    /*
     fn load_json(
         &self,
         lookup: &mut RLookup<'_>,
@@ -74,6 +73,7 @@ impl LoadDocumentContext for LoadDocumentImpl {
     ) -> Result<(), LoadDocumentError> {
         ccalls::load_individual_keys(lookup, dst_row, options)
     }
+    */
 }
 
 pub(super) fn get_all_fallback<C>(

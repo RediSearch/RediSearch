@@ -123,7 +123,7 @@ where
                     }
                 }
                 DocumentType::Json => {
-                    context.load_json(lookup, dst_row, options)?;
+                    ccalls::json_get_all(lookup, dst_row, options, context)?;
                 }
                 DocumentType::Unsupported => {
                     return Err(LoadDocumentError::invalid_arguments(Some(
@@ -133,7 +133,7 @@ where
             }
         }
         RLookupLoadMode::KeyList | RLookupLoadMode::SortingVectorKeys => {
-            context.load_individual_keys(lookup, dst_row, options)?;
+            ccalls::load_individual_keys(lookup, dst_row, options, context)?;
         }
     };
 
@@ -154,6 +154,7 @@ pub trait LoadDocumentContext {
     /// Generates an RSValue of type [Self::V] from the provided source, which is either a hval or a Call API reply element.
     fn generate_value(&self, src: ValueSrc, ct: RLookupCoerceType) -> Self::V;
 
+    /*
     /// Load all fields from a JSON document into the provided `dst_row`
     /// implemented here as bind this function from C and don't want to do so in tests.
     fn load_json(
@@ -171,6 +172,7 @@ pub trait LoadDocumentContext {
         dst_row: &mut RLookupRow<'_, Self::V>,
         options: &LoadDocumentOptions<'_, Self::V>,
     ) -> Result<(), LoadDocumentError>;
+    */
 }
 
 pub enum ValueSrc<'a> {
@@ -549,24 +551,6 @@ mod tests {
                     RSValueMock::create_string(string)
                 }
             }
-        }
-
-        fn load_json(
-            &self,
-            _lookup: &mut RLookup<'_>,
-            _dst_row: &mut RLookupRow<'_, Self::V>,
-            _options: &LoadDocumentOptions<'_, Self::V>,
-        ) -> Result<(), LoadDocumentError> {
-            Ok(())
-        }
-
-        fn load_individual_keys(
-            &self,
-            _lookup: &mut RLookup<'_>,
-            _dst_row: &mut RLookupRow<'_, Self::V>,
-            _options: &LoadDocumentOptions<'_, Self::V>,
-        ) -> Result<(), LoadDocumentError> {
-            Ok(())
         }
     }
 

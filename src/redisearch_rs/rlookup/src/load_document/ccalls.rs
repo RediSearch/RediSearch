@@ -23,7 +23,7 @@ use value::RSValueFFI;
 use crate::{
     RLookup, RLookupRow,
     bindings::RLookupLoadMode,
-    load_document::{LoadDocumentError, LoadDocumentOptions},
+    load_document::{LoadDocumentContext, LoadDocumentError, LoadDocumentOptions},
 };
 
 /// Encapsulates the dynamically sized c-compat SortingVector and its metadata, i.e. its Layout.
@@ -133,18 +133,27 @@ impl Drop for SizedSortingVectorWithMetadata {
     }
 }
 
-fn with_temp_ffi_types<R>(
+fn with_temp_ffi_types<R, C>(
     lookup: &mut RLookup<'_>,
-    dst_row: &mut RLookupRow<'_, RSValueFFI>,
-    options: &LoadDocumentOptions<'_>,
+    dst_row: &mut RLookupRow<'_, C::V>,
+    options: &LoadDocumentOptions<'_, C::V>,
     cb: impl FnOnce(*mut ffi::RLookup, *mut ffi::RLookupRow, *mut ffi::RLookupLoadOptions) -> R,
-) -> R {
+    _context: &C,
+) -> R
+where
+    C: LoadDocumentContext,
+{
     // function contains of three parts:
     // 1. Transform the Rust datatypes `RSSortingVector` and `RLookupRow` to C compatible types.
     // 2. Call the callback into the C functions
     // 3. Write back the changes from the C compatible types to the `RSSortingVector` and `RLookupRow``
 
     // 1.a: Prepare RSSortingVector (todo remove as soon as MOD-10714 lands)
+    // 1st ensure generic C::V is replaced with RSValueFFI for this method:
+    // Safety: For the testing we mock the RSValueFFI but we also mock the RedisModule_HashGet
+    let dst_row: &mut RLookupRow<'_, RSValueFFI> =
+        unsafe { &mut *(dst_row as *mut RLookupRow<'_, C::V> as *mut RLookupRow<'_, RSValueFFI>) };
+
     let sv = dst_row
         .sorting_vector()
         .expect("each rlookup row should have a sorting vector");
@@ -282,11 +291,15 @@ fn with_temp_ffi_types<R>(
     res
 }
 
-pub(super) fn json_get_all(
+pub(super) fn json_get_all<C>(
     lookup: &mut RLookup<'_>,
-    dst_row: &mut RLookupRow<'_, RSValueFFI>,
-    options: &LoadDocumentOptions<'_>,
-) -> Result<(), LoadDocumentError> {
+    dst_row: &mut RLookupRow<'_, C::V>,
+    options: &LoadDocumentOptions<'_, C::V>,
+    context: &C,
+) -> Result<(), LoadDocumentError>
+where
+    C: LoadDocumentContext,
+{
     // Safety: Calling a unsafe C function to provide JSON loading functionality.
     let res = with_temp_ffi_types(
         lookup,
@@ -295,6 +308,7 @@ pub(super) fn json_get_all(
         |lookup, dst_row, options| unsafe {
             ffi::RLookup_JSON_GetAll(lookup, dst_row, options) as u32
         },
+        context,
     );
 
     if res != REDISMODULE_OK {
@@ -304,20 +318,26 @@ pub(super) fn json_get_all(
     Ok(())
 }
 
-pub(super) fn load_individual_keys(
+pub(super) fn load_individual_keys<C>(
     lookup: &mut RLookup<'_>,
-    dst_row: &mut RLookupRow<'_, RSValueFFI>,
-    options: &LoadDocumentOptions<'_>,
-) -> Result<(), LoadDocumentError> {
-    // Safety: Calling a unsafe C function to provide JSON loading functionality.
-    // The types `RLookup` and `RLookupRow` are only used as opaque pointers in the C code, so that is safe.
+    dst_row: &mut RLookupRow<'_, C::V>,
+    options: &LoadDocumentOptions<'_, C::V>,
+    context: &C,
+) -> Result<(), LoadDocumentError>
+where
+    C: LoadDocumentContext,
+{
+    println!("Load Indi Keys");
     let res = with_temp_ffi_types(
         lookup,
         dst_row,
         options,
+        // Safety: Calling a unsafe C function to provide JSON loading functionality.
+        // The types `RLookup` and `RLookupRow` are only used as opaque pointers in the C code, so that is safe.
         |lookup, dst_row, options| unsafe {
             ffi::loadIndividualKeys(lookup, dst_row, options) as u32
         },
+        context,
     );
     if res != REDISMODULE_OK {
         return Err(LoadDocumentError::FromCCode);
