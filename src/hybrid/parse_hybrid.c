@@ -696,7 +696,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
   }
-  array_free_ex(prefixes, sdsfree);
+  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
   prefixes = NULL;
 
   // Apply context to each request
@@ -729,7 +729,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   return REDISMODULE_OK;
 
 error:
-  array_free(prefixes);
+  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
   prefixes = NULL;
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
