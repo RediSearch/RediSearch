@@ -17,12 +17,12 @@ pthread_mutex_t GILAlternativeLock = PTHREAD_MUTEX_INITIALIZER; // Lock used as
 pthread_mutex_t InternalLock = PTHREAD_MUTEX_INITIALIZER; // Lock to handle communication mechanism internally
 pthread_cond_t TryLockCondition = PTHREAD_COND_INITIALIZER; // Condition to signal threads waiting to try acquire the GIL or the alternative lock that they may try again.
 pthread_cond_t GILSafeCondition = PTHREAD_COND_INITIALIZER; // Condition to signal the main thread that it can safely release the GIL. (In this case return from UnsetOwned)
-atomic_bool GILOwned;
+bool GILOwned = false;
 bool GILAlternativeLockHeld = false;
 
 
 void SharedExclusiveLock_Init() {
-  atomic_init(&GILOwned, false);
+  GILOwned = false;
   GILAlternativeLockHeld = false;
   pthread_mutex_init(&GILAlternativeLock, NULL);
   pthread_mutex_init(&InternalLock, NULL);
@@ -38,15 +38,17 @@ void SharedExclusiveLock_Destroy() {
 }
 
 void SharedExclusiveLock_SetOwned() {
-  atomic_store_explicit(&GILOwned, true, memory_order_release);
+  pthread_mutex_lock(&InternalLock);
+  GILOwned = true;
+  pthread_mutex_unlock(&InternalLock);
   // Signal any waiting threads that they may try to acquire the GIL or the alternative lock.
   pthread_cond_broadcast(&TryLockCondition);
 }
 
 void SharedExclusiveLock_UnsetOwned() {
-  atomic_store_explicit(&GILOwned, false, memory_order_release);
   // Here we make sure that any thread that may assume the GIL is protected by the main thread releases the lock before returning.
   pthread_mutex_lock(&InternalLock);
+  GILOwned = false;
   while (GILAlternativeLockHeld) {
     pthread_cond_wait(&GILSafeCondition, &InternalLock);
   }
@@ -57,7 +59,7 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   pthread_mutex_lock(&InternalLock);
   while (true) {
     int rc;
-    if (atomic_load_explicit(&GILOwned, memory_order_acquire)) {
+    if (GILOwned) {
       // Keep InternalLock held while acquiring alternative lock
       pthread_mutex_lock(&GILAlternativeLock);
       pthread_mutex_unlock(&InternalLock);
