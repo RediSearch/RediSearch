@@ -63,6 +63,10 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         &self.dyn_values
     }
 
+    pub fn dyn_values_mut(&mut self) -> &mut [Option<T>] {
+        &mut self.dyn_values
+    }
+
     /// Sets the capacity of the [`RLookupRow::dyn_values`] vector to the given capacity.
     /// It fills up the vector with None values to the given capacity.
     /// This is useful to preallocate memory for the row if you know the number of values that will be written to it.
