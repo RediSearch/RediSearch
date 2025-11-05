@@ -2875,8 +2875,11 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  // start the gc and add the spec to the cursor list
-  IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
+  if (!sp->isDuplicate) {
+  // start the gc
+    IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
+  }
+  // add the spec to the cursor list
   Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
