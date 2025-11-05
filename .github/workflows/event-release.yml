@@ -56,12 +56,7 @@ jobs:
           def valid_tag(tag):
             return tag == f"v{major}.{minor}.{patch}"
           def valid_version_branch(branch):
-            if branch == f"refs/heads/{major}.{minor}":
-              return True
-            if branch == f"refs/heads/{major}.{minor+1}":
-              release_branch = f"{major}.{minor+1}"
-              return True
-            return False
+            return branch == f"refs/heads/{major}.{minor}" or branch == f"refs/heads/{major}.{minor+1}"
           tag = os.environ["INPUT_TAG"]
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
@@ -75,7 +70,7 @@ jobs:
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
             print(f"next_patch={patch+1}", file=fp)
             print(f"should_bump={str(valid_version_branch(version_branch)).lower()}", file=fp)
-            print(f"release_branch={release_branch}", file=fp)
+            print(f"release_branch={version_branch}", file=fp)
 
   update-version:
     # Generate a PR to bump the version for the next patch (if releasing from a version branch)
