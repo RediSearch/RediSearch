@@ -83,15 +83,16 @@ typedef struct {
 typedef struct {
   job *front; /* pointer to front of queue */
   job *rear;  /* pointer to rear  of queue */
-  int len;    /* number of jobs in queue   */
+  size_t len;    /* number of jobs in queue   */
 } jobqueue;
+
 typedef struct priority_queue {
   jobqueue high_priority_jobqueue;  /* job queue for high priority tasks */
   jobqueue low_priority_jobqueue;   /* job queue for low priority tasks */
   jobqueue admin_priority_jobqueue; /* job queue for administration tasks */
   pthread_mutex_t lock;             /* used for queue r/w access */
   unsigned char alternating_pulls;  /* number of pulls by non-bias threads from queue */
-  atomic_uchar high_priority_tickets; /* number of currently available priority
+  atomic_size_t high_priority_tickets; /* number of currently available priority
                                        * tickets to reach the high priority bias */
   pthread_cond_t has_jobs; /* Conditional variable to wake up threads waiting
                               for new jobs */
@@ -481,10 +482,12 @@ void redisearch_thpool_drain_high_priority(redisearch_thpool_t *thpool_p,
                                            void *yield_ctx) {
   priorityJobqueue *priority_queue_p = &thpool_p->jobqueues;
   const unsigned char original_tickets = atomic_load_explicit(&priority_queue_p->high_priority_tickets, memory_order_acquire);
-  // Set high priority bias threshold to maximum possible value for unsigned char
+  // Set high priority bias threshold to the size of the high priority queue.
   // This ensures all threads will prioritize high-priority jobs
-  atomic_store_explicit(&priority_queue_p->high_priority_tickets, UCHAR_MAX, memory_order_release);
-
+  // Since this is called in main thread, we assume no more high priority jobs are added.
+  pthread_mutex_lock(&priority_queue_p->lock);
+  atomic_store_explicit(&priority_queue_p->high_priority_tickets, priority_queue_p->high_priority_jobqueue.len, memory_order_release);
+  pthread_mutex_unlock(&priority_queue_p->lock);
   // Wait until no more high-priority jobs are running or pending
   long usec_timeout = 1000 * timeout;
   while (priority_queue_num_high_priority_incomplete_jobs_with_infinite_bias(priority_queue_p) > 0) {
