@@ -25,6 +25,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
     StrongRef sync_ref = {0};
+    int rc = REDISMODULE_OK;
     if (async) {
       sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
     }
@@ -32,15 +33,13 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
     // Build individual pipelines for each search request
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
-
         areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
 
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
-        int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+        rc = AREQ_BuildPipeline(areq, &req->errors[i]);
         if (rc != REDISMODULE_OK) {
-            StrongRef_Release(sync_ref);
-            return REDISMODULE_ERR;
+            break;
         }
 
         // Obtain the query processing context for the current AREQ
@@ -64,7 +63,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
       // Release the sync reference as depleters now hold their own references
       StrongRef_Release(sync_ref);
     }
-    return REDISMODULE_OK;
+    return rc;
 }
 
 const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias, QueryError *status) {
