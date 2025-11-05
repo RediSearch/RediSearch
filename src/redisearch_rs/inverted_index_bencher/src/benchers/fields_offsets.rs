@@ -136,13 +136,13 @@ impl Bencher {
                 b.iter_batched_ref(
                     || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
                     |(cursor, result)| {
-                        let result = if self.wide {
+                        let res = if self.wide {
                             FieldsOffsetsWide.decode(cursor, 100, result)
                         } else {
                             FieldsOffsets.decode(cursor, 100, result)
                         };
 
-                        let _ = black_box(result);
+                        let _ = black_box(res);
                     },
                     BatchSize::SmallInput,
                 );
