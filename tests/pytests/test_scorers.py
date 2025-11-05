@@ -890,3 +890,44 @@ def testBM25STDScoreWithWeight(env: Env):
 
 def testBM25ScoreWithWeight(env: Env):
     scorer_with_weight_test(env, 'BM25')
+
+def testBM25STDUnderflow(env: Env):
+    """
+    Tests that we do not underflow when calculating the BM25STD score.
+    Before the fix, we had an underflow when calculating the IDF, which caused
+    the score to be jump rapidly in case of specific update/delete flows (MOD-12223).
+    This test also shows the scoring behavior currently in RediSearch, in which
+    for the same database image by the user, the score can change until the GC
+    runs.
+    """
+
+    # Set the scorer to `BM25STD` (we had this issue only there)
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'BM25STD').ok()
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Turn off the GC, to model the scenario without interference
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+
+    # Add 4 documents, with the same term
+    conn = getConnectionByEnv(env)
+    for i in range(2):
+        conn.execute_command('HSET', f'doc{i}', 'title', 'hello')
+
+    # Get the score for `hello`
+    res = env.cmd('ft.search', 'idx', 'hello', 'withscores', 'nocontent')
+    score_before = float(res[2])
+
+    # Update doc0, such that it will be deleted and re-added to the index
+    conn.execute_command('HSET', 'doc0', 'title', 'hello')
+    # Now, we have 4 documents in the index, but the inverted-index of `hello`
+    # contains 5 entries, until the GC cleans it up
+
+    # Now when we search for the term, the score should not jump, but rather be
+    # slightly smaller, since the idf will be smaller
+    # See https://en.wikipedia.org/wiki/Okapi_BM25 for more details
+    res = env.cmd('ft.search', 'idx', 'hello', 'withscores', 'nocontent')
+    score_after_update = float(res[2])
+
+    env.assertGreater(score_before, score_after_update)

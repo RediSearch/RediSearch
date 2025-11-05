@@ -542,7 +542,14 @@ static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
 // IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
 // IDF computation).
 static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
-  return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
+  // totalDocs should never be less than termDocs, as that causes an underflow
+  // wraparound in the below calculation.
+  // Yet, that can happen in some scenarios of deletions/updates, until fixed in
+  // the next GC run.
+  // In that case, we set totalDocs to termDocs, as a temporary fix.
+  return totalDocs < termDocs ?
+    log(1.0F + 0.5F / (termDocs + 0.5F)) :
+    log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
 }
 
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
