@@ -33,6 +33,7 @@
 #include "profile.h"
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
+#include "util/shared_exclusive_lock.h"
 
 #define DEPLETER_POOL_SIZE 4
 
@@ -149,6 +150,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Extensions_Init();
 
   Indexes_Init(ctx);
+
+  SharedExclusiveLock_Init();
 
   GC_ThreadPoolStart();
 

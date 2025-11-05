@@ -14,6 +14,7 @@
 #include "logging.h"
 #include "rmutil/rm_assert.h"
 #include "VecSim/vec_sim.h"
+#include "util/shared_exclusive_lock.h"
 
 #include <pthread.h>
 
@@ -73,10 +74,13 @@ int workersThreadPool_CreatePool(size_t worker_count) {
  * This function also handles the cases where the thread pool is turned on/off.
  * If new worker count is 0, the current living workers will continue to execute pending jobs and then terminate.
  * No new jobs should be added after setting the number of workers to 0.
+ *
+ * @warning Should only be called from the main thread
  */
 void workersThreadPool_SetNumWorkers() {
   if (_workers_thpool == NULL) return;
 
+  SharedExclusiveLock_SetOwned();
   size_t worker_count = RSGlobalConfig.numWorkerThreads;
   if (in_event && RSGlobalConfig.minOperationWorkers > worker_count) {
     worker_count = RSGlobalConfig.minOperationWorkers;
@@ -102,6 +106,8 @@ void workersThreadPool_SetNumWorkers() {
   RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
     "Attempt to change the workers thpool size to %lu "
     "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
+
+  SharedExclusiveLock_UnsetOwned();
 }
 
 // return number of currently working threads

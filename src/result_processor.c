@@ -29,6 +29,7 @@
 #include "search_disk.h"
 #include "debug_commands.h"
 #include "search_result.h"
+#include "util/shared_exclusive_lock.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -923,12 +924,12 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   rs_wall_clock rpStartTime;
   if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
   // Then, lock Redis to guarantee safe access to Redis keyspace
-  RedisModule_ThreadSafeContextLock(sctx->redisCtx);
+  SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(sctx->redisCtx);
 
   rpSafeLoader_Load(self);
 
   // Done loading. Unlock Redis
-  RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+  SharedExclusiveLock_Release(sctx->redisCtx, lockType);
 
   if (isQueryProfile) {
     // GIL time is time passed since rpStartTime combined with the time we already accumulated in the rp->GILTime
