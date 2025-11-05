@@ -116,16 +116,16 @@ impl SlotSet {
                         // Don't advance remove iterator - next range might also start within this remove range
                         continue 'outer;
                     }
-                    (true, false) => {
-                        // Remove overlaps left side - trim left
-                        current.start = remove.end + 1;
-                        remove_iter.next();
-                    }
                     (false, true) => {
                         // Remove overlaps right side - trim right and done
                         // Don't advance remove iterator - next range might also start within this remove range
                         current.end = remove.start - 1;
                         break;
+                    }
+                    (true, false) => {
+                        // Remove overlaps left side - trim left
+                        current.start = remove.end + 1;
+                        remove_iter.next();
                     }
                     (false, false) => {
                         // Remove is in the middle - split current
