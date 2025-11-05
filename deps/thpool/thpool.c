@@ -91,8 +91,6 @@ typedef struct priority_queue {
   jobqueue admin_priority_jobqueue; /* job queue for administration tasks */
   pthread_mutex_t lock;             /* used for queue r/w access */
   unsigned char alternating_pulls;  /* number of pulls by non-bias threads from queue */
-  unsigned char n_high_priority_bias; /* minimal number of high priority jobs to run in
-                                       * parallel (if there are enough threads) */
   atomic_uchar high_priority_tickets; /* number of currently available priority
                                        * tickets to reach the high priority bias */
   pthread_cond_t has_jobs; /* Conditional variable to wake up threads waiting
@@ -483,23 +481,17 @@ static size_t priority_queue_num_high_priority_incomplete_jobs(priorityJobqueue 
 void redisearch_thpool_drain_high_priority(redisearch_thpool_t *thpool_p,
                                            long timeout, yieldFunc yieldCB,
                                            void *yield_ctx) {
-  if (!thpool_p) return;
-
   priorityJobqueue *priority_queue_p = &thpool_p->jobqueues;
-  long usec_timeout = 1000 * timeout;
-
-  // Save the original high priority bias threshold
-  redisearch_thpool_lock(thpool_p);
-  size_t original_bias = priority_queue_p->n_high_priority_bias;
   size_t original_tickets = priority_queue_p->high_priority_tickets;
 
   // Set high priority bias threshold to maximum possible value for unsigned char
   // This ensures all threads will prioritize high-priority jobs
-  priority_queue_p->n_high_priority_bias = UCHAR_MAX;
+  redisearch_thpool_lock(thpool_p);
   priority_queue_p->high_priority_tickets = UCHAR_MAX;
   redisearch_thpool_unlock(thpool_p);
 
   // Wait until no more high-priority jobs are running or pending
+  long usec_timeout = 1000 * timeout;
   while (priority_queue_num_high_priority_incomplete_jobs(priority_queue_p) > 0) {
     usleep(usec_timeout);
     if (yieldCB)
@@ -508,7 +500,6 @@ void redisearch_thpool_drain_high_priority(redisearch_thpool_t *thpool_p,
 
   // Restore the original bias threshold
   redisearch_thpool_lock(thpool_p);
-  priority_queue_p->n_high_priority_bias = original_bias;
   priority_queue_p->high_priority_tickets = original_tickets;
   redisearch_thpool_unlock(thpool_p);
 }
@@ -887,7 +878,6 @@ static int priority_queue_init(priorityJobqueue *priority_queue_p,
   jobqueue_init(&priority_queue_p->admin_priority_jobqueue);
   pthread_mutex_init(&priority_queue_p->lock, NULL);
   priority_queue_p->alternating_pulls = 0;
-  priority_queue_p->n_high_priority_bias = high_priority_bias_threshold;
   priority_queue_p->high_priority_tickets = high_priority_bias_threshold;
   priority_queue_p->state = JOBQ_RUNNING;
   priority_queue_p->num_jobs_in_progress = 0;
