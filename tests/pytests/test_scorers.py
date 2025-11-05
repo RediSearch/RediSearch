@@ -910,10 +910,9 @@ def testBM25STDUnderflow(env: Env):
     # Turn off the GC, to model the scenario without interference
     env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
 
-    # Add 2 documents, with the same term
+    # Add a document with a single term
     conn = getConnectionByEnv(env)
-    for i in range(2):
-        conn.execute_command('HSET', f'doc{i}', 'title', 'hello')
+    conn.execute_command('HSET', 'doc0', 'title', 'hello')
 
     # Get the score for `hello`
     res = env.cmd('ft.search', 'idx', 'hello', 'withscores', 'nocontent')
@@ -921,11 +920,11 @@ def testBM25STDUnderflow(env: Env):
 
     # Update doc0, such that it will be deleted and re-added to the index
     conn.execute_command('HSET', 'doc0', 'title', 'hello')
-    # Now, we have 4 documents in the index, but the inverted-index of `hello`
-    # contains 5 entries, until the GC cleans it up
+    # Now, we have 1 document in the index, but the inverted-index of `hello`
+    # contains 2 entries, until the GC cleans it up
 
-    # Now when we search for the term, the score should not jump, but rather be
-    # slightly smaller, since the idf will be smaller
+    # After the fix, when we search for the term, the score should not jump, but
+    # rather be slightly smaller, since the idf will be smaller
     # See https://en.wikipedia.org/wiki/Okapi_BM25 for more details
     res = env.cmd('ft.search', 'idx', 'hello', 'withscores', 'nocontent')
     score_after_update = float(res[2])
