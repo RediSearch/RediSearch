@@ -15,8 +15,8 @@
 #include <string.h>
 
 
-#define INTERNAL_HYBRID_RESP3_LENGTH 4
-#define INTERNAL_HYBRID_RESP2_LENGTH 4
+#define INTERNAL_HYBRID_RESP3_LENGTH 6
+#define INTERNAL_HYBRID_RESP2_LENGTH 6
 
 typedef struct {
     StrongRef searchMappings;
@@ -81,10 +81,27 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
         mapping.targetShard = cmd->targetShard;
         long long cid;
         MRReply_ToInteger(cursorId, &cid);
+        // Check for early bailout (Cursor ID 0 means no cursor was opened)
+        if (cid == 0) {
+            // Pop all mappings from previous subqueries
+            for (int j = 0; j < i; j++) {
+                CursorMappings *vsimOrSearch = StrongRef_Get(*mappings[j]);
+                array_pop(vsimOrSearch->mappings);
+            }
+            break;
+        }
         mapping.cursorId = cid;
         CursorMappings *vsimOrSearch = StrongRef_Get(*mappings[i]);
         RS_ASSERT(vsimOrSearch);
         vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
+    }
+    // Handle warnings
+    MRReply *warnings = MRReply_MapElement(rep, "warnings");
+    if (MRReply_Length(warnings) > 0) {
+        for (size_t i = 0; i < MRReply_Length(warnings); i++) {
+            MRReply *warningReply = MRReply_ArrayElement(warnings, i);
+            processHybridError(ctx, warningReply);
+        }
     }
 }
 

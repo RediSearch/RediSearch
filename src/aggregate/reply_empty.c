@@ -85,8 +85,7 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
 
 // Empty reply for hybrid queries. Currently used during OOM conditions.
 // Creates QueryError with OOM warning and uses sendChunk_ReplyOnly_HybridEmptyResults.
-int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode) {
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal) {
 
     QueryError status = QueryError_Default();
     QueryError_SetError(&status, errCode, NULL);
@@ -95,7 +94,25 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode)
         status._queryOOM = true;
     }
 
+    // If internal - reply cursor information from shards to coord
+    if (internal) {
+        RedisModule_Reply _coordInfoReply = RedisModule_NewReply(ctx), *coordInfoReply = &_coordInfoReply;
+        RedisModule_Reply_Map(coordInfoReply); // root {}
+        RedisModule_ReplyKV_LongLong(coordInfoReply, "SEARCH", 0);
+        RedisModule_ReplyKV_LongLong(coordInfoReply, "VSIM", 0);
+        RedisModule_ReplyKV_Array(coordInfoReply,"warnings"); // warnings []
+        if (status._queryOOM) {
+            RedisModule_Reply_SimpleString(coordInfoReply, QueryError_Strerror(QUERY_EOOM));
+        }
+        RedisModule_Reply_ArrayEnd(coordInfoReply); // ~warnings
+        RedisModule_Reply_MapEnd(coordInfoReply); // ~root
+        RedisModule_EndReply(coordInfoReply);
+        return REDISMODULE_OK;
+    }
+
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     sendChunk_ReplyOnly_HybridEmptyResults(reply, &status);
+    RedisModule_EndReply(reply);
     return REDISMODULE_OK;
 }
 

@@ -3320,7 +3320,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       return QueryMemoryGuardFailure(ctx);
     }
     // Assuming OOM policy is return
-    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM);
+    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM, false);
   }
 
   // Coord callback

@@ -398,6 +398,10 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
         RS_ABORT_ALWAYS("Unknown subquery type");
       }
     }
+    // Add warnings array
+    RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
+    RedisModule_Reply_ArrayEnd(reply); // ~warnings
+
     RedisModule_Reply_MapEnd(reply);
     RedisModule_EndReply(reply);
 }
@@ -570,7 +574,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       return QueryMemoryGuardFailure(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
-    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM);
+    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM, internal);
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);

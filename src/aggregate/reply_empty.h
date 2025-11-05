@@ -27,7 +27,7 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
 // Empty reply for hybrid queries.
 // Uses RESP3 map structure with proper hybrid result formatting.
 // Works for both coordinator and single-shard hybrid queries.
-int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode);
+int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal);
 
 // Single-shard empty reply for SEARCH and AGGREGATE commands.
 // Handles both RESP2 and RESP3 with command-appropriate formatting.
