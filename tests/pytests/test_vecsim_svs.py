@@ -19,6 +19,7 @@ from common import (
     forceInvokeGC,
     waitForIndex,
     SkipTest,
+    call_and_store,
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -496,16 +497,21 @@ def test_drop_index_during_query():
     dim = 2
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
+    k = 10
     set_up_database_with_vectors(env, dim, num_docs=training_threshold, index_name=DEFAULT_INDEX_NAME, datatype=data_type, alg='SVS-VAMANA')
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], training_threshold)
 
     query = create_random_np_array_typed(dim, 'FLOAT32')
-    query_cmd = ['FT.SEARCH', DEFAULT_INDEX_NAME, f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT']
+    query_cmd = ['FT.SEARCH', DEFAULT_INDEX_NAME, f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT']
+
+    query_result = []
     # Build threads
     t_query = threading.Thread(
-        target=runDebugQueryCommandPauseBeforeRPAfterN,
-        args=(env,query_cmd, 'Metrics Applier', 2),
+        target=call_and_store,
+        args=(runDebugQueryCommandPauseBeforeRPAfterN,
+              (env, query_cmd, 'Metrics Applier', 2),
+              query_result),
         daemon=True
     )
 
@@ -523,6 +529,7 @@ def test_drop_index_during_query():
     # Resume the query
     setPauseRPResume(env)
     t_query.join()
+    env.assertEqual(query_result[0][0], k)
 
     env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"no such index")
     env.expect(*query_cmd).error().contains(f"No such index")
