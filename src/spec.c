@@ -1192,6 +1192,9 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 
     // primary index params allocated in VecSim_TieredParams_Init()
     TieredIndexParams *params = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
+    // TODO: FT.INFO currently displays index attributes from this struct instead of
+    // querying VecSim runtime info. Once vecsim provides runtime info for FT.INFO,
+    // remove this duplication and pass 0 to let VecSim apply its own defaults.
     params->specificParams.tieredSVSParams.trainingTriggerThreshold = 0;  // will be set to default value if not specified by user.
     params->primaryIndexParams->algo = VecSimAlgo_SVS;
     params->primaryIndexParams->algoParams.svsParams.quantBits = VecSimSvsQuant_NONE;
@@ -1202,8 +1205,9 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.leanvec_dim = SVS_VAMANA_DEFAULT_LEANVEC_DIM;
     params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);
-    if (params->specificParams.tieredSVSParams.trainingTriggerThreshold == 0) {
-      params->specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
+    if (!(params->primaryIndexParams->algoParams.svsParams.quantBits == VecSimSvsQuant_NONE)
+      && (params->specificParams.tieredSVSParams.trainingTriggerThreshold == 0)) {
+        params->specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
     }
     if (VecSim_IsLeanVecCompressionType(params->primaryIndexParams->algoParams.svsParams.quantBits) &&
         params->primaryIndexParams->algoParams.svsParams.leanvec_dim == 0) {
