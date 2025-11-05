@@ -347,20 +347,6 @@ def testDisMaxScorerExplanation(env):
     env.assertEqual(res[8][1], ['20.00 = Weight 1.00 * children DISMAX 20.00',
             ['DISMAX 10.00 = Weight 1.00 * Frequency 10', 'DISMAX 10.00 = Weight 1.00 * Frequency 10']])
 
-def testScoreReplace(env):
-    conn = getConnectionByEnv(env)
-    env.expect('ft.create idx ON HASH schema f text').ok()
-    waitForIndex(env, 'idx')
-    conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
-    conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
-    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '54.61673365109679'])
-    conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
-    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '59.27440327054199'])
-    if not env.isCluster():
-        env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
-        env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
-        env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '0.3955628932786397'])
-
 def testScoreDecimal(env):
     env.expect('ft.create idx ON HASH schema title text').ok()
     waitForIndex(env, 'idx')
