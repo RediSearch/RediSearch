@@ -141,8 +141,6 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       --spec->stats.numDocuments;
       RS_LOG_ASSERT(spec->stats.totalDocsLen >= dmd->len, "totalDocsLen is smaller than dmd->len");
       spec->stats.totalDocsLen -= dmd->len;
-      DMD_Return(aCtx->oldMd);
-      aCtx->oldMd = dmd;
       if (spec->gc) {
         GCContext_OnDelete(spec->gc);
       }
@@ -161,6 +159,8 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       if (spec->flags & Index_HasGeometry) {
         GeometryIndex_RemoveId(spec, dmd->id);
       }
+
+      DMD_Return(dmd);
     }
   }
 
