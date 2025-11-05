@@ -2754,9 +2754,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     }
   }
 
-  if (!sp->isDuplicate) {
-    sp->indexer = NewIndexer(sp);
-  }
+  sp->indexer = NewIndexer(sp);
 
   sp->scan_in_progress = false;
   if (sp->isDuplicate) {
