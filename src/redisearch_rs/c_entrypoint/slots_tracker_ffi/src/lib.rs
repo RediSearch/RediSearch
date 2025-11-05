@@ -21,87 +21,75 @@
 //! slots configuration has changed.
 
 use slots_tracker::{SlotRange, SlotRangeArray, SlotsTracker};
-use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 // Re-export for C bindings
 pub use slots_tracker::SLOTS_TRACKER_UNAVAILABLE;
 
 // ============================================================================
-// Global State Structure
+// Global State
 // ============================================================================
 
-/// Encapsulates all slot tracking state in a single structure.
+/// Guard to ensure only one thread ever creates a tracker instance.
 ///
-/// Wraps the safe `SlotsTracker` implementation with unsafe access for the C FFI.
-/// The atomic version counter mirrors the internal tracker's version for thread-safe reads.
-///
-/// # Safety
-///
-/// This type is NOT thread-safe for mutations. Access to the UnsafeCell must be
-/// single-threaded. The caller must ensure that:
-/// - Only one thread (the main thread) accesses the tracker for mutations
-/// - No other references exist while mutable references are alive
-///
-/// The version field is atomic and can be safely read from any thread.
-struct SlotsTrackerState {
-    /// The safe slots tracker implementation wrapped in UnsafeCell for static access.
-    tracker: UnsafeCell<SlotsTracker>,
-    /// Atomic version counter that mirrors the tracker's internal version.
-    /// This allows thread-safe reads of the version without accessing the tracker.
-    version: AtomicU32,
-}
+/// Set to true when the thread-local tracker is first accessed.
+/// If another thread tries to access the API, it will panic.
+static TRACKER_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
-// SAFETY: This is marked as Sync to allow use in static variables, but the caller
-// MUST ensure single-threaded access to the UnsafeCell field. This is enforced
-// by the C API contract. The AtomicU32 is inherently Sync.
-unsafe impl Sync for SlotsTrackerState {}
+/// Atomic version counter that mirrors the tracker's internal version.
+///
+/// This allows thread-safe reads of the version from any thread.
+static VERSION: AtomicU32 = AtomicU32::new(0);
 
-impl SlotsTrackerState {
-    const fn new() -> Self {
-        Self {
-            tracker: UnsafeCell::new(SlotsTracker::new()),
-            version: AtomicU32::new(0),
+// Thread-local slots tracker instance.
+//
+// Only one thread (the first to call any FFI function) will successfully
+// create this instance. Other threads will panic when accessing it.
+thread_local! {
+    static TRACKER: RefCell<SlotsTracker> = {
+        // Try to claim exclusive access
+        if TRACKER_INITIALIZED.swap(true, Ordering::SeqCst) {
+            panic!("slots_tracker FFI functions called from multiple threads");
         }
-    }
+        RefCell::new(SlotsTracker::new())
+    };
 }
-
-// ============================================================================
-// Global Static State Instance (Private)
-// ============================================================================
-
-/// Global slots tracker state.
-///
-/// Contains the safe SlotsTracker wrapped in UnsafeCell for static access.
-///
-/// # Safety
-///
-/// All mutation functions accessing this state are `unsafe extern "C"` and
-/// documented to require single-threaded access. Violating this contract
-/// (e.g., calling from multiple threads) is undefined behavior.
-static STATE: SlotsTrackerState = SlotsTrackerState::new();
 
 // ============================================================================
 // Private Helper Functions
 // ============================================================================
 
-/// Gets mutable reference to the tracker.
+/// Gets a reference to the tracker and executes a function on it.
 ///
-/// # Safety
+/// # Panics
 ///
-/// The caller must ensure single-threaded access to the static instance.
-unsafe fn get_tracker() -> &'static mut SlotsTracker {
-    // SAFETY: Caller guarantees single-threaded access
-    unsafe { &mut *STATE.tracker.get() }
+/// Panics if called from a thread other than the one that initialized the tracker.
+fn with_tracker<F, R>(f: F) -> R
+where
+    F: FnOnce(&SlotsTracker) -> R,
+{
+    TRACKER.with_borrow(|tracker| f(tracker))
+}
+
+/// Gets a mutable reference to the tracker and executes a function on it.
+///
+/// # Panics
+///
+/// Panics if called from a thread other than the one that initialized the tracker.
+fn with_tracker_mut<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut SlotsTracker) -> R,
+{
+    TRACKER.with_borrow_mut(|tracker| f(tracker))
 }
 
 /// Syncs the atomic version counter with the tracker's internal version.
 ///
 /// This should be called after any operation that modifies the tracker's version.
-fn sync_version(tracker: &SlotsTracker) {
-    STATE
-        .version
-        .store(tracker.get_version(), Ordering::Relaxed);
+fn sync_version() {
+    let version = with_tracker(|tracker| tracker.get_version());
+    VERSION.store(version, Ordering::Relaxed);
 }
 
 /// Converts a C SlotRangeArray pointer to a core library SlotRange slice.
@@ -152,16 +140,14 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
-    // SAFETY: Caller guarantees valid pointer and main thread access
+    // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
-    // SAFETY: Caller guarantees single-threaded access
-    let tracker = unsafe { get_tracker() };
+    with_tracker_mut(|tracker| {
+        tracker.set_local_slots(ranges);
+    });
 
-    // Delegate to the safe implementation
-    tracker.set_local_slots(ranges);
-
-    sync_version(tracker);
+    sync_version();
 }
 
 /// Marks the given slot ranges as partially available.
@@ -180,17 +166,14 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeA
 pub unsafe extern "C" fn slots_tracker_mark_partially_available_slots(
     ranges: *const SlotRangeArray,
 ) {
-    // SAFETY: Caller guarantees valid pointer and main thread access
+    // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
-    // SAFETY: Caller guarantees single-threaded access
-    let tracker = unsafe { get_tracker() };
+    with_tracker_mut(|tracker| {
+        tracker.mark_partially_available_slots(ranges);
+    });
 
-    // Delegate to the safe implementation
-    tracker.mark_partially_available_slots(ranges);
-
-    // Sync the atomic version counter
-    sync_version(tracker);
+    sync_version();
 }
 
 /// Promotes slot ranges to local ownership.
@@ -209,14 +192,12 @@ pub unsafe extern "C" fn slots_tracker_mark_partially_available_slots(
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_promote_to_local_slots(ranges: *const SlotRangeArray) {
-    // SAFETY: Caller guarantees valid pointer and main thread access
+    // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
-    // SAFETY: Caller guarantees single-threaded access
-    let tracker = unsafe { get_tracker() };
-
-    // Delegate to the safe implementation
-    tracker.promote_to_local_slots(ranges);
+    with_tracker_mut(|tracker| {
+        tracker.promote_to_local_slots(ranges);
+    });
 
     // Note: Version is NOT incremented here
 }
@@ -237,15 +218,14 @@ pub unsafe extern "C" fn slots_tracker_promote_to_local_slots(ranges: *const Slo
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_mark_fully_available_slots(ranges: *const SlotRangeArray) {
-    // SAFETY: Caller guarantees valid pointer and main thread access
+    // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
-    // SAFETY: Caller guarantees single-threaded access
-    let tracker = unsafe { get_tracker() };
+    with_tracker_mut(|tracker| {
+        tracker.mark_fully_available_slots(ranges);
+    });
 
-    // Delegate to the safe implementation
     // Note: This does NOT increment the version
-    tracker.mark_fully_available_slots(ranges);
 }
 
 /// Removes deleted slot ranges from the partially available slots.
@@ -261,15 +241,14 @@ pub unsafe extern "C" fn slots_tracker_mark_fully_available_slots(ranges: *const
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotRangeArray) {
-    // SAFETY: Caller guarantees valid pointer and main thread access
+    // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
-    // SAFETY: Caller guarantees single-threaded access
-    let tracker = unsafe { get_tracker() };
+    with_tracker_mut(|tracker| {
+        tracker.remove_deleted_slots(ranges);
+    });
 
-    // Delegate to the safe implementation
     // Note: This does NOT increment the version
-    tracker.remove_deleted_slots(ranges);
 }
 
 /// Checks if there is any overlap between the given slot ranges and the fully available slots.
@@ -287,14 +266,10 @@ pub unsafe extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotR
 pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
     ranges: *const SlotRangeArray,
 ) -> bool {
-    // SAFETY: Caller guarantees valid pointer and main thread access
+    // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
-    // SAFETY: Caller guarantees single-threaded access
-    let tracker = unsafe { get_tracker() };
-
-    // Delegate to the safe implementation
-    tracker.has_fully_available_overlap(ranges)
+    with_tracker(|tracker| tracker.has_fully_available_overlap(ranges))
 }
 
 /// Checks if all requested slots are available and returns version information.
@@ -323,14 +298,10 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray) -> u32 {
-    // SAFETY: Caller guarantees valid pointer and main thread access
+    // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
-    // SAFETY: Caller guarantees single-threaded access
-    let tracker = unsafe { get_tracker() };
-
-    // Delegate to the safe implementation
-    tracker.check_availability(ranges)
+    with_tracker(|tracker| tracker.check_availability(ranges))
 }
 
 /// Returns the current version of the slots configuration.
@@ -343,5 +314,5 @@ pub unsafe extern "C" fn slots_tracker_check_availability(ranges: *const SlotRan
 /// This function is safe to call from any thread.
 #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_get_version() -> u32 {
-    STATE.version.load(Ordering::Relaxed)
+    VERSION.load(Ordering::Relaxed)
 }

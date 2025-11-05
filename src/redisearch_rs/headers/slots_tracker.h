@@ -8,10 +8,6 @@
 #include <stdlib.h>
 #include "redismodule.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif // __cplusplus
-
 /**
  * Sets the local responsibility slot ranges.
  *
@@ -153,7 +149,3 @@ uint32_t slots_tracker_check_availability(const RedisModuleSlotRangeArray *range
  * This function is safe to call from any thread.
  */
 uint32_t slots_tracker_get_version(void);
-
-#ifdef __cplusplus
-}  // extern "C"
-#endif  // __cplusplus
