@@ -18,7 +18,6 @@ use value::RSValueFFI;
 
 use crate::{
     RLookup, RLookupRow,
-    bindings::RLookupLoadMode,
     load_document::{LoadDocumentError, LoadDocumentOptions},
 };
 
@@ -44,28 +43,16 @@ fn with_temp_ffi_types<R>(
             .cast::<*mut ffi::RSValue>(),
     };
 
-    let options = ffi::RLookupLoadOptions {
-        sctx: options.context.map_or(ptr::null_mut(), |ctx| ctx.as_ptr()),
-        dmd: todo!(),
-        keyPtr: options.key_ptr.map_or(ptr::null(), |ptr| ptr.as_ptr()),
-        type_: todo!(),
-        keys: todo!(),
-        nkeys: todo!(),
-        mode: match options.mode {
-            RLookupLoadMode::KeyList => ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
-            RLookupLoadMode::SortingVectorKeys => ffi::RLookupLoadFlags_RLOOKUP_LOAD_SVKEYS,
-            RLookupLoadMode::AllKeys => ffi::RLookupLoadFlags_RLOOKUP_LOAD_ALLKEYS,
-        },
-        forceLoad: options.force_load,
-        forceString: options.force_string,
-        status: todo!(),
-    };
+    let options = options
+        .tmp_cstruct
+        .expect("We are calling from C and the C type got provided")
+        .as_ptr();
 
     let res = cb(
         // RLookups first field of type RLookupHeader is compatible with ffi::RLookup
         ptr::from_mut(lookup).cast::<ffi::RLookup>(),
         &raw mut temp_dst_row,
-        &raw mut options,
+        options,
     );
 
     // write back any potential changes made to the FFI RLookupRow
