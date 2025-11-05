@@ -910,7 +910,7 @@ def testBM25STDUnderflow(env: Env):
     # Turn off the GC, to model the scenario without interference
     env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
 
-    # Add 4 documents, with the same term
+    # Add 2 documents, with the same term
     conn = getConnectionByEnv(env)
     for i in range(2):
         conn.execute_command('HSET', f'doc{i}', 'title', 'hello')
