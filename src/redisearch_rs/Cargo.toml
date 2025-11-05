@@ -61,6 +61,7 @@ license-file = "../../LICENSE.txt"
 publish = false
 
 [workspace.dependencies]
+c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
 ffi = { path = "./ffi", default-features = false }
 fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
