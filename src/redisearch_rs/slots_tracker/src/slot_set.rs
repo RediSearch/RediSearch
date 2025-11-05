@@ -156,21 +156,15 @@ impl SlotSet {
 
         let mut their_iter = ranges.iter().peekable();
 
-        for &our_range in &self.ranges {
+        self.ranges.iter().any(|&our_range| {
             // Skip their ranges that end before our current range starts
             while their_iter.next_if(|&&r| r.end < our_range.start).is_some() {}
 
-            let Some(&&their_range) = their_iter.peek() else {
-                break;
-            };
-
-            // Check if next their range overlaps with our current range
-            if their_range.start <= our_range.end {
-                return true; // Overlap found
-            }
-        }
-
-        false
+            // Check if their current range overlaps with our current range
+            their_iter.peek().is_some_and(|&&their_range| {
+                their_range.start <= our_range.end
+            })
+        })
     }
 
     /// Returns true if this set contains no ranges.
