@@ -488,10 +488,13 @@ void redisearch_thpool_drain_high_priority(redisearch_thpool_t *thpool_p,
   // This ensures all threads will prioritize high-priority jobs
   // Since this is called in main thread, we assume no more high priority jobs are added.
   size_t tickets_to_add = 0;
+  size_t ticket_capacity_to_check = priority_queue_p->n_high_priority_bias;
   if (thpool_p->n_threads >= priority_queue_p->n_high_priority_bias) {
+    ticket_capacity_to_check = thpool_p->n_threads;
     tickets_to_add = thpool_p->n_threads - priority_queue_p->n_high_priority_bias;
     atomic_fetch_add_explicit(&priority_queue_p->high_priority_tickets, tickets_to_add, memory_order_release);
   }
+  // Wait in two phases, which could save us locking and unlocking just to check the queue length, once the queue length is 0.
   // Wait until no more high-priority jobs are running or pending
   long usec_timeout = 1000 * timeout;
   while (priority_queye_high_priority_queue_len(priority_queue_p) > 0) {
@@ -502,7 +505,7 @@ void redisearch_thpool_drain_high_priority(redisearch_thpool_t *thpool_p,
 
   // Here we know that the queue length is below threshold. However, jobs are still in progress, which may be high priority.
   // But we can wait for the high priority tickets to be up to n_threads meaning no more high priority jobs are running.
-  while (atomic_load_explicit(&priority_queue_p->high_priority_tickets, memory_order_acquire) < thpool_p->n_threads) {
+  while (atomic_load_explicit(&priority_queue_p->high_priority_tickets, memory_order_acquire) < ticket_capacity_to_check) {
     usleep(usec_timeout);
     if (yieldCB)
       yieldCB(yield_ctx);
