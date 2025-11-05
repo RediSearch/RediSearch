@@ -106,11 +106,9 @@ impl SlotSet {
             while remove_iter.next_if(|&&r| r.end < current.start).is_some() {}
 
             // Apply all overlapping remove ranges to current
-            while let Some(&&remove) = remove_iter.peek() {
-                if remove.start > current.end {
-                    break; // No more overlaps for current
-                }
-
+            while let Some(&&remove) = remove_iter.peek()
+                && remove.start <= current.end
+            {
                 // Handle overlap cases
                 match (remove.start <= current.start, remove.end >= current.end) {
                     (true, true) => {
@@ -161,9 +159,9 @@ impl SlotSet {
             while their_iter.next_if(|&&r| r.end < our_range.start).is_some() {}
 
             // Check if their current range overlaps with our current range
-            their_iter.peek().is_some_and(|&&their_range| {
-                their_range.start <= our_range.end
-            })
+            their_iter
+                .peek()
+                .is_some_and(|&&their_range| their_range.start <= our_range.end)
         })
     }
 
