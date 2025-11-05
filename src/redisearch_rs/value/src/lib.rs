@@ -34,7 +34,6 @@ pub struct SDS(usize); // TODO bind
 /// Internal storage of [`RsValue`] and [`SharedRsValue`]
 // TODO: optimize memory size
 #[derive(Debug, Clone)]
-#[repr(C)]
 pub enum RsValueInternal {
     /// Null value
     Null,
@@ -54,7 +53,6 @@ pub enum RsValueInternal {
 // TODO: optimize memory layout
 /// cbindgen:prefix-with-name
 #[derive(Debug, Default, Clone)]
-#[repr(C)]
 pub enum RsValue {
     #[default]
     /// Undefined, not holding a value.
@@ -83,4 +81,23 @@ impl RsValue {
     pub fn clear(&mut self) {
         *self = Self::Undef
     }
+}
+
+pub mod opaque {
+    use c_ffi_utils::opaque::Transmute;
+
+    pub use super::RsValue;
+
+    #[repr(C, align(8))]
+    /// Opaque variant of [`RsValue`], allowing the
+    /// non-FFI-safe [`RsValue`] to be passed to C
+    /// and even allow C land to place it on the stack.
+    pub struct OpaqueRsValue(c_ffi_utils::opaque::Size<24>);
+
+    // Safety: `OpaqueRsValue` is defined as a `MaybeUninit` slice of
+    // bytes with the same size and alignment as `RsValue`, so any valid
+    // `RsValue` has a bit pattern which is a valid `OpaqueRsValue`.
+    unsafe impl Transmute<RsValue> for OpaqueRsValue {}
+
+    c_ffi_utils::opaque!(RsValue, OpaqueRsValue);
 }
