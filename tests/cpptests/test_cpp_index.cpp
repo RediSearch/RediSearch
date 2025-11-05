@@ -169,27 +169,21 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
 
   // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
-  // IndexBlock *blocks         8
-  // uint32_t size              4
-  // IndexFlags                 4
-  // t_docId lastId             8
-  // uint32_t numDocs           4
-  // uint32_t gcMarker          4
+  // Vec<IndexBlock> blocks    24
+  // u32 n_uniqe_blocks         4
+  // flags IndexFlags           4
+  // u32 gc_marker              4
   // ----------------------------
-  // Total                     32
+  // Total                     36
+  // After padding             40
 
-  size_t exp_idx_no_block_memsize = 32;
+  size_t exp_idx_no_block_memsize = 40;
 
   if (useFieldMask) {
     exp_idx_no_block_memsize += t_fiedlMask_memsize;
   }
 
-  // A block is 48 bytes with an initial buffer capacity
-  size_t exp_block_memsize = 48;
-
-  size_t exp_initial_block_cap = 6;
-
-  size_t expectedIndexSize = exp_idx_no_block_memsize + exp_block_memsize + exp_initial_block_cap;
+  size_t expectedIndexSize = exp_idx_no_block_memsize;
   // The memory occupied by a new inverted index depends of its flags
   // see NewInvertedIndex() for details
   ASSERT_EQ(expectedIndexSize, index_memsize);
@@ -222,16 +216,20 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(200, InvertedIndex_LastId(idx));
 
   for (int xx = 0; xx < 1; xx++) {
-    QueryIterator *ir = NewInvIndIterator_TermFull(idx);
+    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+    IndexReader *reader = NewIndexReader(idx, decoderCtx);
+    RSIndexResult *res = NewTokenRecord(NULL, 1);
+    res->freq = 1;
+    res->fieldMask = RS_FIELDMASK_ALL;
 
     int n = 1;
     IteratorStatus rc;
-    while ((rc = ir->Read(ir)) != ITERATOR_EOF) {
-      ASSERT_EQ(ITERATOR_OK, rc);
-      ASSERT_EQ(ir->lastDocId, n);
+    while (IndexReader_Next(reader, res)) {
+      ASSERT_EQ(res->docId, n);
       n++;
     }
-    ir->Free(ir);
+    IndexReader_Free(reader);
+    IndexResult_Free(res);
   }
 
   InvertedIndex_Free(idx);
@@ -260,66 +258,6 @@ INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Values(
     int(Index_DocIdsOnly)
 ));
 
-// Test we only get the right encoder and decoder for the right flags
-TEST_F(IndexTest, testGetEncoderAndDecoders) {
-  for (int curFlags = 0; curFlags <= INDEX_STORAGE_MASK; curFlags++) {
-    switch (curFlags & INDEX_STORAGE_MASK) {
-    // 1. Full encoding - docId, freq, flags, offset
-    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
-    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema:
-    // 2. (Frequency, Field)
-    case Index_StoreFreqs | Index_StoreFieldFlags:
-    case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
-    // 3. Frequencies only
-    case Index_StoreFreqs:
-    // 4. Field only
-    case Index_StoreFieldFlags:
-    case Index_StoreFieldFlags | Index_WideSchema:
-    // 5. (field, offset)
-    case Index_StoreFieldFlags | Index_StoreTermOffsets:
-    case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-    // 6. (offset)
-    case Index_StoreTermOffsets:
-    // 7. (freq, offset) Store term offsets but not field flags
-    case Index_StoreFreqs | Index_StoreTermOffsets:
-    // 0. docid only
-    case Index_DocIdsOnly:
-    // 9. Numeric
-    case Index_StoreNumeric:
-      ASSERT_TRUE(InvertedIndex_GetDecoder(IndexFlags(curFlags)).decoder);
-      ASSERT_TRUE(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
-      break;
-
-    // invalid flags combination
-    default:
-      // TODO: We currently test only with sanitizer since the sanitizer is
-      // running in debug mode always, while the regular tests are running in
-      // release mode.
-      #ifdef __SANITIZE_ADDRESS__
-        ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
-        ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
-      #else
-        continue;
-      #endif
-    }
-  }
-}
-
-TEST_F(IndexTest, testReadIterator) {
-  InvertedIndex *idx = createPopulateTermsInvIndex(10, 1);
-  QueryIterator *it = NewInvIndIterator_TermFull(idx);
-  int i = 1;
-  while (it->Read(it) == ITERATOR_OK) {
-    ASSERT_EQ(it->lastDocId, i);
-    i++;
-  }
-  ASSERT_EQ(11, i);
-
-  it->Free(it);
-
-  InvertedIndex_Free(idx);
-}
-
 TEST_F(IndexTest, testUnion) {
   int oldConfig = RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap;
   for (int cfg = 0; cfg < 2; ++cfg) {
@@ -328,8 +266,9 @@ TEST_F(IndexTest, testUnion) {
 
     // printf("Reading!\n");
     QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-    irs[0] = NewInvIndIterator_TermFull(w);
-    irs[1] = NewInvIndIterator_TermFull(w2);
+    FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+    irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
+    irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
     IteratorsConfig config{};
     iteratorsConfig_init(&config);
     QueryIterator *ui = NewUnionIterator(irs, 2, 0, 1, QN_UNION, NULL, &config);
@@ -381,8 +320,9 @@ TEST_F(IndexTest, testWeight) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 2);
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = { .index = RS_INVALID_FIELD_INDEX }};
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-  irs[0] = NewInvIndIterator_TermQuery(w, NULL, fieldMaskOrIndex, NULL, 0.5);
-  irs[1] = NewInvIndIterator_TermFull(w2);
+  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, fieldMaskOrIndex, nullptr, 0.5);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
   IteratorsConfig config{};
   iteratorsConfig_init(&config);
   QueryIterator *ui = NewUnionIterator(irs, 2, 0, 0.8, QN_UNION, NULL, &config);
@@ -418,8 +358,9 @@ TEST_F(IndexTest, testNot) {
   // not all numbers that divide by 3
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-  irs[0] = NewInvIndIterator_TermFull(w);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermFull(w2), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -439,7 +380,8 @@ TEST_F(IndexTest, testNot) {
 TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createPopulateTermsInvIndex(10, 3);
   auto ctx = std::make_unique<MockQueryEvalCtx>();
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermFull(w), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -462,14 +404,10 @@ TEST_F(IndexTest, testNumericInverted) {
   size_t expected_sz = 0;
   size_t written_bytes = 0;
   size_t bytes_per_entry = 0;
-  size_t buff_cap = 6; // Initial block capacity
-  size_t available_size = 6; // Nothing is used in the block yet
+  size_t buff_cap = 0; // Initial block capacity
 
   for (int i = 0; i < 75; i++) {
-    sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
-    ASSERT_TRUE(sz == expected_sz);
-
-    // The buffer has an initial capacity of 6 bytes
+    // The buffer has an initial capacity of 0 bytes
     // For values < 7 (tiny numbers) the header (H) and value (V) will occupy
     // only 1 byte.
     // For values >= 7, the header will occupy 1 byte, and the value 1 bytes.
@@ -477,47 +415,59 @@ TEST_F(IndexTest, testNumericInverted) {
     // The delta will occupy 1 byte.
     // The first entry has zero delta, so it will not be written.
     //
-    // For the first 3 entries, the buffer will not grow, and sz = 0,
-    // after that, the sz be greater than zero when the buffer grows.
     // The buffer will grow when there is not enough space to write the entry
     //
     // The number of bytes added to the capacity is defined by the formula:
-    // MIN(1 + buf->cap / 5, 1024 * 1024)  (see buffer.c Buffer_Grow())
+    // MIN(1 + buf.cap / 5, 1024 * 1024)  (see controlled_cursor.rs reserve_and_pad())
     //
     //   | H + V | Delta | Bytes     | Written  | Buff cap | Available | sz
     // i | bytes | bytes | per Entry | bytes    |          | size      |
     // ----------------------------------------------------------------------
-    // 0 | 1     | 0     | 1         |  1       |  6       | 5         | 0
-    // 1 | 1     | 1     | 2         |  3       |  6       | 3         | 0
-    // 2 | 1     | 1     | 2         |  5       |  6       | 1         | 0
-    // 3 | 1     | 1     | 2         |  7       |  8       | 1         | 2
-    // 4 | 1     | 1     | 2         |  9       | 10       | 1         | 2
-    // 5 | 1     | 1     | 2         | 11       | 13       | 2         | 3
-    // 6 | 1     | 1     | 2         | 13       | 16       | 3         | 0
-    // 7 | 2     | 1     | 3         | 16       | 16       | 0         | 3
-    // 8 | 2     | 1     | 3         | 19       | 20       | 1         | 4
-    // 9 | 2     | 1     | 3         | 19       | 25       | 1         | 5
+    // 0 | 1     | 0     | 1         |  1       |  1       | 0         | 1
+    // 1 | 1     | 1     | 2         |  3       |  3       | 0         | 2
+    // 2 | 1     | 1     | 2         |  5       |  5       | 0         | 2
+    // 3 | 1     | 1     | 2         |  7       |  7       | 0         | 2
+    // 4 | 1     | 1     | 2         |  9       |  9       | 0         | 2
+    // 5 | 1     | 1     | 2         | 11       | 11       | 0         | 2
+    // 6 | 1     | 1     | 2         | 13       | 14       | 1         | 3
+    // 7 | 2     | 1     | 3         | 16       | 17       | 1         | 3
+    // 8 | 2     | 1     | 3         | 19       | 21       | 2         | 4
+    // 9 | 2     | 1     | 3         | 22       | 26       | 4         | 5
 
-    if(i < 7) {
-      bytes_per_entry = 1 + (i > 0);
+    if (i < 1) {
+      bytes_per_entry = 1;
+    } else if (i < 7) {
+      bytes_per_entry = 2;
     } else {
       bytes_per_entry = 3;
     }
 
     // Simulate the buffer growth to get the expected size
     written_bytes += bytes_per_entry;
-    if(buff_cap < written_bytes || buff_cap - written_bytes < bytes_per_entry) {
-      expected_sz = MIN(1 + buff_cap / 5, 1024 * 1024);
-    } else {
-      expected_sz = 0;
+    size_t target_cap = buff_cap;
+    while (target_cap < written_bytes) {
+      target_cap += MIN(1 + target_cap / 5, 1024 * 1024);
     }
-    buff_cap += expected_sz;
+
+    expected_sz = target_cap - buff_cap;
+    buff_cap = target_cap;
+
+    // The first write will make an index block of 48 bytes
+    if (i < 1) {
+      expected_sz += 48;
+    }
+
+    // Check if the write matches the simulation
+    sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
+    ASSERT_EQ(sz, expected_sz) << " at i=" << i;
   }
   ASSERT_EQ(75, InvertedIndex_LastId(idx));
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
-  QueryIterator *it = NewInvIndIterator_NumericFull(idx);
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
   t_docId i = 1;
   while (ITERATOR_EOF != it->Read(it)) {
     RSIndexResult *res = it->current;
@@ -544,30 +494,13 @@ TEST_F(IndexTest, testNumericVaried) {
   static const size_t numCount = sizeof(nums) / sizeof(double);
 
   for (size_t i = 0; i < numCount; i++) {
-    size_t min_data_len;
-    IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
-    size_t cap = IndexBlock_Cap(lastBlock);
-    size_t offset = IndexBlock_Len(lastBlock);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
-
-    if(i == 0 || i == 4 || i == 5) {
-      // For tests numbers 0, 1.0, and 5.0, two bytes are enough to store them.
-      min_data_len = 2;
-    } else {
-      min_data_len = 10;
-    }
-
-    // if there was not enough space to store the entry,
-    // the capacity of the block was increased and sz > 0
-    if(cap - offset < min_data_len) {
-      ASSERT_TRUE(sz > 0);
-    } else {
-      ASSERT_TRUE(sz == 0);
-    }
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
-  QueryIterator *it = NewInvIndIterator_NumericFull(idx);
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
 
   for (size_t i = 0; i < numCount; i++) {
     // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
@@ -583,37 +516,36 @@ TEST_F(IndexTest, testNumericVaried) {
 
 typedef struct {
   double value;
-  size_t size;
 } encodingInfo;
 static const encodingInfo infos[] = {
-    {0, 1},                    // 0
-    {1, 2},                    // 1
-    {63, 3},                   // 2
-    {-1, 3},                   // 3
-    {-63, 3},                  // 4
-    {64, 3},                   // 5
-    {-64, 3},                  // 6
-    {255, 3},                  // 7
-    {-255, 3},                 // 8
-    {65535, 4},                // 9
-    {-65535, 4},               // 10
-    {16777215, 5},             // 11
-    {-16777215, 5},            // 12
-    {4294967295, 6},           // 13
-    {-4294967295, 6},          // 14
-    {4294967295 + 1, 7},       // 15
-    {4294967295 + 2, 7},       // 16
-    {549755813888.0, 7},       // 17
-    {549755813888.0 + 2, 7},   // 18
-    {549755813888.0 - 23, 7},  // 19
-    {-549755813888.0, 7},      // 20
-    {1503342028.957225, 10},   // 21
-    {42.4345, 10},              // 22
-    {(float)0.5, 6},           // 23
-    {DBL_MAX, 10},             // 24
-    {UINT64_MAX >> 12, 9},     // 25
-    {INFINITY, 2},             // 26
-    {-INFINITY, 2}             // 27
+    {0},                    // 0
+    {1},                    // 1
+    {63},                   // 2
+    {-1},                   // 3
+    {-63},                  // 4
+    {64},                   // 5
+    {-64},                  // 6
+    {255},                  // 7
+    {-255},                 // 8
+    {65535},                // 9
+    {-65535},               // 10
+    {16777215},             // 11
+    {-16777215},            // 12
+    {4294967295},           // 13
+    {-4294967295},          // 14
+    {4294967295 + 1},       // 15
+    {4294967295 + 2},       // 16
+    {549755813888.0},       // 17
+    {549755813888.0 + 2},   // 18
+    {549755813888.0 - 23},  // 19
+    {-549755813888.0},      // 20
+    {1503342028.957225},   // 21
+    {42.4345},              // 22
+    {(float)0.5},           // 23
+    {DBL_MAX},             // 24
+    {UINT64_MAX >> 12},     // 25
+    {INFINITY},             // 26
+    {-INFINITY}             // 27
 };
 
 void testNumericEncodingHelper(bool isMulti) {
@@ -623,31 +555,10 @@ void testNumericEncodingHelper(bool isMulti) {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
-    size_t cap = IndexBlock_Cap(lastBlock);
-    size_t offset = IndexBlock_Len(lastBlock);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
-    // if there was not enough space to store the entry, sz will be greater than zero
-    if(cap - offset < infos[ii].size) {
-      ASSERT_TRUE(sz > 0);
-    } else {
-      ASSERT_TRUE(sz == 0);
-    }
-
     if (isMulti) {
-      IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
-      cap = IndexBlock_Cap(lastBlock);
-      offset = IndexBlock_Len(lastBlock);
-
       size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
-
-      // Delta is 0, so we don't store it.
-      if(cap - offset < infos[ii].size - 1) {
-        ASSERT_TRUE(sz > 0);
-      } else {
-        ASSERT_TRUE(sz == 0);
-      }
     }
   }
 
@@ -686,8 +597,9 @@ TEST_F(IndexTest, testIntersection) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(100000, 2);
 
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-  irs[0] = NewInvIndIterator_TermFull(w);
-  irs[1] = NewInvIndIterator_TermFull(w2);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
+  irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
 
   int count = 0;
   QueryIterator *ii = NewIntersectionIterator(irs, 2, -1, 0, 1);
@@ -813,7 +725,8 @@ TEST_F(IndexTest, testHybridVector) {
   vecIt->Free(vecIt);
 
   // Test in hybrid mode.
-  QueryIterator *ir = NewInvIndIterator_TermFull(w);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  QueryIterator *ir = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
   hParams.childIt = ir;
   QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -860,7 +773,7 @@ TEST_F(IndexTest, testHybridVector) {
   hybridIt->Free(hybridIt);
 
   // Rerun without ignoring document scores.
-  ir = NewInvIndIterator_TermFull(w);
+  ir = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
   hParams.canTrimDeepResults = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
@@ -1301,66 +1214,53 @@ TEST_F(IndexTest, testIndexFlags) {
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index
-  // created with INDEX_DEFAULT_FLAGS is 102 bytes,
+  // created with INDEX_DEFAULT_FLAGS is 56 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 32
+  // sizeof InvertedIndex                 40
   // storing fieldmask on idx             16
-  // sizeof IndexBlock                    48
-  // initial block capacity                6
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(56, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(10, sz);
+  ASSERT_EQ(65, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(56, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(sz2, 0);
+  ASSERT_EQ(sz2, 52);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(56, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(19, InvertedIndex_WriteForwardIndexEntry(w, &h));
-  InvertedIndex_Free(w);
-
-  flags |= Index_WideSchema;
-  w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
-  ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
-  h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(19, sz);
+  ASSERT_EQ(69, InvertedIndex_WriteForwardIndexEntry(w, &h));
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index with
-  // Index_StoreFieldFlags == 0 is 86 bytes
+  // Index_StoreFieldFlags == 0 is 40 bytes
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 32
-  // sizeof IndexBlock                    48
-  // initial block capacity                6
-  ASSERT_EQ(86, index_memsize);
+  // sizeof InvertedIndex                 40
+  ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(0, sz);
+  ASSERT_EQ(51, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(56, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(4, sz);
+  ASSERT_EQ(59, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -1480,22 +1380,28 @@ TEST_F(IndexTest, testDeltaSplits) {
   InvertedIndex_WriteForwardIndexEntry(idx, &ent);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
-  QueryIterator *ir = NewInvIndIterator_TermFull(idx);
-  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
-  ASSERT_EQ(1, ir->lastDocId);
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+  IndexReader *reader = NewIndexReader(idx, decoderCtx);
+  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  res->freq = 1;
+  res->fieldMask = RS_FIELDMASK_ALL;
 
-  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
-  ASSERT_EQ(200, ir->lastDocId);
+  ASSERT_TRUE(IndexReader_Next (reader, res));
+  ASSERT_EQ(1, res->docId);
 
-  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
-  ASSERT_EQ((1LLU << 48), ir->lastDocId);
+  ASSERT_TRUE(IndexReader_Next (reader, res));
+  ASSERT_EQ(200, res->docId);
 
-  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
-  ASSERT_EQ((1LLU << 48) + 1, ir->lastDocId);
+  ASSERT_TRUE(IndexReader_Next (reader, res));
+  ASSERT_EQ((1LLU << 48), res->docId);
 
-  ASSERT_EQ(ITERATOR_EOF, ir->Read(ir));
+  ASSERT_TRUE(IndexReader_Next (reader, res));
+  ASSERT_EQ((1LLU << 48) + 1, res->docId);
 
-  ir->Free(ir);
+  ASSERT_FALSE(IndexReader_Next (reader, res));
+
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
   InvertedIndex_Free(idx);
 }
 
@@ -1512,7 +1418,8 @@ TEST_F(IndexTest, testRawDocId) {
   }
 
   // Test that we can read them back
-  QueryIterator *ir = NewInvIndIterator_TermFull(idx);
+  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  QueryIterator *ir = NewInvIndIterator_TermQuery(idx, nullptr, f, nullptr, 1);
   for (t_docId id = 1; id < 100; id += 2) {
     ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
     ASSERT_EQ(id, ir->lastDocId);
