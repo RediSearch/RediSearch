@@ -18,12 +18,12 @@ pthread_mutex_t AuxLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t GILCondition = PTHREAD_COND_INITIALIZER;
 pthread_cond_t AuxLockCondition = PTHREAD_COND_INITIALIZER;
 atomic_bool GILOwned;
-atomic_bool InternalLockHeld;
+bool InternalLockHeld;
 
 
 void SharedExclusiveLock_Init() {
   atomic_init(&GILOwned, false);
-  atomic_init(&InternalLockHeld, false);
+  InternalLockHeld = false;
   pthread_mutex_init(&InternalLock, NULL);
   pthread_mutex_init(&AuxLock, NULL);
   pthread_cond_init(&GILCondition, NULL);
@@ -45,16 +45,16 @@ void SharedExclusiveLock_SetOwned() {
 void SharedExclusiveLock_UnsetOwned() {
   atomic_store_explicit(&GILOwned, false, memory_order_release);
   // Here we make sure that any thread that may assume the GIL is protected by the main thread releases the lock before returning.
-  if (atomic_load_explicit(&InternalLockHeld, memory_order_acquire)) {
-    pthread_mutex_lock(&AuxLock);
+  pthread_mutex_lock(&AuxLock);
+  while (InternalLockHeld) {
     pthread_cond_wait(&AuxLockCondition, &AuxLock);
-    pthread_mutex_unlock(&AuxLock);
   }
+  pthread_mutex_unlock(&AuxLock);
 }
 
 SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   pthread_mutex_lock(&InternalLock);
-  atomic_store_explicit(&InternalLockHeld, true, memory_order_release);
+  InternalLockHeld = true;
   while (true) {
     int rc;
     if (atomic_load_explicit(&GILOwned, memory_order_acquire)) {
@@ -64,7 +64,7 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
       rc = RedisModule_ThreadSafeContextTryLock(ctx);
     }
     if (rc == REDISMODULE_OK) {
-      atomic_store_explicit(&InternalLockHeld, false, memory_order_release);
+      InternalLockHeld = false;
       pthread_mutex_unlock(&InternalLock);
       return GIL_Locked;
     }
@@ -83,9 +83,12 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
 
 void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType type) {
   if (type == Internal_Locked) {
-    atomic_store_explicit(&InternalLockHeld, false, memory_order_release);
-    pthread_cond_signal(&AuxLockCondition);
     pthread_mutex_unlock(&InternalLock);
+    pthread_cond_broadcast(&GILCondition); // Attempt to wake up some waiting thread
+    pthread_mutex_lock(&AuxLock);
+    InternalLockHeld = false;
+    pthread_cond_signal(&AuxLockCondition);
+    pthread_mutex_unlock(&AuxLock);
   } else {
     RedisModule_ThreadSafeContextUnlock(ctx);
   }
