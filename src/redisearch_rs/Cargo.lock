@@ -794,17 +794,13 @@ dependencies = [
 name = "inverted_index_bencher"
 version = "0.0.1"
 dependencies = [
- "bindgen 0.72.0",
  "buffer",
- "build_utils",
  "criterion",
  "ffi",
  "inverted_index",
  "itertools 0.14.0",
  "redis-module",
  "redis_mock",
- "types_ffi",
- "varint_ffi",
 ]
 
 [[package]]
@@ -1417,6 +1413,7 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "fnv_ffi",
+ "inverted_index_ffi",
  "query_error_ffi",
  "redis-module",
  "result_processor_ffi",
@@ -1565,6 +1562,7 @@ dependencies = [
  "criterion",
  "ffi",
  "inverted_index",
+ "inverted_index_ffi",
  "itertools 0.14.0",
  "redis_mock",
  "rqe_iterators",

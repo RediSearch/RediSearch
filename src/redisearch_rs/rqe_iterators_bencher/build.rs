@@ -12,7 +12,6 @@ use build_utils::{generate_c_bindings, git_root, link_static_libraries};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Always link the static libraries, independent of bindgen
     link_static_libraries(&[
-        ("src/inverted_index", "inverted_index"),
         ("src/util/arr", "arr"),
         ("src/iterators", "iterators"),
         ("src/buffer", "buffer"),
