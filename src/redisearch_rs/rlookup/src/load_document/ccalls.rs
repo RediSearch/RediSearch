@@ -13,11 +13,12 @@ use std::{
     slice,
 };
 
-use ffi::REDISMODULE_OK;
+use ffi::{DocumentType_DocumentType_Json, REDISMODULE_OK};
 use value::RSValueFFI;
 
 use crate::{
     RLookup, RLookupRow,
+    bindings::RLookupLoadMode,
     load_document::{LoadDocumentError, LoadDocumentOptions},
 };
 

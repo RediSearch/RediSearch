@@ -17,7 +17,7 @@ use sorting_vector::RSSortingVector;
 use value::{RSValueFFI, RSValueTrait};
 
 use crate::{
-    RLookup, RLookupRow,
+    RLookup, RLookupKey, RLookupRow,
     bindings::{DocumentType, RLookupCoerceType, RLookupLoadMode},
 };
 
@@ -190,10 +190,8 @@ pub struct LoadDocumentOptions<'a, T: RSValueTrait = RSValueFFI> {
     sorting_vector: &'a RSSortingVector<T>,
     document_type: DocumentType,
     key_ptr: Option<NonNull<std::ffi::c_char>>,
-
+    keys: Option<Vec<RLookupKey<'a>>>,
     mode: RLookupLoadMode,
-
-    #[expect(unused, reason = "Used in follow-up PRs")]
     force_load: bool,
     force_string: bool,
 
@@ -209,6 +207,7 @@ pub struct LoadDocumentOptionsBuilder<'a, T: RSValueTrait = RSValueFFI> {
     sorting_vector: &'a RSSortingVector<T>,
     document_type: DocumentType,
     key_ptr: Option<NonNull<std::ffi::c_char>>,
+    keys: Option<Vec<RLookupKey<'a>>>,
     mode: u32,
     force_load: bool,
     force_string: bool,
@@ -233,6 +232,7 @@ impl<'a, T: RSValueTrait> LoadDocumentOptionsBuilder<'a, T> {
             sorting_vector: sv,
             document_type: doc_type,
             key_ptr: None,
+            keys: None,
             mode: RLookupLoadMode::AllKeys as u32,
             force_load: false,
             force_string: false,
@@ -264,6 +264,12 @@ impl<'a, T: RSValueTrait> LoadDocumentOptionsBuilder<'a, T> {
         self
     }
 
+    #[expect(dead_code, reason = "follow up pr")]
+    pub fn with_keys(mut self, keys: Vec<RLookupKey<'a>>) -> Self {
+        self.keys = Some(keys);
+        self
+    }
+
     #[expect(unused, reason = "Used in follow-up PRs")]
     pub const fn override_tmp_cstruct(mut self, cstruct: NonNull<ffi::RLookupLoadOptions>) -> Self {
         self.tmp_cstruct = Some(cstruct);
@@ -291,6 +297,7 @@ impl<'a, T: RSValueTrait> LoadDocumentOptionsBuilder<'a, T> {
             sorting_vector: self.sorting_vector,
             document_type: self.document_type,
             key_ptr: self.key_ptr,
+            keys: self.keys,
             mode,
             force_load: self.force_load,
             force_string: self.force_string,
@@ -572,6 +579,8 @@ mod tests {
     #[cfg(not(miri))]
     mod excluded_from_miri {
 
+        use crate::{RLookupKey, RLookupKeyFlags};
+
         use super::super::*;
         use super::*;
 
@@ -584,6 +593,8 @@ mod tests {
         // therefore we use specialized mocking in the mock module
         fn two_fields_empty_row_and_lookup(
             ctx: &mut LoadDocumentTestContext,
+            doc_type: DocumentType,
+            load_mode: RLookupLoadMode,
         ) -> Result<(), LoadDocumentError> {
             ctx.construct_redis_test_ctx(|ctx| {
                 ctx.with_key_type(&KeyType::Hash);
@@ -598,14 +609,17 @@ mod tests {
                 std::ptr::from_mut(test_ctx).cast::<redis_module::raw::RedisModuleCtx>();
             let sv = RSSortingVector::new(0);
             let key_ptr = c"TestKey";
+            let k1 = RLookupKey::new(c"field1", RLookupKeyFlags::empty());
+            let k2 = RLookupKey::new(c"field2", RLookupKeyFlags::empty());
             type TOpt<'a> = LoadDocumentOptions<'a, RSValueMock>;
             let opt: TOpt = LoadDocumentOptionsBuilder::new(
                 redis_ctx as *mut TestContext as *mut redis_module::raw::RedisModuleCtx,
                 &sv,
-                DocumentType::Hash,
+                doc_type,
             )
-            .set_mode(RLookupLoadMode::AllKeys as u32)
+            .set_mode(load_mode as u32)
             .with_key_ptr(key_ptr.as_ptr() as *const _)
+            .with_keys(vec![k1, k2])
             .build()?;
 
             let mut lookup = RLookup::new();
@@ -637,7 +651,7 @@ mod tests {
             redis_mock::init_redis_module_mock();
             let mut ctx = LoadDocumentTestContext::default();
             ctx.with_scan_key_feature(true);
-            two_fields_empty_row_and_lookup(&mut ctx)
+            two_fields_empty_row_and_lookup(&mut ctx, DocumentType::Hash, RLookupLoadMode::AllKeys)
         }
 
         #[test]
@@ -645,7 +659,7 @@ mod tests {
             redis_mock::init_redis_module_mock();
             let mut ctx = LoadDocumentTestContext::default();
             ctx.with_scan_key_feature(false);
-            two_fields_empty_row_and_lookup(&mut ctx)
+            two_fields_empty_row_and_lookup(&mut ctx, DocumentType::Hash, RLookupLoadMode::AllKeys)
         }
 
         #[test]
