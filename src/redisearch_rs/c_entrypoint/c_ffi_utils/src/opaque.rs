@@ -6,7 +6,7 @@ pub struct Size<const N: usize>(std::mem::MaybeUninit<[u8; N]>);
 ///
 /// # Safety
 /// - It must be safe to [transmute](std::mem::transmute) from the implementor
-///   of this trait to a [`T`] and back.
+///   of this trait to a `T` and back.
 pub unsafe trait Transmute<T> {}
 
 /// A trait for using a sized type in an FFI context as an opaque sized type,
@@ -29,7 +29,7 @@ pub trait IntoOpaque: Sized {
     ///
     /// # Safety
     ///
-    /// This value must have been created via [`SelfExt::into_opaque`].
+    /// This value must have been created via [`IntoOpaque::into_opaque`].
     unsafe fn from_opaque(opaque: Self::Opaque) -> Self;
 
     /// Converts a const pointer to a [`Self::Opaque`] to a reference to a
@@ -70,18 +70,18 @@ pub trait IntoOpaque: Sized {
 /// ```
 /// mod opaque {
 ///     use c_ffi_utils::opaque::{Size, Transmute};
-/// 
 ///     use std::sync::Arc;
+/// 
 ///     // A type that is 8-aligned and is 24 bytes in size.
 ///     struct Thing {
 ///         data: [Arc<u8>; 3]
 ///     }
 /// 
 /// 
-///     #[repr(C, align(8))]
 ///     /// Opaque variant of [`Thing`], allowing the
 ///     /// non-FFI-safe [`Thing`] to be passed to C
 ///     /// and even allow C land to place it on the stack.
+///     #[repr(C, align(8))]
 ///     pub struct OpaqueThing(Size<24>);
 ///
 ///     // Safety: `OpaqueThing` is defined as a `MaybeUninit` slice of
