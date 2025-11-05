@@ -24,6 +24,7 @@ pub mod benchers;
 pub mod ffi;
 
 // Need those symbols to be defined for the benchers to run
+pub use inverted_index_ffi::NewInvertedIndex_Ex;
 pub use triemap_ffi::TRIEMAP_NOTFOUND;
 pub use types_ffi::NewVirtualResult;
 pub use varint_ffi::WriteVarint;
