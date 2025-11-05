@@ -177,11 +177,10 @@ fn link_static_lib(
 pub fn generate_c_bindings(
     headers: Vec<PathBuf>,
     allowlist_file: &str,
-    include_inverted_index: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let root = git_root().expect("Could not find git root for static library linking");
 
-    let mut includes = vec![
+    let includes = vec![
         root.join("deps").join("RedisModulesSDK"),
         root.join("src"),
         root.join("deps"),
@@ -189,10 +188,6 @@ pub fn generate_c_bindings(
         root.join("deps").join("VectorSimilarity").join("src"),
         root.join("src").join("buffer"),
     ];
-
-    if include_inverted_index {
-        includes.push(root.join("src").join("inverted_index"));
-    }
 
     let headers = headers
         .into_iter()
@@ -213,9 +208,8 @@ pub fn generate_c_bindings(
         // Don't generate the Rust exported types else we'll have a compiler issue about the wrong
         // type being used
         .blocklist_file(".*/types_rs.h")
-        .blocklist_function("InvertedIndex_Summary")
-        .blocklist_function("InvertedIndex_BlocksSummary")
-        .blocklist_function("InvertedIndex_BlocksSummaryFree")
+        .blocklist_file(".*/inverted_index.h")
+        .blocklist_type("InvertedIndex")
         .generate()?
         .write_to_file(out_dir.join("bindings.rs"))?;
 
