@@ -917,3 +917,7 @@ def testBM25STDUnderflow(env: Env):
     score_after_update = float(res[2])
 
     env.assertGreater(score_before, score_after_update)
+
+    # Reschedule the gc - add a job to the queue
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
