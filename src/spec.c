@@ -2729,8 +2729,11 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     sp->stopwords = DefaultStopWordList();
   }
 
-  IndexSpec_StartGC(ctx, spec_ref, sp);
-  Cursors_initSpec(sp);
+  // Only initialize GC, cursors, and indexer for non-duplicate specs
+  if (!sp->isDuplicate) {
+    IndexSpec_StartGC(ctx, spec_ref, sp);
+    Cursors_initSpec(sp);
+  }
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
@@ -2751,7 +2754,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     }
   }
 
-  sp->indexer = NewIndexer(sp);
+  if (!sp->isDuplicate) {
+    sp->indexer = NewIndexer(sp);
+  }
 
   sp->scan_in_progress = false;
   if (sp->isDuplicate) {
