@@ -3450,11 +3450,13 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 }
 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id) {
-
-  if (DocTable_DeleteR(&spec->docs, key)) {
+  RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
+  if (md) {
+    RS_LOG_ASSERT(spec->statsnumDocuments > 0, "numDocuments cannot be negative");
     spec->stats.numDocuments--;
-    // TODO: Update totalDocsLen as well. We no longer have the dmd which contains the len at this point
-    // -> Propagate it or update  down the stack.
+    RS_LOG_ASSERT(spec->stats.totalDocsLen >= dmd->len, "totalDocsLen is smaller than dmd->len");
+    spec->stats.totalDocsLen -= md->len;
+    DMD_Return(md);
 
     // Increment the index's garbage collector's scanning frequency after document deletions
     if (spec->gc) {

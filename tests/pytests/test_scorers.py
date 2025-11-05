@@ -927,7 +927,6 @@ def testBM25DocLen(env: Env):
     Tests that the total document length is calculated correctly (MOD-122234).
     Relevant for the BM25 and BM25STD scorers.
     This test currently tests updates only, i.e., for an existing doc.
-    TODO: Test for deletion once that is fixed as well.
     """
 
     def get_avg_doc_len(response: str, std: bool = True):
@@ -936,30 +935,38 @@ def testBM25DocLen(env: Env):
         avg_doc_len = float(score_exp.split(split_by)[1].split(')')[0])
         return avg_doc_len
 
-    conn = getConnectionByEnv(env)
+    def validate_avg_doc_len(env, query: str, expected_avg_len: float):
+        for std in [True, False]:
+            res = env.cmd('FT.SEARCH', 'idx', query, 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD' if std else 'BM25')
+            env.assertEqual(get_avg_doc_len(res, std), expected_avg_len)
+
+    # --------------------------------- Update ---------------------------------
 
     # Create an index with a TEXT field
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
 
     # Add the first document
-    conn.execute_command('HSET', 'doc0', 'title', 'hello world')
+    env.cmd('HSET', 'doc0', 'title', 'hello world')
 
     # The average doc length should be 2
-    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD')
-    score_before = get_avg_doc_len(res)
-    env.assertEqual(score_before, 2)
+    validate_avg_doc_len(env, 'hello', 2)
 
-    # Same for BM25
-    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25')
-    env.assertEqual(get_avg_doc_len(res, False), 2)
+    # Add the same document -> we re-index, and the avg doc length should be
+    # updated on the fly to the new doc length
+    env.cmd('HSET', 'doc0', 'title', 'hello world baby')
 
-    # Add the same document -> we re-index, and the avg doc length should stay
-    # the same
-    conn.execute_command('HSET', 'doc0', 'title', 'hello world baby')
+    validate_avg_doc_len(env, 'hello', 3)
 
-    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD')
-    env.assertEqual(get_avg_doc_len(res), 3)
+    # -------------------------------- Deletion --------------------------------
 
-    # Same for BM25
-    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25')
-    env.assertEqual(get_avg_doc_len(res, False), 3)
+    # Add a document with 5 terms (not stopwords)
+    env.cmd('HSET', 'doc1', 'title', 'hello world baby cat mouse')
+
+    # The average doc length should be 4
+    validate_avg_doc_len(env, 'hello', 4)
+
+    # Delete the document with 5 terms, the average doc length should be updated
+    # on the fly back to 3
+    env.cmd('DEL', 'doc1')
+
+    validate_avg_doc_len(env, 'hello', 3)

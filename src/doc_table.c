@@ -390,7 +390,7 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     DocTable_DmdUnchain(t, md);
     DocIdMap_Delete(&t->dim, s, n);
     --t->size;
-    DMD_Return(md); // Index ref. The caller gets a ref from the `Get` call
+    DMD_Return(md); // Return the ref from the `Borrow` call. The caller needs to release the index ref.
 
     return md;
   }

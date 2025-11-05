@@ -267,9 +267,13 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
-    if (DocTable_Delete(&sp->docs, docKey, len)) {
+    RSDocumentMetadata* md = DocTable_Pop(&sp->docs, docKey, len);
+    if (md) {
       // Delete returns true/false, not RM_{OK,ERR}
       sp->stats.numDocuments--;
+      sp->stats.totalDocsLen -= md->len;
+      DMD_Return(md);
+
       if (sp->gc) {
         GCContext_OnDelete(sp->gc);
       }
