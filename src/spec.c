@@ -3452,9 +3452,9 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id) {
   RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
   if (md) {
-    RS_LOG_ASSERT(spec->statsnumDocuments > 0, "numDocuments cannot be negative");
+    RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
     spec->stats.numDocuments--;
-    RS_LOG_ASSERT(spec->stats.totalDocsLen >= dmd->len, "totalDocsLen is smaller than dmd->len");
+    RS_LOG_ASSERT(spec->stats.totalDocsLen >= md->len, "totalDocsLen is smaller than dmd->len");
     spec->stats.totalDocsLen -= md->len;
     DMD_Return(md);
 
