@@ -1051,13 +1051,12 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     goto error;
   }
 
-  // Backwards compatibility:
-  // Disable optimization for FT.AGGREGATE if SORTBY is specified
+  // FT.AGGREGATE backwards compatibility:
+  // Disable optimization if SORTBY is specified or timeout policy is strict
   if (IsAggregate(req)) {
-    bool disableOptimization = false;
-    disableOptimization = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
-    if (disableOptimization) {
-        AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+    bool hasSortby = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
+    if (hasSortby || req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
     }
   }
 

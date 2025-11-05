@@ -4599,16 +4599,10 @@ def test_timeoutCoordSearch_Strict():
     # Search with no timeout limit, get all results
     res = env.cmd('FT.SEARCH', 'idx', '*', 'TIMEOUT', '0')
     env.assertEqual(res[0], n_docs)
-    # Aggregate with no timeout limit, get all results if WITHCOUNT is set
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '0')
+    env.assertEqual(res[0], n_docs)
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'TIMEOUT', '0')
     env.assertEqual(res[0], n_docs)
-    # Aggregate with no timeout limit, get partial results if WITHCOUNT isn't set
-    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'TIMEOUT', '0')
-    env.assertGreater(res[0], 0)
-    env.assertLess(res[0], n_docs)
-    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '0')
-    env.assertGreater(res[0], 0)
-    env.assertLess(res[0], n_docs)
 
     # Small timeout, heavy query -> expect an error
     env.expect('FT.SEARCH', 'idx', '(lala* | @numeric1:[5 50000]) (@tag1:{MOVIE} | @text1:lal*)', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
