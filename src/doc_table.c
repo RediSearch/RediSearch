@@ -346,15 +346,6 @@ static void DocTable_DmdUnchain(DocTable *t, RSDocumentMetadata *md) {
   dllist2_delete(&dmdChain->lroot, &md->llnode);
 }
 
-int DocTable_Delete(DocTable *t, const char *s, size_t n) {
-  RSDocumentMetadata *md = DocTable_Pop(t, s, n);
-  if (md) {
-    DMD_Return(md);
-    return 1;
-  }
-  return 0;
-}
-
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
   t_docId docId = DocIdMap_Get(&t->dim, s, n);
 

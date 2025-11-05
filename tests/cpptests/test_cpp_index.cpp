@@ -1309,8 +1309,9 @@ TEST_F(IndexTest, testDocTable) {
 
     ASSERT_EQ((int)xid, i + 1);
 
-    int rc = DocTable_Delete(&dt, dmd->keyPtr, sdslen(dmd->keyPtr));
-    ASSERT_EQ(1, rc);
+    ASSERT_TRUE(DocTable_Pop(&dt, dmd->keyPtr, sdslen(dmd->keyPtr)) != NULL);
+    DMD_Return(dmd);
+
     ASSERT_TRUE((int)(dmd->flags & Document_Deleted));
     DMD_Return(dmd);
     dmd = DocTable_Borrow(&dt, i + 1);
