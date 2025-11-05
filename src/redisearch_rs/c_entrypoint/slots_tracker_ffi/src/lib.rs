@@ -22,7 +22,9 @@
 
 use slots_tracker::{SlotRange, SlotRangeArray, SlotsTracker};
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
+use std::thread::ThreadId;
 
 // Re-export for C bindings
 pub use slots_tracker::SLOTS_TRACKER_UNAVAILABLE;
@@ -31,11 +33,11 @@ pub use slots_tracker::SLOTS_TRACKER_UNAVAILABLE;
 // Global State
 // ============================================================================
 
-/// Guard to ensure only one thread ever creates a tracker instance.
+/// The thread ID that owns the tracker instance.
 ///
-/// Set to true when the thread-local tracker is first accessed.
-/// If another thread tries to access the API, it will panic.
-static TRACKER_INITIALIZED: AtomicBool = AtomicBool::new(false);
+/// Set once when the first FFI function is called. All subsequent calls
+/// must come from the same thread.
+static OWNER_THREAD: OnceLock<ThreadId> = OnceLock::new();
 
 /// Atomic version counter that mirrors the tracker's internal version.
 ///
@@ -44,31 +46,45 @@ static VERSION: AtomicU32 = AtomicU32::new(0);
 
 // Thread-local slots tracker instance.
 //
-// Only one thread (the first to call any FFI function) will successfully
-// create this instance. Other threads will panic when accessing it.
+// Only accessible from the thread that first calls any FFI function.
 thread_local! {
-    static TRACKER: RefCell<SlotsTracker> = {
-        // Try to claim exclusive access
-        if TRACKER_INITIALIZED.swap(true, Ordering::SeqCst) {
-            panic!("slots_tracker FFI functions called from multiple threads");
-        }
-        RefCell::new(SlotsTracker::new())
-    };
+    static TRACKER: RefCell<SlotsTracker> = const { RefCell::new(SlotsTracker::new()) };
 }
 
 // ============================================================================
 // Private Helper Functions
 // ============================================================================
 
+/// Ensures the current thread is the owner thread.
+///
+/// On first call, registers the current thread as the owner.
+/// On subsequent calls, panics if called from a different thread.
+///
+/// # Panics
+///
+/// Panics if called from a thread other than the owner thread.
+fn assert_owner_thread() {
+    let current = std::thread::current().id();
+    let owner = OWNER_THREAD.get_or_init(|| current);
+
+    if *owner != current {
+        panic!(
+            "slots_tracker FFI functions called from wrong thread (owner: {:?}, current: {:?})",
+            owner, current
+        );
+    }
+}
+
 /// Gets a reference to the tracker and executes a function on it.
 ///
 /// # Panics
 ///
-/// Panics if called from a thread other than the one that initialized the tracker.
+/// Panics if called from a thread other than the owner thread.
 fn with_tracker<F, R>(f: F) -> R
 where
     F: FnOnce(&SlotsTracker) -> R,
 {
+    assert_owner_thread();
     TRACKER.with_borrow(|tracker| f(tracker))
 }
 
@@ -76,11 +92,12 @@ where
 ///
 /// # Panics
 ///
-/// Panics if called from a thread other than the one that initialized the tracker.
+/// Panics if called from a thread other than the owner thread.
 fn with_tracker_mut<F, R>(f: F) -> R
 where
     F: FnOnce(&mut SlotsTracker) -> R,
 {
+    assert_owner_thread();
     TRACKER.with_borrow_mut(|tracker| f(tracker))
 }
 
@@ -89,7 +106,7 @@ where
 /// This should be called after any operation that modifies the tracker's version.
 fn sync_version() {
     let version = with_tracker(|tracker| tracker.get_version());
-    VERSION.store(version, Ordering::Relaxed);
+    VERSION.store(version, Relaxed);
 }
 
 /// Converts a C SlotRangeArray pointer to a core library SlotRange slice.
@@ -314,5 +331,5 @@ pub unsafe extern "C" fn slots_tracker_check_availability(ranges: *const SlotRan
 /// This function is safe to call from any thread.
 #[unsafe(no_mangle)]
 pub extern "C" fn slots_tracker_get_version() -> u32 {
-    VERSION.load(Ordering::Relaxed)
+    VERSION.load(Relaxed)
 }
