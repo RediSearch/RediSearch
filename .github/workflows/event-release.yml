@@ -50,9 +50,12 @@ jobs:
         shell: python
         run: |
           import os
+          version_branch = os.environ["EVENT_BASE_REF"]
           with open("src/version.h", "r") as fp:
             major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
             release_branch = f"{major}.{minor}"
+            if version_branch == f"refs/heads/{major}.{minor+1}":
+              release_branch = f"{major}.{minor+1}"
           def valid_tag(tag):
             return tag == f"v{major}.{minor}.{patch}"
           def valid_version_branch(branch):
@@ -60,7 +63,6 @@ jobs:
           tag = os.environ["INPUT_TAG"]
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
-          version_branch = os.environ["EVENT_BASE_REF"]
           if os.environ["EVENT_NAME"] == 'push' and not valid_version_branch(version_branch):
             start = version_branch.rfind("/") + 1 # get the branch name, not the full ref
             raise Exception(f"Tag {tag} does not match the head of version branch {major}.{minor} (Got {version_branch[start:]})")
@@ -70,7 +72,7 @@ jobs:
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
             print(f"next_patch={patch+1}", file=fp)
             print(f"should_bump={str(valid_version_branch(version_branch)).lower()}", file=fp)
-            print(f"release_branch={version_branch}", file=fp)
+            print(f"release_branch={release_branch}", file=fp)
 
   update-version:
     # Generate a PR to bump the version for the next patch (if releasing from a version branch)
