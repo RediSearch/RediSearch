@@ -15,7 +15,7 @@
 use std::time::Duration;
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rqe_iterators::{RQEIterator, optional::Optional, wildcard::Wildcard};
+use rqe_iterators::{RQEIterator, empty::Empty, optional::Optional, wildcard::Wildcard};
 
 use crate::ffi;
 
@@ -68,7 +68,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let child = Wildcard::new(Self::LARGE_MAX);
-                    Optional::new(Self::LARGE_MAX, Self::WEIGHT, Some(child))
+                    Optional::new(Self::LARGE_MAX, Self::WEIGHT, child)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -103,7 +103,7 @@ impl Bencher {
 
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Optional::new(Self::LARGE_MAX, Self::WEIGHT, None),
+                || Optional::new(Self::LARGE_MAX, Self::WEIGHT, Empty),
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         criterion::black_box(current.doc_id);
@@ -141,7 +141,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let child = Wildcard::new(Self::LARGE_MAX);
-                    Optional::new(Self::LARGE_MAX, Self::WEIGHT, Some(child))
+                    Optional::new(Self::LARGE_MAX, Self::WEIGHT, child)
                 },
                 |it| {
                     while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + step) {
@@ -183,7 +183,7 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             let step = Self::STEP;
             b.iter_batched_ref(
-                || Optional::new(Self::LARGE_MAX, Self::WEIGHT, None),
+                || Optional::new(Self::LARGE_MAX, Self::WEIGHT, Empty),
                 |it| {
                     while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + step) {
                         match outcome {

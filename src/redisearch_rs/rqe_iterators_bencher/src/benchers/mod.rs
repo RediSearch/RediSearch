@@ -9,6 +9,6 @@
 
 pub mod empty;
 pub mod id_list;
-// pub mod optional;
 pub mod inverted_index;
+pub mod optional;
 pub mod wildcard;
