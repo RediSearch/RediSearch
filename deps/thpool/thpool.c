@@ -468,12 +468,10 @@ void redisearch_thpool_drain(redisearch_thpool_t *thpool_p, long timeout,
   }
 }
 
-static size_t priority_queue_num_high_priority_incomplete_jobs(priorityJobqueue *priority_queue_p) {
-  size_t ret = 0;
+static size_t priority_queue_num_high_priority_incomplete_jobs_with_infinite_bias(priorityJobqueue *priority_queue_p) {
   pthread_mutex_lock(&priority_queue_p->lock);
-  // Only count pending high priority jobs in the queue
-  // We can't reliably count in-progress high priority jobs when bias is set to max
-  ret = priority_queue_p->high_priority_jobqueue.len;
+  // Since we have set bias to maximum, all threads will be high priority. Therefore, we can count all jobs in progress as high priority.
+  size_t ret = priority_queue_p->high_priority_jobqueue.len + priority_queue_p->num_jobs_in_progress;
   pthread_mutex_unlock(&priority_queue_p->lock);
   return ret;
 }
@@ -482,14 +480,14 @@ void redisearch_thpool_drain_high_priority(redisearch_thpool_t *thpool_p,
                                            long timeout, yieldFunc yieldCB,
                                            void *yield_ctx) {
   priorityJobqueue *priority_queue_p = &thpool_p->jobqueues;
-  const char original_tickets = atomic_load_explicit(&priority_queue_p->high_priority_tickets, memory_order_acquire);
+  const unsigned char original_tickets = atomic_load_explicit(&priority_queue_p->high_priority_tickets, memory_order_acquire);
   // Set high priority bias threshold to maximum possible value for unsigned char
   // This ensures all threads will prioritize high-priority jobs
   atomic_store_explicit(&priority_queue_p->high_priority_tickets, UCHAR_MAX, memory_order_release);
 
   // Wait until no more high-priority jobs are running or pending
   long usec_timeout = 1000 * timeout;
-  while (priority_queue_num_high_priority_incomplete_jobs(priority_queue_p) > 0) {
+  while (priority_queue_num_high_priority_incomplete_jobs_with_infinite_bias(priority_queue_p) > 0) {
     usleep(usec_timeout);
     if (yieldCB)
       yieldCB(yield_ctx);
