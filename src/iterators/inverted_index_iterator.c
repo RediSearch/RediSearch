@@ -461,14 +461,14 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
 
 static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
                                         bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
-  RS_ASSERT(idx && InvertedIndex_NumBlocks(idx) > 0);
+  RS_ASSERT(idx);
   InvIndIterator *it = rm_calloc(1, sizeof(*it));
   return InitInvIndIterator(it, idx, res, filterCtx, skipMulti, sctx, decoderCtx, checkAbortFn);
 }
 
 static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, RSIndexResult *res, const FieldSpec* fieldSpec, const FieldFilterContext *filterCtx,
                 bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
-  RS_ASSERT(idx && InvertedIndex_NumBlocks(idx) > 0);
+  RS_ASSERT(idx);
   NumericInvIndIterator *it = rm_calloc(1, sizeof(*it));
 
   // Initialize the iterator first
