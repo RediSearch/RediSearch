@@ -136,10 +136,10 @@ int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
 
 // Wait until job queue contains no more than <threshold> pending jobs.
 void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
-  SharedExclusiveLock_SetOwned();
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
+  SharedExclusiveLock_SetOwned();
   if (RedisModule_Yield) {
     // Wait until all the threads in the pool run the jobs until there are no more than <threshold>
     // jobs in the queue. Periodically return and call RedisModule_Yield, so redis can answer PINGs
@@ -218,10 +218,11 @@ void workersThreadPool_wait() {
 
 // Drain only high-priority jobs from the workers' threadpool
 void workersThreadPool_DrainHighPriority(RedisModuleCtx *ctx) {
-  SharedExclusiveLock_SetOwned();
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
+  SharedExclusiveLock_SetOwned();
+
   redisearch_thpool_drain_high_priority(_workers_thpool, 100, yieldCallback, ctx);
   yield_counter = 0;  // reset
   SharedExclusiveLock_UnsetOwned();
