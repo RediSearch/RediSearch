@@ -103,12 +103,10 @@ impl SlotSet {
 
         'outer: for mut current in old_ranges {
             // Skip remove ranges that end before current starts
-            while remove_iter.peek().is_some_and(|&&r| r.end < current.start) {
-                remove_iter.next();
-            }
+            while remove_iter.next_if(|&&r| r.end < current.start).is_some() {}
 
             // Apply all overlapping remove ranges to current
-            while let Some(&remove) = remove_iter.peek() {
+            while let Some(&&remove) = remove_iter.peek() {
                 if remove.start > current.end {
                     break; // No more overlaps for current
                 }
@@ -160,17 +158,15 @@ impl SlotSet {
 
         for &our_range in &self.ranges {
             // Skip their ranges that end before our current range starts
-            while their_iter.peek().is_some_and(|&&r| r.end < our_range.start) {
-                their_iter.next();
-            }
+            while their_iter.next_if(|&&r| r.end < our_range.start).is_some() {}
+
+            let Some(&&their_range) = their_iter.peek() else {
+                break;
+            };
 
             // Check if next their range overlaps with our current range
-            if let Some(&&their_range) = their_iter.peek() {
-                if their_range.start <= our_range.end {
-                    return true; // Overlap found
-                }
-            } else {
-                break; // No more their ranges to check
+            if their_range.start <= our_range.end {
+                return true; // Overlap found
             }
         }
 
@@ -198,24 +194,14 @@ impl SlotSet {
         let mut our_iter = self.ranges.iter().peekable();
         let mut has_extra = false;
 
-        for their_range in ranges {
-            // // If we are about to skip some of our ranges, turn on has_extra
-            // has_extra |= our_iter.peek().is_some_and(|&r| r.end < their_range.start);
-
-            // // Find the first of our ranges that does not end before their range starts
-            // let Some(current_our) = our_iter.by_ref().find(|&r| r.end >= their_range.start) else {
-            //     return CoverageRelation::NoMatch;
-            // };
+        for &their_range in ranges {
             // Find the first of our ranges that does not end before their range starts
-            let current_our = loop {
-                match our_iter.peek() {
-                    Some(&current) if current.end < their_range.start => {
-                        has_extra = true; // Skipped an entire our range
-                        our_iter.next();
-                    }
-                    Some(&current) => break current,
-                    None => return CoverageRelation::NoMatch,
-                }
+            while our_iter.next_if(|&&r| r.end < their_range.start).is_some() {
+                has_extra = true; // We skipped a range, so we have extra slots
+            }
+
+            let Some(&&current_our) = our_iter.peek() else {
+                return CoverageRelation::NoMatch;
             };
 
             // Check if our range starts before their range
