@@ -13,17 +13,20 @@
 
 #define TIMEOUT_NANOSECONDS 5000 // 5 us in nanoseconds
 
+typedef enum {
+  GILState_Unknown, // Not knowledge, may be used by main thread (in an uncontrolled way, or by some other thread, or unlocked)
+  GILState_Owned, // The GIL is owned by the main thread, but is not "shared" via GILAlternativeLock by other threads
+  GILState_Shared, // The GIL is owned by the main thread, and is "shared" via GILAlternativeLock by another thread
+} GILState;
+
 pthread_mutex_t GILAlternativeLock = PTHREAD_MUTEX_INITIALIZER; // Lock used as an alternative to the GIL, this is used when the GIL is owned by the main thread.
 pthread_mutex_t InternalLock = PTHREAD_MUTEX_INITIALIZER; // Lock to handle communication mechanism internally
 pthread_cond_t TryLockCondition = PTHREAD_COND_INITIALIZER; // Condition to signal threads waiting to try acquire the GIL or the alternative lock that they may try again.
 pthread_cond_t GILSafeCondition = PTHREAD_COND_INITIALIZER; // Condition to signal the main thread that it can safely release the GIL. (In this case return from UnsetOwned)
-bool GILOwned = false;
-bool GILAlternativeLockHeld = false;
-
+GILState gilState = GILState_Unknown;
 
 void SharedExclusiveLock_Init() {
-  GILOwned = false;
-  GILAlternativeLockHeld = false;
+  gilState = GILState_Unknown;
   pthread_mutex_init(&GILAlternativeLock, NULL);
   pthread_mutex_init(&InternalLock, NULL);
   pthread_cond_init(&TryLockCondition, NULL);
@@ -39,7 +42,7 @@ void SharedExclusiveLock_Destroy() {
 
 void SharedExclusiveLock_SetOwned() {
   pthread_mutex_lock(&InternalLock);
-  GILOwned = true;
+  gilState = GILState_Owned;
   pthread_mutex_unlock(&InternalLock);
   // Signal any waiting threads that they may try to acquire the GIL or the alternative lock.
   pthread_cond_broadcast(&TryLockCondition);
@@ -48,10 +51,11 @@ void SharedExclusiveLock_SetOwned() {
 void SharedExclusiveLock_UnsetOwned() {
   // Here we make sure that any thread that may assume the GIL is protected by the main thread releases the lock before returning.
   pthread_mutex_lock(&InternalLock);
-  GILOwned = false;
-  while (GILAlternativeLockHeld) {
+  while (gilState > GILState_Owned) {
     pthread_cond_wait(&GILSafeCondition, &InternalLock);
   }
+  // TODO: Without the 2 booleans. This could exhaust the main thread, more workers could be taking the Internal Lock
+  gilState = GILState_Unknown;
   pthread_mutex_unlock(&InternalLock);
 }
 
@@ -59,9 +63,9 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   pthread_mutex_lock(&InternalLock);
   while (true) {
     int rc;
-    if (GILOwned) {
+    if (gilState >= GILState_Owned) {
       pthread_mutex_lock(&GILAlternativeLock);
-      GILAlternativeLockHeld = true;
+      gilState = GILState_Shared;
       pthread_mutex_unlock(&InternalLock);
       return Internal_Locked;
     } else {
@@ -88,7 +92,7 @@ void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType ty
   if (type == Internal_Locked) {
     pthread_mutex_unlock(&GILAlternativeLock);
     pthread_mutex_lock(&InternalLock);
-    GILAlternativeLockHeld = false;
+    gilState = GILState_Owned;
     // If main thread is waiting to release the GIL, signal it that it can proceed.
     pthread_cond_signal(&GILSafeCondition);
     pthread_mutex_unlock(&InternalLock);
