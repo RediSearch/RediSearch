@@ -73,9 +73,8 @@ fn test_encode_offsets_only() {
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
 
-        let record_decoded = OffsetsOnly::default()
-            .decode_new(&mut buf, prev_doc_id)
-            .expect("to decode freqs only record");
+        let record_decoded =
+            OffsetsOnly::decode_new(&mut buf, prev_doc_id).expect("to decode freqs only record");
 
         assert_eq!(
             TermRecordCompare(&record_decoded),
@@ -103,7 +102,7 @@ fn test_decode_offsets_only_input_too_small() {
     let buf = vec![0, 0];
     let mut cursor = Cursor::new(buf.as_ref());
 
-    let res = OffsetsOnly::default().decode_new(&mut cursor, 100);
+    let res = OffsetsOnly::decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -115,7 +114,7 @@ fn test_decode_offsets_only_empty_input() {
     let buf = vec![];
     let mut cursor = Cursor::new(buf.as_ref());
 
-    let res = OffsetsOnly::default().decode_new(&mut cursor, 100);
+    let res = OffsetsOnly::decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -133,11 +132,9 @@ fn test_seek_offsets_only() {
     ];
     let mut buf = Cursor::new(buf.as_ref());
 
-    let decoder = OffsetsOnly::default();
     let mut record_decoded = RSIndexResult::term();
 
-    let found = decoder
-        .seek(&mut buf, 10, 30, &mut record_decoded)
+    let found = OffsetsOnly::seek(&mut buf, 10, 30, &mut record_decoded)
         .expect("to decode offsets only record");
 
     let record_expected = TestTermRecord::new(30, 0, 1, vec![5i8, 6, 7, 8]);
@@ -148,8 +145,7 @@ fn test_seek_offsets_only() {
         TermRecordCompare(&record_expected.record)
     );
 
-    let found = decoder
-        .seek(&mut buf, 30, 40, &mut record_decoded)
+    let found = OffsetsOnly::seek(&mut buf, 30, 40, &mut record_decoded)
         .expect("to decode offsets only record");
 
     let record_expected = TestTermRecord::new(55, 0, 1, vec![20i8, 21]);
@@ -160,8 +156,7 @@ fn test_seek_offsets_only() {
         TermRecordCompare(&record_expected.record)
     );
 
-    let found = decoder
-        .seek(&mut buf, 55, 70, &mut record_decoded)
+    let found = OffsetsOnly::seek(&mut buf, 55, 70, &mut record_decoded)
         .expect("to decode fields offsets record");
 
     assert!(!found);

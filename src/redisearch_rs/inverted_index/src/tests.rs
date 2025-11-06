@@ -15,7 +15,7 @@ use std::{
 };
 
 use crate::{
-    BlockGcScanResult, DecodedBy, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex,
+    BlockGcScanResult, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex,
     FilterGeoReader, FilterMaskReader, FilterNumericReader, GcApplyInfo, GcScanDelta, IdDelta,
     IndexBlock, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSAggregateResult,
     RSIndexResult, RSResultData, RSResultKind, RSTermRecord, RepairType,
@@ -47,7 +47,7 @@ pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
 }
 
 /// Dummy encoder which allows defaults for testing, encoding only the delta
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Dummy;
 
 impl Encoder for Dummy {
@@ -299,7 +299,7 @@ fn adding_big_delta_makes_new_block() {
 #[test]
 fn adding_ii_blocks_growth_strategy() {
     /// Dummy encoder which only allows 2 entries per block for testing
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
@@ -322,7 +322,6 @@ fn adding_ii_blocks_growth_strategy() {
 
     impl Decoder for SmallBlocksDummy {
         fn decode<'index>(
-            &self,
             _cursor: &mut Cursor<&'index [u8]>,
             _base: t_docId,
             _result: &mut RSIndexResult<'index>,
@@ -332,14 +331,6 @@ fn adding_ii_blocks_growth_strategy() {
 
         fn base_result<'index>() -> RSIndexResult<'index> {
             unimplemented!("not used by this test")
-        }
-    }
-
-    impl DecodedBy for SmallBlocksDummy {
-        type Decoder = Self;
-
-        fn decoder() -> Self::Decoder {
-            Self
         }
     }
 
@@ -460,7 +451,6 @@ fn u32_delta_overflow() {
 
 impl Decoder for Dummy {
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         prev_doc_id: u64,
         result: &mut RSIndexResult<'index>,
@@ -477,14 +467,6 @@ impl Decoder for Dummy {
 
     fn base_result<'index>() -> RSIndexResult<'index> {
         RSIndexResult::default()
-    }
-}
-
-impl DecodedBy for Dummy {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
     }
 }
 
@@ -575,7 +557,7 @@ fn reading_over_empty_blocks() {
 
 #[test]
 fn read_using_the_first_block_id_as_the_base() {
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     struct FirstBlockIdDummy;
 
     impl Encoder for FirstBlockIdDummy {
@@ -593,7 +575,6 @@ fn read_using_the_first_block_id_as_the_base() {
 
     impl Decoder for FirstBlockIdDummy {
         fn decode<'index>(
-            &self,
             cursor: &mut Cursor<&'index [u8]>,
             prev_doc_id: u64,
             result: &mut RSIndexResult<'index>,
@@ -615,14 +596,6 @@ fn read_using_the_first_block_id_as_the_base() {
 
         fn base_id(block: &IndexBlock, _last_doc_id: ffi::t_docId) -> ffi::t_docId {
             block.first_doc_id
-        }
-    }
-
-    impl DecodedBy for FirstBlockIdDummy {
-        type Decoder = Self;
-
-        fn decoder() -> Self::Decoder {
-            Self
         }
     }
 
@@ -880,7 +853,7 @@ fn reader_unique_docs() {
 #[test]
 fn reader_has_duplicates() {
     /// Dummy encoder which allows duplicates for testing
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     struct AllowDupsDummy;
 
     impl Encoder for AllowDupsDummy {
@@ -902,7 +875,6 @@ fn reader_has_duplicates() {
 
     impl Decoder for AllowDupsDummy {
         fn decode<'index>(
-            &self,
             _cursor: &mut Cursor<&'index [u8]>,
             _base: ffi::t_docId,
             _result: &mut RSIndexResult<'index>,
@@ -912,14 +884,6 @@ fn reader_has_duplicates() {
 
         fn base_result<'index>() -> RSIndexResult<'index> {
             RSIndexResult::default()
-        }
-    }
-
-    impl DecodedBy for AllowDupsDummy {
-        type Decoder = Self;
-
-        fn decoder() -> Self::Decoder {
-            Self
         }
     }
 
@@ -1454,7 +1418,7 @@ fn index_block_repair_some_deletions() {
 
 #[test]
 fn index_block_repair_delta_too_big() {
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     struct SmallDeltaDummy;
 
     struct U5Delta(u8);
@@ -1488,17 +1452,8 @@ fn index_block_repair_delta_too_big() {
         }
     }
 
-    impl DecodedBy for SmallDeltaDummy {
-        type Decoder = Self;
-
-        fn decoder() -> Self::Decoder {
-            Self
-        }
-    }
-
     impl Decoder for SmallDeltaDummy {
         fn decode<'index>(
-            &self,
             cursor: &mut Cursor<&'index [u8]>,
             base: t_docId,
             result: &mut RSIndexResult<'index>,
@@ -1952,7 +1907,7 @@ fn ii_apply_gc_last_block_updated() {
 #[test]
 fn ii_apply_gc_entries_tracking_index() {
     // Make a dummy encoder which allows duplicates
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     struct AllowDupsDummy;
 
     impl Encoder for AllowDupsDummy {
@@ -1974,7 +1929,6 @@ fn ii_apply_gc_entries_tracking_index() {
 
     impl Decoder for AllowDupsDummy {
         fn decode<'index>(
-            &self,
             cursor: &mut Cursor<&'index [u8]>,
             prev_doc_id: u64,
             result: &mut RSIndexResult<'index>,
@@ -1990,14 +1944,6 @@ fn ii_apply_gc_entries_tracking_index() {
 
         fn base_result<'index>() -> RSIndexResult<'index> {
             RSIndexResult::default()
-        }
-    }
-
-    impl DecodedBy for AllowDupsDummy {
-        type Decoder = Self;
-
-        fn decoder() -> Self::Decoder {
-            Self
         }
     }
 
