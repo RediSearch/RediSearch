@@ -110,10 +110,12 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
     }
 
     RedisModule_ThreadSafeContextLock(ctx);
-    SharedExclusiveLock_SetOwned();
 
     // Start all threads simultaneously
     start_flag.store(true);
+    usleep(10000);
+    ASSERT_EQ(thread_ids_set.size(), 0) << "No thread could have acquired the lock, since the GIL is owned by the main thread.";
+    SharedExclusiveLock_SetOwned();
 
     while (threads_finished.load() < num_threads_to_remove) {
         std::this_thread::sleep_for(std::chrono::microseconds(1));
@@ -129,7 +131,7 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
           &thread_ids_set,
           i,
           work_iterations,
-          1000,
+          100,
       };
       int rc = pthread_create(&threads[i], nullptr, worker_thread_func, &thread_data[i]);
       ASSERT_EQ(rc, 0) << "Failed to create thread " << i;
@@ -164,4 +166,103 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
         int rc = pthread_join(threads[i], nullptr);
         ASSERT_EQ(rc, 0) << "Failed to join thread " << i;
     }
+}
+
+
+// Structure to pass data to worker threads
+struct JobsThreadData {
+  RedisModuleCtx *ctx;
+  int num_jobs;
+  int *job_counter;
+  std::atomic<int> *threads_ready;
+  std::atomic<int> *jobs_finished;
+  std::atomic<bool> *start_flag;
+  int sleep_microseconds;
+};
+
+// Worker thread function that tries to acquire the shared exclusive lock
+void* worker_thread_jobs(void* arg) {
+  JobsThreadData* data = static_cast<JobsThreadData*>(arg);
+
+  data->threads_ready->fetch_add(1);
+  // Wait for start signal
+  while (!data->start_flag->load()) {
+      std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+
+  for (int i = 0; i < data->num_jobs; ++i) {
+    std::this_thread::sleep_for(std::chrono::microseconds(10 * data->sleep_microseconds));
+    // Try to acquire the lock and do some work
+    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
+    *(data->job_counter) += 1;
+
+    std::this_thread::sleep_for(std::chrono::microseconds(data->sleep_microseconds));
+
+    // Release the lock
+    SharedExclusiveLock_Release(data->ctx, lock_type);
+    data->jobs_finished->fetch_add(1);
+  }
+  return nullptr;
+}
+
+// This test is more representative of the real use case.
+TEST_F(SharedExclusiveLockTest, test_jobs) {
+  const int num_threads = 16;
+  const int num_jobs_per_thread = 500;
+  const int num_jobs_to_wait = 100;
+  int job_counter = 0;
+  std::atomic<bool> start_flag{false};
+  std::atomic<int> threads_ready{0};
+  std::unordered_set<int> thread_ids_set;
+  std::atomic<int> jobs_finished{0};
+  std::vector<pthread_t> threads(num_threads);
+  std::vector<JobsThreadData> thread_data(num_threads);
+
+  // Create worker threads
+  for (int i = 0; i < num_threads; ++i) {
+    thread_data[i] = {
+        ctx,
+        num_jobs_per_thread,
+        &job_counter,
+        &threads_ready,
+        &jobs_finished,
+        &start_flag,
+        100,
+    };
+    int rc = pthread_create(&threads[i], nullptr, worker_thread_jobs, &thread_data[i]);
+    ASSERT_EQ(rc, 0) << "Failed to create thread " << i;
+  }
+  // Wait for all threads to be ready
+  while (threads_ready.load() < num_threads) {
+      std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+
+  RedisModule_ThreadSafeContextLock(ctx);
+
+  // Start all threads simultaneously
+  start_flag.store(true);
+  usleep(1000000);
+  ASSERT_EQ(job_counter, 0) << "No job could have acquired the lock, since the GIL is owned by the main thread.";
+  SharedExclusiveLock_SetOwned();
+
+  while (jobs_finished.load() < num_jobs_to_wait) {
+      std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+  ASSERT_GE(job_counter, num_jobs_to_wait) << "At least num_jobs_to_wait should have finished";
+
+  SharedExclusiveLock_UnsetOwned();
+  int num_jobs_finished = jobs_finished.load();
+  int num_jobs_executed = job_counter;
+
+  usleep(1000000);
+
+  ASSERT_EQ(num_jobs_executed, job_counter) << "No more jobs should have run after UnsetOwned before releasing the GIL";
+  RedisModule_ThreadSafeContextUnlock(ctx);
+
+  for (int i = 0; i < num_threads; ++i) {
+      int rc = pthread_join(threads[i], nullptr);
+      ASSERT_EQ(rc, 0) << "Failed to join thread " << i;
+  }
+  ASSERT_EQ(num_jobs_per_thread * num_threads, jobs_finished.load()) << "No more jobs should have finished after UnsetOwned before releasing the GIL";
+  ASSERT_EQ(num_jobs_per_thread * num_threads, job_counter) << "No more jobs should have run after UnsetOwned before releasing the GIL";
 }

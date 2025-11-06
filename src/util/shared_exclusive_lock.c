@@ -60,16 +60,14 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   pthread_mutex_lock(&InternalLock);
   while (true) {
     int rc;
-    if (GILOwned && !GILAlternativeLockHeld) {
+    if (GILOwned) {
       pthread_mutex_lock(&GILAlternativeLock);
+      // We acquired the alternative lock, we can return.
       GILAlternativeLockHeld = true;
       pthread_mutex_unlock(&InternalLock);
       return Internal_Locked;
-    } else if (!GILOwned) {
-      rc = RedisModule_ThreadSafeContextTryLock(ctx);
     } else {
-      // GILAlternativeLock is held by another thread, continue and wait for your turn
-      rc = REDISMODULE_ERR;
+      rc = RedisModule_ThreadSafeContextTryLock(ctx);
     }
     if (rc == REDISMODULE_OK) {
       RS_LOG_ASSERT(!GILAlternativeLockHeld, "If we acquired the GIL, the alternative lock should not be held by another thread.");
