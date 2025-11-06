@@ -39,7 +39,7 @@ impl Bencher {
                 let record = RSIndexResult::term().doc_id(100);
 
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = DocIdsOnly.encode(&mut buffer, delta, &record).unwrap();
+                let _grew_size = DocIdsOnly::encode(&mut buffer, delta, &record).unwrap();
                 let encoded = buffer.into_inner();
 
                 TestValue { delta, encoded }
@@ -61,7 +61,7 @@ impl Bencher {
                         let record = RSIndexResult::term().doc_id(100);
 
                         let grew_size =
-                            DocIdsOnly.encode(&mut buffer, test.delta, &record).unwrap();
+                            DocIdsOnly::encode(&mut buffer, test.delta, &record).unwrap();
 
                         black_box(grew_size);
                     }
