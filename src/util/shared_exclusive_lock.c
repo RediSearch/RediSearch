@@ -73,7 +73,7 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
       rc = RedisModule_ThreadSafeContextTryLock(ctx);
     }
     if (rc == REDISMODULE_OK) {
-      RS_LOG_ASSERT(!GILAlternativeLockHeld, "If we acquired the GIL, the alternative lock should not be held by another thread.");
+      RS_LOG_ASSERT(gilState == GILState_Unknown, "gilState should be GILState_Unknown");
       pthread_mutex_unlock(&InternalLock);
       return GIL_Locked;
     }
