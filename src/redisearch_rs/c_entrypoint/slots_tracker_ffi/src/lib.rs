@@ -192,8 +192,15 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeA
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
     with_tracker_mut(|tracker| {
+        let version_before = tracker.get_version();
+
         tracker.set_local_slots(ranges);
-        sync_version(tracker);
+
+        // We expect this function to be called periodically with the same ranges,
+        // so only sync if there is an actual change, to avoid unnecessary atomic ops.
+        if tracker.get_version() != version_before {
+            sync_version(tracker);
+        }
     });
 }
 

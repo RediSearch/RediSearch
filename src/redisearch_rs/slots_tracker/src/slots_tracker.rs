@@ -104,9 +104,8 @@ impl SlotsTracker {
         }
     }
 
-    /// Gets the current stable version.
+    /// Gets the current state version.
     ///
-    /// Returns the current version as a Version.
     /// The internal version is always Stable.
     pub const fn get_version(&self) -> Version {
         // Internal invariant: self.version is always Stable
