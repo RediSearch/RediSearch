@@ -88,7 +88,7 @@ pub mod opaque {
 
     use super::RsValue;
 
-    /// Opaque variant of [`RsValue`], allowing the
+    /// Opaque projection of [`RsValue`], allowing the
     /// non-FFI-safe [`RsValue`] to be passed to C
     /// and even allow C land to place it on the stack.
     #[repr(C, align(8))]

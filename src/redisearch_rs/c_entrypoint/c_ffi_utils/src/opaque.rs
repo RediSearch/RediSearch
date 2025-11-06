@@ -1,17 +1,30 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 /// A type with size `N`.
 #[repr(transparent)]
 pub struct Size<const N: usize>(std::mem::MaybeUninit<[u8; N]>);
 
-/// Marker trait that signals a type can be safely transmuted to
+/// Marker trait that signals a type can be safely transmuted from
+/// `T`, and that it's safe to cast pointers of the type to `T`
+/// and dereference them.
 ///
 /// # Safety
-/// - It must be safe to [transmute](std::mem::transmute) from the implementor
-///   of this trait to a `T` and back.
+/// - It must be safe to [transmute](std::mem::transmute) from `T`
+///   to the implementer of this trait.
+/// - It must be safe to cast pointers of the implementer
+///   to `T` and dereference them.
 pub unsafe trait Transmute<T> {}
 
 /// A trait for using a sized type in an FFI context as an opaque sized type,
 /// allowing it to be allocated on the stack on the other side of the
-/// FFI-boundary, without the implementor needing to be FFI-safe.
+/// FFI-boundary, without the implementer needing to be FFI-safe.
 pub trait IntoOpaque: Sized {
     type Opaque: Sized;
 
@@ -66,19 +79,24 @@ pub trait IntoOpaque: Sized {
 /// These constraints are checked with compile-time assertions,
 /// and by validating that the [`Transmute`] trait has been implemented.
 ///
+/// The reason that `IntoOpaque::Opaque` is not bound to types
+/// implementing `Transmute<Self>` at the trait level instead, is that
+/// this is not a requirement of the trait, but one of the way
+/// this macro implements that trait, i.e. by using
+/// [`std::mem::transmute`] and pointer casts.
+///
 /// # Example
 /// ```
 /// mod opaque {
 ///     use c_ffi_utils::opaque::{Size, Transmute};
 ///     use std::sync::Arc;
-/// 
+///
 ///     // A type that is 8-aligned and is 24 bytes in size.
 ///     struct Thing {
 ///         data: [Arc<u8>; 3]
 ///     }
-/// 
-/// 
-///     /// Opaque variant of [`Thing`], allowing the
+///
+///     /// Opaque projection of [`Thing`], allowing the
 ///     /// non-FFI-safe [`Thing`] to be passed to C
 ///     /// and even allow C land to place it on the stack.
 ///     #[repr(C, align(8))]
@@ -102,6 +120,9 @@ macro_rules! opaque {
                 type Opaque = $opaque_ty;
 
                 fn into_opaque(self) -> Self::Opaque {
+                    // Safety:
+                    // Self::Opaque is validated to implement
+                    // `Transmute<Self>` in _ASSERT_IMPL_TRANSMUTE
                     unsafe { std::mem::transmute(self) }
                 }
 
