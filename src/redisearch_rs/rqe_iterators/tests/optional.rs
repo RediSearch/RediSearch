@@ -654,38 +654,22 @@ fn revalidate_jumps() {
         _ => panic!("unexpected result"),
     }
 
-    // virtual...
+    // virtual... but we did revalidate child... again,
+    // meaning that the child is now already at pos 6...
+    //
+    // Status is ok however as we were virtual so from POV of callee
+    // we did not move.
     assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
 
-    assert!(!it.at_eof());
-    let outcome = it
-        .read()
-        .expect("read == Ok(..)")
-        .expect("read == Ok(Some(..))");
-    assert!(outcome.as_numeric().is_none());
-    assert_eq!(outcome.weight, 0.);
-    assert_eq!(outcome.doc_id, 3);
-
-    assert!(!it.at_eof());
-    let outcome = it
-        .read()
-        .expect("read == Ok(..)")
-        .expect("read == Ok(Some(..))");
-    assert!(outcome.as_numeric().is_some());
-    assert_eq!(outcome.weight, 1.);
-    assert_eq!(outcome.doc_id, 4);
-
-    // real hit => child revalidateD with move, but jumped ahead,
-    // optional iterator needs to continue on its sequential path!
-    match it.revalidate().unwrap() {
-        RQEValidateStatus::Moved {
-            current: Some(outcome),
-        } => {
-            assert!(outcome.as_numeric().is_none());
-            assert_eq!(outcome.weight, 0.);
-            assert_eq!(outcome.doc_id, 5);
-        }
-        _ => panic!("unexpected result"),
+    for expected_id in 3..=5 {
+        assert!(!it.at_eof());
+        let outcome = it
+            .read()
+            .expect("read == Ok(..)")
+            .expect("read == Ok(Some(..))");
+        assert!(outcome.as_numeric().is_none());
+        assert_eq!(outcome.weight, 0.);
+        assert_eq!(outcome.doc_id, expected_id);
     }
 
     for expected_id in 6..=7 {

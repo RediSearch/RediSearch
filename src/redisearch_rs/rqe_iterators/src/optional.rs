@@ -34,15 +34,9 @@ pub struct Optional<'index, I> {
     /// the iterator yields virtual results until [`Optional::max_doc_id`] is reached.
     ///
     /// This field is no longer used once [`Optional::child_abort`]` is `true`.
-    child: I,
-
-    /// Temporary workaround for lifetime issues when the [`Optional::child`] aborts during revalidation.
-    /// When this occurs, this flag is set to `true` and remains so until the end of this
-    /// [`Optional`]’s lifetime.
     ///
-    /// Once the iterator design supports it, this flag can be removed and the child can
-    /// instead be wrapped in an [`Option`], allowing it to be dropped immediately upon abort.
-    child_abort: bool,
+    /// Turned into [`None`] in case child aborts during [`RQEIterator::revalidate`].
+    child: Option<I>,
 }
 
 impl<'index, I> Optional<'index, I>
@@ -62,8 +56,7 @@ where
             max_doc_id: max_id,
             weight,
             result: RSIndexResult::virt(),
-            child,
-            child_abort: false,
+            child: Some(child),
         }
     }
 }
@@ -77,8 +70,15 @@ where
             return Ok(None);
         }
 
-        let maybe_real = (!self.child_abort && self.child.last_doc_id() == self.result.doc_id)
-            .then(|| self.child.read())
+        let maybe_real = self
+            .child
+            .as_mut()
+            .map(|child| {
+                if child.last_doc_id() != self.result.doc_id {
+                    return Ok(None);
+                }
+                child.read()
+            })
             .transpose()?
             .flatten();
 
@@ -111,11 +111,14 @@ where
             return Ok(None);
         }
 
-        if !self.child_abort
-            && doc_id > self.child.last_doc_id()
-            && let Some(SkipToOutcome::Found(real)) = self.child.skip_to(doc_id)?
+        if let Some(child) = &mut self.child
+            && doc_id > child.last_doc_id()
+            && let Some(SkipToOutcome::Found(real)) = child.skip_to(doc_id)?
             && real.doc_id == doc_id
         {
+            // Only a "real" hit where a non-aborted child was able to skip
+            // to the desired doc_id (in contrast to being EOF before)
+            // reaches this branch
             real.weight = self.weight;
             self.result.doc_id = real.doc_id;
             return Ok(Some(SkipToOutcome::Found(real)));
@@ -126,25 +129,17 @@ where
     }
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let last_child_doc_id;
-
-        if self.child_abort || {
-            last_child_doc_id = self.child.last_doc_id();
-            self.child.last_doc_id() != self.result.doc_id
-        } {
+        let Some(ref mut child) = self.child else {
             return Ok(RQEValidateStatus::Ok);
-        }
+        };
+        let last_child_doc_id = child.last_doc_id();
 
         // Revalidate the child iterator (C-Code: step 1)
-        match self.child.revalidate()? {
+        match child.revalidate()? {
             // Abort: Handle child validation results (but continue processing)
             // C-Code: step 2
             RQEValidateStatus::Aborted => {
-                // Ideally, we would drop the child here.
-                // However, since other branches in this function return a derived &mut reference from it,
-                // we can’t safely do that. A delayed cleanup would be confusing,
-                // so we’ll use this flag for now.
-                self.child_abort = true;
+                self.child = None; // Drop it so we become fully virtual until max is reached
                 Ok(if last_child_doc_id != self.result.doc_id {
                     // virtual
                     self.result.doc_id += 1;
@@ -179,8 +174,8 @@ where
 
     fn rewind(&mut self) {
         self.result.doc_id = 0;
-        if !self.child_abort {
-            self.child.rewind();
+        if let Some(child) = &mut self.child {
+            child.rewind();
         }
     }
 
