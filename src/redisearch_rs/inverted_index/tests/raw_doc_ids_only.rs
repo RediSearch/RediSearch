@@ -47,8 +47,7 @@ fn test_encode_raw_doc_ids_only() {
         let mut buf = Cursor::new(Vec::new());
         let record = RSIndexResult::term().doc_id(doc_id);
 
-        let bytes_written = RawDocIdsOnly::default()
-            .encode(&mut buf, delta, &record)
+        let bytes_written = RawDocIdsOnly::encode(&mut buf, delta, &record)
             .expect("to encode raw doc ids only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
@@ -74,7 +73,7 @@ fn test_encode_raw_doc_ids_only_output_too_small() {
     let mut cursor = Cursor::new(buf);
     let record = inverted_index::RSIndexResult::virt();
 
-    let res = RawDocIdsOnly::default().encode(&mut cursor, 0, &record);
+    let res = RawDocIdsOnly::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);

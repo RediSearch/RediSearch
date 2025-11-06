@@ -30,7 +30,6 @@ impl Encoder for FreqsOffsets {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,

@@ -89,9 +89,8 @@ fn test_encode_full() {
 
         let record = TestTermRecord::new(doc_id, field_mask, freq, offsets);
 
-        let bytes_written = Full::default()
-            .encode(&mut buf, delta, &record.record)
-            .expect("to encode freqs only record");
+        let bytes_written =
+            Full::encode(&mut buf, delta, &record.record).expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
         assert_eq!(buf.get_ref(), &expected_encoding);
@@ -185,9 +184,8 @@ fn test_encode_full_wide() {
 
         let record = TestTermRecord::new(doc_id, field_mask, freq, offsets);
 
-        let bytes_written = FullWide::default()
-            .encode(&mut buf, delta, &record.record)
-            .expect("to encode freqs only record");
+        let bytes_written =
+            FullWide::encode(&mut buf, delta, &record.record).expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
         assert_eq!(buf.get_ref(), &expected_encoding);
@@ -215,7 +213,7 @@ fn test_encode_full_field_mask_overflow() {
     let mut cursor = Cursor::new(buf);
 
     let record = TestTermRecord::new(10, u32::MAX as t_fieldMask + 1, 1, vec![1]);
-    let _res = Full::default().encode(&mut cursor, 0, &record.record);
+    let _res = Full::encode(&mut cursor, 0, &record.record);
 }
 
 #[test]
@@ -225,12 +223,12 @@ fn test_encode_full_output_too_small() {
     let mut cursor = Cursor::new(buf);
     let record = TestTermRecord::new(10, 1, 1, vec![1]);
 
-    let res = Full::default().encode(&mut cursor, 0, &record.record);
+    let res = Full::encode(&mut cursor, 0, &record.record);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 
-    let res = FullWide::default().encode(&mut cursor, 0, &record.record);
+    let res = FullWide::encode(&mut cursor, 0, &record.record);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
