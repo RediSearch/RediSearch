@@ -52,7 +52,7 @@ void SharedExclusiveLock_SetOwned() {
 void SharedExclusiveLock_UnsetOwned() {
   // Here we make sure that any thread that may assume the GIL is protected by the main thread releases the lock before returning.
   pthread_mutex_lock(&InternalLock);
-  while (gilState > GILState_Owned) {
+  while (gilState == GILState_Shared) {
     pthread_cond_wait(&GILSafeCondition, &InternalLock);
   }
   // TODO: Without the 2 booleans. This could exhaust the main thread, more workers could be taking the Internal Lock
@@ -64,13 +64,16 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   pthread_mutex_lock(&InternalLock);
   while (true) {
     int rc;
-    if (gilState >= GILState_Owned) {
+    if (gilState == GILState_Owned) {
       pthread_mutex_lock(&GILAlternativeLock);
       gilState = GILState_Shared;
       pthread_mutex_unlock(&InternalLock);
       return Internal_Locked;
-    } else {
+    } else if (gilState == GILState_Unknown) {
       rc = RedisModule_ThreadSafeContextTryLock(ctx);
+    } else {
+      // continue, another one has the GILAlternativeLock
+      rc = REDISMODULE_ERR;
     }
     if (rc == REDISMODULE_OK) {
       RS_LOG_ASSERT(gilState == GILState_Unknown, "gilState should be GILState_Unknown");
@@ -92,8 +95,10 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
 
 void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType type) {
   if (type == Internal_Locked) {
+
     pthread_mutex_unlock(&GILAlternativeLock);
     pthread_mutex_lock(&InternalLock);
+    RS_LOG_ASSERT(gilState == GILState_Shared, "gilState should be GILState_Shared");
     gilState = GILState_Owned;
     // If main thread is waiting to release the GIL, signal it that it can proceed.
     pthread_cond_signal(&GILSafeCondition);
