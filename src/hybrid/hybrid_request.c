@@ -308,19 +308,12 @@ void HybridRequest_ClearErrors(HybridRequest *req) {
 }
 
 /**
- * Create a search context, detached only when necessary.
- * In cluster mode, we're already on a background thread, so no need for detached context.
+ * Create a search context with a thread-safe redis module context.
  */
-static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const char *indexname, size_t NumShards) {
-  if (NumShards > 1) {
-    // Cluster mode: we're already on DIST_THREADPOOL, use the existing context directly
-    return NewSearchCtxC(ctx, indexname, true);
-  } else {
-    // Standalone mode: create detached context for thread safety
-    RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
-    RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
-    return NewSearchCtxC(detachedCtx, indexname, true);
-  }
+static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const char *indexname) {
+  RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
+  return NewSearchCtxC(detachedCtx, indexname, true);
 }
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
@@ -328,8 +321,8 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
-  vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
+  search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);
+  vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);
