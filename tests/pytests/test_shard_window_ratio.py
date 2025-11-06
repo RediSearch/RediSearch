@@ -87,7 +87,7 @@ def test_shard_k_unstable_feature_flag():
     datatype = 'FLOAT32'
     set_up_database_with_vectors(env, dim, num_docs=1, index_name='idx', datatype='FLOAT32')
 
-    query_vec = get_unique_vector(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, datatype)
 
     for cmd in ['FT.SEARCH', 'FT.AGGREGATE']:
         # Should return error for unavailable feature
