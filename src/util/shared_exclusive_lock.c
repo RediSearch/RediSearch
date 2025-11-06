@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <time.h>
+#include "rmutil/rm_assert.h"
 
 #define TIMEOUT_NANOSECONDS 5000 // 5 us in nanoseconds
 
