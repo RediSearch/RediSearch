@@ -96,12 +96,11 @@ fn assert_owner_thread() {
     let current = std::thread::current().id();
     let owner = OWNER_THREAD.get_or_init(|| current);
 
-    if *owner != current {
-        panic!(
-            "slots_tracker FFI functions called from wrong thread (owner: {:?}, current: {:?})",
-            owner, current
-        );
-    }
+    assert_eq!(
+        *owner, current,
+        "slots_tracker FFI functions called from wrong thread (owner: {:?}, current: {:?})",
+        owner, current
+    );
 }
 
 /// Gets a reference to the tracker and executes a function on it.
