@@ -152,6 +152,7 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
 
     // Verify that all threads were properly recorded in the set
     ASSERT_EQ(thread_ids_set.size(), num_threads) << "Not all thread IDs were recorded in the set";
+    ASSERT_GT(thread_ids_set.size(), thread_ids_set_size) << "More threads finished after UnsetOwned, which means that main thread was left to release the GIL before all the other threads finished";
 
     // Verify that each created thread ID is in the set
     for (int i = 0; i < num_threads; ++i) {
