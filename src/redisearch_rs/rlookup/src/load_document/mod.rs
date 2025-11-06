@@ -194,9 +194,6 @@ pub struct LoadDocumentOptions<'a, T: RSValueTrait = RSValueFFI> {
     mode: RLookupLoadMode,
     force_load: bool,
     force_string: bool,
-
-    /// Temporary C struct provided by C and used when called back in C from Rust
-    tmp_cstruct: Option<NonNull<ffi::RLookupLoadOptions>>,
 }
 
 /// A builder that guarantees that only valid versions of [LoadDocumentOptions] are created.
@@ -301,9 +298,6 @@ impl<'a, T: RSValueTrait> LoadDocumentOptionsBuilder<'a, T> {
             mode,
             force_load: self.force_load,
             force_string: self.force_string,
-
-            // Temporary C struct provided by C and used when called back in C from Rust
-            tmp_cstruct: self.tmp_cstruct,
         })
     }
 }

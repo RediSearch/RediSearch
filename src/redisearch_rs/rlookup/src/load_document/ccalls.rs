@@ -14,8 +14,8 @@ use std::{
 };
 
 use ffi::{
-    DocumentType_DocumentType_Hash, DocumentType_DocumentType_Json,
-    DocumentType_DocumentType_Unsupported, REDISMODULE_OK,
+    __BindgenBitfieldUnit, DocumentType_DocumentType_Hash, DocumentType_DocumentType_Json,
+    DocumentType_DocumentType_Unsupported, REDISMODULE_OK, RSDocumentMetadata_s,
 };
 use value::RSValueFFI;
 
@@ -89,47 +89,63 @@ fn with_temp_ffi_types<R>(
             .cast::<*mut ffi::RSValue>(),
     };
 
-    // extract or generate the options, the latter is useful as soon as LoadDocument is called directly from Rust
-    let (options, _) = if let Some(options) = &options.tmp_cstruct {
-        (options.as_ptr(), None)
-    } else {
-        let keys_ptr_storage;
-        let keys = match options.keys.as_ref() {
-            Some(keys) => {
-                keys_ptr_storage = keys.as_ptr() as *const ffi::RLookupKey;
-                &keys_ptr_storage as *const _ as *mut *const ffi::RLookupKey
-            }
-            None => std::ptr::null_mut(),
-        };
-        let nkeys = options.keys.as_ref().map_or(0, |keys| keys.len());
-
-        let mut options = ffi::RLookupLoadOptions {
-            sctx: options.context.map_or(ptr::null_mut(), |ctx| {
-                let rm_ctx = ctx.as_ptr();
-                let ffi_ctx: *mut ffi::RedisSearchCtx = rm_ctx.cast();
-                ffi_ctx
-            }),
-            dmd: std::ptr::null_mut(),
-            keyPtr: options.key_ptr.map_or(ptr::null(), |ptr| ptr.as_ptr()),
-            type_: match options.document_type {
-                crate::bindings::DocumentType::Hash => DocumentType_DocumentType_Hash,
-                crate::bindings::DocumentType::Json => DocumentType_DocumentType_Json,
-                crate::bindings::DocumentType::Unsupported => DocumentType_DocumentType_Unsupported,
-            },
-            keys,
-            nkeys,
-            mode: match options.mode {
-                RLookupLoadMode::KeyList => ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
-                RLookupLoadMode::SortingVectorKeys => ffi::RLookupLoadFlags_RLOOKUP_LOAD_SVKEYS,
-                RLookupLoadMode::AllKeys => ffi::RLookupLoadFlags_RLOOKUP_LOAD_ALLKEYS,
-            },
-            forceLoad: options.force_load,
-            forceString: options.force_string,
-            status: std::ptr::null_mut(),
-        };
-        let options: *mut ffi::RLookupLoadOptions = &mut options;
-        (options, Some(options))
+    // generate the ffi options from the Rust type
+    let keys_ptr_storage;
+    let keys = match options.keys.as_ref() {
+        Some(keys) => {
+            keys_ptr_storage = keys.as_ptr() as *const ffi::RLookupKey;
+            &keys_ptr_storage as *const _ as *mut *const ffi::RLookupKey
+        }
+        None => std::ptr::null_mut(),
     };
+    let nkeys = options.keys.as_ref().map_or(0, |keys| keys.len());
+
+    // generate a stack based dmd is used to access the keyptr
+    let dmd = RSDocumentMetadata_s {
+        id: 0,
+        keyPtr: options.key_ptr.map_or(ptr::null_mut(), |kp| kp.as_ptr()),
+        score: 0.0,
+        _bitfield_align_1: [],
+        _bitfield_1: __BindgenBitfieldUnit::new([0u8; 8]),
+        ref_count: 1,
+        sortVector: std::ptr::null_mut(), // null is ok as this is handled in `LoadDocument` which is in Rust
+        byteOffsets: std::ptr::null_mut(), // null is ok, isn't used in rlookup.c
+        llnode: ffi::DLLIST2_node {
+            // null is ok, isn't used in rlookup.c
+            prev: std::ptr::null_mut(),
+            next: std::ptr::null_mut(),
+        },
+        payload: std::ptr::null_mut(), // null is ok, isn't used in rlookup.c
+    };
+
+    // todo:
+    //let status = todo!("wait on Rust query error pr");
+
+    let mut options = ffi::RLookupLoadOptions {
+        sctx: options.context.map_or(ptr::null_mut(), |ctx| {
+            let rm_ctx = ctx.as_ptr();
+            let ffi_ctx: *mut ffi::RedisSearchCtx = rm_ctx.cast();
+            ffi_ctx
+        }),
+        dmd: &dmd as *const RSDocumentMetadata_s as *mut RSDocumentMetadata_s,
+        keyPtr: options.key_ptr.map_or(ptr::null(), |ptr| ptr.as_ptr()),
+        type_: match options.document_type {
+            crate::bindings::DocumentType::Hash => DocumentType_DocumentType_Hash,
+            crate::bindings::DocumentType::Json => DocumentType_DocumentType_Json,
+            crate::bindings::DocumentType::Unsupported => DocumentType_DocumentType_Unsupported,
+        },
+        keys,
+        nkeys,
+        mode: match options.mode {
+            RLookupLoadMode::KeyList => ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
+            RLookupLoadMode::SortingVectorKeys => ffi::RLookupLoadFlags_RLOOKUP_LOAD_SVKEYS,
+            RLookupLoadMode::AllKeys => ffi::RLookupLoadFlags_RLOOKUP_LOAD_ALLKEYS,
+        },
+        forceLoad: options.force_load,
+        forceString: options.force_string,
+        status: std::ptr::null_mut(),
+    };
+    let options: *mut ffi::RLookupLoadOptions = &mut options;
 
     // 2. Call the c function with the compatible C types
     let res = cb(
