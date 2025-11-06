@@ -20,14 +20,10 @@
 #include <set>
 #include <unordered_set>
 
-// Test-specific state for controlling GIL behavior
-static std::atomic<bool> test_gil_owned{false};
-
 class SharedExclusiveLockTest : public ::testing::Test {
 protected:
     void SetUp() override {
         SharedExclusiveLock_Init();
-        test_gil_owned.store(false);
         ctx = new RedisModuleCtx();
     }
 
@@ -44,6 +40,7 @@ struct WorkerThreadData {
     RedisModuleCtx *ctx;
     int *counter;
     std::atomic<int> *threads_ready;
+    std::atomic<int> *threads_finished;
     std::atomic<bool> *start_flag;
     std::unordered_set<int> *thread_ids_set;
     int thread_id;
@@ -61,6 +58,7 @@ void* worker_thread_func(void* arg) {
         std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
 
+    std::this_thread::sleep_for(std::chrono::microseconds(10 * data->sleep_microseconds));
     // Try to acquire the lock and do some work
     SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
     data->thread_ids_set->insert(data->thread_id);
@@ -73,17 +71,19 @@ void* worker_thread_func(void* arg) {
 
     // Release the lock
     SharedExclusiveLock_Release(data->ctx, lock_type);
+    data->threads_finished->fetch_add(1);
     return nullptr;
 }
 
 TEST_F(SharedExclusiveLockTest, test_concurrency) {
-    const int num_threads = 1000;
+    const int num_threads = 2000;
     const int work_iterations = 500;
-    const int num_threads_to_remove = 200;
+    const int num_threads_to_remove = 100;
     int counter = 0;
     std::atomic<bool> start_flag{false};
     std::atomic<int> threads_ready{0};
     std::unordered_set<int> thread_ids_set;
+    std::atomic<int> threads_finished{0};
     std::vector<pthread_t> threads(num_threads);
     std::vector<WorkerThreadData> thread_data(num_threads);
 
@@ -93,11 +93,12 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
             ctx,
             &counter,
             &threads_ready,
+            &threads_finished,
             &start_flag,
             &thread_ids_set,
             i,
             work_iterations,
-            1000,
+            10000,
         };
         int rc = pthread_create(&threads[i], nullptr, worker_thread_func, &thread_data[i]);
         ASSERT_EQ(rc, 0) << "Failed to create thread " << i;
@@ -114,18 +115,16 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
     // Start all threads simultaneously
     start_flag.store(true);
 
-    // Wait for all threads to finish
-    for (int i = 0; i < num_threads_to_remove; ++i) {
-        int rc = pthread_join(threads[i], nullptr);
-        ASSERT_EQ(rc, 0) << "Failed to join thread " << i;
+    while (threads_finished.load() < num_threads_to_remove) {
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
-    SharedExclusiveLock_UnsetOwned();
-    size_t thread_ids_set_size = thread_ids_set.size();
+    ASSERT_GE(thread_ids_set.size(), num_threads_to_remove) << "At least num_threads_to_remove should have finished";
     for (int i = num_threads / 2; i < num_threads; ++i) {
         thread_data[i] = {
           ctx,
           &counter,
           &threads_ready,
+          &threads_finished,
           &start_flag,
           &thread_ids_set,
           i,
@@ -139,24 +138,30 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
     while (threads_ready.load() < num_threads) {
         std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
+    SharedExclusiveLock_UnsetOwned();
+    size_t thread_ids_set_size = thread_ids_set.size();
+    ASSERT_LT(thread_ids_set_size, num_threads) << "Not all threads were able to acquire the lock";
 
     usleep(1000000);
     ASSERT_EQ(thread_ids_set_size, thread_ids_set.size()) << "Thread did not finish after UnsetOwned, while the GIL is not unlocked";
     RedisModule_ThreadSafeContextUnlock(ctx);
     // Verify the total work done
-    for (int i = num_threads_to_remove; i < num_threads; ++i) {
-        int rc = pthread_join(threads[i], nullptr);
-        ASSERT_EQ(rc, 0) << "Failed to join thread " << i;
+    while (threads_finished.load() < num_threads) {
+      std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
     ASSERT_EQ(counter, num_threads * work_iterations);
 
     // Verify that all threads were properly recorded in the set
     ASSERT_EQ(thread_ids_set.size(), num_threads) << "Not all thread IDs were recorded in the set";
-    ASSERT_GT(thread_ids_set.size(), thread_ids_set_size) << "More threads finished after UnsetOwned, which means that main thread was left to release the GIL before all the other threads finished";
 
     // Verify that each created thread ID is in the set
     for (int i = 0; i < num_threads; ++i) {
         ASSERT_TRUE(thread_ids_set.find(i) != thread_ids_set.end())
             << "Thread " << i << " was not found in the thread IDs set";
+    }
+
+    for (int i = 0; i < num_threads; ++i) {
+        int rc = pthread_join(threads[i], nullptr);
+        ASSERT_EQ(rc, 0) << "Failed to join thread " << i;
     }
 }
