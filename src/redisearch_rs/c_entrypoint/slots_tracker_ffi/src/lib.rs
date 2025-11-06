@@ -114,7 +114,7 @@ where
     F: FnOnce(&SlotsTracker) -> R,
 {
     assert_owner_thread();
-    TRACKER.with_borrow(|tracker| f(tracker))
+    TRACKER.with_borrow(f)
 }
 
 /// Gets a mutable reference to the tracker and executes a function on it.
@@ -127,7 +127,7 @@ where
     F: FnOnce(&mut SlotsTracker) -> R,
 {
     assert_owner_thread();
-    TRACKER.with_borrow_mut(|tracker| f(tracker))
+    TRACKER.with_borrow_mut(f)
 }
 
 /// Syncs the atomic version counter with the tracker's internal version.
