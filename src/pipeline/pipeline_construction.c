@@ -155,7 +155,12 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
 
   size_t maxResults = astp->offset + astp->limit;
   if (!maxResults) {
-    maxResults = DEFAULT_LIMIT;
+    // For FT.AGGREGATE with WITHCOUNT without explicit LIMIT, we want to return all results
+    if (IsAggregate(&params->common) && (params->common.reqflags & QEXEC_F_WITHCOUNT)) {
+      maxResults = UINT32_MAX;
+    } else {
+      maxResults = DEFAULT_LIMIT;
+    }
   }
 
   // TODO: unify if when req holds only maxResults according to the query type.
@@ -210,8 +215,15 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       rp = RPSorter_NewByScore(maxResults);
       up = pushRP(&pipeline->qctx, rp, up);
     } else if (IsAggregate(&params->common) && !IsOptimized(&params->common)) {
-      // Set unlimited results so depleter consumes everything
-      pipeline->qctx.resultLimit = UINT32_MAX;
+      // For non-optimized aggregate queries (e.g., with SORTBY, TimeoutPolicy_Fail, or WITHCOUNT)
+      // Set resultLimit based on the LIMIT clause if present, otherwise unlimited
+      if (astp->isLimited) {
+        // Respect the LIMIT: offset + limit
+        pipeline->qctx.resultLimit = astp->offset + astp->limit;
+      } else {
+        // No LIMIT specified, consume everything
+        pipeline->qctx.resultLimit = UINT32_MAX;
+      }
       // In non-optimized aggregate queries, we need to add a synchronous depleter
       // Use RPDepleter_NewSync to run synchronously (no background thread)
       rp = RPDepleter_NewSync(DepleterSync_New(1, false), params->common.sctx);
@@ -219,7 +231,13 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     }
   }
 
-  if (astp->offset || (astp->limit && !rp)) {
+
+  // Create a pager if:
+  // 1. For FT.AGGREGATE with WITHCOUNT and explicit LIMIT (astp->isLimited checks for explicit LIMIT)
+  // 2. For FT.SEARCH with offset or limit
+  if ((astp->isLimited && IsAggregate(&params->common) && (params->common.reqflags & QEXEC_F_WITHCOUNT))
+      || (astp->offset || (astp->limit && !rp))) {
+    RedisModule_Log(NULL, "warning", "Nafraf: getArrangeRP():3.1 astp->offset: %llu, astp->limit: %llu, rp: %p", astp->offset, astp->limit, rp);
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);
   } else if ((IsSearch(&params->common) || IsAggregate(&params->common))

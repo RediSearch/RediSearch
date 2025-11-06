@@ -122,6 +122,9 @@ typedef enum {
   // The query has an explicit SORTBY x - sort by a field
   QEXEC_F_SORTBY = 0x8000000,
 
+  // The query has WITHCOUNT explicitly specified (for FT.AGGREGATE)
+  QEXEC_F_WITHCOUNT = 0x10000000,
+
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 
@@ -155,6 +158,7 @@ typedef struct {
 #define IsHybrid(r) (IsHybridTail(r) || IsHybridSearchSubquery(r) || IsHybridVectorSubquery(r))
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
+#define IsWithCount(r) ((r)->reqflags & QEXEC_F_WITHCOUNT)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer && (r)->optimizer->scorerType != SCORER_TYPE_NONE)

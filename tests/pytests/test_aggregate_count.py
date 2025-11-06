@@ -63,61 +63,42 @@ def _test_query_results(env, queries, assertion_func, docs):
             assertion_func(env, _get_total_results(res), docs, message=err_message)
 
 
-queries_withcount = [
-    # WITHCOUNT
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT'],
-    # WITHCOUNT + LOAD
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'LOAD', '1', '@title'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'LOAD', '1', '@price'],
-    # WITHCOUNT + LIMIT
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'LIMIT', '0', '5'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'LIMIT', '0', '50'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'LIMIT', '0', '1010'],
-    # WITHCOUNT + LIMIT 0 0 - only count
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'LIMIT', '0', '0'],
-    # WITHCOUNT + SORTBY
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '1', '@title'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '1', '@price'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'],
-]
-
 queries_withoutcount = [
     # implicit WITHOUTCOUNT
     ['FT.AGGREGATE', 'games', '*', 'NOCONTENT'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'LOAD', '1', '@title'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'LOAD', '1', '@price'],
+    ['FT.AGGREGATE', 'games', '*', 'LOAD', '1', '@title'],
+    ['FT.AGGREGATE', 'games', '*', 'LOAD', '1', '@price'],
     # explicit WITHOUTCOUNT
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LOAD', '1', '@title'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LOAD', '1', '@price'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LOAD', '1', '@title'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LOAD', '1', '@price'],
 ]
 
 queries_withoutcount_limit = [
     # WITHOUTCOUNT + LIMIT
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '0', '5'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '0', '50'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '10', '50'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '0', '1010'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '500', '1010'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', '0', '5'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', '0', '50'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', '10', '50'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', '0', '1010'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', '500', '1010'],
 ]
 
 queries_withoutcount_limit_high = [
     # WITHOUTCOUNT + LIMIT, limit > number of docs
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '0', '10000'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', '0', '10000'],
 ]
 
 queries_withoutcount_limit00 = [
     # WITHOUTCOUNT + LIMIT 0 0 - only count
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'LIMIT', '0', '0'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', '0', '0'],
 ]
 
 queries_withoutcount_sortby = [
     # WITHOUTCOUNT + SORTBY
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '1', '@price'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'],
-    ['FT.AGGREGATE', 'games', '*', 'NOCONTENT', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'],
+    ['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'],
 ]
 
 def test_resp2():
@@ -126,10 +107,6 @@ def test_resp2():
     add_values_iterations = 2
     _setup_index_and_data(env, number_of_iterations=add_values_iterations)
     indexed_docs = 2265 * add_values_iterations
-
-    # For WITHCOUNT total_results is always accurate
-    _test_query_results(env, queries_withcount,
-                        _assert_equal_wrapper, indexed_docs)
 
     # For WITHOUTCOUNT + SORTBY total_results is always accurate
     _test_query_results(env, queries_withoutcount_sortby,
@@ -160,8 +137,6 @@ def test_resp3():
     add_values_iterations = 2
     _setup_index_and_data(env, number_of_iterations=add_values_iterations)
     indexed_docs = 2265 * add_values_iterations
-    # For WITHCOUNT total_results is always accurate
-    _test_query_results(env, queries_withcount, _assert_equal_wrapper, indexed_docs)
 
     # For WITHOUTCOUNT + SORTBY total_results is always accurate
     _test_query_results(env, queries_withoutcount_sortby,
@@ -184,6 +159,109 @@ def test_resp3():
     _test_query_results(env, queries_withoutcount_limit00,
                         _assert_equal_wrapper, indexed_docs)
 
+def _test_limit00(protocol):
+    env = Env(protocol=protocol)
+    add_values_iterations = 1
+    _setup_index_and_data(env, number_of_iterations=add_values_iterations)
+    docs = 2265 * add_values_iterations
+
+    queries_and_results = [
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, 0], docs),
+        (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', 0, 0], ANY),
+        (['FT.AGGREGATE', 'games', '*', 'LIMIT', 0, 0], ANY),
+    ]
+
+    for query, expected_results in queries_and_results:
+        res = env.cmd(*query)
+        cmd=' '.join(str(x) for x in query)
+        print(cmd)
+        print(res)
+        for dialect in [2]:
+            env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
+            if protocol == 3:
+                print('total_results:', res['total_results'])
+                print('len(results):', len(res['results']))
+                env.assertEqual(res['total_results'], expected_results,
+                                message=f'{cmd}: total_results != expected')
+                env.assertEqual(len(res['results']), 0,
+                                message=f'{cmd}: len(results) != 1')
+            else:
+                print('total_results:', res[0])
+                print('len(results):', len(res[1:]))
+                env.assertEqual(res[0], expected_results,
+                                message=f'{cmd}: total_results != expected')
+                env.assertEqual(len(res[1:]), 0,
+                                message=f'{cmd}: len(results) != 1')
 
 
+def _test_count(protocol):
+    env = Env(protocol=protocol)
+    add_values_iterations = 1
+    _setup_index_and_data(env, number_of_iterations=add_values_iterations)
+    docs = 2265 * add_values_iterations
 
+    queries_and_results = [
+        # WITHCOUNT
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT'], docs),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, 50], 50),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, int(docs/2)], int(docs/2)),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, docs*4], docs),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 10, 50], 50),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 100, docs], docs - 100),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', docs, docs*2], 0),
+        # WITHCOUNT + LOAD
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LOAD', '1', '@title'], docs),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LOAD', '1', '@price'], docs),
+        # WITHCOUNT + SORTBY
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'], 2265), # 10?
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '1', '@price'], 2265), # 10?
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'], 2265), # 10?
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'], 2265), # 10?
+        # WITHCOUNT + SORTBY + LIMIT
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], 50),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, int(docs/2)], int(docs/2)),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, docs*4], docs),
+    ]
+
+    if(CLUSTER):
+        message = 'CLUSTER'
+    else:
+        message = 'STANDALONE'
+    print(message, 'protocol:', protocol)
+    for query, expected_results in queries_and_results:
+        res = env.cmd(*query)
+        cmd=' '.join(str(x) for x in query)
+        for dialect in [1, 2, 3, 4]:
+            env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
+            print(cmd)
+            # print(res)
+            if protocol == 3:
+                print('total_results:', res['total_results'])
+                print('len(results):', len(res['results']))
+                env.assertEqual(res['total_results'], expected_results,
+                                message=f'{cmd}: total_results != expected')
+                env.assertEqual(res['total_results'], len(res['results']),
+                                message=f'{cmd}: total_results != len(results)')
+            else:
+                print('total_results:', res[0])
+                print('len(results):', len(res[1:]))
+                env.assertEqual(res[0], expected_results,
+                                message=f'{cmd}: total_results != expected')
+                env.assertEqual(len(res[1:]), expected_results,
+                                message=f'{cmd}: total_results != len(results)')
+
+def test3():
+    _test_count(3)
+
+def test2():
+    _test_count(2)
+
+def test23():
+    _test_count(2)
+    _test_count(3)
+
+def test_limit00_resp3():
+    _test_limit00(3)
+
+def test_limit00_resp2():
+    _test_limit00(2)

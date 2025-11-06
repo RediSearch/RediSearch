@@ -581,6 +581,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+      AREQ_AddRequestFlags(req, QEXEC_F_WITHCOUNT);
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
@@ -1054,9 +1055,18 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   // FT.AGGREGATE backwards compatibility:
   // Disable optimization if SORTBY is specified or timeout policy is strict
   if (IsAggregate(req)) {
-    bool hasSortby = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
-    if (hasSortby || req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+    bool hasSortBy = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
+    bool hasWithCount = (AREQ_RequestFlags(req) & QEXEC_F_WITHCOUNT);
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
+    bool hasLimit = (arng != NULL && arng->isLimited);
+    bool isOptimized = IsOptimized(req);
+    if (hasSortBy || req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+    }
+    // Only enable optimization for LIMIT without SORTBY if optimization was not
+    // explicitly disabled by WITHCOUNT
+    if (hasLimit && !hasSortBy && !hasWithCount) {
+      AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
     }
   }
 
