@@ -12,6 +12,8 @@ jobs:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     env:
       GH_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+
     steps:
       - name: Assign
-        run: gh issue edit ${{ github.event.issue.number }} --add-assignee ${{ vars.ISSUES_SHIFT_ASSIGNEE }} -R ${{ github.repository }}
+        run: gh issue edit ${{ github.event.issue.number }} --add-assignee ${{ vars.ISSUES_SHIFT_ASSIGNEE }} -R ${{ env.GITHUB_REPOSITORY }}

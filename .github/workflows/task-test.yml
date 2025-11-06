@@ -49,12 +49,17 @@ env:
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
   BUILD_INTEL_SVS_OPT: "yes"
+  PRE_STEPS_SCRIPT: ${{ inputs.pre-steps-script }}
+  CONTAINER: ${{ inputs.container }}
+  SAN: ${{ inputs.san }}
+  REDIS_VER: ${{ inputs.get-redis }}
+  RUNNING_ENV: ${{ inputs.env }}
 
 jobs:
   common-flow:
-    name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    name: Test ${{ env.CONTAINER || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
-    container: ${{ inputs.container || null }}
+    container: ${{ env.CONTAINER || null }}
     # Nothing to do if both are `false`, skip
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
@@ -64,13 +69,13 @@ jobs:
 
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
-        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
+        if: ${{ env.PRE_STEPS_SCRIPT && env.CONTAINER == 'alpine:3' }}
         shell: sh -l -eo pipefail {0}
         run: |
           SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if ${{ inputs.pre-steps-script }}; then
+            if $PRE_STEPS_SCRIPT; then
               echo "Pre-steps Dependencies succeeded"
               SUCCESS=1
               break
@@ -85,12 +90,12 @@ jobs:
             exit 1
           fi
       - name: Pre-steps Dependencies (Non-Alpine)
-        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
+        if: ${{ env.PRE_STEPS_SCRIPT && env.CONTAINER != 'alpine:3' }}
         run: |
           SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if ${{ inputs.pre-steps-script }}; then
+            if $PRE_STEPS_SCRIPT; then
               echo "Pre-steps Dependencies succeeded"
               SUCCESS=1
               break
@@ -105,12 +110,12 @@ jobs:
             exit 1
           fi
       - name: Enable dynamic linking to C runtime in Alpine
-        if: inputs.container == 'alpine:3'
+        if: env.CONTAINER == 'alpine:3'
         run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
       - name: Get Installation Mode
         id: mode
         run: |
-          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+          [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Free up disk space
         run: |
           df -h
@@ -123,7 +128,7 @@ jobs:
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           for platform in amazonlinux:2 alpine:3; do
-            if [[ "${{ inputs.container }}" == "$platform" ]]; then
+            if [[ "$CONTAINER" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
             fi
@@ -135,26 +140,29 @@ jobs:
         with:
           submodules: recursive
       - name: Full checkout (node20 not supported)
+        env:
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REPO: ${{ github.repository }}
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
-          echo "Detected platform: ${{ inputs.container }}"
-          case "${{ inputs.container }}" in
+          echo "Detected platform: $CONTAINER"
+          case "$CONTAINER" in
             amazonlinux:2 | alpine:3)
 
               # Configure the safe directory
-              git config --global --add safe.directory /__w/${{ github.repository }}
+              git config --global --add safe.directory "/__w/$GITHUB_REPO"
 
               # Checkout
-              REPO_URL="https://github.com/${{ github.repository }}.git"
+              REPO_URL="https://github.com/$GITHUB_REPO.git"
 
               # Initialize a Git repository
               git init
               git remote add origin "$REPO_URL"
 
               # Fetch and checkout ref
-              git fetch origin "${{ github.ref }}" || {
-                echo "Failed to fetch ref: '${{ github.ref }}'";
+              git fetch origin "$GITHUB_REF" || {
+                echo "Failed to fetch ref: '$GITHUB_REF'";
                 exit 1;
               }
               git checkout FETCH_HEAD  # Check out the fetched ref
@@ -163,11 +171,13 @@ jobs:
               git submodule update --init --recursive
               ;;
             *)
-              echo "Unsupported platform: '${{ inputs.container }}'"
+              echo "Unsupported platform: '$CONTAINER'"
               exit 1
               ;;
           esac
       - name: Print CPU information
+        env:
+          RUNNER_ARCH: ${{ runner.arch }}
         run: |
           echo "=== CPU Information ==="
           if command -v lscpu >/dev/null 2>&1; then
@@ -185,7 +195,7 @@ jobs:
             cat /proc/cpuinfo 2>/dev/null || echo "CPU info not available"
           fi
           echo "Runner OS: $RUNNER_OS"
-          echo "Runner Architecture: ${{ runner.arch }}"
+          echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup
         working-directory: .install
@@ -271,28 +281,30 @@ jobs:
           cd $DEST_DIR
 
           # Checkout the REF
-          git fetch origin ${{ inputs.get-redis }}
-          git checkout ${{ inputs.get-redis }}
+          git fetch origin "$REDIS_VER"
+          git checkout "$REDIS_VER"
 
       - name: Build Redis
         working-directory: redis
         run:  ${{ steps.mode.outputs.mode }} make install
               BUILD_TLS=yes
-              SANITIZER=${{ inputs.san }}
+              SANITIZER=$SAN
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
         id: artifact-names
+        env:
+          SAN_LABEL: ${{ format('{0}', env.SAN == 'address' && 'sanitizer' || '') }}
+          COV_LABEL: ${{ format('{0}', env.COV == 1 && 'coverage test' || '') }}
+          ENV_LABEL: ${{ env.CONTAINER || env.RUNNING_ENV }}
+          RUNNER_ARCH: ${{ runner.arch }}
+          REDIS_LABEL: ${{ env.REDIS_VER || 'unstable' }}
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
-          echo "name=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
-                             ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
-                             ${{ inputs.container || inputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
+          echo "name=$(echo "$SAN_LABEL $COV_LABEL $ENV_LABEL $RUNNER_ARCH - Redis $REDIS_LABEL" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
         env:
-          SAN: ${{ inputs.san }}
-          REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
       - name: Unit tests
@@ -318,7 +330,8 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+          TEST_CONFIG: ${{ inputs.test-config }}
+        run: make pytest $TEST_CONFIG
 
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
@@ -333,7 +346,8 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+          TEST_CONFIG: ${{ inputs.test-config }}
+        run: make pytest $TEST_CONFIG
 
       - name: Check test logs folder size
         if: always()

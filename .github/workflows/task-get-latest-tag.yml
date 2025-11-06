@@ -33,6 +33,9 @@ jobs:
       - name: Get Latest Release Tag
         id: latest
         if: ${{ !inputs.prefix }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.repo }}
         # Get the `tag_name` of the latest release (latest patch of latest minor of latest major)
         run: |
           TAG=$(curl -sL --retry-all-errors \
@@ -40,24 +43,28 @@ jobs:
                       --retry-max-time ${{ env.RETRY_MAX_TIME }} \
                       -H "Accept: application/vnd.github+json" \
                       -H "X-GitHub-Api-Version: 2022-11-28" \
-                      -H "authorization: Bearer ${{ github.token }}" \
-                      https://api.github.com/repos/${{ inputs.repo }}/releases/latest | \
+                      -H "authorization: Bearer $GITHUB_TOKEN" \
+                      "https://api.github.com/repos/$REPO/releases/latest" | \
                 jq -e -r '.tag_name') && \
           echo "tag=$TAG" >> $GITHUB_OUTPUT
       - name: Get Latest Release Tag with Prefix
         id: with-prefix
         if: ${{ inputs.prefix }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.repo }}
+          PREFIX: ${{ inputs.prefix }}
         # Get the `tag_name` of the latest release with prefix:
         # Get 30 latest releases (by date), filter by prefix, sort by version, get the last one
         run: |
           TAG=$(curl -sL --retry-all-errors \
-                      --retry ${{ env.RETRY_COUNT }} \
-                      --retry-max-time ${{ env.RETRY_MAX_TIME }} \
+                      --retry "$RETRY_COUNT" \
+                      --retry-max-time "$RETRY_MAX_TIME" \
                       -H "Accept: application/vnd.github+json" \
                       -H "X-GitHub-Api-Version: 2022-11-28" \
-                      -H "authorization: Bearer ${{ github.token }}" \
-                      https://api.github.com/repos/${{ inputs.repo }}/releases?per_page=${{ env.NUM_RELEASES }} | \
-                jq -e -r '.[].tag_name | select(startswith("${{ inputs.prefix }}"))' | \
+                      -H "authorization: Bearer $GITHUB_TOKEN" \
+                      "https://api.github.com/repos/$REPO/releases?per_page=$NUM_RELEASES" | \
+                jq -e -r --arg prefix "$PREFIX" '.[].tag_name | select(startswith($prefix))' | \
                 sort -V | tail -1) && \
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 

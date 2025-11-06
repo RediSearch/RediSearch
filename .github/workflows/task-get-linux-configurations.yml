@@ -25,6 +25,8 @@ env:
                     'amazonlinux:2023',
                     'mcr.microsoft.com/azurelinux/base/core:3.0',
                     'alpine:3']"
+  PLATFORMS: ${{ inputs.platform }}
+  ARCHITECTURE: ${{ inputs.architecture }}
 
 on:
   workflow_call:
@@ -61,8 +63,8 @@ jobs:
         run: |
           import os
 
-          requested_platform = '${{ inputs.platform }}'
-          requested_arch = '${{ inputs.architecture }}'
+          requested_platform = '${{ env.PLATFORMS }}'
+          requested_arch = '${{ env.ARCHITECTURE }}'
           all_x86_images = ${{ env.ALL_X86_IMAGES }}
           all_arm_images = ${{ env.ALL_ARM_IMAGES }}
           x86_platforms = []
