@@ -754,7 +754,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         let mut results = Vec::new();
 
         for (i, block) in self.blocks.iter().enumerate() {
-            let repair = block.repair(&doc_exist, repair.as_mut(), PhantomData::<E>::default())?;
+            let repair = block.repair(&doc_exist, repair.as_mut(), PhantomData::<E>)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
