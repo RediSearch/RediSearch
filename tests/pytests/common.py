@@ -422,9 +422,6 @@ def set_max_dialect(env):
 def get_redisearch_index_memory(env, index_key):
     return float(index_info(env, index_key)["inverted_sz_mb"])
 
-def get_redisearch_vector_index_memory(env, index_key):
-    return float(index_info(env, index_key)["vector_index_sz_mb"])
-
 def module_ver_filter(env, module_name, ver_filter):
     info = env.getConnection().info()
     for module in info['modules']:
@@ -456,10 +453,12 @@ def create_np_array_typed(data, data_type='FLOAT32'):
         return Bfloat16Array(data)
     return np.array(data, dtype=data_type.lower())
 
-def create_random_np_array_typed(dim, data_type='FLOAT32', seed=10):
-    np.random.seed(seed)
-    return create_np_array_typed(np.random.rand(dim), data_type)
-
+np.random.seed(42)
+def create_random_np_array_typed(dim, data_type='FLOAT32', normalize=False):
+    vector = create_np_array_typed(np.random.rand(dim), data_type)
+    if normalize:
+        vector /= np.linalg.norm(vector)
+    return vector
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
         return False
