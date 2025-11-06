@@ -544,5 +544,199 @@ fn revalidate_hybrid() {
     assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
 }
 
-// TODO: once there is a Moved/Aborted scenario
-// also test these here...
+#[derive(Default)]
+struct RevalidateTestIterator<'index> {
+    result: inverted_index::RSIndexResult<'index>,
+    max_doc: ffi::t_docId,
+    next_doc_id: ffi::t_docId,
+    revalidate_jumps: Vec<ffi::t_docId>,
+    abort_at: Option<ffi::t_docId>,
+}
+
+impl<'index> RevalidateTestIterator<'index> {
+    fn new(
+        max_doc: ffi::t_docId,
+        mut revalidate_jumps: Vec<ffi::t_docId>,
+        abort_at: Option<ffi::t_docId>,
+    ) -> Self {
+        revalidate_jumps.reverse();
+        Self {
+            result: inverted_index::RSIndexResult::numeric(42.),
+            max_doc,
+            next_doc_id: 1,
+            revalidate_jumps,
+            abort_at,
+        }
+    }
+}
+
+impl<'index> RQEIterator<'index> for RevalidateTestIterator<'index> {
+    fn read(
+        &mut self,
+    ) -> Result<Option<&mut inverted_index::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
+    {
+        if self.at_eof() {
+            Ok(None)
+        } else {
+            self.result.doc_id = self.next_doc_id;
+            self.next_doc_id += 1;
+            Ok(Some(&mut self.result))
+        }
+    }
+
+    fn skip_to(
+        &mut self,
+        _doc_id: ffi::t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError> {
+        unimplemented!()
+    }
+
+    fn rewind(&mut self) {
+        unimplemented!()
+    }
+
+    fn num_estimated(&self) -> usize {
+        unimplemented!()
+    }
+
+    fn last_doc_id(&self) -> ffi::t_docId {
+        self.result.doc_id
+    }
+
+    fn at_eof(&self) -> bool {
+        self.result.doc_id >= self.max_doc
+    }
+
+    fn revalidate(
+        &mut self,
+    ) -> Result<RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
+        if let Some(abort_at) = self.abort_at
+            && self.result.doc_id >= abort_at
+        {
+            assert_eq!(self.result.doc_id, abort_at);
+            return Ok(RQEValidateStatus::Aborted);
+        }
+        if let Some(jump) = self.revalidate_jumps.pop() {
+            self.next_doc_id = jump;
+            self.result.doc_id = jump - 1;
+            Ok(RQEValidateStatus::Moved {
+                current: Some(&mut self.result),
+            })
+        } else {
+            Ok(RQEValidateStatus::Ok)
+        }
+    }
+}
+
+#[test]
+fn revalidate_jumps() {
+    let mut it = Optional::new(7, 1., RevalidateTestIterator::new(9, vec![4, 6], None));
+
+    assert!(!it.at_eof());
+    let outcome = it
+        .read()
+        .expect("read == Ok(..)")
+        .expect("read == Ok(Some(..))");
+    assert!(outcome.as_numeric().is_some());
+    assert_eq!(outcome.weight, 1.);
+    assert_eq!(outcome.doc_id, 1);
+
+    // real hit => child revalidateD with move, but jumped ahead,
+    // optional iterator needs to continue on its sequential path!
+    match it.revalidate().unwrap() {
+        RQEValidateStatus::Moved {
+            current: Some(outcome),
+        } => {
+            assert!(outcome.as_numeric().is_none());
+            assert_eq!(outcome.weight, 0.);
+            assert_eq!(outcome.doc_id, 2);
+        }
+        _ => panic!("unexpected result"),
+    }
+
+    // virtual...
+    assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
+
+    assert!(!it.at_eof());
+    let outcome = it
+        .read()
+        .expect("read == Ok(..)")
+        .expect("read == Ok(Some(..))");
+    assert!(outcome.as_numeric().is_none());
+    assert_eq!(outcome.weight, 0.);
+    assert_eq!(outcome.doc_id, 3);
+
+    assert!(!it.at_eof());
+    let outcome = it
+        .read()
+        .expect("read == Ok(..)")
+        .expect("read == Ok(Some(..))");
+    assert!(outcome.as_numeric().is_some());
+    assert_eq!(outcome.weight, 1.);
+    assert_eq!(outcome.doc_id, 4);
+
+    // real hit => child revalidateD with move, but jumped ahead,
+    // optional iterator needs to continue on its sequential path!
+    match it.revalidate().unwrap() {
+        RQEValidateStatus::Moved {
+            current: Some(outcome),
+        } => {
+            assert!(outcome.as_numeric().is_none());
+            assert_eq!(outcome.weight, 0.);
+            assert_eq!(outcome.doc_id, 5);
+        }
+        _ => panic!("unexpected result"),
+    }
+
+    for expected_id in 6..=7 {
+        assert!(!it.at_eof());
+        let outcome = it
+            .read()
+            .expect("read == Ok(..)")
+            .expect("read == Ok(Some(..))");
+        assert!(outcome.as_numeric().is_some());
+        assert_eq!(outcome.weight, 1.);
+        assert_eq!(outcome.doc_id, expected_id);
+    }
+
+    assert!(it.at_eof());
+    assert!(it.read().unwrap().is_none());
+    assert!(it.at_eof());
+}
+
+#[test]
+fn revalidate_abort() {
+    let mut it = Optional::new(7, 1., RevalidateTestIterator::new(9, vec![], Some(2)));
+
+    for expected_id in 1..=2 {
+        assert!(!it.at_eof());
+        let outcome = it
+            .read()
+            .expect("read == Ok(..)")
+            .expect("read == Ok(Some(..))");
+        assert!(outcome.as_numeric().is_some());
+        assert_eq!(outcome.weight, 1.);
+        assert_eq!(outcome.doc_id, expected_id);
+    }
+
+    // abort but was real, so we are now ok...
+    assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
+
+    for expected_id in 3..=7 {
+        assert!(!it.at_eof());
+        let outcome = it
+            .read()
+            .expect("read == Ok(..)")
+            .expect("read == Ok(Some(..))");
+        assert!(outcome.as_numeric().is_none());
+        assert_eq!(outcome.weight, 0.);
+        assert_eq!(outcome.doc_id, expected_id);
+
+        // virtual is always ok...
+        assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
+    }
+
+    assert!(it.at_eof());
+    assert!(it.read().unwrap().is_none());
+    assert!(it.at_eof());
+}

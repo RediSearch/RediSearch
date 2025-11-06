@@ -84,7 +84,13 @@ where
         match self
             .child
             .as_mut()
-            .map(|child| child.read())
+            .map(|child| {
+                if child.last_doc_id() == self.result.doc_id {
+                    child.read()
+                } else {
+                    Ok(None)
+                }
+            })
             .transpose()?
             .flatten()
         {
@@ -131,13 +137,14 @@ where
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let last_child_doc_id = self.child.as_ref().map(|child| child.last_doc_id());
-        match self
-            .child
-            .as_mut()
-            .map(|child| child.revalidate())
-            .transpose()?
+        match (last_child_doc_id
+            .map(|id| id == self.result.doc_id)
+            .unwrap_or_default())
+        .then(|| self.child.as_mut().map(|child| child.revalidate()))
+        .flatten()
+        .transpose()?
         {
-            Some(RQEValidateStatus::Ok) => Ok(RQEValidateStatus::Ok),
+            None | Some(RQEValidateStatus::Ok) => Ok(RQEValidateStatus::Ok),
             Some(RQEValidateStatus::Moved {
                 current: Some(real),
             }) => {
@@ -177,7 +184,7 @@ where
                     },
                 )
             }
-            None | Some(RQEValidateStatus::Moved { current: None }) => {
+            Some(RQEValidateStatus::Moved { current: None }) => {
                 Ok(if self.result.doc_id >= self.max_doc_id {
                     RQEValidateStatus::Ok
                 } else {
