@@ -42,9 +42,8 @@ fn test_encode_doc_ids_only() {
         let prev_doc_id = doc_id - (delta as u64);
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
-        let record_decoded = DocIdsOnly
-            .decode_new(&mut buf, prev_doc_id)
-            .expect("to decode freqs only record");
+        let record_decoded =
+            DocIdsOnly::decode_new(&mut buf, prev_doc_id).expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
     }
@@ -71,7 +70,7 @@ fn test_decode_doc_ids_only_empty_input() {
     let buf = vec![];
     let mut cursor = Cursor::new(buf.as_ref());
 
-    let res = DocIdsOnly.decode_new(&mut cursor, 100);
+    let res = DocIdsOnly::decode_new(&mut cursor, 100);
 
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
