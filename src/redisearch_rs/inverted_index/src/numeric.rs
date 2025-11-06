@@ -163,20 +163,10 @@ impl Numeric {
     const FLOAT_TYPE: u8 = 0b01;
     const INT_POS_TYPE: u8 = 0b10;
     const INT_NEG_TYPE: u8 = 0b11;
-
-    pub const fn new() -> Self {
-        Self
-    }
 }
 
 impl NumericFloatCompression {
     const FLOAT_COMPRESSION_THRESHOLD: f64 = 0.01;
-}
-
-impl Default for Numeric {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 /// The [`Numeric`] encoder only supports encoding deltas that fit within 7 bytes
@@ -218,7 +208,6 @@ impl Encoder for Numeric {
     const ALLOW_DUPLICATES: bool = true;
 
     fn encode<W: Write + std::io::Seek>(
-        &self,
         writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -233,7 +222,6 @@ impl Encoder for NumericFloatCompression {
     const ALLOW_DUPLICATES: bool = true;
 
     fn encode<W: Write + std::io::Seek>(
-        &self,
         writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,

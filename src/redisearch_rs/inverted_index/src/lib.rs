@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     ffi::c_void,
     io::{Cursor, Seek, Write},
+    marker::PhantomData,
     sync::atomic::{self, AtomicU32, AtomicUsize},
 };
 
@@ -167,7 +168,6 @@ pub trait Encoder: Clone {
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
     fn encode<W: Write + Seek>(
-        &self,
         writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -275,7 +275,7 @@ pub struct InvertedIndex<E> {
     gc_marker: AtomicU32,
 
     /// The encoder to use when adding new entries to the index
-    encoder: E,
+    _encoder: PhantomData<E>,
 }
 
 /// Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
@@ -409,7 +409,7 @@ impl IndexBlock {
         &'index self,
         doc_exist: impl Fn(t_docId) -> bool,
         mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
-        encoder: E,
+        _encoder: PhantomData<E>,
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
         let mut last_read_doc_id = None;
@@ -418,7 +418,7 @@ impl IndexBlock {
         let mut unique_write = 0;
         let mut block_changed = false;
 
-        let mut tmp_inverted_index = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, encoder);
+        let mut tmp_inverted_index = InvertedIndex::<E>::new(IndexFlags_Index_DocIdsOnly);
 
         while self.buffer.len() as u64 > cursor.position() {
             let base = D::base_id(self, last_read_doc_id.unwrap_or(self.first_doc_id));
@@ -469,20 +469,20 @@ impl Drop for IndexBlock {
 impl<E: Encoder> InvertedIndex<E> {
     /// Create a new inverted index with the given encoder. The encoder is used to write new
     /// entries to the index.
-    pub const fn new(flags: IndexFlags, encoder: E) -> Self {
+    pub fn new(flags: IndexFlags) -> Self {
         Self {
             blocks: Vec::new(),
             n_unique_docs: 0,
             flags,
             gc_marker: AtomicU32::new(0),
-            encoder,
+            _encoder: Default::default(),
         }
     }
 
     /// Create a new inverted index from the given blocks and encoder. The blocks are expected to not
     /// contain duplicate entries and be ordered by document ID.
     #[cfg(test)]
-    fn from_blocks(flags: IndexFlags, blocks: Vec<IndexBlock>, encoder: E) -> Self {
+    fn from_blocks(flags: IndexFlags, blocks: Vec<IndexBlock>) -> Self {
         debug_assert!(!blocks.is_empty());
         debug_assert!(
             blocks.is_sorted_by(|a, b| a.last_doc_id < b.first_doc_id),
@@ -500,7 +500,7 @@ impl<E: Encoder> InvertedIndex<E> {
             n_unique_docs,
             flags,
             gc_marker: AtomicU32::new(0),
-            encoder,
+            _encoder: Default::default(),
         }
     }
 
@@ -563,7 +563,7 @@ impl<E: Encoder> InvertedIndex<E> {
 
         let buf_cap = block.buffer.capacity();
         let writer = block.writer();
-        let _bytes_written = self.encoder.encode(writer, delta, record)?;
+        let _bytes_written = E::encode(writer, delta, record)?;
 
         // We don't use `_bytes_written` returned by the encoder to determine by how much memory
         // grew because the buffer might have had enough capacity for the bytes in the encoding.
@@ -754,9 +754,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         let mut results = Vec::new();
 
         for (i, block) in self.blocks.iter().enumerate() {
-            let encoder = self.encoder.clone();
-
-            let repair = block.repair(&doc_exist, repair.as_mut(), encoder)?;
+            let repair = block.repair(&doc_exist, repair.as_mut(), PhantomData::<E>::default())?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
@@ -885,9 +883,9 @@ pub struct EntriesTrackingIndex<E> {
 
 impl<E: Encoder> EntriesTrackingIndex<E> {
     /// Create a new entries tracking index with the given encoder.
-    pub const fn new(flags: IndexFlags, encoder: E) -> Self {
+    pub fn new(flags: IndexFlags) -> Self {
         Self {
-            index: InvertedIndex::new(flags, encoder),
+            index: InvertedIndex::new(flags),
             number_of_entries: 0,
         }
     }
@@ -1022,14 +1020,14 @@ pub struct FieldMaskTrackingIndex<E> {
 
 impl<E: Encoder> FieldMaskTrackingIndex<E> {
     /// Create a new field mask tracking index with the given encoder.
-    pub fn new(flags: IndexFlags, encoder: E) -> Self {
+    pub fn new(flags: IndexFlags) -> Self {
         debug_assert!(
             flags & IndexFlags_Index_StoreFieldFlags > 1,
             "FieldMaskTrackingIndex should only be used with indices that store field flags"
         );
 
         Self {
-            index: InvertedIndex::new(flags, encoder),
+            index: InvertedIndex::new(flags),
             field_mask: 0,
         }
     }

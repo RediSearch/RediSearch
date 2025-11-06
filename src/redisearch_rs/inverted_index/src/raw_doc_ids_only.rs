@@ -25,7 +25,6 @@ impl Encoder for RawDocIdsOnly {
     const RECOMMENDED_BLOCK_ENTRIES: u16 = 1000;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         _record: &RSIndexResult,
