@@ -57,9 +57,9 @@ env:
 
 jobs:
   common-flow:
-    name: Test ${{ env.CONTAINER || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
-    container: ${{ env.CONTAINER || null }}
+    container: ${{ inputs.container || null }}
     # Nothing to do if both are `false`, skip
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
@@ -69,7 +69,7 @@ jobs:
 
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
-        if: ${{ env.PRE_STEPS_SCRIPT && env.CONTAINER == 'alpine:3' }}
+        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
         shell: sh -l -eo pipefail {0}
         run: |
           SUCCESS=0
@@ -90,7 +90,7 @@ jobs:
             exit 1
           fi
       - name: Pre-steps Dependencies (Non-Alpine)
-        if: ${{ env.PRE_STEPS_SCRIPT && env.CONTAINER != 'alpine:3' }}
+        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
         run: |
           SUCCESS=0
           for i in {1..5}; do
@@ -110,7 +110,7 @@ jobs:
             exit 1
           fi
       - name: Enable dynamic linking to C runtime in Alpine
-        if: env.CONTAINER == 'alpine:3'
+        if: inputs.container == 'alpine:3'
         run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
       - name: Get Installation Mode
         id: mode
