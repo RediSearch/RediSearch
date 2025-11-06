@@ -57,7 +57,7 @@ fn benchmark_gc_pattern(
     group.bench_function(
         BenchmarkId::new("Scan", format!("{pattern_name}/{total_records}")),
         |b| {
-            let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, numeric::Numeric::new());
+            let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_DocIdsOnly);
 
             for doc_id in 0..total_records {
                 ii.add_record(&RSIndexResult::numeric(doc_id as f64 / 10.0).doc_id(doc_id))
@@ -76,8 +76,7 @@ fn benchmark_gc_pattern(
         |b| {
             b.iter_batched(
                 || {
-                    let mut ii =
-                        InvertedIndex::new(IndexFlags_Index_DocIdsOnly, numeric::Numeric::new());
+                    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_DocIdsOnly);
 
                     for doc_id in 0..total_records {
                         ii.add_record(&RSIndexResult::numeric(doc_id as f64 / 10.0).doc_id(doc_id))
@@ -122,7 +121,7 @@ fn benchmark_large_delta_pattern(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.bench_function(
         BenchmarkId::new("Scan", format!("{pattern_name}/{total_records}")),
         |b| {
-            let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, numeric::Numeric::new());
+            let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_DocIdsOnly);
 
             for i in 0..total_records {
                 let doc_id = i * spacing;
@@ -142,8 +141,7 @@ fn benchmark_large_delta_pattern(group: &mut BenchmarkGroup<'_, WallTime>) {
         |b| {
             b.iter_batched(
                 || {
-                    let mut ii =
-                        InvertedIndex::new(IndexFlags_Index_DocIdsOnly, numeric::Numeric::new());
+                    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_DocIdsOnly);
 
                     for i in 0..total_records {
                         let doc_id = i * spacing;
