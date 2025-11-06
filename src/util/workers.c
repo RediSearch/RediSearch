@@ -68,6 +68,34 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   return REDISMODULE_OK;
 }
 
+
+void workersThreadPool_SetNumWorkers() {
+  if (_workers_thpool == NULL) return;
+  size_t worker_count = RSGlobalConfig.numWorkerThreads;
+  if (in_event && RSGlobalConfig.minOperationWorkers > worker_count) {
+    worker_count = RSGlobalConfig.minOperationWorkers;
+  }
+  size_t curr_workers = redisearch_thpool_get_num_threads(_workers_thpool);
+ if (worker_count != curr_workers) {
+    RedisModule_Log(RSDummyContext, "notice", "Changing workers threadpool size from %zu to %zu", curr_workers, worker_count);
+  }
+  size_t new_num_threads = worker_count;
+  if (worker_count == 0 && curr_workers > 0) {
+    redisearch_thpool_terminate_when_empty(_workers_thpool);
+    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
+    } else if (worker_count > curr_workers) {
+    new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
+    if (!curr_workers) workersThreadPool_OnActivation(worker_count);
+  } else if (worker_count < curr_workers) {
+    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
+  }
+  RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
+    "Attempt to change the workers thpool size to %lu "
+    "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
+    
+}
+
+
 /**
  * Set the number of workers according to the configuration.
  * Global input:
@@ -79,7 +107,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
  * If new worker count is 0, the current living workers will continue to execute pending jobs and then terminate.
  * No new jobs should be added after setting the number of workers to 0.
  */
-void workersThreadPool_SetNumWorkers() {
+void workersThreadPool_SetNumWorkers_no_wait() {
   if (_workers_thpool == NULL) return;
 
   size_t worker_count = RSGlobalConfig.numWorkerThreads;
@@ -89,17 +117,18 @@ void workersThreadPool_SetNumWorkers() {
 
   // Check if termination is in progress from a previous call
   if (workers_termination_in_progress) {
-    size_t curr_alive = redisearch_thpool_get_num_threads_alive(_workers_thpool);
-    if (curr_alive == workers_target_thread_count) {
-      // Termination completed, clear the flag
+    size_t curr_threads = redisearch_thpool_get_num_threads(_workers_thpool);
+    
+    if (curr_threads == workers_target_thread_count) {
+      // Termination completed, clear the flag and call deactivation callback
       workers_termination_in_progress = false;
       RedisModule_Log(RSDummyContext, "notice",
-                      "Workers threadpool termination completed, now at %zu threads", curr_alive);
+                      "Workers threadpool termination completed, now at %zu threads", curr_threads);
     } else {
       // Termination still in progress, reject this call
       RedisModule_Log(RSDummyContext, "warning",
                       "Cannot change workers threadpool size: termination in progress "
-                      "(current: %zu, target: %zu)", curr_alive, workers_target_thread_count);
+                      "(current: %zu, target: %zu)", curr_threads, workers_target_thread_count);
       return;
     }
   }
@@ -112,14 +141,11 @@ void workersThreadPool_SetNumWorkers() {
 
   size_t new_num_threads = worker_count;
   if (worker_count == 0 && curr_workers > 0) {
-    // Remove all threads (non-blocking to avoid deadlock while holding GIL)
-    // This will send THREAD_TERMINATE_ASAP to all threads
+    redisearch_thpool_terminate_when_empty_no_wait(_workers_thpool);
     new_num_threads = redisearch_thpool_remove_threads_no_wait(_workers_thpool, curr_workers);
-    // After remove_threads, the thpool state becomes THPOOL_UNINITIALIZED
     workersThreadPool_OnDeactivation(curr_workers);
-    // Set flag to prevent concurrent calls until termination completes
     workers_termination_in_progress = true;
-    workers_target_thread_count = 0;
+    workers_target_thread_count = new_num_threads;
   } else if (worker_count > curr_workers) {
     new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
     if (!curr_workers) workersThreadPool_OnActivation(worker_count);
@@ -127,7 +153,7 @@ void workersThreadPool_SetNumWorkers() {
     new_num_threads = redisearch_thpool_remove_threads_no_wait(_workers_thpool, curr_workers - worker_count);
     // Set flag to prevent concurrent calls until termination completes
     workers_termination_in_progress = true;
-    workers_target_thread_count = worker_count;
+    workers_target_thread_count = new_num_threads;
   }
 
   // Note: For non-blocking remove, new_num_threads is the target, not necessarily the current count

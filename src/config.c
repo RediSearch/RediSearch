@@ -415,7 +415,7 @@ CONFIG_SETTER(setWorkThreads) {
   }
   config->numWorkerThreads = newNumThreads;
 
-  workersThreadPool_SetNumWorkers();
+  workersThreadPool_SetNumWorkers_no_wait();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
