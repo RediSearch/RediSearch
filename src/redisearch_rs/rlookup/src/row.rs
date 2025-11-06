@@ -9,7 +9,7 @@
 
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
-use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
+use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRuleWrapper};
 use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueTrait;
@@ -57,6 +57,83 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// Returns the length of [`RLookupRow::dyn_values`].
     pub const fn len(&self) -> usize {
         self.dyn_values.len()
+    }
+
+    /// Get the length of this [`RLookupRow`] in respect to it's associated [`RLookup`] after applying the required and excluded flags.
+    ///
+    /// # Arguments
+    ///
+    /// * `lookup` - The RLookup instance containing the keys and their flags.
+    /// * `required_flags` - Flags that must be present on a key for it to be counted.
+    /// * `excluded_flags` - Flags that must not be present on a key for it to be counted.
+    /// * `rule` - An optional [`SchemaRuleWrapper`] to exclude specific fields based on schema rules.
+    ///   The rule is not used for coordinator nodes.
+    ///
+    /// The returned `Vec<bool>` indicates which fields were counted (true) or skipped (false).
+    pub fn get_length(
+        &self,
+        lookup: &RLookup,
+        required_flags: RLookupKeyFlags,
+        excluded_flags: RLookupKeyFlags,
+        rule: Option<SchemaRuleWrapper>,
+    ) -> (usize, Vec<bool>) {
+        let mut skip_field_indices = vec![false; self.len()];
+        let num_fields = self.get_length_no_alloc(
+            lookup,
+            required_flags,
+            excluded_flags,
+            rule,
+            skip_field_indices.as_mut_slice(),
+        );
+        (num_fields, skip_field_indices)
+    }
+
+    /// Get the length of this [`RLookupRow`] in respect to it's associated [`RLookup`] after applying the required and excluded flags.
+    ///
+    /// It acts as [`RLookupRow::get_length`] but instead of allocating a Vec internally, it takes a mutable slice, thus
+    /// avoiding allocations and allowing the caller to reuse memory.
+    ///
+    /// See [`RLookupRow::get_length`] for argument details.
+    pub fn get_length_no_alloc(
+        &self,
+        lookup: &RLookup,
+        required_flags: RLookupKeyFlags,
+        excluded_flags: RLookupKeyFlags,
+        rule: Option<SchemaRuleWrapper>,
+        out_flags: &mut [bool],
+    ) -> usize {
+        let mut num_fields = 0;
+        for (idx, key) in lookup.cursor().enumerate() {
+            // check flags and if key exists in row:
+            if !key.flags.contains(required_flags)
+                || key.flags.intersects(excluded_flags)
+                || self.get(key).is_none()
+            {
+                continue;
+            }
+
+            // ensure a value is part of the RLookupRow:
+            // is there a rule, if not we're on coordinator...
+            let Some(rule) = &rule else {
+                // we trust the shards to not send those fields.
+                // on coordinator, we reach this code without sctx or rule,
+                continue;
+            };
+
+            // rule may exclude via lang, score or payload:
+            let kn = key.name_as_cstr();
+            if rule.lang_field().is_some_and(|lf| lf == kn)
+                || rule.score_field().is_some_and(|sf| sf == kn)
+                || rule.payload_field().is_some_and(|p| p == kn)
+            {
+                continue;
+            }
+
+            out_flags[idx] = true;
+            num_fields += 1;
+        }
+
+        num_fields
     }
 
     /// Returns true if the [`RLookupRow::dyn_values`] vector is empty.
@@ -208,5 +285,163 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
                 dst_row.write_key(dst_key, value.clone());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use enumflags2::make_bitflags;
+    use value::RSValueMock;
+
+    use super::*;
+
+    fn create_schema_rule_wrapper(
+        lang_field: Option<&std::ffi::CStr>,
+        score_field: Option<&std::ffi::CStr>,
+        payload_field: Option<&std::ffi::CStr>,
+    ) -> SchemaRuleWrapper {
+        use std::ptr::NonNull;
+
+        let lang_ptr = lang_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
+        let score_ptr = score_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
+        let payload_ptr =
+            payload_field.map_or(std::ptr::null_mut(), |cstr| cstr.as_ptr().cast_mut());
+
+        let schema_rule = ffi::SchemaRule {
+            lang_field: lang_ptr,
+            score_field: score_ptr,
+            payload_field: payload_ptr,
+            type_: 0,
+            prefixes: std::ptr::null_mut(),
+            filter_exp_str: std::ptr::null_mut(),
+            filter_exp: std::ptr::null_mut(),
+            filter_fields: std::ptr::null_mut(),
+            filter_fields_index: std::ptr::null_mut(),
+            score_default: 0.0,
+            lang_default: 0,
+            index_all: false,
+        };
+
+        let boxed_rule = Box::new(schema_rule);
+        let non_null_ptr = NonNull::new(Box::into_raw(boxed_rule)).unwrap();
+
+        SchemaRuleWrapper::from_raw(non_null_ptr.as_ptr()).unwrap()
+    }
+
+    #[test]
+    fn get_length_without_flags() {
+        let mut rlookup = RLookup::new();
+        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        row.write_key_by_name(&mut rlookup, c"a", RSValueMock::create_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
+        row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(36.));
+
+        let (len, flags) = row.get_length(
+            &rlookup,
+            RLookupKeyFlags::empty(),
+            RLookupKeyFlags::empty(),
+            Some(create_schema_rule_wrapper(None, None, None)),
+        );
+        assert_eq!(len, 3);
+        assert_eq!(flags, vec![true, true, true]);
+    }
+
+    #[test]
+    fn get_length_on_empty() {
+        let rlookup = RLookup::new();
+        let row = RLookupRow::<RSValueMock>::new(&rlookup);
+
+        let (len, flags) = row.get_length(
+            &rlookup,
+            RLookupKeyFlags::empty(),
+            RLookupKeyFlags::empty(),
+            Some(create_schema_rule_wrapper(None, None, None)),
+        );
+        assert_eq!(len, 0);
+        assert_eq!(flags, vec![]);
+    }
+
+    #[test]
+    fn get_length_required_flags() {
+        let mut rlookup = RLookup::new();
+        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        let rlk = rlookup
+            .get_key_write(c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
+            .expect("key must be created");
+        row.write_key(rlk, RSValueMock::create_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
+        row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(36.));
+
+        let (len, flags) = row.get_length(
+            &rlookup,
+            make_bitflags!(RLookupKeyFlag::ExplicitReturn),
+            RLookupKeyFlags::empty(),
+            Some(create_schema_rule_wrapper(None, None, None)),
+        );
+        assert_eq!(len, 1);
+        assert_eq!(flags, vec![true, false, false]);
+    }
+
+    #[test]
+    fn get_length_excluded_flags() {
+        let mut rlookup = RLookup::new();
+        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        let rlk = rlookup
+            .get_key_load(c"a", c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
+            .expect("key must be created");
+        row.write_key(rlk, RSValueMock::create_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
+        row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(36.));
+
+        let (len, flags) = row.get_length(
+            &rlookup,
+            RLookupKeyFlags::empty(),
+            make_bitflags!(RLookupKeyFlag::ExplicitReturn),
+            Some(create_schema_rule_wrapper(None, None, None)),
+        );
+        assert_eq!(len, 2);
+        assert_eq!(flags, vec![false, true, true]);
+    }
+
+    // historically this mix caused no items to be counted
+    #[test]
+    fn get_length_required_and_excluded_flags_same() {
+        let mut rlookup = RLookup::new();
+        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        let rlk = rlookup
+            .get_key_load(c"a", c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
+            .expect("key must be created");
+        row.write_key(rlk, RSValueMock::create_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
+        row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(36.));
+
+        let (len, flags) = row.get_length(
+            &rlookup,
+            make_bitflags!(RLookupKeyFlag::ExplicitReturn),
+            make_bitflags!(RLookupKeyFlag::ExplicitReturn),
+            Some(create_schema_rule_wrapper(None, None, None)),
+        );
+        assert_eq!(len, 0);
+        assert_eq!(flags, vec![false, false, false]);
+    }
+
+    // Without a rule we expect get length to return zero (happens on coordinator)
+    #[test]
+    fn get_length_without_rule() {
+        let mut rlookup = RLookup::new();
+        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        row.write_key_by_name(&mut rlookup, c"a", RSValueMock::create_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
+        row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(36.));
+
+        let (len, flags) = row.get_length(
+            &rlookup,
+            RLookupKeyFlags::empty(),
+            RLookupKeyFlags::empty(),
+            None,
+        );
+
+        assert_eq!(len, 0);
+        assert_eq!(flags, vec![false, false, false]);
     }
 }
