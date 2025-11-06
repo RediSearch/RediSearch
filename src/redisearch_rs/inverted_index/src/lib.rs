@@ -183,7 +183,7 @@ pub trait DecodedBy: Encoder {
     type Decoder: Decoder;
 }
 
-impl<E: Encoder + Decoder + Default> DecodedBy for E {
+impl<E: Encoder + Decoder> DecodedBy for E {
     type Decoder = E;
 }
 

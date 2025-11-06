@@ -47,7 +47,7 @@ pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
 }
 
 /// Dummy encoder which allows defaults for testing, encoding only the delta
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct Dummy;
 
 impl Encoder for Dummy {
@@ -299,7 +299,7 @@ fn adding_big_delta_makes_new_block() {
 #[test]
 fn adding_ii_blocks_growth_strategy() {
     /// Dummy encoder which only allows 2 entries per block for testing
-    #[derive(Clone, Default)]
+    #[derive(Clone)]
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
@@ -557,7 +557,7 @@ fn reading_over_empty_blocks() {
 
 #[test]
 fn read_using_the_first_block_id_as_the_base() {
-    #[derive(Clone, Default)]
+    #[derive(Clone)]
     struct FirstBlockIdDummy;
 
     impl Encoder for FirstBlockIdDummy {
@@ -853,7 +853,7 @@ fn reader_unique_docs() {
 #[test]
 fn reader_has_duplicates() {
     /// Dummy encoder which allows duplicates for testing
-    #[derive(Clone, Default)]
+    #[derive(Clone)]
     struct AllowDupsDummy;
 
     impl Encoder for AllowDupsDummy {
@@ -1418,7 +1418,7 @@ fn index_block_repair_some_deletions() {
 
 #[test]
 fn index_block_repair_delta_too_big() {
-    #[derive(Clone, Default)]
+    #[derive(Clone)]
     struct SmallDeltaDummy;
 
     struct U5Delta(u8);
@@ -1907,7 +1907,7 @@ fn ii_apply_gc_last_block_updated() {
 #[test]
 fn ii_apply_gc_entries_tracking_index() {
     // Make a dummy encoder which allows duplicates
-    #[derive(Clone, Default)]
+    #[derive(Clone)]
     struct AllowDupsDummy;
 
     impl Encoder for AllowDupsDummy {
