@@ -1,6 +1,6 @@
 
 from RLTest import Env
-from common import getConnectionByEnv, waitForIndex, config_cmd, skip
+from common import getConnectionByEnv, getWorkersThpoolStats, waitForIndex, config_cmd, skip
 import threading
 import time
 import random
