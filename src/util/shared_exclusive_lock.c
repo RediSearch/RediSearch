@@ -41,9 +41,9 @@ void SharedExclusiveLock_Destroy() {
 void SharedExclusiveLock_SetOwned() {
   pthread_mutex_lock(&InternalLock);
   GILOwned = true;
-  pthread_mutex_unlock(&InternalLock);
   // Signal any waiting threads that they may try to acquire the GIL or the alternative lock.
   pthread_cond_broadcast(&TryLockCondition);
+  pthread_mutex_unlock(&InternalLock);
 }
 
 void SharedExclusiveLock_UnsetOwned() {
@@ -59,7 +59,7 @@ void SharedExclusiveLock_UnsetOwned() {
 SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   pthread_mutex_lock(&InternalLock);
   while (true) {
-    int rc;
+    int rc = REDISMODULE_ERR;
     if (GILOwned) {
       pthread_mutex_lock(&GILAlternativeLock);
       // We acquired the alternative lock, we can return.
@@ -94,9 +94,9 @@ void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType ty
     GILAlternativeLockHeld = false;
     // If main thread is waiting to release the GIL, signal it that it can proceed.
     pthread_cond_signal(&GILSafeCondition);
-    pthread_mutex_unlock(&InternalLock);
     // Signal any waiting threads that they may try to acquire the GIL or the alternative lock.
     pthread_cond_broadcast(&TryLockCondition);
+    pthread_mutex_unlock(&InternalLock);
   } else {
     RedisModule_ThreadSafeContextUnlock(ctx);
   }
