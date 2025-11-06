@@ -75,7 +75,7 @@ jobs:
           SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if $PRE_STEPS_SCRIPT; then
+            if eval "$PRE_STEPS_SCRIPT"; then
               echo "Pre-steps Dependencies succeeded"
               SUCCESS=1
               break
@@ -95,7 +95,7 @@ jobs:
           SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if $PRE_STEPS_SCRIPT; then
+            if eval "$PRE_STEPS_SCRIPT"; then
               echo "Pre-steps Dependencies succeeded"
               SUCCESS=1
               break

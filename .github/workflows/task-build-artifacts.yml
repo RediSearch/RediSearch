@@ -63,7 +63,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if $PRE_STEPS_SCRIPT; then
+            if eval "$PRE_STEPS_SCRIPT"; then
               echo "Pre-steps Dependencies succeeded"
               exit 0
             fi
@@ -79,7 +79,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if $PRE_STEPS_SCRIPT; then
+            if eval "$PRE_STEPS_SCRIPT"; then
               echo "Pre-steps Dependencies succeeded"
               exit 0
             fi
