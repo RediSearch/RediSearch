@@ -33,8 +33,9 @@ static void yieldCallback(void *yieldCtx) {
                     " waiting for workers to finish: call number %zu", yield_counter);
   }
   RedisModuleCtx *ctx = yieldCtx;
+  // Guarantee that workers and main thread do not Yield and RedisModule_Call concurrently.
   SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(ctx);
-  RS_ASSERT(lockType == Internal_Locked);
+  RS_LOG_ASSERT(lockType == Internal_Locked, "While draining, We should own the GIL, thus we should have acquired the internal lock, to guarantee that no other thread will try to acquire the GIL.");
   RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
   SharedExclusiveLock_Release(ctx, lockType);
 }

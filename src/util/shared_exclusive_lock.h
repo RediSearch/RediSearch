@@ -47,6 +47,7 @@ void SharedExclusiveLock_UnsetOwned();
 
 /**
  * Acquire either the GIL or internal lock, makes sure that only one thread can return from this function at a time.
+ * Main thead may need to call this to ensure exclusive access to RedisModule_Yield or RedisModule_Call.
  * @param ctx Redis module context for GIL operations
  * @return Type of lock acquired (GIL_Locked or Internal_Locked)
  */

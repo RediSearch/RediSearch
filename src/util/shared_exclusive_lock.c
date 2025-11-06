@@ -60,7 +60,6 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   while (true) {
     int rc;
     if (GILOwned) {
-      // Keep InternalLock held while acquiring alternative lock
       pthread_mutex_lock(&GILAlternativeLock);
       pthread_mutex_unlock(&InternalLock);
       return Internal_Locked;
