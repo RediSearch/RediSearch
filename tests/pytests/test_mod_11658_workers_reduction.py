@@ -1,6 +1,6 @@
 
 from RLTest import Env
-from common import *
+from common import getConnectionByEnv, waitForIndex, config_cmd, skip
 import threading
 import time
 import random
@@ -70,7 +70,7 @@ def test_MOD_11658_workers_reduction_under_load():
                 ]
                 
                 query = random.choice(queries)
-                result = local_conn.execute_command(*query)
+                local_conn.execute_command(*query)
                 query_success_count[0] += 1
 
                 # NO delay - maximize concurrent queries to increase race condition likelihood
@@ -121,7 +121,7 @@ def test_MOD_11658_workers_reduction_under_load():
     try:
         # Try to PING - this should work even with WORKERS=0
         ping_result = env.cmd('PING')
-        env.assertTrue(ping_result in ['PONG', True], message="Redis should respond to PING after WORKERS change")
+        env.assertIn(ping_result, ['PONG', True], message="Redis should respond to PING after WORKERS change")
 
         # Try a simple query - this should work on the main thread
         search_result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1')
@@ -155,10 +155,10 @@ def test_MOD_11658_workers_reduction_under_load():
     
     # Final verification: Redis should still be fully functional
     final_ping = env.cmd('PING')
-    env.assertTrue(final_ping in ['PONG', True], message="Redis should still respond to PING at end of test")
+    env.assertIn(final_ping, ['PONG', True], message="Redis should still respond to PING at end of test")
 
     final_search = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
-    env.assertTrue(final_search[0] > 0, message="Search should return results at end of test")
+    env.assertGreater(final_search[0], 0, message="Search should return results at end of test")
     
     env.debugPrint(f"Test completed. Total successful queries: {query_success_count[0]}", force=True)
 
@@ -197,11 +197,11 @@ def test_MOD_11658_workers_reduction_sequence():
 
         # Verify responsiveness
         ping_result = env.cmd('PING')
-        env.assertTrue(ping_result in ['PONG', True])
+        env.assertIn(ping_result, ['PONG', True])
         
         # Run a query
         result = env.cmd('FT.SEARCH', 'idx', 'searchable', 'LIMIT', '0', '5')
-        env.assertTrue(result[0] > 0, message="Search should work with WORKERS={}".format(workers))
+        env.assertGreater(result[0], 0, message="Search should work with WORKERS={}".format(workers))
         
         # Small delay between changes
         time.sleep(0.5)
@@ -234,7 +234,7 @@ def test_MOD_11658_workers_zero_to_nonzero():
 
     # Query should work with WORKERS=0 (on main thread)
     result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
-    env.assertTrue(result[0] > 0)
+    env.assertGreater(result[0], 0)
 
     # Increase workers to 8
     env.expect(config_cmd(), 'SET', 'WORKERS', '8').ok()
@@ -242,11 +242,11 @@ def test_MOD_11658_workers_zero_to_nonzero():
 
     # Verify still responsive
     ping_result = env.cmd('PING')
-    env.assertTrue(ping_result in ['PONG', True])
+    env.assertIn(ping_result, ['PONG', True])
     
     # Query should still work
     result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
-    env.assertTrue(result[0] > 0)
+    env.assertGreater(result[0], 0)
     
     env.debugPrint("Workers increase test completed successfully", force=True)
 
@@ -328,7 +328,7 @@ def test_MOD_11658_workers_8_to_0_to_8_rapid():
 
     # Run a query to verify functionality
     result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
-    env.assertTrue(result[0] > 0)
+    env.assertGreater(result[0], 0)
 
     env.debugPrint("8→0→8 rapid transition test completed successfully", force=True)
 
@@ -393,7 +393,7 @@ def test_MOD_11658_workers_concurrent_changes():
 
     # Final verification
     result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
-    env.assertTrue(result[0] > 0)
+    env.assertGreater(result[0], 0)
 
     env.debugPrint("Concurrent worker changes test completed successfully", force=True)
 

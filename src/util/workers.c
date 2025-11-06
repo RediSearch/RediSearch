@@ -76,14 +76,14 @@ void workersThreadPool_SetNumWorkers() {
     worker_count = RSGlobalConfig.minOperationWorkers;
   }
   size_t curr_workers = redisearch_thpool_get_num_threads(_workers_thpool);
- if (worker_count != curr_workers) {
+  if (worker_count != curr_workers) {
     RedisModule_Log(RSDummyContext, "notice", "Changing workers threadpool size from %zu to %zu", curr_workers, worker_count);
   }
   size_t new_num_threads = worker_count;
   if (worker_count == 0 && curr_workers > 0) {
     redisearch_thpool_terminate_when_empty(_workers_thpool);
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
-    } else if (worker_count > curr_workers) {
+  } else if (worker_count > curr_workers) {
     new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
     if (!curr_workers) workersThreadPool_OnActivation(worker_count);
   } else if (worker_count < curr_workers) {

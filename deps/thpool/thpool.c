@@ -312,8 +312,9 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
                 thpool_p->n_threads)
 }
 
-size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
-                                        size_t n_threads_to_remove) {
+static size_t redisearch_thpool_remove_threads_internal(redisearch_thpool_t *thpool_p,
+                                                        size_t n_threads_to_remove,
+                                                        bool wait) {
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
   assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
   thpool_p->n_threads -= n_threads_to_remove;
@@ -330,59 +331,40 @@ size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
   size_t jobs_count = priority_queue_len(&thpool_p->jobqueues);
   if (n_threads == 0 && jobs_count > 0) {
     LOG_IF_EXISTS("warning",
-                  "redisearch_thpool_remove_threads(): "
-                  "Killing all threads while jobqueue contains %zu jobs",
-                  jobs_count);
+                  "Killing all threads while jobqueue contains %zu jobs",jobs_count);
   }
 
   assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
 
+  if (wait) {
+    redisearch_thpool_broadcast_new_state(thpool_p, n_threads_to_remove,
+                                          THREAD_TERMINATE_ASAP);
 
-  redisearch_thpool_broadcast_new_state(thpool_p, n_threads_to_remove,
-                                        THREAD_TERMINATE_ASAP);
+    /* Wait until `num_threads_alive` == `n_threads` */
+    while (thpool_p->num_threads_alive != n_threads) {
+      usleep(1);
+    }
 
-  /* Wait until `num_threads_alive` == `n_threads` */
-  while (thpool_p->num_threads_alive != n_threads) {
-    usleep(1);
+    LOG_IF_EXISTS("verbose", "Thread pool size decreased to %zu successfully", n_threads)
+  } else {
+    /* Signal threads to terminate but don't wait for them */
+    redisearch_thpool_broadcast_new_state_no_wait(thpool_p, n_threads_to_remove,
+                                                  THREAD_TERMINATE_ASAP);
+
+    LOG_IF_EXISTS("verbose", "Thread pool size decrease to %zu initiated (non-blocking)", n_threads);
   }
-
-  LOG_IF_EXISTS("verbose", "Thread pool size decreased to %zu successfully", n_threads)
 
   return n_threads;
 }
 
+size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
+                                        size_t n_threads_to_remove) {
+  return redisearch_thpool_remove_threads_internal(thpool_p, n_threads_to_remove, true);
+}
+
 size_t redisearch_thpool_remove_threads_no_wait(redisearch_thpool_t *thpool_p,
                                                 size_t n_threads_to_remove) {
-  /* n_threads is only configured and read by the main thread (protected by the GIL). */
-  assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
-  thpool_p->n_threads -= n_threads_to_remove;
-  size_t n_threads = thpool_p->n_threads;
-
-  /** THPOOL_UNINITIALIZED means either:
-   * 1. thpool->n_threads > 0, and there are no threads alive
-   * 2. There are threads alive in terminate_when_empty state.
-   * In both cases only calling `verify_init` will add/remove threads to adjust
-   * `num_threads_alive` to `n_threads` */
-  if (thpool_p->state == THPOOL_UNINITIALIZED)
-    return n_threads;
-
-  size_t jobs_count = priority_queue_len(&thpool_p->jobqueues);
-  if (n_threads == 0 && jobs_count > 0) {
-    LOG_IF_EXISTS("warning",
-                  "redisearch_thpool_remove_threads_no_wait(): "
-                  "Killing all threads while jobqueue contains %zu jobs",
-                  jobs_count);
-  }
-
-  assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
-
-  /* Signal threads to terminate but don't wait for them */
-  redisearch_thpool_broadcast_new_state_no_wait(thpool_p, n_threads_to_remove,
-                                                THREAD_TERMINATE_ASAP);
-
-  LOG_IF_EXISTS("verbose", "Thread pool size decrease to %zu initiated (non-blocking)", n_threads)
-
-  return n_threads;
+  return redisearch_thpool_remove_threads_internal(thpool_p, n_threads_to_remove, false);
 }
 
 size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
@@ -557,29 +539,31 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
   thpool_p->state = THPOOL_UNINITIALIZED;
 }
 
-void redisearch_thpool_terminate_when_empty(redisearch_thpool_t *thpool_p) {
+static void redisearch_thpool_terminate_when_empty_internal(redisearch_thpool_t *thpool_p, bool wait) {
   assert(thpool_p->jobqueues.state == JOBQ_RUNNING);
   if (thpool_p->state == THPOOL_UNINITIALIZED)
     return;
   size_t n_threads = thpool_p->n_threads;
-  redisearch_thpool_broadcast_new_state(thpool_p, n_threads,
-                                        THREAD_TERMINATE_WHEN_EMPTY);
+
+  if (wait) {
+    redisearch_thpool_broadcast_new_state(thpool_p, n_threads,
+                                          THREAD_TERMINATE_WHEN_EMPTY);
+  } else {
+    /* Use non-blocking version to avoid deadlock when called while holding GIL */
+    redisearch_thpool_broadcast_new_state_no_wait(thpool_p, n_threads,
+                                                  THREAD_TERMINATE_WHEN_EMPTY);
+  }
 
   /* Change thpool state to uninitialized */
   thpool_p->state = THPOOL_UNINITIALIZED;
 }
 
-void redisearch_thpool_terminate_when_empty_no_wait(redisearch_thpool_t *thpool_p) {
-  assert(thpool_p->jobqueues.state == JOBQ_RUNNING);
-  if (thpool_p->state == THPOOL_UNINITIALIZED)
-    return;
-  size_t n_threads = thpool_p->n_threads;
-  /* Use non-blocking version to avoid deadlock when called while holding GIL */
-  redisearch_thpool_broadcast_new_state_no_wait(thpool_p, n_threads,
-                                                THREAD_TERMINATE_WHEN_EMPTY);
+void redisearch_thpool_terminate_when_empty(redisearch_thpool_t *thpool_p) {
+  redisearch_thpool_terminate_when_empty_internal(thpool_p, true);
+}
 
-  /* Change thpool state to uninitialized */
-  thpool_p->state = THPOOL_UNINITIALIZED;
+void redisearch_thpool_terminate_when_empty_no_wait(redisearch_thpool_t *thpool_p) {
+  redisearch_thpool_terminate_when_empty_internal(thpool_p, false);
 }
 
 /* Destroy the threadpool */
