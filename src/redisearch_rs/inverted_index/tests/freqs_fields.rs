@@ -52,9 +52,8 @@ fn test_encode_freqs_fields() {
             .field_mask(field_mask)
             .frequency(freq);
 
-        let bytes_written = FreqsFields
-            .encode(&mut buf, delta, &record)
-            .expect("to encode freqs only record");
+        let bytes_written =
+            FreqsFields::encode(&mut buf, delta, &record).expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
         assert_eq!(buf.get_ref(), &expected_encoding);
@@ -118,9 +117,8 @@ fn test_encode_freqs_fields_wide() {
             .field_mask(field_mask)
             .frequency(freq);
 
-        let bytes_written = FreqsFieldsWide
-            .encode(&mut buf, delta, &record)
-            .expect("to encode freqs only record");
+        let bytes_written =
+            FreqsFieldsWide::encode(&mut buf, delta, &record).expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
         assert_eq!(buf.get_ref(), &expected_encoding);
@@ -145,7 +143,7 @@ fn test_encode_freqs_fields_field_mask_overflow() {
     let mut cursor = Cursor::new(buf);
 
     let record = RSIndexResult::term().field_mask(u32::MAX as t_fieldMask + 1);
-    let _res = FreqsFields.encode(&mut cursor, 0, &record);
+    let _res = FreqsFields::encode(&mut cursor, 0, &record);
 }
 
 #[test]
@@ -156,12 +154,12 @@ fn test_encode_freqs_fields_output_too_small() {
 
     let record = RSIndexResult::term().field_mask(10);
 
-    let res = FreqsFields.encode(&mut cursor, 0, &record);
+    let res = FreqsFields::encode(&mut cursor, 0, &record);
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 
-    let res = FreqsFieldsWide.encode(&mut cursor, 0, &record);
+    let res = FreqsFieldsWide::encode(&mut cursor, 0, &record);
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);

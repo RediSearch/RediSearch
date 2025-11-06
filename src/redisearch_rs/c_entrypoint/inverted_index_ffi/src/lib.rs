@@ -36,7 +36,7 @@ use inverted_index::{
     freqs_offsets::FreqsOffsets,
     freqs_only::FreqsOnly,
     full::{Full, FullWide},
-    numeric::Numeric,
+    numeric::{Numeric, NumericFloatCompression},
     offsets_only::OffsetsOnly,
     raw_doc_ids_only::RawDocIdsOnly,
 };
@@ -76,6 +76,7 @@ pub enum InvertedIndex {
     RawDocumentIdOnly(inverted_index::InvertedIndex<RawDocIdsOnly>),
     // Needs to track the entries count because it has the `StoreNumeric` flag set
     Numeric(EntriesTrackingIndex<Numeric>),
+    NumericFloatCompression(EntriesTrackingIndex<NumericFloatCompression>),
 }
 
 impl Debug for InvertedIndex {
@@ -95,6 +96,7 @@ impl Debug for InvertedIndex {
             Self::DocumentIdOnly(_) => f.debug_tuple("DocumentIdOnly").finish(),
             Self::RawDocumentIdOnly(_) => f.debug_tuple("RawDocumentIdOnly").finish(),
             Self::Numeric(_) => f.debug_tuple("Numeric").finish(),
+            Self::NumericFloatCompression(_) => f.debug_tuple("NumericFloatCompression").finish(),
         }
     }
 }
@@ -117,6 +119,7 @@ macro_rules! ii_dispatch {
             InvertedIndex::DocumentIdOnly(ii) => ii.$method($($args),*),
             InvertedIndex::RawDocumentIdOnly(ii) => ii.$method($($args),*),
             InvertedIndex::Numeric(ii) => ii.$method($($args),*),
+            InvertedIndex::NumericFloatCompression(ii) => ii.$method($($args),*),
         }
     };
 }
@@ -190,50 +193,49 @@ pub extern "C" fn NewInvertedIndex_Ex(
         raw_doc_id_encoding,
         compress_floats,
     ) {
-        (FULL_MASK, _, _) => InvertedIndex::Full(FieldMaskTrackingIndex::new(flags, Full)),
+        (FULL_MASK, _, _) => InvertedIndex::Full(FieldMaskTrackingIndex::<Full>::new(flags)),
         (FULL_WIDE_MASK, _, _) => {
-            InvertedIndex::FullWide(FieldMaskTrackingIndex::new(flags, FullWide))
+            InvertedIndex::FullWide(FieldMaskTrackingIndex::<FullWide>::new(flags))
         }
         (FREQS_FIELDS_MASK, _, _) => {
-            InvertedIndex::FreqsFields(FieldMaskTrackingIndex::new(flags, FreqsFields))
+            InvertedIndex::FreqsFields(FieldMaskTrackingIndex::<FreqsFields>::new(flags))
         }
         (FREQS_FIELDS_WIDE_MASK, _, _) => {
-            InvertedIndex::FreqsFieldsWide(FieldMaskTrackingIndex::new(flags, FreqsFieldsWide))
+            InvertedIndex::FreqsFieldsWide(FieldMaskTrackingIndex::<FreqsFieldsWide>::new(flags))
         }
         (FREQS_ONLY_MASK, _, _) => {
-            InvertedIndex::FreqsOnly(inverted_index::InvertedIndex::new(flags, FreqsOnly))
+            InvertedIndex::FreqsOnly(inverted_index::InvertedIndex::<FreqsOnly>::new(flags))
         }
         (FIELDS_ONLY_MASK, _, _) => {
-            InvertedIndex::FieldsOnly(FieldMaskTrackingIndex::new(flags, FieldsOnly))
+            InvertedIndex::FieldsOnly(FieldMaskTrackingIndex::<FieldsOnly>::new(flags))
         }
         (FIELDS_ONLY_WIDE_MASK, _, _) => {
-            InvertedIndex::FieldsOnlyWide(FieldMaskTrackingIndex::new(flags, FieldsOnlyWide))
+            InvertedIndex::FieldsOnlyWide(FieldMaskTrackingIndex::<FieldsOnlyWide>::new(flags))
         }
         (FIELDS_OFFSETS_MASK, _, _) => {
-            InvertedIndex::FieldsOffsets(FieldMaskTrackingIndex::new(flags, FieldsOffsets))
+            InvertedIndex::FieldsOffsets(FieldMaskTrackingIndex::<FieldsOffsets>::new(flags))
         }
-        (FIELDS_OFFSETS_WIDE_MASK, _, _) => {
-            InvertedIndex::FieldsOffsetsWide(FieldMaskTrackingIndex::new(flags, FieldsOffsetsWide))
-        }
+        (FIELDS_OFFSETS_WIDE_MASK, _, _) => InvertedIndex::FieldsOffsetsWide(
+            FieldMaskTrackingIndex::<FieldsOffsetsWide>::new(flags),
+        ),
         (OFFSETS_ONLY_MASK, _, _) => {
-            InvertedIndex::OffsetsOnly(inverted_index::InvertedIndex::new(flags, OffsetsOnly))
+            InvertedIndex::OffsetsOnly(inverted_index::InvertedIndex::<OffsetsOnly>::new(flags))
         }
         (FREQS_OFFSETS_MASK, _, _) => {
-            InvertedIndex::FreqsOffsets(inverted_index::InvertedIndex::new(flags, FreqsOffsets))
+            InvertedIndex::FreqsOffsets(inverted_index::InvertedIndex::<FreqsOffsets>::new(flags))
         }
         (DOC_IDS_ONLY_MASK, false, _) => {
-            InvertedIndex::DocumentIdOnly(inverted_index::InvertedIndex::new(flags, DocIdsOnly))
+            InvertedIndex::DocumentIdOnly(inverted_index::InvertedIndex::<DocIdsOnly>::new(flags))
         }
         (DOC_IDS_ONLY_MASK, true, _) => InvertedIndex::RawDocumentIdOnly(
-            inverted_index::InvertedIndex::new(flags, RawDocIdsOnly),
+            inverted_index::InvertedIndex::<RawDocIdsOnly>::new(flags),
         ),
         (NUMERIC_MASK, _, false) => {
-            InvertedIndex::Numeric(EntriesTrackingIndex::new(flags, Numeric::new()))
+            InvertedIndex::Numeric(EntriesTrackingIndex::<Numeric>::new(flags))
         }
-        (NUMERIC_MASK, _, true) => InvertedIndex::Numeric(EntriesTrackingIndex::new(
-            flags,
-            Numeric::new().with_float_compression(),
-        )),
+        (NUMERIC_MASK, _, true) => InvertedIndex::NumericFloatCompression(EntriesTrackingIndex::<
+            NumericFloatCompression,
+        >::new(flags)),
         // We generally don't panic in Rust code and would have a match were we cover all the cases.
         // However, the `flags` value stores more than just the storage flags and it is not clear
         // that the C code won't call this function without any of the storage flags set.
@@ -454,7 +456,8 @@ pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> t_
         | InvertedIndex::FreqsOffsets(_)
         | InvertedIndex::DocumentIdOnly(_)
         | InvertedIndex::RawDocumentIdOnly(_)
-        | InvertedIndex::Numeric(_) => 0,
+        | InvertedIndex::Numeric(_)
+        | InvertedIndex::NumericFloatCompression(_) => 0,
     }
 }
 
@@ -473,6 +476,7 @@ pub unsafe extern "C" fn InvertedIndex_NumEntries(ii: *const InvertedIndex) -> u
 
     match ii {
         InvertedIndex::Numeric(ii) => ii.number_of_entries(),
+        InvertedIndex::NumericFloatCompression(ii) => ii.number_of_entries(),
         InvertedIndex::Full(_)
         | InvertedIndex::FullWide(_)
         | InvertedIndex::FreqsFields(_)

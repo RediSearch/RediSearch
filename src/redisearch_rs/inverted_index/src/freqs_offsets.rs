@@ -23,14 +23,12 @@ use crate::{
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Clone, Copy, Default)]
 pub struct FreqsOffsets;
 
 impl Encoder for FreqsOffsets {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,

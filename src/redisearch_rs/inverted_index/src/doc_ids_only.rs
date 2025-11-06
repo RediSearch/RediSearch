@@ -16,7 +16,6 @@ use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
 
 /// Encode and decode only the delta document ID of a record, without any other data.
 /// The delta is encoded using [varint encoding](varint).
-#[derive(Clone, Copy, Default)]
 pub struct DocIdsOnly;
 
 impl Encoder for DocIdsOnly {
@@ -24,7 +23,6 @@ impl Encoder for DocIdsOnly {
     const RECOMMENDED_BLOCK_ENTRIES: u16 = 1000;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         _record: &RSIndexResult,

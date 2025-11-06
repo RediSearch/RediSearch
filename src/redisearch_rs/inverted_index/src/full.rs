@@ -25,7 +25,6 @@ use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData, TermD
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Clone, Copy, Default)]
 pub struct Full;
 
 /// Return a slice of the offsets vector from a term record.
@@ -45,7 +44,6 @@ impl Encoder for Full {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -190,14 +188,12 @@ impl Decoder for Full {
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Clone, Copy, Default)]
 pub struct FullWide;
 
 impl Encoder for FullWide {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
