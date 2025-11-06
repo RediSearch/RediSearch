@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <time.h>
+#include "rmutil/rm_assert.h"
 
 #define TIMEOUT_NANOSECONDS 5000 // 5 us in nanoseconds
 
@@ -72,6 +73,7 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
       rc = RedisModule_ThreadSafeContextTryLock(ctx);
     }
     if (rc == REDISMODULE_OK) {
+      RS_LOG_ASSERT(!GILAlternativeLockHeld, "If we acquired the GIL, the alternative lock should not be held by another thread.");
       pthread_mutex_unlock(&InternalLock);
       return GIL_Locked;
     }
