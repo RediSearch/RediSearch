@@ -211,23 +211,15 @@ void HybridRequest_Free(HybridRequest *req) {
       if (areq && areq->sctx && areq->sctx->redisCtx) {
         RedisModuleCtx *thctx = areq->sctx->redisCtx;
         RedisSearchCtx *sctx = areq->sctx;
-        extern size_t NumShards;  // Declared in module.c
 
-        if (NumShards > 1) {
-          // Cluster mode: contexts are not detached, just free the search context
-          // The Redis context belongs to the command handler and will be freed by the framework
-          SearchCtx_Free(sctx);
+        if (RunInThread()) {
+          // Background thread: schedule async cleanup
+          ScheduleContextCleanup(thctx, sctx);
         } else {
-          // Standalone mode: handle detached contexts
-          if (RunInThread()) {
-            // Background thread: schedule async cleanup
-            ScheduleContextCleanup(thctx, sctx);
-          } else {
-            // Main thread: safe to free directly
-            SearchCtx_Free(sctx);
-            if (thctx) {
-              RedisModule_FreeThreadSafeContext(thctx);
-            }
+          // Main thread: safe to free directly
+          SearchCtx_Free(sctx);
+          if (thctx) {
+            RedisModule_FreeThreadSafeContext(thctx);
           }
         }
 
