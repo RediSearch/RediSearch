@@ -30,6 +30,14 @@ where
     pub const fn new_empty() -> Self {
         Self(MaybeEmptyOption::None(Empty))
     }
+
+    /// Consume the iterator, if there is any, and return if so.
+    pub fn take_iterator(&mut self) -> Option<I> {
+        if let MaybeEmptyOption::Some(iterator) = std::mem::take(&mut self.0) {
+            return Some(iterator);
+        }
+        None
+    }
 }
 
 impl<'index, I> Default for MaybeEmpty<I>
@@ -45,6 +53,12 @@ where
 enum MaybeEmptyOption<I> {
     None(Empty),
     Some(I),
+}
+
+impl<I> Default for MaybeEmptyOption<I> {
+    fn default() -> Self {
+        MaybeEmptyOption::None(Empty)
+    }
 }
 
 impl<'index, I> RQEIterator<'index> for MaybeEmpty<I>

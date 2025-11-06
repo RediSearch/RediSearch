@@ -12,9 +12,7 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
-};
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// Iterator that extends a [`RQEIterator`] up to a given upper bound
 /// by emitting virtual results after the child iterator is exhausted.
@@ -29,8 +27,7 @@ pub struct Optional<'index, I> {
     /// This weight is not applied to virtual results.
     weight: f64,
 
-    /// The last document identifier that was returned.
-    last_doc_id: t_docId,
+    result: RSIndexResult<'index>,
 
     /// Child iterator provided at construction time.
     /// Used while it can produce results. After it is exhausted
@@ -41,10 +38,9 @@ pub struct Optional<'index, I> {
     /// [`RQEValidateStatus::Aborted`] during a delegated call
     /// to [`RQEIterator::revalidate`]. In which case it will
     /// start acting like an "Empty" iterator.
-    child: MaybeEmpty<I>,
-
-    /// Reused result object to avoid allocating on each read.
-    result: RSIndexResult<'index>,
+    child: Option<I>,
+    /// Delayed cleanup / shortcut to work around lifetime issues
+    child_abort: bool,
 }
 
 impl<'index, I> Optional<'index, I>
@@ -64,11 +60,9 @@ where
         Self {
             max_doc_id: max_id,
             weight,
-
-            last_doc_id: 0,
-            result: RSIndexResult::virt().frequency(1),
-
-            child: MaybeEmpty::new(child),
+            result: RSIndexResult::virt(),
+            child: Some(child),
+            child_abort: false,
         }
     }
 }
@@ -82,92 +76,125 @@ where
             return Ok(None);
         }
 
-        // The second condition of this if statement is
-        // to catch edge cases where the child is only _just_
-        // now exhausted while it wasn't before and thus returned
-        // nothing. This way we still fall back to Virtual results
-        // in this case instead of returning None incorrectly.
-        //
-        // C Version only had the last_doc_id equality check
-        // but that's because it has access to the result of child
-        // even in cases like the one described here, while the
-        // Rust version only exposes the result if the
-        // ierator is not EOF.
-        //
-        // The C version also used to do:
-        //
-        // ```
-        // self.last_doc_id == self.child.last_doc_id()
-        // ```
-        //
-        // Here we instead assume the child handles this fine,
-        // as why wouldn't it?
-        if let Some(outcome) = self.child.read()? {
-            self.last_doc_id = outcome.doc_id;
-            outcome.weight = self.weight;
-            return Ok(Some(outcome));
-        } else {
-            self.last_doc_id += 1;
+        if self.child_abort && self.child.is_some() {
+            // clean up from abort during revalidate
+            self.child = None;
         }
 
-        self.result.doc_id = self.last_doc_id;
-        Ok(Some(&mut self.result))
+        match self
+            .child
+            .as_mut()
+            .map(|child| child.read())
+            .transpose()?
+            .flatten()
+        {
+            Some(real) => {
+                real.weight = self.weight;
+                self.result.doc_id = real.doc_id;
+                Ok(Some(real))
+            }
+            None => {
+                self.result.doc_id += 1;
+                Ok(Some(&mut self.result))
+            }
+        }
     }
 
     // [OG C Comment] SkipTo for OPTIONAL iterator - Non-optimized version.
     // Skip to a specific docId. If the child has a hit on this docId, return it.
     // Otherwise, return a virtual hit.
-    //
-    // TODO: Optimized version will also be integrated here, but in a later PR.
     fn skip_to(
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        debug_assert!(doc_id > self.last_doc_id);
+        debug_assert!(doc_id > self.result.doc_id);
 
         if doc_id > self.max_doc_id || self.at_eof() {
-            self.last_doc_id = self.max_doc_id;
+            self.result.doc_id = self.max_doc_id;
             return Ok(None);
         }
 
-        if doc_id > self.child.last_doc_id()
-            && let Some(SkipToOutcome::Found(ris)) = self.child.skip_to(doc_id)?
-            && ris.doc_id == doc_id
+        if !self.child_abort
+            && let Some(child) = &mut self.child
+            && doc_id > child.last_doc_id()
+            && let Some(SkipToOutcome::Found(real)) = child.skip_to(doc_id)?
+            && real.doc_id == doc_id
         {
-            // real hit
-            self.last_doc_id = ris.doc_id;
-            ris.weight = self.weight;
-            return Ok(Some(SkipToOutcome::Found(ris)));
+            real.weight = self.weight;
+            self.result.doc_id = real.doc_id;
+            return Ok(Some(SkipToOutcome::Found(real)));
         }
 
-        // virtual hit
-        self.last_doc_id = doc_id;
-        self.result.doc_id = self.last_doc_id;
+        self.result.doc_id = doc_id;
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
     }
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match self.child.revalidate()? {
-            RQEValidateStatus::Ok => Ok(RQEValidateStatus::Ok),
-            moved @ RQEValidateStatus::Moved { .. } => {
-                // Current result is real and child was moved (or aborted) - we need to re-read
-                // NOTE: old c code: base->Read(base)
-                // TODO: ^^^ should we return read as well?
-                Ok(moved)
+        let last_child_doc_id = self.child.as_ref().map(|child| child.last_doc_id());
+        match self
+            .child
+            .as_mut()
+            .map(|child| child.revalidate())
+            .transpose()?
+        {
+            Some(RQEValidateStatus::Ok) => Ok(RQEValidateStatus::Ok),
+            Some(RQEValidateStatus::Moved {
+                current: Some(real),
+            }) => {
+                self.result.doc_id += 1;
+                if last_child_doc_id
+                    .map(|id| id != self.result.doc_id)
+                    .unwrap_or(true)
+                {
+                    Ok(RQEValidateStatus::Moved {
+                        current: Some(&mut self.result),
+                    })
+                } else {
+                    real.weight = self.weight;
+                    Ok(RQEValidateStatus::Moved {
+                        current: Some(real),
+                    })
+                }
             }
-            RQEValidateStatus::Aborted => {
-                // Handle child validation results (but continue processing)
-                // self.child = None; // NOTE: C code used empty iterator for this, this is equivalent;
-                // TODO: do the above line despite &mut borrow
-                Ok(RQEValidateStatus::Ok)
+            Some(RQEValidateStatus::Aborted) => {
+                // ideally we would already clean up here,
+                // but as we share &mut reference derived from it in
+                // the Moved { Some ( .. ) } branch we sadly cannot do that,
+                self.child_abort = true;
+                Ok(
+                    if last_child_doc_id
+                        .map(|id| id != self.result.doc_id)
+                        .unwrap_or(true)
+                    {
+                        // virtual
+                        self.result.doc_id += 1;
+                        RQEValidateStatus::Moved {
+                            current: Some(&mut self.result),
+                        }
+                    } else {
+                        // real
+                        RQEValidateStatus::Ok
+                    },
+                )
+            }
+            None | Some(RQEValidateStatus::Moved { current: None }) => {
+                Ok(if self.result.doc_id >= self.max_doc_id {
+                    RQEValidateStatus::Ok
+                } else {
+                    self.result.doc_id += 1;
+                    RQEValidateStatus::Moved {
+                        current: Some(&mut self.result),
+                    }
+                })
             }
         }
     }
 
     fn rewind(&mut self) {
-        self.last_doc_id = 0;
         self.result.doc_id = 0;
-        self.child.rewind();
+        if let Some(child) = self.child.as_mut() {
+            child.rewind();
+        }
     }
 
     fn num_estimated(&self) -> usize {
@@ -175,10 +202,10 @@ where
     }
 
     fn last_doc_id(&self) -> t_docId {
-        self.last_doc_id
+        self.result.doc_id
     }
 
     fn at_eof(&self) -> bool {
-        self.last_doc_id >= self.max_doc_id
+        self.result.doc_id >= self.max_doc_id
     }
 }
