@@ -170,7 +170,6 @@ fn link_static_lib(
 /// # Arguments
 /// * `headers` - A vector of paths to C header files to generate bindings for.
 /// * `allowlist_file` - A file path pattern used to filter which files bindgen should generate bindings for.
-/// * `include_inverted_index` - Whether to include the inverted_index directory in the include paths.
 ///
 /// # Generated Output
 /// The function writes the generated bindings to `bindings.rs` in the cargo build output directory.
