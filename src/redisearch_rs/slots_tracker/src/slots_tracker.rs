@@ -25,6 +25,8 @@ use crate::slot_set::{CoverageRelation, SlotSet};
 pub enum Version {
     /// Stable version values: 1..=u32::MAX
     /// Each value represents a specific version counter.
+    /// Using `NonZeroU32` to keep the enum size exactly 32 bits, allowing the compiler to use 0
+    /// as the discriminant for the `Unstable` variant.
     Stable(NonZeroU32),
     /// Unstable state marker
     /// Slots are available but configuration is changing.
@@ -75,8 +77,6 @@ impl Version {
 ///
 /// This structure encapsulates all slot tracking state and provides safe methods
 /// for manipulating the three slot sets and version counter.
-///
-/// All methods take `&mut self`, ensuring compile-time enforcement of exclusive access.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SlotsTracker {
     /// Local responsibility slots - owned by this Redis instance in the cluster topology.
@@ -84,6 +84,7 @@ pub struct SlotsTracker {
     /// Fully available non-owned slots - locally available but not owned by this instance.
     fully_available: SlotSet,
     /// Partially available non-owned slots - partially available and not owned by this instance.
+    /// These slots cannot be used for searching, and must always be filtered out.
     partially_available: SlotSet,
     /// Version counter for tracking changes to the slots configuration.
     /// Incremented whenever the slot configuration changes. Wraps around safely using wrapping arithmetic.
@@ -113,6 +114,11 @@ impl SlotsTracker {
     }
 
     /// Increments the version counter using wrapping arithmetic.
+    ///
+    /// The version should be incremented whenever slots *become* partially available.
+    /// On import, it happens when the import event starts (non-existent slots become partially available).
+    /// On migration, it happens when slots start trimming, after the migration has completed successfully.
+    /// (local slots becoming fully available, then partially available as they are trimmed away, and finally removed).
     ///
     /// Internal invariant: This is always called on Stable versions.
     fn increment_version(&mut self) {
@@ -171,6 +177,7 @@ impl SlotsTracker {
     ///
     /// * `ranges` - Slice of slot ranges. Must be sorted and normalized (no overlaps, no adjacent ranges).
     pub fn promote_to_local_slots(&mut self, ranges: &[SlotRange]) {
+        debug_assert!(!self.fully_available.has_overlap(ranges));
         debug_assert!(matches!(
             self.partially_available.coverage_relation(ranges),
             CoverageRelation::Equals | CoverageRelation::Covers
