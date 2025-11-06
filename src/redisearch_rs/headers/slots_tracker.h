@@ -8,13 +8,21 @@
 #include <stdlib.h>
 #include "redismodule.h"
 
+/**
+ * FFI struct representing an optional SlotsTracker version.
+ * This is used to return version information from the `slots_tracker_check_availability` function.
+ *
+ * Expected use cases:
+ * - `is_some == false`: No version (unavailable) - query should be rejected.
+ * - `is_some == true`: Store the version number in `value`, to be compared with `slots_tracker_get_version` to detect changes.
+ */
 typedef struct OptionSlotTrackerVersion {
   bool is_some;
   uint32_t value;
 } OptionSlotTrackerVersion;
 
 /**
- * Sets the local responsibility slot ranges.
+ * Sets the local slot ranges this shard is responsible for.
  *
  * This function updates the "local slots" set to match the provided ranges.
  * If the ranges differ from the current configuration:
@@ -118,21 +126,9 @@ bool slots_tracker_has_fully_available_overlap(const RedisModuleSlotRangeArray *
 /**
  * Checks if all requested slots are available and returns version information.
  *
- * This function performs an optimized availability check:
- *
- * **Fast path (common case)**: If "fully available slots" and "partially available slots"
- * are empty and input exactly matches "local slots", returns the current version immediately.
- *
- * **Full check**: If "fully available slots" or "partially available slots" are not empty:
- * - Uses union_relation to check if "local slots" ∪ "fully available slots" covers all input slots
- * - If not covered: returns `SLOTS_TRACKER_UNAVAILABLE`
- * - If covered exactly AND "partially available slots" is empty: returns current version
- * - If covered but not exactly OR "partially available slots" is not empty: returns `SLOTS_TRACKER_UNSTABLE_VERSION`
- *
- * Return values:
- * - `SLOTS_TRACKER_UNAVAILABLE`: Required slots are not available
- * - Some other version (u32): All required slots are available; Compare this value
- *   with `slots_tracker_get_version` to detect changes.
+ * Return values (via OptionSlotTrackerVersion):
+ * - `is_some = false`: Required slots are not available. Query should be rejected.
+ * - `is_some = true`: Slots available; Store the returned `value` and compare it with `slots_tracker_get_version` to detect changes.
  *
  * # Safety
  *

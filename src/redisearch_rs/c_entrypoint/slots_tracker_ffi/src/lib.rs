@@ -26,6 +26,12 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::thread::ThreadId;
 
+/// FFI struct representing an optional SlotsTracker version.
+/// This is used to return version information from the `slots_tracker_check_availability` function.
+///
+/// Expected use cases:
+/// - `is_some == false`: No version (unavailable) - query should be rejected.
+/// - `is_some == true`: Store the version number in `value`, to be compared with `slots_tracker_get_version` to detect changes.
 #[repr(C)]
 pub struct OptionSlotTrackerVersion {
     is_some: bool,
@@ -127,9 +133,9 @@ where
 /// Syncs the atomic version counter with the tracker's internal version.
 ///
 /// This should be called after any operation that modifies the tracker's version.
-fn sync_version() {
-    let Version::Stable(version) = with_tracker(|tracker| tracker.get_version()) else {
-        unreachable!()
+fn sync_version(tracker: &SlotsTracker) {
+    let Version::Stable(version) = tracker.get_version() else {
+        unreachable!("Tracker version should always be stable (from get_version)")
     };
     VERSION.store(version.get(), Relaxed);
 }
@@ -145,7 +151,7 @@ fn sync_version() {
 /// The caller must ensure the pointer is valid and points to a properly initialized
 /// SlotRangeArray with at least `num_ranges` elements in the flexible array.
 unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange] {
-    assert!(!ranges.is_null(), "SlotRangeArray pointer is null");
+    debug_assert!(!ranges.is_null(), "SlotRangeArray pointer is null");
 
     // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { &*ranges };
@@ -164,7 +170,7 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
 // Main API Functions
 // ============================================================================
 
-/// Sets the local responsibility slot ranges.
+/// Sets the local slot ranges this shard is responsible for.
 ///
 /// This function updates the "local slots" set to match the provided ranges.
 /// If the ranges differ from the current configuration:
@@ -187,9 +193,8 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeA
 
     with_tracker_mut(|tracker| {
         tracker.set_local_slots(ranges);
+        sync_version(tracker);
     });
-
-    sync_version();
 }
 
 /// Marks the given slot ranges as partially available.
@@ -213,9 +218,8 @@ pub unsafe extern "C" fn slots_tracker_mark_partially_available_slots(
 
     with_tracker_mut(|tracker| {
         tracker.mark_partially_available_slots(ranges);
+        sync_version(tracker);
     });
-
-    sync_version();
 }
 
 /// Promotes slot ranges to local ownership.
@@ -239,9 +243,12 @@ pub unsafe extern "C" fn slots_tracker_promote_to_local_slots(ranges: *const Slo
 
     with_tracker_mut(|tracker| {
         tracker.promote_to_local_slots(ranges);
+        // Note: Version is NOT incremented here
+        debug_assert_eq!(
+            tracker.get_version(),
+            Version::Stable(VERSION.load(Relaxed).try_into().unwrap())
+        );
     });
-
-    // Note: Version is NOT incremented here
 }
 
 /// Marks the given slot ranges as fully available non-owned.
@@ -265,9 +272,12 @@ pub unsafe extern "C" fn slots_tracker_mark_fully_available_slots(ranges: *const
 
     with_tracker_mut(|tracker| {
         tracker.mark_fully_available_slots(ranges);
+        // Note: Version is NOT incremented here
+        debug_assert_eq!(
+            tracker.get_version(),
+            Version::Stable(VERSION.load(Relaxed).try_into().unwrap())
+        );
     });
-
-    // Note: This does NOT increment the version
 }
 
 /// Removes deleted slot ranges from the partially available slots.
@@ -288,9 +298,12 @@ pub unsafe extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotR
 
     with_tracker_mut(|tracker| {
         tracker.remove_deleted_slots(ranges);
+        // Note: Version is NOT incremented here
+        debug_assert_eq!(
+            tracker.get_version(),
+            Version::Stable(VERSION.load(Relaxed).try_into().unwrap())
+        );
     });
-
-    // Note: This does NOT increment the version
 }
 
 /// Checks if there is any overlap between the given slot ranges and the fully available slots.
@@ -316,21 +329,9 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
 
 /// Checks if all requested slots are available and returns version information.
 ///
-/// This function performs an optimized availability check:
-///
-/// **Fast path (common case)**: If "fully available slots" and "partially available slots"
-/// are empty and input exactly matches "local slots", returns the current version immediately.
-///
-/// **Full check**: If "fully available slots" or "partially available slots" are not empty:
-/// - Uses union_relation to check if "local slots" ∪ "fully available slots" covers all input slots
-/// - If not covered: returns `SLOTS_TRACKER_UNAVAILABLE`
-/// - If covered exactly AND "partially available slots" is empty: returns current version
-/// - If covered but not exactly OR "partially available slots" is not empty: returns `SLOTS_TRACKER_UNSTABLE_VERSION`
-///
-/// Return values:
-/// - `SLOTS_TRACKER_UNAVAILABLE`: Required slots are not available
-/// - Some other version (u32): All required slots are available; Compare this value
-///   with `slots_tracker_get_version` to detect changes.
+/// Return values (via OptionSlotTrackerVersion):
+/// - `is_some = false`: Required slots are not available. Query should be rejected.
+/// - `is_some = true`: Slots available; Store the returned `value` and compare it with `slots_tracker_get_version` to detect changes.
 ///
 /// # Safety
 ///

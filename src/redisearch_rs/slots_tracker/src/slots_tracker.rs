@@ -30,7 +30,8 @@ pub enum Version {
     /// Slots are available but configuration is changing.
     Unstable,
 }
-const _: () = assert!(std::mem::size_of::<Version>() == 4);
+// Ensure that Version can be stored as AtomicU32 for fast atomic access.
+const _: () = assert!(std::mem::size_of::<Version>() == std::mem::size_of::<u32>());
 
 impl Default for Version {
     fn default() -> Self {
@@ -92,7 +93,7 @@ pub struct SlotsTracker {
 }
 
 impl SlotsTracker {
-    /// Creates a new SlotsTracker with empty slot sets and version 0.
+    /// Creates a new SlotsTracker with empty slot sets and version 1.
     pub const fn new() -> Self {
         Self {
             local: SlotSet::new(),
@@ -456,7 +457,7 @@ mod tests {
     #[test]
     fn test_version_wraps_around() {
         let mut tracker = SlotsTracker::new();
-        // Set to u32::MAX - 1, so next increment goes to MAX, then wraps to 0
+        // Set to u32::MAX - 1, so next increment goes to MAX, then wraps to 1
         tracker.version = Version::Stable(NonZeroU32::new(u32::MAX - 1).unwrap());
 
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
@@ -471,7 +472,7 @@ mod tests {
             )
         );
 
-        // Increment again to wrap to 0 (should become 1)
+        // Increment again to wrap to 1
         tracker.set_local_slots(&[SlotRange { start: 0, end: 101 }]);
         assert_eq!(tracker, ([(0, 101)], [], [], Some(Version::new())));
     }
