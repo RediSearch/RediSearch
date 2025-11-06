@@ -20,6 +20,7 @@ on:
 
 env:
   checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.ref_name }}
+  input_tag: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   validate-tag:
@@ -44,9 +45,9 @@ jobs:
         env:
           # Not used, but useful for debugging in case of failure. See https://github.com/actions/runner/issues/2788
           GH_CONTEXT: ${{ toJson(github) }}
-          INPUT_TAG: ${{ inputs.tag || github.ref_name }}
           EVENT_BASE_REF: ${{ github.event.base_ref }}
           EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ env.input_tag }}
         shell: python
         run: |
           import os
@@ -59,7 +60,7 @@ jobs:
           def valid_tag(tag):
             return tag == f"v{major}.{minor}.{patch}"
           def valid_version_branch(branch):
-            return branch == f"refs/heads/{major}.{minor}" or branch == f"refs/heads/{major}.{minor+1}"
+            return branch == f"refs/heads/{release_branch}"
           tag = os.environ["INPUT_TAG"]
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
@@ -81,6 +82,12 @@ jobs:
     if: needs.validate-tag.outputs.should_bump == 'true'
     env:
       BRANCH: bump-version-${{ needs.validate-tag.outputs.next_version }}
+      # Common environment variables for security (shell injection prevention)
+      CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
+      NEXT_VERSION: ${{ needs.validate-tag.outputs.next_version }}
+      RELEASE_BRANCH: ${{ needs.validate-tag.outputs.release_branch }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -97,8 +104,6 @@ jobs:
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           SENDER_ID: ${{ github.event.sender.id }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
-          CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
-          NEXT_VERSION: ${{ needs.validate-tag.outputs.next_version }}
         run: |
           git config --global user.name "$TRIGGERING_ACTOR"
           git config --global user.email "$SENDER_ID+$SENDER_LOGIN@users.noreply.github.com"
@@ -110,10 +115,6 @@ jobs:
       - name: Create Pull Request
         env:
           GH_TOKEN: ${{ github.token }}
-          CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
-          NEXT_VERSION: ${{ needs.validate-tag.outputs.next_version }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-          RELEASE_BRANCH: ${{ needs.validate-tag.outputs.release_branch }}
           TEAM_LEADERS: ${{ vars.TEAM_LEADERS }}
           ISSUES_SHIFT_ASSIGNEE: ${{ vars.ISSUES_SHIFT_ASSIGNEE }}
           GITHUB_ACTOR: ${{ github.actor }}
@@ -129,7 +130,6 @@ jobs:
       - name: Trigger CI
         env:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           gh pr ready "$BRANCH" -R "$GITHUB_REPOSITORY"
           gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto
