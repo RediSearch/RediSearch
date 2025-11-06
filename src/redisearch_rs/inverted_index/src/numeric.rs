@@ -152,11 +152,7 @@ trait ToBytes<const N: usize> {
     fn pack(self) -> [u8; N];
 }
 
-#[derive(Clone)]
 pub struct Numeric;
-
-#[derive(Clone)]
-pub struct NumericFloatCompression;
 
 impl Numeric {
     const TINY_TYPE: u8 = 0b00;
@@ -164,6 +160,8 @@ impl Numeric {
     const INT_POS_TYPE: u8 = 0b10;
     const INT_NEG_TYPE: u8 = 0b11;
 }
+
+pub struct NumericFloatCompression;
 
 impl NumericFloatCompression {
     const FLOAT_COMPRESSION_THRESHOLD: f64 = 0.01;
