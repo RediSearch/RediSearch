@@ -51,8 +51,8 @@ fn with_temp_ffi_types<R>(
     // rust side sorting vector short typename:
     type SortingVectorRust = sorting_vector::RSSortingVector<RSValueFFI>;
     // Safety: We captured the ownership semantic that a SortingVector is created once and then is readonly in a
-    // RLookupRow, however the LoadDocument method might generate a SortingVector and we want to catch the changes
-    // then, so we have to cast to a mutable reference here for this.
+    // RLookupRow. Here we need a mutable reference to update raw pointers if they are changed
+    // by the c-side.
     #[allow(invalid_reference_casting)]
     let sv: &mut SortingVectorRust =
         unsafe { &mut *(sv as *const SortingVectorRust as *mut SortingVectorRust) };
@@ -145,6 +145,11 @@ fn with_temp_ffi_types<R>(
     // Safety: We used that pointer as raw pointer for calling C and just generate the Box here again
     let sv_heap = unsafe { Box::from_raw(sv_heap) };
     let sv_new_len = sv_heap.len as usize;
+    assert_eq!(
+        sv_new_len,
+        sv.len(),
+        "The sorting vector length should not have changed",
+    );
     // Safety: We assume the c callbacks give back a valid RSSortingVector so we can access the static RSValues with that slice safety.
     let temp_values = unsafe { std::slice::from_raw_parts_mut(sv_heap.values, sv_new_len) };
     for (src, dst) in temp_values.iter_mut().zip(sv.iter_mut()) {
