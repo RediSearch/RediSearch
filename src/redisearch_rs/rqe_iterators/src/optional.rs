@@ -18,28 +18,30 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 /// by emitting virtual results after the child iterator is exhausted.
 pub struct Optional<'index, I> {
     /// Inclusive upper bound on document identifiers to iterate over.
-    /// Reads from the `child` beyond this bound are ignored.
-    /// If the child ends before this bound, the iterator yields virtual
-    /// results with no weight applied until [`Optional::max_id`] is reached.
+    /// Reads from the [`Optional::child`] beyond this bound are ignored.
+    /// If the [`Optional::child`] ends before this bound, this [`Optional`] iterator yields virtual
+    /// results with no [`Optional::weight`] applied until [`Optional::max_doc_id`] is reached.
     max_doc_id: t_docId,
 
-    /// Weight applied to results produced by the inner child iterator.
+    /// Weight applied to results produced by the inner [`Optional::child`] iterator.
     /// This weight is not applied to virtual results.
     weight: f64,
 
     result: RSIndexResult<'index>,
 
-    /// Child iterator provided at construction time.
-    /// Used while it can produce results. After it is exhausted
-    /// the iterator yields virtual results until [`Optional::max_id`] is reached.
+    /// The child [`RQEIterator`] provided at construction time.
+    /// It is used while it can still produce results. Once exhausted,
+    /// the iterator yields virtual results until [`Optional::max_doc_id`] is reached.
     ///
-    /// Set to `Some(I)` when creating the [`Optional`] iterator,
-    /// but set to `None` in case the child iterator results in
-    /// [`RQEValidateStatus::Aborted`] during a delegated call
-    /// to [`RQEIterator::revalidate`]. In which case it will
-    /// start acting like an "Empty" iterator.
-    child: Option<I>,
-    /// Delayed cleanup / shortcut to work around lifetime issues
+    /// This field is no longer used once [`Optional::child_abort`]` is `true`.
+    child: I,
+
+    /// Temporary workaround for lifetime issues when the [`Optional::child`] aborts during revalidation.
+    /// When this occurs, this flag is set to `true` and remains so until the end of this
+    /// [`Optional`]’s lifetime.
+    ///
+    /// Once the iterator design supports it, this flag can be removed and the child can
+    /// instead be wrapped in an [`Option`], allowing it to be dropped immediately upon abort.
     child_abort: bool,
 }
 
@@ -54,14 +56,13 @@ where
     /// * `weight` is applied to [`RSIndexResult`] values returned by the
     ///   child [`RQEIterator`]. When the child is exhausted, the iterator
     ///   yields virtual [`RSIndexResult`] values without weight until `max_id` is reached.
-    /// * `child` [`RQEIterator`] used, can be deallocated early in case of an abort status in
-    ///   a call to [`RQEIterator::revalidate`]
+    /// * `child` [`RQEIterator`] used and wrpaped around by this [`Optional`] iterator
     pub const fn new(max_id: t_docId, weight: f64, child: I) -> Self {
         Self {
             max_doc_id: max_id,
             weight,
             result: RSIndexResult::virt(),
-            child: Some(child),
+            child,
             child_abort: false,
         }
     }
@@ -76,37 +77,27 @@ where
             return Ok(None);
         }
 
-        if self.child_abort && self.child.is_some() {
-            // clean up from abort during revalidate
-            self.child = None;
+        let maybe_real = (!self.child_abort && self.child.last_doc_id() == self.result.doc_id)
+            .then(|| self.child.read())
+            .transpose()?
+            .flatten();
+
+        self.result.doc_id += 1;
+
+        if let Some(real) = maybe_real {
+            debug_assert_eq!(
+                self.result.doc_id, real.doc_id,
+                "reads are expected to be always sequential"
+            );
+
+            real.weight = self.weight;
+            return Ok(Some(real));
         }
 
-        match self
-            .child
-            .as_mut()
-            .map(|child| {
-                if child.last_doc_id() == self.result.doc_id {
-                    child.read()
-                } else {
-                    Ok(None)
-                }
-            })
-            .transpose()?
-            .flatten()
-        {
-            Some(real) => {
-                real.weight = self.weight;
-                self.result.doc_id = real.doc_id;
-                Ok(Some(real))
-            }
-            None => {
-                self.result.doc_id += 1;
-                Ok(Some(&mut self.result))
-            }
-        }
+        Ok(Some(&mut self.result))
     }
 
-    // [OG C Comment] SkipTo for OPTIONAL iterator - Non-optimized version.
+    // C-Code: SkipTo for OPTIONAL iterator - Non-optimized version.
     // Skip to a specific docId. If the child has a hit on this docId, return it.
     // Otherwise, return a virtual hit.
     fn skip_to(
@@ -121,9 +112,8 @@ where
         }
 
         if !self.child_abort
-            && let Some(child) = &mut self.child
-            && doc_id > child.last_doc_id()
-            && let Some(SkipToOutcome::Found(real)) = child.skip_to(doc_id)?
+            && doc_id > self.child.last_doc_id()
+            && let Some(SkipToOutcome::Found(real)) = self.child.skip_to(doc_id)?
             && real.doc_id == doc_id
         {
             real.weight = self.weight;
@@ -136,62 +126,52 @@ where
     }
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let last_child_doc_id = self.child.as_ref().map(|child| child.last_doc_id());
-        match (last_child_doc_id
-            .map(|id| id == self.result.doc_id)
-            .unwrap_or_default())
-        .then(|| self.child.as_mut().map(|child| child.revalidate()))
-        .flatten()
-        .transpose()?
-        {
-            None | Some(RQEValidateStatus::Ok) => Ok(RQEValidateStatus::Ok),
-            Some(RQEValidateStatus::Moved {
-                current: Some(real),
-            }) => {
-                self.result.doc_id += 1;
-                if last_child_doc_id
-                    .map(|id| id != self.result.doc_id)
-                    .unwrap_or(true)
-                {
-                    Ok(RQEValidateStatus::Moved {
-                        current: Some(&mut self.result),
-                    })
-                } else {
-                    real.weight = self.weight;
-                    Ok(RQEValidateStatus::Moved {
-                        current: Some(real),
-                    })
-                }
-            }
-            Some(RQEValidateStatus::Aborted) => {
-                // ideally we would already clean up here,
-                // but as we share &mut reference derived from it in
-                // the Moved { Some ( .. ) } branch we sadly cannot do that,
+        let last_child_doc_id;
+
+        if self.child_abort || {
+            last_child_doc_id = self.child.last_doc_id();
+            self.child.last_doc_id() != self.result.doc_id
+        } {
+            return Ok(RQEValidateStatus::Ok);
+        }
+
+        // Revalidate the child iterator (C-Code: step 1)
+        match self.child.revalidate()? {
+            // Abort: Handle child validation results (but continue processing)
+            // C-Code: step 2
+            RQEValidateStatus::Aborted => {
+                // Ideally, we would drop the child here.
+                // However, since other branches in this function return a derived &mut reference from it,
+                // we can’t safely do that. A delayed cleanup would be confusing,
+                // so we’ll use this flag for now.
                 self.child_abort = true;
-                Ok(
-                    if last_child_doc_id
-                        .map(|id| id != self.result.doc_id)
-                        .unwrap_or(true)
-                    {
-                        // virtual
-                        self.result.doc_id += 1;
-                        RQEValidateStatus::Moved {
-                            current: Some(&mut self.result),
-                        }
-                    } else {
-                        // real
-                        RQEValidateStatus::Ok
-                    },
-                )
-            }
-            Some(RQEValidateStatus::Moved { current: None }) => {
-                Ok(if self.result.doc_id >= self.max_doc_id {
-                    RQEValidateStatus::Ok
-                } else {
+                Ok(if last_child_doc_id != self.result.doc_id {
+                    // virtual
                     self.result.doc_id += 1;
                     RQEValidateStatus::Moved {
                         current: Some(&mut self.result),
                     }
+                } else {
+                    // real
+                    RQEValidateStatus::Ok
+                })
+            }
+            // If the current result is virtual,
+            // or if the child was not moved, we can return VALIDATE_OK
+            //
+            // C-Code: step 3
+            RQEValidateStatus::Ok => Ok(RQEValidateStatus::Ok),
+            RQEValidateStatus::Moved { .. } => {
+                if last_child_doc_id != self.result.doc_id {
+                    // current result is virtual => VALIDATE_OK
+                    return Ok(RQEValidateStatus::Ok);
+                }
+
+                // Current result is real and child was moved - we need to re-read
+                //
+                // C-Code: step 4
+                Ok(RQEValidateStatus::Moved {
+                    current: self.read()?,
                 })
             }
         }
@@ -199,8 +179,8 @@ where
 
     fn rewind(&mut self) {
         self.result.doc_id = 0;
-        if let Some(child) = self.child.as_mut() {
-            child.rewind();
+        if !self.child_abort {
+            self.child.rewind();
         }
     }
 
