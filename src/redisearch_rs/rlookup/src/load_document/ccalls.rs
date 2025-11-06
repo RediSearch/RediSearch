@@ -8,6 +8,7 @@
 */
 
 use std::{
+    alloc::Layout,
     mem,
     ptr::{self, NonNull},
     slice,
@@ -25,11 +26,111 @@ use crate::{
     load_document::{LoadDocumentError, LoadDocumentOptions},
 };
 
-/// Helper type that mimics [`ffi::RSSortingVector`] bbut with the correct C representation
-#[repr(C)]
-struct SizedSortingVectorFFI {
-    len: u16,
-    values: *mut *mut ffi::RSValue,
+/// Encapsulates the dynamically sized c-compat SortingVector and its metadata, i.e. its Layout.
+///
+/// This type is used to create a heap allocated object that has the same memory layout as
+/// the dynamically sized `ffi::RSSortingVector` type. As it uses a dynimically sized array in the same struct
+/// as the len
+struct SizedSortingVectorWithMetadata {
+    ptr: NonNull<u16>,
+    metadata: Layout,
+}
+
+impl SizedSortingVectorWithMetadata {
+    /// Returns the raw pointer to the underlying C compatible sorting vector.
+    pub const fn as_ptr(&self) -> *mut u16 {
+        self.ptr.as_ptr()
+    }
+
+    /// Returns the length of the sorting vector.
+    pub const fn len(&self) -> u16 {
+        // Safety: ptr is allocated with correct layout
+        unsafe { self.ptr.as_ptr().read() }
+    }
+
+    /// Fills the sorting vector with the provided values.
+    ///
+    /// Uses an iterator over raw pointers to `ffi::RSValue`.
+    pub fn fill(&mut self, values_iter: impl Iterator<Item = *mut ffi::RSValue> + Clone) {
+        let len = self.len() as usize;
+        let iter_len = values_iter.clone().count();
+        assert_eq!(
+            iter_len, len,
+            "number of values must match the length of the sorting vector",
+        );
+        // Safety: ptr is allocated with correct layout
+        #[allow(clippy::multiple_unsafe_ops_per_block)]
+        unsafe {
+            let values_ptr = self.ptr.as_ptr().add(1) as *mut *mut ffi::RSValue;
+            for (i, values) in values_iter.enumerate() {
+                values_ptr.add(i).write(values);
+            }
+        }
+    }
+
+    /// Returns a mutable iterator over the raw pointers in the sorting vector.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut *mut ffi::RSValue> + '_ {
+        let len = self.len() as usize;
+        // Safety: ptr is allocated with correct layout
+        #[allow(clippy::multiple_unsafe_ops_per_block)]
+        unsafe {
+            let values_ptr = self.ptr.as_ptr().add(1) as *mut *mut ffi::RSValue;
+            (0..len).map(move |i| &mut *values_ptr.add(i))
+        }
+    }
+
+    /// Calculates the layout for a sorting vector with the given length.
+    const fn calculate_layout(length: u16) -> Layout {
+        // we start with the length
+        let layout = Layout::new::<u16>();
+        // handle pragma pack(2)
+        let Ok(layout) = layout.align_to(2) else {
+            unreachable!()
+        };
+        // add the array of pointers
+        let values = Layout::array::<*mut ffi::RSValue>(length as usize);
+        let Ok(values) = values else { unreachable!() };
+        let Ok((layout, _)) = layout.extend(values) else {
+            unreachable!()
+        };
+        layout.pad_to_align()
+    }
+
+    /// Allocates a new sorting vector compat type with the given length.
+    pub fn allocate(length: u16) -> Self {
+        let layout = Self::calculate_layout(length);
+        let ptr = {
+            // SAFETY:
+            // `layout.size()` is greater than zero, see 1. in [`AllocationInfo::layout`]
+            unsafe { std::alloc::alloc(layout) as *mut u16 }
+        };
+        Self {
+            ptr: NonNull::new(ptr).expect("allocation should not return null"),
+            metadata: layout,
+        }
+    }
+
+    /// Dellocates the the memory hold by the pointer
+    ///
+    /// # Safety
+    ///
+    /// 1. Must only be called once
+    /// 2. Must only be called when no references to the memory exist anymore.
+    unsafe fn deallocate(&mut self) {
+        // Safety: Caller has to ensure (1) and (2)
+        unsafe {
+            std::alloc::dealloc(self.ptr.as_ptr().cast(), self.metadata);
+        }
+    }
+}
+
+impl Drop for SizedSortingVectorWithMetadata {
+    fn drop(&mut self) {
+        // Safety:
+        unsafe {
+            self.deallocate();
+        }
+    }
 }
 
 fn with_temp_ffi_types<R>(
@@ -57,27 +158,17 @@ fn with_temp_ffi_types<R>(
     let sv: &mut SortingVectorRust =
         unsafe { &mut *(sv as *const SortingVectorRust as *mut SortingVectorRust) };
 
-    // Extract raw pointers directly to avoid borrowing from sv
     let sv_len = sv.len();
-    let sv_value_ptrs: Vec<*mut ffi::RSValue> = (0..sv_len).map(|i| sv[i].as_ptr()).collect();
-    let mut sv_value_slice = sv_value_ptrs.into_boxed_slice();
-    let sv_data_ptr = sv_value_slice.as_mut_ptr();
+    let mut sorting_vec_dst = SizedSortingVectorWithMetadata::allocate(sv_len as u16);
+    // Extract raw pointers directly to avoid borrowing from sv
+    let it = (0..sv_len).map(|i| sv[i].as_ptr());
+    sorting_vec_dst.fill(it);
 
-    // the type SizedSortingVectorFFI uses the same layout as
-    // ffi::RSSortingVector
-    let ssvf = SizedSortingVectorFFI {
-        len: sv.len() as u16,
-        values: sv_data_ptr,
-    };
-
-    let sv_heap = Box::new(ssvf);
-    let sv_heap = Box::into_raw(sv_heap);
-
-    // todo: The following will be removed when MOD-10714 and MOD-10405 landed and when there is only one RLookupRow and RSSortingVector type.
+    // todo: The following will be removed when MOD-10714 and MOD-10405 land and when there is only one RLookupRow and RSSortingVector type.
     // 1.b: Generate the C compatible RLookupRow
     let mut temp_dst_row = ffi::RLookupRow {
         // Use a heap object that has the same memory layout as the dynamically sized ffi::RSSortingVector type.
-        sv: sv_heap.cast(),
+        sv: sorting_vec_dst.as_ptr().cast(),
         ndyn: dst_row.dyn_values().len(),
         // Safety: this is safe to do because RSValueFFI is `NonNull<ffi::RSValue>`
         // and due to niche optimization `Option<NonNull<ffi::RSValue>>` has the same layout
@@ -143,7 +234,7 @@ fn with_temp_ffi_types<R>(
         },
         forceLoad: options.force_load,
         forceString: options.force_string,
-        status: std::ptr::null_mut(),
+        status: std::ptr::null_mut(), // todo, wait for swap to land
     };
     let options: *mut ffi::RLookupLoadOptions = &mut options;
 
@@ -159,16 +250,13 @@ fn with_temp_ffi_types<R>(
 
     // 3.a: replace sorting vector:
     // Safety: We used that pointer as raw pointer for calling C and just generate the Box here again
-    let sv_heap = unsafe { Box::from_raw(sv_heap) };
-    let sv_new_len = sv_heap.len as usize;
     assert_eq!(
-        sv_new_len,
         sv.len(),
+        sorting_vec_dst.len() as usize,
         "The sorting vector length should not have changed",
     );
     // Safety: We assume the c callbacks give back a valid RSSortingVector so we can access the static RSValues with that slice safety.
-    let temp_values = unsafe { std::slice::from_raw_parts_mut(sv_heap.values, sv_new_len) };
-    for (src, dst) in temp_values.iter_mut().zip(sv.iter_mut()) {
+    for (src, dst) in sorting_vec_dst.iter_mut().zip(sv.iter_mut()) {
         let ptr = mem::replace(src, ptr::null_mut());
         *dst = NonNull::new(ptr)
             // Safety: We assume the c callbacks keep valid RSValues then the we can generate the RSValueFFI wrapper around the pointer.
