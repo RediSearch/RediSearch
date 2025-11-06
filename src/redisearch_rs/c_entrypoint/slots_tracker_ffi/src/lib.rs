@@ -20,14 +20,37 @@
 //! The version counter is atomic and can be safely read from any thread to check if the
 //! slots configuration has changed.
 
-use slots_tracker::{SlotRange, SlotRangeArray, SlotsTracker};
+use slots_tracker::{SlotRange, SlotRangeArray, SlotsTracker, Version};
 use std::cell::RefCell;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::thread::ThreadId;
 
-// Re-export for C bindings
-pub use slots_tracker::SLOTS_TRACKER_UNAVAILABLE;
+#[repr(C)]
+pub struct OptionSlotTrackerVersion {
+    is_some: bool,
+    value: u32,
+}
+
+// Conversion from Option<Version> to OptionSlotTrackerVersion
+impl From<Option<Version>> for OptionSlotTrackerVersion {
+    fn from(version: Option<Version>) -> Self {
+        match version {
+            Some(Version::Stable(v)) => Self {
+                is_some: true,
+                value: v.get(),
+            },
+            Some(Version::Unstable) => Self {
+                is_some: true,
+                value: 0,
+            },
+            None => Self {
+                is_some: false,
+                value: 0,
+            },
+        }
+    }
+}
 
 // ============================================================================
 // Global State
@@ -105,8 +128,10 @@ where
 ///
 /// This should be called after any operation that modifies the tracker's version.
 fn sync_version() {
-    let version = with_tracker(|tracker| tracker.get_version());
-    VERSION.store(version, Relaxed);
+    let Version::Stable(version) = with_tracker(|tracker| tracker.get_version()) else {
+        unreachable!()
+    };
+    VERSION.store(version.get(), Relaxed);
 }
 
 /// Converts a C SlotRangeArray pointer to a core library SlotRange slice.
@@ -314,11 +339,13 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_check_availability(ranges: *const SlotRangeArray) -> u32 {
+pub unsafe extern "C" fn slots_tracker_check_availability(
+    ranges: *const SlotRangeArray,
+) -> OptionSlotTrackerVersion {
     // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
-    with_tracker(|tracker| tracker.check_availability(ranges))
+    with_tracker(|tracker| tracker.check_availability(ranges).into())
 }
 
 /// Returns the current version of the slots configuration.

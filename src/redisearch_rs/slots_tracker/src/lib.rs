@@ -13,7 +13,7 @@
 mod slot_set;
 mod slots_tracker;
 
-pub use slots_tracker::{SLOTS_TRACKER_UNAVAILABLE, SlotsTracker};
+pub use slots_tracker::{SlotsTracker, Version};
 
 // ============================================================================
 // C FFI Interface - Public API

@@ -8,6 +8,11 @@
 #include <stdlib.h>
 #include "redismodule.h"
 
+typedef struct OptionSlotTrackerVersion {
+  bool is_some;
+  uint32_t value;
+} OptionSlotTrackerVersion;
+
 /**
  * Sets the local responsibility slot ranges.
  *
@@ -136,7 +141,7 @@ bool slots_tracker_has_fully_available_overlap(const RedisModuleSlotRangeArray *
  * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
-uint32_t slots_tracker_check_availability(const RedisModuleSlotRangeArray *ranges);
+struct OptionSlotTrackerVersion slots_tracker_check_availability(const RedisModuleSlotRangeArray *ranges);
 
 /**
  * Returns the current version of the slots configuration.

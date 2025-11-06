@@ -12,21 +12,63 @@
 //! This module provides a single-thread-safe implementation of the slots tracker.
 //! All methods take `&mut self`, making the borrowing rules enforce single-threaded access.
 
+use std::num::NonZeroU32;
+
 use crate::SlotRange;
 use crate::slot_set::{CoverageRelation, SlotSet};
 
-/// Reserved version value indicating slots are not available.
+/// Represents the version state of slot configuration.
 ///
-/// This value indicates that the query cannot proceed because required slots are not available.
-pub const SLOTS_TRACKER_UNAVAILABLE: u32 = u32::MAX;
+/// This enum encapsulates the version logic and avoids exposing magic numbers.
+/// The discriminant itself IS the version value, making this exactly 32 bits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Version {
+    /// Stable version values: 1..=u32::MAX
+    /// Each value represents a specific version counter.
+    Stable(NonZeroU32),
+    /// Unstable state marker
+    /// Slots are available but configuration is changing.
+    Unstable,
+}
+const _: () = assert!(std::mem::size_of::<Version>() == 4);
 
-/// Reserved version value indicating unstable/partial availability.
-///
-/// This value will never equal a real version counter, so comparisons will always fail.
-const SLOTS_TRACKER_UNSTABLE_VERSION: u32 = u32::MAX - 1;
+impl Default for Version {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-/// Maximum valid version value before wrapping to 0.
-const MAX_VALID_VERSION: u32 = u32::MAX - 2;
+impl Version {
+    /// Creates a new Version initialized to version 1 (stable).
+    const fn new() -> Self {
+        // SAFETY: value is not zero
+        Self::Stable(unsafe { NonZeroU32::new_unchecked(1) })
+    }
+
+    /// Increments a stable version using wrapping arithmetic.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug mode if called on an Unstable version.
+    fn increment(self) -> Self {
+        match self {
+            Self::Stable(v) => {
+                if v.get() < u32::MAX {
+                    // SAFETY: 1 < v + 1 <= u32::MAX, so not zero
+                    Self::Stable(unsafe { NonZeroU32::new_unchecked(v.get() + 1) })
+                } else {
+                    // Wrap around to 1 from u32::MAX
+                    // SAFETY: value is not zero
+                    Self::Stable(unsafe { NonZeroU32::new_unchecked(1) })
+                }
+            }
+            Self::Unstable => {
+                debug_assert!(false, "Cannot increment Unstable version");
+                Self::Unstable
+            }
+        }
+    }
+}
 
 /// Safe slots tracker implementation.
 ///
@@ -43,8 +85,10 @@ pub struct SlotsTracker {
     /// Partially available non-owned slots - partially available and not owned by this instance.
     partially_available: SlotSet,
     /// Version counter for tracking changes to the slots configuration.
-    /// Incremented whenever the slot configuration changes. Wraps around safely.
-    version: u32,
+    /// Incremented whenever the slot configuration changes. Wraps around safely using wrapping arithmetic.
+    /// This is always a Stable variant internally; Unstable is only returned by check_availability
+    /// when the configuration state is unstable.
+    version: Version,
 }
 
 impl SlotsTracker {
@@ -54,26 +98,25 @@ impl SlotsTracker {
             local: SlotSet::new(),
             fully_available: SlotSet::new(),
             partially_available: SlotSet::new(),
-            version: 0,
+            version: Version::new(),
         }
     }
 
-    /// Gets the current version counter value.
-    pub const fn get_version(&self) -> u32 {
+    /// Gets the current stable version.
+    ///
+    /// Returns the current version as a Version.
+    /// The internal version is always Stable.
+    pub const fn get_version(&self) -> Version {
+        // Internal invariant: self.version is always Stable
         self.version
     }
 
-    /// Increments the version counter, skipping reserved values.
+    /// Increments the version counter using wrapping arithmetic.
     ///
-    /// If the current version is `MAX_VALID_VERSION` (u32::MAX - 2), wraps to 0
-    /// instead of incrementing to reserved values (u32::MAX - 1 or u32::MAX).
+    /// Internal invariant: This is always called on Stable versions.
     fn increment_version(&mut self) {
-        debug_assert!(self.version <= MAX_VALID_VERSION);
-        self.version = if self.version < MAX_VALID_VERSION {
-            self.version + 1
-        } else {
-            0 // Wrap around to 0
-        };
+        // version is always Stable internally
+        self.version = self.version.increment();
     }
 
     /// Sets the local responsibility slot ranges.
@@ -184,7 +227,7 @@ impl SlotsTracker {
     /// This function performs an optimized availability check:
     /// - If sets 2 & 3 are empty and the input exactly matches set 1: returns current version (stable)
     /// - Uses `union_relation` to check if ``local` ∪ `fully_available`` covers the query
-    /// - Returns special version values for partial or no coverage
+    /// - Returns `None` if slots are not available
     ///
     /// # Arguments
     ///
@@ -192,31 +235,32 @@ impl SlotsTracker {
     ///
     /// # Returns
     ///
-    /// - Current version (0..u32::MAX-2): Slots match exactly and are stable
-    /// - `SLOTS_TRACKER_UNAVAILABLE` (u32::MAX): Required slots are not available
-    /// - `SLOTS_TRACKER_UNSTABLE_VERSION` (u32::MAX-1): Slots available but partial/inexact match
-    pub fn check_availability(&self, ranges: &[SlotRange]) -> u32 {
+    /// - `Some(Stable(version))`: Slots match exactly and are stable
+    /// - `Some(Unstable)`: Slots available but partial/inexact match (unstable)
+    /// - `None`: Required slots are not available
+    pub fn check_availability(&self, ranges: &[SlotRange]) -> Option<Version> {
         // Fast path: If sets 2 & 3 are empty and input exactly matches set 1
         if self.fully_available.is_empty()
             && self.partially_available.is_empty()
             && self.local == ranges
         {
-            return self.version;
+            // Internal version is always Stable, return it directly
+            return Some(self.version);
         }
 
         // Full check: Use union_relation to check coverage
         match self.local.union_relation(&self.fully_available, ranges) {
             CoverageRelation::Equals if self.partially_available.is_empty() => {
-                // Exact match and no partial slots
-                self.version
+                // Exact match and no partial slots - return stable version
+                Some(self.version)
             }
             CoverageRelation::Equals | CoverageRelation::Covers => {
-                // Covered but not exact, or has partial slots
-                SLOTS_TRACKER_UNSTABLE_VERSION
+                // Covered but not exact, or has partial slots - return unstable marker
+                Some(Version::Unstable)
             }
             CoverageRelation::NoMatch => {
                 // Not all slots are available
-                SLOTS_TRACKER_UNAVAILABLE
+                None
             }
         }
     }
@@ -240,7 +284,7 @@ mod tests {
             [(u16, u16); N1],
             [(u16, u16); N2],
             [(u16, u16); N3],
-            Option<u32>,
+            Option<Version>,
         )> for SlotsTracker
     {
         fn eq(
@@ -249,7 +293,7 @@ mod tests {
                 [(u16, u16); N1],
                 [(u16, u16); N2],
                 [(u16, u16); N3],
-                Option<u32>,
+                Option<Version>,
             ),
         ) -> bool {
             let local: Vec<SlotRange> = other.0.iter().map(|&r| r.into()).collect();
@@ -267,16 +311,28 @@ mod tests {
     #[test]
     fn test_new_tracker_has_version_zero() {
         let tracker = SlotsTracker::new();
-        assert_eq!(tracker.get_version(), 0);
+        assert_eq!(tracker.get_version(), Version::new());
     }
 
     #[test]
     fn test_set_local_slots_increments_version() {
         let mut tracker = SlotsTracker::new();
-        let initial_version = tracker.get_version();
+        let Version::Stable(initial_version) = tracker.get_version() else {
+            panic!()
+        };
 
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
-        assert_eq!(tracker, ([(0, 100)], [], [], Some(initial_version + 1)));
+        assert_eq!(
+            tracker,
+            (
+                [(0, 100)],
+                [],
+                [],
+                Some(Version::Stable(
+                    NonZeroU32::new(initial_version.get().saturating_add(1)).unwrap()
+                ))
+            )
+        );
     }
 
     #[test]
@@ -295,13 +351,36 @@ mod tests {
         let mut tracker = SlotsTracker::new();
         let v1 = tracker.get_version();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
-        assert_eq!(tracker, ([(0, 100)], [], [], Some(v1 + 1)));
+        let Version::Stable(v1_num) = v1 else {
+            panic!()
+        };
+        assert_eq!(
+            tracker,
+            (
+                [(0, 100)],
+                [],
+                [],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(1)).unwrap()
+                ))
+            )
+        );
 
         tracker.mark_partially_available_slots(&[SlotRange {
             start: 200,
             end: 300,
         }]);
-        assert_eq!(tracker, ([(0, 100)], [], [(200, 300)], Some(v1 + 2)));
+        assert_eq!(
+            tracker,
+            (
+                [(0, 100)],
+                [],
+                [(200, 300)],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(2)).unwrap()
+                ))
+            )
+        );
 
         tracker.remove_deleted_slots(&[SlotRange {
             start: 250,
@@ -309,7 +388,14 @@ mod tests {
         }]);
         assert_eq!(
             tracker,
-            ([(0, 100)], [], [(200, 249), (281, 300)], Some(v1 + 2))
+            (
+                [(0, 100)],
+                [],
+                [(200, 249), (281, 300)],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(2)).unwrap()
+                ))
+            )
         );
     }
 
@@ -321,13 +407,13 @@ mod tests {
         assert_eq!(tracker, ([(0, 100)], [], [], Some(v1)));
 
         let result = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
-        assert_eq!(result, v1);
+        assert_eq!(result, Some(v1));
 
         tracker.mark_fully_available_slots(&[SlotRange { start: 0, end: 50 }]);
         assert_eq!(tracker, ([(51, 100)], [(0, 50)], [], Some(v1)));
 
         let result2 = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
-        assert_eq!(result2, v1);
+        assert_eq!(result2, Some(v1));
     }
 
     #[test]
@@ -341,7 +427,7 @@ mod tests {
             start: 200,
             end: 300,
         }]);
-        assert_eq!(result, SLOTS_TRACKER_UNAVAILABLE);
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -370,10 +456,24 @@ mod tests {
     #[test]
     fn test_version_wraps_around() {
         let mut tracker = SlotsTracker::new();
-        tracker.version = MAX_VALID_VERSION;
+        // Set to u32::MAX - 1, so next increment goes to MAX, then wraps to 0
+        tracker.version = Version::Stable(NonZeroU32::new(u32::MAX - 1).unwrap());
 
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
-        assert_eq!(tracker, ([(0, 100)], [], [], Some(0)));
+        // After increment from MAX-1, we get MAX
+        assert_eq!(
+            tracker,
+            (
+                [(0, 100)],
+                [],
+                [],
+                Some(Version::Stable(NonZeroU32::new(u32::MAX).unwrap()))
+            )
+        );
+
+        // Increment again to wrap to 0 (should become 1)
+        tracker.set_local_slots(&[SlotRange { start: 0, end: 101 }]);
+        assert_eq!(tracker, ([(0, 101)], [], [], Some(Version::new())));
     }
 
     #[test]
@@ -383,7 +483,20 @@ mod tests {
         let v1 = tracker.get_version();
         assert_eq!(tracker, ([(0, 50)], [], [], Some(v1)));
         tracker.mark_partially_available_slots(&[SlotRange { start: 60, end: 70 }]);
-        assert_eq!(tracker, ([(0, 50)], [], [(60, 70)], Some(v1 + 1)));
+        let Version::Stable(v1_num) = v1 else {
+            panic!()
+        };
+        assert_eq!(
+            tracker,
+            (
+                [(0, 50)],
+                [],
+                [(60, 70)],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(1)).unwrap()
+                ))
+            )
+        );
     }
 
     #[test]
@@ -410,9 +523,9 @@ mod tests {
 
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 50 }]);
         // Implementation marks as UNSTABLE since union covers exact local but extra disjoint slots exist.
-        assert_eq!(res, SLOTS_TRACKER_UNSTABLE_VERSION);
+        assert_eq!(res, Some(Version::Unstable));
         let res2 = tracker.check_availability(&[SlotRange { start: 0, end: 120 }]);
-        assert_eq!(res2, SLOTS_TRACKER_UNAVAILABLE);
+        assert_eq!(res2, None);
     }
 
     #[test]
@@ -421,7 +534,7 @@ mod tests {
         tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]);
         assert_eq!(tracker, ([(0, 10)], [], [], None));
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 20 }]);
-        assert_eq!(res, SLOTS_TRACKER_UNAVAILABLE);
+        assert_eq!(res, None);
     }
 
     #[test]
@@ -429,17 +542,40 @@ mod tests {
         let mut tracker = SlotsTracker::new();
         let v0 = tracker.get_version();
         tracker.set_local_slots(&[SlotRange { start: 0, end: 100 }]);
-        assert_eq!(tracker, ([(0, 100)], [], [], Some(v0 + 1)));
+        let Version::Stable(v0_num) = v0 else {
+            panic!()
+        };
+        assert_eq!(
+            tracker,
+            (
+                [(0, 100)],
+                [],
+                [],
+                Some(Version::Stable(
+                    NonZeroU32::new(v0_num.get().saturating_add(1)).unwrap()
+                ))
+            )
+        );
         tracker.mark_partially_available_slots(&[SlotRange {
             start: 150,
             end: 160,
         }]);
-        assert_eq!(tracker, ([(0, 100)], [], [(150, 160)], Some(v0 + 2)));
+        assert_eq!(
+            tracker,
+            (
+                [(0, 100)],
+                [],
+                [(150, 160)],
+                Some(Version::Stable(
+                    NonZeroU32::new(v0_num.get().saturating_add(2)).unwrap()
+                ))
+            )
+        );
 
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 100 }]);
-        assert_eq!(res, SLOTS_TRACKER_UNSTABLE_VERSION);
+        assert_eq!(res, Some(Version::Unstable));
         let res2 = tracker.check_availability(&[SlotRange { start: 0, end: 160 }]);
-        assert_eq!(res2, SLOTS_TRACKER_UNAVAILABLE);
+        assert_eq!(res2, None);
     }
 
     #[test]
@@ -462,28 +598,60 @@ mod tests {
             start: 200,
             end: 210,
         }]);
-        assert_eq!(res, SLOTS_TRACKER_UNAVAILABLE);
+        assert_eq!(res, None);
     }
 
     #[test]
     fn test_sequential_version_changes() {
         let mut tracker = SlotsTracker::new();
-        assert_eq!(tracker.get_version(), 0);
+        assert_eq!(tracker.get_version(), Version::new());
         assert!(tracker.local.is_empty());
         assert!(tracker.fully_available.is_empty());
         assert!(tracker.partially_available.is_empty());
 
         tracker.set_local_slots(&[SlotRange { start: 0, end: 10 }]); // v1
-        assert_eq!(tracker, ([(0, 10)], [], [], Some(1)));
+        assert_eq!(
+            tracker,
+            (
+                [(0, 10)],
+                [],
+                [],
+                Some(Version::Stable(NonZeroU32::new(2).unwrap()))
+            )
+        );
 
         tracker.mark_partially_available_slots(&[SlotRange { start: 20, end: 30 }]); // v2
-        assert_eq!(tracker, ([(0, 10)], [], [(20, 30)], Some(2)));
+        assert_eq!(
+            tracker,
+            (
+                [(0, 10)],
+                [],
+                [(20, 30)],
+                Some(Version::Stable(NonZeroU32::new(3).unwrap()))
+            )
+        );
 
         tracker.mark_fully_available_slots(&[SlotRange { start: 5, end: 6 }]); // still v2
-        assert_eq!(tracker, ([(0, 4), (7, 10)], [(5, 6)], [(20, 30)], Some(2)));
+        assert_eq!(
+            tracker,
+            (
+                [(0, 4), (7, 10)],
+                [(5, 6)],
+                [(20, 30)],
+                Some(Version::Stable(NonZeroU32::new(3).unwrap()))
+            )
+        );
 
         tracker.set_local_slots(&[SlotRange { start: 0, end: 5 }]); // v3 (changed local)
-        assert_eq!(tracker, ([(0, 5)], [(6, 6)], [(20, 30)], Some(3)));
+        assert_eq!(
+            tracker,
+            (
+                [(0, 5)],
+                [(6, 6)],
+                [(20, 30)],
+                Some(Version::Stable(NonZeroU32::new(4).unwrap()))
+            )
+        );
     }
 
     #[test]
@@ -495,7 +663,20 @@ mod tests {
         tracker.mark_fully_available_slots(&[SlotRange { start: 0, end: 5 }]);
         assert_eq!(tracker, ([(6, 10)], [(0, 5)], [], Some(v1)));
         tracker.mark_partially_available_slots(&[SlotRange { start: 50, end: 55 }]);
-        assert_eq!(tracker, ([(6, 10)], [(0, 5)], [(50, 55)], Some(v1 + 1)));
+        let Version::Stable(v1_num) = v1 else {
+            panic!()
+        };
+        assert_eq!(
+            tracker,
+            (
+                [(6, 10)],
+                [(0, 5)],
+                [(50, 55)],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(1)).unwrap()
+                ))
+            )
+        );
     }
 
     #[test]
@@ -505,10 +686,23 @@ mod tests {
         let v1 = tracker.get_version();
         assert_eq!(tracker, ([(0, 10)], [], [], Some(v1)));
         tracker.mark_partially_available_slots(&[SlotRange { start: 20, end: 25 }]);
-        assert_eq!(tracker, ([(0, 10)], [], [(20, 25)], Some(v1 + 1)));
+        let Version::Stable(v1_num) = v1 else {
+            panic!()
+        };
+        assert_eq!(
+            tracker,
+            (
+                [(0, 10)],
+                [],
+                [(20, 25)],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(1)).unwrap()
+                ))
+            )
+        );
 
         let res = tracker.check_availability(&[SlotRange { start: 0, end: 25 }]);
-        assert_eq!(res, SLOTS_TRACKER_UNAVAILABLE);
+        assert_eq!(res, None);
     }
 
     #[test]
@@ -522,7 +716,20 @@ mod tests {
             start: 100,
             end: 150,
         }]);
-        assert_eq!(tracker, ([(0, 50)], [], [(100, 150)], Some(v1 + 1)));
+        let Version::Stable(v1_num) = v1 else {
+            panic!()
+        };
+        assert_eq!(
+            tracker,
+            (
+                [(0, 50)],
+                [],
+                [(100, 150)],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(1)).unwrap()
+                ))
+            )
+        );
         assert_eq!(
             tracker.check_availability(&[
                 SlotRange { start: 0, end: 50 },
@@ -531,14 +738,24 @@ mod tests {
                     end: 150
                 }
             ]),
-            SLOTS_TRACKER_UNAVAILABLE
+            None
         );
 
         tracker.promote_to_local_slots(&[SlotRange {
             start: 100,
             end: 150,
         }]);
-        assert_eq!(tracker, ([(0, 50), (100, 150)], [], [], Some(v1 + 1)));
+        assert_eq!(
+            tracker,
+            (
+                [(0, 50), (100, 150)],
+                [],
+                [],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(1)).unwrap()
+                ))
+            )
+        );
         assert_eq!(
             tracker.check_availability(&[
                 SlotRange { start: 0, end: 50 },
@@ -547,7 +764,9 @@ mod tests {
                     end: 150
                 }
             ]),
-            v1 + 1
+            Some(Version::Stable(
+                NonZeroU32::new(v1_num.get().saturating_add(1)).unwrap()
+            ))
         );
     }
 
@@ -582,13 +801,36 @@ mod tests {
             start: 51,
             end: 100,
         }]);
-        assert_eq!(tracker, ([(0, 50)], [], [(51, 100)], Some(v1 + 1)));
+        let Version::Stable(v1_num) = v1 else {
+            panic!()
+        };
+        assert_eq!(
+            tracker,
+            (
+                [(0, 50)],
+                [],
+                [(51, 100)],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(1)).unwrap()
+                ))
+            )
+        );
 
         tracker.promote_to_local_slots(&[SlotRange {
             start: 51,
             end: 100,
         }]);
-        assert_eq!(tracker, ([(0, 100)], [], [], Some(v1 + 1)));
+        assert_eq!(
+            tracker,
+            (
+                [(0, 100)],
+                [],
+                [],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(1)).unwrap()
+                ))
+            )
+        );
     }
 
     #[test]
@@ -606,9 +848,19 @@ mod tests {
             start: 100,
             end: 150,
         }]);
+        let Version::Stable(v1_num) = v1 else {
+            panic!()
+        };
         assert_eq!(
             tracker,
-            ([(0, 50)], [(200, 250)], [(100, 150)], Some(v1 + 1))
+            (
+                [(0, 50)],
+                [(200, 250)],
+                [(100, 150)],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(1)).unwrap()
+                ))
+            )
         );
 
         tracker.promote_to_local_slots(&[SlotRange {
@@ -617,7 +869,14 @@ mod tests {
         }]);
         assert_eq!(
             tracker,
-            ([(0, 50), (100, 150)], [(200, 250)], [], Some(v1 + 1))
+            (
+                [(0, 50), (100, 150)],
+                [(200, 250)],
+                [],
+                Some(Version::Stable(
+                    NonZeroU32::new(v1_num.get().saturating_add(1)).unwrap()
+                ))
+            )
         );
     }
 
