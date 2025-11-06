@@ -798,62 +798,38 @@ pub unsafe extern "C" fn IndexBlock_Data(ib: *const IndexBlock) -> *const c_char
 /// single interface for all index reader types while still being able to optimize the storage
 /// and performance for each index reader type.
 pub enum IndexReader<'index_and_filter> {
-    Full(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, Full, Full>>),
-    FullWide(
-        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FullWide, FullWide>>,
-    ),
-    FreqsFields(
-        FilterMaskReader<
-            inverted_index::IndexReaderCore<'index_and_filter, FreqsFields, FreqsFields>,
-        >,
-    ),
+    Full(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, Full>>),
+    FullWide(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FullWide>>),
+    FreqsFields(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FreqsFields>>),
     FreqsFieldsWide(
-        FilterMaskReader<
-            inverted_index::IndexReaderCore<'index_and_filter, FreqsFieldsWide, FreqsFieldsWide>,
-        >,
+        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FreqsFieldsWide>>,
     ),
-    FreqsOnly(inverted_index::IndexReaderCore<'index_and_filter, FreqsOnly, FreqsOnly>),
-    FieldsOnly(
-        FilterMaskReader<
-            inverted_index::IndexReaderCore<'index_and_filter, FieldsOnly, FieldsOnly>,
-        >,
-    ),
+    FreqsOnly(inverted_index::IndexReaderCore<'index_and_filter, FreqsOnly>),
+    FieldsOnly(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOnly>>),
     FieldsOnlyWide(
-        FilterMaskReader<
-            inverted_index::IndexReaderCore<'index_and_filter, FieldsOnlyWide, FieldsOnlyWide>,
-        >,
+        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOnlyWide>>,
     ),
     FieldsOffsets(
-        FilterMaskReader<
-            inverted_index::IndexReaderCore<'index_and_filter, FieldsOffsets, FieldsOffsets>,
-        >,
+        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOffsets>>,
     ),
     FieldsOffsetsWide(
-        FilterMaskReader<
-            inverted_index::IndexReaderCore<
-                'index_and_filter,
-                FieldsOffsetsWide,
-                FieldsOffsetsWide,
-            >,
-        >,
+        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOffsetsWide>>,
     ),
-    OffsetsOnly(inverted_index::IndexReaderCore<'index_and_filter, OffsetsOnly, OffsetsOnly>),
-    FreqsOffsets(inverted_index::IndexReaderCore<'index_and_filter, FreqsOffsets, FreqsOffsets>),
-    DocumentIdOnly(inverted_index::IndexReaderCore<'index_and_filter, DocIdsOnly, DocIdsOnly>),
-    RawDocumentIdOnly(
-        inverted_index::IndexReaderCore<'index_and_filter, RawDocIdsOnly, RawDocIdsOnly>,
-    ),
-    Numeric(inverted_index::IndexReaderCore<'index_and_filter, Numeric, Numeric>),
+    OffsetsOnly(inverted_index::IndexReaderCore<'index_and_filter, OffsetsOnly>),
+    FreqsOffsets(inverted_index::IndexReaderCore<'index_and_filter, FreqsOffsets>),
+    DocumentIdOnly(inverted_index::IndexReaderCore<'index_and_filter, DocIdsOnly>),
+    RawDocumentIdOnly(inverted_index::IndexReaderCore<'index_and_filter, RawDocIdsOnly>),
+    Numeric(inverted_index::IndexReaderCore<'index_and_filter, Numeric>),
     NumericFiltered(
         FilterNumericReader<
             'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, Numeric, Numeric>,
+            inverted_index::IndexReaderCore<'index_and_filter, Numeric>,
         >,
     ),
     NumericGeoFiltered(
         FilterGeoReader<
             'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, Numeric, Numeric>,
+            inverted_index::IndexReaderCore<'index_and_filter, Numeric>,
         >,
     ),
 }
