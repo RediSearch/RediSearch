@@ -14,7 +14,7 @@
 #define TIMEOUT_NANOSECONDS 5000 // 5 us in nanoseconds
 
 typedef enum {
-  GILState_Unknown, // Not knowledge, may be used by main thread (in an uncontrolled way, or by some other thread, or unlocked)
+  GILState_Unknown, // Not known, may be used by main thread (in an uncontrolled way, or by some other thread, or unlocked)
   GILState_Owned, // The GIL is owned by the main thread, but is not "shared" via GILAlternativeLock by other threads
   GILState_Shared, // The GIL is owned by the main thread, and is "shared" via GILAlternativeLock by another thread
 } GILState;
