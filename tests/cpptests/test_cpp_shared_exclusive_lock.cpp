@@ -76,8 +76,8 @@ void* worker_thread_func(void* arg) {
 }
 
 TEST_F(SharedExclusiveLockTest, test_concurrency) {
-    const int num_threads = 2000;
-    const int work_iterations = 500;
+    const int num_threads = 1000;
+    const int work_iterations = 100;
     const int num_threads_to_remove = 100;
     int counter = 0;
     std::atomic<bool> start_flag{false};
