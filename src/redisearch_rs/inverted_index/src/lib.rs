@@ -145,7 +145,7 @@ impl NumericFilter {
 }
 
 /// Encoder to write a record into an index
-pub trait Encoder: Clone {
+pub trait Encoder {
     /// Document ids are represented as `u64`s and stored using delta-encoding.
     ///
     /// Some encoders can't encode arbitrarily large id deltas—e.g. they might be limited to `u32::MAX` or
