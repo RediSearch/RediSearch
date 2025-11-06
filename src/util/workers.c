@@ -106,9 +106,10 @@ void workersThreadPool_SetNumWorkers() {
  * This function also handles the cases where the thread pool is turned on/off.
  * If new worker count is 0, the current living workers will continue to execute pending jobs and then terminate.
  * No new jobs should be added after setting the number of workers to 0.
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR if termination is in progress
  */
-void workersThreadPool_SetNumWorkers_no_wait() {
-  if (_workers_thpool == NULL) return;
+int workersThreadPool_SetNumWorkers_no_wait() {
+  if (_workers_thpool == NULL) return REDISMODULE_OK;
 
   size_t worker_count = RSGlobalConfig.numWorkerThreads;
   if (in_event && RSGlobalConfig.minOperationWorkers > worker_count) {
@@ -118,7 +119,7 @@ void workersThreadPool_SetNumWorkers_no_wait() {
   // Check if termination is in progress from a previous call
   if (workers_termination_in_progress) {
     size_t curr_threads = redisearch_thpool_get_num_threads(_workers_thpool);
-    
+
     if (curr_threads == workers_target_thread_count) {
       // Termination completed, clear the flag and call deactivation callback
       workers_termination_in_progress = false;
@@ -129,7 +130,7 @@ void workersThreadPool_SetNumWorkers_no_wait() {
       RedisModule_Log(RSDummyContext, "warning",
                       "Cannot change workers threadpool size: termination in progress "
                       "(current: %zu, target: %zu)", curr_threads, workers_target_thread_count);
-      return;
+      return REDISMODULE_ERR;
     }
   }
 
@@ -162,6 +163,8 @@ void workersThreadPool_SetNumWorkers_no_wait() {
       "Attempt to change the workers thpool size to %lu "
       "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
   }
+
+  return REDISMODULE_OK;
 }
 
 // return number of currently working threads

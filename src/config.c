@@ -415,7 +415,12 @@ CONFIG_SETTER(setWorkThreads) {
   }
   config->numWorkerThreads = newNumThreads;
 
-  workersThreadPool_SetNumWorkers_no_wait();
+  int rc = workersThreadPool_SetNumWorkers_no_wait();
+  if (rc == REDISMODULE_ERR) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+      "Cannot change workers threadpool size: termination in progress");
+    return REDISMODULE_ERR;
+  }
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;

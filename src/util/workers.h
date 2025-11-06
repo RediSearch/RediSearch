@@ -22,7 +22,8 @@ int workersThreadPool_CreatePool(size_t worker_count);
 // Set the number of workers according to the configuration and server state
 // Should only be called from the main thread
 void workersThreadPool_SetNumWorkers(void);
-void workersThreadPool_SetNumWorkers_no_wait(void);
+// Returns REDISMODULE_OK on success, REDISMODULE_ERR if termination is in progress
+int workersThreadPool_SetNumWorkers_no_wait(void);
 
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void);
