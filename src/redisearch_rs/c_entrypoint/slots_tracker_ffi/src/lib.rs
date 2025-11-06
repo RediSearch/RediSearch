@@ -31,11 +31,11 @@ use std::thread::ThreadId;
 ///
 /// Expected use cases:
 /// - `is_some == false`: No version (unavailable) - query should be rejected.
-/// - `is_some == true`: Store the version number in `value`, to be compared with `slots_tracker_get_version` to detect changes.
+/// - `is_some == true`: Store the version number in `version`, to be compared with `slots_tracker_get_version` to detect changes.
 #[repr(C)]
 pub struct OptionSlotTrackerVersion {
     is_some: bool,
-    value: u32,
+    version: u32,
 }
 
 // Conversion from Option<Version> to OptionSlotTrackerVersion
@@ -44,15 +44,15 @@ impl From<Option<Version>> for OptionSlotTrackerVersion {
         match version {
             Some(Version::Stable(v)) => Self {
                 is_some: true,
-                value: v.get(),
+                version: v.get(),
             },
             Some(Version::Unstable) => Self {
                 is_some: true,
-                value: 0,
+                version: 0,
             },
             None => Self {
                 is_some: false,
-                value: 0,
+                version: 0,
             },
         }
     }
@@ -331,7 +331,7 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
 ///
 /// Return values (via OptionSlotTrackerVersion):
 /// - `is_some = false`: Required slots are not available. Query should be rejected.
-/// - `is_some = true`: Slots available; Store the returned `value` and compare it with `slots_tracker_get_version` to detect changes.
+/// - `is_some = true`: Slots available; Store the returned `version` and compare it with `slots_tracker_get_version` to detect changes.
 ///
 /// # Safety
 ///

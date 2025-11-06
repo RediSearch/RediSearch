@@ -14,11 +14,11 @@
  *
  * Expected use cases:
  * - `is_some == false`: No version (unavailable) - query should be rejected.
- * - `is_some == true`: Store the version number in `value`, to be compared with `slots_tracker_get_version` to detect changes.
+ * - `is_some == true`: Store the version number in `version`, to be compared with `slots_tracker_get_version` to detect changes.
  */
 typedef struct OptionSlotTrackerVersion {
   bool is_some;
-  uint32_t value;
+  uint32_t version;
 } OptionSlotTrackerVersion;
 
 /**
@@ -128,7 +128,7 @@ bool slots_tracker_has_fully_available_overlap(const RedisModuleSlotRangeArray *
  *
  * Return values (via OptionSlotTrackerVersion):
  * - `is_some = false`: Required slots are not available. Query should be rejected.
- * - `is_some = true`: Slots available; Store the returned `value` and compare it with `slots_tracker_get_version` to detect changes.
+ * - `is_some = true`: Slots available; Store the returned `version` and compare it with `slots_tracker_get_version` to detect changes.
  *
  * # Safety
  *
