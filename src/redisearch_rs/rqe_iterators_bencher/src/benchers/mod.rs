@@ -10,5 +10,6 @@
 pub mod empty;
 pub mod id_list;
 pub mod inverted_index;
+pub mod metric;
 pub mod optional;
 pub mod wildcard;

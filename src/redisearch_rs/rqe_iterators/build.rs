@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::run_cbinden;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Link the static libraries that contain our array functions
+    #[cfg(feature = "unittest")]
+    build_utils::link_static_libraries(&[("src/util/arr", "arr")]);
 
-fn main() {
-    run_cbinden("../../headers/inverted_index.h").unwrap();
+    Ok(())
 }

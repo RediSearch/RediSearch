@@ -176,7 +176,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_CLUSTER);
       }
       if (timedout) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
       } else if (reachedMaxPrefixExpansions) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
       } else if (!warningRaised) {

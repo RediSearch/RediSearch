@@ -66,7 +66,7 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
     if (scoreAlias) {
       scoreKey = RLookup_GetKey_Write(tailLookup, scoreAlias, RLOOKUP_F_NOFLAGS);
       if (!scoreKey) {
-        QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", ", score alias: %s", scoreAlias);
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_DUP_FIELD, "Could not create score alias, name already exists in query", ", score alias: %s", scoreAlias);
         return NULL;
       }
     } else {
@@ -91,7 +91,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
       if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
-        QueryError_SetError(&req->tailPipelineError, QUERY_EGENERIC, "Failed to build hybrid pipeline, expected depleter processor");
+        QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "Failed to build hybrid pipeline, expected depleter processor");
         array_free(depleters);
         return REDISMODULE_ERR;
       }
@@ -350,21 +350,21 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
   RS_ASSERT (isHybridVectorSubquery ^ isHybridSearchSubquery);
   QueryErrorCode currentCode = QueryError_GetCode(status);
 
-  if (currentCode == QUERY_EVECTOR_NOT_ALLOWED) {
+  if (currentCode == QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED) {
     // Enhance generic vector error with hybrid context
     QueryError_ClearError(status);
     if (isHybridVectorSubquery) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED,
                                        "Vector expressions are not allowed in FT.HYBRID VSIM FILTER");
     } else if (isHybridSearchSubquery) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED,
                                        "Vector expressions are not allowed in FT.HYBRID SEARCH");
     } // won't reach here
-  } else if (currentCode == QUERY_EWEIGHT_NOT_ALLOWED) {
+  } else if (currentCode == QUERY_ERROR_CODE_WEIGHT_NOT_ALLOWED) {
     // Enhance generic weight error with hybrid context
     if (isHybridVectorSubquery) {
       QueryError_ClearError(status);
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EWEIGHT_NOT_ALLOWED,
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_WEIGHT_NOT_ALLOWED,
                                        "Weight attributes are not allowed in FT.HYBRID VSIM FILTER");
     }
   }

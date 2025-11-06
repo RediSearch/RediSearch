@@ -424,9 +424,6 @@ def set_max_dialect(env):
 def get_redisearch_index_memory(env, index_key):
     return float(index_info(env, index_key)["inverted_sz_mb"])
 
-def get_redisearch_vector_index_memory(env, index_key):
-    return float(index_info(env, index_key)["vector_index_sz_mb"])
-
 def module_ver_filter(env, module_name, ver_filter):
     info = env.getConnection().info()
     for module in info['modules']:
@@ -458,10 +455,12 @@ def create_np_array_typed(data, data_type='FLOAT32'):
         return Bfloat16Array(data)
     return np.array(data, dtype=data_type.lower())
 
-def create_random_np_array_typed(dim, data_type='FLOAT32', seed=10):
-    np.random.seed(seed)
-    return create_np_array_typed(np.random.rand(dim), data_type)
-
+np.random.seed(42)
+def create_random_np_array_typed(dim, data_type='FLOAT32', normalize=False):
+    vector = create_np_array_typed(np.random.rand(dim), data_type)
+    if normalize:
+        vector /= np.linalg.norm(vector)
+    return vector
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
         return False
@@ -709,10 +708,9 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
     total_size = 0
     for field in fields:
         if field in ['GEO', 'NUMERIC']:
-            block_size = 48
-            initial_block_cap = 6
-            inverted_index_meta_data = 40
-            total_size += (block_size + initial_block_cap + inverted_index_meta_data)
+            inverted_index_size = 40
+            inverted_index_meta_data = 8
+            total_size += inverted_index_size + inverted_index_meta_data
             continue
         env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR'], message=f"type {field} is not supported", depth=depth+1)
 

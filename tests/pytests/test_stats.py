@@ -38,15 +38,14 @@ def runTestWithSeed(env, s=None):
         # with a left child and a right child. Each child has an inverted index.
         conn.execute_command('HSET', 'doc%d' % i, 'n', (i % num_values) + value_offset)
 
-    # Expected inverted index size total: 519 bytes
+    # Expected inverted index size total: 539 bytes
     # buffer size + inverted index structure size
-    # 431 + 88 = 519
+    # 443 + 96 = 539
 
-    # 431 is the buffer size after writing 4 bytes 100 times.
-    # The buffer grows according to Buffer_Grow() in buffer.c
-    # 80 is the size of the inverted index structure without counting the
-    # buffer capacity.
-    expected_inv_idx_size = 519 / (1024 * 1024)
+    # 443 is the buffer size after writing 4 bytes 100 times.
+    # 48 is the size of the inverted index structure without counting the
+    # buffer capacity of 48 bytes.
+    expected_inv_idx_size = 539 / (1024 * 1024)
     check_index_info(env, idx, count, expected_inv_idx_size, "after insert")
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])

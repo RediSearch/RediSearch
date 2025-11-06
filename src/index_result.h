@@ -43,6 +43,9 @@ static inline void ResultMetrics_Reset(RSIndexResult *r) {
   array_clear(r->metrics);
 }
 
+// define a function to be used from Rust
+void ResultMetrics_Reset_func(RSIndexResult *r);
+
 /* Reset the aggregate result's child vector */
 static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
 

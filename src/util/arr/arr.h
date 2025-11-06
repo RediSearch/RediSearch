@@ -78,6 +78,8 @@ typedef void *array_t;
 
 static inline uint32_t array_len(array_t arr);
 
+uint32_t array_len_func(array_t arr);
+
 /* Initialize a new array with a given element size and remaining capacity. Should not be used directly - use
  * array_new instead */
 array_t array_new_sz(uint16_t elem_sz, uint16_t remain_cap, uint32_t len);
