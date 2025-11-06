@@ -93,11 +93,14 @@ fn with_temp_ffi_types<R>(
     let (options, _) = if let Some(options) = &options.tmp_cstruct {
         (options.as_ptr(), None)
     } else {
-        let keys = options.keys.as_ref().map_or(std::ptr::null_mut(), |keys| {
-            let reval = keys.as_ptr();
-            let mut reval = reval as *const ffi::RLookupKey;
-            &mut reval
-        });
+        let keys_ptr_storage;
+        let keys = match options.keys.as_ref() {
+            Some(keys) => {
+                keys_ptr_storage = keys.as_ptr() as *const ffi::RLookupKey;
+                &keys_ptr_storage as *const _ as *mut *const ffi::RLookupKey
+            }
+            None => std::ptr::null_mut(),
+        };
         let nkeys = options.keys.as_ref().map_or(0, |keys| keys.len());
 
         let mut options = ffi::RLookupLoadOptions {
