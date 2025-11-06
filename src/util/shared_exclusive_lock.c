@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <time.h>
+#include "rmutil/rm_assert.h"
 
 #define TIMEOUT_NANOSECONDS 5000 // 5 us in nanoseconds
 
@@ -48,7 +49,7 @@ void SharedExclusiveLock_SetOwned() {
 void SharedExclusiveLock_UnsetOwned() {
   // Here we make sure that any thread that may assume the GIL is protected by the main thread releases the lock before returning.
   pthread_mutex_lock(&InternalLock);
-  GILOwned = false;
+  GILOwned = false; // From now on, any thread should try to acquire the GIL, and not the alternative lock.
   while (GILAlternativeLockHeld) {
     pthread_cond_wait(&GILSafeCondition, &InternalLock);
   }
@@ -59,15 +60,19 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   pthread_mutex_lock(&InternalLock);
   while (true) {
     int rc;
-    if (GILOwned) {
+    if (GILOwned && !GILAlternativeLockHeld) {
       pthread_mutex_lock(&GILAlternativeLock);
       GILAlternativeLockHeld = true;
       pthread_mutex_unlock(&InternalLock);
       return Internal_Locked;
-    } else {
+    } else if (!GILOwned) {
       rc = RedisModule_ThreadSafeContextTryLock(ctx);
+    } else {
+      // GILAlternativeLock is held by another thread, continue and wait for your turn
+      rc = REDISMODULE_ERR;
     }
     if (rc == REDISMODULE_OK) {
+      RS_LOG_ASSERT(!GILAlternativeLockHeld, "If we acquired the GIL, the alternative lock should not be held by another thread.");
       pthread_mutex_unlock(&InternalLock);
       return GIL_Locked;
     }

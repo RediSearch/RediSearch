@@ -48,6 +48,7 @@ struct WorkerThreadData {
     std::unordered_set<int> *thread_ids_set;
     int thread_id;
     int work_iterations;
+    int sleep_microseconds;
 };
 
 // Worker thread function that tries to acquire the shared exclusive lock
@@ -68,6 +69,8 @@ void* worker_thread_func(void* arg) {
     for (int i = 0; i < data->work_iterations; ++i) {
         *(data->counter) += 1;
     }
+    std::this_thread::sleep_for(std::chrono::microseconds(data->sleep_microseconds));
+
     // Release the lock
     SharedExclusiveLock_Release(data->ctx, lock_type);
     return nullptr;
@@ -76,7 +79,7 @@ void* worker_thread_func(void* arg) {
 TEST_F(SharedExclusiveLockTest, test_concurrency) {
     const int num_threads = 1000;
     const int work_iterations = 500;
-    const int num_threads_to_remove = 500;
+    const int num_threads_to_remove = 200;
     int counter = 0;
     std::atomic<bool> start_flag{false};
     std::atomic<int> threads_ready{0};
@@ -85,7 +88,7 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
     std::vector<WorkerThreadData> thread_data(num_threads);
 
     // Create worker threads
-    for (int i = 0; i < num_threads; ++i) {
+    for (int i = 0; i < num_threads / 2; ++i) {
         thread_data[i] = {
             ctx,
             &counter,
@@ -94,13 +97,14 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
             &thread_ids_set,
             i,
             work_iterations,
+            1000,
         };
         int rc = pthread_create(&threads[i], nullptr, worker_thread_func, &thread_data[i]);
         ASSERT_EQ(rc, 0) << "Failed to create thread " << i;
     }
 
     // Wait for all threads to be ready
-    while (threads_ready.load() < num_threads) {
+    while (threads_ready.load() < num_threads / 2) {
         std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
 
@@ -116,6 +120,28 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
         ASSERT_EQ(rc, 0) << "Failed to join thread " << i;
     }
     SharedExclusiveLock_UnsetOwned();
+    size_t thread_ids_set_size = thread_ids_set.size();
+    for (int i = num_threads / 2; i < num_threads; ++i) {
+        thread_data[i] = {
+          ctx,
+          &counter,
+          &threads_ready,
+          &start_flag,
+          &thread_ids_set,
+          i,
+          work_iterations,
+          1000,
+      };
+      int rc = pthread_create(&threads[i], nullptr, worker_thread_func, &thread_data[i]);
+      ASSERT_EQ(rc, 0) << "Failed to create thread " << i;
+    }
+    // Wait for all threads to be ready
+    while (threads_ready.load() < num_threads) {
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
+    }
+
+    usleep(1000000);
+    ASSERT_EQ(thread_ids_set_size, thread_ids_set.size()) << "Thread did not finish after UnsetOwned, while the GIL is not unlocked";
     RedisModule_ThreadSafeContextUnlock(ctx);
     // Verify the total work done
     for (int i = num_threads_to_remove; i < num_threads; ++i) {
