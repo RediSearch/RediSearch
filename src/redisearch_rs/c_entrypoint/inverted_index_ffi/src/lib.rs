@@ -36,7 +36,7 @@ use inverted_index::{
     freqs_offsets::FreqsOffsets,
     freqs_only::FreqsOnly,
     full::{Full, FullWide},
-    numeric::Numeric,
+    numeric::{Numeric, NumericFloatCompression},
     offsets_only::OffsetsOnly,
     raw_doc_ids_only::RawDocIdsOnly,
 };
@@ -76,6 +76,7 @@ pub enum InvertedIndex {
     RawDocumentIdOnly(inverted_index::InvertedIndex<RawDocIdsOnly>),
     // Needs to track the entries count because it has the `StoreNumeric` flag set
     Numeric(EntriesTrackingIndex<Numeric>),
+    NumericFloatCompression(EntriesTrackingIndex<NumericFloatCompression>),
 }
 
 impl Debug for InvertedIndex {
@@ -95,6 +96,7 @@ impl Debug for InvertedIndex {
             Self::DocumentIdOnly(_) => f.debug_tuple("DocumentIdOnly").finish(),
             Self::RawDocumentIdOnly(_) => f.debug_tuple("RawDocumentIdOnly").finish(),
             Self::Numeric(_) => f.debug_tuple("Numeric").finish(),
+            Self::NumericFloatCompression(_) => f.debug_tuple("NumericFloatCompression").finish(),
         }
     }
 }
@@ -117,6 +119,7 @@ macro_rules! ii_dispatch {
             InvertedIndex::DocumentIdOnly(ii) => ii.$method($($args),*),
             InvertedIndex::RawDocumentIdOnly(ii) => ii.$method($($args),*),
             InvertedIndex::Numeric(ii) => ii.$method($($args),*),
+            InvertedIndex::NumericFloatCompression(ii) => ii.$method($($args),*),
         }
     };
 }
@@ -230,10 +233,9 @@ pub extern "C" fn NewInvertedIndex_Ex(
         (NUMERIC_MASK, _, false) => {
             InvertedIndex::Numeric(EntriesTrackingIndex::new(flags, Numeric::new()))
         }
-        (NUMERIC_MASK, _, true) => InvertedIndex::Numeric(EntriesTrackingIndex::new(
-            flags,
-            Numeric::new().with_float_compression(),
-        )),
+        (NUMERIC_MASK, _, true) => InvertedIndex::NumericFloatCompression(
+            EntriesTrackingIndex::new(flags, NumericFloatCompression),
+        ),
         // We generally don't panic in Rust code and would have a match were we cover all the cases.
         // However, the `flags` value stores more than just the storage flags and it is not clear
         // that the C code won't call this function without any of the storage flags set.
@@ -454,7 +456,8 @@ pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> t_
         | InvertedIndex::FreqsOffsets(_)
         | InvertedIndex::DocumentIdOnly(_)
         | InvertedIndex::RawDocumentIdOnly(_)
-        | InvertedIndex::Numeric(_) => 0,
+        | InvertedIndex::Numeric(_)
+        | InvertedIndex::NumericFloatCompression(_) => 0,
     }
 }
 
@@ -473,6 +476,7 @@ pub unsafe extern "C" fn InvertedIndex_NumEntries(ii: *const InvertedIndex) -> u
 
     match ii {
         InvertedIndex::Numeric(ii) => ii.number_of_entries(),
+        InvertedIndex::NumericFloatCompression(ii) => ii.number_of_entries(),
         InvertedIndex::Full(_)
         | InvertedIndex::FullWide(_)
         | InvertedIndex::FreqsFields(_)

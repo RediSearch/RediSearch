@@ -9,7 +9,7 @@
 
 use inverted_index::{
     Decoder, Encoder, IdDelta, RSIndexResult,
-    numeric::{Numeric, NumericDelta},
+    numeric::{Numeric, NumericDelta, NumericFloatCompression},
 };
 use pretty_assertions::assert_eq;
 use std::io::Cursor;
@@ -414,7 +414,7 @@ fn encode_f64_with_compression() {
     let mut buf = Cursor::new(Vec::new());
     let record = RSIndexResult::numeric(3.124);
 
-    let numeric = Numeric::new().with_float_compression();
+    let numeric = NumericFloatCompression;
     let _bytes_written = numeric
         .encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
         .expect("to encode numeric record");
