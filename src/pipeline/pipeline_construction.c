@@ -156,7 +156,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   size_t maxResults = astp->offset + astp->limit;
   if (!maxResults) {
     // For FT.AGGREGATE with WITHCOUNT without explicit LIMIT, we want to return all results
-    if (IsAggregate(&params->common) && (params->common.reqflags & QEXEC_F_WITHCOUNT)) {
+    if (IsAggregate(&params->common) && IsWithCount(&params->common)) {
       maxResults = UINT32_MAX;
     } else {
       maxResults = DEFAULT_LIMIT;
@@ -235,9 +235,8 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   // Create a pager if:
   // 1. For FT.AGGREGATE with WITHCOUNT and explicit LIMIT (astp->isLimited checks for explicit LIMIT)
   // 2. For FT.SEARCH with offset or limit
-  if ((astp->isLimited && IsAggregate(&params->common) && (params->common.reqflags & QEXEC_F_WITHCOUNT))
+  if ((astp->isLimited && IsAggregate(&params->common) && IsWithCount(&params->common))
       || (astp->offset || (astp->limit && !rp))) {
-    RedisModule_Log(NULL, "warning", "Nafraf: getArrangeRP():3.1 astp->offset: %llu, astp->limit: %llu, rp: %p", astp->offset, astp->limit, rp);
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);
   } else if ((IsSearch(&params->common) || IsAggregate(&params->common))

@@ -1056,16 +1056,14 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   // Disable optimization if SORTBY is specified or timeout policy is strict
   if (IsAggregate(req)) {
     bool hasSortBy = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
-    bool hasWithCount = (AREQ_RequestFlags(req) & QEXEC_F_WITHCOUNT);
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
     bool hasLimit = (arng != NULL && arng->isLimited);
-    bool isOptimized = IsOptimized(req);
     if (hasSortBy || req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
     }
     // Only enable optimization for LIMIT without SORTBY if optimization was not
     // explicitly disabled by WITHCOUNT
-    if (hasLimit && !hasSortBy && !hasWithCount) {
+    if (hasLimit && !hasSortBy && !IsWithCount(req)) {
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
     }
   }

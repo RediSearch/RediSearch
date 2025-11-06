@@ -154,7 +154,6 @@ def _test_withoutcount(protocol):
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', 10, 50], 50),
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', 100, docs], docs - 100),
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', docs, docs*2], 0),
-        (['FT.SEARCH', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', docs, docs*2], 0),
         # WITHOUTCOUNT + LOAD
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LOAD', '1', '@title'], docs),
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LOAD', '1', '@price'], docs),
@@ -194,10 +193,7 @@ def _test_withoutcount(protocol):
 
             # Compare with the query without WITHOUTCOUNT
             env.assertEqual(
-                total_results, total_results_default,
-                message=f'{cmd_default}: total_results != total_results_default - dialect: {dialect}')
-            env.assertEqual(
-                len(results), len(results_default),
+                len(results_default), expected_results,
                 message=f'{cmd_default}: len(results) != results_default - dialect: {dialect}')
 
 

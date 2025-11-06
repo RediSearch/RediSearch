@@ -420,7 +420,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // For WITHCOUNT with explicit LIMIT > 0, cap totalResults to the LIMIT value (similar to optimized FT.SEARCH)
     // For LIMIT 0 0, we want to return the full count (not cap to 0)
-    if (IsAggregate(req) && (AREQ_RequestFlags(req) & QEXEC_F_WITHCOUNT)) {
+    if (IsAggregate(req) && (IsWithCount(req))) {
       PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
       if (arng && arng->isLimited && arng->limit > 0) {
         QOptimizer_UpdateTotalResults(req);
@@ -550,7 +550,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // For WITHCOUNT with explicit LIMIT > 0, cap totalResults to the LIMIT value (similar to optimized FT.SEARCH)
     // For LIMIT 0 0, we want to return the full count (not cap to 0)
-    if (IsAggregate(req) && (AREQ_RequestFlags(req) & QEXEC_F_WITHCOUNT)) {
+    if (IsAggregate(req) && IsWithCount(req)) {
       PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
       if (arng && arng->isLimited && arng->limit > 0) {
         QOptimizer_UpdateTotalResults(req);
