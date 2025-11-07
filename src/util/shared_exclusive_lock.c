@@ -61,12 +61,15 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   while (true) {
     int rc = REDISMODULE_ERR;
     // GILAlternativeLockHeld condition check is needed to avoid race condition with the Release.
-    if (GILOwned && !GILAlternativeLockHeld) {
-      pthread_mutex_lock(&GILAlternativeLock);
-      // We acquired the alternative lock, we can return.
-      GILAlternativeLockHeld = true;
-      pthread_mutex_unlock(&InternalLock);
-      return Internal_Locked;
+    if (GILOwned) {
+      rc = pthread_mutex_trylock(&GILAlternativeLock);
+      if (rc == 0) {
+        // We acquired the alternative lock, we can return.
+        GILAlternativeLockHeld = true;
+        pthread_mutex_unlock(&InternalLock);
+        return Internal_Locked;
+      }
+      rc = REDISMODULE_ERR;
     } else {
       rc = RedisModule_ThreadSafeContextTryLock(ctx);
     }
@@ -90,9 +93,9 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
 
 void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType type) {
   if (type == Internal_Locked) {
-    pthread_mutex_unlock(&GILAlternativeLock);
     pthread_mutex_lock(&InternalLock);
     GILAlternativeLockHeld = false;
+    pthread_mutex_unlock(&GILAlternativeLock);
     // If main thread is waiting to release the GIL, signal it that it can proceed.
     pthread_cond_signal(&GILSafeCondition);
     // Signal any waiting threads that they may try to acquire the GIL or the alternative lock.
