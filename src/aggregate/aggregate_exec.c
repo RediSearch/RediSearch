@@ -1309,7 +1309,7 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
   r = &debug_req->r;
   AREQ_Debug_params debug_params = debug_req->debug_params;
 
-  int debug_argv_count = debug_params.debug_params_count + debug_params.debug_params_count_add;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+  int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   // Parse the query, not including debug params
 
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, execOptions, &status) != REDISMODULE_OK) {

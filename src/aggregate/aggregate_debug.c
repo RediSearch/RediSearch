@@ -18,6 +18,7 @@
 #define COORDINATOR_FORCED_TIMEOUT 1000
 
 AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status) {
+
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, status);
   if (debug_params.debug_params_count == 0) {
     return NULL;
@@ -45,6 +46,7 @@ static bool isClusterCoord(AREQ_Debug *debug_req) {
 int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   RedisModuleString **debug_argv = debug_req->debug_params.debug_argv;
   unsigned long long debug_params_count = debug_req->debug_params.debug_params_count;
+
   // Parse the debug params
   // For example debug_params = TIMEOUT_AFTER_N 2 [INTERNAL_ONLY]
   ArgsCursor ac = {0};
@@ -102,6 +104,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
 
     PipelineAddCrash(&debug_req->r);
   }
+
 
   // Handle timeout
   if (AC_IsInitialized(&timeoutArgs)) {
@@ -194,37 +197,22 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
 AREQ_Debug_params parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status) {
   AREQ_Debug_params debug_params = {0};
   // Verify DEBUG_PARAMS_COUNT exists in its expected position
-  if (argc < 2) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "DEBUG_PARAMS_COUNT arg is missing");
-    return debug_params;
-  }
-  // The idea here is to support the cases where _RANGE_SLOTS_BINARY or _RANGE_SLOTS_HR is used, and where it is not used.
-  int debug_params_count_add = argc < 4 ? 2 : 4;
-  int debug_params_count_arg_index = argc - debug_params_count_add;
   size_t n;
-  const char *arg = RedisModule_StringPtrLen(argv[debug_params_count_arg_index], &n);
+  const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &n);
   if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
-    // Try in the position it may be it _RANGE_SLOTS_BINARY is not used
-    // May be doing it twice, but it's ok (it is an uncommon path anyway)
-    debug_params_count_add = 2;
-    debug_params_count_arg_index = argc - debug_params_count_add;
-    arg = RedisModule_StringPtrLen(argv[debug_params_count_arg_index], &n);
-    if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
-      return debug_params;
-    }
+    QueryError_SetError(status, QUERY_EPARSEARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
+    return debug_params;
   }
 
   unsigned long long debug_params_count;
   // The count of debug params is the last argument in argv
-  if (RedisModule_StringToULongLong(argv[debug_params_count_arg_index + 1], &debug_params_count) != REDISMODULE_OK) {
+  if (RedisModule_StringToULongLong(argv[argc - 1], &debug_params_count) != REDISMODULE_OK) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid DEBUG_PARAMS_COUNT count");
     return debug_params;
   }
 
-  debug_params.debug_params_count_add = debug_params_count_add;
   debug_params.debug_params_count = debug_params_count;
-  int debug_argv_count = debug_params_count + debug_params_count_add;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+  int debug_argv_count = debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   debug_params.debug_argv = argv + (argc - debug_argv_count);
 
   return debug_params;

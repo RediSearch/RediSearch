@@ -238,7 +238,6 @@
 typedef struct {
   RedisModuleString **debug_argv;
   unsigned long long debug_params_count;  // not including the DEBUG_PARAMS_COUNT <count> args
-  unsigned long long debug_params_count_add;
 } AREQ_Debug_params;
 
 typedef struct {
