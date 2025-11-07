@@ -9,10 +9,15 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
 
-  run-on-intel:
-    uses: ./.github/workflows/flow-intel.yml
-    secrets: inherit
+  collect-merge-queue-stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Collect merge queue statistics
+        run: python scripts/collect_merge_queue_stats.py
