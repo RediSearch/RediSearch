@@ -167,7 +167,7 @@ def main():
     # Configuration
     repo = "RediSearch/RediSearch"
     workflow = "event-merge-to-queue.yml"
-    token = os.getenv("GITHUB_TOKEN")
+    token = os.getenv("GH_TOKEN")
 
     print("📊 Collecting merge queue statistics...")
     print(f"   Repository: {repo}")
