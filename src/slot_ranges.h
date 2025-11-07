@@ -39,10 +39,10 @@ void Slots_DropCachedLocalSlots(void);
 /// @returns true if the slot is in one of the ranges, false otherwise
 bool Slots_CanAccessKeysInSlot(const SharedSlotRangeArray *slotRanges, uint16_t slot);
 
-/// @brief Get the serialized size of a slot range array
-/// @param array The slot range array to measure
-/// @return The serialized size in bytes
-size_t SlotRangeArray_SerializedSize(const RedisModuleSlotRangeArray *array);
+/// @brief Get the memory size of a slot range array with the given number of ranges
+/// @param num_ranges The number of ranges in the array
+/// @return The memory size in bytes
+size_t SlotRangeArray_SizeOf(uint32_t num_ranges);
 
 /// @brief Serialize a slot range array to a newly allocated buffer in little-endian format
 /// @param slot_range_array The slot range array to serialize

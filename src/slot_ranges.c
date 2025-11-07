@@ -64,12 +64,8 @@ inline bool Slots_CanAccessKeysInSlot(const SharedSlotRangeArray *slotRanges, ui
   return false;
 }
 
-static inline size_t SlotRangeArray_Sizeof(uint32_t num_ranges) {
+inline size_t SlotRangeArray_SizeOf(uint32_t num_ranges) {
   return sizeof(RedisModuleSlotRangeArray) + num_ranges * sizeof(RedisModuleSlotRange);
-}
-
-inline size_t SlotRangeArray_SerializedSize(const RedisModuleSlotRangeArray *slot_range_array) {
-  return SlotRangeArray_Sizeof(slot_range_array->num_ranges);
 }
 
 // Protocol helpers for endianness conversion.
@@ -95,7 +91,7 @@ static inline void SlotRangesArray_SwapEndian(RedisModuleSlotRangeArray *slot_ra
 #endif
 
 RedisModuleSlotRangeArray *SlotRangeArray_Clone(const RedisModuleSlotRangeArray *src) {
-  size_t total_size = SlotRangeArray_Sizeof(src->num_ranges);
+  size_t total_size = SlotRangeArray_SizeOf(src->num_ranges);
   RedisModuleSlotRangeArray *copy = rm_malloc(total_size);
   memcpy(copy, src, total_size);
   return copy;
@@ -119,7 +115,7 @@ RedisModuleSlotRangeArray *SlotRangesArray_Deserialize(const char *buf, size_t b
   RedisModuleSlotRangeArray *slot_range_array = rm_malloc(buf_len);
   memcpy(slot_range_array, buf, buf_len);
 
-  if (buf_len != SlotRangeArray_Sizeof(SlotRangesArray_NumRanges_FromLE(slot_range_array))) {
+  if (buf_len != SlotRangeArray_SizeOf(SlotRangesArray_NumRanges_FromLE(slot_range_array))) {
     rm_free(slot_range_array);
     return NULL; // Size mismatch - cannot parse
   }

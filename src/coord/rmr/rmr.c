@@ -248,7 +248,15 @@ static void uvUpdateTopologyRequest(void *p) {
 }
 
 /* Set a new topology for the cluster.*/
-void MR_UpdateTopology(MRClusterTopology *newTopo) {
+void MR_UpdateTopology(MRClusterTopology *newTopo, const RedisModuleSlotRangeArray *localSlots) {
+  RedisModule_Log(RSDummyContext, "debug", "UpdateTopology: Setting number of partitions to %u", newTopo->numShards);
+  NumShards = newTopo->numShards;
+
+  // Refresh local slots info before propagating the topology, so that
+  // the tracker is up to date before any I/O thread.
+  // TODO ASM: enable
+  // slots_tracker_set_local_slots(localSlots);
+
   size_t lastIdx = cluster_g->num_io_threads - 1;
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, i == lastIdx);

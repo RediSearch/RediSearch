@@ -9,6 +9,7 @@
 #include "redise.h"
 #include "rmalloc.h"
 #include "rmutil/args.h"
+#include "slot_ranges.h"
 #include <strings.h>
 
 typedef struct {
@@ -19,8 +20,8 @@ typedef struct {
 
 static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   // New shard
-  size_t num_ranges = 1; // For now CLUSTERSET only supports a single range per shard
-  size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges;
+  uint32_t num_ranges = 1; // CLUSTERSET only supports a single range per shard
+  size_t total_size = SlotRangeArray_SizeOf(num_ranges);
   RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
   array->num_ranges = num_ranges;
   array->ranges[0].start = sh->startSlot;
@@ -61,7 +62,7 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   })
 
 MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv,
-                                                 int argc) {
+                                                 int argc, uint32_t *my_shard_idx) {
   ArgsCursor ac; // Name is important for error macros, same goes for `ctx`
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
   const char *myID = NULL;                 // Mandatory. No default.
@@ -122,6 +123,10 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     if (!sh.node.id) {
       ERROR_MISSING("SHARD");
       goto error;
+    }
+
+    if (!strcmp(sh.node.id, myID)) {
+      *my_shard_idx = (int)i;
     }
 
     VERIFY_ARG("SLOTRANGE");
