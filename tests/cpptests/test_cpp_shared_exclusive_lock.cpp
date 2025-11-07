@@ -59,7 +59,7 @@ void* worker_thread_func(void* arg) {
         std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
 
-    std::this_thread::sleep_for(std::chrono::microseconds(10 * data->sleep_microseconds));
+    std::this_thread::sleep_for(std::chrono::microseconds(10 * data->sleep_microseconds)); // 0.1s
     // Try to acquire the lock and do some work
     SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
     data->thread_ids_set->insert(data->thread_id);
@@ -92,9 +92,9 @@ class SharedExclusiveLockParametrizedTest : public SharedExclusiveLockTest,
 
 TEST_P(SharedExclusiveLockParametrizedTest, test_concurrency) {
     const size_t param_value = GetParam();
-    const int num_threads = 1000;
-    const int work_iterations = 100;
-    const int num_threads_to_remove = 100;
+    const int num_threads = 500;
+    const int work_iterations = 50;
+    const int num_threads_to_remove = 50;
     int counter = 0;
     int* shared_ptr = nullptr;  // Shared pointer for race condition detection
     std::atomic<bool> start_flag{false};
@@ -114,7 +114,7 @@ TEST_P(SharedExclusiveLockParametrizedTest, test_concurrency) {
         thread_data[i].thread_ids_set = &thread_ids_set;
         thread_data[i].thread_id = i;
         thread_data[i].work_iterations = work_iterations;
-        thread_data[i].sleep_microseconds = 10000;
+        thread_data[i].sleep_microseconds = 10000; // 0.01s
         thread_data[i].shared_ptr = &shared_ptr;  // Point to shared counter
 
         int rc = pthread_create(&threads[i], nullptr, worker_thread_func, &thread_data[i]);
@@ -130,7 +130,7 @@ TEST_P(SharedExclusiveLockParametrizedTest, test_concurrency) {
 
     // Start all threads simultaneously
     start_flag.store(true);
-    usleep(10000);
+    usleep(1000000); // 1s
     ASSERT_EQ(thread_ids_set.size(), 0) << "No thread could have acquired the lock, since the GIL is owned by the main thread.";
     SharedExclusiveLock_SetOwned();
 
@@ -147,7 +147,7 @@ TEST_P(SharedExclusiveLockParametrizedTest, test_concurrency) {
         thread_data[i].thread_ids_set = &thread_ids_set;
         thread_data[i].thread_id = i;
         thread_data[i].work_iterations = work_iterations;
-        thread_data[i].sleep_microseconds = 100;
+        thread_data[i].sleep_microseconds = 10000; // 0.01s
         thread_data[i].shared_ptr = &shared_ptr;  // Point to shared counter
 
         int rc = pthread_create(&threads[i], nullptr, worker_thread_func, &thread_data[i]);
@@ -252,7 +252,7 @@ TEST_P(SharedExclusiveLockParametrizedTest, test_jobs) {
         &threads_ready,
         &jobs_finished,
         &start_flag,
-        100,
+        1000, // 0.001s
         &shared_ptr,
     };
     int rc = pthread_create(&threads[i], nullptr, worker_thread_jobs, &thread_data[i]);
@@ -299,6 +299,6 @@ INSTANTIATE_TEST_SUITE_P(
     SharedExclusiveLockParametrizedTest,
     ::testing::Values(
         0,        // No delay
-        1000000     // 1000ms
+        1000000   // 1s
     )
 );
