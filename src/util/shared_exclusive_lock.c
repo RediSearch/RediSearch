@@ -57,8 +57,7 @@ void SharedExclusiveLock_UnsetOwned() {
 }
 
 SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx, bool acquireInternalLock) {
-  RS_LOG_ASSERT(acquireInternalLock && GILOwned, "If acquireInternalLock is true, GILOwned should be true. The aim is to guarantee that main thread has no concurency issues with other threads relying on GILAlternativeLock.");
-  pthread_mutex_lock(&InternalLock);
+  RS_LOG_ASSERT(!acquireInternalLock || GILOwned, "If acquireInternalLock is true, GILOwned should be true. The aim is to guarantee that main thread has no concurency issues with other threads relying on GILAlternativeLock.");  pthread_mutex_lock(&InternalLock);
   while (true) {
     int rc = REDISMODULE_ERR;
     // GILAlternativeLockHeld condition check is needed to avoid race condition with the Release.
