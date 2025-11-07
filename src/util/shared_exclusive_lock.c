@@ -56,7 +56,8 @@ void SharedExclusiveLock_UnsetOwned() {
   pthread_mutex_unlock(&InternalLock);
 }
 
-SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx, bool gilOwnedByMe) {
+SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx, bool acquireInternalLock) {
+  RS_LOG_ASSERT(acquireInternalLock && GILOwned, "If acquireInternalLock is true, GILOwned should be true. The aim is to guarantee that main thread has no concurency issues with other threads relying on GILAlternativeLock.");
   pthread_mutex_lock(&InternalLock);
   while (true) {
     int rc = REDISMODULE_ERR;
@@ -71,10 +72,7 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx, bool gi
       }
       rc = REDISMODULE_ERR;
     } else {
-      if (gilOwnedByMe) {
-        // We already own the GIL, no need to acquire it again (avoid reentrant mutex deadlocks)
-        rc = REDISMODULE_OK;
-      } else {
+      if (!acquireInternalLock) {
         rc = RedisModule_ThreadSafeContextTryLock(ctx);
       }
     }
