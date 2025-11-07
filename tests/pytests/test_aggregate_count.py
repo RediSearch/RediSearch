@@ -181,9 +181,7 @@ def _test_withoutcount(protocol):
             env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
             res = env.cmd(*query)
 
-            total_results = _get_total_results(res)
             results = _get_results(res)
-            total_results_default = _get_total_results(res_default)
             results_default = _get_results(res_default)
 
             # Verify only the length of results, don't verify total_results

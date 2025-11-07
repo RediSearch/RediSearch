@@ -207,9 +207,9 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if ((IsHybrid(&params->common) ||
+    } else if (IsHybrid(&params->common) ||
                (IsSearch(&params->common) && !IsOptimized(&params->common)) ||
-               HasScorer(&params->common)) && !IsAggregate(&params->common)) {
+               HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
