@@ -56,12 +56,27 @@ void testEndpoint() {
   MREndpoint_Free(&ep);
 }
 
+static RedisModuleSlotRangeArray *createSlotRangeArray(size_t numRanges, uint16_t ranges[][2]) {
+  size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * numRanges;
+  RedisModuleSlotRangeArray *array = (RedisModuleSlotRangeArray *)rm_malloc(total_size);
+  array->num_ranges = numRanges;
+
+  for (size_t i = 0; i < numRanges; i++) {
+    array->ranges[i].start = ranges[i][0];
+    array->ranges[i].end = ranges[i][1];
+  }
+
+  return array;
+}
+
 static MRClusterTopology *getTopology(size_t numNodes, const char **hosts){
 
   MRClusterTopology *topo = rm_malloc(sizeof(*topo));
   topo->numShards = numNodes;
   topo->capShards = numNodes;
   topo->shards = rm_calloc(numNodes, sizeof(MRClusterShard));
+
+  size_t slots_per_node = 16384 / numNodes;
 
   for (int i = 0; i < numNodes; i++) {
     MRClusterNode *node = &topo->shards[i].node;
@@ -70,6 +85,8 @@ static MRClusterTopology *getTopology(size_t numNodes, const char **hosts){
       return NULL;
     }
     node->id = rm_strdup(hosts[i]);
+    uint16_t ranges[][2] = {{i * slots_per_node, (i + 1) * slots_per_node - 1}};
+    topo->shards[i].slotRanges = createSlotRangeArray(1, ranges);
   }
 
   return topo;
