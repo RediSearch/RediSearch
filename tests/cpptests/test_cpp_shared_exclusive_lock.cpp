@@ -219,6 +219,9 @@ void* worker_thread_jobs(void* arg) {
     for (int i = 0; i < 10; ++i) {
       (*(data->shared_ptr))[i] = i;
     }
+    // Free the memory
+    free(*(data->shared_ptr));
+    *(data->shared_ptr) = nullptr;
     std::this_thread::sleep_for(std::chrono::microseconds(data->sleep_microseconds));
 
     // Release the lock
