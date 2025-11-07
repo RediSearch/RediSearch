@@ -1447,6 +1447,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
         .reqflags = req->reqflags,
         .optimizer = req->optimizer,
         .scoreAlias = req->searchopts.scoreAlias,
+        .protocol = req->protocol,
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,
@@ -1468,6 +1469,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .optimizer = req->optimizer,
       // Right now score alias is not supposed to be used in the aggregation pipeline
       .scoreAlias = NULL,
+      .protocol = req->protocol,
     },
     .outFields = &req->outFields,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,

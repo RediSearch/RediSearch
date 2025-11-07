@@ -291,6 +291,9 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   rc = AGGPLN_Distribute(AREQ_AGGPlan(r), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
+  // Set protocol so it's available during pipeline construction
+  r->protocol = is_resp3(ctx) ? 3 : 2;
+
   AREQDIST_UpstreamInfo us = {NULL};
   rc = AREQ_BuildDistributedPipeline(r, &us, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
@@ -298,7 +301,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // Construct the command string
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
-  xcmd.protocol = is_resp3(ctx) ? 3 : 2;
+  xcmd.protocol = r->protocol;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response

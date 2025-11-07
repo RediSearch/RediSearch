@@ -417,7 +417,6 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     if ((!IsAggregate(req) && IsOptimized(req)) ||
         (IsAggregate(req) && IsWithCount(req))
         ) {
-
       QOptimizer_UpdateTotalResults(req);
     }
 

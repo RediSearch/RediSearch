@@ -638,8 +638,10 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
-  if (!hasArrange && (IsSearch(&params->common)
-        || (IsAggregate(&params->common) && !IsOptimized(&params->common))
+  if (!hasArrange &&
+        (IsSearch(&params->common)
+        || (IsAggregate(&params->common) && !IsOptimized(&params->common) &&
+            !(params->common.protocol == 3))
         || IsHybridSearchSubquery(&params->common))) {
     rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
     if (!rp) {
