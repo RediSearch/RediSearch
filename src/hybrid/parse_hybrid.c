@@ -650,11 +650,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   }
 
   // Set slots info in both subqueries
-  vectorRequest->slotRanges = SlotRangeArray_Clone(requestSlotRanges);
-  vectorRequest->slotsVersion = slotsVersion;
-  searchRequest->slotRanges = requestSlotRanges;
-  searchRequest->slotsVersion = slotsVersion;
-  requestSlotRanges = NULL; // ownership transferred
+  if (internal) {
+    vectorRequest->slotRanges_ = SlotRangeArray_Clone(requestSlotRanges);
+    vectorRequest->slotsVersion = slotsVersion;
+    searchRequest->slotRanges_ = requestSlotRanges;
+    searchRequest->slotsVersion = slotsVersion;
+    requestSlotRanges = NULL; // ownership transferred
+  }
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
   // otherwise, store the vector score in a default key.
@@ -776,7 +778,7 @@ error:
   array_free(prefixes);
   prefixes = NULL;
   if (requestSlotRanges) {
-    rm_free(requestSlotRanges);
+    rm_free((void *)requestSlotRanges);
   }
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
