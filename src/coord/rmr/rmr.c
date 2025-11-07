@@ -541,6 +541,7 @@ void iterStartCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
+  MRClusterShard *shards = io_runtime_ctx->topo->shards;
   size_t numShards = io_runtime_ctx->topo->numShards;
   it->len = numShards;
   it->ctx.pending = numShards;
@@ -548,27 +549,21 @@ void iterStartCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  size_t targetShard = 0;
+  size_t targetShard;
   for (targetShard = 1; targetShard < numShards; targetShard++) {
     it->cbxs[targetShard].it = it;
     it->cbxs[targetShard].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[targetShard].cmd.targetShard = targetShard;
+    MRCommand_SetSlotInfo(&it->cbxs[targetShard].cmd, shards[targetShard].slotRanges);
+
     it->cbxs[targetShard].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
-
-    if (io_runtime_ctx->topo->shards[targetShard].slotRanges != NULL) {
-      // Add slot range information to the command (For FT SEARCH and FT HYBRID)
-      MRCommand_AddSlotRangeInfo(&it->cbxs[targetShard].cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
-    }
   }
 
+// Set the first command to target the first shard (while not having copied it)
   targetShard = 0;
-  cmd->targetShard = targetShard; // Set the first command to target the first shard (while not having copied it)
-
-  // Add slot range information to the first command (For FT SEARCH and FT HYBRID)
-  if (io_runtime_ctx->topo->shards[targetShard].slotRanges != NULL) {
-    MRCommand_AddSlotRangeInfo(cmd, io_runtime_ctx->topo->shards[targetShard].slotRanges);
-  }
+  cmd->targetShard = targetShard;
+  MRCommand_SetSlotInfo(cmd, shards[targetShard].slotRanges);
 
   // This implies that every connection to each shard will work inside a single IO thread
   for (size_t i = 0; i < it->len; i++) {
@@ -606,25 +601,23 @@ void iterCursorMappingCb(void *p) {
   it->ctx.pending = numShardsWithMapping;
   it->ctx.inProcess = numShardsWithMapping; // Initially all commands are in process
 
+
   it->cbxs = rm_realloc(it->cbxs, numShardsWithMapping * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  // The mappings are not sorted by targetShard, so we need to find the first one
-  size_t targetShard = vsimOrSearch->mappings[0].targetShard;;
-  size_t firstTargetShard = targetShard;
-  cmd->targetShard = targetShard;
+  cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
   char buf[128];
   sprintf(buf, "%lld", vsimOrSearch->mappings[0].cursorId);
   MRCommand_Append(cmd, buf, strlen(buf));
 
+
   // Create FT.CURSOR READ commands for each mapping
   for (size_t i = 1; i < numShardsWithMapping; i++) {
-    size_t targetShard = vsimOrSearch->mappings[i].targetShard;
     it->cbxs[i].it = it;
     it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
 
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
 
-    it->cbxs[i].cmd.targetShard = targetShard;
+    it->cbxs[i].cmd.targetShard = vsimOrSearch->mappings[i].targetShard;
     it->cbxs[i].cmd.num = 4;
     char buf[128];
     sprintf(buf, "%lld", vsimOrSearch->mappings[i].cursorId);

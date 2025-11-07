@@ -61,12 +61,21 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
                            redisCallbackFn *fn,
                            void *privdata) {
   struct MRClusterTopology *topo = ioRuntime->topo;
+  uint32_t slotsInfoPos = cmd->slotsInfoArgIndex;
   int ret = 0;
   for (size_t i = 0; i < topo->numShards; i++) {
     MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);
     if (conn) {
+      if (slotsInfoPos) {
+        // Update slot info for this command
+        MRCommand_SetSlotInfo(cmd, topo->shards[i].slotRanges);
+      }
       if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
         ret++;
+      }
+      if (slotsInfoPos) {
+        // Clear slot info for next iteration
+        MRCommand_ReplaceArgNoDup(cmd, slotsInfoPos, NULL, 0);
       }
     }
   }
