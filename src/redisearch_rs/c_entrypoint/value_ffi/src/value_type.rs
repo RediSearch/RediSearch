@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use value::{RsValue, RsValueInternal, shared::SharedRsValue};
+use value::{RsValue, RsValueInternal, Value, shared::SharedRsValue};
 
 /// Enumeration of the types an
 /// `RsValue` or a `SharedRsValue` can be of.
@@ -19,11 +19,15 @@ pub enum RsValueType {
     Undefined,
     Null,
     Number,
+    RmAllocString,
+    ConstString,
+    OwnedRedisString,
+    BorrowedRedisString,
+    String,
+    Array,
     Ref,
     Trio,
     Map,
-    // TODO add string variants
-    // TODO add array variant
 }
 
 pub(crate) trait AsRsValueType {
@@ -36,6 +40,12 @@ impl AsRsValueType for RsValueInternal {
         match self {
             RsValueInternal::Null => Null,
             RsValueInternal::Number(_) => Number,
+            RsValueInternal::RmAllocString(_) => RmAllocString,
+            RsValueInternal::ConstString(_) => ConstString,
+            RsValueInternal::OwnedRedisString(_) => OwnedRedisString,
+            RsValueInternal::BorrowedRedisString(_) => BorrowedRedisString,
+            RsValueInternal::String(_) => String,
+            RsValueInternal::Array(_) => Array,
             RsValueInternal::Ref(_) => Ref,
             RsValueInternal::Trio(_) => Trio,
             RsValueInternal::Map(_) => Map,
@@ -43,19 +53,18 @@ impl AsRsValueType for RsValueInternal {
     }
 }
 
-impl AsRsValueType for RsValue {
-    fn as_value_type(&self) -> RsValueType {
-        match self {
-            RsValue::Undef => RsValueType::Undefined,
-            RsValue::Def(i) => i.as_value_type(),
-        }
-    }
-}
-
 impl AsRsValueType for SharedRsValue {
     fn as_value_type(&self) -> RsValueType {
         self.internal()
-            .map(AsRsValueType::as_value_type)
+            .map(|i| i.as_value_type())
+            .unwrap_or_default()
+    }
+}
+
+impl AsRsValueType for RsValue {
+    fn as_value_type(&self) -> RsValueType {
+        self.internal()
+            .map(|i| i.as_value_type())
             .unwrap_or_default()
     }
 }

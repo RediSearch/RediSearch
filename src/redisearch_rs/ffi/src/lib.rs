@@ -32,6 +32,9 @@ use std::{cell::UnsafeCell, pin::Pin, ptr};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+/// Access to the RediSearch Module context
+pub mod context;
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct QueryProcessingCtx {

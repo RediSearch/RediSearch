@@ -24,3 +24,6 @@
 /// of the original type, but hides its internals and is FFI-safe even if
 /// original is not.
 pub mod opaque;
+
+/// Provides the [`crate::debug_expect`] macro.
+pub mod debug_expect;

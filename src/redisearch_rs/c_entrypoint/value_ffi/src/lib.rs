@@ -8,19 +8,18 @@
 */
 
 #![allow(non_camel_case_types, non_snake_case)]
-#![allow(unused)] // TODO removedd
 
 use std::{
     ffi::{c_char, c_double},
     ptr::NonNull,
 };
 
-use c_ffi_utils::opaque::IntoOpaque;
-use value::{RsValue, opaque::OpaqueRsValue};
+use c_ffi_utils::{debug_expect, opaque::IntoOpaque};
+use value::{RsValue, Value, opaque::OpaqueRsValue};
 
 use crate::value_type::{AsRsValueType, RsValueType};
 
-pub mod map;
+pub mod collection;
 pub mod shared;
 pub mod value_type;
 
@@ -44,25 +43,37 @@ pub extern "C" fn RsValue_Number(n: c_double) -> OpaqueRsValue {
 /// The returned value itself is not heap-allocated, but does take ownership of the string.
 ///
 /// # Safety
-/// - The passed string pointer must point to a valid C string that
+/// - The passed string pointer must be non-null and point to a valid C string that
 ///   was allocated using `rm_malloc`
+/// - The passed string pointer must not be aliased
 /// - The passed length must match the length to the string.
+/// - The passed string pointer must not be aliased.
+/// - `RedisModule_Alloc` must not be mutated for the lifetime of the
+///   `OpaqueRsValue`.
 ///
 /// @param str The malloc'd string to wrap (ownership is transferred)
 /// @param len The length of the string
 /// @return A stack-allocated `RsValue` of type `RsValueType_String` with `RSString_Malloc` subtype
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RsValue_String(str: Option<NonNull<c_char>>, len: u32) -> OpaqueRsValue {
-    todo!()
+    // Safety: caller must ensure `str` is non-null
+    let str = unsafe { debug_expect!(str) };
+    // Safety: caller must ensure that:
+    // - `str` is not aliased;
+    // - `str` points to a string that is allocated using `rm_malloc`;
+    // - `RedisModule_Alloc` is not mutated for the lifetime of the returned `OpaqueRsValue`.
+    let v = unsafe { RsValue::rm_alloc_string(str, len) };
+    v.into_opaque()
 }
 
 /// Returns a pointer to a statically allocated NULL `RsValue`.
 /// This is a singleton - the same pointer is always returned.
 /// DO NOT free or modify this value.
+///
 /// @return A pointer to a static `RsValue` of type `RsValueType_Null`
 #[unsafe(no_mangle)]
 pub extern "C" fn RsValue_NullStatic() -> *const OpaqueRsValue {
-    static RSVALUE_NULL: RsValue = RsValue::null();
+    static RSVALUE_NULL: RsValue = RsValue::null_const();
     RSVALUE_NULL.as_opaque_ptr()
 }
 
