@@ -67,10 +67,6 @@ MRCommand MR_NewCommand(int argc, ...);
 /* Create a command from a list of redis strings */
 MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv);
 
-bool MRCommand_AddSlotRangeInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slotArray);
-
-bool MRCommand_AddSlotRangeInfo_HumanReadable(MRCommand *cmd, const RedisModuleSlotRangeArray *slotArray);
-
 void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos);
 void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slots);
 
