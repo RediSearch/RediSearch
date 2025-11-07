@@ -79,20 +79,20 @@ static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
  * but if we see performance issues in the future, we can consider using another algorithm
  * like QuickSelect or an approximation algorithm for the median.
  */
-static double NumericRange_GetMedian(QueryIterator *iter, size_t num_entries) {
+static double NumericRange_GetMedian(IndexReader *reader, RSIndexResult *res, size_t num_entries) {
   size_t median_idx = num_entries / 2;
   double_heap_t *low_half = double_heap_new(median_idx);
 
   // Read the first half of the values into a heap
   for (size_t i = 0; i < median_idx; i++) {
-    iter->Read(iter);
-    double_heap_add_raw(low_half, IndexResult_NumValue(iter->current));
+    IndexReader_Next(reader, res);
+    double_heap_add_raw(low_half, IndexResult_NumValue(res));
   }
   double_heap_heapify(low_half);
 
   // Read the rest of the values, replacing the max value in the heap if the current value is smaller
-  while (iter->Read(iter) == ITERATOR_OK) {
-    double value = IndexResult_NumValue(iter->current);
+  while (IndexReader_Next(reader, res)) {
+    double value = IndexResult_NumValue(res);
     if (value < double_heap_peek(low_half)) {
       double_heap_replace(low_half, value);
     }
@@ -101,7 +101,7 @@ static double NumericRange_GetMedian(QueryIterator *iter, size_t num_entries) {
   double median = double_heap_peek(low_half);
 
   double_heap_free(low_half);
-  iter->Rewind(iter);
+  IndexReader_Reset(reader);
   return median;
 }
 
@@ -135,20 +135,23 @@ static void NumericRangeNode_Split(NumericRangeNode *n, NRN_AddRv *rv) {
 
   rv->sz += lr->invertedIndexSize + rr->invertedIndexSize;
 
-  QueryIterator *iter = NewInvIndIterator_NumericFull(r->entries);
-  double split = NumericRange_GetMedian(iter, InvertedIndex_NumEntries(r->entries));
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
+  IndexReader *reader = NewIndexReader(r->entries, decoderCtx);
+  RSIndexResult *res = NewNumericResult();
+  double split = NumericRange_GetMedian(reader, res, InvertedIndex_NumEntries(r->entries));
   if (split == r->minVal) {
     // make sure the split is not the same as the min value
     split = nextafter(split, INFINITY);
   }
-  while (iter->Read(iter) == ITERATOR_OK) {
-    double value = IndexResult_NumValue(iter->current);
+  while (IndexReader_Next(reader, res)) {
+    double value = IndexResult_NumValue(res);
     NumericRange *cur = value < split ? lr : rr;
     updateCardinality(cur, value);
-    rv->sz += NumericRange_Add(cur, iter->current->docId, value);
+    rv->sz += NumericRange_Add(cur, res->docId, value);
     ++rv->numRecords;
   }
-  iter->Free(iter);
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
 
   n->maxDepth = 1;
   n->value = split;

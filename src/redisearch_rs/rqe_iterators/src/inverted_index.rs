@@ -109,7 +109,7 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.reader.unique_docs()
+        self.reader.unique_docs() as usize
     }
 
     fn last_doc_id(&self) -> t_docId {
@@ -118,6 +118,34 @@ where
 
     fn at_eof(&self) -> bool {
         self.at_eos
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // TODO: NumericCheckAbort when implementing queries
+
+        if !self.reader.needs_revalidation() {
+            return Ok(RQEValidateStatus::Ok);
+        }
+
+        // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
+        // anymore. This means that we need to seek the last docId we were at
+        let last_doc_id = self.last_doc_id();
+        // reset the state of the reader
+        self.rewind();
+
+        if last_doc_id == 0 {
+            // Cannot skip to 0
+            return Ok(RQEValidateStatus::Ok);
+        }
+
+        // try restoring the last docId
+        let res = match self.skip_to(last_doc_id)? {
+            Some(SkipToOutcome::Found(_)) => RQEValidateStatus::Ok,
+            Some(SkipToOutcome::NotFound(doc)) => RQEValidateStatus::Moved { current: Some(doc) },
+            None => RQEValidateStatus::Moved { current: None },
+        };
+
+        Ok(res)
     }
 }
 

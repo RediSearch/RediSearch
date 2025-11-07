@@ -225,7 +225,7 @@ IndexFlags InvertedIndex_Flags(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-uintptr_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
+uint32_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
 
 /**
  * Get a summary of the inverted index for debugging purposes.
@@ -310,7 +310,7 @@ t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
  */
-uintptr_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
+uint32_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
 
 /**
  * Increment the garbage collector marker of the inverted index. This is used by some C tests.
@@ -422,7 +422,7 @@ t_docId IndexBlock_LastId(const struct IndexBlock *ib);
  * The following invariant must be upheld when calling this function:
  * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
  */
-uintptr_t IndexBlock_NumEntries(const struct IndexBlock *ib);
+uint16_t IndexBlock_NumEntries(const struct IndexBlock *ib);
 
 /**
  * Get a pointer to the raw data of the index block. This is used by some C tests.
@@ -477,7 +477,7 @@ void IndexReader_Reset(struct IndexReader *ir);
  * The following invariant must be upheld when calling this function:
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  */
-uintptr_t IndexReader_NumEstimated(const struct IndexReader *ir);
+uint32_t IndexReader_NumEstimated(const struct IndexReader *ir);
 
 /**
  * Check if the index reader can read from the given inverted index. This is true if the index
