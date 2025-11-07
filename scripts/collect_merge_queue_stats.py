@@ -20,6 +20,21 @@ def get_yesterday_date_range():
 
     return start, end, yesterday.strftime("%Y-%m-%d")
 
+def fetch_jobs_for_run(token, jobs_url):
+    """Fetch jobs for a specific workflow run."""
+    headers = {}
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    try:
+        response = requests.get(jobs_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("jobs", [])
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️  Warning: Failed to fetch jobs: {e}")
+        return []
+
 def fetch_workflow_runs(token, repo, workflow, start_time, end_time):
     """Fetch workflow runs within date range from GitHub API."""
     url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/runs"
@@ -68,6 +83,12 @@ def fetch_workflow_runs(token, repo, workflow, start_time, end_time):
         if not runs:
             break
 
+        # Fetch jobs for each run
+        for run in runs:
+            jobs_url = run["jobs_url"]
+            jobs = fetch_jobs_for_run(token, jobs_url)
+            run["jobs"] = jobs
+
         all_runs.extend(runs)
 
         if len(runs) < per_page:
@@ -107,6 +128,54 @@ def extract_version_branch(branch_name):
             raise ValueError(f"Invalid merge queue branch format: {branch_name}")
         return parts[1]
     return branch_name
+
+def simplify_job_name(job_name):
+    """Simplify job name for display.
+
+    Special cases (show only title):
+    - "coverage / Test ubuntu-latest, Redis unstable" -> "coverage"
+    - "sanitize / Test ubuntu-latest, Redis unstable" -> "sanitize"
+    - "test-macos / build-macos (macos-15-intel) / ..." -> "macos-15-intel"
+    - "test-macos / build-macos (macos-latest) / ..." -> "macos-latest"
+    - "run-on-intel / Start self-hosted EC2 runner" -> "run-on-intel"
+
+    Container jobs (show as "container arch"):
+    - "test-linux / linux-matrix-aarch64 (gcc:11-bullseye) / ..." -> "gcc:11-bullseye aarch64"
+    - "test-linux / linux-matrix-x86_64 (ubuntu:noble) / ..." -> "ubuntu:noble x86_64"
+    """
+    import re
+
+    # Special case: coverage or sanitize (exact match at start)
+    if job_name.startswith("coverage /") or job_name.startswith("sanitize /"):
+        return job_name.split(" /")[0]
+
+    # Special case: test-macos with macos version
+    if job_name.startswith("test-macos / build-macos"):
+        # Extract macos version from parentheses: "test-macos / build-macos (macos-latest) / ..."
+        match = re.search(r'build-macos \(([^)]+)\)', job_name)
+        if match:
+            return match.group(1)
+
+    # Special case: run-on-intel or other non-container jobs
+    if job_name.startswith("run-on-intel"):
+        return "run-on-intel"
+
+    # For container jobs, extract container name and architecture
+    # Format: "test-linux / linux-matrix-aarch64 (gcc:11-bullseye) / Test gcc:11-bullseye, Redis unstable"
+
+    # Extract architecture from "linux-matrix-aarch64" or "linux-matrix-x86_64"
+    arch_match = re.search(r'linux-matrix-(aarch64|x86_64)', job_name)
+    arch = arch_match.group(1) if arch_match else None
+
+    # Extract container name from parentheses
+    container_match = re.search(r'\(([^)]+)\)', job_name)
+    container = container_match.group(1) if container_match else None
+
+    if container and arch:
+        return f"{container} {arch}"
+
+    # Fallback to original name if parsing fails
+    return job_name
 
 def print_summary(runs, rate_limit_info):
     """Print success/failure summary by branch and rate limit."""
@@ -156,6 +225,26 @@ def print_summary(runs, rate_limit_info):
             print(f"      ❌ {stats['failed']} failed")
         if stats["cancelled"] > 0:
             print(f"      ⏸️  {stats['cancelled']} cancelled")
+
+        # Show failed jobs for this branch
+        failed_jobs = {}
+        for run in runs:
+            full_branch = run["head_branch"]
+            run_branch = extract_version_branch(full_branch)
+
+            if run_branch == branch and run["conclusion"] == "failure":
+                jobs = run.get("jobs", [])
+                for job in jobs:
+                    if job["conclusion"] == "failure":
+                        job_name = job["name"]
+                        simplified_name = simplify_job_name(job_name)
+                        failed_jobs[simplified_name] = failed_jobs.get(simplified_name, 0) + 1
+
+        if failed_jobs:
+            print(f"      Failed Jobs:")
+            for job_name in sorted(failed_jobs.keys()):
+                count = failed_jobs[job_name]
+                print(f"         - {job_name} ({count})")
 
     if rate_limit_info:
         remaining, limit = rate_limit_info
