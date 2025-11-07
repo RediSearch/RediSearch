@@ -50,9 +50,13 @@ def fetch_workflow_runs(token, repo, workflow, start_time, end_time):
 
         # Extract rate limit from response headers
         if not rate_limit_info:
-            remaining = response.headers.get("X-RateLimit-Remaining", "unknown")
-            limit = response.headers.get("X-RateLimit-Limit", "unknown")
-            rate_limit_info = (remaining, limit)
+            try:
+                remaining = response.headers["X-RateLimit-Remaining"]
+                limit = response.headers["X-RateLimit-Limit"]
+                rate_limit_info = (remaining, limit)
+            except KeyError as e:
+                print(f"⚠️  Warning: Missing rate limit header: {e}")
+                rate_limit_info = (None, None)
 
         data = response.json()
 
@@ -86,18 +90,76 @@ def save_to_file(data, date_str):
         print(f"❌ Failed to write file: {e}")
         return None
 
+def extract_version_branch(branch_name):
+    """Extract version branch from merge queue branch name.
+
+    Examples:
+    - gh-readonly-queue/master/pr-7183-xxx -> master
+    - gh-readonly-queue/8.2/pr-7235-xxx -> 8.2
+    - master -> master
+    """
+    if not branch_name:
+        raise ValueError("branch_name is empty or None")
+
+    if branch_name.startswith("gh-readonly-queue/"):
+        parts = branch_name.split("/")
+        if len(parts) < 2:
+            raise ValueError(f"Invalid merge queue branch format: {branch_name}")
+        return parts[1]
+    return branch_name
+
 def print_summary(runs, rate_limit_info):
-    """Print success/failure summary and rate limit."""
-    success_count = sum(1 for r in runs if r.get("conclusion") == "success")
-    failed_count = sum(1 for r in runs if r.get("conclusion") == "failure")
+    """Print success/failure summary by branch and rate limit."""
+    # Overall stats
+    success_count = sum(1 for r in runs if r["conclusion"] == "success")
+    failed_count = sum(1 for r in runs if r["conclusion"] == "failure")
+    cancelled_count = sum(1 for r in runs if r["conclusion"] == "cancelled")
+
+    # Group by branch
+    branches = {}
+    for run in runs:
+        try:
+            full_branch = run["head_branch"]
+            conclusion = run["conclusion"]
+        except KeyError as e:
+            print(f"❌ Missing required field in run data: {e}")
+            sys.exit(1)
+
+        branch = extract_version_branch(full_branch)
+
+        if branch not in branches:
+            branches[branch] = {"success": 0, "failed": 0, "cancelled": 0}
+
+        if conclusion == "success":
+            branches[branch]["success"] += 1
+        elif conclusion == "failure":
+            branches[branch]["failed"] += 1
+        elif conclusion == "cancelled":
+            branches[branch]["cancelled"] += 1
 
     print()
     print("📈 Summary:")
     print(f"   ✅ Successful: {success_count}")
     print(f"   ❌ Failed: {failed_count}")
+    if cancelled_count > 0:
+        print(f"   ⏸️  Cancelled: {cancelled_count}")
+
+    print()
+    print("📊 By Branch:")
+    for branch in sorted(branches.keys()):
+        stats = branches[branch]
+        total = stats["success"] + stats["failed"] + stats["cancelled"]
+        success_pct = (stats["success"] / total * 100) if total > 0 else 0
+        print(f"   {branch}:")
+        print(f"      ✅ {stats['success']}/{total} ({success_pct:.1f}%)")
+        if stats["failed"] > 0:
+            print(f"      ❌ {stats['failed']} failed")
+        if stats["cancelled"] > 0:
+            print(f"      ⏸️  {stats['cancelled']} cancelled")
 
     if rate_limit_info:
         remaining, limit = rate_limit_info
+        print()
         print(f"   📊 API Rate Limit: {remaining}/{limit}")
 
 def main():
