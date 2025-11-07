@@ -3504,11 +3504,15 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   MRCommand_Insert(cmd, arg_pos++, n_prefixes, string_len);
   rm_free(n_prefixes);
 
-  for (uint i = 0; i < array_len(prefixes); i++) {
+  for (uint32_t i = 0; i < array_len(prefixes); i++) {
     size_t len;
     const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
     MRCommand_Insert(cmd, arg_pos++, prefix, len);
   }
+
+  // Prepare command for slot info (Cluster mode)
+  MRCommand_PrepareForSlotInfo(cmd, arg_pos);
+  arg_pos += 2;
 
   // Return spec references, no longer needed
   IndexSpecRef_Release(strong_ref);
