@@ -85,8 +85,13 @@ void* worker_thread_func(void* arg) {
     return nullptr;
 }
 
-// Keep the original test for backward compatibility
-TEST_F(SharedExclusiveLockTest, test_concurrency) {
+// Parametrized test class for concurrency testing with different timing values
+class SharedExclusiveLockParametrizedTest : public SharedExclusiveLockTest,
+                                           public ::testing::WithParamInterface<size_t> {
+};
+
+TEST_P(SharedExclusiveLockParametrizedTest, test_concurrency) {
+    const size_t param_value = GetParam();
     const int num_threads = 1000;
     const int work_iterations = 100;
     const int num_threads_to_remove = 100;
@@ -156,7 +161,7 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
     size_t thread_ids_set_size = thread_ids_set.size();
     ASSERT_LT(thread_ids_set_size, num_threads) << "Not all threads were able to acquire the lock";
 
-    usleep(1000000);
+    usleep(param_value);
     ASSERT_EQ(thread_ids_set_size, thread_ids_set.size()) << "Thread did not finish after UnsetOwned, while the GIL is not unlocked";
     RedisModule_ThreadSafeContextUnlock(ctx);
     // Verify the total work done
@@ -224,7 +229,8 @@ void* worker_thread_jobs(void* arg) {
 }
 
 // This test is more representative of the real use case.
-TEST_F(SharedExclusiveLockTest, test_jobs) {
+TEST_P(SharedExclusiveLockParametrizedTest, test_jobs) {
+  const size_t param_value = GetParam();
   const int num_threads = 16;
   const int num_jobs_per_thread = 500;
   const int num_jobs_to_wait = 100;
@@ -274,7 +280,7 @@ TEST_F(SharedExclusiveLockTest, test_jobs) {
   int num_jobs_finished = jobs_finished.load();
   int num_jobs_executed = job_counter;
 
-  usleep(1000000);
+  usleep(param_value);
 
   ASSERT_EQ(num_jobs_executed, job_counter) << "No more jobs should have run after UnsetOwned before releasing the GIL";
   RedisModule_ThreadSafeContextUnlock(ctx);
@@ -286,3 +292,13 @@ TEST_F(SharedExclusiveLockTest, test_jobs) {
   ASSERT_EQ(num_jobs_per_thread * num_threads, jobs_finished.load()) << "No more jobs should have finished after UnsetOwned before releasing the GIL";
   ASSERT_EQ(num_jobs_per_thread * num_threads, job_counter) << "No more jobs should have run after UnsetOwned before releasing the GIL";
 }
+
+// Instantiate the parametrized tests with different timing values (in microseconds)
+INSTANTIATE_TEST_SUITE_P(
+    TimingVariations,
+    SharedExclusiveLockParametrizedTest,
+    ::testing::Values(
+        0,        // No delay
+        1000000     // 1000ms
+    )
+);
