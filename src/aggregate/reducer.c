@@ -91,13 +91,10 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
 }
 
 int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options) {
-  printf("ReducerOpts_EnsureArgsConsumed\n");
   if (AC_NumRemaining(options->args)) {
     QueryError_FmtUnknownArg(options->status, options->args, options->name);
-    printf("ReducerOpts_EnsureArgsConsumed end failed\n");
     return 0;
   }
-  printf("ReducerOpts_EnsureArgsConsumed end\n");
   return 1;
 }
 

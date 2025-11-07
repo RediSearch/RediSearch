@@ -15,9 +15,6 @@
 #include <limits.h>
 #include "util/misc.h"
 #include "slot_ranges.h"
-#include "aggregate/aggregate.h"
-#include <stdatomic.h>
-#include <arpa/inet.h>
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
