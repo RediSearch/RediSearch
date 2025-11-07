@@ -130,17 +130,12 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                              ARG_OPT_CALLBACK, handleIndexPrefixes, ctx,
                              ARG_OPT_END);
 
-        ArgParser_AddSubArgsV(parser, "_RANGE_SLOTS_BINARY", "Slot ranges",
+        // Mandatory _SLOTS argument for internal requests
+        ArgParser_AddSubArgsV(parser, "_SLOTS", "Requested slots from coordinator",
                             &subArgs, 1, 1,
-                            ARG_OPT_OPTIONAL,
-                            ARG_OPT_CALLBACK, handleRangeSlotsBinary, ctx,
+                            ARG_OPT_REQUIRED,
+                            ARG_OPT_CALLBACK, handleSlots, ctx,
                             ARG_OPT_END);
-
-        ArgParser_AddSubArgsV(parser, "_RANGE_SLOTS_HR", "Slot ranges",
-                             &subArgs, 1, -1,
-                             ARG_OPT_OPTIONAL,
-                             ARG_OPT_CALLBACK, handleRangeSlotsHR, ctx,
-                             ARG_OPT_END);
 
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN

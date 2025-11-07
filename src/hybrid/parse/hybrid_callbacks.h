@@ -122,16 +122,9 @@ void handleExplainScore(ArgParser *parser, const void *value, void *user_data);
 void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data);
 
 /**
- * _RANGE_SLOTS_BINARY callback - handles _RANGE_SLOTS_BINARY <size> <binary_data>
- * sets slot ranges for later validation if needed
+ * _SLOTS callback - handles _SLOTS <binary_data>
  */
-void handleRangeSlotsBinary(ArgParser *parser, const void *value, void *user_data);
-
-/**
- * _RANGE_SLOTS_HR callback - handles _RANGE_SLOTS_HR <num_ranges> <start1> <end1> <start2> <end2> ...
- * sets slot ranges for later validation if needed
- */
-void handleRangeSlotsHR(ArgParser *parser, const void *value, void *user_data);
+void handleSlots(ArgParser *parser, const void *value, void *user_data);
 
 #ifdef __cplusplus
 }

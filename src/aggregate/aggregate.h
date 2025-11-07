@@ -141,7 +141,8 @@ typedef struct {
   const char ***requiredFields;     // Required fields
   size_t *maxSearchResults;         // Maximum search results
   size_t *maxAggregateResults;      // Maximum aggregate results
-  RedisModuleSlotRangeArray **coordSlotRanges; // Slots coming from coordinator (referenced from AREQ)
+  const RedisModuleSlotRangeArray **slotRanges; // Slots requested (referenced from AREQ)
+  uint32_t *slotsVersion;                       // Version given by the slots tracker
 } ParseAggPlanContext;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -204,9 +205,8 @@ typedef struct AREQ {
 
   /** Local slots info for this request */
   const SharedSlotRangeArray *slotRanges;
-
-  /* Slots coming from coordinator */
-  RedisModuleSlotRangeArray *coordSlotRanges;
+  const RedisModuleSlotRangeArray *slotRanges_;
+  uint32_t slotsVersion;
 
   /** Context for iterating over the queries themselves */
   QueryProcessingCtx qiter;

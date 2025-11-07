@@ -56,7 +56,8 @@ typedef struct {
     QEFlags *reqFlags;                      // Request flags
     size_t *maxResults;                     // Maximum results
     arrayof(const char*) *prefixes;         // Prefixes for the index
-    RedisModuleSlotRangeArray **coordSlotRanges; // Slots coming from coordinator (referenced from AREQ)
+    const RedisModuleSlotRangeArray **slotRanges; // Slots requested from coordinator (referenced from AREQ)
+    uint32_t *slotsVersion;                 // Slots version for the request (referenced from AREQ)
 } HybridParseContext;
 
 /**

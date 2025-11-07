@@ -47,8 +47,8 @@ typedef struct {
   bool stop;
 
   // timeout
+  uint32_t timeoutCounter;    // counter to limit number of calls to TimedOut()
   struct timespec timeout;  // milliseconds until timeout
-  size_t timeoutCounter;    // counter to limit number of calls to TimedOut()
 } RangeCtx;
 
 static void __trieNode_sortChildren(TrieNode *n);

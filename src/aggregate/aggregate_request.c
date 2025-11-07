@@ -248,7 +248,7 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
-static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status, bool *slotRanges_specified) {
+static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
   int rv;
   bool dialect_specified = false;
   // This handles the common arguments that are not stateful
@@ -356,88 +356,25 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "_RANGE_SLOTS_BINARY")) {
-    // Parse binary slot range format: _RANGE_SLOTS_BINARY <binary_data>
-    if (*slotRanges_specified) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Cannot specify both _RANGE_SLOTS_BINARY and _RANGE_SLOTS_HR");
+  } else if (AC_AdvanceIfMatch(ac, "_SLOTS")) {
+    if (*papCtx->slotRanges) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "_SLOTS already specified");
       return ARG_ERROR;
     }
-    *slotRanges_specified = true;
     if (AC_NumRemaining(ac) < 1) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_BINARY requires binary data arguments");
+      QueryError_SetError(status, QUERY_EPARSEARGS, "_SLOTS missing argument");
       return ARG_ERROR;
     }
-    // Get the binary data
-    const char *binary_data;
-    size_t binary_size;
-    if (AC_GetString(ac, &binary_data, &binary_size, 0) != AC_OK) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Missing binary data for _RANGE_SLOTS_BINARY");
+    size_t serialization_len;
+    const char *serialization = AC_GetStringNC(ac, &serialization_len);
+    RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
+    if (!slot_array) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to deserialize _SLOTS data");
       return ARG_ERROR;
     }
-
-    RS_ASSERT(binary_size % sizeof(RedisModuleSlotRange) == 0);
-    size_t num_ranges = binary_size / sizeof(RedisModuleSlotRange);
-    // Allocate memory for the slot range array
-    size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges;
-    RedisModuleSlotRangeArray *slot_array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
-    RS_ASSERT(slot_array)
-    // Deserialize the binary data into the slot array
-    if (!RedisModuleSlotRangeArray_DeserializeBinary((const uint8_t*)binary_data, binary_size, slot_array)) {
-      rm_free(slot_array);
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to deserialize _RANGE_SLOTS_BINARY data");
-      return ARG_ERROR;
-    }
-    // Create a SharedSlotRangeArray wrapper using the helper function
-    RS_ASSERT(*papCtx->coordSlotRanges == NULL);
-    *papCtx->coordSlotRanges = slot_array;
-  } else if (AC_AdvanceIfMatch(ac, "_RANGE_SLOTS_HR")) {
-    // Parse human-readable slot range format: _RANGE_SLOTS_HR <num_ranges> <start1> <end1> <start2> <end2> ...
-    if (*slotRanges_specified) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Cannot specify both _RANGE_SLOTS_BINARY and _RANGE_SLOTS_HR");
-      return ARG_ERROR;
-    }
-    *slotRanges_specified = true;
-    // Get the number of ranges
-    long long num_ranges_ll;
-    if (AC_GetLongLong(ac, &num_ranges_ll, 0) != AC_OK) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR requires number of ranges");
-      return ARG_ERROR;
-    }
-
-    int32_t num_ranges = (int32_t)num_ranges_ll;
-
-    // Check if we have enough arguments for all ranges (each range needs start and end)
-    if (AC_NumRemaining(ac) < (size_t)(num_ranges * 2)) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR: insufficient arguments for ranges");
-      return ARG_ERROR;
-    }
-
-    // Allocate memory for the slot range array
-    size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * num_ranges;
-    RedisModuleSlotRangeArray *slot_array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
-    slot_array->num_ranges = num_ranges;
-
-    // Parse each range pair
-    for (uint32_t i = 0; i < num_ranges; i++) {
-      long long start_ll, end_ll;
-
-      if (AC_GetLongLong(ac, &start_ll, 0) != AC_OK || AC_GetLongLong(ac, &end_ll, 0) != AC_OK) {
-        rm_free(slot_array);
-        QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR: invalid range values");
-        return ARG_ERROR;
-      }
-
-      if (start_ll > end_ll) {
-        rm_free(slot_array);
-        QueryError_SetError(status, QUERY_EPARSEARGS, "_RANGE_SLOTS_HR: start slot must be <= end slot");
-        return ARG_ERROR;
-      }
-
-      slot_array->ranges[i].start = (uint16_t)start_ll;
-      slot_array->ranges[i].end = (uint16_t)end_ll;
-    }
-    RS_ASSERT(*papCtx->coordSlotRanges == NULL);
-    *papCtx->coordSlotRanges = slot_array;
+    // TODO: check if the requested slots are available
+    *papCtx->slotRanges = slot_array;
+    *papCtx->slotsVersion = 0;
   } else {
     return ARG_UNKNOWN;
   }
@@ -672,9 +609,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .requiredFields = &req->requiredFields,
         .maxSearchResults = &req->maxSearchResults,
         .maxAggregateResults = &req->maxAggregateResults,
-        .coordSlotRanges = &req->coordSlotRanges
+        .slotRanges = &req->slotRanges_,
+        .slotsVersion = &req->slotsVersion,
       };
-      int rv = handleCommonArgs(&papCtx, ac, status, &slotRanges_specified);
+      int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
         // nothing
       } else if (rv == ARG_ERROR) {
@@ -1033,14 +971,12 @@ AREQ *AREQ_New(void) {
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
-  req->coordSlotRanges = NULL;
   return req;
 }
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
-  bool slotRanges_specified = false;
   while (!AC_IsAtEnd(ac)) {
-    int rv = handleCommonArgs(papCtx, ac, status, &slotRanges_specified);
+    int rv = handleCommonArgs(papCtx, ac, status);
     if (rv == ARG_HANDLED) {
       continue;
     } else if (rv == ARG_ERROR) {
@@ -1123,7 +1059,8 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .requiredFields = &req->requiredFields,
     .maxSearchResults = &req->maxSearchResults,
     .maxAggregateResults = &req->maxAggregateResults,
-    .coordSlotRanges = &req->coordSlotRanges
+    .slotRanges = &req->slotRanges_,
+    .slotsVersion = &req->slotsVersion,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
@@ -1445,7 +1382,7 @@ void AREQ_Free(AREQ *req) {
   }
 
   Slots_FreeLocalSlots(req->slotRanges);
-  rm_free(req->coordSlotRanges);
+  rm_free(req->slotRanges_);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.

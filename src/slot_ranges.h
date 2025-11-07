@@ -57,6 +57,12 @@ char *SlotRangesArray_Serialize(const RedisModuleSlotRangeArray *slot_range_arra
 /// @note The caller is responsible for freeing the returned structure with rm_free
 RedisModuleSlotRangeArray *SlotRangesArray_Deserialize(const char *buf, size_t buf_len);
 
+/// @brief Clone a slot range array
+/// @param src The slot range array to clone
+/// @return A pointer to the cloned slot range array
+/// @note The caller is responsible for freeing the returned structure with rm_free
+RedisModuleSlotRangeArray *SlotRangeArray_Clone(const RedisModuleSlotRangeArray *src);
+
 #ifdef __cplusplus
 }
 #endif
