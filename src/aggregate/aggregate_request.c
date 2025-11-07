@@ -358,18 +358,18 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, "_SLOTS")) {
     if (*papCtx->slotRanges) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "_SLOTS already specified");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "_SLOTS already specified");
       return ARG_ERROR;
     }
     if (AC_NumRemaining(ac) < 1) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "_SLOTS missing argument");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "_SLOTS missing argument");
       return ARG_ERROR;
     }
     size_t serialization_len;
     const char *serialization = AC_GetStringNC(ac, &serialization_len);
     RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
     if (!slot_array) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to deserialize _SLOTS data");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize _SLOTS data");
       return ARG_ERROR;
     }
     // TODO: check if the requested slots are available
@@ -1068,7 +1068,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 
   // Verify we got slots requested if needed
   if (IsInternal(req) && !req->slotRanges_) {
-    QueryError_SetError(status, QUERY_EINVAL, "Internal query missing slots specification");
+    QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Internal query missing slots specification");
     goto error;
   }
 
