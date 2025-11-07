@@ -356,7 +356,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "_SLOTS")) {
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, "_SLOTS")) {
     if (*papCtx->slotRanges) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "_SLOTS already specified");
       return ARG_ERROR;
@@ -1063,6 +1063,12 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .slotsVersion = &req->slotsVersion,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  // Verify we got slots requested if needed
+  if (IsInternal(req) && !req->slotRanges_) {
+    QueryError_SetError(status, QUERY_EINVAL, "Internal query missing slots specification");
     goto error;
   }
 
