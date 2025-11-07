@@ -26,6 +26,11 @@ redisearch_thpool_t *_workers_thpool = NULL;
 size_t yield_counter = 0;
 size_t in_event = 0; // event counter, >0 means we should be in event mode (some events can start before others end)
 
+
+/** Yield callback for workersThreadPool_Drain.
+ * @param yieldCtx RedisModuleCtx*
+ * @warning Should only be called from the main thread, and while the GIL is held.
+*/
 static void yieldCallback(void *yieldCtx) {
   yield_counter++;
   if (yield_counter % 10 == 0 || yield_counter == 1) {
@@ -34,7 +39,7 @@ static void yieldCallback(void *yieldCtx) {
   }
   RedisModuleCtx *ctx = yieldCtx;
   // Guarantee that workers and main thread do not Yield and RedisModule_Call concurrently.
-  SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(ctx);
+  SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(ctx, true);
   RS_LOG_ASSERT(lockType == Internal_Locked, "While draining, We should own the GIL, thus we should have acquired the internal lock, to guarantee that no other thread will try to acquire the GIL.");
   RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
   SharedExclusiveLock_Release(ctx, lockType);

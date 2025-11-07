@@ -61,7 +61,7 @@ void* worker_thread_func(void* arg) {
 
     std::this_thread::sleep_for(std::chrono::microseconds(10 * data->sleep_microseconds)); // 0.1s
     // Try to acquire the lock and do some work
-    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
+    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx, false);
     data->thread_ids_set->insert(data->thread_id);
 
     // Allocate and free shared pointer - this will crash if there are race conditions
@@ -211,7 +211,7 @@ void* worker_thread_jobs(void* arg) {
   for (int i = 0; i < data->num_jobs; ++i) {
     std::this_thread::sleep_for(std::chrono::microseconds(10 * data->sleep_microseconds));
     // Try to acquire the lock and do some work
-    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
+    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx, false);
     // Allocate and free shared pointer - this will crash if there are race conditions
     *(data->shared_ptr) = (int*)malloc(sizeof(int) * 10);
     *(data->job_counter) += 1;
