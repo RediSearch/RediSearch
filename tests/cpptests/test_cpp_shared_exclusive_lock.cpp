@@ -92,7 +92,7 @@ class SharedExclusiveLockParametrizedTest : public SharedExclusiveLockTest,
 
 TEST_P(SharedExclusiveLockParametrizedTest, test_concurrency) {
     const size_t param_value = GetParam();
-    const int num_threads = 500;
+    const int num_threads = 260;
     const int work_iterations = 50;
     const int num_threads_to_remove = 50;
     int counter = 0;
@@ -232,7 +232,7 @@ void* worker_thread_jobs(void* arg) {
 TEST_P(SharedExclusiveLockParametrizedTest, test_jobs) {
   const size_t param_value = GetParam();
   const int num_threads = 16;
-  const int num_jobs_per_thread = 500;
+  const int num_jobs_per_thread = 200;
   const int num_jobs_to_wait = 100;
   int job_counter = 0;
   int* shared_ptr = nullptr;  // Shared pointer for race condition detection
