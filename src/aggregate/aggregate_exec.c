@@ -414,17 +414,11 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       resultsLen = calc_results_len(req, limit);
     }
 
-    if (IsOptimized(req) && !IsAggregate(req)) {
-      QOptimizer_UpdateTotalResults(req);
-    }
+    if ((!IsAggregate(req) && IsOptimized(req)) ||
+        (IsAggregate(req) && IsWithCount(req))
+        ) {
 
-    // For WITHCOUNT with explicit LIMIT > 0, cap totalResults to the LIMIT value (similar to optimized FT.SEARCH)
-    // For LIMIT 0 0, we want to return the full count (not cap to 0)
-    if (IsAggregate(req) && (IsWithCount(req))) {
-      PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-      if (arng && arng->isLimited && arng->limit > 0) {
-        QOptimizer_UpdateTotalResults(req);
-      }
+      QOptimizer_UpdateTotalResults(req);
     }
 
     // Upon `FT.PROFILE` commands, embed the response inside another map
@@ -544,17 +538,11 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       Profile_PrepareMapForReply(reply);
     }
 
-    if (IsOptimized(req) && !IsAggregate(req)) {
-      QOptimizer_UpdateTotalResults(req);
-    }
+    if ((!IsAggregate(req) && IsOptimized(req)) ||
+        (IsAggregate(req) && IsWithCount(req))
+        ) {
 
-    // For WITHCOUNT with explicit LIMIT > 0, cap totalResults to the LIMIT value (similar to optimized FT.SEARCH)
-    // For LIMIT 0 0, we want to return the full count (not cap to 0)
-    if (IsAggregate(req) && IsWithCount(req)) {
-      PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-      if (arng && arng->isLimited && arng->limit > 0) {
-        QOptimizer_UpdateTotalResults(req);
-      }
+      QOptimizer_UpdateTotalResults(req);
     }
 
     // <attributes>
