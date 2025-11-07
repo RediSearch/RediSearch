@@ -21,3 +21,11 @@ jobs:
 
       - name: Collect merge queue statistics
         run: python scripts/collect_merge_queue_stats.py
+
+      - name: Upload merge queue stats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-queue-stats
+          path: merge_queue_*.json
+          retention-days: 30

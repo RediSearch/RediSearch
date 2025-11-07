@@ -30,6 +30,7 @@ def fetch_workflow_runs(token, repo, workflow, start_time, end_time):
     all_runs = []
     page = 1
     per_page = 100
+    rate_limit_info = None
 
     while True:
         params = {
@@ -45,13 +46,19 @@ def fetch_workflow_runs(token, repo, workflow, start_time, end_time):
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
             print(f"❌ API request failed: {e}")
-            return None
+            return None, None
+
+        # Extract rate limit from response headers
+        if not rate_limit_info:
+            remaining = response.headers.get("X-RateLimit-Remaining", "unknown")
+            limit = response.headers.get("X-RateLimit-Limit", "unknown")
+            rate_limit_info = (remaining, limit)
 
         data = response.json()
 
         if "workflow_runs" not in data:
             print(f"❌ Unexpected API response: {data}")
-            return None
+            return None, None
 
         runs = data["workflow_runs"]
         if not runs:
@@ -64,7 +71,7 @@ def fetch_workflow_runs(token, repo, workflow, start_time, end_time):
 
         page += 1
 
-    return all_runs
+    return all_runs, rate_limit_info
 
 def save_to_file(data, date_str):
     """Save data to JSON file."""
@@ -79,14 +86,19 @@ def save_to_file(data, date_str):
         print(f"❌ Failed to write file: {e}")
         return None
 
-def print_summary(runs):
-    """Print success/failure summary."""
+def print_summary(runs, rate_limit_info):
+    """Print success/failure summary and rate limit."""
     success_count = sum(1 for r in runs if r.get("conclusion") == "success")
     failed_count = sum(1 for r in runs if r.get("conclusion") == "failure")
+
     print()
     print("📈 Summary:")
     print(f"   ✅ Successful: {success_count}")
     print(f"   ❌ Failed: {failed_count}")
+
+    if rate_limit_info:
+        remaining, limit = rate_limit_info
+        print(f"   📊 API Rate Limit: {remaining}/{limit}")
 
 def main():
     """Main entry point."""
@@ -106,6 +118,8 @@ def main():
 
     # Check if file already exists
     filename = f"merge_queue_{date_str}.json"
+    rate_limit_info = None
+
     if os.path.exists(filename):
         print(f"✅ File {filename} already exists, skipping API call")
         with open(filename, "r") as f:
@@ -114,7 +128,7 @@ def main():
     else:
         # Fetch data
         print("🔄 Fetching workflow runs...")
-        runs = fetch_workflow_runs(token, repo, workflow, start_time, end_time)
+        runs, rate_limit_info = fetch_workflow_runs(token, repo, workflow, start_time, end_time)
 
         if runs is None:
             print("❌ Failed to fetch data")
@@ -132,7 +146,7 @@ def main():
         save_to_file(runs, date_str)
 
     # Print summary
-    print_summary(runs)
+    print_summary(runs, rate_limit_info)
     print()
     print("✅ Done!")
 
