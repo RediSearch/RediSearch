@@ -372,7 +372,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize _SLOTS data");
       return ARG_ERROR;
     }
-    // TODO: check if the requested slots are available
+    // TODO ASM: check if the requested slots are available
     *papCtx->slotRanges = slot_array;
     *papCtx->slotsVersion = 0;
   } else {

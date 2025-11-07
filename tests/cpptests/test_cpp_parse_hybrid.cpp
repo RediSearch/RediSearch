@@ -670,6 +670,7 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   };
   char * serializedSlots = SlotRangesArray_Serialize(&slots);
   args.add(serializedSlots, SlotRangeArray_SizeOf(1));
+  rm_free(serializedSlots);
 
   QueryError status = QueryError_Default();
 

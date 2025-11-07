@@ -461,7 +461,7 @@ void handleSlots(ArgParser *parser, const void *value, void *user_data) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize _SLOTS data");
         return;
     }
-    // TODO: check if the requested slots are available
+    // TODO ASM: check if the requested slots are available
     *ctx->slotRanges = slot_array;
     *ctx->slotsVersion = 0;
 }
