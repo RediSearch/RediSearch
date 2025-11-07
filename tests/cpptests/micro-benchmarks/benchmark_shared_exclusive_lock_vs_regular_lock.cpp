@@ -192,6 +192,53 @@ BENCHMARK_DEFINE_F(BM_SharedExclusiveLockVsMutex, RegularMutex)(benchmark::State
     }
 }
 
+// Benchmark using SharedExclusiveLock coordination with main thread holding lock initially
+BENCHMARK_DEFINE_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWhileOwned)(benchmark::State& state) {
+    const int num_threads = state.range(0);
+    const int sleep_microseconds = state.range(1);
+
+    for (auto _ : state) {
+        std::atomic<int> threads_ready{0};
+        std::atomic<bool> start_flag{false};
+
+        std::vector<pthread_t> threads(num_threads);
+        std::vector<SharedExclusiveLockBenchmarkData> thread_data(num_threads);
+
+        // Create worker threads
+        for (int i = 0; i < num_threads; ++i) {
+            thread_data[i] = {
+                ctx,
+                &threads_ready,
+                &start_flag,
+                sleep_microseconds
+            };
+            int rc = pthread_create(&threads[i], nullptr, shared_exclusive_lock_worker, &thread_data[i]);
+            if (rc != 0) {
+                state.SkipWithError("Failed to create thread");
+                return;
+            }
+        }
+
+        // Wait for all threads to be ready
+        while (threads_ready.load() < num_threads) {
+            std::this_thread::sleep_for(std::chrono::microseconds(1));
+        }
+
+        // Set the lock to owned state before starting threads
+        SharedExclusiveLock_SetOwned();
+
+        // Signal threads to start
+        start_flag.store(true);
+
+        // Wait for all threads to complete
+        for (int i = 0; i < num_threads; ++i) {
+            pthread_join(threads[i], nullptr);
+        }
+
+        SharedExclusiveLock_UnsetOwned();
+    }
+}
+
 // Register benchmarks with different configurations
 // Arguments: (num_threads, sleep_microseconds)
 
@@ -203,6 +250,12 @@ BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLock)
     ->Unit(benchmark::kMillisecond);
 
 BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, RegularMutex)
+    ->Args({4, 0})
+    ->Args({8, 0})
+    ->Args({16, 0})
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWhileOwned)
     ->Args({4, 0})
     ->Args({8, 0})
     ->Args({16, 0})
@@ -221,6 +274,11 @@ BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, RegularMutex)
     ->Args({16, 100})
     ->Unit(benchmark::kMillisecond);
 
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWhileOwned)
+  ->Args({4, 100})
+  ->Args({8, 100})
+  ->Args({16, 100})
+  ->Unit(benchmark::kMillisecond);
 
 // Medium workload - more threads, small sleep
 BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLock)
@@ -235,6 +293,12 @@ BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, RegularMutex)
     ->Args({64, 100})
     ->Unit(benchmark::kMillisecond);
 
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWhileOwned)
+    ->Args({16, 100})
+    ->Args({32, 100})
+    ->Args({64, 100})
+    ->Unit(benchmark::kMillisecond);
+
 // Heavy workload - many threads, longer sleep
 BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLock)
     ->Args({64, 1000})
@@ -243,6 +307,12 @@ BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLock)
     ->Unit(benchmark::kMillisecond);
 
 BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, RegularMutex)
+    ->Args({64, 1000})
+    ->Args({128, 1000})
+    ->Args({256, 1000})
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWhileOwned)
     ->Args({64, 1000})
     ->Args({128, 1000})
     ->Args({256, 1000})
