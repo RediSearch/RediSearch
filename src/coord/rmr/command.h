@@ -32,6 +32,9 @@ typedef struct {
   /* Number of arguments */
   uint32_t num;
 
+  /* Slots info offset - 0 if not set (first argument is always the command) */
+  uint32_t slotsInfoArgIndex;
+
   /* if not -1, this value indicate to which shard the command should be sent */
   int16_t targetShard;
 
@@ -67,6 +70,9 @@ MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv);
 bool MRCommand_AddSlotRangeInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slotArray);
 
 bool MRCommand_AddSlotRangeInfo_HumanReadable(MRCommand *cmd, const RedisModuleSlotRangeArray *slotArray);
+
+void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos);
+void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slots);
 
 static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t idx, size_t *len) {
   // assert(idx < cmd->num);

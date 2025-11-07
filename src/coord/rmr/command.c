@@ -59,6 +59,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->num = len;
   cmd->strs = rm_malloc(sizeof(*cmd->strs) * len);
   cmd->lens = rm_malloc(sizeof(*cmd->lens) * len);
+  cmd->slotsInfoArgIndex = 0;
   cmd->targetShard = INVALID_SHARD;
   cmd->cmd = NULL;
   cmd->protocol = 0;
@@ -81,12 +82,13 @@ MRCommand MR_NewCommandArgv(int argc, const char **argv) {
 MRCommand MRCommand_Copy(const MRCommand *cmd) {
   MRCommand ret;
   MRCommand_Init(&ret, cmd->num);
+  ret.slotsInfoArgIndex = cmd->slotsInfoArgIndex;
+  ret.targetShard = cmd->targetShard;
   ret.protocol = cmd->protocol;
   ret.forCursor = cmd->forCursor;
   ret.forProfiling = cmd->forProfiling;
   ret.rootCommand = cmd->rootCommand;
   ret.depleted = cmd->depleted;
-  ret.targetShard = cmd->targetShard;
   for (int i = 0; i < cmd->num; i++) {
     copyStr(&ret, i, cmd, i);
   }
@@ -124,6 +126,10 @@ static void extendCommandList(MRCommand *cmd, size_t toAdd) {
 void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n) {
   int oldNum = cmd->num;
   extendCommandList(cmd, 1);
+
+  if (pos < cmd->slotsInfoArgIndex && cmd->slotsInfoArgIndex > 0) {
+    cmd->slotsInfoArgIndex++;
+  }
 
   // shift right all arguments that comes after pos
   memmove(cmd->strs + pos + 1, cmd->strs + pos, (oldNum - pos) * sizeof(char*));
@@ -218,6 +224,32 @@ void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
   cmd->protocol = is_resp3(ctx) ? 3 : 2;
+}
+
+void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos) {
+  // Make place for `_SLOTS <binary data>`
+  extendCommandList(cmd, 2);
+
+  // shift right all arguments that comes after pos
+  memmove(cmd->strs + pos + 2, cmd->strs + pos, (cmd->num - 2 - pos) * sizeof(char*));
+  memmove(cmd->lens + pos + 2, cmd->lens + pos, (cmd->num - 2 - pos) * sizeof(size_t));
+
+  // Assign the `_SLOTS` marker at pos
+  assignStr(cmd, pos, "_SLOTS", sizeof("_SLOTS") - 1);
+  // Leave space for the binary data at pos + 1 (to be filled later)
+  cmd->strs[pos + 1] = NULL;
+  cmd->lens[pos + 1] = 0;
+  cmd->slotsInfoArgIndex = pos + 1;
+}
+
+void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slots) {
+  RS_ASSERT(cmd->slotsInfoArgIndex > 0 && cmd->slotsInfoArgIndex < cmd->num);
+  RS_ASSERT(cmd->strs[cmd->slotsInfoArgIndex] == NULL);
+  RS_ASSERT(!strcmp(cmd->strs[cmd->slotsInfoArgIndex - 1], "_SLOTS"));
+
+  // Assign the binary data to the command
+  cmd->lens[cmd->slotsInfoArgIndex] = SlotRangeArray_SizeOf(slots->num_ranges);
+  cmd->strs[cmd->slotsInfoArgIndex] = SlotRangesArray_Serialize(slots);
 }
 
 /**
