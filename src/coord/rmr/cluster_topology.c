@@ -10,6 +10,7 @@
 #include "cluster_topology.h"
 #include "endpoint.h"
 #include "rmalloc.h"
+#include "slot_ranges.h"
 #include "rmutil/rm_assert.h"
 
 MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges) {
@@ -20,10 +21,6 @@ MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray
   return ret;
 }
 
-void MRClusterShard_Free(MRClusterShard *sh) {
-  MRClusterNode_Free(&sh->node);
-  rm_free(sh->slotRanges);
-}
 
 MRClusterTopology *MR_NewTopology(uint32_t numShards) {
   MRClusterTopology *topo = rm_new(MRClusterTopology);
@@ -45,12 +42,8 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
   MRClusterTopology *topo = MR_NewTopology(t->numShards);
   for (int s = 0; s < t->numShards; s++) {
     MRClusterShard *original_shard = &t->shards[s];
-    RedisModuleSlotRangeArray *slot_ranges = NULL;
-    if (original_shard->slotRanges != NULL) {
-      size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * original_shard->slotRanges->num_ranges;
-      slot_ranges = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
-      memcpy(slot_ranges, original_shard->slotRanges, total_size);
-    }
+
+    RedisModuleSlotRangeArray *slot_ranges = SlotRangeArray_Clone(original_shard->slotRanges);
     MRClusterShard new_shard = MR_NewClusterShard(&original_shard->node, slot_ranges);
 
     new_shard.node.id = rm_strdup(original_shard->node.id);
@@ -62,9 +55,14 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
   return topo;
 }
 
-void MRClusterNode_Free(MRClusterNode *n) {
+static void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
   rm_free((char *)n->id);
+}
+
+static void MRClusterShard_Free(MRClusterShard *sh) {
+  MRClusterNode_Free(&sh->node);
+  rm_free(sh->slotRanges);
 }
 
 void MRClusterTopology_Free(MRClusterTopology *t) {
