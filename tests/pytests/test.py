@@ -4601,6 +4601,8 @@ def test_timeoutCoordSearch_Strict():
     env.assertEqual(res[0], n_docs)
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '0')
     env.assertEqual(res[0], n_docs)
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'TIMEOUT', '0')
+    env.assertEqual(res[0], n_docs)
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'TIMEOUT', '0')
     env.assertEqual(res[0], n_docs)
 
