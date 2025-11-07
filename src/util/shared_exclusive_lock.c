@@ -61,7 +61,7 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   while (true) {
     int rc = REDISMODULE_ERR;
     // GILAlternativeLockHeld condition check is needed to avoid race condition with the Release.
-    if (GILOwned) {
+    if (GILOwned && !GILAlternativeLockHeld) {
       rc = pthread_mutex_trylock(&GILAlternativeLock);
       if (rc == 0) {
         // We acquired the alternative lock, we can return.
