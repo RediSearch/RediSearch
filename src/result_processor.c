@@ -172,7 +172,7 @@ validate_current:
 static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
   self->iterator->Free(self->iterator);
-  rm_free(self->slotRanges_);
+  rm_free((void *)self->slotRanges_);
   Slots_FreeLocalSlots(self->slotRanges);
   rm_free(iter);
 }

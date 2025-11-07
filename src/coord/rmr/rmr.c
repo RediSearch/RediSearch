@@ -44,6 +44,9 @@
 /* A cluster is a pool of IORuntimes. It is owned by the main thread and accessed in the coordinator threads */
 static MRCluster *cluster_g = NULL;
 
+// Number of shards in the cluster (main-thread variable)
+extern size_t NumShards;
+
 /* Coordination request timeout */
 long long timeout_g = 5000; // unused value. will be set in MR_Init
 
@@ -279,7 +282,6 @@ static void uvUpdateConnPoolSize(void *p) {
   rm_free(ctx);
 }
 
-extern size_t NumShards;
 void MR_UpdateConnPoolSize(size_t conn_pool_size) {
   if (!cluster_g) return; // not initialized yet, we have nothing to update yet.
   if (NumShards == 1) {

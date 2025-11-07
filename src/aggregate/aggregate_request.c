@@ -1388,7 +1388,7 @@ void AREQ_Free(AREQ *req) {
   }
 
   Slots_FreeLocalSlots(req->slotRanges);
-  rm_free(req->slotRanges_);
+  rm_free((void *)req->slotRanges_);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.
