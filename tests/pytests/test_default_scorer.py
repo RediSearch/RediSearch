@@ -167,18 +167,18 @@ def test_default_scorer_startup_validation():
     try:
         env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES false DEFAULT_SCORER TFIDF')
         assert not env.isUp()
-    except:
+    except Exception as e:
         assert not isinstance(e, AssertionError)
 
     # These do not work because the ENABLE_UNSTABLE_FEATURES is after the DEFAULT_SCORER (not sure it can be bypassed)
     try:
         env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER example_scorer ENABLE_UNSTABLE_FEATURES true')
         assert not env.isUp()
-    except:
+    except Exception as e:
         assert not isinstance(e, AssertionError)
 
     try:
         env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER TFIDF ENABLE_UNSTABLE_FEATURES true')
         assert not env.isUp()
-    except:
+    except Exception as e:
         assert not isinstance(e, AssertionError)
