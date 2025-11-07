@@ -46,6 +46,7 @@ struct WorkerThreadData {
     int thread_id;
     int work_iterations;
     int sleep_microseconds;
+    int **shared_ptr;  // Shared pointer that each thread will allocate/free
 };
 
 // Worker thread function that tries to acquire the shared exclusive lock
@@ -63,10 +64,19 @@ void* worker_thread_func(void* arg) {
     SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
     data->thread_ids_set->insert(data->thread_id);
 
+    // Allocate and free shared pointer - this will crash if there are race conditions
+    *(data->shared_ptr) = (int*)malloc(sizeof(int) * 10);
+    // Write to the allocated memory
+    for (int i = 0; i < 10; ++i) {
+        (*(data->shared_ptr))[i] = data->thread_id;
+    }
     // Simulate some work
     for (int i = 0; i < data->work_iterations; ++i) {
         *(data->counter) += 1;
     }
+    // Free the memory
+    free(*(data->shared_ptr));
+    *(data->shared_ptr) = nullptr;
     std::this_thread::sleep_for(std::chrono::microseconds(data->sleep_microseconds));
 
     // Release the lock
@@ -75,11 +85,13 @@ void* worker_thread_func(void* arg) {
     return nullptr;
 }
 
+// Keep the original test for backward compatibility
 TEST_F(SharedExclusiveLockTest, test_concurrency) {
     const int num_threads = 1000;
     const int work_iterations = 100;
     const int num_threads_to_remove = 100;
     int counter = 0;
+    int* shared_ptr = nullptr;  // Shared pointer for race condition detection
     std::atomic<bool> start_flag{false};
     std::atomic<int> threads_ready{0};
     std::unordered_set<int> thread_ids_set;
@@ -89,17 +101,17 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
 
     // Create worker threads
     for (int i = 0; i < num_threads / 2; ++i) {
-        thread_data[i] = {
-            ctx,
-            &counter,
-            &threads_ready,
-            &threads_finished,
-            &start_flag,
-            &thread_ids_set,
-            i,
-            work_iterations,
-            10000,
-        };
+        thread_data[i].ctx = ctx;
+        thread_data[i].counter = &counter;
+        thread_data[i].threads_ready = &threads_ready;
+        thread_data[i].threads_finished = &threads_finished;
+        thread_data[i].start_flag = &start_flag;
+        thread_data[i].thread_ids_set = &thread_ids_set;
+        thread_data[i].thread_id = i;
+        thread_data[i].work_iterations = work_iterations;
+        thread_data[i].sleep_microseconds = 10000;
+        thread_data[i].shared_ptr = &shared_ptr;  // Point to shared counter
+
         int rc = pthread_create(&threads[i], nullptr, worker_thread_func, &thread_data[i]);
         ASSERT_EQ(rc, 0) << "Failed to create thread " << i;
     }
@@ -122,19 +134,19 @@ TEST_F(SharedExclusiveLockTest, test_concurrency) {
     }
     ASSERT_GE(thread_ids_set.size(), num_threads_to_remove) << "At least num_threads_to_remove should have finished";
     for (int i = num_threads / 2; i < num_threads; ++i) {
-        thread_data[i] = {
-          ctx,
-          &counter,
-          &threads_ready,
-          &threads_finished,
-          &start_flag,
-          &thread_ids_set,
-          i,
-          work_iterations,
-          100,
-      };
-      int rc = pthread_create(&threads[i], nullptr, worker_thread_func, &thread_data[i]);
-      ASSERT_EQ(rc, 0) << "Failed to create thread " << i;
+        thread_data[i].ctx = ctx;
+        thread_data[i].counter = &counter;
+        thread_data[i].threads_ready = &threads_ready;
+        thread_data[i].threads_finished = &threads_finished;
+        thread_data[i].start_flag = &start_flag;
+        thread_data[i].thread_ids_set = &thread_ids_set;
+        thread_data[i].thread_id = i;
+        thread_data[i].work_iterations = work_iterations;
+        thread_data[i].sleep_microseconds = 100;
+        thread_data[i].shared_ptr = &shared_ptr;  // Point to shared counter
+
+        int rc = pthread_create(&threads[i], nullptr, worker_thread_func, &thread_data[i]);
+        ASSERT_EQ(rc, 0) << "Failed to create thread " << i;
     }
     // Wait for all threads to be ready
     while (threads_ready.load() < num_threads) {
@@ -178,6 +190,7 @@ struct JobsThreadData {
   std::atomic<int> *jobs_finished;
   std::atomic<bool> *start_flag;
   int sleep_microseconds;
+  int **shared_ptr;  // Shared pointer that each thread will allocate/free
 };
 
 // Worker thread function that tries to acquire the shared exclusive lock
@@ -194,8 +207,13 @@ void* worker_thread_jobs(void* arg) {
     std::this_thread::sleep_for(std::chrono::microseconds(10 * data->sleep_microseconds));
     // Try to acquire the lock and do some work
     SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
+    // Allocate and free shared pointer - this will crash if there are race conditions
+    *(data->shared_ptr) = (int*)malloc(sizeof(int) * 10);
     *(data->job_counter) += 1;
-
+    // Write to the allocated memory
+    for (int i = 0; i < 10; ++i) {
+      (*(data->shared_ptr))[i] = i;
+    }
     std::this_thread::sleep_for(std::chrono::microseconds(data->sleep_microseconds));
 
     // Release the lock
@@ -211,6 +229,7 @@ TEST_F(SharedExclusiveLockTest, test_jobs) {
   const int num_jobs_per_thread = 500;
   const int num_jobs_to_wait = 100;
   int job_counter = 0;
+  int* shared_ptr = nullptr;  // Shared pointer for race condition detection
   std::atomic<bool> start_flag{false};
   std::atomic<int> threads_ready{0};
   std::unordered_set<int> thread_ids_set;
@@ -228,6 +247,7 @@ TEST_F(SharedExclusiveLockTest, test_jobs) {
         &jobs_finished,
         &start_flag,
         100,
+        &shared_ptr,
     };
     int rc = pthread_create(&threads[i], nullptr, worker_thread_jobs, &thread_data[i]);
     ASSERT_EQ(rc, 0) << "Failed to create thread " << i;
