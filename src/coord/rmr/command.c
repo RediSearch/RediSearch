@@ -124,10 +124,12 @@ static void extendCommandList(MRCommand *cmd, size_t toAdd) {
 }
 
 void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n) {
+  RS_ASSERT(0 <= pos && pos <= cmd->num);
   int oldNum = cmd->num;
   extendCommandList(cmd, 1);
 
-  if (pos < cmd->slotsInfoArgIndex && cmd->slotsInfoArgIndex > 0) {
+  RS_LOG_ASSERT(!cmd->slotsInfoArgIndex || cmd->slotsInfoArgIndex != pos, "Cannot insert between _SLOTS and its data");
+  if (cmd->slotsInfoArgIndex && pos < cmd->slotsInfoArgIndex) {
     cmd->slotsInfoArgIndex++;
   }
 
@@ -166,14 +168,11 @@ void MRCommand_SetPrefix(MRCommand *cmd, const char *newPrefix) {
   MRCommand_ReplaceArgNoDup(cmd, 0, buf, len);
 }
 
-void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, const char *newArg, size_t len) {
-  if (index < 0 || index >= cmd->num) {
-    return;
-  }
-  char *tmp = cmd->strs[index];
-  cmd->strs[index] = (char *)newArg;
+void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, char *newArg, size_t len) {
+  RS_ASSERT(0 <= index && index < cmd->num);
+  rm_free(cmd->strs[index]);
+  cmd->strs[index] = newArg;
   cmd->lens[index] = len;
-  rm_free(tmp);
 }
 void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t len) {
   char *news = rm_malloc(len + 1);

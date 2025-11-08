@@ -88,7 +88,7 @@ void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n);
  * the command. */
 void MRCommand_SetPrefix(MRCommand *cmd, const char *newPrefix);
 void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t len);
-void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, const char *newArg, size_t len);
+void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, char *newArg, size_t len);
 
 /** Replace a substring within an argument at a specific position
  * OPTIMIZATION: Avoids reallocation when new string is same/shorter length.
