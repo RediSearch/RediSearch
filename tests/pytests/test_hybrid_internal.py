@@ -332,6 +332,13 @@ def test_hybrid_internal_error_cases(env):
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                'VSIM', '@nonexistent', query_vec.tobytes(), '_SLOTS', generate_slots()).error().contains('Unknown field `nonexistent`')
 
+    # Test with bad slots data
+    env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+               'VSIM', '@embedding', query_vec.tobytes(), '_SLOTS', 'BAD_SLOTS_DATA').error().contains('Failed to deserialize _SLOTS data')
+    # Edge case: Test syntax error after parsing _SLOTS (for coverage and memory leaks)
+    env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+               'VSIM', '@embedding', query_vec.tobytes(), '_SLOTS', generate_slots(), 'INVALID_SYNTAX').error().contains('Unknown argument')
+
 
 def test_hybrid_internal_cursor_limit(env):
     """Test _FT.HYBRID cursor limit per shard
