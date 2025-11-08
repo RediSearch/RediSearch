@@ -67,7 +67,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
   const char *myID = NULL;                 // Mandatory. No default.
   uint32_t numShards = 0;                  // Mandatory. No default.
-  uint32_t numSlots = 16384;                // Default.
+  uint32_t numSlots = 16384;               // Default.
 
   // Parse general arguments. No allocation is done here, so we can just return on error
   while (!AC_IsAtEnd(&ac)) {

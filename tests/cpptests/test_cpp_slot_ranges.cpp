@@ -239,4 +239,4 @@ TEST_F(SlotRangesTest, testRedisClusterSlotRanges) {
     rm_free(result);
     freeSlotRangeArray(original);
     freeSlotRangeArray(deserialized);
-};
+}

@@ -1073,10 +1073,10 @@ def generate_slots(slots = range(2**14)) -> bytes:
 
     for slot in range(2**14):
         if slot in slots:
-            if not ranges_list or slot != ranges_list[-1][1] + 1:
-                ranges_list.append([slot, slot])
-            else:
+            if ranges_list and slot == ranges_list[-1][1] + 1:
                 ranges_list[-1][1] = slot
+            else:
+                ranges_list.append([slot, slot])
 
     # Convert list to numpy array of uint16 pairs
     ranges_array = np.array(ranges_list, dtype=np.uint16)
