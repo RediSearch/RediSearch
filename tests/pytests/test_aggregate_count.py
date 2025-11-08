@@ -209,7 +209,10 @@ def test_profile_resp2():
     conn.execute_command('HSET', '1', 't', 'hello')
     conn.execute_command('HSET', '2', 't', 'world')
 
-    rp0 = ['Type', 'Index', 'Time', ANY, 'Counter', ANY]
+    if env.isCluster():
+        rp0 = ['Type', 'Network', 'Time', ANY, 'Counter', ANY]
+    else:
+        rp0 = ['Type', 'Index', 'Time', ANY, 'Counter', ANY]
     rp1 = ['Type', 'Depleter', 'Time', ANY, 'Counter', ANY]
 
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').ok()
@@ -221,39 +224,43 @@ def test_profile_resp2():
     for query in queries:
         profile = env.cmd(*query)
         if env.isCluster():
-            RP_profile = profile[1][1][2][13]
+            RP_profile = profile[1][3][11]
         else:
             RP_profile = profile[1][1][0][13]
-        env.assertEqual(len(RP_profile), 1)
+        env.assertEqual(len(RP_profile), 1,
+                        message=f'query: {query} profile: {RP_profile}')
         env.assertEqual(RP_profile[0], rp0)
 
     # Non-strict mode + WITHCOUNT adds a depleter
     profile = env.cmd(
         'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHCOUNT')
     if env.isCluster():
-        RP_profile = profile[1][1][2][13]
+        RP_profile = profile[1][3][11]
     else:
         RP_profile = profile[1][1][0][13]
-    env.assertEqual(len(RP_profile), 2)
+    env.assertEqual(len(RP_profile), 2,
+                    message=f'query: {query} profile: {RP_profile}')
     env.assertEqual(RP_profile[0], rp0)
     env.assertEqual(RP_profile[1], rp1)
 
     # Strict mode always adds a depleter
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').ok()
     queries = [
-        ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',],
+        ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'],
         ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHOUTCOUNT'],
         ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHCOUNT'],
     ]
     for query in queries:
         profile = env.cmd(*query)
         if env.isCluster():
-            RP_profile = profile[1][1][2][13]
+            RP_coord = profile[1][3][11]
         else:
-            RP_profile = profile[1][1][0][13]
-        env.assertEqual(len(RP_profile), 2)
-        env.assertEqual(RP_profile[0], rp0)
-        env.assertEqual(RP_profile[1], rp1)
+            RP_coord = profile[1][1][0][13]
+
+        env.assertEqual(len(RP_coord), 2,
+                        message=f'query: {query} profile: {RP_coord}')
+        env.assertEqual(RP_coord[0], rp0)
+        env.assertEqual(RP_coord[1], rp1)
 
 
 def test_profile_resp3():
@@ -263,7 +270,10 @@ def test_profile_resp3():
     conn.execute_command('HSET', '1', 't', 'hello')
     conn.execute_command('HSET', '2', 't', 'world')
 
-    rp0 = {'Type': 'Index', 'Time': ANY, 'Counter': ANY}
+    if env.isCluster():
+        rp0 = {'Type': 'Network', 'Time': ANY, 'Counter': ANY}
+    else:
+        rp0 = {'Type': 'Index', 'Time': ANY, 'Counter': ANY}
 
     queries = [
         ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',],
@@ -271,18 +281,16 @@ def test_profile_resp3():
         ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHCOUNT'],
     ]
 
-    # Non-strict mode
-    env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').ok()
-    for query in queries:
-        profile = env.cmd(*query)
-        RP_profile = profile['Profile']['Shards'][0]['Result processors profile']
-        env.assertEqual(len(RP_profile), 1, message=f'query: {query} profile: {RP_profile}')
-        env.assertEqual(RP_profile[0], rp0)
+    # In RESP3, we don't have a depleter, independent of the timeout policy
+    for on_timeout_policy in ['return', 'fail']:
+        env.expect('CONFIG', 'SET', 'search-on-timeout', on_timeout_policy).ok()
+        for query in queries:
+            profile = env.cmd(*query)
+            if env.isCluster():
+                RP_profile = profile['Profile']['Coordinator']['Result processors profile']
+            else:
+                RP_profile = profile['Profile']['Shards'][0]['Result processors profile']
 
-    # Strict mode
-    env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').ok()
-    for query in queries:
-        profile = env.cmd(*query)
-        RP_profile = profile['Profile']['Shards'][0]['Result processors profile']
-        env.assertEqual(len(RP_profile), 1, message=f'query: {query}')
-        env.assertEqual(RP_profile[0], rp0)
+            env.assertEqual(len(RP_profile), 1,
+                            message=f'query: {query} profile: {RP_profile}')
+            env.assertEqual(RP_profile[0], rp0)
