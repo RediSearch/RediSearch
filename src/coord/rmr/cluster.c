@@ -61,7 +61,7 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
                            redisCallbackFn *fn,
                            void *privdata) {
   struct MRClusterTopology *topo = ioRuntime->topo;
-  uint32_t slotsInfoPos = cmd->slotsInfoArgIndex;
+  uint32_t slotsInfoPos = cmd->slotsInfoArgIndex; // 0 if not set, which means slot info is not needed
   int ret = 0;
   for (size_t i = 0; i < topo->numShards; i++) {
     MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);
@@ -72,10 +72,6 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
       }
       if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
         ret++;
-      }
-      if (slotsInfoPos) {
-        // Clear slot info for next iteration
-        MRCommand_ReplaceArgNoDup(cmd, slotsInfoPos, NULL, 0);
       }
     }
   }

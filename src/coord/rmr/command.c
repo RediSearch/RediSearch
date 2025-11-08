@@ -237,17 +237,16 @@ void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos) {
   // Assign the `_SLOTS` marker at pos
   assignStr(cmd, pos, "_SLOTS", sizeof("_SLOTS") - 1);
   // Leave space for the binary data at pos + 1 (to be filled later)
-  cmd->strs[pos + 1] = NULL;
-  cmd->lens[pos + 1] = 0;
+  assignStr(cmd, pos + 1, "", 0);
   cmd->slotsInfoArgIndex = pos + 1;
 }
 
 void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slots) {
   RS_ASSERT(cmd->slotsInfoArgIndex > 0 && cmd->slotsInfoArgIndex < cmd->num);
-  RS_ASSERT(cmd->strs[cmd->slotsInfoArgIndex] == NULL);
   RS_ASSERT(!strcmp(cmd->strs[cmd->slotsInfoArgIndex - 1], "_SLOTS"));
 
   // Assign the binary data to the command
-  cmd->lens[cmd->slotsInfoArgIndex] = SlotRangeArray_SizeOf(slots->num_ranges);
-  cmd->strs[cmd->slotsInfoArgIndex] = SlotRangesArray_Serialize(slots);
+  char *serialized = SlotRangesArray_Serialize(slots);
+  size_t serializedLen = SlotRangeArray_SizeOf(slots->num_ranges);
+  MRCommand_ReplaceArgNoDup(cmd, cmd->slotsInfoArgIndex, serialized, serializedLen);
 }
