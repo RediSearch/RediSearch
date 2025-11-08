@@ -248,4 +248,10 @@ void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slot
   char *serialized = SlotRangesArray_Serialize(slots);
   size_t serializedLen = SlotRangeArray_SizeOf(slots->num_ranges);
   MRCommand_ReplaceArgNoDup(cmd, cmd->slotsInfoArgIndex, serialized, serializedLen);
+  // This function is expected to be called from an io thread, which means that
+  // the command may have already been used, so we drop the cached sds command representation
+  if (cmd->cmd) {
+    sdsfree(cmd->cmd);
+    cmd->cmd = NULL;
+  }
 }
