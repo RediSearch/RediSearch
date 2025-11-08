@@ -47,7 +47,7 @@ typedef struct {
   bool stop;
 
   // timeout
-  uint32_t timeoutCounter;    // counter to limit number of calls to TimedOut()
+  uint32_t timeoutCounter;  // counter to limit number of calls to TimedOut()
   struct timespec timeout;  // milliseconds until timeout
 } RangeCtx;
 

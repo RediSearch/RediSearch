@@ -111,15 +111,17 @@ RedisModuleSlotRangeArray *SlotRangesArray_Deserialize(const char *buf, size_t b
   if (buf_len < sizeof(RedisModuleSlotRangeArray)) {
     return NULL; // Buffer too small to contain header
   }
+  const RedisModuleSlotRangeArray *maybe_array = (const RedisModuleSlotRangeArray *)buf;
+  if (buf_len != SlotRangeArray_SizeOf(SlotRangesArray_NumRanges_FromLE(maybe_array))) {
+    return NULL; // Size mismatch - cannot parse
+  }
+
   // Copy the input buffer to a new allocation
   RedisModuleSlotRangeArray *slot_range_array = rm_malloc(buf_len);
   memcpy(slot_range_array, buf, buf_len);
 
-  if (buf_len != SlotRangeArray_SizeOf(SlotRangesArray_NumRanges_FromLE(slot_range_array))) {
-    rm_free(slot_range_array);
-    return NULL; // Size mismatch - cannot parse
-  }
   // Convert from little-endian to host-endian
   SlotRangesArray_FromLittleEndian(slot_range_array);
+
   return slot_range_array;
 }
