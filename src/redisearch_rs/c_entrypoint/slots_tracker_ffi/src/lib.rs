@@ -17,13 +17,13 @@
 //! It does not use synchronization primitives like `Mutex`. If you need to access it from
 //! multiple threads, you must provide your own synchronization at the C level.
 //!
-//! The version counter is atomic and can be safely read from any thread to check if the
-//! slots configuration has changed.
+//! **Version Tracking**: Functions that may modify the tracker return the current version number
+//! as a u32. These are currently marked as `*_internal`, and wrapped in the C API header
+//! for atomic management on the C side.
 
 use slots_tracker::{SlotRange, SlotRangeArray, SlotsTracker, Version};
 use std::cell::RefCell;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::thread::ThreadId;
 
 /// FFI struct representing an optional SlotsTracker version.
@@ -67,11 +67,6 @@ impl From<Option<Version>> for OptionSlotTrackerVersion {
 /// Set once when the first FFI function is called. All subsequent calls
 /// must come from the same thread.
 static OWNER_THREAD: OnceLock<ThreadId> = OnceLock::new();
-
-/// Atomic version counter that mirrors the tracker's internal version.
-///
-/// This allows thread-safe reads of the version from any thread.
-static VERSION: AtomicU32 = AtomicU32::new(0);
 
 // Thread-local slots tracker instance.
 //
@@ -129,16 +124,6 @@ where
     TRACKER.with_borrow_mut(f)
 }
 
-/// Syncs the atomic version counter with the tracker's internal version.
-///
-/// This should be called after any operation that modifies the tracker's version.
-fn sync_version(tracker: &SlotsTracker) {
-    let Version::Stable(version) = tracker.get_version() else {
-        unreachable!("Tracker version should always be stable (from get_version)")
-    };
-    VERSION.store(version.get(), Relaxed);
-}
-
 /// Converts a C SlotRangeArray pointer to a core library SlotRange slice.
 ///
 /// # Panics
@@ -179,6 +164,8 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
 ///
 /// If the ranges are identical to the current configuration, no changes are made.
 ///
+/// Returns the current version after the operation.
+///
 /// # Safety
 ///
 /// This function must be called from the main thread only.
@@ -186,21 +173,20 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) {
+pub unsafe extern "C" fn slots_tracker_set_local_slots_internal(
+    ranges: *const SlotRangeArray,
+) -> u32 {
     // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
     with_tracker_mut(|tracker| {
-        let version_before = tracker.get_version();
-
         tracker.set_local_slots(ranges);
 
-        // We expect this function to be called periodically with the same ranges,
-        // so only sync if there is an actual change, to avoid unnecessary atomic ops.
-        if tracker.get_version() != version_before {
-            sync_version(tracker);
-        }
-    });
+        let Version::Stable(version) = tracker.get_version() else {
+            unreachable!("Tracker version should always be stable (from get_version)")
+        };
+        version.get()
+    })
 }
 
 /// Marks the given slot ranges as partially available.
@@ -209,6 +195,8 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeA
 /// It also removes the given slots from "local slots" and "fully available slots", and
 /// increments the version counter.
 ///
+/// Returns the current version after the operation.
+///
 /// # Safety
 ///
 /// This function must be called from the main thread only.
@@ -216,16 +204,20 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeA
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_mark_partially_available_slots(
+pub unsafe extern "C" fn slots_tracker_mark_partially_available_slots_internal(
     ranges: *const SlotRangeArray,
-) {
+) -> u32 {
     // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
     with_tracker_mut(|tracker| {
         tracker.mark_partially_available_slots(ranges);
-        sync_version(tracker);
-    });
+
+        let Version::Stable(version) = tracker.get_version() else {
+            unreachable!("Tracker version should always be stable (from get_version)")
+        };
+        version.get()
+    })
 }
 
 /// Promotes slot ranges to local ownership.
@@ -248,12 +240,10 @@ pub unsafe extern "C" fn slots_tracker_promote_to_local_slots(ranges: *const Slo
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
     with_tracker_mut(|tracker| {
+        let version_before = tracker.get_version();
         tracker.promote_to_local_slots(ranges);
         // Note: Version is NOT incremented here
-        debug_assert_eq!(
-            tracker.get_version(),
-            Version::Stable(VERSION.load(Relaxed).try_into().unwrap())
-        );
+        debug_assert_eq!(tracker.get_version(), version_before);
     });
 }
 
@@ -277,12 +267,10 @@ pub unsafe extern "C" fn slots_tracker_mark_fully_available_slots(ranges: *const
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
     with_tracker_mut(|tracker| {
+        let version_before = tracker.get_version();
         tracker.mark_fully_available_slots(ranges);
         // Note: Version is NOT incremented here
-        debug_assert_eq!(
-            tracker.get_version(),
-            Version::Stable(VERSION.load(Relaxed).try_into().unwrap())
-        );
+        debug_assert_eq!(tracker.get_version(), version_before);
     });
 }
 
@@ -303,12 +291,10 @@ pub unsafe extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotR
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
     with_tracker_mut(|tracker| {
+        let version_before = tracker.get_version();
         tracker.remove_deleted_slots(ranges);
         // Note: Version is NOT incremented here
-        debug_assert_eq!(
-            tracker.get_version(),
-            Version::Stable(VERSION.load(Relaxed).try_into().unwrap())
-        );
+        debug_assert_eq!(tracker.get_version(), version_before);
     });
 }
 
@@ -337,7 +323,7 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
 ///
 /// Return values (via OptionSlotTrackerVersion):
 /// - `is_some = false`: Required slots are not available. Query should be rejected.
-/// - `is_some = true`: Slots available; Store the returned `version` and compare it with `slots_tracker_get_version` to detect changes.
+/// - `is_some = true`: Slots available; Store the returned `version` and compare it with the version returned by other functions to detect changes.
 ///
 /// # Safety
 ///
@@ -353,17 +339,4 @@ pub unsafe extern "C" fn slots_tracker_check_availability(
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
     with_tracker(|tracker| tracker.check_availability(ranges).into())
-}
-
-/// Returns the current version of the slots configuration.
-///
-/// This function can be called from any thread to check if the configuration has changed.
-/// The version counter wraps around, so only equality checks are meaningful.
-///
-/// # Safety
-///
-/// This function is safe to call from any thread.
-#[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_get_version() -> u32 {
-    VERSION.load(Relaxed)
 }
