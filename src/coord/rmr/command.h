@@ -67,7 +67,32 @@ MRCommand MR_NewCommand(int argc, ...);
 /* Create a command from a list of redis strings */
 MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv);
 
+/**
+ * Prepare a command for slot information insertion by reserving space at the specified position.
+ * This function allocates space for the "SLOTS" marker and placeholder binary data.
+ *
+ * Threading: Should be called from the main/coordinator thread during command construction.
+ *
+ * @param cmd - The command to prepare
+ * @param pos - Position in the command where slot info should be inserted (0 <= pos <= cmd->num)
+ */
 void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos);
+
+/**
+ * Set the actual slot range information in a previously prepared command.
+ * This function serializes and inserts the slot ranges into the reserved space.
+ *
+ * Threading: Should be called from an I/O thread before sending command to a specific shard.
+ *
+ * Call this:
+ * - After MRCommand_PrepareForSlotInfo() has been called
+ * - From I/O threads when dispatching commands to specific shards
+ * - Once per shard when copying commands to multiple shards
+ * - Invalidates cached command representation (cmd->cmd) due to potential reuse
+ *
+ * @param cmd - The command with prepared slot info space
+ * @param slots - The slot ranges to insert (specific to the target shard)
+ */
 void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slots);
 
 static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t idx, size_t *len) {

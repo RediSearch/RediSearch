@@ -226,6 +226,8 @@ void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
 }
 
 void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos) {
+  RS_ASSERT(0 <= pos && pos <= cmd->num);
+  RS_LOG_ASSERT(cmd->slotsInfoArgIndex == 0, "Slot info already set for this command");
   // Make place for SLOTS_STR + <binary data>
   extendCommandList(cmd, 2);
 
