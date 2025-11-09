@@ -49,11 +49,6 @@ env:
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
   BUILD_INTEL_SVS_OPT: "yes"
-  PRE_STEPS_SCRIPT: ${{ inputs.pre-steps-script }}
-  CONTAINER: ${{ inputs.container }}
-  SAN: ${{ inputs.san }}
-  REDIS_VER: ${{ inputs.get-redis }}
-  RUNNING_ENV: ${{ inputs.env }}
 
 jobs:
   common-flow:
@@ -75,7 +70,7 @@ jobs:
           SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if eval "$PRE_STEPS_SCRIPT"; then
+            if ${{ inputs.pre-steps-script }}; then
               echo "Pre-steps Dependencies succeeded"
               SUCCESS=1
               break
@@ -95,7 +90,7 @@ jobs:
           SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if eval "$PRE_STEPS_SCRIPT"; then
+            if ${{ inputs.pre-steps-script }}; then
               echo "Pre-steps Dependencies succeeded"
               SUCCESS=1
               break
@@ -115,7 +110,7 @@ jobs:
       - name: Get Installation Mode
         id: mode
         run: |
-          [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Free up disk space
         run: |
           df -h
@@ -128,7 +123,7 @@ jobs:
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           for platform in amazonlinux:2 alpine:3; do
-            if [[ "$CONTAINER" == "$platform" ]]; then
+            if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
             fi
@@ -146,8 +141,8 @@ jobs:
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
-          echo "Detected platform: $CONTAINER"
-          case "$CONTAINER" in
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
             amazonlinux:2 | alpine:3)
 
               # Configure the safe directory
@@ -171,7 +166,7 @@ jobs:
               git submodule update --init --recursive
               ;;
             *)
-              echo "Unsupported platform: '$CONTAINER'"
+              echo "Unsupported platform: '${{ inputs.container }}'"
               exit 1
               ;;
           esac
@@ -281,30 +276,28 @@ jobs:
           cd $DEST_DIR
 
           # Checkout the REF
-          git fetch origin "$REDIS_VER"
-          git checkout "$REDIS_VER"
+          git fetch origin ${{ inputs.get-redis }}
+          git checkout ${{ inputs.get-redis }}
 
       - name: Build Redis
         working-directory: redis
         run:  ${{ steps.mode.outputs.mode }} make install
               BUILD_TLS=yes
-              SANITIZER=$SAN
+              SANITIZER=${{ inputs.san }}
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
         id: artifact-names
-        env:
-          SAN_LABEL: ${{ format('{0}', env.SAN == 'address' && 'sanitizer' || '') }}
-          COV_LABEL: ${{ format('{0}', env.COV == 1 && 'coverage test' || '') }}
-          ENV_LABEL: ${{ env.CONTAINER || env.RUNNING_ENV }}
-          RUNNER_ARCH: ${{ runner.arch }}
-          REDIS_LABEL: ${{ env.REDIS_VER || 'unstable' }}
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
-          echo "name=$(echo "$SAN_LABEL $COV_LABEL $ENV_LABEL $RUNNER_ARCH - Redis $REDIS_LABEL" | \
+          echo "name=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
+                             ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
+                             ${{ inputs.container || inputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
         env:
+          SAN: ${{ inputs.san }}
+          REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
       - name: Unit tests
@@ -330,8 +323,7 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-          TEST_CONFIG: ${{ inputs.test-config }}
-        run: make pytest $TEST_CONFIG
+        run: make pytest ${{ inputs.test-config }}
 
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
@@ -346,8 +338,7 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-          TEST_CONFIG: ${{ inputs.test-config }}
-        run: make pytest $TEST_CONFIG
+        run: make pytest ${{ inputs.test-config }}
 
       - name: Check test logs folder size
         if: always()

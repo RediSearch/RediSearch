@@ -48,12 +48,7 @@ jobs:
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
       # Build command
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
-      # Common environment variables for security (shell injection prevention)
-      CONTAINER: ${{ inputs.container }}
-      PRE_STEPS_SCRIPT: ${{ inputs.pre-steps-script }}
       GITHUB_REPOSITORY: ${{ github.repository }}
-      REDIS_REF: ${{ inputs.redis-ref }}
-      INPUT_BETA_VERSION: ${{ inputs.beta-version }}
     steps:
       # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
@@ -63,7 +58,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if eval "$PRE_STEPS_SCRIPT"; then
+            if ${{ inputs.pre-steps-script }}; then
               echo "Pre-steps Dependencies succeeded"
               exit 0
             fi
@@ -79,7 +74,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if eval "$PRE_STEPS_SCRIPT"; then
+            if ${{ inputs.pre-steps-script }}; then
               echo "Pre-steps Dependencies succeeded"
               exit 0
             fi
@@ -97,12 +92,12 @@ jobs:
       - name: Get Installation Mode
         id: mode
         run: |
-          [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           for platform in amazonlinux:2 alpine:3; do
-            if [[ "$CONTAINER" == "$platform" ]]; then
+            if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
             fi
@@ -118,8 +113,8 @@ jobs:
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
-          echo "Detected platform: $CONTAINER"
-          case "$CONTAINER" in
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
             amazonlinux:2 | alpine:3)
 
               # Configure the safe directory
@@ -143,7 +138,7 @@ jobs:
               git submodule update --init --recursive
               ;;
             *)
-              echo "Unsupported platform: '$CONTAINER'"
+              echo "Unsupported platform: '${{ inputs.container }}'"
               exit 1
               ;;
           esac
@@ -229,8 +224,8 @@ jobs:
             cd $DEST_DIR
 
             # Checkout the REF
-            git fetch origin "$REDIS_REF"
-            git checkout "$REDIS_REF"
+            git fetch origin ${{ inputs.redis-ref }}
+            git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
         run: ${{ steps.mode.outputs.mode }} make install
@@ -300,8 +295,8 @@ jobs:
         run: |
           # Use the pre-generated beta version if provided (master branch builds)
           # Otherwise generate regular version from version.h (non-master branch builds)
-          if [[ -n "$INPUT_BETA_VERSION" ]]; then
-            BETA_VERSION="$INPUT_BETA_VERSION"
+          if [[ -n "${{ inputs.beta-version }}" ]]; then
+            BETA_VERSION="${{ inputs.beta-version }}"
             echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
             echo "Using pre-generated beta version: $BETA_VERSION"
           else
