@@ -921,3 +921,53 @@ def testBM25STDUnderflow(env: Env):
     # Reschedule the gc - add a job to the queue
     env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+
+@skip(cluster=True)
+def testBM25DocLen(env: Env):
+    """
+    Tests that the total document length is calculated correctly (MOD-122234).
+    Relevant for the BM25 and BM25STD scorers.
+    This test currently tests updates only, i.e., for an existing doc.
+    """
+
+    def get_avg_doc_len(response: str, std: bool = True):
+        score_exp = response[2][1][1][0]
+        split_by = 'Average Doc Len ' if std else 'Average Len'
+        avg_doc_len = float(score_exp.split(split_by)[1].split(')')[0])
+        return avg_doc_len
+
+    def validate_avg_doc_len(env, query: str, expected_avg_len: float):
+        for std in [True, False]:
+            res = env.cmd('FT.SEARCH', 'idx', query, 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD' if std else 'BM25')
+            env.assertEqual(get_avg_doc_len(res, std), expected_avg_len)
+
+    # --------------------------------- Update ---------------------------------
+
+    # Create an index with a TEXT field
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Add the first document
+    env.cmd('HSET', 'doc0', 'title', 'hello world')
+
+    # The average doc length should be 2
+    validate_avg_doc_len(env, 'hello', 2)
+
+    # Add the same document -> we re-index, and the avg doc length should be
+    # updated on the fly to the new doc length
+    env.cmd('HSET', 'doc0', 'title', 'hello world baby')
+
+    validate_avg_doc_len(env, 'hello', 3)
+
+    # -------------------------------- Deletion --------------------------------
+
+    # Add a document with 5 terms (not stopwords)
+    env.cmd('HSET', 'doc1', 'title', 'hello world baby cat mouse')
+
+    # The average doc length should be 4
+    validate_avg_doc_len(env, 'hello', 4)
+
+    # Delete the document with 5 terms, the average doc length should be updated
+    # on the fly back to 3
+    env.cmd('DEL', 'doc1')
+
+    validate_avg_doc_len(env, 'hello', 3)
