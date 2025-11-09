@@ -185,7 +185,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
-  aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
     HiddenString_Clone(sp->specName, &aCtx->specName);
   }
@@ -338,11 +337,6 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     // aCtx->tokenizer->Free(aCtx->tokenizer);
     Tokenizer_Release(aCtx->tokenizer);
     aCtx->tokenizer = NULL;
-  }
-
-  if (aCtx->oldMd) {
-    DMD_Return(aCtx->oldMd);
-    aCtx->oldMd = NULL;
   }
 
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
