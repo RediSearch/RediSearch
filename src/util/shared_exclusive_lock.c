@@ -44,11 +44,10 @@ bool GIL_borrowed = false;
 
 static inline void set_timeout(struct timespec *timeout) {
   clock_gettime(CLOCK_MONOTONIC_RAW, timeout);
+  // Assumes TIMEOUT_NANOSECONDS will not exceed NANOSEC_PER_SECOND,
+  // so we are only off by one second maximum.
   timeout->tv_nsec += TIMEOUT_NANOSECONDS;
-  if (timeout->tv_nsec < NANOSEC_PER_SECOND) {
-  } else {
-    // Assumes TIMEOUT_NANOSECONDS will not exceed NANOSEC_PER_SECOND,
-    // so we are only off by one second maximum.
+  if (timeout->tv_nsec >= NANOSEC_PER_SECOND) {
     timeout->tv_nsec -= NANOSEC_PER_SECOND;
     timeout->tv_sec += 1;
   }
