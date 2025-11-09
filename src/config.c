@@ -413,10 +413,12 @@ CONFIG_SETTER(setWorkThreads) {
   if (newNumThreads > MAX_WORKER_THREADS) {
     return errorTooManyThreads(status);
   }
+  int current_num_threads = config->numWorkerThreads;
   config->numWorkerThreads = newNumThreads;
 
   int rc = workersThreadPool_SetNumWorkers_no_wait();
   if (rc == REDISMODULE_ERR) {
+    config->numWorkerThreads = current_num_threads;
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
       "Cannot change workers threadpool size: termination in progress");
     return REDISMODULE_ERR;

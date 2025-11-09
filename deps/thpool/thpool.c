@@ -154,6 +154,7 @@ static priorityJobCtx priority_queue_pull_no_wait(priorityJobqueue *priority_que
 static void priority_queue_destroy(priorityJobqueue *priority_queue_p);
 static size_t priority_queue_len(priorityJobqueue *priority_queue_p);
 static size_t priority_queue_len_unsafe(priorityJobqueue *priority_queue_p);
+static size_t priority_queue_non_admin_len_unsafe(priorityJobqueue *priority_queue_p);
 static size_t
 priority_queue_num_incomplete_jobs(priorityJobqueue *priority_queue_p);
 static bool priority_queue_is_empty(priorityJobqueue *jobqueue_p);
@@ -926,9 +927,18 @@ static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
 static priorityJobCtx priority_queue_pull_no_wait(priorityJobqueue *priority_queue_p) {
   priorityJobCtx job_ctx;
   pthread_mutex_lock(&priority_queue_p->lock);
-  /* Skip admin jobs when in THREAD_TERMINATE_WHEN_EMPTY state to prevent
-   * threads from stealing admin jobs meant for other threads */
-  job_ctx = priority_queue_pull_from_queues_unsafe_internal(priority_queue_p, true);
+  /* Check if there are non-admin jobs. If not, return NULL to signal thread termination.
+   * This prevents threads in THREAD_TERMINATE_WHEN_EMPTY state from staying alive just
+   * because there are admin jobs (e.g., termination signals for other threads) in the queue.
+   * Admin jobs with barriers (from verify_init) will still be processed because they change
+   * the thread state back to THREAD_RUNNING before the thread checks for termination. */
+  if (priority_queue_non_admin_len_unsafe(priority_queue_p) == 0) {
+    pthread_mutex_unlock(&priority_queue_p->lock);
+    job_ctx = (priorityJobCtx){.job = NULL, .is_admin = false, .has_priority_ticket = false};
+    return job_ctx;
+  }
+  /* Pull from all queues (including admin) */
+  job_ctx = priority_queue_pull_from_queues_unsafe_internal(priority_queue_p, false);
   pthread_mutex_unlock(&priority_queue_p->lock);
   return job_ctx;
 }
@@ -1024,6 +1034,12 @@ static size_t priority_queue_len_unsafe(priorityJobqueue *priority_queue_p) {
   return priority_queue_p->high_priority_jobqueue.len +
          priority_queue_p->low_priority_jobqueue.len +
          priority_queue_p->admin_priority_jobqueue.len;
+}
+
+/* Returns the number of non-admin jobs in the queue (high + low priority only) */
+static size_t priority_queue_non_admin_len_unsafe(priorityJobqueue *priority_queue_p) {
+  return priority_queue_p->high_priority_jobqueue.len +
+         priority_queue_p->low_priority_jobqueue.len;
 }
 
 static bool priority_queue_is_empty(priorityJobqueue *jobqueue_p) {
