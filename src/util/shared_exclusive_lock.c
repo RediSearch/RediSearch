@@ -14,96 +14,138 @@
 
 #define TIMEOUT_NANOSECONDS 5000 // 5 us in nanoseconds
 
-pthread_mutex_t GILAlternativeLock = PTHREAD_MUTEX_INITIALIZER; // Lock used as an alternative to the GIL, this is used when the GIL is owned by the main thread.
-pthread_mutex_t InternalLock = PTHREAD_MUTEX_INITIALIZER; // Lock to handle communication mechanism internally
-pthread_cond_t TryLockCondition = PTHREAD_COND_INITIALIZER; // Condition to signal threads waiting to try acquire the GIL or the alternative lock that they may try again.
-pthread_cond_t GILSafeCondition = PTHREAD_COND_INITIALIZER; // Condition to signal the main thread that it can safely release the GIL. (In this case return from UnsetOwned)
-bool GILOwned = false;
-bool GILAlternativeLockHeld = false;
+// Lock used as an alternative to the GIL, this is an additional lock which is always acquired
+// when calling SharedExclusiveLock_Acquire, and is held until SharedExclusiveLock_Release is called.
+// When the GIL is lent by the main thread, threads will be satisfied by acquiring this lock only.
+pthread_mutex_t GILAlternativeLock = PTHREAD_MUTEX_INITIALIZER;
+// Lock to synchronize internal state.
+// Expects low contention (at most one thread and the main thread will race on it).
+pthread_mutex_t InternalLock = PTHREAD_MUTEX_INITIALIZER;
+// Condition for threads waiting to acquire the GIL while it is not available.
+// It is also used with a timeout because we cannot guarantee that the main thread will always signal it.
+// GILAlternativeLock must be held when waiting on this condition.
+pthread_cond_t GILAvailable = PTHREAD_COND_INITIALIZER;
+// Condition for the main thread to wait on while trying to take back the GIL.
+pthread_cond_t GILIsBorrowed = PTHREAD_COND_INITIALIZER;
+// Flags to indicate whether the GIL is lent by the main thread
+bool GIL_lent = false;
+// Flag to indicate whether the GIL is currently borrowed by any thread
+bool GIL_borrowed = false;
 
+// Locks Order:
+// 1. GIL
+// 2. GILAlternativeLock
+// 3. InternalLock
+// A thread may hold any combination of these locks, but must always acquire them in this order.
+// One exception is that we acquire the GIL last in SharedExclusiveLock_Acquire, but there is
+// no risk of deadlock because we do it with a "try" mechanism.
+
+static inline void set_timeout(struct timespec *timeout, long nanoseconds) {
+#define NANOSEC_PER_SECOND 1000000000L
+  clock_gettime(CLOCK_MONOTONIC_RAW, timeout);
+  timeout->tv_nsec += nanoseconds;
+  // Handle nanosecond overflow to comply with POSIX timespec requirements
+  if (timeout->tv_nsec >= NANOSEC_PER_SECOND) {
+    timeout->tv_sec += timeout->tv_nsec / NANOSEC_PER_SECOND;
+    timeout->tv_nsec %= NANOSEC_PER_SECOND;
+  }
+}
 
 void SharedExclusiveLock_Init() {
-  GILOwned = false;
-  GILAlternativeLockHeld = false;
+  GIL_lent = false;
+  GIL_borrowed = false;
   pthread_mutex_init(&GILAlternativeLock, NULL);
   pthread_mutex_init(&InternalLock, NULL);
-  pthread_cond_init(&TryLockCondition, NULL);
-  pthread_cond_init(&GILSafeCondition, NULL);
+
+  // Initialize GILAvailable with CLOCK_MONOTONIC_RAW
+  pthread_condattr_t cond_attr;
+  pthread_condattr_init(&cond_attr);
+  pthread_condattr_setclock(&cond_attr, CLOCK_MONOTONIC_RAW);
+  pthread_cond_init(&GILAvailable, &cond_attr);
+  pthread_condattr_destroy(&cond_attr);
+
+  pthread_cond_init(&GILIsBorrowed, NULL);
 }
 
 void SharedExclusiveLock_Destroy() {
   pthread_mutex_destroy(&GILAlternativeLock);
-  pthread_cond_destroy(&TryLockCondition);
+  pthread_cond_destroy(&GILAvailable);
   pthread_mutex_destroy(&InternalLock);
-  pthread_cond_destroy(&GILSafeCondition);
+  pthread_cond_destroy(&GILIsBorrowed);
 }
 
-void SharedExclusiveLock_SetOwned() {
+// Assumptions:
+// 1. The caller holds the GIL.
+// 2. The caller won't release the GIL before calling TakeBackGIL.
+// Note: The caller may call SharedExclusiveLock_Acquire while holding the GIL, if it lends it.
+void SharedExclusiveLock_LendGIL() {
   pthread_mutex_lock(&InternalLock);
-  GILOwned = true;
-  // Signal any waiting threads that they may try to acquire the GIL or the alternative lock.
-  pthread_cond_broadcast(&TryLockCondition);
+  GIL_lent = true;
   pthread_mutex_unlock(&InternalLock);
+  // Signal any waiting threads that they may try to borrow the GIL.
+  pthread_cond_broadcast(&GILAvailable);
 }
 
-void SharedExclusiveLock_UnsetOwned() {
+// Assumptions:
+// 1. The caller holds the GIL.
+// 2. The caller has previously called SharedExclusiveLock_LendGIL and will not call it again before TakeBackGIL.
+// 3. If the caller has called SharedExclusiveLock_Acquire while holding the GIL, it has released it before calling TakeBackGIL.
+void SharedExclusiveLock_TakeBackGIL() {
   // Here we make sure that any thread that may assume the GIL is protected by the main thread releases the lock before returning.
   pthread_mutex_lock(&InternalLock);
-  GILOwned = false; // From now on, any thread should try to acquire the GIL, and not the alternative lock.
-  while (GILAlternativeLockHeld) {
-    pthread_cond_wait(&GILSafeCondition, &InternalLock);
+  GIL_lent = false; // From now on, any thread should try to acquire the GIL, and not the alternative lock.
+  while (GIL_borrowed) {
+    pthread_cond_wait(&GILIsBorrowed, &InternalLock);
   }
   pthread_mutex_unlock(&InternalLock);
 }
 
-SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx, bool acquireInternalLock) {
-  RS_LOG_ASSERT(!acquireInternalLock || GILOwned, "If acquireInternalLock is true, GILOwned should be true. The aim is to guarantee that main thread has no concurrency issues with other threads relying on GILAlternativeLock.");  pthread_mutex_lock(&InternalLock);
+// Assumptions:
+// 1. No re-entrancy: A thread that has already acquired the lock will not try to acquire it again before releasing it.
+SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
+  // First, acquire the alternative lock. Only one thread can try to acquire either the GIL or the alternative lock at a time.
+  pthread_mutex_lock(&GILAlternativeLock);
   while (true) {
-    int rc = REDISMODULE_ERR;
-    // GILAlternativeLockHeld condition check is needed to avoid race condition with the Release.
-    if (GILOwned && !GILAlternativeLockHeld) {
-      rc = pthread_mutex_trylock(&GILAlternativeLock);
-      if (rc == 0) {
-        // We acquired the alternative lock, we can return.
-        GILAlternativeLockHeld = true;
-        pthread_mutex_unlock(&InternalLock);
-        return Internal_Locked;
-      }
-      rc = REDISMODULE_ERR;
-    } else {
-      if (!acquireInternalLock) {
-        rc = RedisModule_ThreadSafeContextTryLock(ctx);
-      }
+    SharedExclusiveLockType lockType = Unlocked;
+    // Attempt to acquire the GIL, according to the internal state.
+    pthread_mutex_lock(&InternalLock);
+    if (GIL_lent) {
+      // GIL is lent by the main thread, mark that we borrow it.
+      GIL_borrowed = true;
+      lockType = Borrowed;
+    } else if (RedisModule_ThreadSafeContextTryLock(ctx) == REDISMODULE_OK) {
+      // GIL is not lent by the main thread, but we managed to acquire it.
+      lockType = Owned;
     }
-    if (rc == REDISMODULE_OK) {
-      RS_LOG_ASSERT(!GILAlternativeLockHeld, "If we acquired the GIL, the alternative lock should not be held by another thread.");
-      pthread_mutex_unlock(&InternalLock);
-      return GIL_Locked;
+    pthread_mutex_unlock(&InternalLock);
+
+    if (lockType != Unlocked) {
+      return lockType; // We have exclusive access
     }
 
+    // Couldn't acquire the GIL, wait (for a short time or until signaled) before trying again.
     struct timespec timeout;
-    clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_nsec += TIMEOUT_NANOSECONDS;
-    // Handle nanosecond overflow to comply with POSIX timespec requirements
-    if (timeout.tv_nsec >= 1000000000) {
-      timeout.tv_sec += timeout.tv_nsec / 1000000000;
-      timeout.tv_nsec %= 1000000000;
-    }
-    pthread_cond_timedwait(&TryLockCondition, &InternalLock, &timeout);
+    set_timeout(&timeout, TIMEOUT_NANOSECONDS);
+    pthread_cond_timedwait(&GILAvailable, &GILAlternativeLock, &timeout);
   }
 }
 
+// Assumptions:
+// 1. The caller has previously acquired the lock by calling SharedExclusiveLock_Acquire
+// 2. The value of 'type' is the result of the previous call to SharedExclusiveLock_Acquire
 void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType type) {
-  if (type == Internal_Locked) {
+  if (type == Borrowed) {
     pthread_mutex_lock(&InternalLock);
-    GILAlternativeLockHeld = false;
-    pthread_mutex_unlock(&GILAlternativeLock);
+    GIL_borrowed = false;
     // If main thread is waiting to release the GIL, signal it that it can proceed.
-    pthread_cond_signal(&GILSafeCondition);
-    // Signal any waiting threads that they may try to acquire the GIL or the alternative lock.
-    pthread_cond_broadcast(&TryLockCondition);
+    pthread_cond_signal(&GILIsBorrowed);
     pthread_mutex_unlock(&InternalLock);
+
+    // Signal any waiting threads that they may try to acquire the GIL or the alternative lock.
+    pthread_cond_broadcast(&GILAvailable);
   } else {
+    RS_ASSERT(type == Owned);
     RedisModule_ThreadSafeContextUnlock(ctx);
   }
+  pthread_mutex_unlock(&GILAlternativeLock);
 }

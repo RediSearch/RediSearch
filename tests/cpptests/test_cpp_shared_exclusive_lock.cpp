@@ -61,7 +61,7 @@ void* worker_thread_func(void* arg) {
 
     std::this_thread::sleep_for(std::chrono::microseconds(10 * data->sleep_microseconds)); // 0.1s
     // Try to acquire the lock and do some work
-    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx, false);
+    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
     data->thread_ids_set->insert(data->thread_id);
 
     // Allocate and free shared pointer - this will crash if there are race conditions
@@ -132,7 +132,7 @@ TEST_P(SharedExclusiveLockParametrizedTest, test_concurrency) {
     start_flag.store(true);
     usleep(1000000); // 1s
     ASSERT_EQ(thread_ids_set.size(), 0) << "No thread could have acquired the lock, since the GIL is owned by the main thread.";
-    SharedExclusiveLock_SetOwned();
+    SharedExclusiveLock_LendGIL();
 
     while (threads_finished.load() < num_threads_to_remove) {
         std::this_thread::sleep_for(std::chrono::microseconds(1));
@@ -157,7 +157,7 @@ TEST_P(SharedExclusiveLockParametrizedTest, test_concurrency) {
     while (threads_ready.load() < num_threads) {
         std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
-    SharedExclusiveLock_UnsetOwned();
+    SharedExclusiveLock_TakeBackGIL();
     size_t thread_ids_set_size = thread_ids_set.size();
     ASSERT_LT(thread_ids_set_size, num_threads) << "Not all threads were able to acquire the lock";
 
@@ -211,7 +211,7 @@ void* worker_thread_jobs(void* arg) {
   for (int i = 0; i < data->num_jobs; ++i) {
     std::this_thread::sleep_for(std::chrono::microseconds(10 * data->sleep_microseconds));
     // Try to acquire the lock and do some work
-    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx, false);
+    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
     // Allocate and free shared pointer - this will crash if there are race conditions
     *(data->shared_ptr) = (int*)malloc(sizeof(int) * 10);
     *(data->job_counter) += 1;
@@ -272,14 +272,14 @@ TEST_P(SharedExclusiveLockParametrizedTest, test_jobs) {
   start_flag.store(true);
   usleep(1000000);
   ASSERT_EQ(job_counter, 0) << "No job could have acquired the lock, since the GIL is owned by the main thread.";
-  SharedExclusiveLock_SetOwned();
+  SharedExclusiveLock_LendGIL();
 
   while (jobs_finished.load() < num_jobs_to_wait) {
       std::this_thread::sleep_for(std::chrono::microseconds(1));
   }
   ASSERT_GE(job_counter, num_jobs_to_wait) << "At least num_jobs_to_wait should have finished";
 
-  SharedExclusiveLock_UnsetOwned();
+  SharedExclusiveLock_TakeBackGIL();
   int num_jobs_finished = jobs_finished.load();
   int num_jobs_executed = job_counter;
 

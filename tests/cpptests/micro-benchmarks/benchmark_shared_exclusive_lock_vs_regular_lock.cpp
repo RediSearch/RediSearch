@@ -46,7 +46,7 @@ void* shared_exclusive_lock_worker(void* arg) {
     }
 
     // Try to acquire the SharedExclusiveLock and do work
-    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx, false);
+    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
 
     // Optional sleep to simulate work duration
     if (data->sleep_microseconds > 0) {
@@ -225,7 +225,7 @@ BENCHMARK_DEFINE_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWhileOwned)
         }
 
         // Set the lock to owned state before starting threads
-        SharedExclusiveLock_SetOwned();
+        SharedExclusiveLock_LendGIL();
 
         // Signal threads to start
         start_flag.store(true);
@@ -235,7 +235,7 @@ BENCHMARK_DEFINE_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWhileOwned)
             pthread_join(threads[i], nullptr);
         }
 
-        SharedExclusiveLock_UnsetOwned();
+        SharedExclusiveLock_TakeBackGIL();
     }
 }
 
