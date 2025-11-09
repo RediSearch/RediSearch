@@ -9,10 +9,14 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
 
-  run-on-intel:
-    uses: ./.github/workflows/flow-intel.yml
+  run-on-rocks9:
+    uses: ./.github/workflows/task-test.yml
+    with:
+      container: rockylinux:9
+      pre-steps-script: "dnf update -y && dnf install -y git"
+      test-config: QUICK=1
     secrets: inherit
