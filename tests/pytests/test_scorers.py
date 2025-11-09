@@ -878,7 +878,7 @@ def testBM25STDUnderflow():
     """
     Tests that we do not underflow when calculating the BM25STD score.
     Before the fix, we had an underflow when calculating the IDF, which caused
-    the score to be jump rapidly in case of specific update/delete flows (MOD-12223).
+    the score to jump rapidly in case of specific update/delete flows (MOD-12223).
     This test also shows the scoring behavior currently in RediSearch, in which
     for the same database image by the user, the score can change until the GC
     runs.
