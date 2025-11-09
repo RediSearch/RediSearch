@@ -879,7 +879,10 @@ def testBM25STDUnderflow():
     runs.
     """
 
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 DEFAULT_SCORER BM25STD ENABLE_UNSTABLE_FEATURES true')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
+
+    # Set the scorer to `BM25STD` (we had this issue only there)
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'BM25STD').ok()
 
     # Create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
