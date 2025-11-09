@@ -135,10 +135,11 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   if (replace) {
     RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
-      // decrease the number of documents in the index stats only if the document was there
+      // Update stats of the index only if the document was there
+      RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
       --spec->stats.numDocuments;
-      DMD_Return(aCtx->oldMd);
-      aCtx->oldMd = dmd;
+      RS_LOG_ASSERT(spec->stats.totalDocsLen >= dmd->len, "totalDocsLen is smaller than dmd->len");
+      spec->stats.totalDocsLen -= dmd->len;
       if (spec->gc) {
         GCContext_OnDelete(spec->gc);
       }
@@ -157,6 +158,8 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       if (spec->flags & Index_HasGeometry) {
         GeometryIndex_RemoveId(spec, dmd->id);
       }
+
+      DMD_Return(dmd);
     }
   }
 
