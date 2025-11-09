@@ -922,6 +922,7 @@ def testBM25STDUnderflow(env: Env):
     env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
 
+@skip(cluster=True)
 def testBM25DocLen(env: Env):
     """
     Tests that the total document length is calculated correctly (MOD-122234).
