@@ -121,7 +121,7 @@ int workersThreadPool_SetNumWorkers_no_wait() {
     size_t curr_threads = redisearch_thpool_get_num_threads(_workers_thpool);
 
     if (curr_threads == workers_target_thread_count) {
-      // Termination completed, clear the flag and call deactivation callback
+      // Termination completed, clear the termination-in-progress flag
       workers_termination_in_progress = false;
       RedisModule_Log(RSDummyContext, "notice",
                       "Workers threadpool termination completed, now at %zu threads", curr_threads);
