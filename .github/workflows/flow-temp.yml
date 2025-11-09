@@ -14,9 +14,9 @@ on:
 jobs:
 
   run-on-rocks9:
-    uses: ./.github/workflows/task-test.yml
+    uses: ./.github/workflows/flow-linux-platforms.yml
     with:
-      container: rockylinux:9
-      pre-steps-script: "dnf update -y && dnf install -y git"
+      platform: rockylinux:9
       test-config: QUICK=1
+      fail-fast: false
     secrets: inherit
