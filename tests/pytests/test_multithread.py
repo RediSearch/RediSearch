@@ -492,6 +492,20 @@ def test_change_workers_number():
         env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1, message='numThreadsAlive should match num_threads_alive')
         env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
 
+    def wait_for_threads(expected_num_threads_alive, expected_n_threads, max_retries=10, sleep_interval=0.05):
+        """
+            Wait for thread counts to match expected values with retries
+            Wait for the thread to be terminated asynchronously.
+        """
+        for attempt in range(max_retries):
+            # Check the actual values without raising an exception
+            actual_threads_alive = getWorkersThpoolStats(env)['numThreadsAlive']
+            actual_n_threads = getWorkersThpoolNumThreads(env)
+            if actual_threads_alive == expected_num_threads_alive and actual_n_threads == expected_n_threads or attempt == max_retries - 1:
+                check_threads(expected_num_threads_alive, expected_n_threads)
+                return
+            time.sleep(sleep_interval)
+
     # On start up the threadpool is not initialized. We can change the value of requested threads
     # without actually creating the threads.
     env = initEnv(moduleArgs='WORKERS 1')
@@ -502,13 +516,10 @@ def test_change_workers_number():
     # Decrease number of threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
     # Wait for the thread to be terminated
-    time.sleep(0.1)
-    check_threads(expected_num_threads_alive=0, expected_n_threads=1)
+    wait_for_threads(expected_num_threads_alive=0, expected_n_threads=1)
     # Set it to 0
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
-    # Wait for the thread to be terminated
-    time.sleep(0.1)
-    check_threads(expected_num_threads_alive=0, expected_n_threads=0)
+    wait_for_threads(expected_num_threads_alive=0, expected_n_threads=0)
 
     # Query should not be executed by the threadpool
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
@@ -535,8 +546,7 @@ def test_change_workers_number():
     # Remove threads from a running pool
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
     # Wait for the thread to be terminated
-    time.sleep(0.1)
-    check_threads(expected_num_threads_alive=1, expected_n_threads=1)
+    wait_for_threads(expected_num_threads_alive=1, expected_n_threads=1)
 
     # Terminate all threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()

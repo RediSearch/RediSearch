@@ -13,11 +13,6 @@ on:
 
 jobs:
 
-  run-on-tests:
-    uses: ./.github/workflows/task-test.yml
+  run-on-intel:
+    uses: ./.github/workflows/flow-intel.yml
     secrets: inherit
-    with:
-      coverage: false
-      get-redis: '8.2.2'
-      rejson-branch: master
-      test-config: '' # run all tests
