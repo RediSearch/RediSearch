@@ -11,7 +11,7 @@ use std::io::{Cursor, Seek, Write};
 
 use ffi::t_docId;
 
-use crate::{DecodedBy, Decoder, Encoder, IndexBlock, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, IndexBlock, RSIndexResult, TermDecoder};
 
 /// Encode and decode only the raw document ID delta without any compression.
 ///
@@ -22,7 +22,7 @@ pub struct RawDocIdsOnly;
 
 impl Encoder for RawDocIdsOnly {
     type Delta = u32;
-    const RECOMMENDED_BLOCK_ENTRIES: usize = 1000;
+    const RECOMMENDED_BLOCK_ENTRIES: u16 = 1000;
 
     fn encode<W: Write + Seek>(
         &self,
@@ -125,3 +125,5 @@ impl Decoder for RawDocIdsOnly {
         RSIndexResult::term()
     }
 }
+
+impl TermDecoder for RawDocIdsOnly {}

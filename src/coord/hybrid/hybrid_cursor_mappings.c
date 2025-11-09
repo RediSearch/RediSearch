@@ -11,6 +11,7 @@
 #include "redismodule.h"
 #include "../../rmalloc.h"
 #include "../../../deps/rmutil/rm_assert.h"
+#include "../../query_error.h"
 #include <string.h>
 
 
@@ -27,15 +28,17 @@ typedef struct {
     int numShards;                    // Total number of expected shards
 } processCursorMappingCallbackContext;
 
-static void processHybridError(processCursorMappingCallbackContext *ctx, const char *errorMessage) {
+static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply *rep) {
+    const char *errorMessage = MRReply_String(rep, NULL);
+    QueryErrorCode errCode = QueryError_GetCodeFromMessage(errorMessage);
     QueryError error = QueryError_Default();
-    QueryError_SetError(&error, QUERY_EGENERIC, errorMessage);
+    QueryError_SetError(&error, errCode, errorMessage);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
 
 static void processHybridUnknownReplyType(processCursorMappingCallbackContext *ctx, int replyType) {
     QueryError error = QueryError_Default();
-    QueryError_SetWithoutUserDataFmt(&error, QUERY_EUNSUPPTYPE, "Unsupported reply type: %d", replyType);
+    QueryError_SetWithoutUserDataFmt(&error, QUERY_ERROR_CODE_UNSUPP_TYPE, "Unsupported reply type: %d", replyType);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
 
@@ -98,8 +101,7 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     // add under a lock, allows the coordinator to know when all responses have arrived
     cb_ctx->responseCount++;
     if (replyType == MR_REPLY_ERROR) {
-        const char* errorMessage = MRReply_String(rep, NULL);
-        processHybridError(cb_ctx, errorMessage);
+        processHybridError(cb_ctx, rep);
     } else if (replyType == MR_REPLY_MAP) {
         RS_ASSERT(MRReply_Length(rep) == INTERNAL_HYBRID_RESP3_LENGTH);
         processHybridResp3(cb_ctx, rep, cmd);
@@ -129,7 +131,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -158,11 +160,10 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to communicate with shards");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
         cleanupCtx(ctx);
         return false;
     }
-
     // Wait for all callbacks to complete
     pthread_mutex_lock(ctx->mutex);
     // initialize count with response counts in case some shards already sent a response
@@ -172,8 +173,16 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     pthread_mutex_unlock(ctx->mutex);
     bool success = true;
     if (array_len(ctx->errors)) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process shard responses, first error: %s, total error count: %zu", QueryError_GetUserError(&ctx->errors[0]), array_len(ctx->errors));
-        success = false;
+        for (size_t i = 0; i < array_len(ctx->errors); i++) {
+            if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
+                QueryError_SetQueryOOMWarning(status);
+            } else {
+                QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to process shard responses, first error: %s, total error count: %zu",
+                    QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));
+                success = false;
+                break;
+            }
+        }
     }
 
     // Cleanup

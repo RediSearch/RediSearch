@@ -389,7 +389,7 @@ void RLookup_Cleanup(RLookup *lk) {
   memset(lk, 0xff, sizeof(*lk));
 }
 
-static RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
+RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll;
     RedisModule_StringToLongLong(src, &ll);
@@ -581,7 +581,7 @@ done:
   return res;
 }
 
-static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
+RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
   switch (RedisModule_CallReplyType(rep)) {
     case REDISMODULE_REPLY_STRING: {
       if (otype == RLOOKUP_C_BOOL || RLOOKUP_C_INT) {
@@ -642,11 +642,11 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     *keyobj = RedisModule_OpenKey(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
     RedisModule_FreeString(ctx, keyName);
     if (!*keyobj) {
-      QueryError_SetCode(options->status, QUERY_ENODOC);
+      QueryError_SetCode(options->status, QUERY_ERROR_CODE_NO_DOC);
       return REDISMODULE_ERR;
     }
     if (RedisModule_KeyType(*keyobj) != REDISMODULE_KEYTYPE_HASH) {
-      QueryError_SetCode(options->status, QUERY_EREDISKEYTYPE);
+      QueryError_SetCode(options->status, QUERY_ERROR_CODE_REDIS_KEY_TYPE);
       return REDISMODULE_ERR;
     }
   }
@@ -679,7 +679,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
                         RedisJSON *keyobj) {
   if (!japi) {
-    QueryError_SetCode(options->status, QUERY_EUNSUPPTYPE);
+    QueryError_SetCode(options->status, QUERY_ERROR_CODE_UNSUPP_TYPE);
     RedisModule_Log(RSDummyContext, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
     return REDISMODULE_ERR;
   }
@@ -699,7 +699,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     RedisModule_FreeString(ctx, keyName);
 
     if (!*keyobj) {
-      QueryError_SetCode(options->status, QUERY_ENODOC);
+      QueryError_SetCode(options->status, QUERY_ERROR_CODE_NO_DOC);
       return REDISMODULE_ERR;
     }
   }
@@ -734,7 +734,7 @@ typedef int (*GetKeyFunc)(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOpti
                           void **keyobj);
 
 
-static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
+int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   // Load the document from the schema. This should be simple enough...
   void *key = NULL;  // This is populated by getKeyCommon; we free it at the end
   DocumentType type = options->dmd ? options->dmd->type : options->type;
@@ -887,7 +887,7 @@ done:
   return rc;
 }
 
-static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
+int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
   if (!japi) {
     return rc;
@@ -1027,4 +1027,11 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
     RLookup_WriteKey(dest_key, destRow, value);
   }
   // Caller is responsible for managing source row lifecycle
+}
+
+// added as entry point for the rust code
+// Required from Rust therefore not an inline method anymore.
+// Internally it handles different lengths encoded in 5,8,16,32 and 64 bit.
+size_t sdslen__(const char* s) {
+  return sdslen(s);
 }

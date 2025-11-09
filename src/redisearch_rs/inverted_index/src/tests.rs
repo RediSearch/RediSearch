@@ -17,8 +17,8 @@ use std::{
 use crate::{
     BlockGcScanResult, DecodedBy, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex,
     FilterGeoReader, FilterMaskReader, FilterNumericReader, GcApplyInfo, GcScanDelta, IdDelta,
-    IndexBlock, IndexReader, InvertedIndex, NumericFilter, RSAggregateResult, RSIndexResult,
-    RSResultData, RSResultKind, RSTermRecord, RepairType,
+    IndexBlock, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSAggregateResult,
+    RSIndexResult, RSResultData, RSResultKind, RSTermRecord, RepairType,
     debug::{BlockSummary, Summary},
 };
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, t_docId};
@@ -61,7 +61,7 @@ impl Encoder for Dummy {
     ) -> std::io::Result<usize> {
         writer.write_all(&delta.to_be_bytes())?;
 
-        Ok(8)
+        Ok(4)
     }
 }
 
@@ -69,12 +69,12 @@ impl Encoder for Dummy {
 fn memory_usage() {
     let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 48);
+    assert_eq!(ii.memory_usage(), 40);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 48 + mem_growth);
+    assert_eq!(ii.memory_usage(), 40 + mem_growth);
 }
 
 #[test]
@@ -85,8 +85,8 @@ fn adding_records() {
     let mem_growth = ii.add_record(&record).unwrap();
 
     assert_eq!(
-        mem_growth, 56,
-        "size of the index block plus initial buffer capacity"
+        mem_growth, 52,
+        "size of the index block (48 bytes) plus 4 bytes for the delta"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -99,7 +99,10 @@ fn adding_records() {
 
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(mem_growth, 0, "buffer should not need to grow again");
+    assert_eq!(
+        mem_growth, 5,
+        "buffer needs to grow to 9 bytes to hold a total of 8 bytes"
+    );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0, 0, 0, 0, 1]);
     assert_eq!(ii.blocks[0].num_entries, 2);
@@ -197,7 +200,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         type Delta = u32;
 
         const ALLOW_DUPLICATES: bool = true;
-        const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
+        const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
             &self,
@@ -215,19 +218,19 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
 
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
     assert_eq!(
-        mem_growth, 56,
-        "size of the index block plus initial buffer capacity"
+        mem_growth, 49,
+        "size of the index block (48 bytes) plus the byte written"
     );
     assert_eq!(ii.blocks.len(), 1);
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(11)).unwrap();
-    assert_eq!(mem_growth, 0, "buffer does not need to grow again");
+    assert_eq!(mem_growth, 1, "buffer needs to grow for the new byte");
     assert_eq!(ii.blocks.len(), 1);
 
     // 3 entry should create a new block
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(12)).unwrap();
     assert_eq!(
-        mem_growth, 56,
-        "size of the new index block plus initial buffer capacity"
+        mem_growth, 49,
+        "size of the new index block (48 bytes) plus the byte written"
     );
     assert_eq!(
         ii.blocks.len(),
@@ -235,12 +238,12 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         "should create a new block after reaching the limit"
     );
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(13)).unwrap();
-    assert_eq!(mem_growth, 0, "buffer does not need to grow again");
+    assert_eq!(mem_growth, 1, "buffer needs to grow for the new byte");
     assert_eq!(ii.blocks.len(), 2);
 
     // But duplicate entry does not go in new block even if the current block is full
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(13)).unwrap();
-    assert_eq!(mem_growth, 0, "buffer does not need to grow again");
+    assert_eq!(mem_growth, 1, "buffer needs to grow again");
     assert_eq!(
         ii.blocks.len(),
         2,
@@ -261,8 +264,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        8 + 48,
-        "should write 8 bytes for delta and 48 bytes for the index block"
+        4 + 48,
+        "should write 4 bytes for delta and 48 bytes for the index block"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -279,8 +282,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        8 + 48,
-        "should write 8 bytes for delta and 48 bytes for the new index block"
+        4 + 48,
+        "should write 4 bytes for delta and 48 bytes for the new index block"
     );
     assert_eq!(ii.blocks.len(), 2);
     assert_eq!(ii.blocks[1].buffer, [0, 0, 0, 0]);
@@ -290,17 +293,127 @@ fn adding_big_delta_makes_new_block() {
     assert_eq!(ii.n_unique_docs, 2);
 }
 
+// An `IndexBlock` is 48 bytes so we want to carefully control the growth strategy used by it to
+// limit memory usage. This test ensures the blocks field of an inverted index only grows by one
+// element at a time.
+#[test]
+fn adding_ii_blocks_growth_strategy() {
+    /// Dummy encoder which only allows 2 entries per block for testing
+    #[derive(Clone)]
+    struct SmallBlocksDummy;
+
+    impl Encoder for SmallBlocksDummy {
+        type Delta = u32;
+
+        const ALLOW_DUPLICATES: bool = true;
+        const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            mut writer: W,
+            _delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&[1])?;
+
+            Ok(1)
+        }
+    }
+
+    impl Decoder for SmallBlocksDummy {
+        fn decode<'index>(
+            &self,
+            _cursor: &mut Cursor<&'index [u8]>,
+            _base: t_docId,
+            _result: &mut RSIndexResult<'index>,
+        ) -> std::io::Result<()> {
+            unimplemented!("not used by this test")
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            unimplemented!("not used by this test")
+        }
+    }
+
+    impl DecodedBy for SmallBlocksDummy {
+        type Decoder = Self;
+
+        fn decoder() -> Self::Decoder {
+            Self
+        }
+    }
+
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, SmallBlocksDummy);
+
+    assert_eq!(
+        ii.blocks.capacity(),
+        0,
+        "initially there are no blocks allocated"
+    );
+
+    // Test when a new block are added normally
+    ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
+    ii.add_record(&RSIndexResult::default().doc_id(11)).unwrap();
+    assert_eq!(
+        ii.blocks.capacity(),
+        1,
+        "we should only have grown the capacity by one"
+    );
+
+    ii.add_record(&RSIndexResult::default().doc_id(12)).unwrap();
+    assert_eq!(
+        ii.blocks.capacity(),
+        2,
+        "only one new capacity should be added"
+    );
+
+    // Test when a new block is added due to delta overflow
+    ii.add_record(&RSIndexResult::default().doc_id(u32::MAX as u64 + 13))
+        .unwrap();
+    assert_eq!(
+        ii.blocks.capacity(),
+        3,
+        "only one new capacity should be added"
+    );
+
+    // Make sure GC is also smart to remove extra capacity
+    ii.apply_gc(GcScanDelta {
+        last_block_idx: 2,
+        last_block_num_entries: 1,
+        deltas: vec![
+            BlockGcScanResult {
+                index: 0,
+                repair: RepairType::Delete {
+                    n_unique_docs_removed: 1,
+                },
+            },
+            BlockGcScanResult {
+                index: 1,
+                repair: RepairType::Delete {
+                    n_unique_docs_removed: 1,
+                },
+            },
+        ],
+    });
+
+    assert_eq!(
+        ii.blocks.capacity(),
+        1,
+        "no extra capacity should be dangling"
+    );
+}
+
 #[test]
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 56);
+    assert_eq!(ii.memory_usage(), 48);
     assert_eq!(ii.number_of_entries(), 0);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 56 + mem_growth);
+    assert_eq!(ii.memory_usage(), 48 + mem_growth);
     assert_eq!(ii.number_of_entries(), 1);
 
     let record = RSIndexResult::default().doc_id(10);
@@ -313,25 +426,25 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::new(IndexFlags_Index_StoreFieldFlags, Dummy);
 
-    assert_eq!(ii.memory_usage(), 64);
+    assert_eq!(ii.memory_usage(), 56);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::default().doc_id(10).field_mask(0b101);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(mem_growth, 56);
+    assert_eq!(mem_growth, 52);
     assert_eq!(ii.field_mask(), 0b101);
 
     let record = RSIndexResult::default().doc_id(11).field_mask(0b101);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(mem_growth, 0);
+    assert_eq!(mem_growth, 5);
     assert_eq!(ii.field_mask(), 0b101);
 
     let record = RSIndexResult::default().doc_id(12).field_mask(0b011);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(mem_growth, 8);
+    assert_eq!(mem_growth, 5);
     assert_eq!(ii.field_mask(), 0b111);
 }
 
@@ -877,7 +990,7 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
         unimplemented!("This test won't reset")
     }
 
-    fn unique_docs(&self) -> usize {
+    fn unique_docs(&self) -> u32 {
         unimplemented!("This test won't count unique docs")
     }
 
@@ -893,6 +1006,9 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
         false
     }
 }
+
+// Claim iterators are numeric readers so they can be used in tests.
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> NumericReader<'index> for I {}
 
 #[test]
 fn reading_filter_based_on_field_mask() {
@@ -1135,7 +1251,7 @@ fn blocks_summary() {
         type Delta = u32;
 
         const ALLOW_DUPLICATES: bool = true;
-        const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
+        const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
             &self,
@@ -1190,7 +1306,7 @@ fn blocks_summary_store_numeric() {
         type Delta = u32;
 
         const ALLOW_DUPLICATES: bool = true;
-        const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
+        const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
             &self,
@@ -1630,13 +1746,13 @@ fn ii_apply_gc() {
     ];
     let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
 
-    // Inverted index is 48 bytes base
+    // Inverted index is 40 bytes base
     // 1st index block is 40 bytes + 16 bytes for the buffer capacity
     // 2nd index block is 40 bytes + 24 bytes for the buffer capacity
     // 3rd index block is 40 bytes + 16 bytes for the buffer capacity
     // 4th index block is 40 bytes + 24 bytes for the buffer capacity
     // So total memory size is 288 bytes
-    assert_eq!(ii.memory_usage(), 288);
+    assert_eq!(ii.memory_usage(), 280);
 
     let gc_result = vec![
         BlockGcScanResult {
@@ -1691,13 +1807,13 @@ fn ii_apply_gc() {
 
     assert_eq!(ii.gc_marker(), 1);
 
-    // Inverted index is 48 bytes base
+    // Inverted index is 40 bytes base
     // 1st index block is 40 bytes + 16 bytes for the buffer capacity
     // 2nd index block is 40 bytes + 16 bytes for the buffer capacity
     // 3rd index block is 40 bytes + 16 bytes for the buffer capacity
     // 4th index block is 40 bytes + 16 bytes for the buffer capacity
     // So total memory size is 272 bytes
-    assert_eq!(ii.memory_usage(), 272);
+    assert_eq!(ii.memory_usage(), 264);
 
     assert_eq!(ii.unique_docs(), 4);
     assert_eq!(
@@ -1763,11 +1879,11 @@ fn ii_apply_gc_last_block_updated() {
 
     let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
 
-    // Inverted index is 48 bytes base
+    // Inverted index is 40 bytes base
     // 1st index block is 40 bytes + 16 bytes for the buffer capacity
     // 2nd index block is 40 bytes + 24 bytes for the buffer capacity
     // So total memory size is 168 bytes
-    assert_eq!(ii.memory_usage(), 168);
+    assert_eq!(ii.memory_usage(), 160);
 
     let gc_result = vec![
         BlockGcScanResult {
@@ -1804,10 +1920,10 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(ii.gc_marker(), 1);
 
-    // Inverted index is 48 bytes base
+    // Inverted index is 40 bytes base
     // 1st index block is 40 bytes + 24 bytes for the buffer capacity
     // So total memory size is 112 bytes
-    assert_eq!(ii.memory_usage(), 112);
+    assert_eq!(ii.memory_usage(), 104);
 
     assert_eq!(ii.unique_docs(), 3);
     assert_eq!(
@@ -1944,7 +2060,7 @@ fn ii_apply_gc_entries_tracking_index() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 64,
+            bytes_freed: 65,
             bytes_allocated: 56,
             entries_removed: 2,
             blocks_ignored: 0

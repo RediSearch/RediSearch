@@ -58,7 +58,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   bool timeoutOccurred = false;
 
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
-    ReplyWarning(reply, QueryError_Strerror(QUERY_ETIMEDOUT), suffix);
+    ReplyWarning(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT), suffix);
     timeoutOccurred = true;
   } else if (returnCode == RS_RESULT_ERROR) {
     // Non-fatal error
@@ -68,6 +68,23 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   }
 
   return timeoutOccurred;
+}
+
+// Reply with warnings, adding suffixes to indicate the originating context (search/vsim/post-processing)
+static void replyWarningsWithSuffixes(RedisModule_Reply *reply, HybridRequest *hreq,
+                                       QueryProcessingCtx *qctx, int postProcessingRC) {
+  bool timeoutInSubquery = false;
+
+  // Handle warnings from each subquery, adding appropriate suffix
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    QueryError* err = &hreq->errors[i];
+    const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
+    const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
+    timeoutInSubquery = handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
+  }
+
+  // Handle warnings from post-processing stage
+  handleAndReplyWarning(reply, qctx->err, postProcessingRC, POST_PROCESSING_SUFFIX, timeoutInSubquery);
 }
 
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
@@ -159,23 +176,22 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
-static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration) {
+static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration, QueryError *err) {
   if (results) {
     destroyResults(results);
   } else {
     SearchResult_Destroy(r);
   }
 
-  // TODO: take to error using HybridRequest_GetError
-  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-  if (QueryError_IsOk(qctx->err) || hasTimeoutError(qctx->err)) {
+  if (QueryError_IsOk(err) || hasTimeoutError(err)) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
   }
 
   // Reset the total results length
+  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   qctx->totalResults = 0;
-  QueryError_ClearError(qctx->err);
+  QueryError_ClearError(err);
 }
 
 static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
@@ -219,7 +235,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     // If an error occurred, or a timeout in strict mode - return a simple error
     QueryError err = QueryError_Default();
     HybridRequest_GetError(hreq, &err);
-    if (ShouldReplyWithError(&err, hreq->reqConfig.timeoutPolicy, false)) {
+    HybridRequest_ClearErrors(hreq);
+    if (ShouldReplyWithError(QueryError_GetCode(&err), hreq->reqConfig.timeoutPolicy, false)) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
@@ -263,16 +280,13 @@ done:
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
-
-    bool timeoutInSubquery = false;
-    for (size_t i = 0; i < hreq->nrequests; ++i) {
-      QueryError* err = &hreq->errors[i];
-      const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
-      const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
-      timeoutInSubquery = handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
+    if (QueryError_HasQueryOOMWarning(qctx->err)) {
+      // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
+      // because this warning is not related to subqueries or post-processing terminology
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     }
-    // Handle main query errors (POST PROCESSING)
-    handleAndReplyWarning(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, timeoutInSubquery);
+
+    replyWarningsWithSuffixes(reply, hreq, qctx, rc);
 
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
@@ -284,7 +298,7 @@ done:
     RedisModule_Reply_MapEnd(reply);
 
 done_err:
-    finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock);
+    finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock, &err);
 }
 
 static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
@@ -359,7 +373,7 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
 int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, QueryError *status) {
     HybridRequest *req = StrongRef_Get(hybrid_ref);
     if (req->nrequests == 0) {
-      QueryError_SetError(&req->tailPipelineError, QUERY_EGENERIC, "No subqueries in hybrid request");
+      QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
       return REDISMODULE_ERR;
     }
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor*, req->nrequests);
@@ -394,9 +408,9 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     if (rc != RS_RESULT_OK) {
       array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
       if (rc == RS_RESULT_TIMEDOUT) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ETIMEDOUT, "Depleting timed out");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
       } else {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to deplete set of results, rc=%d", rc);
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
       }
       return REDISMODULE_ERR;
     }
@@ -518,19 +532,17 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   QueryError status = QueryError_Default();
 
-  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
-    // OOM guardrail
-    if (estimateOOM(ctx)) {
-      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-      QueryError_SetCode(&status, QUERY_EOOM);
-      return QueryError_ReplyAndClear(ctx, &status);
-    }
+  // Memory guardrail
+  if (QueryMemoryGuard(ctx)) {
+    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    return QueryError_ReplyAndClear(ctx, &status);
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
+    QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
@@ -608,7 +620,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
-    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     QueryError_ReplyAndClear(outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientHybridCtx_destroy(BCHCtx);

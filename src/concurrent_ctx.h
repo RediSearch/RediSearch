@@ -33,7 +33,6 @@ typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int
                                      struct ConcurrentCmdCtx *);
 
 #define CMDCTX_KEEP_RCTX 0x01
-#define CMDCTX_NO_GIL 0x02
 
 /**
  * Take ownership of the underlying Redis command context. Once ownership is
@@ -51,11 +50,8 @@ void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
 // Returns the WeakRef held in the context.
 WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
 
-int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
-                                        RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
 /* Same as handleRedis command, but set flags for the concurrent context */
-int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
+int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           WeakRef spec_ref);
 
