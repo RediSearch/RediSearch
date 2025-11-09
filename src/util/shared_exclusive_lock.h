@@ -54,8 +54,6 @@ void SharedExclusiveLock_TakeBackGIL();
  * Acquire either the GIL or internal lock, makes sure that only one thread can return from this function at a time.
  * Main thread may need to call this to ensure exclusive access to RedisModule_Yield or RedisModule_Call.
  * @param ctx Redis module context for GIL operations
- * @param acquireInternalLock Should be true if the caller knows it owns the GIL, and its aim is to ensure exclusive access to RedisModule_Yield or RedisModule_Call with respect to threads
- * relying on the internal lock.
  * @return Type of lock acquired (Owned or Borrowed)
  */
 SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx);
