@@ -15,8 +15,8 @@ use criterion::{
 };
 use ffi::IndexFlags_Index_DocIdsOnly;
 use inverted_index::{IndexBlock, InvertedIndex, RSIndexResult, numeric};
-// Ensure the symbol is not discarded by the linker.
-#[allow(unused_imports)]
+
+#[allow(unused_imports)] // We need this symbol for C binding
 use inverted_index_bencher::ResultMetrics_Free;
 
 #[allow(unused_imports)] // We need this symbol for C binding
