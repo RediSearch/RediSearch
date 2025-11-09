@@ -118,18 +118,18 @@ int workersThreadPool_SetNumWorkers_no_wait() {
 
   // Check if termination is in progress from a previous call
   if (workers_termination_in_progress) {
-    size_t curr_threads = redisearch_thpool_get_num_threads(_workers_thpool);
+    size_t curr_threads_alive = redisearch_thpool_get_num_threads_alive(_workers_thpool);
 
-    if (curr_threads == workers_target_thread_count) {
+    if (curr_threads_alive <= workers_target_thread_count) {
       // Termination completed, clear the termination-in-progress flag
       workers_termination_in_progress = false;
       RedisModule_Log(RSDummyContext, "notice",
-                      "Workers threadpool termination completed, now at %zu threads", curr_threads);
+                      "Workers threadpool termination completed, now at %zu threads", curr_threads_alive);
     } else {
       // Termination still in progress, reject this call
       RedisModule_Log(RSDummyContext, "warning",
                       "Cannot change workers threadpool size: termination in progress "
-                      "(current: %zu, target: %zu)", curr_threads, workers_target_thread_count);
+                      "(current alive: %zu, target: %zu)", curr_threads_alive, workers_target_thread_count);
       return REDISMODULE_ERR;
     }
   }

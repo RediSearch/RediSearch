@@ -147,6 +147,8 @@ static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
                                              job *last_newjob, size_t num,
                                              thpool_priority priority);
 static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p);
+static inline priorityJobCtx priority_queue_pull_from_queues_unsafe_internal(priorityJobqueue *priority_queue_p,
+                                                                              bool skip_admin);
 static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobqueue *priority_queue_p);
 static priorityJobCtx priority_queue_pull_no_wait(priorityJobqueue *priority_queue_p);
 static void priority_queue_destroy(priorityJobqueue *priority_queue_p);
@@ -730,19 +732,18 @@ static void *thread_do(redisearch_thpool_t *thpool_p) {
       }
       thpool_p->total_jobs_done += !job_ctx.is_admin;
       thpool_p->jobqueues.num_jobs_in_progress--;
-    }
 
-    if (thread_ctx.thread_state != THREAD_RUNNING) {
+      /* Check for immediate termination after executing an admin job */
+      if (job_ctx.is_admin && thread_ctx.thread_state == THREAD_TERMINATE_ASAP) {
+        redisearch_thpool_lock(thpool_p);
+        break;
+      }
+    } else {
+      /* No job was pulled (only happens in THREAD_TERMINATE_WHEN_EMPTY state when queue is empty) */
       if (thread_ctx.thread_state == THREAD_TERMINATE_WHEN_EMPTY) {
         /*  We need to lock pulling from the jobqueue and update
         num_threads_alive together to make sure num_threads_alive won't
         change while we are pushing admin jobs to the queue. */
-        redisearch_thpool_lock(thpool_p);
-        if (priority_queue_len_unsafe(&thpool_p->jobqueues) == 0) {
-          break;
-        }
-        redisearch_thpool_unlock(thpool_p);
-      } else if (thread_ctx.thread_state == THREAD_TERMINATE_ASAP) {
         redisearch_thpool_lock(thpool_p);
         break;
       }
@@ -925,7 +926,9 @@ static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
 static priorityJobCtx priority_queue_pull_no_wait(priorityJobqueue *priority_queue_p) {
   priorityJobCtx job_ctx;
   pthread_mutex_lock(&priority_queue_p->lock);
-  job_ctx = priority_queue_pull_from_queues_unsafe(priority_queue_p);
+  /* Skip admin jobs when in THREAD_TERMINATE_WHEN_EMPTY state to prevent
+   * threads from stealing admin jobs meant for other threads */
+  job_ctx = priority_queue_pull_from_queues_unsafe_internal(priority_queue_p, true);
   pthread_mutex_unlock(&priority_queue_p->lock);
   return job_ctx;
 }
@@ -941,11 +944,14 @@ static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
   pthread_mutex_unlock(&priority_queue_p->lock);
   return job_ctx;
 }
-static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobqueue *priority_queue_p) {
+static inline priorityJobCtx priority_queue_pull_from_queues_unsafe_internal(priorityJobqueue *priority_queue_p,
+                                                                            bool skip_admin) {
   bool is_admin = true, has_priority_ticket = false;
   job *job_p = NULL;
-  /* Pull from the admin queue first */
-  job_p = jobqueue_pull(&priority_queue_p->admin_priority_jobqueue);
+  /* Pull from the admin queue first (unless skip_admin is true) */
+  if (!skip_admin) {
+    job_p = jobqueue_pull(&priority_queue_p->admin_priority_jobqueue);
+  }
 
   if (!job_p) {
     is_admin = false;
@@ -993,6 +999,10 @@ static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobq
       .has_priority_ticket = has_priority_ticket,
   };
   return job_ctx;
+}
+
+static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobqueue *priority_queue_p) {
+  return priority_queue_pull_from_queues_unsafe_internal(priority_queue_p, false);
 }
 
 static void priority_queue_destroy(priorityJobqueue *priority_queue_p) {
