@@ -356,20 +356,20 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
     }
-  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, "_SLOTS")) {
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, SLOTS_STR)) {
     if (*papCtx->slotRanges) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "_SLOTS already specified");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SLOTS_STR" already specified");
       return ARG_ERROR;
     }
     if (AC_NumRemaining(ac) < 1) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "_SLOTS missing argument");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SLOTS_STR" missing argument");
       return ARG_ERROR;
     }
     size_t serialization_len;
     const char *serialization = AC_GetStringNC(ac, &serialization_len);
     RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
     if (!slot_array) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize _SLOTS data");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
       return ARG_ERROR;
     }
     // TODO ASM: check if the requested slots are available

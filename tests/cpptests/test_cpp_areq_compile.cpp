@@ -107,7 +107,7 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
     // Create argument list
     std::vector<RedisModuleString*> argv;
     argv.push_back(RedisModule_CreateString(ctx, "hello", 5));  // query
-    argv.push_back(RedisModule_CreateString(ctx, "_SLOTS", strlen("_SLOTS")));
+    argv.push_back(RedisModule_CreateString(ctx, SLOTS_STR, strlen(SLOTS_STR)));
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
@@ -201,7 +201,7 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
     // Create argument list
     std::vector<RedisModuleString*> argv;
     argv.push_back(RedisModule_CreateString(ctx, "hello", 5));  // query
-    argv.push_back(RedisModule_CreateString(ctx, "_SLOTS", strlen("_SLOTS")));
+    argv.push_back(RedisModule_CreateString(ctx, SLOTS_STR, strlen(SLOTS_STR)));
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
@@ -237,7 +237,7 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
     // Create argument list with missing binary data
     std::vector<RedisModuleString*> argv;
     argv.push_back(RedisModule_CreateString(ctx, "hello", 5));  // query
-    argv.push_back(RedisModule_CreateString(ctx, "_SLOTS", strlen("_SLOTS")));
+    argv.push_back(RedisModule_CreateString(ctx, SLOTS_STR, strlen(SLOTS_STR)));
 
     // Test AREQ_Compile - should fail due to insufficient arguments
     int result = AREQ_Compile(req, argv.data(), argv.size(), &status);
@@ -271,7 +271,7 @@ TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
     argv.push_back(RedisModule_CreateString(ctx, "_INDEX_PREFIXES", 15));
     argv.push_back(RedisModule_CreateString(ctx, "1", 1));
     argv.push_back(RedisModule_CreateString(ctx, "", 0));                    // empty prefix
-    argv.push_back(RedisModule_CreateString(ctx, "_SLOTS", 6));
+    argv.push_back(RedisModule_CreateString(ctx, SLOTS_STR, strlen(SLOTS_STR)));
     argv.push_back(createBinaryString(createBinarySlotRangeData({{5462, 10923}}))); // slot ranges
     argv.push_back(RedisModule_CreateString(ctx, "SCORER", 6));
     argv.push_back(RedisModule_CreateString(ctx, "BM25STD", 7));

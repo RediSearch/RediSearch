@@ -109,7 +109,7 @@ protected:
       EXPECT_STREQ(xcmd.strs[xcmd.num - 9], "WITHCURSOR") << "WITHCURSOR should be seventh to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 8], "WITHSCORES") << "WITHSCORES should be sixth to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 7], "_NUM_SSTRING") << "_NUM_SSTRING should be fifth to last";
-      EXPECT_STREQ(xcmd.strs[xcmd.num - 6], "_SLOTS") << "_SLOTS should be fourth to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 6], SLOTS_STR) << SLOTS_STR << " should be fourth to last";
       // slots blob is third to last
       EXPECT_STREQ(xcmd.strs[xcmd.num - 4], "_INDEX_PREFIXES") << "_INDEX_PREFIXES should be fourth to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "2") << "Prefix count should be third to last";

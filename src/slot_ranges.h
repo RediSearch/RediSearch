@@ -17,6 +17,8 @@
 extern "C" {
 #endif
 
+#define SLOTS_STR "_SLOTS_INFO"
+
 typedef struct SharedSlotRangeArray SharedSlotRangeArray;
 
 /// @brief Get slot ranges for the local node. The returned value must be freed using FreeLocalSlots

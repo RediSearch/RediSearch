@@ -233,5 +233,5 @@ def test_slots_info_errors(env: Env):
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
 
     env.expect('_FT.SEARCH', 'idx', '*').error().contains('Internal query missing slots specification')
-    env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS', 'invalid_slots_data').error().contains('Failed to deserialize _SLOTS data')
-    env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS', generate_slots(), '_SLOTS', generate_slots()).error().contains('_SLOTS already specified')
+    env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', 'invalid_slots_data').error().contains('Failed to deserialize _SLOTS_INFO data')
+    env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(), '_SLOTS_INFO', generate_slots()).error().contains('_SLOTS_INFO already specified')

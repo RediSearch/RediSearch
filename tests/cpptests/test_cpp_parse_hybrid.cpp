@@ -661,7 +661,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
 
 TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING", "_SLOTS");
+        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING", SLOTS_STR);
   static RedisModuleSlotRangeArray slots = {
     .num_ranges = 1,
     .ranges = {

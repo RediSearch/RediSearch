@@ -73,7 +73,7 @@ int findArgPosition(const MRCommand* cmd, const char* arg) {
 }
 
 int SlotRangeInfoIndex(const MRCommand* cmd) {
-    int pos = findArgPosition(cmd, "_SLOTS");
+    int pos = findArgPosition(cmd, SLOTS_STR);
     if (pos == -1 || pos + 1 >= cmd->num) {
         return -1; // Not found or incomplete
     }
@@ -296,7 +296,7 @@ TEST_F(MRCommandTest, testAddSlotRangeInfoToSearchCommand) {
 
     // Verify slot range arguments are at the end
     int rangePos = SlotRangeInfoIndex(&cmd) + 1;
-    EXPECT_EQ(rangePos, insertPos + 1) << "_SLOTS binary should be at position " << insertPos + 1;
+    EXPECT_EQ(rangePos, insertPos + 1) << SLOTS_STR << " binary should be at position " << insertPos + 1;
     EXPECT_EQ(cmd.lens[rangePos], SlotRangeArray_SizeOf(testSlotArray->num_ranges)) << "Binary data should be present";
 
     MRCommand_Free(&cmd);
@@ -315,7 +315,7 @@ TEST_F(MRCommandTest, testAddSlotRangeInfoToAggregateCommand) {
 
     // Verify slot range arguments are at the end
     int rangePos = SlotRangeInfoIndex(&cmd) + 1;
-    EXPECT_EQ(rangePos, 5) << "_SLOTS binary should be at position 5";
+    EXPECT_EQ(rangePos, 5) << SLOTS_STR" binary should be at position 5";
     EXPECT_EQ(cmd.lens[rangePos], SlotRangeArray_SizeOf(testSlotArray->num_ranges)) << "Binary data should be present";
 
     MRCommand_Free(&cmd);
@@ -327,9 +327,9 @@ RedisModuleSlotRangeArray* extractSlotRangeFromArgs(RedisModuleString **argv, in
     ArgsCursor ac;
     ArgsCursor_InitRString(&ac, argv, argc);
 
-    // Search for _SLOTS token
+    // Search for SLOTS_STR token
     do {
-        if (AC_AdvanceIfMatch(&ac, "_SLOTS")) {
+        if (AC_AdvanceIfMatch(&ac, SLOTS_STR)) {
             const char *buffer;
             size_t bef_len;
             if (AC_GetString(&ac, &buffer, &bef_len, 0) != AC_OK) {
@@ -384,7 +384,7 @@ TEST_P(MRCommandSlotRangeTest, testAddSlotRangeInfo) {
 
     // Verify the command structure
     EXPECT_EQ(cmd.num, 5) << "Command should have 5 arguments after adding slot range info";
-    EXPECT_STREQ(cmd.strs[3], "_SLOTS") << "Fourth argument should be _SLOTS";
+    EXPECT_STREQ(cmd.strs[3], SLOTS_STR) << "Fourth argument should be " << SLOTS_STR;
 
     // Verify binary data length
     size_t expected_binary_len = testSlotArray->num_ranges * sizeof(RedisModuleSlotRange) + sizeof(RedisModuleSlotRangeArray);

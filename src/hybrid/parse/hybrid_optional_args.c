@@ -130,8 +130,8 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                              ARG_OPT_CALLBACK, handleIndexPrefixes, ctx,
                              ARG_OPT_END);
 
-        // Mandatory _SLOTS argument for internal requests
-        ArgParser_AddSubArgsV(parser, "_SLOTS", "Requested slots from coordinator",
+        // Mandatory SLOTS_STR argument for internal requests
+        ArgParser_AddSubArgsV(parser, SLOTS_STR, "Requested slots from coordinator",
                             &subArgs, 1, 1,
                             ARG_OPT_REQUIRED,
                             ARG_OPT_CALLBACK, handleSlots, ctx,

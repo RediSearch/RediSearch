@@ -128,7 +128,7 @@ void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n) {
   int oldNum = cmd->num;
   extendCommandList(cmd, 1);
 
-  RS_LOG_ASSERT(!cmd->slotsInfoArgIndex || cmd->slotsInfoArgIndex != pos, "Cannot insert between _SLOTS and its data");
+  RS_LOG_ASSERT(!cmd->slotsInfoArgIndex || cmd->slotsInfoArgIndex != pos, "Cannot insert between "SLOTS_STR" and its data");
   if (cmd->slotsInfoArgIndex && pos < cmd->slotsInfoArgIndex) {
     cmd->slotsInfoArgIndex++;
   }
@@ -226,15 +226,15 @@ void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
 }
 
 void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos) {
-  // Make place for `_SLOTS <binary data>`
+  // Make place for SLOTS_STR + <binary data>
   extendCommandList(cmd, 2);
 
   // shift right all arguments that comes after pos
   memmove(cmd->strs + pos + 2, cmd->strs + pos, (cmd->num - 2 - pos) * sizeof(char*));
   memmove(cmd->lens + pos + 2, cmd->lens + pos, (cmd->num - 2 - pos) * sizeof(size_t));
 
-  // Assign the `_SLOTS` marker at pos
-  assignStr(cmd, pos, "_SLOTS", sizeof("_SLOTS") - 1);
+  // Assign the SLOTS_STR marker at pos
+  assignStr(cmd, pos, SLOTS_STR, sizeof(SLOTS_STR) - 1);
   // Leave space for the binary data at pos + 1 (to be filled later)
   assignStr(cmd, pos + 1, "", 0);
   cmd->slotsInfoArgIndex = pos + 1;
@@ -242,7 +242,7 @@ void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos) {
 
 void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slots) {
   RS_ASSERT(cmd->slotsInfoArgIndex > 0 && cmd->slotsInfoArgIndex < cmd->num);
-  RS_ASSERT(!strcmp(cmd->strs[cmd->slotsInfoArgIndex - 1], "_SLOTS"));
+  RS_ASSERT(!strcmp(cmd->strs[cmd->slotsInfoArgIndex - 1], SLOTS_STR));
 
   // Assign the binary data to the command
   char *serialized = SlotRangesArray_Serialize(slots);

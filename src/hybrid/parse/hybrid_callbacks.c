@@ -443,22 +443,18 @@ void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) 
   }
 }
 
-// _SLOTS callback - implements EXACT original logic from handleCommonArgs
-void handleSlots(ArgParser *parser, const void *value, void *user_data) {
+// SLOTS_STR callback - implements EXACT original logic from handleCommonArgs
+void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
 
-    // Parse binary slot range format: _SLOTS <binary_data>
-
-    // Not checking for duplicate _SLOTS here, as it is handled in the main parser
-    // Not checking for number of arguments here, as it is handled in the main parser
-
+    // Parse binary slots information
     size_t serialization_len;
     const char *serialization = AC_GetStringNC(ac, &serialization_len);
     RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
     if (!slot_array) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize _SLOTS data");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
         return;
     }
     // TODO ASM: check if the requested slots are available
