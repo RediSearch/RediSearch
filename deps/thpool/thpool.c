@@ -331,7 +331,7 @@ static size_t redisearch_thpool_remove_threads_internal(redisearch_thpool_t *thp
   size_t jobs_count = priority_queue_len(&thpool_p->jobqueues);
   if (n_threads == 0 && jobs_count > 0) {
     LOG_IF_EXISTS("warning",
-                  "Killing all threads while jobqueue contains %zu jobs",jobs_count);
+                  "Killing all threads while jobqueue contains %zu jobs", jobs_count);
   }
 
   assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
