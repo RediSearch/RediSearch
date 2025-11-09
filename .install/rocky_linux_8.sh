@@ -13,7 +13,7 @@ $MODE dnf config-manager --set-enabled powertools
 # get epel to install gcc13
 $MODE dnf install epel-release -yqq
 
-$MODE dnf install -y gcc gcc-c++ \
+$MODE dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ \
     gcc-toolset-13-libatomic-devel make wget git openssl openssl-devel \
     bzip2-devel libffi-devel zlib-devel tar xz which rsync \
     clang curl clang-devel --nobest --skip-broken
