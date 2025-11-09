@@ -869,7 +869,7 @@ def testBM25ScoreWithWeight(env: Env):
     scorer_with_weight_test(env, 'BM25')
 
 @skip(cluster=True)
-def testBM25STDUnderflow(env: Env):
+def testBM25STDUnderflow():
     """
     Tests that we do not underflow when calculating the BM25STD score.
     Before the fix, we had an underflow when calculating the IDF, which caused
@@ -879,8 +879,7 @@ def testBM25STDUnderflow(env: Env):
     runs.
     """
 
-    # Set the scorer to `BM25STD` (we had this issue only there)
-    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'BM25STD').ok()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 DEFAULT_SCORER BM25STD ENABLE_UNSTABLE_FEATURES true')
 
     # Create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
