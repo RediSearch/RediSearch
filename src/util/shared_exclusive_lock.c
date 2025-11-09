@@ -12,7 +12,6 @@
 #include <time.h>
 #include "rmutil/rm_assert.h"
 
-#define TIMEOUT_NANOSECONDS 5000 // 5 us in nanoseconds
 
 // Lock used as an alternative to the GIL, this is an additional lock which is always acquired
 // when calling SharedExclusiveLock_Acquire, and is held until SharedExclusiveLock_Release is called.
@@ -40,14 +39,18 @@ bool GIL_borrowed = false;
 // One exception is that we acquire the GIL last in SharedExclusiveLock_Acquire, but there is
 // no risk of deadlock because we do it with a "try" mechanism.
 
-static inline void set_timeout(struct timespec *timeout, long nanoseconds) {
-#define NANOSEC_PER_SECOND 1000000000L
+#define TIMEOUT_NANOSECONDS 5000 // 5 us in nanoseconds
+#define NANOSEC_PER_SECOND 1000000000L // 10^9
+
+static inline void set_timeout(struct timespec *timeout) {
   clock_gettime(CLOCK_MONOTONIC_RAW, timeout);
-  timeout->tv_nsec += nanoseconds;
-  // Handle nanosecond overflow to comply with POSIX timespec requirements
-  if (timeout->tv_nsec >= NANOSEC_PER_SECOND) {
-    timeout->tv_sec += timeout->tv_nsec / NANOSEC_PER_SECOND;
-    timeout->tv_nsec %= NANOSEC_PER_SECOND;
+  timeout->tv_nsec += TIMEOUT_NANOSECONDS;
+  if (timeout->tv_nsec < NANOSEC_PER_SECOND) {
+  } else {
+    // Assumes TIMEOUT_NANOSECONDS will not exceed NANOSEC_PER_SECOND,
+    // so we are only off by one second maximum.
+    timeout->tv_nsec -= NANOSEC_PER_SECOND;
+    timeout->tv_sec += 1;
   }
 }
 
