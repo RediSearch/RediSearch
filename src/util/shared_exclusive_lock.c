@@ -105,8 +105,11 @@ void SharedExclusiveLock_TakeBackGIL() {
 
 // Assumptions:
 // 1. No re-entrancy: A thread that has already acquired the lock will not try to acquire it again before releasing it.
+// 2. If the caller holds the GIL, it previously lent it by calling SharedExclusiveLock_LendGIL.
 SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   // First, acquire the alternative lock. Only one thread can try to acquire either the GIL or the alternative lock at a time.
+  // - we don't hold the internal lock (it's never held out of shared_exclusive_lock.c)
+  // - we may hold the GIL (allowed)
   pthread_mutex_lock(&GILAlternativeLock);
   while (true) {
     SharedExclusiveLockType lockType = Unlocked;
@@ -118,6 +121,7 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
       lockType = Borrowed;
     } else if (RedisModule_ThreadSafeContextTryLock(ctx) == REDISMODULE_OK) {
       // GIL is not lent by the main thread, but we managed to acquire it.
+      // Note: Under assumption (2), either the GIL is lent, or we don't hold it, so we can attempt to acquire it.
       lockType = Owned;
     }
     pthread_mutex_unlock(&InternalLock);
@@ -128,7 +132,7 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
 
     // Couldn't acquire the GIL, wait (for a short time or until signaled) before trying again.
     struct timespec timeout;
-    set_timeout(&timeout, TIMEOUT_NANOSECONDS);
+    set_timeout(&timeout);
     pthread_cond_timedwait(&GILAvailable, &GILAlternativeLock, &timeout);
   }
 }
