@@ -1,0 +1,114 @@
+name: Detect Merge Queue Resubmission Without New Commits
+
+on:
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  detect-resubmit:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - name: Check for resubmission without new commits
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          PR_NUMBER: ${{ github.event.merge_group.head_ref }}
+        run: |
+          # Extract PR number from head_ref (format: refs/pull/NUMBER/merge or gh-readonly-queue/main/pr-NUMBER-...)
+          if [[ "$PR_NUMBER" =~ refs/pull/([0-9]+)/merge ]]; then
+            PR_NUM="${BASH_REMATCH[1]}"
+          elif [[ "$PR_NUMBER" =~ pr-([0-9]+)- ]]; then
+            PR_NUM="${BASH_REMATCH[1]}"
+          else
+            echo "Could not extract PR number from: $PR_NUMBER"
+            echo "resubmit=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Checking PR #$PR_NUM"
+          echo "Current HEAD SHA: $HEAD_SHA"
+          
+          # Get the list of previous workflow runs for this merge queue workflow
+          # Look for runs with the same head SHA that have failed/cancelled
+          PREVIOUS_RUNS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/$REPO/actions/runs?event=merge_group&per_page=100" \
+            --jq ".workflow_runs[] | select(.head_sha == \"$HEAD_SHA\" and .id != ${{ github.run_id }} and (.conclusion == \"failure\" or .conclusion == \"cancelled\")) | .id" | head -1)
+          
+          if [[ -z "$PREVIOUS_RUNS" ]]; then
+            echo "No previous failed/cancelled runs found for this SHA"
+            echo "resubmit=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Found previous failed/cancelled run(s) with the same HEAD SHA"
+          echo "This is a resubmission without new commits!"
+          echo "resubmit=true" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUM" >> $GITHUB_OUTPUT
+          
+          # Get PR details for the notification
+          PR_TITLE=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.title')
+          PR_URL=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.html_url')
+          PR_AUTHOR=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.user.login')
+          
+          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "pr_author=$PR_AUTHOR" >> $GITHUB_OUTPUT
+
+      - name: Notify Slack about resubmission
+        if: steps.check.outputs.resubmit == 'true'
+        uses: slackapi/slack-github-action@v1
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
+        with:
+          payload: |
+            {
+              "text": "⚠️ Merge Queue Resubmission Without New Commits Detected",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "⚠️ Merge Queue Resubmission Without New Commits",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*PR:*\n<${{ steps.check.outputs.pr_url }}|#${{ steps.check.outputs.pr_number }} - ${{ steps.check.outputs.pr_title }}>"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Author:*\n${{ steps.check.outputs.pr_author }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*HEAD SHA:*\n`${{ github.event.merge_group.head_sha }}`"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Workflow Run:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "This PR was re-added to the merge queue after a previous failure/cancellation, but *no new commits* were pushed. This may indicate the PR was re-queued without addressing the failure."
+                  }
+                }
+              ]
+            }
+
