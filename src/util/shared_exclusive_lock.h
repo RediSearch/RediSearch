@@ -16,7 +16,7 @@ extern "C" {
 #endif
 
 typedef enum {
-  Owned = 0,
+  Owned,
   Borrowed,
 } SharedExclusiveLockType;
 
