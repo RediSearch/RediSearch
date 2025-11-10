@@ -53,8 +53,8 @@ jobs:
   # Run tests with resolved configuration
   test:
     needs: [get-config]
-    # Skip if skip-condition evaluates to true
-    if: ${{ !fromJson(inputs.skip-condition) }}
+    # Skip if skip-condition evaluates to true (temporarily disabled for debugging)
+    # if: ${{ inputs.skip-condition == 'false' || inputs.skip-condition == '' || !fromJson(inputs.skip-condition) }}
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
