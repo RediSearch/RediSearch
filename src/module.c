@@ -3514,11 +3514,15 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   MRCommand_Insert(cmd, arg_pos++, n_prefixes, string_len);
   rm_free(n_prefixes);
 
-  for (uint i = 0; i < array_len(prefixes); i++) {
+  for (uint32_t i = 0; i < array_len(prefixes); i++) {
     size_t len;
     const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
     MRCommand_Insert(cmd, arg_pos++, prefix, len);
   }
+
+  // Prepare command for slot info (Cluster mode)
+  MRCommand_PrepareForSlotInfo(cmd, arg_pos);
+  arg_pos += 2;
 
   // Return spec references, no longer needed
   IndexSpecRef_Release(strong_ref);
@@ -3703,17 +3707,19 @@ int RefreshClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc);
+  uint32_t my_shard_idx = UINT32_MAX;
+  MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc, &my_shard_idx);
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
     return REDISMODULE_ERR;
   }
 
-  RedisModule_Log(ctx, "debug", "SetClusterCommand: Setting number of partitions to %u", topo->numShards);
-  NumShards = topo->numShards;
+  // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
+  RS_ASSERT(my_shard_idx < topo->numShards);
+  const RedisModuleSlotRangeArray *my_slots = topo->shards[my_shard_idx].slotRanges;
 
   // send the topology to the cluster
-  MR_UpdateTopology(topo);
+  MR_UpdateTopology(topo, my_slots);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

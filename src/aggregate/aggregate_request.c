@@ -356,6 +356,25 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
     }
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, SLOTS_STR)) {
+    if (*papCtx->querySlots) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SLOTS_STR" already specified");
+      return ARG_ERROR;
+    }
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SLOTS_STR" missing argument");
+      return ARG_ERROR;
+    }
+    size_t serialization_len;
+    const char *serialization = AC_GetStringNC(ac, &serialization_len);
+    RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
+    if (!slot_array) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
+      return ARG_ERROR;
+    }
+    // TODO ASM: check if the requested slots are available
+    *papCtx->querySlots = slot_array;
+    *papCtx->slotsVersion = 0;
   } else {
     return ARG_UNKNOWN;
   }
@@ -588,7 +607,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .cursorConfig = &req->cursorConfig,
         .requiredFields = &req->requiredFields,
         .maxSearchResults = &req->maxSearchResults,
-        .maxAggregateResults = &req->maxAggregateResults
+        .maxAggregateResults = &req->maxAggregateResults,
+        .querySlots = &req->querySlots,
+        .slotsVersion = &req->slotsVersion,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -894,8 +915,6 @@ error:
   return REDISMODULE_ERR;
 }
 
-
-
 static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
@@ -1038,9 +1057,17 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .cursorConfig = &req->cursorConfig,
     .requiredFields = &req->requiredFields,
     .maxSearchResults = &req->maxSearchResults,
-    .maxAggregateResults = &req->maxAggregateResults
+    .maxAggregateResults = &req->maxAggregateResults,
+    .querySlots = &req->querySlots,
+    .slotsVersion = &req->slotsVersion,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  // Verify we got slots requested if needed
+  if (IsInternal(req) && !req->querySlots) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Internal query missing slots specification");
     goto error;
   }
 
@@ -1342,6 +1369,7 @@ void AREQ_Free(AREQ *req) {
   }
 
   Slots_FreeLocalSlots(req->slotRanges);
+  rm_free((void *)req->querySlots);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.

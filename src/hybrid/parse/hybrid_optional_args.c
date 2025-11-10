@@ -129,6 +129,14 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                              ARG_OPT_OPTIONAL,
                              ARG_OPT_CALLBACK, handleIndexPrefixes, ctx,
                              ARG_OPT_END);
+
+        // Mandatory SLOTS_STR argument for internal requests
+        ArgParser_AddSubArgsV(parser, SLOTS_STR, "Requested slots from coordinator",
+                            &subArgs, 1, 1,
+                            ARG_OPT_REQUIRED,
+                            ARG_OPT_CALLBACK, handleSlotsInfo, ctx,
+                            ARG_OPT_END);
+
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",
