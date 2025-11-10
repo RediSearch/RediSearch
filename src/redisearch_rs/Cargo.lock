@@ -1414,6 +1414,7 @@ dependencies = [
  "buffer",
  "fnv_ffi",
  "inverted_index_ffi",
+ "query_error_ffi",
  "redis-module",
  "result_processor_ffi",
  "triemap_ffi",
