@@ -291,6 +291,8 @@ Distance verification is skipped since some compression types would require larg
 and vector dimension to get an exact match, making the test prohibitively slow.
 '''
 def queries_sanity(test_name, data_type, metric, workers):
+    if DEBUG:
+        raise SkipTest("Skipping test in debug mode")
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {workers}')
     # Sanity check that the test parameters match the test name
     env.debugPrint(f"test name: {test_name}, data_type: {data_type}, metric: {metric}", force=True)
