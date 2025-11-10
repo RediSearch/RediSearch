@@ -43,8 +43,6 @@ jobs:
               'env': '',
               'container': '',
               'pre-steps-script': '',
-              'san': '',
-              'coverage': '',
               'name': ''
           }
 
@@ -95,11 +93,13 @@ jobs:
               platform_configs = {
                   "ubuntu:noble": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-noble',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Ubuntu Noble x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-noble',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Ubuntu Noble ARM64'
@@ -107,11 +107,13 @@ jobs:
                   },
                   "ubuntu:jammy": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-jammy',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Ubuntu Jammy x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-jammy',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Ubuntu Jammy ARM64'
@@ -119,11 +121,13 @@ jobs:
                   },
                   "ubuntu:focal": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-focal',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Ubuntu Focal x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-focal',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Ubuntu Focal ARM64'
@@ -131,11 +135,13 @@ jobs:
                   },
                   "ubuntu:bionic": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-bionic',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Ubuntu Bionic x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-bionic',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Ubuntu Bionic ARM64'
@@ -143,11 +149,13 @@ jobs:
                   },
                   "rockylinux:8": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-rocky8',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Rocky Linux 8 x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-rocky8',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Rocky Linux 8 ARM64'
@@ -155,11 +163,13 @@ jobs:
                   },
                   "rockylinux:9": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-rocky9',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Rocky Linux 9 x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-rocky9',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Rocky Linux 9 ARM64'
@@ -167,11 +177,13 @@ jobs:
                   },
                   "amazonlinux:2": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-amzn2',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Amazon Linux 2 x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-amzn2',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Amazon Linux 2 ARM64'
@@ -179,11 +191,13 @@ jobs:
                   },
                   "alpine:3": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-alpine3.19',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Alpine 3 x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-alpine3.19',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Alpine 3 ARM64'
@@ -191,11 +205,13 @@ jobs:
                   },
                   "debian:bullseye": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-bullseye',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Debian Bullseye x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-bullseye',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Debian Bullseye ARM64'
@@ -203,11 +219,13 @@ jobs:
                   },
                   "debian:bookworm": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-bookworm',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Debian Bookworm x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-bookworm',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Debian Bookworm ARM64'
@@ -215,11 +233,13 @@ jobs:
                   },
                   "amazonlinux:2023": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-amzn2023',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Amazon Linux 2023 x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-amzn2023',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Amazon Linux 2023 ARM64'
@@ -227,11 +247,13 @@ jobs:
                   },
                   "mariner:2": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-mariner2',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Mariner 2 x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-mariner2',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Mariner 2 ARM64'
@@ -239,11 +261,13 @@ jobs:
                   },
                   "azurelinux:3": {
                       "x86_64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-x64-azurelinux3',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Azure Linux 3 x86_64'
                       },
                       "aarch64": {
+                          'env': 'ubuntu-latest',
                           'container': 'redisfab/rmbuilder:6.2.7-arm64v8-azurelinux3',
                           'pre-steps-script': './deps/readies/bin/getpy3',
                           'name': 'Azure Linux 3 ARM64'
