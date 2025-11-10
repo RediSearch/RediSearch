@@ -16,4 +16,4 @@ jobs:
       ASSIGNEE: ${{ inputs.assignee || github.actor }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
-      - run: gh variable set ISSUES_SHIFT_ASSIGNEE -R "${{ env.GITHUB_REPOSITORY }}" -b "${{ env.ASSIGNEE }}"
+      - run: gh variable set ISSUES_SHIFT_ASSIGNEE -R "$GITHUB_REPOSITORY" -b "$ASSIGNEE"
