@@ -38,8 +38,8 @@ jobs:
   # Build artifacts with resolved configuration
   build:
     needs: [get-config]
-    # Skip if skip-condition evaluates to true
-    if: ${{ !fromJson(inputs.skip-condition) }}
+    # Skip if skip-condition evaluates to true (temporarily disabled for debugging)
+    # if: ${{ !fromJson(inputs.skip-condition) }}
     uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:
