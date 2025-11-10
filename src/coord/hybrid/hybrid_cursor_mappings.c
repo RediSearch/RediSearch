@@ -51,6 +51,17 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
         MRReply *key_reply = MRReply_ArrayElement(rep, i);
         MRReply *value_reply = MRReply_ArrayElement(rep, i + 1);
         const char *key = MRReply_String(key_reply, NULL);
+
+        // Handle warnings
+        if (strcmp(key, "warnings") == 0) {
+            for (size_t j = 0; j < MRReply_Length(value_reply); j++) {
+                MRReply *warningReply = MRReply_ArrayElement(value_reply, j);
+                processHybridError(ctx, warningReply);
+            }
+            continue;
+        }
+
+        // Handle cursor IDs
         long long value;
         MRReply_ToInteger(value_reply, &value);
 
@@ -63,6 +74,13 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
             mapping.cursorId = value;
         }
         RS_ASSERT(vsimOrSearch);
+        if (mapping.cursorId == 0) {
+            // Pop all mappings from previous subqueries
+            while (array_len(vsimOrSearch->mappings) > 0) {
+                array_pop(vsimOrSearch->mappings);
+            }
+            break;
+        }
         vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
     }
 }

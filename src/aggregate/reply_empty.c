@@ -94,7 +94,8 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
         status._queryOOM = true;
     }
 
-    // If internal - reply cursor information from shards to coord
+    // If internal - reply cursor information from shards to coord.
+    // Shards notify error by setting cursor id to 0
     if (internal) {
         RedisModule_Reply _coordInfoReply = RedisModule_NewReply(ctx), *coordInfoReply = &_coordInfoReply;
         RedisModule_Reply_Map(coordInfoReply); // root {}
