@@ -19,8 +19,8 @@
 #include <string.h>
 #include <stdarg.h>
 
-#define shift_right(arr, count, start, by) \
-  memmove((arr) + (start) + (by), (arr) + (start), ((count) - (start)) * sizeof(*(arr)));
+#define shift_right(arr, len, start, by) \
+  memmove((arr) + (start) + (by), (arr) + (start), ((len) - (start)) * sizeof(*(arr)));
 
 void MRCommand_Free(MRCommand *cmd) {
   if (cmd->cmd) {

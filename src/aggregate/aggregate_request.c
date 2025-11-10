@@ -550,7 +550,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
-  bool slotRanges_specified = false;
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
     int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
