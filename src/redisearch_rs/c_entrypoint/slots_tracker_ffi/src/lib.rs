@@ -194,8 +194,10 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots_internal(
 /// This function updates the "partially available slots" set by adding the provided ranges.
 /// It also removes the given slots from "local slots" and "fully available slots", and
 /// increments the version counter.
+/// DO NOT call this function directly, use `slots_tracker_mark_partially_available_slots` in the C header instead.
 ///
-/// Returns the current version after the operation.
+/// Returns the current version after the operation, used by `slots_tracker_mark_partially_available_slots`
+/// in the C header for atomic version management.
 ///
 /// # Safety
 ///
@@ -323,7 +325,7 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
 ///
 /// Return values (via OptionSlotTrackerVersion):
 /// - `is_some = false`: Required slots are not available. Query should be rejected.
-/// - `is_some = true`: Slots available; Store the returned `version` and compare it with the version returned by other functions to detect changes.
+/// - `is_some = true`: Slots available; Store the returned `version` and compare it (equality check) with the tracker's version.
 ///
 /// # Safety
 ///
