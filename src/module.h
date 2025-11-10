@@ -128,7 +128,7 @@ bool should_return_error(QueryErrorCode errCode);
 
 bool QueryMemoryGuard(RedisModuleCtx *ctx);
 
-int QueryMemoryGuardFailure(RedisModuleCtx *ctx);
+int QueryMemoryGuardFailure_WithReply(RedisModuleCtx *ctx);
 
 void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req);
 

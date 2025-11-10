@@ -701,9 +701,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
     // <format>
     if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
-    RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
     } else {
-    RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
     }
 
     // results (empty array)
@@ -716,7 +716,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     // warning
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
     if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
-        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     }
     RedisModule_Reply_ArrayEnd(reply);
 
@@ -1078,9 +1078,10 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
-      return QueryMemoryGuardFailure(ctx);
+      return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
+    RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
     return single_shard_common_query_reply_empty(ctx, argv, argc, execOptions, QUERY_ERROR_CODE_OUT_OF_MEMORY);
   }
 

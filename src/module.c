@@ -182,7 +182,7 @@ bool QueryMemoryGuard(RedisModuleCtx *ctx) {
   return false;
 }
 
-int QueryMemoryGuardFailure(RedisModuleCtx *ctx) {
+int QueryMemoryGuardFailure_WithReply(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
   return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
 }
@@ -3244,9 +3244,10 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
-      return QueryMemoryGuardFailure(ctx);
+      return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
+    RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
     if (NumShards > 1) {
       // Handle OOM policy return in Coord, return empty results
       return coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_OUT_OF_MEMORY);
@@ -3309,9 +3310,10 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
-      return QueryMemoryGuardFailure(ctx);
+      return QueryMemoryGuardFailure_WithReply(ctx);
     }
-    // Assuming OOM policy is return
+    // Assuming OOM policy is return since we didn't ignore the memory guardrail
+    RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
     return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_OUT_OF_MEMORY, false);
   }
 
@@ -3645,9 +3647,10 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
-      return QueryMemoryGuardFailure(ctx);
+      return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming policy is return, since we didn't ignore the memory guardrail
+    RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
     if (NumShards > 1) {
       // Handle OOM policy return in Coord, return empty results
       return coord_search_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_OUT_OF_MEMORY);
