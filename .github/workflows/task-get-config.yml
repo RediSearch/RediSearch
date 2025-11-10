@@ -62,32 +62,6 @@ jobs:
                   print(f"Error: Unsupported architecture '{architecture}' for macOS")
                   sys.exit(1)
 
-          elif platform == "sanitizer":
-              if architecture == "x86_64":
-                  config.update({
-                      'env': 'SAN=address',
-                      'container': 'redisfab/rmbuilder:6.2.7-x64-bullseye',
-                      'pre-steps-script': './deps/readies/bin/getpy3',
-                      'san': 'address',
-                      'name': 'Sanitizer x86_64'
-                  })
-              else:
-                  print(f"Error: Sanitizer only supports x86_64 architecture")
-                  sys.exit(1)
-
-          elif platform == "coverage":
-              if architecture == "x86_64":
-                  config.update({
-                      'env': 'COV=1',
-                      'container': 'redisfab/rmbuilder:6.2.7-x64-bullseye',
-                      'pre-steps-script': './deps/readies/bin/getpy3',
-                      'coverage': '1',
-                      'name': 'Coverage x86_64'
-                  })
-              else:
-                  print(f"Error: Coverage only supports x86_64 architecture")
-                  sys.exit(1)
-
           else:
               # Handle Linux platforms
               platform_configs = {
@@ -95,13 +69,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'ubuntu:noble',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apt update && apt install -y git',
                           'name': 'Ubuntu Noble x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'ubuntu:noble',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apt update && apt install -y git',
                           'name': 'Ubuntu Noble ARM64'
                       }
                   },
@@ -109,13 +83,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'ubuntu:jammy',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apt update && apt install -y git',
                           'name': 'Ubuntu Jammy x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'ubuntu:jammy',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apt update && apt install -y git',
                           'name': 'Ubuntu Jammy ARM64'
                       }
                   },
@@ -123,13 +97,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'ubuntu:focal',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apt update && apt install -y git',
                           'name': 'Ubuntu Focal x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'ubuntu:focal',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apt update && apt install -y git',
                           'name': 'Ubuntu Focal ARM64'
                       }
                   },
@@ -137,13 +111,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'rockylinux:8',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'dnf update -y && dnf install -y git',
                           'name': 'Rocky Linux 8 x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'rockylinux:8',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'dnf update -y && dnf install -y git',
                           'name': 'Rocky Linux 8 ARM64'
                       }
                   },
@@ -151,13 +125,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'rockylinux:9',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'dnf update -y && dnf install -y git',
                           'name': 'Rocky Linux 9 x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'rockylinux:9',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'dnf update -y && dnf install -y git',
                           'name': 'Rocky Linux 9 ARM64'
                       }
                   },
@@ -165,13 +139,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'amazonlinux:2',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'yum install -y tar gzip git',
                           'name': 'Amazon Linux 2 x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'amazonlinux:2',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'yum install -y tar gzip git',
                           'name': 'Amazon Linux 2 ARM64'
                       }
                   },
@@ -179,13 +153,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'alpine:3',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apk add bash git',
                           'name': 'Alpine 3 x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'alpine:3',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apk add bash gcompat libstdc++ libgcc git',
                           'name': 'Alpine 3 ARM64'
                       }
                   },
@@ -193,13 +167,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'gcc:11-bullseye',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apt update && apt install -y git',
                           'name': 'Debian Bullseye x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'gcc:11-bullseye',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apt update && apt install -y git',
                           'name': 'Debian Bullseye ARM64'
                       }
                   },
@@ -207,13 +181,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'gcc:12-bookworm',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apt update && apt install -y git',
                           'name': 'Debian Bookworm x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'gcc:12-bookworm',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'apt update && apt install -y git',
                           'name': 'Debian Bookworm ARM64'
                       }
                   },
@@ -221,13 +195,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'amazonlinux:2023',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'dnf install -y tar gzip git',
                           'name': 'Amazon Linux 2023 x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'amazonlinux:2023',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'dnf install -y tar gzip git',
                           'name': 'Amazon Linux 2023 ARM64'
                       }
                   },
@@ -235,13 +209,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
                           'name': 'Mariner 2 x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
                           'name': 'Mariner 2 ARM64'
                       }
                   },
@@ -249,13 +223,13 @@ jobs:
                       "x86_64": {
                           'env': 'ubuntu-latest',
                           'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'tdnf install -y --noplugins tar git ca-certificates',
                           'name': 'Azure Linux 3 x86_64'
                       },
                       "aarch64": {
                           'env': 'ubuntu-latest',
                           'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
-                          'pre-steps-script': './deps/readies/bin/getpy3',
+                          'pre-steps-script': 'tdnf install -y --noplugins tar git ca-certificates',
                           'name': 'Azure Linux 3 ARM64'
                       }
                   }

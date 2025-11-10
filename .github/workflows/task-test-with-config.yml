@@ -41,6 +41,14 @@ on:
         type: string
         default: 'false'
         description: 'Condition to skip this test job (e.g., "platform == coverage && !enable_coverage")'
+      san:
+        type: string
+        default: ''
+        description: 'Sanitizer type (e.g., "address")'
+      coverage:
+        type: boolean
+        default: false
+        description: 'Enable code coverage'
 
 jobs:
   # Get configuration for this specific platform and architecture
@@ -61,8 +69,8 @@ jobs:
       env: ${{ fromJson(needs.get-config.outputs.config).env }}
       container: ${{ fromJson(needs.get-config.outputs.config).container }}
       pre-steps-script: ${{ fromJson(needs.get-config.outputs.config)['pre-steps-script'] }}
-      san: ${{ fromJson(needs.get-config.outputs.config).san }}
-      coverage: ${{ fromJson(needs.get-config.outputs.config).coverage }}
+      san: ${{ inputs.san || '' }}
+      coverage: ${{ inputs.coverage || false }}
       get-redis: ${{ inputs.get-redis }}
       test-config: ${{ inputs.test-config }}
       coordinator: ${{ inputs.coordinator }}

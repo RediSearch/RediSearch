@@ -74,12 +74,14 @@ jobs:
             architecture: aarch64
           - platform: alpine:3.19
             architecture: aarch64
-          # Sanitizer (x86_64 only)
-          - platform: sanitizer
+          # Sanitizer (x86_64 only) - uses debian:bullseye with SAN=address flag
+          - platform: debian:bullseye
             architecture: x86_64
+            san: address
           # Coverage (x86_64 only) - conditionally executed based on ENABLE_CODE_COVERAGE
-          - platform: coverage
+          - platform: debian:bullseye
             architecture: x86_64
+            coverage: true
             skip-condition: ${{ vars.ENABLE_CODE_COVERAGE == 'false' }}
     uses: ./.github/workflows/task-test-with-config.yml
     secrets: inherit
@@ -90,6 +92,8 @@ jobs:
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
       skip-condition: ${{ matrix.skip-condition || 'false' }}
+      san: ${{ matrix.san || '' }}
+      coverage: ${{ matrix.coverage || false }}
 
   run-on-intel:
     needs: get-latest-redis-tag
