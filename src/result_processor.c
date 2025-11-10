@@ -1662,7 +1662,7 @@ int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
       usleep(1000);
     }
   }
-  return RS_RESULT_OK;;
+  return RS_RESULT_OK;
 }
 
 // Wrapper for HybridSearchResult destructor to match dictionary value destructor signature
