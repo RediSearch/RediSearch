@@ -552,6 +552,10 @@ def testRestore(env):
 @skip(cluster=True)
 def testEvicted(env):
     skipOnCrdtEnv(env)
+
+    # Ignore OOM so this test won't be effected by the OOM
+    env.expect('FT.CONFIG', 'SET', 'ON_OOM', 'IGNORE').ok()
+
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
 
