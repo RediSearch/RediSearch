@@ -36,6 +36,10 @@ on:
       test-timeout:
         type: number
         default: 50
+      skip-condition:
+        type: string
+        default: 'false'
+        description: 'Condition to skip this test job (e.g., "platform == coverage && !enable_coverage")'
 
 jobs:
   # Get configuration for this specific platform and architecture
@@ -48,6 +52,8 @@ jobs:
   # Run tests with resolved configuration
   test:
     needs: [get-config]
+    # Skip if skip-condition evaluates to true
+    if: ${{ !fromJson(inputs.skip-condition) }}
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:

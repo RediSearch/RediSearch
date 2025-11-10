@@ -81,6 +81,10 @@ jobs:
           # Sanitizer (x86_64 only)
           - platform: sanitizer
             architecture: x86_64
+          # Coverage (x86_64 only) - conditionally executed based on ENABLE_CODE_COVERAGE
+          - platform: coverage
+            architecture: x86_64
+            skip-condition: ${{ vars.ENABLE_CODE_COVERAGE == 'false' }}
     uses: ./.github/workflows/task-test-with-config.yml
     secrets: inherit
     with:
@@ -89,6 +93,7 @@ jobs:
       test-config: QUICK=1
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
+      skip-condition: ${{ matrix.skip-condition || 'false' }}
 
   run-on-intel:
     needs: get-latest-redis-tag
@@ -97,29 +102,12 @@ jobs:
     with:
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
 
-  # Separate coverage job with conditional execution
-  coverage-test:
-    needs: get-latest-redis-tag
-    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
-    uses: ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      env: ubuntu-latest
-      test-config: ''
-      coverage: true
-      coordinator: true
-      standalone: true
-      rejson: true
-      rejson-branch: master
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-
   pr-validation:
     needs:
       - get-latest-redis-tag
       - lint
       - unified-test-matrix
       - run-on-intel
-      - coverage-test
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
     steps:
