@@ -10,6 +10,7 @@
 #include "endpoint.h"
 #include "command.h"
 #include "cluster.h"
+#include "slot_ranges.h"
 
 #include "hiredis/hiredis.h"
 #include "rmutil/alloc.h"
@@ -116,6 +117,11 @@ void testClusterTopology_Clone() {
     mu_check(cloned_sh->node.id != original_sh->node.id); // Different memory address
     mu_check(strcmp(cloned_sh->node.endpoint.host, original_sh->node.endpoint.host) == 0);
     mu_check(cloned_sh->node.endpoint.port == original_sh->node.endpoint.port);
+
+    // Verify slot ranges
+    mu_check(cloned_sh->slotRanges != original_sh->slotRanges); // Different memory address
+    mu_check(cloned_sh->slotRanges->num_ranges == original_sh->slotRanges->num_ranges);
+    mu_check(!memcmp(cloned_sh->slotRanges, original_sh->slotRanges, SlotRangeArray_SizeOf(original_sh->slotRanges->num_ranges)));
   }
 
   // Clean up

@@ -134,7 +134,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
         ArgParser_AddSubArgsV(parser, SLOTS_STR, "Requested slots from coordinator",
                             &subArgs, 1, 1,
                             ARG_OPT_REQUIRED,
-                            ARG_OPT_CALLBACK, handleSlots, ctx,
+                            ARG_OPT_CALLBACK, handleSlotsInfo, ctx,
                             ARG_OPT_END);
 
     }
