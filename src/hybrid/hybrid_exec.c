@@ -574,7 +574,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       return QueryMemoryGuardFailure(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
-    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM, internal);
+    return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_OUT_OF_MEMORY, internal);
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);

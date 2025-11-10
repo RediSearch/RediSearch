@@ -184,7 +184,7 @@ bool QueryMemoryGuard(RedisModuleCtx *ctx) {
 
 int QueryMemoryGuardFailure(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-  return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+  return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
 }
 
 // Returns true if the current context has permission to execute debug commands
@@ -2928,7 +2928,7 @@ bool should_return_error(QueryErrorCode errCode) {
     return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
   }
   // Check if this is an OOM error with non-fail policy
-  if (errCode == QUERY_EOOM) {
+  if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
     return RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail;
   }
 
@@ -3249,10 +3249,10 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
     if (NumShards > 1) {
       // Handle OOM policy return in Coord, return empty results
-      return coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_EOOM);
+      return coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_OUT_OF_MEMORY);
     } else {
       // Handle OOM policy return in single-shard, return empty results
-      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_EOOM);
+      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_OUT_OF_MEMORY);
     }
   }
 
@@ -3313,7 +3313,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       return QueryMemoryGuardFailure(ctx);
     }
     // Assuming OOM policy is return
-    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM, false);
+    return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_OUT_OF_MEMORY, false);
   }
 
   // Coord callback
@@ -3653,10 +3653,10 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // Assuming policy is return, since we didn't ignore the memory guardrail
     if (NumShards > 1) {
       // Handle OOM policy return in Coord, return empty results
-      return coord_search_query_reply_empty(ctx, argv, argc, QUERY_EOOM);
+      return coord_search_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_OUT_OF_MEMORY);
     } else {
       // Handle OOM policy return in single-shard, return empty results
-      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_EOOM);
+      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_OUT_OF_MEMORY);
     }
   }
 

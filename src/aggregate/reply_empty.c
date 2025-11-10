@@ -48,7 +48,7 @@ int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
     // Handle known errors supported by empty reply module
-    req.queryOOM = errCode == QUERY_EOOM;
+    req.queryOOM = errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY;
 
     sendSearchResults_EmptyResults(reply, &req);
 
@@ -76,7 +76,7 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
     // any errors that might have occurred during compilation
     QueryError_SetError(&status, errCode, NULL);
     QueryError_SetCode(&status, errCode);
-    if (errCode == QUERY_EOOM) {
+    if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
         status._queryOOM = true;
     }
 
@@ -90,7 +90,7 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
     QueryError status = QueryError_Default();
     QueryError_SetError(&status, errCode, NULL);
     QueryError_SetCode(&status, errCode);
-    if (errCode == QUERY_EOOM) {
+    if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
         status._queryOOM = true;
     }
 
@@ -103,7 +103,7 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
         RedisModule_ReplyKV_LongLong(coordInfoReply, "VSIM", 0);
         RedisModule_ReplyKV_Array(coordInfoReply,"warnings"); // warnings []
         if (status._queryOOM) {
-            RedisModule_Reply_SimpleString(coordInfoReply, QueryError_Strerror(QUERY_EOOM));
+            RedisModule_Reply_SimpleString(coordInfoReply, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
         }
         RedisModule_Reply_ArrayEnd(coordInfoReply); // ~warnings
         RedisModule_Reply_MapEnd(coordInfoReply); // ~root
@@ -140,7 +140,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     // any errors that might have occurred during compilation
     QueryError_SetError(&status, errCode, NULL);
     QueryError_SetCode(&status, errCode);
-    if (errCode == QUERY_EOOM) {
+    if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
         status._queryOOM = true;
     }
 

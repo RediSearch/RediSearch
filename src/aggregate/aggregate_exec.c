@@ -1084,7 +1084,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       return QueryMemoryGuardFailure(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
-    return single_shard_common_query_reply_empty(ctx, argv, argc, execOptions, QUERY_EOOM);
+    return single_shard_common_query_reply_empty(ctx, argv, argc, execOptions, QUERY_ERROR_CODE_OUT_OF_MEMORY);
   }
 
   AREQ *r = AREQ_New();
