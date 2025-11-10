@@ -19,11 +19,11 @@ pub enum RsValueType {
     Undefined,
     Null,
     Number,
+    Array,
     Ref,
     Trio,
     Map,
     // TODO add string variants
-    // TODO add array variant
 }
 
 pub(crate) trait AsRsValueType {
@@ -36,6 +36,7 @@ impl AsRsValueType for RsValueInternal {
         match self {
             RsValueInternal::Null => Null,
             RsValueInternal::Number(_) => Number,
+            RsValueInternal::Array(_) => Array,
             RsValueInternal::Ref(_) => Ref,
             RsValueInternal::Trio(_) => Trio,
             RsValueInternal::Map(_) => Map,

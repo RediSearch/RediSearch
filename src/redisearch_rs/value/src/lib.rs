@@ -14,7 +14,11 @@ pub use test_utils::RSValueMock;
 
 use std::fmt::{self, Debug};
 
-use crate::{map::RsValueMap, shared::SharedRsValue, trio::RsValueTrio};
+use crate::{
+    collection::{RsValueArray, RsValueMap},
+    shared::SharedRsValue,
+    trio::RsValueTrio,
+};
 
 #[cfg(feature = "c_ffi_impl")]
 /// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
@@ -23,7 +27,7 @@ mod rs_value_ffi;
 #[cfg(feature = "c_ffi_impl")]
 pub use rs_value_ffi::*;
 
-pub mod map;
+pub mod collection;
 pub mod shared;
 pub mod trio;
 
@@ -39,6 +43,8 @@ pub enum RsValueInternal {
     Null,
     /// Numeric value
     Number(f64),
+    /// Array value
+    Array(RsValueArray),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
@@ -123,6 +129,11 @@ pub trait Value: Sized {
     /// Create a new trio value
     fn trio(left: SharedRsValue, middle: SharedRsValue, right: SharedRsValue) -> Self {
         Self::from_internal(RsValueInternal::Trio(RsValueTrio::new(left, middle, right)))
+    }
+
+    /// Create a new array value
+    fn array(arr: RsValueArray) -> Self {
+        Self::from_internal(RsValueInternal::Array(arr))
     }
 
     /// Create a new map value
