@@ -123,7 +123,7 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   pthread_mutex_lock(&GILAlternativeLock);
   while (true) {
     int rc = REDISMODULE_ERR;
-    SharedExclusiveLockType lockType = Owned;
+    SharedExclusiveLockType lockType;
     // Attempt to acquire the GIL, according to the internal state.
     pthread_mutex_lock(&InternalLock);
     if (GIL_lent) {
@@ -135,6 +135,7 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
       // GIL is not lent by the main thread, but we managed to acquire it.
       // Note: Under assumption (2), either the GIL is lent, or we don't hold it, so we can attempt to acquire it.
       rc = RedisModule_ThreadSafeContextTryLock(ctx);
+      lockType = Owned;
     }
     pthread_mutex_unlock(&InternalLock);
 
@@ -165,8 +166,6 @@ void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType ty
     GIL_borrowed = false;
     // If main thread is waiting to release the GIL, signal it that it can proceed.
     pthread_cond_signal(&GILIsBorrowed);
-    // Signal any waiting threads that they may try to acquire the GIL or the alternative lock.
-    pthread_cond_broadcast(&GILAvailable);
   } else {
     RS_ASSERT(type == Owned);
     RS_LOG_ASSERT(GIL_borrowed == false, "Inconsistent state: releasing owned lock while GIL_borrowed is true");
@@ -174,5 +173,7 @@ void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType ty
   }
   pthread_mutex_unlock(&InternalLock);
   // Release the alternative lock. Another thread may now try to acquire or borrow the GIL.
+  // Signal any waiting threads that they may try to acquire the GIL or the alternative lock.
+  pthread_cond_broadcast(&GILAvailable);
   pthread_mutex_unlock(&GILAlternativeLock);
 }
