@@ -318,6 +318,13 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
         // We need to pass the reply string as the error message, since the error code might be generic
         QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, errCode,  MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
+      } else {
+        // Handle shards returning error unexpectedly
+        // Might be from different Timeout/OOM policy (See MOD-10774)
+        // Free the error reply before we override it and continue
+        MRReply_Free(nc->current.root);
+        // Set it as NULL avoid another free
+        nc->current.root = NULL;
       }
     }
 
