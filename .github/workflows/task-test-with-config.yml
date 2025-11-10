@@ -50,9 +50,21 @@ jobs:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
 
+  # Debug job to print skip condition
+  debug-skip-condition:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug skip condition
+        run: |
+          echo "Skip condition input: '${{ inputs.skip-condition }}'"
+          echo "Skip condition type: $(echo '${{ inputs.skip-condition }}' | wc -c) characters"
+          echo "Skip condition evaluation: ${{ inputs.skip-condition }}"
+          echo "fromJson result: ${{ fromJson(inputs.skip-condition) }}"
+          echo "Negated fromJson: ${{ !fromJson(inputs.skip-condition) }}"
+
   # Run tests with resolved configuration
   test:
-    needs: [get-config]
+    needs: [get-config, debug-skip-condition]
     # Skip if skip-condition evaluates to true (temporarily disabled for debugging)
     # if: ${{ inputs.skip-condition == 'false' || inputs.skip-condition == '' || !fromJson(inputs.skip-condition) }}
     uses: ./.github/workflows/task-test.yml
