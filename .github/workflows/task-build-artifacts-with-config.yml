@@ -37,6 +37,7 @@ jobs:
 
   # Debug job to print skip condition
   debug-skip-condition:
+    needs: [get-config]
     runs-on: ubuntu-latest
     steps:
       - name: Debug skip condition
@@ -54,10 +55,17 @@ jobs:
           echo "IF condition test: inputs.skip-condition != 'true'"
           echo "IF condition result: ${{ inputs.skip-condition != 'true' }}"
           echo "Should build job run? ${{ inputs.skip-condition != 'true' }}"
+          echo "---"
+          echo "Config output from get-config job:"
+          echo "Raw config: ${{ needs.get-config.outputs.config }}"
+          echo "Config env: ${{ fromJson(needs.get-config.outputs.config).env }}"
+          echo "Config container: ${{ fromJson(needs.get-config.outputs.config).container }}"
 
   # Build artifacts with resolved configuration
   build:
     needs: [get-config, debug-skip-condition]
+    # Skip if skip-condition evaluates to true (TEMPORARILY REMOVED FOR TESTING)
+    # if: ${{ inputs.skip-condition != 'true' }}
     uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:
