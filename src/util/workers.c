@@ -227,9 +227,9 @@ void workersThreadPool_DrainHighPriority(RedisModuleCtx *ctx) {
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
-  SharedExclusiveLock_SetOwned();
+  SharedExclusiveLock_LendGIL();
 
   redisearch_thpool_drain_high_priority(_workers_thpool, 100, yieldCallback, ctx);
   yield_counter = 0;  // reset
-  SharedExclusiveLock_UnsetOwned();
+  SharedExclusiveLock_TakeBackGIL();
 }
