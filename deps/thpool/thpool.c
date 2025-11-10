@@ -92,10 +92,8 @@ typedef struct priority_queue {
   jobqueue admin_priority_jobqueue; /* job queue for administration tasks */
   pthread_mutex_t lock;             /* used for queue r/w access */
   unsigned char alternating_pulls;  /* number of pulls by non-bias threads from queue */
-  size_t n_high_priority_bias; /* minimal number of high priority jobs to run in
-  * parallel (if there are enough threads) */
-  atomic_size_t high_priority_tickets; /* number of currently available priority
-                                       * tickets to reach the high priority bias */
+  uint32_t n_high_priority_bias; /* minimal number of high priority jobs to run in parallel (if there are enough threads) */
+  atomic_uint high_priority_tickets; /* number of currently available priority tickets to reach the high priority bias */
 
   pthread_cond_t has_jobs; /* Conditional variable to wake up threads waiting
                               for new jobs */
