@@ -5,20 +5,24 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
+#include "rmutil/rm_assert.h"
 #include "util/minmax.h"
 #include "util/block_alloc.h"
 #include "aggregate/expr/expression.h"
 #include "util/arr.h"
 #include "function.h"
+#include "rmalloc.h"
 
-#include "hiredis/sds.h"
 #include "value.h"
 
 #include <ctype.h>
 
 #define STRING_BLOCK_SIZE 512
+#define FMT_OUT_STR_MIN_PREALLOC 8
+#define FMT_OUT_STR_MAX_PREALLOC (1024 * 1024)
+#define MAX(i, j) (((i) > (j)) ? (i) : (j))
 
 static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   int maxTerms = 100;
@@ -48,19 +52,19 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   return EXPR_EVAL_OK;
 }
 
-#define stringfunc_to_generic(func)                                                           \
-  size_t sz;                                                                                  \
-  const char *p;                                                                              \
-  if (!(p = RSValue_StringPtrLen(&argv[0], &sz))) {                                           \
-    RSValue_MakeReference(result, RSValue_NullStatic());                                              \
-    return EXPR_EVAL_OK;                                                                      \
-  }                                                                                           \
-  char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);                                            \
-  for (size_t i = 0; i < sz; i++) {                                                           \
-    np[i] = func(p[i]);                                                                       \
-  }                                                                                           \
-  np[sz] = '\0';                                                                              \
-  RSValue_SetConstString(result, np, sz);                                                     \
+#define stringfunc_to_generic(func)                      \
+  size_t sz;                                             \
+  const char *p;                                         \
+  if (!(p = RSValue_StringPtrLen(&argv[0], &sz))) {      \
+    RSValue_MakeReference(result, RSValue_NullStatic()); \
+    return EXPR_EVAL_OK;                                 \
+  }                                                      \
+  char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);       \
+  for (size_t i = 0; i < sz; i++) {                      \
+    np[i] = func(p[i]);                                  \
+  }                                                      \
+  np[sz] = '\0';                                         \
+  RSValue_SetConstString(result, np, sz);                \
   return EXPR_EVAL_OK
 
 /* lower(str) */
@@ -81,7 +85,8 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   size_t sz;
   const char *str = RSValue_StringPtrLen(&argv[0], &sz);
   if (!str) {
-    QueryError_SetError(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid type for substr. Expected string");
+    QueryError_SetError(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Invalid type for substr. Expected string");
     return EXPR_EVAL_ERR;
   }
 
@@ -112,7 +117,8 @@ int func_to_number(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   if (!RSValue_ToNumber(&argv[0], &n)) {
     size_t sz = 0;
     const char *p = RSValue_StringPtrLen(&argv[0], &sz);
-    QueryError_SetWithUserDataFmt(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS, "to_number: cannot convert string", " '%s'", p);
+    QueryError_SetWithUserDataFmt(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS,
+                                  "to_number: cannot convert string", " '%s'", p);
     return EXPR_EVAL_ERR;
   }
 
@@ -125,6 +131,33 @@ int func_to_str(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   return EXPR_EVAL_OK;
 }
 
+// Helper for stringfunc_format that appends `src`
+// to `dst`, keeping track of capacity and reallocating
+// when needed.
+void append_to_string(char **dst, char **dst_tail, size_t *dst_cap, const char *src,
+                      size_t src_len) {
+  size_t dst_len = *dst_tail - *dst;
+  size_t dst_free = *dst_cap - dst_len;
+
+  if (src_len > dst_free) {
+    size_t new_cap = *dst_cap + src_len;
+    if (new_cap < FMT_OUT_STR_MIN_PREALLOC) {
+      new_cap = FMT_OUT_STR_MIN_PREALLOC;
+    } else if (new_cap >= FMT_OUT_STR_MAX_PREALLOC) {
+      new_cap += FMT_OUT_STR_MAX_PREALLOC;
+    } else {
+      new_cap *= 2;
+    }
+
+    *dst = rm_realloc(*dst, new_cap);
+    *dst_cap = new_cap;
+    RS_ASSERT(*dst != NULL);
+    *dst_tail = *dst + dst_len;
+  }
+  memcpy(*dst_tail, src, src_len);
+  *dst_tail += src_len;
+}
+
 static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   VALIDATE_ARG_ISSTRING("format", argv, 0);
 
@@ -132,7 +165,10 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   size_t fmtsz = 0;
   const char *fmt = RSValue_StringPtrLen(&argv[0], &fmtsz);
   const char *last = fmt, *end = fmt + fmtsz;
-  sds out = sdsMakeRoomFor(sdsnew(""), fmtsz);
+
+  size_t out_cap = fmtsz;
+  char *out = rm_malloc(fmtsz);
+  char *out_tail = out;
 
   for (size_t ii = 0; ii < fmtsz; ++ii) {
     if (fmt[ii] != '%') {
@@ -146,13 +182,14 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
     }
 
     // Detected a format string. Write from 'last' up to 'fmt'
-    out = sdscatlen(out, last, (fmt + ii) - last);
+    size_t len = (fmt + ii) - last;
+    append_to_string(&out, &out_tail, &out_cap, last, len);
     last = fmt + ii + 2;
 
     char type = fmt[++ii];
     if (type == '%') {
       // Append literal '%'
-      out = sdscat(out, "%");
+      append_to_string(&out, &out_tail, &out_cap, "%", 1);
       continue;
     }
 
@@ -165,7 +202,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
     if (type == 's') {
       if (arg == RSValue_NullStatic()) {
         // write null value
-        out = sdscat(out, "(null)");
+        append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
         continue;
       } else if (!RSValue_IsAnyString(arg)) {
 
@@ -174,15 +211,15 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
         size_t sz;
         const char *str = RSValue_StringPtrLen(&strval, &sz);
         if (!str) {
-          out = sdscat(out, "(null)");
+          append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
         } else {
-          out = sdscatlen(out, str, sz);
+          append_to_string(&out, &out_tail, &out_cap, str, sz);
         }
         RSValue_Free(&strval);
       } else {
         size_t sz;
         const char *str = RSValue_StringPtrLen(arg, &sz);
-        out = sdscatlen(out, str, sz);
+        append_to_string(&out, &out_tail, &out_cap, str, sz);
       }
     } else {
       QueryError_SetError(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown format specifier passed");
@@ -191,15 +228,17 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   }
 
   if (last && last < end) {
-    out = sdscatlen(out, last, end - last);
+    append_to_string(&out, &out_tail, &out_cap, last, end - last);
   }
+  append_to_string(&out, &out_tail, &out_cap, "\0", 1);
 
-  RSValue_SetSDS(result, out);
+  // Don't count the null terminator
+  RSValue_SetString(result, out, out_tail - out - 1);
   return EXPR_EVAL_OK;
 
 error:
   RS_ASSERT(QueryError_HasError(ctx->err));
-  sdsfree(out);
+  rm_free(out);
   RSValue_MakeReference(result, RSValue_NullStatic());
   return EXPR_EVAL_ERR;
 }
@@ -309,7 +348,7 @@ static int stringfunc_contains(ExprEval *ctx, RSValue *argv, size_t argc, RSValu
   const char *p_pref = (char *)RSValue_StringPtrLen(pref, &p_pref_size);
 
   size_t num;
-  if(p_pref_size > 0) {
+  if (p_pref_size > 0) {
     num = 0;
     while ((p_str = strstr(p_str, p_pref)) != NULL) {
       num++;
@@ -344,7 +383,8 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValueType_String, 1, 1);
   RSFunctionRegistry_RegisterFunction("exists", func_exists, RSValueType_Number, 1, 1);
   RSFunctionRegistry_RegisterFunction("case", func_case, RSValueType_Undef, 3, 3);
-  RSFunctionRegistry_RegisterFunction("startswith", stringfunc_startswith, RSValueType_Number, 2, 2);
+  RSFunctionRegistry_RegisterFunction("startswith", stringfunc_startswith, RSValueType_Number, 2,
+                                      2);
   RSFunctionRegistry_RegisterFunction("contains", stringfunc_contains, RSValueType_Number, 2, 2);
   RSFunctionRegistry_RegisterFunction("strlen", stringfunc_strlen, RSValueType_Number, 1, 1);
 }

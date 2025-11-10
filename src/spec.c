@@ -1192,6 +1192,9 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 
     // primary index params allocated in VecSim_TieredParams_Init()
     TieredIndexParams *params = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
+    // TODO: FT.INFO currently displays index attributes from this struct instead of
+    // querying VecSim runtime info. Once vecsim provides runtime info for FT.INFO,
+    // remove this duplication and pass 0 to let VecSim apply its own defaults.
     params->specificParams.tieredSVSParams.trainingTriggerThreshold = 0;  // will be set to default value if not specified by user.
     params->primaryIndexParams->algo = VecSimAlgo_SVS;
     params->primaryIndexParams->algoParams.svsParams.quantBits = VecSimSvsQuant_NONE;
@@ -1202,8 +1205,9 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.leanvec_dim = SVS_VAMANA_DEFAULT_LEANVEC_DIM;
     params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);
-    if (params->specificParams.tieredSVSParams.trainingTriggerThreshold == 0) {
-      params->specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
+    if (!(params->primaryIndexParams->algoParams.svsParams.quantBits == VecSimSvsQuant_NONE)
+      && (params->specificParams.tieredSVSParams.trainingTriggerThreshold == 0)) {
+        params->specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
     }
     if (VecSim_IsLeanVecCompressionType(params->primaryIndexParams->algoParams.svsParams.quantBits) &&
         params->primaryIndexParams->algoParams.svsParams.leanvec_dim == 0) {
@@ -1522,6 +1526,28 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   }
 
   return rc;
+}
+
+bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
+  if (!spec || !spec->rule) {
+    return false;
+  }
+  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
+  if (n_prefixes != array_len(spec_prefixes)) {
+    return false;
+  }
+
+  // Validate that the prefixes in the arguments are the same as the ones in the
+  // index (also in the same order)
+  for (size_t i = 0; i < n_prefixes; i++) {
+    sds arg = prefixes[i];
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
+      // Unmatching prefixes
+      return false;
+    }
+  }
+
+  return true;
 }
 
 inline static bool isSpecOnDisk(const IndexSpec *sp) {
@@ -3450,9 +3476,13 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 }
 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id) {
-
-  if (DocTable_DeleteR(&spec->docs, key)) {
+  RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
+  if (md) {
+    RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
     spec->stats.numDocuments--;
+    RS_LOG_ASSERT(spec->stats.totalDocsLen >= md->len, "totalDocsLen is smaller than dmd->len");
+    spec->stats.totalDocsLen -= md->len;
+    DMD_Return(md);
 
     // Increment the index's garbage collector's scanning frequency after document deletions
     if (spec->gc) {

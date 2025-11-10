@@ -493,39 +493,6 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     return implicitLoadStep;
 }
 
-// This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate request parses prefixes differently.
-// Unifying would require some refactor on the aggregate flow.
-static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *spec)  {
-
-  size_t n_prefixes = array_len(prefixes);
-  if (n_prefixes == 0) {
-    // No prefixes in the query --> No validation needed.
-    return true;
-  }
-
-  if (n_prefixes > 0 && (!spec || !spec->rule || !spec->rule->prefixes)) {
-    // Index has no prefixes, but query has prefixes --> Incoherent
-    return false;
-  }
-
-  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
-  if (n_prefixes != array_len(spec_prefixes)) {
-    return false;
-  }
-
-  // Validate that the prefixes in the arguments are the same as the ones in the
-  // index (also in the same order)
-  // The prefixes start right after the number
-  for (uint i = 0; i < n_prefixes; i++) {
-    if (HiddenUnicodeString_CompareC(spec_prefixes[i], prefixes[i]) != 0) {
-      // Unmatching prefixes
-      return false;
-    }
-  }
-
-  return true;
-}
-
 /**
  * Handle load step distribution for hybrid search pipelines.
  *
@@ -610,7 +577,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
   // Prefixes for the index
-  arrayof(const char*) prefixes = array_new(const char*, 0);
+  arrayof(sds) prefixes = array_new(sds, 0);
 
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
@@ -723,11 +690,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  if (!IsIndexCoherentWithQuery(*hybridParseCtx.prefixes, parsedCmdCtx->search->sctx->spec)) {
+  IndexSpec *spec = parsedCmdCtx->search->sctx->spec;
+  const size_t prefixCount = array_len(*hybridParseCtx.prefixes);
+  if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
   }
-  array_free(prefixes);
+  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
   prefixes = NULL;
 
   // Apply context to each request
@@ -760,7 +729,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   return REDISMODULE_OK;
 
 error:
-  array_free(prefixes);
+  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
   prefixes = NULL;
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);

@@ -99,15 +99,9 @@ inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
   v->_t = RSValueType_String;
   v->_strval.len = len;
   v->_strval.str = str;
-  v->_strval.stype = RSStringType_Malloc;
+  v->_strval.stype = RSStringType_RMAlloc;
 }
 
-inline void RSValue_SetSDS(RSValue *v, sds s) {
-  v->_t = RSValueType_String;
-  v->_strval.len = sdslen(s);
-  v->_strval.str = s;
-  v->_strval.stype = RSStringType_SDS;
-}
 
 inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
   v->_t = RSValueType_String;
@@ -160,7 +154,7 @@ RSValue RSValue_String(char *str, uint32_t len) {
   v._t = RSValueType_String;
   v._strval.str = str;
   v._strval.len = len;
-  v._strval.stype = RSStringType_Malloc;
+  v._strval.stype = RSStringType_RMAlloc;
   return v;
 }
 
@@ -171,16 +165,16 @@ inline RSValue *RSValue_NewString(char *str, uint32_t len) {
   RSValue *v = RSValue_NewWithType(RSValueType_String);
   v->_strval.str = str;
   v->_strval.len = len;
-  v->_strval.stype = RSStringType_Malloc;
+  v->_strval.stype = RSStringType_RMAlloc;
   return v;
 }
 
-/* Same as RSValue_NewString but with explicit string type */
-inline RSValue *RSValue_NewStringWithType(char *str, uint32_t len, RSStringType t) {
+/* Same as RSValue_NewString but for const strings */
+RSValue *RSValue_NewConstString(const char *str, uint32_t len) {
   RSValue *v = RSValue_NewWithType(RSValueType_String);
   v->_strval.str = str;
   v->_strval.len = len;
-  v->_strval.stype = t;
+  v->_strval.stype = RSStringType_Const;
   return v;
 }
 
@@ -290,11 +284,11 @@ RSValue *RSValue_NewStringArray(char **strs, uint32_t sz) {
   return RSValue_NewArray(arr, sz);
 }
 
-RSValue *RSValue_NewStringArrayT(char **strs, uint32_t sz, RSStringType st) {
+RSValue *RSValue_NewConstStringArray(char **strs, uint32_t sz) {
   RSValue **arr = RSValue_AllocateArray(sz);
 
   for (uint32_t i = 0; i < sz; i++) {
-    arr[i] = RSValue_NewStringWithType(strs[i], strlen(strs[i]), st);
+    arr[i] = RSValue_NewConstString(strs[i], strlen(strs[i]));
   }
   return RSValue_NewArray(arr, sz);
 }
@@ -427,12 +421,8 @@ void RSValue_Clear(RSValue *v) {
     case RSValueType_String:
       // free strings by allocation strategy
       switch (v->_strval.stype) {
-        case RSStringType_Malloc:
         case RSStringType_RMAlloc:
           rm_free(v->_strval.str);
-          break;
-        case RSStringType_SDS:
-          sdsfree(v->_strval.str);
           break;
         case RSStringType_Const:
           break;
