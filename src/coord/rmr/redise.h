@@ -11,4 +11,4 @@
 
 #include "cluster.h"
 
-MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, uint32_t *my_shard_idx);
