@@ -180,7 +180,9 @@ int workersThreadPool_OnEventEnd(bool wait) {
   // no-op if numWorkerThreads == minOperationWorkers == 0
   if (wait) {
     if (in_event) return REDISMODULE_ERR; // cannot wait while another event is in progress
+    SharedExclusiveLock_LendGIL();
     redisearch_thpool_wait(_workers_thpool);
+    SharedExclusiveLock_TakeBackGIL();
   }
   return REDISMODULE_OK;
 }
@@ -219,7 +221,9 @@ void workersThreadPool_wait() {
   if (!_workers_thpool || workerThreadPool_isPaused()) {
     return;
   }
+  SharedExclusiveLock_LendGIL();
   redisearch_thpool_wait(_workers_thpool);
+  SharedExclusiveLock_TakeBackGIL();
 }
 
 // Drain only high-priority jobs from the workers' threadpool
