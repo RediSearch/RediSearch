@@ -276,8 +276,8 @@ IteratorStatus InvIndIterator_Read_SkipMulti_CheckExpiration(QueryIterator *base
 
 /************************************ SkipTo Implementations ************************************/
 
-// 3. SkipTo implementation that uses a seeker to find the next valid docId, no additional filtering.
-IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId docId) {
+// SkipTo implementation that uses a seeker to find the next valid docId, no additional filtering.
+IteratorStatus InvIndIterator_SkipTo(QueryIterator *base, t_docId docId) {
   RS_ASSERT(base->lastDocId < docId);
   InvIndIterator *it = (InvIndIterator*)base;
   if (base->atEOF) {
@@ -308,8 +308,8 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
   return rc;
 }
 
-// 4. SkipTo implementation that uses a seeker and checks for field expiration.
-IteratorStatus InvIndIterator_SkipTo_withSeeker_CheckExpiration(QueryIterator *base, t_docId docId) {
+// SkipTo implementation that uses a seeker and checks for field expiration.
+IteratorStatus InvIndIterator_SkipTo_CheckExpiration(QueryIterator *base, t_docId docId) {
   RS_ASSERT(base->lastDocId < docId);
   InvIndIterator *it = (InvIndIterator*)base;
   if (base->atEOF) {
@@ -394,9 +394,9 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
   }
 
   if (hasExpiration) {
-    base->SkipTo = InvIndIterator_SkipTo_withSeeker_CheckExpiration;
+    base->SkipTo = InvIndIterator_SkipTo_CheckExpiration;
   } else {
-    base->SkipTo = InvIndIterator_SkipTo_withSeeker;
+    base->SkipTo = InvIndIterator_SkipTo;
   }
 
   return base;
