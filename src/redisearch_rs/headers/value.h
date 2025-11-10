@@ -20,6 +20,7 @@ typedef enum RsValueType {
   RsValueType_Undefined,
   RsValueType_Null,
   RsValueType_Number,
+  RsValueType_Array,
   RsValueType_Ref,
   RsValueType_Trio,
   RsValueType_Map,
@@ -72,25 +73,58 @@ typedef struct RsValueMapEntry {
 } RsValueMapEntry;
 
 /**
- * An immutable structure that holds and manages a set of
- * heap-allocated key-value pairs, i.e. [`RsValueMapEntry`] items.
+ * An low-memory immutable structure that holds and manages a set of
+ * T items.
+ *
+ * This collection's capacity is represented by an `u32` and the
+ * collection itself is `#[repr(C, packed)]` so that it's size is just
+ * 12 bytes.
  *
  * # Invariants
- * - Can hold at most [`Self::MAX_CAPACITY`] entries, which on 32-bit systems
+ * - (1) Can hold at most [`Self::MAX_CAPACITY`] items, which on 32-bit systems
  *   is less than `u32::MAX`. The reason for this is that when doing pointer
  *   addition, we must ensure we don't overflow `isize::MAX`.
  *   See [`NonNull::add`].
  */
-typedef struct RsValueMap {
+typedef struct RsValueCollection_RsValueMapEntry {
   /**
-   * Pointer to a heap-allocated array of `Self::cap` [`RsValueMapEntry`] items.
+   * Pointer to a heap-allocated array of `Self::cap` items.
    */
   struct RsValueMapEntry *entries;
   /**
-   * The number of [`RsValueMapEntry`] items this map can hold
+   * The number of items this collection can hold
    */
   uint32_t cap;
-} RsValueMap;
+} RsValueCollection_RsValueMapEntry;
+
+typedef struct RsValueCollection_RsValueMapEntry RsValueMap;
+
+/**
+ * An low-memory immutable structure that holds and manages a set of
+ * T items.
+ *
+ * This collection's capacity is represented by an `u32` and the
+ * collection itself is `#[repr(C, packed)]` so that it's size is just
+ * 12 bytes.
+ *
+ * # Invariants
+ * - (1) Can hold at most [`Self::MAX_CAPACITY`] items, which on 32-bit systems
+ *   is less than `u32::MAX`. The reason for this is that when doing pointer
+ *   addition, we must ensure we don't overflow `isize::MAX`.
+ *   See [`NonNull::add`].
+ */
+typedef struct RsValueCollection_SharedRsValue {
+  /**
+   * Pointer to a heap-allocated array of `Self::cap` items.
+   */
+  struct SharedRsValue *entries;
+  /**
+   * The number of items this collection can hold
+   */
+  uint32_t cap;
+} RsValueCollection_SharedRsValue;
+
+typedef struct RsValueCollection_SharedRsValue RsValueArray;
 
 #ifdef __cplusplus
 extern "C" {
@@ -149,29 +183,63 @@ enum RsValueType RsValue_Type(const struct RsValue *v);
 /**
  * Create a new, uninitialized `RsValueMap`, reserving space for `cap`
  * entries. The map entries are uninitialized and must be set using `RSValueMap_SetEntry`.
- * @param cap the number of entries (key and value) of capacity the map needs to get
+ *
+ * # Safety
+ * - (1) All items of the returned `RsValueMap` must be initialized using
+ *   `RsValueMap_SetEntry` prior to using it.
+ *
+ * @param cap the number of entries (key and value) the map needs to store
  * @returns an uninitialized `RsValueMap` of `cap` capacity.
  */
-struct RsValueMap RsValueMap_AllocUninit(uint32_t cap);
+RsValueMap RsValueMap_AllocUninit(uint32_t cap);
 
 /**
  * Set a key-value pair at a specific index in the map.
  * Takes ownership of both the key and value RSValues.
  *
  * # Safety
- * - `map` must be a valid pointer to an `RsValueMap` that
- *   has been created by `RsValueMap_AllocUninit`.
- * - `i` must smaller than the capacity of the `RsValueMap`.
+ * - (1) `map` must be a valid pointer to an `RsValueMap` that
+ *   has been created by `RsValueMap_AllocUninit` and
+ *   that is valid for writes;
+ * - (2) `i` must smaller than the capacity of the `RsValueMap`,
+ *   which cannot exceed `u32::MAX`.
  *
  * @param map The map to modify
  * @param i The index where to set the entry (must be < map->len)
  * @param key The key RSValue (ownership is transferred to the map)
  * @param value The value RSValue (ownership is transferred to the map)
  */
-void RsValueMap_SetEntry(struct RsValueMap *map,
+void RsValueMap_SetEntry(RsValueMap *map,
                          size_t i,
                          struct SharedRsValue key,
                          struct SharedRsValue value);
+
+/**
+ * Allocates an uninitialized [`RsValueArray`].
+ *
+ * # Safety
+ * See [`RsValueCollection::reserve_uninit`](value::collection::RsValueCollection::reserve_uninit)
+ *
+ * @param cap The desired capacity of the `RsValueArray`
+ * @return An uninitialized `RsValueArray` of `cap` capacity
+ */
+RsValueArray RsValueArray_AllocUninit(uint32_t cap);
+
+/**
+ * Writes a value into the [`RsValueArray`] at `i`.
+ *
+ * # Safety
+ * - (1) `arr` must be a non-null pointer to an `RsValueArray` originating from
+ *   [`RsValueArray_AllocUninit`];
+ * - (2) `arr` must be unique;
+ * - (3) `i` must not exceed the `RsValueArray`'s capacity, which cannot
+ *   exceed `u32::MAX`.
+ *
+ * @param arr The array to modify
+ * @param i The index at which to write the value
+ * @param value the value that is to be written
+ */
+void RsValueArray_SetEntry(RsValueArray *arr, size_t i, struct SharedRsValue value);
 
 /**
  * Creates a heap-allocated `RsValue` wrapping a string.
@@ -262,19 +330,21 @@ struct SharedRsValue SharedRsValue_NewNumberFromInt64(int64_t dd);
 /**
  * Creates a heap-allocated `RsValue` array from existing values.
  * Takes ownership of the values (values will be freed when array is freed).
+ *
  * @param vals The values array to use for the array (ownership is transferred)
  * @param len Number of values
  * @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Array`
  */
-struct SharedRsValue SharedRsValue_NewArray(struct SharedRsValue *vals, uint32_t len);
+struct SharedRsValue SharedRsValue_NewArray(RsValueArray vals);
 
 /**
  * Creates a heap-allocated RsValue of type RsValue_Map from an RsValueMap.
  * Takes ownership of the map structure and all its entries.
+ *
  * @param map The RsValueMap to wrap (ownership is transferred)
  * @return A pointer to a heap-allocated RsValue of type RsValueType_Map
  */
-struct SharedRsValue SharedRsValue_NewMap(struct RsValueMap map);
+struct SharedRsValue SharedRsValue_NewMap(RsValueMap map);
 
 /**
  * Creates a heap-allocated RsValue array from NULL terminated C strings.

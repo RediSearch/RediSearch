@@ -14,7 +14,11 @@ use std::{
 
 use libc::strlen;
 use redis_module::RedisModuleString;
-use value::{RsValueInternal, map::RsValueMap, shared::SharedRsValue};
+use value::{
+    RsValueInternal, Value,
+    collection::{RsValueArray, RsValueMap},
+    shared::SharedRsValue,
+};
 
 /// Creates a heap-allocated `RsValue` wrapping a string.
 /// Doesn't duplicate the string. Use strdup if the value needs to be detached.
@@ -157,21 +161,23 @@ pub extern "C" fn SharedRsValue_NewNumberFromInt64(dd: i64) -> SharedRsValue {
 
 /// Creates a heap-allocated `RsValue` array from existing values.
 /// Takes ownership of the values (values will be freed when array is freed).
+///
 /// @param vals The values array to use for the array (ownership is transferred)
 /// @param len Number of values
 /// @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Array`
 #[unsafe(no_mangle)]
-pub extern "C" fn SharedRsValue_NewArray(vals: *mut SharedRsValue, len: u32) -> SharedRsValue {
-    todo!()
+pub extern "C" fn SharedRsValue_NewArray(vals: RsValueArray) -> SharedRsValue {
+    SharedRsValue::array(vals)
 }
 
 /// Creates a heap-allocated RsValue of type RsValue_Map from an RsValueMap.
 /// Takes ownership of the map structure and all its entries.
+///
 /// @param map The RsValueMap to wrap (ownership is transferred)
 /// @return A pointer to a heap-allocated RsValue of type RsValueType_Map
 #[unsafe(no_mangle)]
 pub extern "C" fn SharedRsValue_NewMap(map: RsValueMap) -> SharedRsValue {
-    todo!()
+    SharedRsValue::map(map)
 }
 
 /// Creates a heap-allocated RsValue array from NULL terminated C strings.

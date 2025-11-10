@@ -20,7 +20,7 @@ use value::{RsValue, Value, opaque::OpaqueRsValue};
 
 use crate::value_type::{AsRsValueType, RsValueType};
 
-pub mod map;
+pub mod collection;
 pub mod shared;
 pub mod value_type;
 
