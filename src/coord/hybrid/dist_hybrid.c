@@ -122,6 +122,17 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
   }
+
+  // Add YIELD_SCORE_AS if present
+  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] [FILTER <expression>] YIELD_SCORE_AS <alias>
+  int yieldScoreOffset = RMUtil_ArgIndex("YIELD_SCORE_AS", argv + vsimOffset, argc - vsimOffset);
+  yieldScoreOffset = yieldScoreOffset != -1 ? yieldScoreOffset + vsimOffset : -1;
+
+  if (yieldScoreOffset == expectedFilterOffset && yieldScoreOffset < argc - 1) {
+    // This is a VSIM YIELD_SCORE_AS - append it to the command
+    MRCommand_AppendRstr(xcmd, argv[yieldScoreOffset]);     // YIELD_SCORE_AS keyword
+    MRCommand_AppendRstr(xcmd, argv[yieldScoreOffset + 1]); // score alias
+  }
 }
 
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
