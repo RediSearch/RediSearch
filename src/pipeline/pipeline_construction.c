@@ -350,10 +350,10 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->slotRanges, params->slotRanges_, params->slotsVersion, params->common.sctx);
+  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->slotRanges, params->querySlots, params->slotsVersion, params->common.sctx);
   params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
   params->slotRanges = NULL; // Ownership of the slot ranges is now with the pipeline.
-  params->slotRanges_ = NULL; // Ownership of the slot ranges is now with the pipeline.
+  params->querySlots = NULL; // Ownership of the slot ranges is now with the pipeline.
   ResultProcessor *rpUpstream = NULL;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = rp;
   PUSH_RP();

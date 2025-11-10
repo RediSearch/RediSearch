@@ -116,9 +116,9 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed for: " << test_data.description;
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error for: " << test_data.description;
 
-    // Verify that slotRanges_ was set correctly
-    EXPECT_NE(req->slotRanges_, nullptr) << "slotRanges_ should be set for: " << test_data.description;
-    EXPECT_EQ(req->slotRanges_->num_ranges, test_data.ranges.size()) << "Should have " << test_data.ranges.size() << " ranges for: " << test_data.description;
+    // Verify that querySlots was set correctly
+    EXPECT_NE(req->querySlots, nullptr) << "querySlots should be set for: " << test_data.description;
+    EXPECT_EQ(req->querySlots->num_ranges, test_data.ranges.size()) << "Should have " << test_data.ranges.size() << " ranges for: " << test_data.description;
 
     // Create expected slot range array for comparison
     size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * test_data.ranges.size();
@@ -130,7 +130,7 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
     }
 
     // Use exact comparison from test_slot_ranges
-    EXPECT_TRUE(compareExactly(expected, req->slotRanges_)) << "Slot ranges should match exactly for: " << test_data.description;
+    EXPECT_TRUE(compareExactly(expected, req->querySlots)) << "Slot ranges should match exactly for: " << test_data.description;
 
     // Clean up
     rm_free(expected);
@@ -210,11 +210,11 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error";
 
-    // Verify that slotRanges_ was set correctly
-    EXPECT_NE(req->slotRanges_, nullptr) << "slotRanges_ should be set";
-    EXPECT_EQ(req->slotRanges_->num_ranges, 1) << "Should have 1 range";
-    EXPECT_EQ(req->slotRanges_->ranges[0].start, 0) << "Range start should be 0";
-    EXPECT_EQ(req->slotRanges_->ranges[0].end, 16383) << "Range end should be 16383";
+    // Verify that querySlots was set correctly
+    EXPECT_NE(req->querySlots, nullptr) << "querySlots should be set";
+    EXPECT_EQ(req->querySlots->num_ranges, 1) << "Should have 1 range";
+    EXPECT_EQ(req->querySlots->ranges[0].start, 0) << "Range start should be 0";
+    EXPECT_EQ(req->querySlots->ranges[0].end, 16383) << "Range end should be 16383";
 
     // Clean up
     for (auto* str : argv) {
@@ -288,10 +288,10 @@ TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error";
 
     // Verify slot ranges were set
-    EXPECT_NE(req->slotRanges_, nullptr) << "slotRanges_ should be set";
-    EXPECT_EQ(req->slotRanges_->num_ranges, 1) << "Should have 1 range";
-    EXPECT_EQ(req->slotRanges_->ranges[0].start, 5462) << "Range start should be 5462";
-    EXPECT_EQ(req->slotRanges_->ranges[0].end, 10923) << "Range end should be 10923";
+    EXPECT_NE(req->querySlots, nullptr) << "querySlots should be set";
+    EXPECT_EQ(req->querySlots->num_ranges, 1) << "Should have 1 range";
+    EXPECT_EQ(req->querySlots->ranges[0].start, 5462) << "Range start should be 5462";
+    EXPECT_EQ(req->querySlots->ranges[0].end, 10923) << "Range end should be 10923";
 
     // Clean up
     for (auto* str : argv) {

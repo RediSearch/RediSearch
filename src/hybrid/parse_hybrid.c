@@ -641,7 +641,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
-      .slotRanges = &requestSlotRanges,
+      .querySlots = &requestSlotRanges,
       .slotsVersion = &slotsVersion,
   };
   // may change prefixes in internal array_ensure_append_1
@@ -651,9 +651,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Set slots info in both subqueries
   if (internal) {
-    vectorRequest->slotRanges_ = SlotRangeArray_Clone(requestSlotRanges);
+    vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
     vectorRequest->slotsVersion = slotsVersion;
-    searchRequest->slotRanges_ = requestSlotRanges;
+    searchRequest->querySlots = requestSlotRanges;
     searchRequest->slotsVersion = slotsVersion;
     requestSlotRanges = NULL; // ownership transferred
   }

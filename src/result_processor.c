@@ -45,10 +45,10 @@ typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
   RedisSearchCtx *sctx;
-  uint32_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
-  uint32_t slotsVersion;      // version of the slot ranges used for filtering
-  const RedisModuleSlotRangeArray *slotRanges_; // Query slot ranges info, may be used for filtering
-  const SharedSlotRangeArray *slotRanges; // Owned slot ranges info, may be used for filtering
+  uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
+  uint32_t slotsVersion;                        // version of the slot ranges used for filtering
+  const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
+  const SharedSlotRangeArray *slotRanges;       // Owned slot ranges info, may be used for filtering. TODO ASM: remove
 } RPQueryIterator;
 
 
@@ -172,17 +172,17 @@ validate_current:
 static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
   self->iterator->Free(self->iterator);
-  rm_free((void *)self->slotRanges_);
+  rm_free((void *)self->querySlots);
   Slots_FreeLocalSlots(self->slotRanges);
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root, const SharedSlotRangeArray *slotRanges, const RedisModuleSlotRangeArray *slotRanges_, uint32_t slotsVersion, RedisSearchCtx *sctx) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root, const SharedSlotRangeArray *slotRanges, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx) {
   RS_ASSERT(root != NULL);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
   ret->slotRanges = slotRanges;
-  ret->slotRanges_ = slotRanges_;
+  ret->querySlots = querySlots;
   ret->slotsVersion = slotsVersion;
   ret->base.Next = rpQueryItNext;
   ret->base.Free = rpQueryItFree;

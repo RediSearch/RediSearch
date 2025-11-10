@@ -458,6 +458,6 @@ void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data) {
         return;
     }
     // TODO ASM: check if the requested slots are available
-    *ctx->slotRanges = slot_array;
+    *ctx->querySlots = slot_array;
     *ctx->slotsVersion = 0;
 }

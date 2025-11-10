@@ -357,7 +357,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, SLOTS_STR)) {
-    if (*papCtx->slotRanges) {
+    if (*papCtx->querySlots) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SLOTS_STR" already specified");
       return ARG_ERROR;
     }
@@ -373,7 +373,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
     // TODO ASM: check if the requested slots are available
-    *papCtx->slotRanges = slot_array;
+    *papCtx->querySlots = slot_array;
     *papCtx->slotsVersion = 0;
   } else {
     return ARG_UNKNOWN;
@@ -609,7 +609,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .requiredFields = &req->requiredFields,
         .maxSearchResults = &req->maxSearchResults,
         .maxAggregateResults = &req->maxAggregateResults,
-        .slotRanges = &req->slotRanges_,
+        .querySlots = &req->querySlots,
         .slotsVersion = &req->slotsVersion,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
@@ -1059,7 +1059,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .requiredFields = &req->requiredFields,
     .maxSearchResults = &req->maxSearchResults,
     .maxAggregateResults = &req->maxAggregateResults,
-    .slotRanges = &req->slotRanges_,
+    .querySlots = &req->querySlots,
     .slotsVersion = &req->slotsVersion,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
@@ -1067,7 +1067,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   }
 
   // Verify we got slots requested if needed
-  if (IsInternal(req) && !req->slotRanges_) {
+  if (IsInternal(req) && !req->querySlots) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Internal query missing slots specification");
     goto error;
   }
@@ -1388,7 +1388,7 @@ void AREQ_Free(AREQ *req) {
   }
 
   Slots_FreeLocalSlots(req->slotRanges);
-  rm_free((void *)req->slotRanges_);
+  rm_free((void *)req->querySlots);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.
