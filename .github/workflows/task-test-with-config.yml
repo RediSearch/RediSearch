@@ -17,8 +17,9 @@ on:
         type: string
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
-        required: true
+        required: false
         type: string
+        default: 'QUICK=1'
       coordinator:
         type: boolean
         default: true

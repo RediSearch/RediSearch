@@ -101,37 +101,83 @@ jobs:
           # Ubuntu platforms
           - platform: ubuntu:noble
             architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["ubuntu:noble", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
           - platform: ubuntu:noble
             architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["ubuntu:noble", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
           - platform: ubuntu:jammy
             architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["ubuntu:jammy", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
           - platform: ubuntu:jammy
             architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["ubuntu:jammy", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
           - platform: ubuntu:focal
             architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["ubuntu:focal", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
           - platform: ubuntu:focal
             architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["ubuntu:focal", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
           - platform: rockylinux:8
             architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["rockylinux:8", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
           - platform: rockylinux:8
             architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["rockylinux:8", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
           - platform: rockylinux:9
             architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["rockylinux:9", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
           - platform: rockylinux:9
             architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["rockylinux:9", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
           - platform: amazonlinux:2
             architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["amazonlinux:2", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
           - platform: amazonlinux:2
             architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["amazonlinux:2", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
+          - platform: amazonlinux:2023
+            architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["amazonlinux:2023", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
+          - platform: amazonlinux:2023
+            architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["amazonlinux:2023", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
+          - platform: debian:bullseye
+            architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["debian:bullseye", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
+          - platform: debian:bullseye
+            architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["debian:bullseye", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
+          - platform: debian:bookworm
+            architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["debian:bookworm", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
+          - platform: debian:bookworm
+            architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["debian:bookworm", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
+          - platform: mariner:2
+            architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["mariner:2", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
+          - platform: mariner:2
+            architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["mariner:2", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
+          - platform: azurelinux:3
+            architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["azurelinux:3", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
+          - platform: azurelinux:3
+            architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["azurelinux:3", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
           - platform: alpine:3.19
             architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["alpine:3.19", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
           - platform: alpine:3.19
             architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["alpine:3.19", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
           # macOS platforms
           - platform: macos
             architecture: x86_64
+            skip-condition: ${{ !contains(fromJson('["macos", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
           - platform: macos
             architecture: aarch64
+            skip-condition: ${{ !contains(fromJson('["macos", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
       fail-fast: ${{ inputs.fail-fast }}
     uses: ./.github/workflows/task-test-with-config.yml
     secrets: inherit
@@ -143,4 +189,5 @@ jobs:
       rejson-branch: ${{ inputs.rejson-branch }}
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
-      test-config: ${{ inputs.test-config }}
+      test-config: ${{ inputs.test-config || 'QUICK=1' }}
+      skip-condition: ${{ matrix.skip-condition || 'false' }}
