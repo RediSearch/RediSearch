@@ -41,65 +41,80 @@ def _common_cluster_test_scenario(env):
 
     return n_docs
 
-# Test ignore policy
-@skip(cluster=True)
-def test_query_oom_ignore(env):
+class testOomStandaloneBehavior:
 
-    _common_test_scenario(env)
+    def __init__(self):
+        skipTest(cluster=True)
+        self.env = Env()
+        _common_test_scenario(self.env)
 
-    change_oom_policy(env, 'ignore')
+    def test_query_oom_ignore(self):
+        change_oom_policy(self.env, 'ignore')
+        res = self.env.cmd('FT.SEARCH', 'idx', '*')
+        self.env.assertEqual(res, [1, 'doc', ['name', 'hello']])
+        res = self.env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
+        self.env.assertEqual(res[0], 1)
 
-    res = env.cmd('FT.SEARCH', 'idx', '*')
-    env.assertEqual(res, [1, 'doc', ['name', 'hello']])
-    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
-    env.assertEqual(res[0], 1)
+    def test_query_oom_fail(self):
+        change_oom_policy(self.env, 'fail')
+        run_cmd_expect_oom(self.env, ['FT.SEARCH', 'idx', '*'])
+        run_cmd_expect_oom(self.env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name'])
 
-# Test ignore policy in cluster
-@skip(cluster=False)
-def test_query_oom_cluster_ignore(env):
+    def test_query_oom_return(self):
+        change_oom_policy(self.env, 'return')
+        # Should return empty results
+        res = self.env.cmd('FT.SEARCH', 'idx', '*')
+        self.env.assertEqual(res, [0])
+        res = self.env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
+        self.env.assertEqual(res[0], 0)
 
-    n_docs = _common_cluster_test_scenario(env)
+class testOomClusterBehavior:
+    def __init__(self):
+        skipTest(cluster=False)
+        self.env = Env(shardsCount=3)
+        self.n_docs = _common_cluster_test_scenario(self.env)
+        allShards_change_maxmemory_low(self.env)
 
-    allShards_change_oom_policy(env, 'ignore')
+    def tearDown(self):
+        self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
 
-    res = env.cmd('FT.SEARCH', 'idx', '*')
-    env.assertEqual(res[0] , n_docs)
-    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
-    env.assertEqual(len(res), n_docs + 1)
+    def test_query_oom_ignore(self):
+        allShards_change_oom_policy(self.env, 'ignore')
+        res = self.env.cmd('FT.SEARCH', 'idx', '*')
+        self.env.assertEqual(res[0] , self.n_docs)
+        res = self.env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
+        self.env.assertEqual(len(res), self.n_docs + 1)
 
-@skip(cluster=True)
-def test_query_oom_fail_standalone(env):
+    def test_query_oom_coord_fail(self):
+        # Test coord failing with OOM
+        allShards_change_oom_policy(self.env, 'fail')
+        # Test class invariant - coord maxmemory is 1
+        run_cmd_expect_oom(self.env, ['FT.SEARCH', 'idx', '*'])
+        run_cmd_expect_oom(self.env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name'])
 
-    change_oom_policy(env, 'fail')
+    def test_query_oom_shards_fail(self):
+        # Test coord passing OOM but shards failing with OOM
+        allShards_change_oom_policy(self.env, 'fail')
+        # Change back coord maxmemory to 0 so it doesn't fail
+        set_unlimited_maxmemory_for_oom(self.env)
+        run_cmd_expect_oom(self.env, ['FT.SEARCH', 'idx', '*'])
+        run_cmd_expect_oom(self.env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name'])
 
-    _common_test_scenario(env)
-
-    # Verify query fails
-    env.expect('FT.SEARCH', 'idx', '*').error().contains(OOM_QUERY_ERROR)
-    # Verify aggregation query fails
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name').error().contains(OOM_QUERY_ERROR)
-
-# Test OOM error returned from shards (only for fail)
-@skip(cluster=False)
-def test_query_oom_cluster_shards_error():
-    env  = Env(shardsCount=3)
-
-    # Set OOM policy to fail on all shards
-    allShards_change_oom_policy(env, 'fail')
-
-    _ = _common_cluster_test_scenario(env)
-
-    # Change maxmemory on all shards to 1
-    allShards_change_maxmemory_low(env)
-    # Change back coord maxmemory to 0
-    set_unlimited_maxmemory_for_oom(env)
-
-    # Verify query fails
-    env.expect('FT.SEARCH', 'idx', '*').error().contains(OOM_QUERY_ERROR)
-    # Verify aggregation query fails with sorting so it has to wait for all shards
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name', 'SORTBY', 2, '@name', 'ASC').error().contains(OOM_QUERY_ERROR)
+    def test_query_oom_shards_return(self):
+        # Test coord passing OOM, but shards returning empy results due to OOM
+        allShards_change_oom_policy(self.env, 'return')
+        # Change back coord maxmemory to 0
+        set_unlimited_maxmemory_for_oom(self.env)
+        # Note - only the coordinator shard will return results
+        n_keys = len(self.env.cmd('KEYS', '*'))
+        # Verify partial results in search/aggregate
+        res = self.env.cmd('FT.SEARCH', 'idx', '*')
+        self.env.assertEqual(res[0] , n_keys)
+        res = self.env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
+        self.env.assertEqual(len(res), n_keys + 1)
 
 # Test OOM error returned from shards (only for fail), enforcing first reply from non-error shard
+# Test has specific environment requirements, so it's left out of the test class
 @skip(cluster=False, asan=True)
 def test_query_oom_cluster_shards_error_first_reply():
     # Workers is necessary to make sure the query is not finished before we resume the shards
@@ -163,47 +178,6 @@ def test_query_oom_cluster_shards_error_first_reply():
     # Wait for the query to finish
     t_query.join()
 
-# Test OOM error on coordinator, 'fail' policy
-@skip(cluster=False)
-def test_query_oom_cluster_coord_error():
-    env  = Env(shardsCount=3)
-
-    _ = _common_cluster_test_scenario(env)
-    # Note: the coord's maxmemory is changed in the function above
-
-    allShards_change_oom_policy(env, 'fail')
-    # Verify query fails
-    env.expect('FT.SEARCH', 'idx', '*').error().contains(OOM_QUERY_ERROR)
-    # Verify aggregation query fails
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name').error().contains(OOM_QUERY_ERROR)
-
-# Test OOM error returned from shards (only for return)
-@skip(cluster=False)
-def test_query_oom_cluster_shards_return():
-    env  = Env(shardsCount=3)
-
-    # Set OOM policy to return on all shards
-    allShards_change_oom_policy(env, 'return')
-
-    _ = _common_cluster_test_scenario(env)
-
-    # Change maxmemory on all shards to 1
-    allShards_change_maxmemory_low(env)
-    # Change back coord maxmemory to 0
-    set_unlimited_maxmemory_for_oom(env)
-
-    # Note - only the coordinator shard will return results
-
-    # Get num keys in coordinator shard
-    n_keys = len(env.cmd('KEYS', '*'))
-
-    # Verify partial results in search/aggregate
-    res = env.cmd('FT.SEARCH', 'idx', '*')
-    env.assertEqual(res[0] , n_keys)
-    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
-    env.assertEqual(len(res), n_keys + 1)
-
-
 def _common_hybrid_test_scenario(env):
     """Common setup for hybrid OOM tests"""
     # Create an index with text and vector fields
@@ -224,7 +198,6 @@ def _common_hybrid_cluster_test_scenario(env):
             'description', 'TEXT',
             'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
 
-
     n_docs_per_shard = 100
     n_docs = n_docs_per_shard * env.shardsCount
     for i in range(n_docs):
@@ -235,98 +208,122 @@ def _common_hybrid_cluster_test_scenario(env):
 
     return n_docs
 
-# Test ignore policy for FT.HYBRID
-@skip(cluster=True)
-def test_hybrid_oom_ignore(env):
-    _common_hybrid_test_scenario(env)
+class testOomHybridStandaloneBehavior:
 
-    change_oom_policy(env, 'ignore')
+    def __init__(self):
+        skipTest(cluster=True)
+        self.env = Env()
+        _common_hybrid_test_scenario(self.env)
 
-    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector)
+    def test_hybrid_oom_ignore(self):
+        change_oom_policy(self.env, 'ignore')
+        query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector)
+        # Should get results despite OOM condition
+        self.env.assertEqual(res[1], 1)
 
-    # Should get results despite OOM condition
-    env.assertEqual(res[1], 1)
+    def test_hybrid_oom_fail(self):
+        change_oom_policy(self.env, 'fail')
+        query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector])
 
-# Test fail policy for FT.HYBRID in standalone
-@skip(cluster=True)
-def test_hybrid_oom_fail_standalone(env):
-    change_oom_policy(env, 'fail')
+    def test_hybrid_oom_return(self):
+        change_oom_policy(self.env, 'return')
+        query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+        # Should return empty results
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector)
+        self.env.assertEqual(res[1], 0)
 
-    _common_hybrid_test_scenario(env)
+class testOomHybridClusterBehavior:
+    def __init__(self):
+        skipTest(cluster=False)
+        self.env = Env(shardsCount=3)
+        self.n_docs = _common_hybrid_cluster_test_scenario(self.env)
 
-    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    def tearDown(self):
+        self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
 
-    # Verify hybrid query fails
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
+    def test_hybrid_oom_ignore(self):
+        allShards_change_oom_policy(self.env, 'ignore')
+        query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+        self.env.assertEqual(res[1], self.n_docs)
 
-# Test OOM error on coordinator for FT.HYBRID, 'fail' policy
+    def test_hybrid_oom_coord_fail(self):
+        # Test coord failing with OOM
+        allShards_change_oom_policy(self.env, 'fail')
+        query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+        # Test class invariant - coord maxmemory is 1
+        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector])
+
+    def test_hybrid_oom_shards_fail(self):
+        # Test coord passing OOM but shards failing with OOM
+        allShards_change_oom_policy(self.env, 'fail')
+        allShards_change_maxmemory_low(self.env)
+        # Change back coord maxmemory to 0 so it doesn't fail
+        set_unlimited_maxmemory_for_oom(self.env)
+        query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000'])
+
+    def test_hybrid_oom_shards_return(self):
+        # Test coord passing OOM, but shards returning empty results due to OOM
+        allShards_change_oom_policy(self.env, 'return')
+        allShards_change_maxmemory_low(self.env)
+        # Change back coord maxmemory to 0
+        set_unlimited_maxmemory_for_oom(self.env)
+        query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+        # Note - only the coordinator shard will return results
+        n_keys = len(self.env.cmd('KEYS', '*'))
+        # Verify partial results in hybrid search
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+        self.env.assertEqual(res[1] , n_keys)
+        # Testing warnings verbosity
+        self.env.assertEqual(res[5][0], OOM_WARNING)
+
 @skip(cluster=False)
-def test_hybrid_oom_cluster_coord_error():
-    env = Env(shardsCount=3)
-
-    _ = _common_hybrid_cluster_test_scenario(env)
-    # Note: the coord's maxmemory is changed in the function above
-
-    # Test with 'fail' policy on all shards
-    allShards_change_oom_policy(env, 'fail')
-
-    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-
-    # Verify hybrid query fails
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector).error().contains(OOM_QUERY_ERROR)
-
-# Test OOM error returned from shards for FT.HYBRID (only for fail)
-@skip(cluster=False)
-def test_hybrid_oom_cluster_shards_error():
-    env = Env(shardsCount=3)
+def test_oom_verbosity_cluster_return(env):
+    env  = Env(shardsCount=3, protocol=3)
 
     # Set OOM policy to fail on all shards
-    allShards_change_oom_policy(env, 'fail')
-
-    _ = _common_hybrid_cluster_test_scenario(env)
-
-    # Change maxmemory on all shards to 1
-    allShards_change_maxmemory_low(env)
-    # Change back coord maxmemory to 0
-    set_unlimited_maxmemory_for_oom(env)
-
-    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-
-    # Verify hybrid query fails
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000').error().contains(OOM_QUERY_ERROR)
-
-# Test OOM error returned from shards for FT.HYBRID (only for return)
-# @skip(cluster=False)
-def test_hybrid_oom_cluster_shards_return():
-    env = Env(shardsCount=3, enableDebugCommand=True, protocol=3)
-
-    # Set OOM policy to return on all shards
     allShards_change_oom_policy(env, 'return')
 
-    _common_hybrid_cluster_test_scenario(env)
+    _ = _common_cluster_test_scenario(env)
 
     # Change maxmemory on all shards to 1
     allShards_change_maxmemory_low(env)
     # Change back coord maxmemory to 0
     set_unlimited_maxmemory_for_oom(env)
-
-    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
 
     # Note - only the coordinator shard will return results
 
-    # Get num keys in coordinator shard
-    n_keys = len(env.cmd('KEYS', '*'))
+    # RESP3
 
-    # Verify partial results in hybrid search
-    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
-    # env.assertEqual(res[1] , n_keys)
+    # FT.SEARCH
+    res = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(res['warning'][0], OOM_WARNING)
 
-    # Testing warnings verbosity
-    # Resp3
-    # env.assertEqual(res['warnings'][0], OOM_WARNING)
+    # TODO - Check warnings in FT.AGGREGATE when empty results are handled correctly
 
-    # Resp2
+    # Search Profile
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
+    env.assertEqual(res['Results']['warning'][0], OOM_WARNING)
+    shards_warning_lst = [shard_profile['Warning'] for shard_profile in res['Profile']['Shards']]
+    # Since we don't know the order of responses, we need to count 2 errors
+    env.assertEqual(shards_warning_lst.count(OOM_WARNING), 2)
+
+    # Aggregate Profile
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+    # TODO - Check 'Results' and 'Coordinator' warning when empty results are handled correctly
+    shards_warning_lst = [shard_profile['Warning'] for shard_profile in res['Profile']['Shards']]
+    # Since we don't know the order of responses, we need to count 2 errors
+    env.assertEqual(shards_warning_lst.count(OOM_WARNING), 2)
+
+    # RESP2
     env.cmd('HELLO', 2)
-    res2 = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
-    env.assertEqual(res2[5][0], OOM_WARNING)
+
+    # Aggregate Profile
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+    # TODO - Check coordinator warning when empty results are handled correctly
+    shards_warning_lst = [shard_res[9] for shard_res in res[1][1]]
+    # Since we don't know the order of responses, we need to count 2 errors
+    env.assertEqual(shards_warning_lst.count(OOM_WARNING), 2)
