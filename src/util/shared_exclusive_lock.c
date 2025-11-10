@@ -139,19 +139,19 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
 // Assumptions:
 // 1. The caller has previously acquired the lock by calling SharedExclusiveLock_Acquire
 // 2. The value of 'type' is the result of the previous call to SharedExclusiveLock_Acquire
-void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType type) {
-  if (type == Borrowed) {
-    pthread_mutex_lock(&InternalLock);
+void SharedExclusiveLock_Release(RedisModuleCtx *ctx) {
+  pthread_mutex_lock(&InternalLock);
+  if (GIL_borrowed) {
     GIL_borrowed = false;
     // If main thread is waiting to release the GIL, signal it that it can proceed.
     pthread_cond_signal(&GILIsBorrowed);
-    pthread_mutex_unlock(&InternalLock);
 
     // Signal any waiting threads that they may try to acquire the GIL or the alternative lock.
     pthread_cond_broadcast(&GILAvailable);
   } else {
-    RS_ASSERT(type == Owned);
     RedisModule_ThreadSafeContextUnlock(ctx);
   }
+  pthread_mutex_unlock(&InternalLock);
+  // Release the alternative lock. Another thread may now try to acquire or borrow the GIL.
   pthread_mutex_unlock(&GILAlternativeLock);
 }

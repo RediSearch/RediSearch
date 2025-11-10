@@ -61,9 +61,8 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx);
 /**
  * Release the previously acquired lock.
  * @param ctx Redis module context
- * @param type Type of lock to release (expected to come from SharedExclusiveLock_Acquire)
  */
-void SharedExclusiveLock_Release(RedisModuleCtx *ctx, SharedExclusiveLockType type);
+void SharedExclusiveLock_Release(RedisModuleCtx *ctx);
 
 #ifdef __cplusplus
 }

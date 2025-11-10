@@ -924,12 +924,12 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   rs_wall_clock rpStartTime;
   if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
   // Then, lock Redis to guarantee safe access to Redis keyspace
-  SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(sctx->redisCtx);
+  SharedExclusiveLock_Acquire(sctx->redisCtx);
 
   rpSafeLoader_Load(self);
 
   // Done loading. Unlock Redis
-  SharedExclusiveLock_Release(sctx->redisCtx, lockType);
+  SharedExclusiveLock_Release(sctx->redisCtx);
 
   if (isQueryProfile) {
     // GIL time is time passed since rpStartTime combined with the time we already accumulated in the rp->GILTime

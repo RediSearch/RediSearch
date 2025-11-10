@@ -42,7 +42,7 @@ static void yieldCallback(void *yieldCtx) {
   SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(ctx);
   RS_LOG_ASSERT(lockType == Borrowed, "While draining, We should own the GIL, thus we should have acquired the internal lock, to guarantee that no other thread will try to acquire the GIL.");
   RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
-  SharedExclusiveLock_Release(ctx, lockType);
+  SharedExclusiveLock_Release(ctx);
 }
 
 /* Configure here anything that needs to know it can use the thread pool */
