@@ -31,10 +31,6 @@ redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 #[allow(non_upper_case_globals)]
 pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
 
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RSDummyContext: *const c_void = std::ptr::null();
-
 /// Define an empty stub function for each given symbols.
 /// This is used to define C functions the linker requires but which are not actually used by the benchers.
 macro_rules! stub_c_fn {
