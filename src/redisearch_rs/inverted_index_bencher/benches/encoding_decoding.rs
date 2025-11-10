@@ -96,15 +96,15 @@ criterion_group!(
     name = benches;
     config = Criterion::default().measurement_time(Duration::from_millis(500)).warm_up_time(Duration::from_millis(200));
     targets = benchmark_numeric,
-    benchmark_freqs_only,
-    benchmark_freqs_fields,
-    benchmark_fields_only,
-    benchmark_doc_ids_only,
-    benchmark_raw_doc_ids_only,
-    benchmark_full,
-    benchmark_fields_offsets,
-    benchmark_offsets_only,
-    benchmark_freqs_offsets,
+        benchmark_freqs_only,
+        benchmark_freqs_fields,
+        benchmark_fields_only,
+        benchmark_doc_ids_only,
+        benchmark_raw_doc_ids_only,
+        benchmark_full,
+        benchmark_fields_offsets,
+        benchmark_offsets_only,
+        benchmark_freqs_offsets,
 );
 
 criterion_main!(benches);
