@@ -1052,18 +1052,6 @@ pub unsafe extern "C" fn IndexReader_IsIndex(
     }
 }
 
-/// Check if the index reader supports seeking to a specific document ID. This is true for all
-/// index reader types.
-///
-/// # Safety
-/// The following invariant must be upheld when calling this function:
-/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
-#[unsafe(no_mangle)]
-pub const unsafe extern "C" fn IndexReader_HasSeeker(_ir: *const IndexReader) -> bool {
-    // The Rust `Decoder` implementation has a default seeker for all decoders
-    true
-}
-
 /// Advance the index reader to the next entry in the index. If there is a next entry, it will be
 /// written to the output parameter `res` and the function will return true. If there are no more
 /// entries, the function will return false.
