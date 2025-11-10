@@ -55,7 +55,7 @@ typedef struct {
     RequestConfig *reqConfig;               // Request configuration for DIALECT/TIMEOUT
     QEFlags *reqFlags;                      // Request flags
     size_t *maxResults;                     // Maximum results
-    arrayof(const char*) *prefixes;          // Prefixes for the index
+    arrayof(sds) *prefixes;                 // Prefixes for the index
 } HybridParseContext;
 
 /**

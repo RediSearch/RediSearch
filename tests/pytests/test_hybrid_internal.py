@@ -43,7 +43,7 @@ def read_cursor_completely_resp3(env, index_name, cursor_id, batch_callback=None
     current_cursor = cursor_id
 
     while current_cursor != 0:
-        cursor_response = env.cmd('FT.CURSOR', 'READ', index_name, current_cursor)
+        cursor_response = env.cmd('_FT.CURSOR', 'READ', index_name, current_cursor)
         # RESP 3 format: [{'results': [...], ...}, cursor_id]
         results_dict = cursor_response[0]
         current_cursor = cursor_response[1]
@@ -84,7 +84,7 @@ def read_cursor_completely_resp2(env, index_name, cursor_id, batch_callback=None
     current_cursor = cursor_id
 
     while current_cursor != 0:
-        cursor_response = env.cmd('FT.CURSOR', 'READ', index_name, current_cursor)
+        cursor_response = env.cmd('_FT.CURSOR', 'READ', index_name, current_cursor)
 
         # RESP 2 format: [[count, result1, result2, ...], next_cursor_id]
         results_array = cursor_response[0]

@@ -1528,6 +1528,28 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   return rc;
 }
 
+bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
+  if (!spec || !spec->rule) {
+    return false;
+  }
+  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
+  if (n_prefixes != array_len(spec_prefixes)) {
+    return false;
+  }
+
+  // Validate that the prefixes in the arguments are the same as the ones in the
+  // index (also in the same order)
+  for (size_t i = 0; i < n_prefixes; i++) {
+    sds arg = prefixes[i];
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
+      // Unmatching prefixes
+      return false;
+    }
+  }
+
+  return true;
+}
+
 inline static bool isSpecOnDisk(const IndexSpec *sp) {
   return isFlex;
 }
