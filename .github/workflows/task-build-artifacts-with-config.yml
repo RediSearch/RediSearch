@@ -50,12 +50,14 @@ jobs:
           echo "sha input: '${{ inputs.sha }}'"
           echo "redis-ref input: '${{ inputs.redis-ref }}'"
           echo "beta-version input: '${{ inputs.beta-version }}'"
+          echo "---"
+          echo "IF condition test: inputs.skip-condition != 'true'"
+          echo "IF condition result: ${{ inputs.skip-condition != 'true' }}"
+          echo "Should build job run? ${{ inputs.skip-condition != 'true' }}"
 
   # Build artifacts with resolved configuration
   build:
     needs: [get-config, debug-skip-condition]
-    # Skip if skip-condition evaluates to true
-    if: ${{ inputs.skip-condition != 'true' }}
     uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:
