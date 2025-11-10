@@ -7,12 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, time::Duration, vec};
+use std::{io::Cursor, vec};
 
-use criterion::{
-    BatchSize, BenchmarkGroup, Criterion, black_box,
-    measurement::{Measurement, WallTime},
-};
+use criterion::{BatchSize, Criterion, black_box};
 use inverted_index::{Decoder, Encoder, RSIndexResult, doc_ids_only::DocIdsOnly};
 
 pub struct Bencher {
@@ -33,9 +30,6 @@ impl Default for Bencher {
 }
 
 impl Bencher {
-    const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
-    const WARMUP_TIME: Duration = Duration::from_millis(200);
-
     fn new() -> Self {
         let deltas = vec![0, 1, 256, 65536, u16::MAX as u32, u32::MAX];
 
@@ -55,35 +49,11 @@ impl Bencher {
         Self { test_values }
     }
 
-    fn benchmark_group<'a>(
-        &self,
-        c: &'a mut Criterion,
-        label: &str,
-    ) -> BenchmarkGroup<'a, WallTime> {
-        let label = label.to_string();
-        let mut group = c.benchmark_group(label);
-        group.measurement_time(Self::MEASUREMENT_TIME);
-        group.warm_up_time(Self::WARMUP_TIME);
-        group
-    }
-
     pub fn encoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Encode - DocIdsOnly");
-        self.rust_encode(&mut group);
-        group.finish();
-    }
-
-    pub fn decoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Decode - DocIdsOnly");
-        self.rust_decode(&mut group);
-        group.finish();
-    }
-
-    fn rust_encode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         // Use a single buffer big enough to hold all encoded values
         let buffer_size = self.test_values.iter().map(|test| test.encoded.len()).sum();
 
-        group.bench_function("Rust", |b| {
+        c.bench_function("Encode DocIdsOnly", |b| {
             b.iter_batched_ref(
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
@@ -101,16 +71,21 @@ impl Bencher {
         });
     }
 
-    fn rust_decode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("Rust", |b| {
+    pub fn decoding(&self, c: &mut Criterion) {
+        c.bench_function("Decode DocIdsOnly", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || Cursor::new(test.encoded.as_ref()),
-                    |buffer| {
-                        let decoder = DocIdsOnly;
-                        let result = decoder.decode_new(buffer, 100).unwrap();
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            DocIdsOnly,
+                            RSIndexResult::term(),
+                        )
+                    },
+                    |(cursor, decoder, result)| {
+                        let res = decoder.decode(cursor, 100, result);
 
-                        let _ = black_box(result);
+                        let _ = black_box(res);
                     },
                     BatchSize::SmallInput,
                 );
