@@ -1156,29 +1156,11 @@ static bool IsIndexCoherent(AREQ *req) {
     return true;
   }
 
-  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-  IndexSpec *spec = sctx->spec;
   sds *args = req->args;
   long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
-
-  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
-  if (n_prefixes != array_len(spec_prefixes)) {
-    return false;
-  }
-
-  // Validate that the prefixes in the arguments are the same as the ones in the
-  // index (also in the same order)
   // The first argument is at req->prefixesOffset + 2
-  uint base_idx = req->prefixesOffset + 2;
-  for (uint i = 0; i < n_prefixes; i++) {
-    sds arg = args[base_idx + i];
-    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
-      // Unmatching prefixes
-      return false;
-    }
-  }
-
-  return true;
+  sds *prefixes = args + req->prefixesOffset + 2;
+  return IndexSpec_IsCoherent(AREQ_SearchCtx(req)->spec, prefixes, n_prefixes);
 }
 
 
