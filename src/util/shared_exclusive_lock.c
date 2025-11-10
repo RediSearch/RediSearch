@@ -42,15 +42,21 @@ bool GIL_borrowed = false;
 #define TIMEOUT_NANOSECONDS 5000 // 5 us in nanoseconds
 #define NANOSEC_PER_SECOND 1000000000L // 10^9
 
-static inline void set_timeout(struct timespec *timeout) {
-  clock_gettime(CLOCK_MONOTONIC_RAW, timeout);
-  // Assumes TIMEOUT_NANOSECONDS will not exceed NANOSEC_PER_SECOND,
-  // so we are only off by one second maximum.
-  timeout->tv_nsec += TIMEOUT_NANOSECONDS;
-  if (timeout->tv_nsec >= NANOSEC_PER_SECOND) {
-    timeout->tv_nsec -= NANOSEC_PER_SECOND;
-    timeout->tv_sec += 1;
-  }
+
+static inline void set_timeout(struct timespec *ts) {
+  #ifdef __APPLE__
+      ts->tv_sec  = 0; // (time_t)(TIMEOUT_NANOSECONDS / NANOSEC_PER_SECOND);
+      ts->tv_nsec = TIMEOUT_NANOSECONDS; // (long)(TIMEOUT_NANOSECONDS % NANOSEC_PER_SECOND);
+  #else
+      struct timespec now;
+      clock_gettime(CLOCK_MONOTONIC_RAW, &now);  // NOT *_RAW
+
+      // Add TIMEOUT_NANOSECONDS to 'now' with proper carry
+      uint64_t add_ns = (uint64_t)TIMEOUT_NANOSECONDS;
+      uint64_t ns = (uint64_t)now.tv_nsec + (add_ns % NANOSEC_PER_SECOND);
+      ts->tv_sec  = now.tv_sec + (time_t)(add_ns / NANOSEC_PER_SECOND) + (time_t)(ns / NANOSEC_PER_SECOND);
+      ts->tv_nsec = (long)(ns % NANOSEC_PER_SECOND);
+  #endif
 }
 
 void SharedExclusiveLock_Init() {
@@ -59,12 +65,17 @@ void SharedExclusiveLock_Init() {
   pthread_mutex_init(&GILAlternativeLock, NULL);
   pthread_mutex_init(&InternalLock, NULL);
 
+#ifdef __APPLE__
+  // macOS doesn't support pthread_condattr_setclock, use default clock
+  pthread_cond_init(&GILAvailable, NULL);
+#else
   // Initialize GILAvailable with CLOCK_MONOTONIC_RAW
   pthread_condattr_t cond_attr;
   pthread_condattr_init(&cond_attr);
   pthread_condattr_setclock(&cond_attr, CLOCK_MONOTONIC_RAW);
   pthread_cond_init(&GILAvailable, &cond_attr);
   pthread_condattr_destroy(&cond_attr);
+#endif
 
   pthread_cond_init(&GILIsBorrowed, NULL);
 }
@@ -111,28 +122,34 @@ SharedExclusiveLockType SharedExclusiveLock_Acquire(RedisModuleCtx *ctx) {
   // - we may hold the GIL (allowed)
   pthread_mutex_lock(&GILAlternativeLock);
   while (true) {
-    SharedExclusiveLockType lockType = Unlocked;
+    int rc = REDISMODULE_ERR;
+    SharedExclusiveLockType lockType = Owned;
     // Attempt to acquire the GIL, according to the internal state.
     pthread_mutex_lock(&InternalLock);
     if (GIL_lent) {
       // GIL is lent by the main thread, mark that we borrow it.
       GIL_borrowed = true;
+      rc = REDISMODULE_OK;
       lockType = Borrowed;
-    } else if (RedisModule_ThreadSafeContextTryLock(ctx) == REDISMODULE_OK) {
+    } else {
       // GIL is not lent by the main thread, but we managed to acquire it.
       // Note: Under assumption (2), either the GIL is lent, or we don't hold it, so we can attempt to acquire it.
-      lockType = Owned;
+      rc = RedisModule_ThreadSafeContextTryLock(ctx);
     }
     pthread_mutex_unlock(&InternalLock);
 
-    if (lockType != Unlocked) {
+    if (rc == REDISMODULE_OK) {
       return lockType; // We have exclusive access
     }
 
     // Couldn't acquire the GIL, wait (for a short time or until signaled) before trying again.
     struct timespec timeout;
     set_timeout(&timeout);
-    pthread_cond_timedwait(&GILAvailable, &GILAlternativeLock, &timeout);
+    #ifdef __APPLE__
+      pthread_cond_timedwait_relative_np(&GILAvailable, &GILAlternativeLock, &timeout);
+    #else
+      pthread_cond_timedwait(&GILAvailable, &GILAlternativeLock, &timeout);
+    #endif
   }
 }
 
