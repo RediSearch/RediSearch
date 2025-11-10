@@ -62,6 +62,7 @@ fn main() {
         root.join("src").join("value.h"),
         root.join("src").join("obfuscation").join("hidden.h"),
         root.join("src").join("spec.h"),
+        root.join("src").join("search_disk_api.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();
