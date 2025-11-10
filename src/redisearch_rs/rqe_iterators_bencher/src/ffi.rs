@@ -26,6 +26,14 @@ mod bindings {
     pub type RSOffsetVector = inverted_index::RSOffsetVector<'static>;
     pub type IndexDecoderCtx = inverted_index::ReadFilter<'static>;
 
+    // Type alias to Rust defined inverted index types
+    pub use inverted_index_ffi::{
+        InvertedIndex_Free, InvertedIndex_WriteEntryGeneric, InvertedIndex_WriteNumericEntry,
+        NewInvertedIndex_Ex,
+    };
+    pub type InvertedIndex = inverted_index_ffi::InvertedIndex;
+    pub type IndexReader = inverted_index_ffi::IndexReader<'static>;
+
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
@@ -37,6 +45,8 @@ pub use bindings::{
 use bindings::{IteratorStatus, ValidateStatus};
 use ffi::RedisModule_Alloc;
 use inverted_index::RSIndexResult;
+
+use crate::ffi::bindings::Metric_VECTOR_DISTANCE;
 
 // Direct C benchmark functions that eliminate FFI overhead
 // by implementing the benchmark loop entirely in C
@@ -80,7 +90,19 @@ impl QueryIterator {
         }
         Self(unsafe { bindings::NewIdListIterator(data, len as u64, 1f64) })
     }
-
+    #[inline(always)]
+    pub fn new_metric(vec: Vec<u64>, metric_data: Vec<f64>) -> Self {
+        let len = vec.len();
+        let data =
+            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };
+        let m_data =
+            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<f64>()) as *mut f64 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
+            std::ptr::copy_nonoverlapping(metric_data.as_ptr(), m_data, len);
+        }
+        Self(unsafe { bindings::NewMetricIterator(data, m_data, len, Metric_VECTOR_DISTANCE) })
+    }
     #[inline(always)]
     pub fn new_wildcard(max_id: u64, num_docs: usize) -> Self {
         Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, num_docs, 1f64) })
@@ -185,7 +207,7 @@ impl InvertedIndex {
     #[inline(always)]
     pub fn new(flags: bindings::IndexFlags) -> Self {
         let mut memsize = 0;
-        let ptr = unsafe { bindings::NewInvertedIndex(flags, &mut memsize) };
+        let ptr = bindings::NewInvertedIndex_Ex(flags, false, false, &mut memsize);
         Self(ptr)
     }
 

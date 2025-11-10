@@ -265,7 +265,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
           if (MRReply_Length(warning) > 0) {
             const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
             // Set an error to be later picked up and sent as a warning
-            if (!strcmp(warning_str, QueryError_Strerror(QUERY_ETIMEDOUT))) {
+            if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
               timed_out = true;
             } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
               QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
@@ -312,8 +312,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
-      if (errCode == QUERY_EGENERIC ||
-          ((errCode == QUERY_ETIMEDOUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
+      if (errCode == QUERY_ERROR_CODE_GENERIC ||
+          ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
           ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
         // We need to pass the reply string as the error message, since the error code might be generic
         QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, errCode,  MRReply_String(nc->current.root, NULL));

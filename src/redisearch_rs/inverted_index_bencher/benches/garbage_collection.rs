@@ -16,6 +16,9 @@ use criterion::{
 use ffi::IndexFlags_Index_DocIdsOnly;
 use inverted_index::{IndexBlock, InvertedIndex, RSIndexResult, numeric};
 
+#[allow(unused_imports)] // We need this symbol for C binding
+use inverted_index_bencher::ResultMetrics_Free;
+
 fn benchmark_garbage_collection(c: &mut Criterion) {
     let mut group = c.benchmark_group("GC");
     group.measurement_time(Duration::from_millis(500));

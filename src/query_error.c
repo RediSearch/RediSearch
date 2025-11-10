@@ -27,7 +27,7 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
     n = strlen(s);
   }
 
-  QueryError_SetWithUserDataFmt(err, QUERY_EPARSEARGS, "Unknown argument", " `%.*s` at position %lu for %s",
+  QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%.*s` at position %lu for %s",
                          (int)n, s, ac->offset, name);
 }
 
@@ -42,7 +42,7 @@ void QueryError_CloneFrom(const QueryError *src, QueryError *dest) {
 }
 
 const char *QueryError_Strerror(QueryErrorCode code) {
-  if (code == QUERY_OK) {
+  if (code == QUERY_ERROR_CODE_OK) {
     return "Success (not an error)";
   }
 #define X(N, M)    \
@@ -81,7 +81,7 @@ void QueryError_ClearError(QueryError *err) {
     err->_detail = NULL;
   }
   err->_message = NULL;
-  err->_code = QUERY_OK;
+  err->_code = QUERY_ERROR_CODE_OK;
 }
 
 void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char *message, const char *fmt, ...) {
@@ -117,7 +117,7 @@ void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {
   // Set the code if not previously set. This should be used by code which makes
   // use of the ::detail field, and is a placeholder for something like:
   // functionWithCharPtr(&status->_detail);
-  // if (status->_detail && status->_code == QUERY_OK) {
+  // if (status->_detail && status->_code == QUERY_ERROR_CODE_OK) {
   //    status->_code = MYCODE;
   // }
   if (status->_detail == NULL) {
@@ -147,18 +147,18 @@ QueryErrorCode QueryError_GetCode(const QueryError *status) {
 
 QueryErrorCode QueryError_GetCodeFromMessage(const char *errorMessage) {
   if (!errorMessage) {
-    return QUERY_EGENERIC;
+    return QUERY_ERROR_CODE_GENERIC;
   }
 
-  if (!strcmp(errorMessage, QueryError_Strerror(QUERY_ETIMEDOUT))) {
-    return QUERY_ETIMEDOUT;
+  if (!strcmp(errorMessage, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
+    return QUERY_ERROR_CODE_TIMED_OUT;
   }
 
   if (!strcmp(errorMessage, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY))) {
     return QUERY_ERROR_CODE_OUT_OF_MEMORY;
   }
 
-  return QUERY_EGENERIC;
+  return QUERY_ERROR_CODE_GENERIC;
 }
 
 bool QueryError_HasReachedMaxPrefixExpansionsWarning(const QueryError *status) {

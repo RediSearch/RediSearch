@@ -23,7 +23,7 @@ use ffi::{
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
-    RSResultData, RSResultKind, RSResultKindMask, RSTermRecord,
+    RSResultData, RSResultKind, RSResultKindMask, RSTermRecord, ResultMetrics_Reset_func,
 };
 use smallvec::SmallVec;
 
@@ -284,7 +284,7 @@ pub struct InvertedIndex<E> {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -302,6 +302,36 @@ pub struct IndexBlock {
 }
 
 static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
+
+/// Custom deserialization for `IndexBlock` to track the total number of blocks correctly.
+impl<'de> Deserialize<'de> for IndexBlock {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct IB {
+            first_doc_id: t_docId,
+            last_doc_id: t_docId,
+            num_entries: u16,
+            buffer: Vec<u8>,
+        }
+
+        let ib = IB::deserialize(deserializer)?;
+
+        // We are about to create a new `IndexBlock` object, so be sure to increment the global
+        // counter correctly. Without this the `Drop` implementation will eventually cause an
+        // underflow of the counter. This correctly counter balances the decrement in the `Drop`.
+        TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
+
+        Ok(IndexBlock {
+            first_doc_id: ib.first_doc_id,
+            last_doc_id: ib.last_doc_id,
+            num_entries: ib.num_entries,
+            buffer: ib.buffer,
+        })
+    }
+}
 
 /// The type of repair needed for a block after a garbage collection scan.
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -525,9 +555,7 @@ impl<E: Encoder> InvertedIndex<E> {
                 let (new_block, block_size) = IndexBlock::new(doc_id);
 
                 // We won't use the block so make sure to put it back
-                // We can also safe some memory by compacting the old block first.
-                block.buffer.shrink_to_fit();
-                self.blocks.push(block);
+                self.add_block(block);
                 block = new_block;
                 mem_growth += block_size;
 
@@ -550,7 +578,7 @@ impl<E: Encoder> InvertedIndex<E> {
         block.last_doc_id = doc_id;
 
         // We took ownership of the block so put it back
-        self.blocks.push(block);
+        self.add_block(block);
 
         if !same_doc {
             self.n_unique_docs += 1;
@@ -568,21 +596,18 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Take a block that can be written to and report by how much memory grew
     fn take_block(&mut self, doc_id: t_docId, same_doc: bool) -> (IndexBlock, usize) {
-        if self.blocks.is_empty() {
-            IndexBlock::new(doc_id)
-        } else if
-        // If the block is full
-        !same_doc
-            && self
-                .blocks
-                .last()
-                .expect("we just confirmed there are blocks")
-                .num_entries
-                >= E::RECOMMENDED_BLOCK_ENTRIES
+        if self.blocks.is_empty()
+            || (
+                // If the block is full
+                !same_doc
+                    && self
+                        .blocks
+                        .last()
+                        .expect("we just confirmed there are blocks")
+                        .num_entries
+                        >= E::RECOMMENDED_BLOCK_ENTRIES
+            )
         {
-            // Since the last block is full, let's safe memory by compacting it
-            self.blocks.last_mut().unwrap().buffer.shrink_to_fit();
-
             IndexBlock::new(doc_id)
         } else {
             (
@@ -592,6 +617,16 @@ impl<E: Encoder> InvertedIndex<E> {
                 0,
             )
         }
+    }
+
+    /// Add a block back to the index. This allows us to control the growth strategy used by the
+    /// `blocks` vector.
+    fn add_block(&mut self, block: IndexBlock) {
+        if self.blocks.len() == self.blocks.capacity() {
+            self.blocks.reserve_exact(1);
+        }
+
+        self.blocks.push(block);
     }
 
     /// Returns the number of unique documents in the index.
@@ -832,6 +867,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
+        self.blocks.shrink_to_fit();
         self.gc_marker_inc();
 
         info
