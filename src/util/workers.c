@@ -39,8 +39,8 @@ static void yieldCallback(void *yieldCtx) {
   }
   RedisModuleCtx *ctx = yieldCtx;
   // Guarantee that workers and main thread do not Yield and RedisModule_Call concurrently.
-  SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(ctx, true);
-  RS_LOG_ASSERT(lockType == Internal_Locked, "While draining, We should own the GIL, thus we should have acquired the internal lock, to guarantee that no other thread will try to acquire the GIL.");
+  SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(ctx);
+  RS_LOG_ASSERT(lockType == Borrowed, "While draining, We should own the GIL, thus we should have acquired the internal lock, to guarantee that no other thread will try to acquire the GIL.");
   RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
   SharedExclusiveLock_Release(ctx, lockType);
 }
@@ -89,7 +89,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
 void workersThreadPool_SetNumWorkers() {
   if (_workers_thpool == NULL) return;
 
-  SharedExclusiveLock_SetOwned();
+  SharedExclusiveLock_LendGIL();
   size_t worker_count = RSGlobalConfig.numWorkerThreads;
   if (in_event && RSGlobalConfig.minOperationWorkers > worker_count) {
     worker_count = RSGlobalConfig.minOperationWorkers;
@@ -116,7 +116,7 @@ void workersThreadPool_SetNumWorkers() {
     "Attempt to change the workers thpool size to %lu "
     "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
 
-  SharedExclusiveLock_UnsetOwned();
+  SharedExclusiveLock_TakeBackGIL();
 }
 
 // return number of currently working threads
@@ -145,7 +145,7 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
-  SharedExclusiveLock_SetOwned();
+  SharedExclusiveLock_LendGIL();
   if (RedisModule_Yield) {
     // Wait until all the threads in the pool run the jobs until there are no more than <threshold>
     // jobs in the queue. Periodically return and call RedisModule_Yield, so redis can answer PINGs
@@ -156,7 +156,7 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
     // In Redis versions < 7, RedisModule_Yield doesn't exist. Just wait for without yield.
     redisearch_thpool_wait(_workers_thpool);
   }
-  SharedExclusiveLock_UnsetOwned();
+  SharedExclusiveLock_TakeBackGIL();
 }
 
 void workersThreadPool_Terminate(void) {
