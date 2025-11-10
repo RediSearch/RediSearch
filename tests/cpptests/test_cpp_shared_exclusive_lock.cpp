@@ -80,7 +80,7 @@ void* worker_thread_func(void* arg) {
     std::this_thread::sleep_for(std::chrono::microseconds(data->sleep_microseconds));
 
     // Release the lock
-    SharedExclusiveLock_Release(data->ctx);
+    SharedExclusiveLock_Release(data->ctx, lock_type);
     data->threads_finished->fetch_add(1);
     return nullptr;
 }
@@ -225,7 +225,7 @@ void* worker_thread_jobs(void* arg) {
     std::this_thread::sleep_for(std::chrono::microseconds(data->sleep_microseconds));
 
     // Release the lock
-    SharedExclusiveLock_Release(data->ctx);
+    SharedExclusiveLock_Release(data->ctx, lock_type);
     data->jobs_finished->fetch_add(1);
   }
   return nullptr;

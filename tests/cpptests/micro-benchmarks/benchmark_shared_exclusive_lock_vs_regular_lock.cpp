@@ -46,7 +46,7 @@ void* shared_exclusive_lock_worker(void* arg) {
     }
 
     // Try to acquire the SharedExclusiveLock and do work
-    SharedExclusiveLock_Acquire(data->ctx);
+    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
 
     // Optional sleep to simulate work duration
     if (data->sleep_microseconds > 0) {
@@ -54,7 +54,7 @@ void* shared_exclusive_lock_worker(void* arg) {
     }
 
     // Release the lock
-    SharedExclusiveLock_Release(data->ctx);
+    SharedExclusiveLock_Release(data->ctx, lock_type);
     return nullptr;
 }
 
