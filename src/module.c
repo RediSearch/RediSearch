@@ -2968,11 +2968,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       if (should_return_error(errCode)) {
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;
-      } else {
-        // Check if OOM
-        if (errCode == QUERY_EOOM) {
-          req->queryOOM = true;
-        }
       }
     }
   }
@@ -3024,10 +3019,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     for (int i = 0; i < count; ++i) {
       MRReply *mr_reply;
 
-      // Check that the reply is not an error, can be caused if a shard failed to execute the query (i.e OOM).
+      // Check that the reply is not an error, can be caused if a shard failed to execute the query
       if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
-        // Since we expect this to happen only with OOM, we assert it until this invariant changes.
-        RS_ASSERT(QueryError_GetCodeFromMessage(MRReply_String(replies[i], NULL)) == QUERY_EOOM);
         continue;
       }
 
