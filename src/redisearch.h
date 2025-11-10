@@ -75,7 +75,9 @@ typedef enum {
 #define isSpecJson(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Json)
 #define SpecRuleTypeName(spec) ((spec)->rule ? DocumentType_ToString((spec)->rule->type) : "Unknown")
 
+#ifdef RS_UNIT_TESTS
 #define RS_IsMock (!RedisModule_CreateTimer)
+#endif
 
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector

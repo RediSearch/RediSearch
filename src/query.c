@@ -779,6 +779,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
     QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     return REDISEARCH_ERR;
   }
+  
   RSToken tok = {0};
   tok.str = runesToStr(r, n, &tok.len);
   QueryIterator *ir = NULL;

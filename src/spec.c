@@ -362,16 +362,22 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index %s by timer", name);
 
   sp->isTimerSet = false;
+  #ifdef RS_UNIT_TESTS
   if (RS_IsMock) {
     IndexSpec_Free(sp);
   } else {
+    // We want the tests to be able to also run against real Redis
+  #endif // RS_UNIT_TESTS
     // called on master shard for temporary indexes and deletes all documents by defaults
     // pass FT.DROPINDEX with "DD" flag to self.
     RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
     if (rep) {
       RedisModule_FreeCallReply(rep);
     }
+  #ifdef RS_UNIT_TESTS
+  // Close the else block
   }
+  #endif // RS_UNIT_TESTS
 
   RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index '%s' by timer: done", name);
   StrongRef_Release(spec_ref);
@@ -1873,9 +1879,11 @@ void IndexSpec_Free(IndexSpec *spec) {
   // It will free itself when it discovers that the index was freed.
   // On the worst case, it just finishes the current run and will schedule another run soon.
   // In this case the GC will be freed on the next run, in `forkGcRunIntervalSec` seconds.
+  #ifdef RS_UNIT_TESTS
   if (RS_IsMock && spec->gc) {
     GCContext_StopMock(spec->gc);
   }
+  #endif // RS_UNIT_TESTS
 
   // Free stopwords list (might use global pointer to default list)
   if (spec->stopwords) {

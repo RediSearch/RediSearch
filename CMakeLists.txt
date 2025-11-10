@@ -356,6 +356,7 @@ add_dependencies(redisearch redisearch_rs)
 # Unit tests configuration
 if(BUILD_SEARCH_UNIT_TESTS)
     enable_testing()
+    add_compile_definitions(RS_UNIT_TESTS=1)
 
     add_subdirectory(tests/cpptests/redismock)
 
