@@ -89,6 +89,10 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   return true;
 }
 
+// TODO ASM: use this to decide if we need to filter by slots
+extern atomic_uint key_space_version;
+atomic_uint key_space_version = 0;
+
 /* Next implementation */
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
