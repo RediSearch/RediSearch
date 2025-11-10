@@ -529,29 +529,29 @@ def test_change_workers_number():
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
     check_threads(expected_num_threads_alive=0, expected_n_threads=1)
 
-    # # Trigger thpool initialization.
-    # env.expect('ft.search', 'idx', '*').equal([0])
-    # check_threads(expected_num_threads_alive=1, expected_n_threads=1)
-    # # wait for the job to finish
-    # env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+    # Trigger thpool initialization.
+    env.expect('ft.search', 'idx', '*').equal([0])
+    check_threads(expected_num_threads_alive=1, expected_n_threads=1)
+    # wait for the job to finish
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
-    # # Query should be executed by the threadpool
-    # env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
+    # Query should be executed by the threadpool
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
 
-    # # Add threads to a running pool
-    # env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
-    # check_threads(expected_num_threads_alive=2, expected_n_threads=2)
-    # # Remove threads from a running pool
-    # # Wait for the thread to be terminated
-    # set_workers_with_retry(expected_num_threads_alive=1, expected_n_threads=1, num_workers=1)
+    # Add threads to a running pool
+    env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
+    check_threads(expected_num_threads_alive=2, expected_n_threads=2)
+    # Remove threads from a running pool
+    # Wait for the thread to be terminated
+    set_workers_with_retry(expected_num_threads_alive=1, expected_n_threads=1, num_workers=1)
 
-    # # Terminate all threads
-    # env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
-    # env.assertEqual(getWorkersThpoolNumThreads(env), 0)
+    # Terminate all threads
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
+    env.assertEqual(getWorkersThpoolNumThreads(env), 0)
 
-    # # Query should not be executed by the threadpool
-    # env.expect('ft.search', 'idx', '*').equal([0])
-    # env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
+    # Query should not be executed by the threadpool
+    env.expect('ft.search', 'idx', '*').equal([0])
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
 
 
 def testNameLoader(env: Env):
