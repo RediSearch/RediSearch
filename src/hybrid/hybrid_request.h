@@ -78,9 +78,10 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, RedisModul
  *
  * @param req The HybridRequest containing multiple AREQ search requests
  * @param params Pipeline parameters including synchronization settings
+ * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params);
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground);
 
 /**
  * Open the score key in the tail lookup for writing the final score.
@@ -127,9 +128,10 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
  *
  * @param req The HybridRequest to build the pipeline for
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
+ * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params);
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground);
 
 void HybridRequest_Free(HybridRequest *req);
 
