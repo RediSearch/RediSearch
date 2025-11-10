@@ -99,26 +99,52 @@ jobs:
                     "You can only build all configurations for master or a release branch")
               exit(1)
 
-  generate-build-matrix:
-    uses: ./.github/workflows/task-generate-test-matrix.yml
-    with:
-      platform: ${{ inputs.platform }}
-      architecture: ${{ inputs.architecture }}
-      include-coverage: false
-      include-sanitizer: false
-
   build-unified:
-    name: ${{ matrix.name }}
-    needs: [generate-build-matrix, setup]
+    name: ${{ matrix.platform }} (${{ matrix.architecture }})
+    needs: [setup]
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.generate-build-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/task-build-artifacts.yml
+      matrix:
+        include:
+          # Linux platforms - x86_64
+          - platform: ubuntu:noble
+            architecture: x86_64
+          - platform: ubuntu:jammy
+            architecture: x86_64
+          - platform: ubuntu:focal
+            architecture: x86_64
+          - platform: ubuntu:bionic
+            architecture: x86_64
+          - platform: rockylinux:8
+            architecture: x86_64
+          - platform: rockylinux:9
+            architecture: x86_64
+          - platform: amazonlinux:2
+            architecture: x86_64
+          - platform: alpine:3.19
+            architecture: x86_64
+          # Linux platforms - ARM64
+          - platform: ubuntu:noble
+            architecture: aarch64
+          - platform: ubuntu:jammy
+            architecture: aarch64
+          - platform: ubuntu:focal
+            architecture: aarch64
+          - platform: ubuntu:bionic
+            architecture: aarch64
+          - platform: rockylinux:8
+            architecture: aarch64
+          - platform: rockylinux:9
+            architecture: aarch64
+          - platform: amazonlinux:2
+            architecture: aarch64
+          - platform: alpine:3.19
+            architecture: aarch64
+    uses: ./.github/workflows/task-build-artifacts-with-config.yml
     secrets: inherit
     with:
-      env: ${{ matrix.env }}
-      container: ${{ matrix.container }}
-      pre-steps-script: ${{ matrix.pre-steps-script }}
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
       beta-version: ${{ needs.setup.outputs.beta-version }}

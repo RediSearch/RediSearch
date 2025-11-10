@@ -31,37 +31,64 @@ jobs:
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
-  # Generate matrix configurations via script (no checkout required)
-  generate-test-matrix:
-    uses: ./.github/workflows/task-generate-test-matrix.yml
-    with:
-      platforms: 'macos,linux-x86,linux-arm,sanitizer'  # Exclude coverage (handled separately)
-      architecture: 'all'
-      include-coverage: false
-      include-sanitizer: true
-
-  # Single unified matrix with all test configurations
+  # Run tests on multiple platforms - matrix defined directly in event
   unified-test-matrix:
-    name: ${{ matrix.name }}
-    needs: [get-latest-redis-tag, generate-test-matrix]
+    name: ${{ matrix.platform }} (${{ matrix.architecture }})
+    needs: [get-latest-redis-tag]
     strategy:
       fail-fast: true  # This will cancel ALL matrix jobs on first failure
-      matrix: ${{ fromJson(needs.generate-test-matrix.outputs.matrix) }}
-
-    uses: ./.github/workflows/task-test.yml
+      matrix:
+        include:
+          # macOS platforms
+          - platform: macos
+            architecture: x86_64
+          - platform: macos
+            architecture: aarch64
+          # Linux platforms - x86_64
+          - platform: ubuntu:noble
+            architecture: x86_64
+          - platform: ubuntu:jammy
+            architecture: x86_64
+          - platform: ubuntu:focal
+            architecture: x86_64
+          - platform: ubuntu:bionic
+            architecture: x86_64
+          - platform: rockylinux:8
+            architecture: x86_64
+          - platform: rockylinux:9
+            architecture: x86_64
+          - platform: amazonlinux:2
+            architecture: x86_64
+          - platform: alpine:3.19
+            architecture: x86_64
+          # Linux platforms - ARM64
+          - platform: ubuntu:noble
+            architecture: aarch64
+          - platform: ubuntu:jammy
+            architecture: aarch64
+          - platform: ubuntu:focal
+            architecture: aarch64
+          - platform: ubuntu:bionic
+            architecture: aarch64
+          - platform: rockylinux:8
+            architecture: aarch64
+          - platform: rockylinux:9
+            architecture: aarch64
+          - platform: amazonlinux:2
+            architecture: aarch64
+          - platform: alpine:3.19
+            architecture: aarch64
+          # Sanitizer (x86_64 only)
+          - platform: sanitizer
+            architecture: x86_64
+    uses: ./.github/workflows/task-test-with-config.yml
     secrets: inherit
     with:
-      env: ${{ matrix.env }}
-      container: ${{ matrix.container }}
-      pre-steps-script: ${{ matrix.pre-steps-script }}
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
+      test-config: QUICK=1
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson: ${{ matrix.rejson != null && matrix.rejson || matrix.rejson == null && true }}                    # Default: true
       rejson-branch: master
-      test-config: ${{ matrix.test-config || '' }}            # Default: empty string
-      coordinator: ${{ matrix.coordinator != null && matrix.coordinator || matrix.coordinator == null && true }}          # Default: true
-      standalone: ${{ matrix.standalone != null && matrix.standalone || matrix.standalone == null && true }}            # Default: true
-      coverage: ${{ matrix.coverage != null && matrix.coverage || matrix.coverage == null && false }}               # Default: false
-      san: ${{ matrix.san }}
 
   run-on-intel:
     needs: get-latest-redis-tag

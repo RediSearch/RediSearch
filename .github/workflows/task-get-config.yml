@@ -1,0 +1,273 @@
+name: Get Single Configuration
+
+# This workflow gets configuration for a single instance
+# Used by task-test and task-build-artifact to get their specific configuration
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, macos, sanitizer, coverage)'
+        type: string
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
+        type: string
+        required: true
+    outputs:
+      config:
+        description: "Configuration for the specific platform and architecture as JSON"
+        value: ${{ jobs.get-config.outputs.config }}
+
+jobs:
+  get-config:
+    runs-on: ubuntu-latest
+    outputs:
+      config: ${{ steps.get-config.outputs.config }}
+    steps:
+      - name: Get configuration for platform and architecture
+        id: get-config
+        run: |
+          platform="${{ inputs.platform }}"
+          architecture="${{ inputs.architecture }}"
+          
+          echo "Getting configuration for platform: $platform, architecture: $architecture"
+          
+          # Initialize default values
+          env=""
+          container=""
+          pre_steps_script=""
+          san=""
+          coverage=""
+          name=""
+          
+          # Handle special platforms first
+          if [[ "$platform" == "macos" ]]; then
+            if [[ "$architecture" == "x86_64" ]]; then
+              env="MACOS=1"
+              container=""
+              pre_steps_script=""
+              san=""
+              coverage=""
+              name="macOS x86_64"
+            elif [[ "$architecture" == "aarch64" ]]; then
+              env="MACOS=1"
+              container=""
+              pre_steps_script=""
+              san=""
+              coverage=""
+              name="macOS ARM64"
+            else
+              echo "Error: Unsupported architecture '$architecture' for macOS"
+              exit 1
+            fi
+          elif [[ "$platform" == "sanitizer" ]]; then
+            if [[ "$architecture" == "x86_64" ]]; then
+              env="SAN=address"
+              container="redisfab/rmbuilder:6.2.7-x64-bullseye"
+              pre_steps_script="./deps/readies/bin/getpy3"
+              san="address"
+              coverage=""
+              name="Sanitizer x86_64"
+            else
+              echo "Error: Sanitizer only supports x86_64 architecture"
+              exit 1
+            fi
+          elif [[ "$platform" == "coverage" ]]; then
+            if [[ "$architecture" == "x86_64" ]]; then
+              env="COV=1"
+              container="redisfab/rmbuilder:6.2.7-x64-bullseye"
+              pre_steps_script="./deps/readies/bin/getpy3"
+              san=""
+              coverage="1"
+              name="Coverage x86_64"
+            else
+              echo "Error: Coverage only supports x86_64 architecture"
+              exit 1
+            fi
+          else
+            # Handle Linux platforms
+            case "$platform" in
+              "ubuntu:noble")
+                if [[ "$architecture" == "x86_64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-x64-noble"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Ubuntu Noble x86_64"
+                elif [[ "$architecture" == "aarch64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-arm64v8-noble"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Ubuntu Noble ARM64"
+                else
+                  echo "Error: Unsupported architecture '$architecture' for $platform"
+                  exit 1
+                fi
+                ;;
+              "ubuntu:jammy")
+                if [[ "$architecture" == "x86_64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-x64-jammy"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Ubuntu Jammy x86_64"
+                elif [[ "$architecture" == "aarch64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-arm64v8-jammy"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Ubuntu Jammy ARM64"
+                else
+                  echo "Error: Unsupported architecture '$architecture' for $platform"
+                  exit 1
+                fi
+                ;;
+              "ubuntu:focal")
+                if [[ "$architecture" == "x86_64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-x64-focal"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Ubuntu Focal x86_64"
+                elif [[ "$architecture" == "aarch64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-arm64v8-focal"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Ubuntu Focal ARM64"
+                else
+                  echo "Error: Unsupported architecture '$architecture' for $platform"
+                  exit 1
+                fi
+                ;;
+              "rockylinux:8")
+                if [[ "$architecture" == "x86_64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-x64-rocky8"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Rocky Linux 8 x86_64"
+                elif [[ "$architecture" == "aarch64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-arm64v8-rocky8"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Rocky Linux 8 ARM64"
+                else
+                  echo "Error: Unsupported architecture '$architecture' for $platform"
+                  exit 1
+                fi
+                ;;
+              "rockylinux:9")
+                if [[ "$architecture" == "x86_64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-x64-rocky9"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Rocky Linux 9 x86_64"
+                elif [[ "$architecture" == "aarch64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-arm64v8-rocky9"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Rocky Linux 9 ARM64"
+                else
+                  echo "Error: Unsupported architecture '$architecture' for $platform"
+                  exit 1
+                fi
+                ;;
+              "amazonlinux:2")
+                if [[ "$architecture" == "x86_64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-x64-amzn2"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Amazon Linux 2 x86_64"
+                elif [[ "$architecture" == "aarch64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-arm64v8-amzn2"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Amazon Linux 2 ARM64"
+                else
+                  echo "Error: Unsupported architecture '$architecture' for $platform"
+                  exit 1
+                fi
+                ;;
+              "alpine:3.19")
+                if [[ "$architecture" == "x86_64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-x64-alpine3.19"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Alpine 3.19 x86_64"
+                elif [[ "$architecture" == "aarch64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-arm64v8-alpine3.19"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Alpine 3.19 ARM64"
+                else
+                  echo "Error: Unsupported architecture '$architecture' for $platform"
+                  exit 1
+                fi
+                ;;
+              *)
+                echo "Error: Unsupported platform '$platform'"
+                exit 1
+                ;;
+            esac
+          fi
+
+          # Create JSON configuration
+          config=$(python3 -c "
+          import json
+          config = {
+              'env': '$env',
+              'container': '$container',
+              'pre-steps-script': '$pre_steps_script',
+              'san': '$san',
+              'coverage': '$coverage',
+              'name': '$name'
+          }
+          print(json.dumps(config))
+          ")
+
+          echo "Generated configuration: $config"
+          echo "config=$config" >> $GITHUB_OUTPUT
+              "ubuntu:bionic")
+                if [[ "$architecture" == "x86_64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-x64-bionic"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Ubuntu Bionic x86_64"
+                elif [[ "$architecture" == "aarch64" ]]; then
+                  env=""
+                  container="redisfab/rmbuilder:6.2.7-arm64v8-bionic"
+                  pre_steps_script="./deps/readies/bin/getpy3"
+                  san=""
+                  coverage=""
+                  name="Ubuntu Bionic ARM64"
+                else
+                  echo "Error: Unsupported architecture '$architecture' for $platform"
+                  exit 1
+                fi
+                ;;

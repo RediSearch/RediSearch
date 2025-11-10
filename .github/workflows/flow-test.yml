@@ -1,4 +1,4 @@
-name: Build on Linux Platforms
+name: Test Flow
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -52,8 +52,9 @@ on:
           - amazonlinux:2023
           - mariner:2
           - azurelinux:3
-          - alpine:3
-        description: 'Platform to build on. Use "all" to build on all'
+          - alpine:3.19
+          - macos
+        description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
       architecture:
         type: choice
@@ -61,7 +62,7 @@ on:
           - all
           - x86_64
           - aarch64
-        description: 'Architecture to build on. Use "all" to build on all'
+        description: 'Architecture to test on. Use "all" to test on all architectures'
         default: all
       coordinator:
         description: 'Whether to run coordinator tests'
@@ -91,31 +92,55 @@ on:
         default: false # Default to false on manual trigger
 
 jobs:
-  # Generate Linux matrix configurations
-  generate-linux-matrix:
-    uses: ./.github/workflows/task-generate-test-matrix.yml
-    with:
-      platform: ${{ inputs.platform }}
-      architecture: ${{ inputs.architecture }}
-      include-coverage: false
-      include-sanitizer: false
-
-  # Unified Linux matrix using generated configurations
-  linux-unified-matrix:
-    name: ${{ matrix.name }}
-    needs: generate-linux-matrix
+  # Unified test matrix - includes Linux and macOS platforms
+  test-matrix:
+    name: ${{ matrix.platform }} (${{ matrix.architecture }})
     strategy:
-      matrix: ${{ fromJson(needs.generate-linux-matrix.outputs.matrix) }}
+      matrix:
+        include:
+          # Ubuntu platforms
+          - platform: ubuntu:noble
+            architecture: x86_64
+          - platform: ubuntu:noble
+            architecture: aarch64
+          - platform: ubuntu:jammy
+            architecture: x86_64
+          - platform: ubuntu:jammy
+            architecture: aarch64
+          - platform: ubuntu:focal
+            architecture: x86_64
+          - platform: ubuntu:focal
+            architecture: aarch64
+          - platform: rockylinux:8
+            architecture: x86_64
+          - platform: rockylinux:8
+            architecture: aarch64
+          - platform: rockylinux:9
+            architecture: x86_64
+          - platform: rockylinux:9
+            architecture: aarch64
+          - platform: amazonlinux:2
+            architecture: x86_64
+          - platform: amazonlinux:2
+            architecture: aarch64
+          - platform: alpine:3.19
+            architecture: x86_64
+          - platform: alpine:3.19
+            architecture: aarch64
+          # macOS platforms
+          - platform: macos
+            architecture: x86_64
+          - platform: macos
+            architecture: aarch64
       fail-fast: ${{ inputs.fail-fast }}
-    uses: ./.github/workflows/task-test.yml
+    uses: ./.github/workflows/task-test-with-config.yml
     secrets: inherit
     with:
-      env: ${{ matrix.env }}
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
       get-redis: ${{ inputs.redis-ref }}
       rejson: ${{ inputs.rejson }}
       rejson-branch: ${{ inputs.rejson-branch }}
-      container: ${{ matrix.container }}
-      pre-steps-script: ${{ matrix.pre-steps-script }}
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}

@@ -1,0 +1,65 @@
+name: Test with Platform Configuration
+
+# This workflow gets configuration for a platform/architecture and runs tests
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, macos, sanitizer, coverage)'
+        type: string
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
+        type: string
+        required: true
+      get-redis:
+        type: string
+      test-config:
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
+        required: true
+        type: string
+      coordinator:
+        type: boolean
+        default: true
+      standalone:
+        type: boolean
+        default: true
+      rejson:
+        type: boolean
+        default: true
+        description: 'Enable tests with RedisJSON'
+      rejson-branch:
+        type: string
+        default: master
+        description: 'Branch to use when building RedisJSON for tests'
+      test-timeout:
+        type: number
+        default: 50
+
+jobs:
+  # Get configuration for this specific platform and architecture
+  get-config:
+    uses: ./.github/workflows/task-get-config.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
+  # Run tests with resolved configuration
+  test:
+    needs: [get-config]
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      env: ${{ fromJson(needs.get-config.outputs.config).env }}
+      container: ${{ fromJson(needs.get-config.outputs.config).container }}
+      pre-steps-script: ${{ fromJson(needs.get-config.outputs.config)['pre-steps-script'] }}
+      san: ${{ fromJson(needs.get-config.outputs.config).san }}
+      coverage: ${{ fromJson(needs.get-config.outputs.config).coverage }}
+      get-redis: ${{ inputs.get-redis }}
+      test-config: ${{ inputs.test-config }}
+      coordinator: ${{ inputs.coordinator }}
+      standalone: ${{ inputs.standalone }}
+      rejson: ${{ inputs.rejson }}
+      rejson-branch: ${{ inputs.rejson-branch }}
+      test-timeout: ${{ inputs.test-timeout }}
