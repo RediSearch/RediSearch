@@ -162,12 +162,6 @@ static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
 
-int DocTable_Delete(DocTable *t, const char *key, size_t n);
-static inline int DocTable_DeleteR(DocTable *t, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_Delete(t, s, n);
-}
-
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n);
 static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *r) {
   STRVARS_FROM_RSTRING(r);
