@@ -57,26 +57,18 @@ def test_MOD_11658_workers_reduction_under_load():
         """Run various queries continuously until stopped"""
         local_conn = env.getConnection()
         while not stop_queries.is_set():
-            try:
-                # Mix of different query types
-                queries = [
-                    ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'],
-                    ['FT.SEARCH', 'idx', 'searchable', 'LIMIT', '0', '10'],
-                    ['FT.SEARCH', 'idx', '@category:{electronics}', 'LIMIT', '0', '10'],
-                    ['FT.SEARCH', 'idx', '*', 'SORTBY', 'price', 'ASC', 'LIMIT', '0', '10'],
-                    ['FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count'],
-                ]
+            # Mix of different query types
+            queries = [
+                ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'],
+                ['FT.SEARCH', 'idx', 'searchable', 'LIMIT', '0', '10'],
+                ['FT.SEARCH', 'idx', '@category:{electronics}', 'LIMIT', '0', '10'],
+                ['FT.SEARCH', 'idx', '*', 'SORTBY', 'price', 'ASC', 'LIMIT', '0', '10'],
+                ['FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count'],
+            ]
 
-                query = random.choice(queries)
-                _ = local_conn.execute_command(*query)
-                query_success_count[0] += 1
-
-                # NO delay - maximize concurrent queries to increase race condition likelihood
-                # The bug is a race condition, so we want maximum concurrency
-                # time.sleep(0.01)
-
-            except Exception as e:
-                raise e
+            query = random.choice(queries)
+            _ = local_conn.execute_command(*query)
+            query_success_count[0] += 1
 
     # Start multiple query threads to simulate concurrent load
     # Increase thread count to maximize likelihood of hitting the race condition
@@ -117,7 +109,7 @@ def test_MOD_11658_workers_reduction_under_load():
     try:
         # Try to PING - this should work even with WORKERS=0
         ping_result = env.cmd('PING')
-        env.assertTrue(ping_result in ['PONG', True], message="Redis should respond to PING after WORKERS change")
+        env.assertContains(ping_result, ['PONG', True], message="Redis should respond to PING after WORKERS change")
 
         # Try a simple query - this should work on the main thread
         search_result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1')
@@ -125,7 +117,7 @@ def test_MOD_11658_workers_reduction_under_load():
 
         # Try to add a new document
         add_result = conn.execute_command('HSET', 'newdoc', 'title', 'test', 'price', '100', 'category', 'test')
-        env.assertTrue(add_result in [3, True], message="Should be able to add documents after WORKERS change")
+        env.assertContains(add_result, [3, True], message="Should be able to add documents after WORKERS change")
     except Exception as e:
         env.debugPrint(f"CRITICAL: Redis became unresponsive after WORKERS change: {e}", force=True)
         raise AssertionError(f"Redis became unresponsive after WORKERS change (MOD-11658 reproduced): {e}")
