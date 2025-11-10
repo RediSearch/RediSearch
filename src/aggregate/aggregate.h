@@ -450,7 +450,7 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status);
 
-// From aggregate_dist.c
+// From dist_aggregate.c
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 void parseProfileExecOptions(AREQ *r, int execOptions);

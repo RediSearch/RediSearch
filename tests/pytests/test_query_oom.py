@@ -55,7 +55,7 @@ class testOomStandaloneBehavior:
         res = self.env.cmd('FT.SEARCH', 'idx', '*')
         self.env.assertEqual(res, [1, 'doc', ['name', 'hello']])
         res = self.env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
-        self.env.assertEqual(res[0], 1)
+        self.env.assertEqual(res, [1, ['name', 'hello']])
 
     def test_query_oom_fail(self):
         change_oom_policy(self.env, 'fail')
@@ -68,7 +68,7 @@ class testOomStandaloneBehavior:
         res = self.env.cmd('FT.SEARCH', 'idx', '*')
         self.env.assertEqual(res, [0])
         res = self.env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
-        self.env.assertEqual(res[0], 0)
+        self.env.assertEqual(res, [0])
 
 class testOomClusterBehavior:
     def __init__(self):
