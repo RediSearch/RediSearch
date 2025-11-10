@@ -116,9 +116,6 @@ jobs:
           - platform: ubuntu:focal
             architecture: x86_64
             skip-condition: ${{ !contains(fromJson('["ubuntu:focal", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
-          - platform: ubuntu:bionic
-            architecture: x86_64
-            skip-condition: ${{ !contains(fromJson('["ubuntu:bionic", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
           - platform: rockylinux:8
             architecture: x86_64
             skip-condition: ${{ !contains(fromJson('["rockylinux:8", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
@@ -156,9 +153,6 @@ jobs:
           - platform: ubuntu:focal
             architecture: aarch64
             skip-condition: ${{ !contains(fromJson('["ubuntu:focal", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
-          - platform: ubuntu:bionic
-            architecture: aarch64
-            skip-condition: ${{ !contains(fromJson('["ubuntu:bionic", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
           - platform: rockylinux:8
             architecture: aarch64
             skip-condition: ${{ !contains(fromJson('["rockylinux:8", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}

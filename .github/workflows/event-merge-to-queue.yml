@@ -51,8 +51,6 @@ jobs:
             architecture: x86_64
           - platform: ubuntu:focal
             architecture: x86_64
-          - platform: ubuntu:bionic
-            architecture: x86_64
           - platform: rockylinux:8
             architecture: x86_64
           - platform: rockylinux:9
@@ -67,8 +65,6 @@ jobs:
           - platform: ubuntu:jammy
             architecture: aarch64
           - platform: ubuntu:focal
-            architecture: aarch64
-          - platform: ubuntu:bionic
             architecture: aarch64
           - platform: rockylinux:8
             architecture: aarch64
