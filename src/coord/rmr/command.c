@@ -19,6 +19,9 @@
 #include <string.h>
 #include <stdarg.h>
 
+#define shift_right(arr, count, start, by) \
+  memmove((arr) + (start) + (by), (arr) + (start), ((count) - (start)) * sizeof(*(arr)));
+
 void MRCommand_Free(MRCommand *cmd) {
   if (cmd->cmd) {
     sdsfree(cmd->cmd);
@@ -134,8 +137,8 @@ void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n) {
   }
 
   // shift right all arguments that comes after pos
-  memmove(cmd->strs + pos + 1, cmd->strs + pos, (oldNum - pos) * sizeof(char*));
-  memmove(cmd->lens + pos + 1, cmd->lens + pos, (oldNum - pos) * sizeof(size_t));
+  shift_right(cmd->strs, oldNum, pos, 1);
+  shift_right(cmd->lens, oldNum, pos, 1);
 
   assignStr(cmd, pos, s, n);
 }
@@ -228,12 +231,13 @@ void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
 void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos) {
   RS_ASSERT(0 <= pos && pos <= cmd->num);
   RS_LOG_ASSERT(cmd->slotsInfoArgIndex == 0, "Slot info already set for this command");
+  uint32_t oldNum = cmd->num;
   // Make place for SLOTS_STR + <binary data>
   extendCommandList(cmd, 2);
 
   // shift right all arguments that comes after pos
-  memmove(cmd->strs + pos + 2, cmd->strs + pos, (cmd->num - 2 - pos) * sizeof(char*));
-  memmove(cmd->lens + pos + 2, cmd->lens + pos, (cmd->num - 2 - pos) * sizeof(size_t));
+  shift_right(cmd->strs, oldNum, pos, 2);
+  shift_right(cmd->lens, oldNum, pos, 2);
 
   // Assign the SLOTS_STR marker at pos
   assignStr(cmd, pos, SLOTS_STR, sizeof(SLOTS_STR) - 1);
