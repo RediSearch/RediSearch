@@ -274,11 +274,11 @@ jobs:
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
 
-      # - name: Build Redis
-      #   working-directory: redis
-      #   run:  ${{ steps.mode.outputs.mode }} make install
-      #         BUILD_TLS=yes
-      #         SANITIZER=${{ inputs.san }}
+      - name: Build Redis
+        working-directory: redis
+        run:  ${{ steps.mode.outputs.mode }} make install
+              BUILD_TLS=yes
+              SANITIZER=${{ inputs.san }}
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
