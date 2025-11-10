@@ -80,7 +80,9 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
         status._queryOOM = true;
     }
 
-    return empty_sendChunk_common(ctx, req);
+    int ret = empty_sendChunk_common(ctx, req);
+    QueryError_ClearError(&status);
+    return ret;
 }
 
 // Empty reply for hybrid queries. Currently used during OOM conditions.
@@ -108,12 +110,14 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
         RedisModule_Reply_ArrayEnd(coordInfoReply); // ~warnings
         RedisModule_Reply_MapEnd(coordInfoReply); // ~root
         RedisModule_EndReply(coordInfoReply);
+        QueryError_ClearError(&status);
         return REDISMODULE_OK;
     }
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     sendChunk_ReplyOnly_HybridEmptyResults(reply, &status);
     RedisModule_EndReply(reply);
+    QueryError_ClearError(&status);
     return REDISMODULE_OK;
 }
 
@@ -144,6 +148,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
         status._queryOOM = true;
     }
 
-
-    return empty_sendChunk_common(ctx, req);
+    int ret = empty_sendChunk_common(ctx, req);
+    QueryError_ClearError(&status);
+    return ret;
 }

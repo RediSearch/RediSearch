@@ -47,6 +47,8 @@ class testOomStandaloneBehavior:
         skipTest(cluster=True)
         self.env = Env()
         _common_test_scenario(self.env)
+        # Init all shards
+        verify_shard_init(self.env.getConnection())
 
     def test_query_oom_ignore(self):
         change_oom_policy(self.env, 'ignore')
@@ -74,6 +76,10 @@ class testOomClusterBehavior:
         self.env = Env(shardsCount=3)
         self.n_docs = _common_cluster_test_scenario(self.env)
         allShards_change_maxmemory_low(self.env)
+        # Init all shards
+        for i in range(self.env.shardsCount):
+            verify_shard_init(self.env.getConnection(i))
+
 
     def tearDown(self):
         self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
@@ -119,6 +125,10 @@ class testOomClusterBehavior:
 def test_query_oom_cluster_shards_error_first_reply():
     # Workers is necessary to make sure the query is not finished before we resume the shards
     env  = Env(shardsCount=3, moduleArgs='WORKERS 1')
+
+    # Init all shards
+    for i in range(env.shardsCount):
+        verify_shard_init(env.getConnection(i))
 
     # Set OOM policy to fail on all shards
     allShards_change_oom_policy(env, 'fail')
@@ -214,6 +224,7 @@ class testOomHybridStandaloneBehavior:
         skipTest(cluster=True)
         self.env = Env()
         _common_hybrid_test_scenario(self.env)
+        verify_shard_init(self.env.getConnection())
 
     def test_hybrid_oom_ignore(self):
         change_oom_policy(self.env, 'ignore')
@@ -239,6 +250,10 @@ class testOomHybridClusterBehavior:
         skipTest(cluster=False)
         self.env = Env(shardsCount=3)
         self.n_docs = _common_hybrid_cluster_test_scenario(self.env)
+        allShards_change_maxmemory_low(self.env)
+        # Init all shards
+        for i in range(self.env.shardsCount):
+            verify_shard_init(self.env.getConnection(i))
 
     def tearDown(self):
         self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
@@ -283,6 +298,10 @@ class testOomHybridClusterBehavior:
 @skip(cluster=False)
 def test_oom_verbosity_cluster_return(env):
     env  = Env(shardsCount=3, protocol=3)
+
+    # Init all shards
+    for i in range(env.shardsCount):
+        verify_shard_init(env.getConnection(i))
 
     # Set OOM policy to fail on all shards
     allShards_change_oom_policy(env, 'return')
