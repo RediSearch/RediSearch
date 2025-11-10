@@ -35,35 +35,9 @@ jobs:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
 
-  # Debug job to print skip condition
-  debug-skip-condition:
-    needs: [get-config]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Debug skip condition
-        run: |
-          echo "Skip condition input: '${{ inputs.skip-condition }}'"
-          echo "Skip condition type: $(echo '${{ inputs.skip-condition }}' | wc -c) characters"
-          echo "Skip condition evaluation: ${{ inputs.skip-condition }}"
-          echo "fromJson result: ${{ fromJson(inputs.skip-condition) }}"
-          echo "Negated fromJson: ${{ !fromJson(inputs.skip-condition) }}"
-          echo "---"
-          echo "sha input: '${{ inputs.sha }}'"
-          echo "redis-ref input: '${{ inputs.redis-ref }}'"
-          echo "beta-version input: '${{ inputs.beta-version }}'"
-          echo "---"
-          echo "IF condition test: inputs.skip-condition != 'true'"
-          echo "IF condition result: ${{ inputs.skip-condition != 'true' }}"
-          echo "Should build job run? ${{ inputs.skip-condition != 'true' }}"
-          echo "---"
-          echo "Config output from get-config job:"
-          echo "Raw config: ${{ needs.get-config.outputs.config }}"
-          echo "Config env: ${{ fromJson(needs.get-config.outputs.config).env }}"
-          echo "Config container: ${{ fromJson(needs.get-config.outputs.config).container }}"
-
   # Build artifacts with resolved configuration
   build:
-    needs: [get-config, debug-skip-condition]
+    needs: [get-config]
     # Skip if skip-condition evaluates to true
     if: ${{ inputs.skip-condition != 'true' }}
     uses: ./.github/workflows/task-build-artifacts.yml
