@@ -45,17 +45,17 @@ bool GIL_borrowed = false;
 
 static inline void set_timeout(struct timespec *ts) {
   #ifdef __APPLE__
-      ts->tv_sec  = 0; // (time_t)(TIMEOUT_NANOSECONDS / NANOSEC_PER_SECOND);
-      ts->tv_nsec = TIMEOUT_NANOSECONDS; // (long)(TIMEOUT_NANOSECONDS % NANOSEC_PER_SECOND);
+    ts->tv_sec  = 0; // (time_t)(TIMEOUT_NANOSECONDS / NANOSEC_PER_SECOND);
+    ts->tv_nsec = TIMEOUT_NANOSECONDS; // (long)(TIMEOUT_NANOSECONDS % NANOSEC_PER_SECOND);
   #else
-      struct timespec now;
-      clock_gettime(CLOCK_MONOTONIC_RAW, &now);  // NOT *_RAW
-
-      // Add TIMEOUT_NANOSECONDS to 'now' with proper carry
-      uint64_t add_ns = (uint64_t)TIMEOUT_NANOSECONDS;
-      uint64_t ns = (uint64_t)now.tv_nsec + (add_ns % NANOSEC_PER_SECOND);
-      ts->tv_sec  = now.tv_sec + (time_t)(add_ns / NANOSEC_PER_SECOND) + (time_t)(ns / NANOSEC_PER_SECOND);
-      ts->tv_nsec = (long)(ns % NANOSEC_PER_SECOND);
+    clock_gettime(CLOCK_MONOTONIC_RAW, ts);
+    // Assumes TIMEOUT_NANOSECONDS will not exceed NANOSEC_PER_SECOND,
+    // so we are only off by one second maximum.
+    ts->tv_nsec += TIMEOUT_NANOSECONDS;
+    if (ts->tv_nsec >= NANOSEC_PER_SECOND) {
+      ts->tv_nsec -= NANOSEC_PER_SECOND;
+      ts->tv_sec += 1;
+    }
   #endif
 }
 
