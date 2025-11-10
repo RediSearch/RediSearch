@@ -57,7 +57,7 @@ jobs:
             architecture: x86_64
           - platform: amazonlinux:2
             architecture: x86_64
-          - platform: alpine:3.19
+          - platform: alpine:3
             architecture: x86_64
           # Linux platforms - ARM64
           - platform: ubuntu:noble
@@ -72,7 +72,7 @@ jobs:
             architecture: aarch64
           - platform: amazonlinux:2
             architecture: aarch64
-          - platform: alpine:3.19
+          - platform: alpine:3
             architecture: aarch64
           # Sanitizer (x86_64 only) - uses debian:bullseye with SAN=address flag
           - platform: debian:bullseye
