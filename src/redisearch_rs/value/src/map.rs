@@ -296,6 +296,7 @@ impl fmt::Debug for RsValueMapEntry {
 #[cfg(test)]
 mod tests {
     use crate::{
+        Value,
         map::{RsValueMap, RsValueMapEntry},
         shared::SharedRsValue,
     };
@@ -337,6 +338,8 @@ mod tests {
             }
         });
 
-        std::thread::spawn(move || drop(map));
+        let t = std::thread::spawn(move || drop(map));
+        // Explicitly join to make Miri happy
+        t.join().unwrap();
     }
 }
