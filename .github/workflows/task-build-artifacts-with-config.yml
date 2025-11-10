@@ -46,12 +46,16 @@ jobs:
           echo "Skip condition evaluation: ${{ inputs.skip-condition }}"
           echo "fromJson result: ${{ fromJson(inputs.skip-condition) }}"
           echo "Negated fromJson: ${{ !fromJson(inputs.skip-condition) }}"
+          echo "---"
+          echo "sha input: '${{ inputs.sha }}'"
+          echo "redis-ref input: '${{ inputs.redis-ref }}'"
+          echo "beta-version input: '${{ inputs.beta-version }}'"
 
   # Build artifacts with resolved configuration
   build:
     needs: [get-config, debug-skip-condition]
-    # Skip if skip-condition evaluates to true (temporarily disabled for debugging)
-    # if: ${{ !fromJson(inputs.skip-condition) }}
+    # Skip if skip-condition evaluates to true
+    if: ${{ inputs.skip-condition != 'true' }}
     uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:
