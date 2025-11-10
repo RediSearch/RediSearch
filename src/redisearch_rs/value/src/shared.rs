@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{num::ParseFloatError, ptr, sync::Arc};
+use std::{ptr, sync::Arc};
 
-use crate::RsValueInternal;
+use crate::{RsValueInternal, Value};
 
 /// A heap-allocated and refcounted RedisSearch dynamic value.
 /// This type is backed by [`Arc<RsValueInternal>`], but uses
@@ -19,7 +19,7 @@ use crate::RsValueInternal;
 /// - If this pointer is non-NULL, it was obtained from `Arc::into_raw`.
 /// - If it is NULL, it represents an undefined value.
 /// - A non-null pointer represents one clone of said `Arc`, and as such, as
-///   long as the [`SharedRsValue] lives and holds a non-null pointer, the Arc
+///   long as the [`SharedRsValue`] lives and holds a non-null pointer, the Arc
 ///   is still valid.
 #[repr(C)]
 pub struct SharedRsValue {
@@ -46,44 +46,7 @@ impl Drop for SharedRsValue {
     }
 }
 
-impl SharedRsValue {
-    /// Create an undefined [`SharedRsValue`].
-    pub const fn undefined() -> Self {
-        Self {
-            ptr: ptr::null_mut(),
-        }
-    }
-
-    /// Create a [`SharedRsValue`] holding an `f64`.
-    pub fn number(n: f64) -> Self {
-        Self::from_internal(RsValueInternal::Number(n))
-    }
-
-    /// Set this [`SharedRsValue`] to undefined.
-    pub fn clear(&mut self) {
-        *self = Self::undefined()
-    }
-
-    /// Attempt to parse the passed string as an `f64`, and wrap it
-    /// in a [`SharedRsValue`].
-    pub fn parse_number(s: &str) -> Result<Self, ParseFloatError> {
-        Ok(Self::number(s.parse()?))
-    }
-
-    /// Get a reference to the [`RsValueInternal`] that is
-    /// held by this value if it is defined. Returns `None` if
-    /// the value is undefined.
-    pub const fn internal(&self) -> Option<&RsValueInternal> {
-        if self.ptr.is_null() {
-            return None;
-        }
-        // Safety: `self.ptr` is not null at this point,
-        // and so must have been originated from a call to `from_internal`.
-        // At least as long as `self` lives, this pointer is guaranteed
-        // to be valid by the backing `Arc`.
-        Some(unsafe { &*self.ptr })
-    }
-
+impl Value for SharedRsValue {
     /// Wraps the passed [`RsValueInternal`] in an [`Arc`]
     /// allocated by the global allocator,
     /// and uses `Arc::into_raw` to convert it to a pointer and
@@ -98,6 +61,23 @@ impl SharedRsValue {
         Self {
             ptr: Arc::into_raw(internal),
         }
+    }
+
+    fn undefined() -> Self {
+        Self {
+            ptr: ptr::null_mut(),
+        }
+    }
+
+    fn internal(&self) -> Option<&RsValueInternal> {
+        if self.ptr.is_null() {
+            return None;
+        }
+        // Safety: `self.ptr` is not null at this point,
+        // and so must have been originated from a call to `from_internal`.
+        // At least as long as `self` lives, this pointer is guaranteed
+        // to be valid by the backing `Arc`.
+        Some(unsafe { &*self.ptr })
     }
 }
 
@@ -139,25 +119,3 @@ const _ASSERT_ARC_RS_VALUE_INTERNAL_IS_SEND_AND_SYNC: () = {
     const fn static_assert_send_and_sync<T: Send + Sync>() {}
     static_assert_send_and_sync::<Arc<RsValueInternal>>();
 };
-
-#[cfg(test)]
-mod tests {
-    use super::SharedRsValue;
-    use std::fmt::Write;
-
-    #[test]
-    fn test_debug_repr() {
-        let mut s = String::new();
-        let mut value = SharedRsValue::number(1.234);
-        write!(s, "{value:?}").unwrap();
-        assert_eq!(s, "Defined(Number(1.234))");
-        s.clear();
-        value.clear();
-        write!(s, "{value:?}").unwrap();
-        assert_eq!(s, "Undefined");
-        value = SharedRsValue::parse_number("5.678").expect("Error parsing number");
-        s.clear();
-        write!(s, "{value:?}").unwrap();
-        assert_eq!(s, "Defined(Number(5.678))");
-    }
-}

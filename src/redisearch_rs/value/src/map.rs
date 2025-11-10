@@ -296,6 +296,7 @@ impl fmt::Debug for RsValueMapEntry {
 #[cfg(test)]
 mod tests {
     use crate::{
+        Value,
         map::{RsValueMap, RsValueMapEntry},
         shared::SharedRsValue,
     };

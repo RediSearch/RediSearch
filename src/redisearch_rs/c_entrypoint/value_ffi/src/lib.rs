@@ -16,7 +16,7 @@ use std::{
 };
 
 use c_ffi_utils::opaque::IntoOpaque;
-use value::{RsValue, opaque::OpaqueRsValue};
+use value::{RsValue, Value, opaque::OpaqueRsValue};
 
 use crate::value_type::{AsRsValueType, RsValueType};
 
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn RsValue_String(str: Option<NonNull<c_char>>, len: u32) 
 /// @return A pointer to a static `RsValue` of type `RsValueType_Null`
 #[unsafe(no_mangle)]
 pub extern "C" fn RsValue_NullStatic() -> *const OpaqueRsValue {
-    static RSVALUE_NULL: RsValue = RsValue::null();
+    static RSVALUE_NULL: RsValue = RsValue::null_const();
     RSVALUE_NULL.as_opaque_ptr()
 }
 

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use value::{RsValue, RsValueInternal, shared::SharedRsValue};
+use value::{RsValue, RsValueInternal, Value, shared::SharedRsValue};
 
 /// Enumeration of the types an
 /// `RsValue` or a `SharedRsValue` can be of.

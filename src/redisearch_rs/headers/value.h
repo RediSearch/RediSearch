@@ -53,7 +53,7 @@ typedef struct ALIGNED(8) RsValue {
  * - If this pointer is non-NULL, it was obtained from `Arc::into_raw`.
  * - If it is NULL, it represents an undefined value.
  * - A non-null pointer represents one clone of said `Arc`, and as such, as
- *   long as the [`SharedRsValue] lives and holds a non-null pointer, the Arc
+ *   long as the [`SharedRsValue`] lives and holds a non-null pointer, the Arc
  *   is still valid.
  */
 typedef struct SharedRsValue {
