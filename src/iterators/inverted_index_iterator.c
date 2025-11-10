@@ -276,52 +276,6 @@ IteratorStatus InvIndIterator_Read_SkipMulti_CheckExpiration(QueryIterator *base
 
 /************************************ SkipTo Implementations ************************************/
 
-// 1. Default SkipTo implementation, without any additional filtering.
-IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId) {
-  RS_ASSERT(base->lastDocId < docId);
-  InvIndIterator *it = (InvIndIterator*)base;
-  if (base->atEOF) {
-    return ITERATOR_EOF;
-  }
-
-  if (!IndexReader_SkipTo(it->reader, docId)) {
-    base->atEOF = true;
-    return ITERATOR_EOF;
-  }
-
-  // Even if we need to skip multi-values, we know the target docId is greater than the lastDocId,
-  // so we use the default read implementation without any additional filtering.
-  while (ITERATOR_EOF != InvIndIterator_Read_Default(base)) {
-    if (base->lastDocId < docId) continue;
-    if (base->lastDocId == docId) return ITERATOR_OK;
-    return ITERATOR_NOTFOUND;
-  }
-  return ITERATOR_EOF; // Assumes the call to "Read" set the `atEOF` flag
-}
-
-// 2. SkipTo implementation that filters out expired results
-IteratorStatus InvIndIterator_SkipTo_CheckExpiration(QueryIterator *base, t_docId docId) {
-  RS_ASSERT(base->lastDocId < docId);
-  InvIndIterator *it = (InvIndIterator*)base;
-  if (base->atEOF) {
-    return ITERATOR_EOF;
-  }
-
-  if (!IndexReader_SkipTo(it->reader, docId)) {
-    base->atEOF = true;
-    return ITERATOR_EOF;
-  }
-
-  // Even if we need to skip multi-values, we know the target docId is greater than the lastDocId,
-  // so we use the default read implementation without any additional filtering.
-  while (ITERATOR_EOF != InvIndIterator_Read_CheckExpiration(base)) {
-    if (base->lastDocId < docId) continue;
-    if (base->lastDocId == docId) return ITERATOR_OK;
-    return ITERATOR_NOTFOUND;
-  }
-  return ITERATOR_EOF; // Assumes the call to "Read" set the `atEOF` flag
-}
-
 // 3. SkipTo implementation that uses a seeker to find the next valid docId, no additional filtering.
 IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId docId) {
   RS_ASSERT(base->lastDocId < docId);
@@ -421,7 +375,6 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
 
   // Choose the Read and SkipTo methods for best performance
   skipMulti = ShouldSkipMulti(it);
-  bool hasSeeker = IndexReader_HasSeeker(it->reader);
   bool hasExpiration = HasExpiration(it);
 
   // Read function choice:
@@ -440,20 +393,10 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
     base->Read = InvIndIterator_Read_Default;
   }
 
-  // SkipTo function choice:
-  // has seeker     |  no                      |  yes
-  // ------------------------------------------------------------------------------
-  // no expiration  |  SkipTo_Default          |  SkipTo_withSeeker
-  // expiration     |  SkipTo_CheckExpiration  |  SkipTo_withSeeker_CheckExpiration
-
-  if (hasSeeker && hasExpiration) {
+  if (hasExpiration) {
     base->SkipTo = InvIndIterator_SkipTo_withSeeker_CheckExpiration;
-  } else if (hasSeeker) { // hasSeeker && !hasExpiration
+  } else {
     base->SkipTo = InvIndIterator_SkipTo_withSeeker;
-  } else if (hasExpiration) { // !hasSeeker && hasExpiration
-    base->SkipTo = InvIndIterator_SkipTo_CheckExpiration;
-  } else { // !hasSeeker && !hasExpiration
-    base->SkipTo = InvIndIterator_SkipTo_Default;
   }
 
   return base;
