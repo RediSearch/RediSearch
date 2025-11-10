@@ -409,7 +409,7 @@ def testExpireMultipleFieldsWhereOneIsSortable(env):
                           expiration_interval_to_fields={1: ['x'], 3: ['y', 'z']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
-@skip(redis_less_than='8.0')
+@skip(cluster=True, redis_less_than='8.0')
 def testLazyTextFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
