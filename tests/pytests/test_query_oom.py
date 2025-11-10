@@ -101,7 +101,7 @@ class testOomClusterBehavior:
         run_cmd_expect_oom(self.env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name'])
 
     def test_query_oom_shards_return(self):
-        # Test coord passing OOM, but shards returning empy results due to OOM
+        # Test coord passing OOM, but shards returning empty results due to OOM
         allShards_change_oom_policy(self.env, 'return')
         # Change back coord maxmemory to 0
         set_unlimited_maxmemory_for_oom(self.env)
