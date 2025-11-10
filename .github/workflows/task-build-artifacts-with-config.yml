@@ -30,6 +30,8 @@ on:
 jobs:
   # Get configuration for this specific platform and architecture
   get-config:
+    # Skip if skip-condition evaluates to true
+    if: ${{ inputs.skip-condition != 'true' }}
     uses: ./.github/workflows/task-get-config.yml
     with:
       platform: ${{ inputs.platform }}
@@ -38,8 +40,6 @@ jobs:
   # Build artifacts with resolved configuration
   build:
     needs: [get-config]
-    # Skip if skip-condition evaluates to true
-    if: ${{ inputs.skip-condition != 'true' }}
     uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:

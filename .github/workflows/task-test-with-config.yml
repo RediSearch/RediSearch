@@ -45,6 +45,8 @@ on:
 jobs:
   # Get configuration for this specific platform and architecture
   get-config:
+    # Skip if skip-condition evaluates to true
+    if: ${{ inputs.skip-condition != 'true' }}
     uses: ./.github/workflows/task-get-config.yml
     with:
       platform: ${{ inputs.platform }}
@@ -53,8 +55,6 @@ jobs:
   # Run tests with resolved configuration
   test:
     needs: [get-config]
-    # Skip if skip-condition evaluates to true
-    if: ${{ inputs.skip-condition != 'true' }}
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
