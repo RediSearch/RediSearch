@@ -48,13 +48,13 @@ static inline void set_timeout(struct timespec *ts) {
     ts->tv_sec  = 0; // (time_t)(TIMEOUT_NANOSECONDS / NANOSEC_PER_SECOND);
     ts->tv_nsec = TIMEOUT_NANOSECONDS; // (long)(TIMEOUT_NANOSECONDS % NANOSEC_PER_SECOND);
   #else
-    clock_gettime(CLOCK_MONOTONIC_RAW, timeout);
+    clock_gettime(CLOCK_MONOTONIC_RAW, ts);
     // Assumes TIMEOUT_NANOSECONDS will not exceed NANOSEC_PER_SECOND,
     // so we are only off by one second maximum.
-    timeout->tv_nsec += TIMEOUT_NANOSECONDS;
-    if (timeout->tv_nsec >= NANOSEC_PER_SECOND) {
-      timeout->tv_nsec -= NANOSEC_PER_SECOND;
-      timeout->tv_sec += 1;
+    ts->tv_nsec += TIMEOUT_NANOSECONDS;
+    if (ts->tv_nsec >= NANOSEC_PER_SECOND) {
+      ts->tv_nsec -= NANOSEC_PER_SECOND;
+      ts->tv_sec += 1;
     }
   #endif
 }
