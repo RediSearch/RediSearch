@@ -50,40 +50,6 @@ jobs:
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
     steps:
       # Setup
-      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
-      - name: Pre-steps Dependencies (Alpine)
-        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
-        shell: sh -l -eo pipefail {0}
-        run: |
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ inputs.pre-steps-script }}; then
-              echo "Pre-steps Dependencies succeeded"
-              exit 0
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          echo "Pre-steps Dependencies failed after 5 attempts"
-          exit 1
-      - name: Pre-steps Dependencies (Non-Alpine)
-        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
-        run: |
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ inputs.pre-steps-script }}; then
-              echo "Pre-steps Dependencies succeeded"
-              exit 0
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          echo "Pre-steps Dependencies failed after 5 attempts"
-          exit 1
       - name: Enable dynamic linking to C runtime in Alpine
         if: inputs.container == 'alpine:3'
         run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
@@ -141,6 +107,41 @@ jobs:
               exit 1
               ;;
           esac
+      # Pre-steps Dependencies - runs after checkout
+      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
+      - name: Pre-steps Dependencies (Alpine)
+        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
+        shell: sh -l -eo pipefail {0}
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if ${{ inputs.pre-steps-script }}; then
+              echo "Pre-steps Dependencies succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Pre-steps Dependencies failed after 5 attempts"
+          exit 1
+      - name: Pre-steps Dependencies (Non-Alpine)
+        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if ${{ inputs.pre-steps-script }}; then
+              echo "Pre-steps Dependencies succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Pre-steps Dependencies failed after 5 attempts"
+          exit 1
       - name: Setup
         working-directory: .install
         run: |
