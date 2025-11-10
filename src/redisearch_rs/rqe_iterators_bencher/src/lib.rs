@@ -36,10 +36,6 @@ redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 #[allow(non_upper_case_globals)]
 pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
 
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RSDummyContext: *const c_void = std::ptr::null();
-
 fn free_rs_values(metrics: *mut RSYieldableMetric) {
     let len = unsafe { array_len_func(metrics as *mut c_void) };
     let mut metric = metrics;

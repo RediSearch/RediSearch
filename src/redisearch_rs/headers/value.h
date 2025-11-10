@@ -24,6 +24,11 @@ typedef enum RsValueType {
   RsValueType_Undefined,
   RsValueType_Null,
   RsValueType_Number,
+  RsValueType_RmAllocString,
+  RsValueType_ConstString,
+  RsValueType_OwnedRedisString,
+  RsValueType_BorrowedRedisString,
+  RsValueType_String,
   RsValueType_Array,
   RsValueType_Ref,
   RsValueType_Trio,
@@ -153,9 +158,12 @@ struct RsValue RsValue_Number(double n);
  * The returned value itself is not heap-allocated, but does take ownership of the string.
  *
  * # Safety
- * - The passed string pointer must point to a valid C string that
- *   was allocated using `rm_malloc`
- * - The passed length must match the length to the string.
+ * - (1) `str` must be non-null;
+ * - (2) `str` must point to a valid C string that was allocated using `rm_malloc`;
+ * - (3) The passed length must match the length to the string;
+ * - (4) `str` must not be aliased;
+ * - (5) `RedisModule_Alloc` must not be mutated for the lifetime of the
+ *   `OpaqueRsValue`.
  *
  * @param str The malloc'd string to wrap (ownership is transferred)
  * @param len The length of the string
@@ -167,6 +175,7 @@ struct RsValue RsValue_String(char *str, uint32_t len);
  * Returns a pointer to a statically allocated NULL `RsValue`.
  * This is a singleton - the same pointer is always returned.
  * DO NOT free or modify this value.
+ *
  * @return A pointer to a static `RsValue` of type `RsValueType_Null`
  */
 const struct RsValue *RsValue_NullStatic(void);
@@ -248,6 +257,16 @@ void RsValueArray_SetEntry(RsValueArray *arr, size_t i, struct SharedRsValue val
 /**
  * Creates a heap-allocated `RsValue` wrapping a string.
  * Doesn't duplicate the string. Use strdup if the value needs to be detached.
+ *
+ * # Safety
+ * - (1) `str` must not be NULL;
+ * - (2) `len` must match the length of `str`;
+ * - (3) `str` must point to a valid, C string with a length of at most `u32::MAX` bytes;
+ * - (4) `str` must not be aliased.
+ * - (5) `str` must point to a location allocated using `rm_alloc`
+ * - (6) `RedisModule_Alloc` must not be mutated for the lifetime of the
+ *   `OpaqueRsValue`.
+ *
  * @param str The string to wrap (ownership is transferred)
  * @param len The length of the string
  * @return A pointer to a heap-allocated RsValue
@@ -255,29 +274,42 @@ void RsValueArray_SetEntry(RsValueArray *arr, size_t i, struct SharedRsValue val
 struct SharedRsValue SharedRsValue_NewString(char *str, uint32_t len);
 
 /**
- * Creates a heap-allocated `RsValue` wrapping a const string.
+ * Creates a heap-allocated `SharedRsValue` wrapping a const string.
  *
  * # Safety
- * - `str` must be a valid const pointer to a char sequence of `len` chars.
+ * - (1) `str` must live as least as long as the returned [`SharedRsValue`].
+ * - (2) `str` must point to a byte sequence that is valid for reads of `len` bytes.
  *
  * @param str The null-terminated string to wrap (ownership is transferred)
  * @return A pointer to a heap-allocated RsValue wrapping a constant C string
  */
-struct SharedRsValue SharedRsValue_NewConstString(const char *str, uintptr_t len);
+struct SharedRsValue SharedRsValue_NewConstString(const char *str, uint32_t len);
 
 /**
  * Creates a heap-allocated `RsValue` wrapping a RedisModuleString.
  * Does not increment the refcount of the Redis string.
  * The passed Redis string's refcount does not get decremented
  * upon freeing the returned RsValue.
+ *
+ * # Safety
+ * - (1) The passed pointer must be non-null and valid for reads.
+ * - (2) The reference count of the [`RedisModuleString`] `str` points to
+ *   must be at least 1 for the lifetime of the created [`SharedRsValue`]
+ *
  * @param str The RedisModuleString to wrap
  * @return A pointer to a heap-allocated RsValue
  */
-struct SharedRsValue SharedRsValue_NewBorrowedRedisString(const RedisModuleString *str);
+struct SharedRsValue SharedRsValue_NewBorrowedRedisString(RedisModuleString *str);
 
 /**
  * Creates a heap-allocated `RsValue` which increments and owns a reference to the Redis string.
  * The RsValue will decrement the refcount when freed.
+ *
+ * # Safety
+ * - (1) `str` must be non-null
+ * - (2) `str` must point to a valid [`RedisModuleString`]
+ *   with a reference count of at least 1.
+ *
  * @param str The RedisModuleString to wrap (refcount is incremented)
  * @return A pointer to a heap-allocated RsValue
  */
@@ -286,6 +318,12 @@ struct SharedRsValue SharedRsValue_NewOwnedRedisString(RedisModuleString *str);
 /**
  * Creates a heap-allocated `RsValue` which steals a reference to the Redis string.
  * The caller's reference is transferred to the RsValue.
+ *
+ * # Safety
+ * - (1) `str` must be non-null
+ * - (2) `str` must point to a valid [`RedisModuleString`]
+ *   with a reference count of at least 1.
+ *
  * @param s The RedisModuleString to wrap (ownership is transferred)
  * @return A pointer to a heap-allocated RsValue
  */
@@ -296,29 +334,30 @@ struct SharedRsValue SharedRsValue_NewStolenRedisString(RedisModuleString *str);
  * The string is duplicated using `rm_malloc`.
  *
  * # Safety
- * - `str` must be a valid pointer to a char sequence of `len` chars.
+ * - (1) `str` must be a valid pointer to a char sequence of `len` chars.
  *
  * @param s The string to copy
  * @param dst The length of the string to copy
  * @return A pointer to a heap-allocated `RsValue` owning the copied string
  */
-struct SharedRsValue SharedRsValue_NewCopiedString(const char *str, uintptr_t len);
+struct SharedRsValue SharedRsValue_NewCopiedString(const char *str, uint32_t len);
 
 /**
  * Creates a heap-allocated `RsValue` by parsing a string as a number.
  * Returns an undefined value if the string cannot be parsed as a valid number.
  *
  * # Safety
- * - `str` must be a valid const pointer to a char sequence of `len` chars.
+ * - (1) `str` must be a valid const pointer to a char sequence of `len` bytes.
  *
  * @param p The string to parse
  * @param l The length of the string
- * @return A pointer to a heap-allocated `RsValue` or NULL on parse failure
+ * @return A pointer to a heap-allocated `RsValue`
  */
 struct SharedRsValue SharedRsValue_NewParsedNumber(const char *str, uintptr_t len);
 
 /**
  * Creates a heap-allocated `RsValue` containing a number.
+ *
  * @param n The numeric value to wrap
  * @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
  */
@@ -326,6 +365,8 @@ struct SharedRsValue SharedRsValue_NewNumber(double n);
 
 /**
  * Creates a heap-allocated `RsValue` containing a number from an int64.
+ * This operation casts the passed `i64` to an `f64`, possibly losing information.
+ *
  * @param ii The int64 value to convert and wrap
  * @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
  */
@@ -351,7 +392,14 @@ struct SharedRsValue SharedRsValue_NewArray(RsValueArray vals);
 struct SharedRsValue SharedRsValue_NewMap(RsValueMap map);
 
 /**
- * Creates a heap-allocated RsValue array from NULL terminated C strings.
+ * Creates a heap-allocated `RsValue` array from NULL terminated C strings.
+ *
+ * # Safety
+ * - (1) If `sz > 0`, `str` must be non-null;
+ * - (2) If `sz > 0`, `str` must be valid for reads of `sz * size_of::<NonNull<c_char>>` bytes;
+ * - (3) If `sz > 0`, `str` must be a valid pointer
+ *   to a sequence if valid NULL-terminated C strings of length `sz`.
+ *
  * @param strs Array of string pointers
  * @param sz Number of strings in the array
  * @return A pointer to a heap-allocated RsValue array
@@ -360,11 +408,19 @@ struct SharedRsValue SharedRsValue_NewStringArray(char **strs, uint32_t sz);
 
 /**
  * Creates a heap-allocated RsValue array from NULL terminated C string constants.
+ *
+ * # Safety
+ * - (1) If `sz > 0`, `str` must be non-null;
+ * - (2) If `sz > 0`, `str` must be valid for reads of `sz * size_of::<NonNull<c_char>>` bytes;
+ * - (3) If `sz > 0`, `str` must point to a sequence of valid NULL-terminated C strings of length `sz`;
+ * - (4) For each of the strings `str` in `strs`, `strlen(str)` must not exceed `u32::MAX`.
+ *
  * @param strs Array of string pointers
  * @param sz Number of strings in the array
  * @return A pointer to a heap-allocated RsValue array
  */
-struct SharedRsValue SharedRsValue_NewConstStringArray(const char **strs, uint32_t sz);
+struct SharedRsValue SharedRsValue_NewConstStringArray(const char **strs,
+                                                       uint32_t sz);
 
 /**
  * Creates a heap-allocated RsValue Trio from three RsValues.
@@ -377,6 +433,14 @@ struct SharedRsValue SharedRsValue_NewConstStringArray(const char **strs, uint32
 struct SharedRsValue SharedRsValue_NewTrio(struct SharedRsValue left,
                                            struct SharedRsValue middle,
                                            struct SharedRsValue right);
+
+/**
+ * Gets the `f64` wrapped by the `SharedRsValue`
+ *
+ * # Safety
+ * - (1) `v` must be a number value.
+ */
+double SharedRsValue_Number_Get(const struct SharedRsValue *v);
 
 #ifdef __cplusplus
 }  // extern "C"

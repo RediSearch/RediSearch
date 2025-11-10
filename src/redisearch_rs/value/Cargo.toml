@@ -7,15 +7,20 @@ publish.workspace = true
 
 [dependencies]
 c_ffi_utils = { workspace = true }
-ffi = { workspace = true, optional = true }
+ffi.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true
+
 
 [lints]
 workspace = true
 
 [features]
 test_utils = []
-# Temporary feature that allows the `RSValueFFI` type
-# to use bindings from the `ffi` crate. Needs to be disabled
+# Enables temporary `RSValueFFI` type.
+# Needs to be disabled
 # in case bindings are being generated for types
 # exposed in this crate.
-c_ffi_impl = ["dep:ffi"]
+c_ffi_impl = []
