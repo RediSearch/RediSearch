@@ -111,6 +111,7 @@ default-features = false
 
 [workspace.dependencies.redis-module]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
+rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42"
 default-features = false
 
 [profile.release]
