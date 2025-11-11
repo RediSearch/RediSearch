@@ -132,9 +132,6 @@ jobs:
           - platform: amazonlinux:2
             architecture: x86_64
             skip-condition: ${{ !contains(fromJson('["amazonlinux:2", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
-          - platform: amazonlinux:2
-            architecture: aarch64
-            skip-condition: ${{ !contains(fromJson('["amazonlinux:2", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
           - platform: amazonlinux:2023
             architecture: x86_64
             skip-condition: ${{ !contains(fromJson('["amazonlinux:2023", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
@@ -156,9 +153,6 @@ jobs:
           - platform: mariner:2
             architecture: x86_64
             skip-condition: ${{ !contains(fromJson('["mariner:2", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
-          - platform: mariner:2
-            architecture: aarch64
-            skip-condition: ${{ !contains(fromJson('["mariner:2", "all"]'), inputs.platform) || !contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
           - platform: azurelinux:3
             architecture: x86_64
             skip-condition: ${{ !contains(fromJson('["azurelinux:3", "all"]'), inputs.platform) || !contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}

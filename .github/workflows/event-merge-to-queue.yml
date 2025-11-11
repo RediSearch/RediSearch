@@ -80,15 +80,11 @@ jobs:
             architecture: aarch64
           - platform: rockylinux:9
             architecture: aarch64
-          - platform: amazonlinux:2
-            architecture: aarch64
           - platform: amazonlinux:2023
             architecture: aarch64
           - platform: debian:bullseye
             architecture: aarch64
           - platform: debian:bookworm
-            architecture: aarch64
-          - platform: mariner:2
             architecture: aarch64
           - platform: azurelinux:3
             architecture: aarch64
