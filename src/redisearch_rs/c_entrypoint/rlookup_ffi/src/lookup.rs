@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use c_ffi_utils::{as_mut_unchecked, as_ref_unchecked, expect_unchecked};
 use libc::size_t;
 use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags};
 use std::{
@@ -318,4 +319,43 @@ pub unsafe extern "C" fn RLookup_Init(
 pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
     // Safety: ensured by caller (1.,2.)
     unsafe { lookup.unwrap().drop_in_place() };
+}
+/// Add all non-overridden keys from `lookup` to `dest`.
+///
+/// For each key in `lookup`, check if it already exists *by name*.
+/// - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+/// - If it doesn't a new key will be created.
+///
+/// Flag handling:
+///  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+///  * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+///  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+///  * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+/// 2. `dest` must be a [valid], non-null pointer to a [`RLookup`]
+/// 3. All bits set in `flags` must correspond to a value of [`RLookupKeyFlags`]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
+    lookup: Option<NonNull<RLookup<'a>>>,
+    dest: Option<NonNull<RLookup<'a>>>,
+    flags: u32,
+) {
+    // Safety: must be ensured by caller (1)
+    let lookup = unsafe { as_ref_unchecked!(lookup, "RLookup_AddKeysFrom: lookup is null") };
+
+    // Safety: must be ensured by caller (2)
+    let dest = unsafe { as_mut_unchecked!(dest, "RLookup_AddKeysFrom: dest is null") };
+
+    // Safety: must be ensured by caller (3)
+    let flags = unsafe {
+        expect_unchecked!(
+            RLookupKeyFlags::from_bits(flags),
+            "RLookup_AddKeysFrom: Flags are invalid"
+        )
+    };
+
+    dest.add_keys_from(lookup, flags);
 }
