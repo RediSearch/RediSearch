@@ -29,6 +29,8 @@
 #include "hybrid/hybrid_request.h"
 #include "module.h"
 #include "result_processor.h"
+#include "reply_empty.h"
+
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -673,6 +675,105 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   }
 }
 
+
+// Simple version of sendChunk that returns empty results for aggregate queries.
+// Handles both RESP2 and RESP3 protocols with cursor support.
+// Includes OOM warning when QueryError has OOM status.
+// Currently used during OOM conditions to return empty results instead of failing.
+// Based on sendChunk_Resp2/3 patterns.
+ void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, AREQ *req) {
+
+  if (reply->resp3) {
+
+    if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_Array(reply);
+    }
+    // RESP3 format - use map structure
+    RedisModule_Reply_Map(reply);
+
+    if (IsProfile(req)) {
+      Profile_PrepareMapForReply(reply);
+    }
+
+    // attributes (field names)
+    RedisModule_Reply_SimpleString(reply, "attributes");
+    RedisModule_Reply_EmptyArray(reply);
+
+    // <format>
+    if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+    } else {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    }
+
+    // results (empty array)
+    RedisModule_ReplyKV_Array(reply, "results");
+    RedisModule_Reply_ArrayEnd(reply);
+
+    // total_results
+    RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
+
+    // warning
+    RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+    if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+    }
+    RedisModule_Reply_ArrayEnd(reply);
+
+    if (IsProfile(req)) {
+
+      ProfilePrinterCtx profileCtx = {0};
+      profileCtx.req = req;
+      profileCtx.queryOOM = QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err);
+
+      RedisModule_Reply_MapEnd(reply); // >Results
+      req->profile(reply, &profileCtx);
+    }
+
+    RedisModule_Reply_MapEnd(reply);
+
+    if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_LongLong(reply, 0);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
+  } else {
+
+    // Upon `FT.PROFILE` commands, embed the response inside another map
+    if (IsProfile(req)) {
+      Profile_PrepareMapForReply(reply);
+    } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_Array(reply);
+    }
+
+    // RESP2 format - use array structure
+    RedisModule_Reply_Array(reply);
+
+    // First element is always the total count (0 for empty results)
+    RedisModule_Reply_LongLong(reply, 0);
+
+    // No individual results to add for empty results
+
+    RedisModule_Reply_ArrayEnd(reply);
+
+    ProfilePrinterCtx profileCtx = {0};
+    profileCtx.req = req;
+    profileCtx.queryOOM = QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err);
+
+    if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+      // Cursor done
+      RedisModule_Reply_LongLong(reply, 0);
+      if (IsProfile(req)) {
+        req->profile(reply, &profileCtx);
+      }
+      // Cursor end array
+      RedisModule_Reply_ArrayEnd(reply);
+    } else if (IsProfile(req)) {
+      req->profile(reply, &profileCtx);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
+  }
+}
+
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   sendChunk(req, reply, UINT64_MAX);
@@ -878,7 +979,7 @@ done:
   return rc;
 }
 
-static void parseProfile(AREQ *r, int execOptions) {
+void parseProfileExecOptions(AREQ *r, int execOptions) {
   if (execOptions & EXEC_WITH_PROFILE) {
     AREQ_QueryProcessingCtx(r)->isProfile = true;
     AREQ_AddRequestFlags(r, QEXEC_F_PROFILE);
@@ -898,7 +999,7 @@ int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, 
     AREQ_AddRequestFlags(r, QEXEC_F_INTERNAL);
   }
 
-  parseProfile(r, execOptions);
+  parseProfileExecOptions(r, execOptions);
 
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
@@ -979,9 +1080,12 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    QueryError_SetCode(&status, QUERY_ERROR_CODE_OUT_OF_MEMORY);
-    return QueryError_ReplyAndClear(ctx, &status);
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      return QueryMemoryGuardFailure_WithReply(ctx);
+    }
+    // Assuming OOM policy is return since we didn't ignore the memory guardrail
+    RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
+    return single_shard_common_query_reply_empty(ctx, argv, argc, execOptions, QUERY_ERROR_CODE_OUT_OF_MEMORY);
   }
 
   AREQ *r = AREQ_New();
