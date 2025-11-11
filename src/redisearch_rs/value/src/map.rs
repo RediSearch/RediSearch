@@ -330,13 +330,16 @@ mod tests {
             RsValueMapEntry { key, value }
         });
         let map = RsValueMap::collect_from_exact_size_iterator(items);
-        std::thread::spawn({
+        let t1 = std::thread::spawn({
             let map_ref = &map;
             || {
                 let _ = map_ref;
             }
         });
 
-        std::thread::spawn(move || drop(map));
+        let t2 = std::thread::spawn(move || drop(map));
+        // Explicitly join to make Miri happy
+        t1.join().unwrap();
+        t2.join().unwrap();
     }
 }
