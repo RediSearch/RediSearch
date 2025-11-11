@@ -108,7 +108,7 @@ jobs:
     with:
       platform: ${{ matrix.platform }}
       architecture: ${{ matrix.architecture }}
-      test-config: QUICK=1
+      test-config: '' # Run all tests
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
       skip-condition: ${{ matrix.skip-condition || 'false' }}
