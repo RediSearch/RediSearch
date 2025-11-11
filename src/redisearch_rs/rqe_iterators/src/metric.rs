@@ -14,7 +14,9 @@ use ffi::{RSYieldableMetric, array_ensure_append_n_func, t_docId};
 use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
 use value::{RSValueFFI, RSValueTrait};
 
-// enum indicating the type of metric. currently only vector distance is supported.
+/// The different types of metrics.
+/// At the moment, only vector distance is supported.
+#[repr(C)]
 pub enum MetricType {
     VectorDistance,
 }
