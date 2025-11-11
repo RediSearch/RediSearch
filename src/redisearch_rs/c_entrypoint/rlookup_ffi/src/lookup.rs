@@ -358,3 +358,41 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
 
     dest.add_keys_from(lookup, flags);
 }
+
+/// Find a [`RLookupKey`] in `lookup`' by its `name`.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+/// 2. The memory pointed to by `name` must contain a valid nul terminator at the end of the string
+/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+///    This means in particular:
+///     1. `name_len` must be same as `strlen(name)`
+///     2. The entire memory range of this `CStr` must be contained within a single allocation!
+///     3. `name` must be non-null even for a zero-length cstr.
+/// 4. The memory referenced by the returned `CStr` must not be mutated for
+///    the duration of lifetime `'a`.
+/// 5. The nul terminator must be within `isize::MAX` from `name` and `field_name`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_FindKey<'a>(
+    lookup: Option<NonNull<RLookup<'a>>>,
+    name: *const c_char,
+    name_len: size_t,
+) -> Option<NonNull<RLookupKey<'a>>> {
+    // Safety: must be ensured by caller (1)
+    let lookup = unsafe { lookup.expect("RLookup_FindKey: lookup is null").as_ref() };
+
+    // Safety: must be ensured by caller (2, 3, 4, 5)
+    let name = unsafe {
+        // `name_len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `name_len + 1` below)
+        let bytes = slice::from_raw_parts(name.cast::<u8>(), name_len + 1);
+
+        CStr::from_bytes_with_nul(bytes).unwrap()
+    };
+
+    let cursor = lookup.find_key_by_name(name)?;
+    let rlk = cursor.current()?;
+
+    Some(NonNull::from_ref(rlk))
+}

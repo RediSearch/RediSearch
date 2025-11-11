@@ -389,6 +389,24 @@ void RLookup_AddKeysFrom(struct RLookup *lookup,
                          uint32_t flags);
 
 /**
+ * Find a [`RLookupKey`] in `lookup`' by its `name`.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+ * 2. The memory pointed to by `name` must contain a valid nul terminator at the end of the string
+ * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+ *    This means in particular:
+ *     1. `name_len` must be same as `strlen(name)`
+ *     2. The entire memory range of this `CStr` must be contained within a single allocation!
+ *     3. `name` must be non-null even for a zero-length cstr.
+ * 4. The memory referenced by the returned `CStr` must not be mutated for
+ *    the duration of lifetime `'a`.
+ * 5. The nul terminator must be within `isize::MAX` from `name` and `field_name`
+ */
+struct RLookupKey *RLookup_FindKey(struct RLookup *lookup, const char *name, size_t name_len);
+
+/**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
  * Safety:
