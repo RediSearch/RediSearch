@@ -2897,7 +2897,7 @@ bool should_return_error(QueryErrorCode errCode) {
     return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
   }
   // Check if this is an OOM error with non-fail policy
-  if (errCode == QUERY_EOOM) {
+  if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
     return RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail;
   }
 
@@ -2939,7 +2939,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
         goto cleanup;
       } else {
         // Check if OOM
-        if (errCode == QUERY_EOOM) {
+        if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
           req->queryOOM = true;
         }
       }
@@ -2996,7 +2996,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       // Check that the reply is not an error, can be caused if a shard failed to execute the query (i.e OOM).
       if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
         // Since we expect this to happen only with OOM, we assert it until this invariant changes.
-        RS_ASSERT(QueryError_GetCodeFromMessage(MRReply_String(replies[i], NULL)) == QUERY_EOOM);
+        RS_ASSERT(QueryError_GetCodeFromMessage(MRReply_String(replies[i], NULL)) == QUERY_ERROR_CODE_OUT_OF_MEMORY);
         continue;
       }
 
@@ -3219,7 +3219,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
   }
 
   // Coord callback
@@ -3274,7 +3274,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
   }
 
   // Coord callback
@@ -3611,7 +3611,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
   }
 
   // Coord callback

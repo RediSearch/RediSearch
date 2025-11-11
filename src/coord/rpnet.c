@@ -312,7 +312,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
       if (errCode == QUERY_EGENERIC ||
           ((errCode == QUERY_ETIMEDOUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
-          ((errCode == QUERY_EOOM) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
+          ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
         // We need to pass the reply string as the error message, since the error code might be generic
         QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, errCode,  MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
@@ -320,7 +320,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
         // Check if OOM error
         // Assuming that if we are here, we are under return on OOM policy
         // Since other policies are already handled before this point
-        if (errCode == QUERY_EOOM) {
+        if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
           QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
         }
         // Free the error reply before we override it and continue

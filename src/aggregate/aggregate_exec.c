@@ -980,7 +980,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    QueryError_SetCode(&status, QUERY_EOOM);
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_OUT_OF_MEMORY);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
