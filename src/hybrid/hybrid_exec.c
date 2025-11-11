@@ -30,6 +30,7 @@
 #include "util/units.h"
 #include "value.h"
 #include "module.h"
+#include "aggregate/reply_empty.h"
 
 #include <time.h>
 
@@ -301,6 +302,37 @@ done_err:
     finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock, &err);
 }
 
+// Simple version of sendChunk_hybrid that returns empty results for hybrid queries.
+// Handles RESP3 protocol with map structure including total_results, results, warning, and execution_time.
+// Includes OOM warning when QueryError has OOM status.
+// Currently used during OOM conditions early bailout and return empty results instead of failing.
+// Based on sendChunk_hybrid patterns.
+void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError *err) {
+    RedisModule_Reply_Map(reply);
+
+    // total_results
+    RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
+
+    // results (empty array)
+    RedisModule_ReplyKV_Array(reply, "results");
+    RedisModule_Reply_ArrayEnd(reply);
+
+    // warning
+    RedisModule_Reply_SimpleString(reply, "warnings");
+    if (QueryError_HasQueryOOMWarning(err)) {
+        RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+        RedisModule_Reply_ArrayEnd(reply);
+    } else {
+        RedisModule_Reply_EmptyArray(reply);
+    }
+
+    // execution_time
+    RedisModule_ReplyKV_Double(reply, "execution_time", 0.0);
+
+    RedisModule_Reply_MapEnd(reply);
+}
+
 static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
   if (hybridParams == NULL) {
     return;
@@ -366,6 +398,10 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
         RS_ABORT_ALWAYS("Unknown subquery type");
       }
     }
+    // Add warnings array
+    RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
+    RedisModule_Reply_ArrayEnd(reply); // ~warnings
+
     RedisModule_Reply_MapEnd(reply);
     RedisModule_EndReply(reply);
 }
@@ -377,7 +413,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       return REDISMODULE_ERR;
     }
     // helper array to collect depleters so in async we can deplete them all at once before returning the cursors
-    arrayof(ResultProcessor*) depleters = NULL; 
+    arrayof(ResultProcessor*) depleters = NULL;
     if (backgroundDepletion) {
       depleters = array_new(ResultProcessor *, req->nrequests);
     }
@@ -545,9 +581,12 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    QueryError_SetCode(&status, QUERY_EOOM);
-    return QueryError_ReplyAndClear(ctx, &status);
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      return QueryMemoryGuardFailure_WithReply(ctx);
+    }
+    // Assuming OOM policy is return since we didn't ignore the memory guardrail
+    RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
+    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM, internal);
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);

@@ -269,6 +269,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
               timed_out = true;
             } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
               QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+            } else if (!strcmp(warning_str, QUERY_WOOM_CLUSTER)) {
+              QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
             }
             if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
               AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
@@ -316,13 +318,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
         // We need to pass the reply string as the error message, since the error code might be generic
         QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, errCode,  MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
-      } else  {
-        // Check if OOM error
-        // Assuming that if we are here, we are under return on OOM policy
-        // Since other policies are already handled before this point
-        if (errCode == QUERY_EOOM) {
-          QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-        }
+      } else {
+        // Handle shards returning error unexpectedly
+        // Might be from different Timeout/OOM policy (See MOD-10774)
         // Free the error reply before we override it and continue
         MRReply_Free(nc->current.root);
         // Set it as NULL avoid another free

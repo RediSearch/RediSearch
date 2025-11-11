@@ -1090,3 +1090,19 @@ def generate_slots(slots = range(2**14)) -> bytes:
     ranges_bytes = ranges_array.tobytes() if sys.byteorder == 'little' else ranges_array.byteswap().tobytes()
 
     return count_bytes + ranges_bytes
+
+def change_oom_policy(env, policy):
+    env.expect(config_cmd(), 'SET', 'ON_OOM', policy).ok()
+
+def shard_change_oom_policy(env, shardId, policy):
+    res = env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'ON_OOM', policy)
+    env.assertEqual(res, 'OK')
+
+def allShards_change_oom_policy(env, policy):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_change_oom_policy(env, shardId, policy)
+
+def allShards_change_maxmemory_low(env):
+    for shardId in range(1, env.shardsCount + 1):
+        res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 1)
+        env.assertEqual(res, 'OK')
