@@ -50,12 +50,16 @@ jobs:
           if platform == "macos":
               if architecture == "x86_64":
                   config.update({
-                      'env': 'MACOS=1',
+                      'env': 'macos-15-intel',
+                      'container': '',
+                      'pre-steps-script': '',
                       'name': 'macOS x86_64'
                   })
               elif architecture == "aarch64":
                   config.update({
-                      'env': 'MACOS=1',
+                      'env': 'macos-latest',
+                      'container': '',
+                      'pre-steps-script': '',
                       'name': 'macOS ARM64'
                   })
               else:
