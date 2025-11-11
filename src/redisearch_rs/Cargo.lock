@@ -315,14 +315,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
-name = "common"
-version = "0.1.0"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git#88375820f5651385938a4dfbfbc3d1e54b1412b7"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1376,14 +1368,13 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
 dependencies = [
  "backtrace",
  "bindgen 0.66.1",
  "bitflags 2.9.3",
  "cc",
  "cfg-if",
- "common",
  "enum-primitive-derive",
  "libc",
  "linkme",
@@ -1399,7 +1390,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
 dependencies = [
  "lazy_static",
  "proc-macro2",
