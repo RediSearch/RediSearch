@@ -33,7 +33,7 @@ static void LogCallback(const char *level, const char *fmt, ...) {/*do nothing*/
 #endif
 
 void jobs_pull_wait(redisearch_thpool_t *thpool_p, size_t num_jobs) {
-    while (redisearch_thpool_num_jobs_in_progress(thpool_p) < num_jobs) {
+    while (redisearch_thpool_total_num_jobs_in_progress(thpool_p) < num_jobs) {
         usleep(1);
     }
 }
@@ -266,7 +266,7 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
         usleep(1);
     }
 
-    ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(this->pool), TEST_FUNCTIONALITY_N_THREADS);
+    ASSERT_EQ(redisearch_thpool_total_num_jobs_in_progress(this->pool), TEST_FUNCTIONALITY_N_THREADS);
 
     // Pause thpool. This has no effect when the thread is in terminate when empty state.
     // BAD SCENARIO: we need to pause the job queue to ensure both threads try to pull the last job.
@@ -277,7 +277,7 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
     // Let the threads finish MarkAndWaitForSignFunc job.
     sign = false;
     // Wait for them to finish the job.
-    while (redisearch_thpool_num_jobs_in_progress(this->pool)) {
+    while (redisearch_thpool_total_num_jobs_in_progress(this->pool)) {
         usleep(1);
     }
 
@@ -317,7 +317,7 @@ TEST_P(PriorityThpoolTestFunctionality, TestPauseResume) {
     ASSERT_EQ(redisearch_thpool_get_stats(this->pool).total_jobs_done, 1);
 
     // There should not be any jobs in progress
-    ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(this->pool), 0);
+    ASSERT_EQ(redisearch_thpool_total_num_jobs_in_progress(this->pool), 0);
 
 }
 
@@ -420,7 +420,7 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
     }
 
     // Wait for the jobs to be pulled.
-    while (redisearch_thpool_num_jobs_in_progress(thpool_p) < RUNTIME_CONFIG_N_THREADS) {
+    while (redisearch_thpool_total_num_jobs_in_progress(thpool_p) < RUNTIME_CONFIG_N_THREADS) {
         usleep(1);
     }
 
@@ -431,7 +431,7 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
     }
 
     // The threads are still waiting in the first job.
-    ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(thpool_p), RUNTIME_CONFIG_N_THREADS);
+    ASSERT_EQ(redisearch_thpool_total_num_jobs_in_progress(thpool_p), RUNTIME_CONFIG_N_THREADS);
     ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).total_pending_jobs, n_threads_to_keep_alive);
     // The threads will wake up and pull the change state job (terminate when empty).
     // `n_threads_to_keep_alive` of them will pull another job and wait. The others will see an empty queue and exit.
@@ -441,7 +441,7 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
     ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).total_jobs_done, RUNTIME_CONFIG_N_THREADS);
 
     while (!((redisearch_thpool_get_stats(thpool_p).num_threads_alive == n_threads_to_keep_alive) &&
-             redisearch_thpool_num_jobs_in_progress(thpool_p) == n_threads_to_keep_alive)) {
+             redisearch_thpool_total_num_jobs_in_progress(thpool_p) == n_threads_to_keep_alive)) {
         usleep(1);
     }
 
@@ -453,7 +453,7 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
 
     // Assert nothing has changed
     ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).num_threads_alive, n_threads_to_keep_alive);
-    ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(thpool_p), n_threads_to_keep_alive);
+    ASSERT_EQ(redisearch_thpool_total_num_jobs_in_progress(thpool_p), n_threads_to_keep_alive);
 
     // Now we add another job to trigger verify init.
     size_t time_us = 1;
@@ -728,7 +728,7 @@ TEST_P(PriorityThpoolTestDrain, TestDrainWithThreshold) {
 
     // Verify that drain returned when threshold was reached
     size_t remaining_jobs = redisearch_thpool_get_stats(this->pool).total_pending_jobs +
-                           redisearch_thpool_num_jobs_in_progress(this->pool);
+                    redisearch_thpool_total_num_jobs_in_progress(this->pool);
     ASSERT_LE(remaining_jobs, threshold);
 
     // Wait for all remaining jobs to complete
@@ -836,7 +836,7 @@ void test_drain_high_priority_with_no_high_priority_jobs(T* test) {
 
   // Check that jobs are running before drain
   size_t jobs_before_drain = redisearch_thpool_get_stats(test->pool).total_pending_jobs +
-                            redisearch_thpool_num_jobs_in_progress(test->pool);
+                  redisearch_thpool_total_num_jobs_in_progress(test->pool);
 
   // Test drain high priority when no high priority jobs exist
   DrainTestContext yield_ctx;
@@ -848,7 +848,7 @@ void test_drain_high_priority_with_no_high_priority_jobs(T* test) {
 
   // Low priority jobs should still be running or pending (drain_high_priority shouldn't affect them)
   size_t remaining_jobs = redisearch_thpool_get_stats(test->pool).total_pending_jobs +
-                         redisearch_thpool_num_jobs_in_progress(test->pool);
+                  redisearch_thpool_total_num_jobs_in_progress(test->pool);
 
   // Either jobs are still running/pending, or they completed very quickly
   // The key test is that drain_high_priority returned without waiting for low priority jobs
@@ -875,7 +875,7 @@ TEST_P(PriorityThpoolTestDrainMoreBiasThanThreads, TestDrainHighPriorityWithNoHi
 template <typename T>
 void test_drain_high_priority_beyond_tickets(T* test) {
   DrainTestContext high_ctx;
-  high_ctx.work_duration = std::chrono::milliseconds(300); // Longer duration
+  high_ctx.work_duration = std::chrono::milliseconds(100); // Longer duration
 
   // Add only high priority jobs
   size_t num_high_jobs = 30; // More jobs than threads
@@ -888,7 +888,7 @@ void test_drain_high_priority_beyond_tickets(T* test) {
 
   // Check that jobs are running before drain
   size_t jobs_before_drain = redisearch_thpool_get_stats(test->pool).total_pending_jobs +
-                            redisearch_thpool_num_jobs_in_progress(test->pool);
+                            redisearch_thpool_total_num_jobs_in_progress(test->pool);
   ASSERT_EQ(jobs_before_drain, num_high_jobs);
 
   // Test drain high priority when no high priority jobs exist
@@ -897,7 +897,7 @@ void test_drain_high_priority_beyond_tickets(T* test) {
 
   // Low priority jobs should still be running or pending (drain_high_priority shouldn't affect them)
   size_t remaining_jobs = redisearch_thpool_get_stats(test->pool).total_pending_jobs +
-                         redisearch_thpool_num_jobs_in_progress(test->pool);
+                         redisearch_thpool_total_num_jobs_in_progress(test->pool);
 
   ASSERT_EQ(remaining_jobs, 0);
   ASSERT_EQ(high_ctx.jobs_completed.load(), num_high_jobs);

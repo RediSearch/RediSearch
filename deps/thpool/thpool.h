@@ -295,7 +295,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t *);
  *    threadpool thpool1 = thpool_init(2);
  *    threadpool thpool2 = thpool_init(2);
  *    ..
- *    printf("Working threads: %d\n", redisearch_thpool_num_jobs_in_progress(thpool1));
+ *    printf("Working threads: %d\n", redisearch_thpool_total_num_jobs_in_progress(thpool1));
  *    ..
  *    return 0;
  * }
@@ -303,7 +303,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t *);
  * @param threadpool     the threadpool of interest
  * @return integer       number of threads working
  */
-size_t redisearch_thpool_num_jobs_in_progress(redisearch_thpool_t *);
+size_t redisearch_thpool_total_num_jobs_in_progress(redisearch_thpool_t *);
 
 int redisearch_thpool_paused(redisearch_thpool_t *);
 

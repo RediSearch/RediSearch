@@ -123,7 +123,7 @@ void workersThreadPool_SetNumWorkers() {
 size_t workersThreadPool_WorkingThreadCount(void) {
   RS_ASSERT(_workers_thpool != NULL);
 
-  return redisearch_thpool_num_jobs_in_progress(_workers_thpool);
+  return redisearch_thpool_total_num_jobs_in_progress(_workers_thpool);
 }
 
 // return n_threads value.
