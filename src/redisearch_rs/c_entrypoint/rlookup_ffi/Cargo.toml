@@ -13,9 +13,8 @@ cbindgen.workspace = true
 build_utils = { path = "../../build_utils" }
 
 [dependencies]
+c_ffi_utils.workspace = true
 rlookup.workspace = true
 ffi.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
 libc.workspace = true
-
-c_ffi_utils = { path = "../c_ffi_utils" }

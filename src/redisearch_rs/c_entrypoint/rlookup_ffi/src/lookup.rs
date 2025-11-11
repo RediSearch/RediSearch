@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use c_ffi_utils::canary::CanaryGuarded;
+use c_ffi_utils::{as_mut_unchecked, as_ref_unchecked, canary::CanaryGuarded, expect_unchecked};
 use libc::size_t;
 use rlookup::{
     IndexSpecCache, RLookup as RLookupInternal, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
@@ -49,12 +49,18 @@ pub unsafe extern "C" fn RLookup_GetKey_Read<'a>(
     flags: u32,
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { as_mut_unchecked!(lookup, "RLookup_GetKey_Read: lookup is null") };
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let name = unsafe { CStr::from_ptr(name) };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+    // Safety: ensured by caller (6.)
+    let flags = unsafe {
+        expect_unchecked!(
+            RLookupKeyFlags::from_bits(flags),
+            "RLookup_GetKey_Read: Flags are invalid"
+        )
+    };
 
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
@@ -89,18 +95,27 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx<'a>(
     flags: u32,
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { as_mut_unchecked!(lookup, "RLookup_GetKey_ReadEx: lookup is null") };
 
-    // Safety: ensured by caller (2., 3., 4., 5.)
+    // Safety: ensured by caller (3.)
+    // `name_len` is a value as returned by `strlen` and therefore **does not**
+    // include the null terminator (that is why we do `name_len + 1` below)
+    let bytes = unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) };
+    // Safety: ensured by caller (2., 5.)
     let name = unsafe {
-        // `name_len` is a value as returned by `strlen` and therefore **does not**
-        // include the null terminator (that is why we do `name_len + 1` below)
-        let bytes = slice::from_raw_parts(name.cast::<u8>(), name_len + 1);
-
-        CStr::from_bytes_with_nul(bytes).unwrap()
+        expect_unchecked!(
+            CStr::from_bytes_with_nul(bytes),
+            "RLookup_GetKey_ReadEx: name either lacks or has a null-terminator before the end of the sequence"
+        )
     };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+    // Safety: ensured by caller (6.)
+    let flags = unsafe {
+        expect_unchecked!(
+            RLookupKeyFlags::from_bits(flags),
+            "RLookup_GetKey_ReadEx: Flags are invalid"
+        )
+    };
 
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
@@ -132,12 +147,13 @@ pub unsafe extern "C" fn RLookup_GetKey_Write<'a>(
     flags: u32,
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { as_mut_unchecked!(lookup, "RLookup_GetKey_Write: lookup is null") };
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let name = unsafe { CStr::from_ptr(name) };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+    // Safety: ensured by caller (6.)
+    let flags = RLookupKeyFlags::from_bits(flags).expect("RLookup_GetKey_Write: Flags are invalid");
     let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
         Cow::Owned(name.to_owned())
     } else {
@@ -176,18 +192,27 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx<'a>(
     flags: u32,
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { as_mut_unchecked!(lookup, "RLookup_GetKey_WriteEx: lookup is null") };
 
-    // Safety: ensured by caller (2., 3., 4., 5.)
+    // Safety: ensured by caller (3.)
+    // `name_len` is a value as returned by `strlen` and therefore **does not**
+    // include the null terminator (that is why we do `name_len + 1` below)
+    let bytes = unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) };
+    // Safety: ensured by caller (2., 5.)
     let name = unsafe {
-        // `name_len` is a value as returned by `strlen` and therefore **does not**
-        // include the null terminator (that is why we do `name_len + 1` below)
-        let bytes = slice::from_raw_parts(name.cast::<u8>(), name_len + 1);
-
-        CStr::from_bytes_with_nul(bytes).unwrap()
+        expect_unchecked!(
+            CStr::from_bytes_with_nul(bytes),
+            "RLookup_GetKey_WriteEx: name either lacks or has a null-terminator before the end of the sequence"
+        )
     };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+    // Safety: ensured by caller (6.)
+    let flags = unsafe {
+        expect_unchecked!(
+            RLookupKeyFlags::from_bits(flags),
+            "RLookup_GetKey_WriteEx: Flags are invalid"
+        )
+    };
     let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
         Cow::Owned(name.to_owned())
     } else {
@@ -227,7 +252,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
     flags: u32,
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { as_mut_unchecked!(lookup, "RLookup_GetKey_Load: lookup is null") };
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let name = unsafe { CStr::from_ptr(name) };
@@ -235,7 +260,13 @@ pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
     // Safety: ensured by caller (2., 3., 4., 5.)
     let field_name = unsafe { CStr::from_ptr(field_name) };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+    // Safety: ensured by caller (6.)
+    let flags = unsafe {
+        expect_unchecked!(
+            RLookupKeyFlags::from_bits(flags),
+            "RLookup_GetKey_Load: Flags are invalid"
+        )
+    };
     let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
         Cow::Owned(name.to_owned())
     } else {
@@ -279,21 +310,30 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
     flags: u32,
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { as_mut_unchecked!(lookup, "RLookup_GetKey_LoadEx: lookup is null") };
 
-    // Safety: ensured by caller (2., 3., 4., 5.)
+    // Safety: ensured by caller (3., 4.)
+    // `name_len` is a value as returned by `strlen` and therefore **does not**
+    // include the null terminator (that is why we do `name_len + 1` below)
+    let bytes = unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) };
+    // Safety: ensured by caller (2., 5.)
     let name = unsafe {
-        // `name_len` is a value as returned by `strlen` and therefore **does not**
-        // include the null terminator (that is why we do `name_len + 1` below)
-        let bytes = slice::from_raw_parts(name.cast::<u8>(), name_len + 1);
-
-        CStr::from_bytes_with_nul(bytes).unwrap()
+        expect_unchecked!(
+            CStr::from_bytes_with_nul(bytes),
+            "RLookup_GetKey_LoadEx: name either lacks or has a null-terminator before the end of the sequence"
+        )
     };
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let field_name = unsafe { CStr::from_ptr(field_name) };
 
-    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+    // Safety: ensured by caller (6.)
+    let flags = unsafe {
+        expect_unchecked!(
+            RLookupKeyFlags::from_bits(flags),
+            "RLookup_GetKey_LoadEx: Flags are invalid"
+        )
+    };
     let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
         Cow::Owned(name.to_owned())
     } else {
@@ -321,7 +361,8 @@ pub unsafe extern "C" fn RLookup_Init(
     spcache: Option<NonNull<ffi::IndexSpecCache>>,
 ) {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { as_mut_unchecked!(lookup, "RLookup_Init: lookup is null") };
+
     let spcache = spcache.map(|spcache| {
         // Safety: ensured by caller (2. & 3.)
         unsafe { IndexSpecCache::from_raw(spcache) }
@@ -342,8 +383,10 @@ pub unsafe extern "C" fn RLookup_Init(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
-    // Safety: ensured by caller (1.,2.)
-    unsafe { lookup.unwrap().drop_in_place() };
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { expect_unchecked!(lookup) };
+    // Safety: ensured by caller (2.)
+    unsafe { lookup.drop_in_place() };
 }
 
 /// Add all non-overridden keys from `lookup` to `dest`.
@@ -370,18 +413,18 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
     flags: u32,
 ) {
     // Safety: must be ensured by caller (1)
-    let lookup = unsafe {
-        lookup
-            .expect("RLookup_AddKeysFrom: lookup is null")
-            .as_ref()
-    };
+    let lookup = unsafe { as_ref_unchecked!(lookup, "RLookup_AddKeysFrom: lookup is null") };
 
     // Safety: must be ensured by caller (2)
-    let dest = unsafe { dest.expect("RLookup_AddKeysFrom: dest is null").as_mut() };
+    let dest = unsafe { as_mut_unchecked!(dest, "RLookup_AddKeysFrom: dest is null") };
 
     // Safety: must be ensured by caller (3)
-    let flags = RLookupKeyFlags::from_bits(flags).expect("RLookup_AddKeysFrom: invalid flags");
-
+    let flags = unsafe {
+        expect_unchecked!(
+            RLookupKeyFlags::from_bits(flags),
+            "RLookup_AddKeysFrom: Flags are invalid"
+        )
+    };
     dest.add_keys_from(lookup, flags);
 }
 
@@ -406,15 +449,18 @@ pub unsafe extern "C" fn RLookup_FindKey<'a>(
     name_len: size_t,
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: must be ensured by caller (1)
-    let lookup = unsafe { lookup.expect("RLookup_FindKey: lookup is null").as_ref() };
+    let lookup = unsafe { as_ref_unchecked!(lookup, "RLookup_FindKey: lookup is null") };
 
-    // Safety: must be ensured by caller (2, 3, 4, 5)
+    // Safety: ensured by caller (3., 4.)
+    // `name_len` is a value as returned by `strlen` and therefore **does not**
+    // include the null terminator (that is why we do `name_len + 1` below)
+    let bytes = unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) };
+    // Safety: ensured by caller (2., 5.)
     let name = unsafe {
-        // `name_len` is a value as returned by `strlen` and therefore **does not**
-        // include the null terminator (that is why we do `name_len + 1` below)
-        let bytes = slice::from_raw_parts(name.cast::<u8>(), name_len + 1);
-
-        CStr::from_bytes_with_nul(bytes).unwrap()
+        expect_unchecked!(
+            CStr::from_bytes_with_nul(bytes),
+            "RLookup_GetKey_LoadEx: name either lacks or has a null-terminator before the end of the sequence"
+        )
     };
 
     let cursor = lookup.find_key_by_name(name)?;
@@ -441,7 +487,8 @@ pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
     field_name: *const c_char,
 ) -> *const ffi::FieldSpec {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_ref() };
+    let lookup =
+        unsafe { as_ref_unchecked!(lookup, "RLookup_FindFieldInSpecCache: lookup is null") };
 
     // Safety: ensured by caller (2., 3.)
     let field_name = unsafe { CStr::from_ptr(field_name) };
@@ -470,15 +517,18 @@ pub unsafe extern "C" fn RLookup_CreateKey(
     flags: u32,
 ) -> *mut RLookupKey {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { as_mut_unchecked!(lookup, "RLookup_CreateKey: lookup is null") };
 
+    // Safety: ensured by caller (3.)
+    // `name_len` is a value as returned by `strlen` and therefore **does not**
+    // include the null terminator (that is why we do `name_len + 1` below)
+    let bytes = unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) };
     // Safety: ensured by caller (2., 3.)
     let name = unsafe {
-        // `name_len` is a value as returned by `strlen` and therefore **does not**
-        // include the null terminator (that is why we do `name_len + 1` below)
-        let bytes = slice::from_raw_parts(name.cast::<u8>(), name_len + 1);
-
-        CStr::from_bytes_with_nul(bytes).unwrap()
+        expect_unchecked!(
+            CStr::from_bytes_with_nul(bytes),
+            "RLookup_GetKey_LoadEx: name either lacks or has a null-terminator before the end of the sequence"
+        )
     };
 
     // Safety: must be ensured by caller (4)
@@ -534,7 +584,7 @@ pub unsafe extern "C" fn RLookup_Free_Heap<'a>(lookup: Option<NonNull<RLookup<'a
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_KeySetPath(rlk: Option<NonNull<RLookupKey>>, path: *const c_char) {
     // Safety: ensured by caller (1.)
-    let rlk = unsafe { rlk.unwrap().as_mut() };
+    let rlk = unsafe { as_mut_unchecked!(rlk, "RLookup_KeySetPath: rlk is null") };
 
     // Safety: ensured by caller (2., 3.)
     let path = unsafe { CStr::from_ptr(path) };
