@@ -77,7 +77,7 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
     QueryError_SetError(&status, errCode, NULL);
     QueryError_SetCode(&status, errCode);
     if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
-        status._queryOOM = true;
+        QueryError_SetQueryOOMWarning(&status);
     }
 
     int ret = empty_sendChunk_common(ctx, req);
@@ -93,7 +93,7 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
     QueryError_SetError(&status, errCode, NULL);
     QueryError_SetCode(&status, errCode);
     if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
-        status._queryOOM = true;
+        QueryError_SetQueryOOMWarning(&status);
     }
 
     // If internal - reply cursor information from shards to coord.
@@ -104,7 +104,7 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
         RedisModule_ReplyKV_LongLong(coordInfoReply, "SEARCH", 0);
         RedisModule_ReplyKV_LongLong(coordInfoReply, "VSIM", 0);
         RedisModule_ReplyKV_Array(coordInfoReply,"warnings"); // warnings []
-        if (status._queryOOM) {
+        if (QueryError_HasQueryOOMWarning(&status)) {
             RedisModule_Reply_SimpleString(coordInfoReply, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
         }
         RedisModule_Reply_ArrayEnd(coordInfoReply); // ~warnings
@@ -145,7 +145,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     QueryError_SetError(&status, errCode, NULL);
     QueryError_SetCode(&status, errCode);
     if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
-        status._queryOOM = true;
+        QueryError_SetQueryOOMWarning(&status);
     }
 
     int ret = empty_sendChunk_common(ctx, req);
