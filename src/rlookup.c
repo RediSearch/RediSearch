@@ -20,28 +20,28 @@
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
 
-  if (!lookup->head) {
-    lookup->head = lookup->tail = ret;
+  if (!lookup->header.keys.head) {
+    lookup->header.keys.head = lookup->header.keys.tail = ret;
   } else {
-    lookup->tail->next = ret;
-    lookup->tail = ret;
+    lookup->header.keys.tail->next = ret;
+    lookup->header.keys.tail = ret;
   }
 
   // Set the name of the key.
   ret->name = (flags & RLOOKUP_F_NAMEALLOC) ? rm_strndup(name, name_len) : name;
   ret->name_len = name_len;
   ret->path = ret->name;
-  ret->dstidx = lookup->rowlen;
+  ret->dstidx = lookup->header.keys.rowlen;
   ret->flags = flags & ~RLOOKUP_TRANSIENT_FLAGS;
 
   // Increase the RLookup table row length. (all rows have the same length).
-  ++(lookup->rowlen);
+  ++(lookup->header.keys.rowlen);
 
   return ret;
 }
 
 const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
-  const IndexSpecCache *cc = lookup->spcache;
+  const IndexSpecCache *cc = lookup->index_spec_cache;
   if (!cc) {
     return NULL;
   }
@@ -98,7 +98,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
                          int requiredFlags, int excludeFlags, SchemaRule *rule) {
   int i = 0;
   size_t nfields = 0;
-  for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
+  for (const RLookupKey *kk = lookup->header.keys.head; kk; kk = kk->next, ++i) {
     if (kk->name == NULL) {
       // Overridden key. Skip without incrementing the index
       --i;
@@ -125,7 +125,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
     skipFieldIndex[i] = 1;
     ++nfields;
   }
-  RS_LOG_ASSERT(i == lookup->rowlen, "'i' should be equal to lookup len");
+  RS_LOG_ASSERT(i == lookup->header.keys.rowlen, "'i' should be equal to lookup len");
   return nfields;
 }
 
@@ -178,7 +178,7 @@ void RLookupRow_Reset(RLookupRow *r) {
 }
 
 void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
-  for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+  for (const RLookupKey *kk = lk->header.keys.head; kk; kk = kk->next) {
     RSValue *vv = RLookup_GetItem(kk, src);
     if (vv) {
       RLookup_WriteKey(kk, dst, vv);
@@ -565,7 +565,7 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
       }
     }
   } else { // If we called load to perform IF operation with FT.ADD command
-    for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
+    for (const RLookupKey *kk = it->header.keys.head; kk; kk = kk->next) {
       /* key is not part of document schema. no need/impossible to 'load' it */
       if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
         continue;
@@ -800,7 +800,7 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
   RS_ASSERT(destRow && destLookup);
 
   // Iterate through all source keys
-  for (const RLookupKey *src_key = srcLookup->head; src_key; src_key = src_key->next) {
+  for (const RLookupKey *src_key = srcLookup->header.keys.head; src_key; src_key = src_key->next) {
     if (!src_key->name) {
       // Skip overridden keys
       continue;

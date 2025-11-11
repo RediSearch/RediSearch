@@ -233,13 +233,13 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
       int excludeFlags = RLOOKUP_F_HIDDEN;
       int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-      int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
-      memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
+      int skipFieldIndex[lk->header.keys.rowlen]; // Array has `0` for fields which will be skipped
+      memset(skipFieldIndex, 0, lk->header.keys.rowlen * sizeof(*skipFieldIndex));
       size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
 
       RedisModule_Reply_Map(reply);
         int i = 0;
-        for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+        for (const RLookupKey *kk = lk->header.keys.head; kk; kk = kk->next) {
           if (!kk->name || !skipFieldIndex[i++]) {
             continue;
           }
