@@ -81,7 +81,7 @@ protected:
 
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(result, &ac, args, args.size());
-    int rc =  parseHybridCommand(ctx, &ac, result->sctx, &cmd, &status, true);
+    int rc =  parseHybridCommand(ctx, &ac, result->sctx, &cmd, &status, false);
     if (rc != REDISMODULE_OK) {
       HybridRequest_Free(result);
       result = nullptr;

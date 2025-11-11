@@ -151,6 +151,19 @@ bool QueryError_HasError(const struct QueryError *query_error);
 const char *QueryError_Strerror(uint8_t maybe_code);
 
 /**
+ * Returns a [`QueryErrorCode`] given an error message.
+ *
+ * This only supports the query error codes [`QueryErrorCode::TimedOut`] and
+ * [`QueryErrorCode::OutOfMemory`]. If another message is provided,
+ * [`QueryErrorCode::Generic`] is returned.
+ *
+ * # Safety
+ *
+ * - `message` must be a valid C string or a NULL pointer.
+ */
+QueryErrorCode QueryError_GetCodeFromMessage(const char *message);
+
+/**
  * Sets the [`QueryErrorCode`] and error message for a [`QueryError`].
  *
  * This does not mutate `query_error` if it already has an error set.
