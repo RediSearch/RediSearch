@@ -270,17 +270,18 @@ def test_memory_info():
         env.execute_command('FLUSHALL')
 
 
-func_gen = lambda tn, dt, dist, wr: lambda: queries_sanity(tn, dt, dist, wr)
+func_gen = lambda tn, comp, dt, dist, wr: lambda: queries_sanity(tn, comp, dt, dist, wr)
 for workers in [0, 4]:
     name_suffix = "_async" if workers else ""
-    data_types = ['FLOAT32'] if (SANITIZER or CODE_COVERAGE) else VECSIM_SVS_DATA_TYPES
-    for data_type in data_types:
-        metrics = ['IP']
-        if EXTENDED_PYTESTS:
-            metrics = VECSIM_DISTANCE_METRICS
-        for metric in metrics:
-            test_name = f"test_queries_sanity_{data_type}_{metric}" + name_suffix
-            globals()[test_name] = func_gen(test_name, data_type, metric, workers)
+    # Create SVS VAMANA index with all compression flavors
+    # for non intel machines, we only test NO_COMPRESSION and any compression type (will result in GlobalSQ8)
+    compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8']
+    for compression_type in compression_types:
+        for data_type in VECSIM_SVS_DATA_TYPES:
+            metrics = VECSIM_DISTANCE_METRICS if EXTENDED_PYTESTS else ['IP']
+            for metric in metrics:
+                test_name = f"test_queries_sanity_{compression_type}_{data_type}_{metric}" + name_suffix
+                globals()[test_name] = func_gen(test_name, compression_type, data_type, metric, workers)
 
 '''
 This test validates SVS-VAMANA tiered indexing across all datatype, metric, and compression combinations.
@@ -291,52 +292,42 @@ and verifies that vector is returned as the top result.
 Distance verification is skipped since some compression types would require larger training thresholds
 and vector dimension to get an exact match, making the test prohibitively slow.
 '''
-def queries_sanity(test_name, data_type, metric, workers):
+def queries_sanity(test_name, compression_type, data_type, metric, workers):
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {workers}')
     # Sanity check that the test parameters match the test name
-    env.debugPrint(f"test name: {test_name}, data_type: {data_type}, metric: {metric}", force=True)
+    env.debugPrint(f"test name: {test_name}, compression_type: {compression_type}, data_type: {data_type}, metric: {metric}", force=True)
     dim = 28
     training_threshold = DEFAULT_BLOCK_SIZE
     num_docs = int(training_threshold * 1.1 * env.shardsCount) # To ensure all shards' svs index is initialized.
     score_title = f'__{DEFAULT_FIELD_NAME}_score'
     conn = getConnectionByEnv(env)
 
-    # Create SVS VAMANA index with all compression flavors
-    # for non intel machines, we only test NO_COMPRESSION and any compression type (will result in GlobalSQ8)
 
-    compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8']
     env.debugPrint(f"Extended tests: {EXTENDED_PYTESTS}", force=True)
-    # Create an index for each compression type
-    indexes_list = []
-    for compression_type in compression_types:
-        index_name = f"idx_{compression_type}"
-        indexes_list.append(index_name)
-        index_params = ['CONSTRUCTION_WINDOW_SIZE', num_docs, 'SEARCH_WINDOW_SIZE', num_docs]
-        if compression_type != 'NO_COMPRESSION':
-            index_params.extend(['COMPRESSION', compression_type, 'TRAINING_THRESHOLD', training_threshold])
+    index_name = f"idx"
+    index_params = ['CONSTRUCTION_WINDOW_SIZE', num_docs, 'SEARCH_WINDOW_SIZE', num_docs]
+    if compression_type != 'NO_COMPRESSION':
+        index_params.extend(['COMPRESSION', compression_type, 'TRAINING_THRESHOLD', training_threshold])
 
-        create_vector_index(env, dim, index_name=index_name, datatype=data_type, metric=metric, alg='SVS-VAMANA',
-                            additional_vec_params=index_params, message=f"datatype: {data_type}, metric: {metric}, compression: {compression_type}")
+    create_vector_index(env, dim, index_name=index_name, datatype=data_type, metric=metric, alg='SVS-VAMANA',
+                        additional_vec_params=index_params, message=f"datatype: {data_type}, metric: {metric}, compression: {compression_type}")
 
-    env.assertEqual(sorted(env.cmd('FT._LIST')), sorted(indexes_list))
     # add vectors with the same field name so they will be indexed in all indexes
     normalize = metric == 'IP'
     query = populate_with_vectors(env, dim=dim, num_docs=num_docs, datatype=data_type, normalize=normalize, ret_vec_offset=0)
 
-    for index_name in indexes_list:
-        message = f"datatype: {data_type}, metric: {metric}, index: {index_name}"
-        wait_for_background_indexing(env, index_name, DEFAULT_FIELD_NAME, message=message)
-        env.assertEqual(index_info(env, index_name)['num_docs'], num_docs, message=message)
-        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
-            env.assertGreaterEqual(get_tiered_backend_debug_info(con, index_name, DEFAULT_FIELD_NAME)['INDEX_SIZE'], training_threshold, message=f"shard id: {i} " + message)
+    message = f"datatype: {data_type}, metric: {metric}, index: {index_name}"
+    wait_for_background_indexing(env, index_name, DEFAULT_FIELD_NAME, message=message)
+    env.assertEqual(index_info(env, index_name)['num_docs'], num_docs, message=message)
+    for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+        env.assertGreaterEqual(get_tiered_backend_debug_info(con, index_name, DEFAULT_FIELD_NAME)['INDEX_SIZE'], training_threshold, message=f"shard id: {i} " + message)
 
-    for index_name in indexes_list:
-        message = f"datatype: {data_type}, metric: {metric}, index: {index_name}"
-        knn_res = env.execute_command('FT.SEARCH', index_name, f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
-        cmd_range = f'@{DEFAULT_FIELD_NAME}:[VECTOR_RANGE 10 $b]=>{{$yield_distance_as:{score_title}}}'
-        range_res = conn.execute_command('FT.SEARCH', index_name, cmd_range, 'PARAMS', 2, 'b', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
-        env.assertEqual(knn_res[1], f'doc{1}', message=str(knn_res) + " " + message)
-        env.assertEqual(range_res[1], f'doc{1}', message=message)
+    message = f"datatype: {data_type}, metric: {metric}, index: {index_name}"
+    knn_res = env.execute_command('FT.SEARCH', index_name, f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
+    cmd_range = f'@{DEFAULT_FIELD_NAME}:[VECTOR_RANGE 10 $b]=>{{$yield_distance_as:{score_title}}}'
+    range_res = conn.execute_command('FT.SEARCH', index_name, cmd_range, 'PARAMS', 2, 'b', query.tobytes(), 'sortby', score_title, 'RETURN', 1, score_title)
+    env.assertEqual(knn_res[1], f'doc{1}', message=str(knn_res) + " " + message)
+    env.assertEqual(range_res[1], f'doc{1}', message=message)
 
 def empty_index(env):
     env.execute_command(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '1000000')
