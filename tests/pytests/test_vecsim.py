@@ -1910,7 +1910,7 @@ def test_index_multi_value_json():
             expected_res_knn.append(str(i))                                 # Expected id
             expected_res_knn.append([score_field_name, str(i * i * dim)])   # Expected score
 
-        radius = dim * k**2 + 20
+        radius = dim * k**2 + 40
         element = create_np_array_typed([n]*dim, data_t)
         cmd_range = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'LIMIT', 0, n]
         expected_res_range = []
