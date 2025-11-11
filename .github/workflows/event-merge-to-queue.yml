@@ -104,6 +104,19 @@ jobs:
       rejson-branch: master
       skip-condition: ${{ matrix.skip-condition || 'false' }}
 
+
+  coverage:
+    needs: get-latest-redis-tag
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false'}}
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      env: ubuntu-latest
+      coverage: true
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      rejson-branch: master
+      test-config: '' # run all tests
+
   sanitizer:
     needs: get-latest-redis-tag
     uses: ./.github/workflows/task-test.yml
@@ -111,21 +124,9 @@ jobs:
     with:
       env: ubuntu-latest
       san: address
-      test-config: ''
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
-
-  coverage:
-    needs: get-latest-redis-tag
-    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
-    uses: ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      env: ubuntu-latest
-      coverage: true
-      test-config: ''
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: master
+      test-config: '' # run all tests
 
   run-on-intel:
     needs: get-latest-redis-tag
