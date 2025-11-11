@@ -14,7 +14,6 @@
 #include "query_error.h"
 #include <string.h>
 
-
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
 #define INTERNAL_HYBRID_RESP2_LENGTH 6
 
@@ -51,6 +50,7 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
         MRReply *key_reply = MRReply_ArrayElement(rep, i);
         MRReply *value_reply = MRReply_ArrayElement(rep, i + 1);
         const char *key = MRReply_String(key_reply, NULL);
+        bool earlyBailout = false;
 
         // Handle warnings
         if (strcmp(key, "warnings") == 0) {
@@ -67,20 +67,28 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
 
         CursorMappings *vsimOrSearch = NULL;
         if (strcmp(key, "SEARCH") == 0) {
+
+            // Check for early bailout (Cursor ID 0 means no cursor was opened)
+            if (value == 0) {
+                earlyBailout = true;
+                // Pop the related VSIM mapping if exists
+                CursorMappings *vsim = StrongRef_Get(ctx->vsimMappings);
+                CursorMappings *search = StrongRef_Get(ctx->searchMappings);
+                while (array_len(vsim->mappings) > array_len(search->mappings)) {
+                    array_pop(vsim->mappings);
+                }
+                continue;
+            }
+
             vsimOrSearch = StrongRef_Get(ctx->searchMappings);
             mapping.cursorId = value;
         } else if (strcmp(key, "VSIM") == 0) {
+            if (earlyBailout) continue;
             vsimOrSearch = StrongRef_Get(ctx->vsimMappings);
             mapping.cursorId = value;
         }
+
         RS_ASSERT(vsimOrSearch);
-        if (mapping.cursorId == 0) {
-            // Pop all mappings from previous subqueries
-            while (array_len(vsimOrSearch->mappings) > 0) {
-                array_pop(vsimOrSearch->mappings);
-            }
-            break;
-        }
         vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
     }
 }
