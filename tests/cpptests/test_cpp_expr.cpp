@@ -241,7 +241,7 @@ TEST_F(ExprTest, testGetFields) {
   RSExpr *root = ExprAST_Parse(hidden, &status);
   HiddenString_Free(hidden, false);
   ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetUserError(&status);
-  RLookup lk;
+  RLookup lk = {0};
 
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
@@ -391,7 +391,7 @@ TEST_F(ExprTest, testNull) {
 
 TEST_F(ExprTest, testPropertyFetch) {
   TEvalCtx ctx("log(@foo) + 2*sqrt(@bar)");
-  RLookup lk;
+  RLookup lk = {0};
   RLookup_Init(&lk, NULL);
   RLookupRow rr = {0};
   RLookupKey *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
