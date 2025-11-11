@@ -73,20 +73,147 @@ pub extern "C" fn RsValue_NullStatic() -> *const OpaqueRsValue {
     RSVALUE_NULL.as_opaque_ptr()
 }
 
-/// Get the type of an `RsValue`.
-///
-/// # Safety
-/// The passed value must originate from one of the `RsValue` constructors,
-/// i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
-/// or [`RsValue_NullStatic`].
+/// Get the type of an `RsValue` as an [`RsValueType`].
 ///
 /// @param v The value to inspect
 /// @return The `RsValueType` of the value
+///
+/// # Safety
+/// The passed pointer must originate from one of the `RsValue` constructors,
+/// i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
+/// or [`RsValue_NullStatic`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_Type(v: &OpaqueRsValue) -> RsValueType {
+pub unsafe extern "C" fn RsValue_Type(v: *const OpaqueRsValue) -> RsValueType {
+    debug_assert!(!v.is_null(), "`v` must not be NULL");
     // Safety:
     // The caller must guarantee that `v` originates from one of the RsValue constructors,
     // all of which produce an `OpaqueRsValue` by calling `RsValue::into_opaque()`.
-    let v = unsafe { RsValue::from_opaque_ptr(v as *const _) };
+    let v = unsafe { RsValue::from_opaque_ptr(v) };
     v.unwrap().as_value_type()
+}
+
+/// Check if the `RsValue` is a reference.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Ref`], false otherwise
+///
+/// # Safety
+/// See [`RsValue_Type`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_IsReference(v: *const OpaqueRsValue) -> bool {
+    // Safety: caller must ensure safety requirements of `RsValue_Type`
+    // are met.
+    unsafe { RsValue_Type(v).is_ref() }
+}
+
+/// Check if the `RsValue` is a number.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Number`], false otherwise
+///
+/// # Safety
+/// See [`RsValue_Type`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_IsNumber(v: *const OpaqueRsValue) -> bool {
+    // Safety: caller must ensure safety requirements of `RsValue_Type`
+    // are met.
+    unsafe { RsValue_Type(v).is_number() }
+}
+
+/// Check if the `RsValue` is a string.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::String`], false otherwise
+///
+/// # Safety
+/// See [`RsValue_Type`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_IsString(v: *const OpaqueRsValue) -> bool {
+    // Safety: caller must ensure safety requirements of `RsValue_Type`
+    // are met.
+    unsafe { RsValue_Type(v).is_string() }
+}
+
+/// Check if the `RsValue` is an array.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Array`], false otherwise
+///
+/// # Safety
+/// See [`RsValue_Type`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_IsArray(v: *const OpaqueRsValue) -> bool {
+    // Safety: caller must ensure safety requirements of `RsValue_Type`
+    // are met.
+    unsafe { RsValue_Type(v).is_array() }
+}
+
+/// Check if the `RsValue` is a Redis string type.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::BorrowedRedisString`], false otherwise
+///
+/// # Safety
+/// See [`RsValue_Type`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_IsRedisString(v: *const OpaqueRsValue) -> bool {
+    // Safety: caller must ensure safety requirements of `RsValue_Type`
+    // are met.
+    unsafe { RsValue_Type(v).is_borrowed_redis_string() }
+}
+
+/// Check if the `RsValue` is an owned Redis string.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::OwnedRedisString`], false otherwise
+///
+/// # Safety
+/// See [`RsValue_Type`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_IsOwnRString(v: *const OpaqueRsValue) -> bool {
+    // Safety: caller must ensure safety requirements of `RsValue_Type`
+    // are met.
+    unsafe { RsValue_Type(v).is_owned_redis_string() }
+}
+
+/// Check whether the `RsValue` is a trio.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Trio`], false otherwise
+///
+/// # Safety
+/// See [`RsValue_Type`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_IsTrio(v: *const OpaqueRsValue) -> bool {
+    // Safety: caller must ensure safety requirements of `RsValue_Type`
+    // are met.
+    unsafe { RsValue_Type(v).is_trio() }
+}
+
+/// Returns true if the value contains any type of string
+///
+/// @param v The value to check
+/// @return true if the value is any type of string, false otherwise
+///
+/// # Safety
+/// See [`RsValue_Type`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_IsAnyString(v: *const OpaqueRsValue) -> bool {
+    // Safety: caller must ensure safety requirements of `RsValue_Type`
+    // are met.
+    unsafe { RsValue_Type(v).is_any_string() }
+}
+
+/// Check if the value is NULL;
+///
+/// @param v The value to check
+/// @return true if the value is NULL, false otherwise
+///
+/// # Safety
+/// See [`RsValue_Type`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_IsNull(v: *const OpaqueRsValue) -> bool {
+    // Safety: caller must ensure safety requirements of `RsValue_Type`
+    // are met.
+    unsafe { RsValue_Type(v).is_null() }
 }

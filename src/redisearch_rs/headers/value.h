@@ -181,17 +181,116 @@ struct RsValue RsValue_String(char *str, uint32_t len);
 const struct RsValue *RsValue_NullStatic(void);
 
 /**
- * Get the type of an `RsValue`.
- *
- * # Safety
- * The passed value must originate from one of the `RsValue` constructors,
- * i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
- * or [`RsValue_NullStatic`].
+ * Get the type of an `RsValue` as an [`RsValueType`].
  *
  * @param v The value to inspect
  * @return The `RsValueType` of the value
+ *
+ * # Safety
+ * The passed pointer must originate from one of the `RsValue` constructors,
+ * i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
+ * or [`RsValue_NullStatic`].
  */
 enum RsValueType RsValue_Type(const struct RsValue *v);
+
+/**
+ * Check if the `RsValue` is a reference.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::Ref`], false otherwise
+ *
+ * # Safety
+ * See [`RsValue_Type`].
+ */
+bool RsValue_IsReference(const struct RsValue *v);
+
+/**
+ * Check if the `RsValue` is a number.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::Number`], false otherwise
+ *
+ * # Safety
+ * See [`RsValue_Type`].
+ */
+bool RsValue_IsNumber(const struct RsValue *v);
+
+/**
+ * Check if the `RsValue` is a string.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::String`], false otherwise
+ *
+ * # Safety
+ * See [`RsValue_Type`].
+ */
+bool RsValue_IsString(const struct RsValue *v);
+
+/**
+ * Check if the `RsValue` is an array.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::Array`], false otherwise
+ *
+ * # Safety
+ * See [`RsValue_Type`].
+ */
+bool RsValue_IsArray(const struct RsValue *v);
+
+/**
+ * Check if the `RsValue` is a Redis string type.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::BorrowedRedisString`], false otherwise
+ *
+ * # Safety
+ * See [`RsValue_Type`].
+ */
+bool RsValue_IsRedisString(const struct RsValue *v);
+
+/**
+ * Check if the `RsValue` is an owned Redis string.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::OwnedRedisString`], false otherwise
+ *
+ * # Safety
+ * See [`RsValue_Type`].
+ */
+bool RsValue_IsOwnRString(const struct RsValue *v);
+
+/**
+ * Check whether the `RsValue` is a trio.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::Trio`], false otherwise
+ *
+ * # Safety
+ * See [`RsValue_Type`].
+ */
+bool RsValue_IsTrio(const struct RsValue *v);
+
+/**
+ * Returns true if the value contains any type of string
+ *
+ * @param v The value to check
+ * @return true if the value is any type of string, false otherwise
+ *
+ * # Safety
+ * See [`RsValue_Type`].
+ */
+bool RsValue_IsAnyString(const struct RsValue *v);
+
+/**
+ * Check if the value is NULL;
+ *
+ * @param v The value to check
+ * @return true if the value is NULL, false otherwise
+ *
+ * # Safety
+ * See [`RsValue_Type`].
+ */
+bool RsValue_IsNull(const struct RsValue *v);
 
 /**
  * Create a new, uninitialized [`RsValueMap`], reserving space for `cap`
@@ -425,6 +524,7 @@ struct SharedRsValue SharedRsValue_NewConstStringArray(const char **strs,
 /**
  * Creates a heap-allocated RsValue Trio from three RsValues.
  * Takes ownership of all three values.
+ *
  * @param left The left value (ownership is transferred)
  * @param middle The middle value (ownership is transferred)
  * @param right The right value (ownership is transferred)
@@ -433,6 +533,86 @@ struct SharedRsValue SharedRsValue_NewConstStringArray(const char **strs,
 struct SharedRsValue SharedRsValue_NewTrio(struct SharedRsValue left,
                                            struct SharedRsValue middle,
                                            struct SharedRsValue right);
+
+/**
+ * Get the type of a `SharedRsValue` as an [`RsValueType`].
+ *
+ * @param v The value to inspect
+ * @return The `RsValueType` of the value
+ */
+enum RsValueType SharedRsValue_Type(struct SharedRsValue v);
+
+/**
+ * Check if the `SharedRsValue` is a reference.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::Ref`], false otherwise
+ */
+bool SharedRsValue_IsReference(struct SharedRsValue v);
+
+/**
+ * Check if the `SharedRsValue` is a number.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::Number`], false otherwise
+ */
+bool SharedRsValue_IsNumber(struct SharedRsValue v);
+
+/**
+ * Check if the `SharedRsValue` is a string.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::String`], false otherwise
+ */
+bool SharedRsValue_IsString(struct SharedRsValue v);
+
+/**
+ * Check if the `SharedRsValue` is an array.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::Array`], false otherwise
+ */
+bool SharedRsValue_IsArray(struct SharedRsValue v);
+
+/**
+ * Check if the `SharedRsValue` is a Redis string type.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::BorrowedRedisString`], false otherwise
+ */
+bool SharedRsValue_IsRedisString(struct SharedRsValue v);
+
+/**
+ * Check if the `SharedRsValue` is an owned Redis string.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::OwnedRedisString`], false otherwise
+ */
+bool SharedRsValue_IsOwnRString(struct SharedRsValue v);
+
+/**
+ * Check whether the `RsValue` is a trio.
+ *
+ * @param v The value to check
+ * @return true if the value is of type [`RsValueType::Trio`], false otherwise
+ */
+bool SharedRsValue_IsTrio(struct SharedRsValue v);
+
+/**
+ * Returns true if the value contains any type of string
+ *
+ * @param v The value to check
+ * @return true if the value is any type of string, false otherwise
+ */
+bool SharedRsValue_IsAnyString(struct SharedRsValue v);
+
+/**
+ * Check if the value is NULL;
+ *
+ * @param v The value to check
+ * @return true if the value is NULL, false otherwise
+ */
+bool SharedRsValue_IsNull(struct SharedRsValue v);
 
 /**
  * Gets the `f64` wrapped by the `SharedRsValue`

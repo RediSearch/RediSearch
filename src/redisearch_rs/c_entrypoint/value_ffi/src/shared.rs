@@ -18,6 +18,8 @@ use value::{
     shared::SharedRsValue,
 };
 
+use crate::value_type::{AsRsValueType, RsValueType};
+
 /// Creates a heap-allocated `RsValue` wrapping a string.
 /// Doesn't duplicate the string. Use strdup if the value needs to be detached.
 ///
@@ -337,6 +339,7 @@ pub unsafe extern "C" fn SharedRsValue_NewConstStringArray(
 
 /// Creates a heap-allocated RsValue Trio from three RsValues.
 /// Takes ownership of all three values.
+///
 /// @param left The left value (ownership is transferred)
 /// @param middle The middle value (ownership is transferred)
 /// @param right The right value (ownership is transferred)
@@ -348,6 +351,96 @@ pub extern "C" fn SharedRsValue_NewTrio(
     right: SharedRsValue,
 ) -> SharedRsValue {
     SharedRsValue::trio(left, middle, right)
+}
+
+/// Get the type of a `SharedRsValue` as an [`RsValueType`].
+///
+/// @param v The value to inspect
+/// @return The `RsValueType` of the value
+#[unsafe(no_mangle)]
+pub extern "C" fn SharedRsValue_Type(v: SharedRsValue) -> RsValueType {
+    v.as_value_type()
+}
+
+/// Check if the `SharedRsValue` is a reference.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Ref`], false otherwise
+#[unsafe(no_mangle)]
+pub extern "C" fn SharedRsValue_IsReference(v: SharedRsValue) -> bool {
+    v.as_value_type().is_ref()
+}
+
+/// Check if the `SharedRsValue` is a number.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Number`], false otherwise
+#[unsafe(no_mangle)]
+pub extern "C" fn SharedRsValue_IsNumber(v: SharedRsValue) -> bool {
+    v.as_value_type().is_number()
+}
+
+/// Check if the `SharedRsValue` is a string.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::String`], false otherwise
+#[unsafe(no_mangle)]
+pub extern "C" fn SharedRsValue_IsString(v: SharedRsValue) -> bool {
+    v.as_value_type().is_string()
+}
+
+/// Check if the `SharedRsValue` is an array.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Array`], false otherwise
+#[unsafe(no_mangle)]
+pub extern "C" fn SharedRsValue_IsArray(v: SharedRsValue) -> bool {
+    v.as_value_type().is_array()
+}
+
+/// Check if the `SharedRsValue` is a Redis string type.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::BorrowedRedisString`], false otherwise
+#[unsafe(no_mangle)]
+pub extern "C" fn SharedRsValue_IsRedisString(v: SharedRsValue) -> bool {
+    v.as_value_type().is_borrowed_redis_string()
+}
+
+/// Check if the `SharedRsValue` is an owned Redis string.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::OwnedRedisString`], false otherwise
+#[unsafe(no_mangle)]
+pub extern "C" fn SharedRsValue_IsOwnRString(v: SharedRsValue) -> bool {
+    v.as_value_type().is_owned_redis_string()
+}
+
+/// Check whether the `RsValue` is a trio.
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Trio`], false otherwise
+#[unsafe(no_mangle)]
+pub extern "C" fn SharedRsValue_IsTrio(v: SharedRsValue) -> bool {
+    v.as_value_type().is_trio()
+}
+
+/// Returns true if the value contains any type of string
+///
+/// @param v The value to check
+/// @return true if the value is any type of string, false otherwise
+#[unsafe(no_mangle)]
+pub extern "C" fn SharedRsValue_IsAnyString(v: SharedRsValue) -> bool {
+    v.as_value_type().is_any_string()
+}
+
+/// Check if the value is NULL;
+///
+/// @param v The value to check
+/// @return true if the value is NULL, false otherwise
+#[unsafe(no_mangle)]
+pub extern "C" fn SharedRsValue_IsNull(v: SharedRsValue) -> bool {
+    v.as_value_type().is_null()
 }
 
 /// Gets the `f64` wrapped by the `SharedRsValue`
