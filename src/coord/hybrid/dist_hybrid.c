@@ -121,6 +121,7 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
     // This is a VSIM FILTER - append it to the command
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
+    expectedFilterOffset += 2; // Update expected offset after processing FILTER
   }
 
   // Add YIELD_SCORE_AS if present

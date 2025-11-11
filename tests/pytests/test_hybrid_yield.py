@@ -267,3 +267,50 @@ def test_hybrid_yield_score_as_all_possible_scores():
         fused_score = float(doc_result[f'fused_score'])
         env.assertGreater(fused_score, 0)
         env.assertAlmostEqual(calculated_score, fused_score, delta=1e-6, message=f"Fused score and calculated score for {doc_key} do not match")
+
+def test_vsim_yield_score_as_with_filter():
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+            'YIELD_SCORE_AS', 's_score',
+        'VSIM', '@embedding', query_vector,
+            'KNN', '2', 'K', '10',
+            'FILTER', '@description:blue',
+            'YIELD_SCORE_AS', 'v_score')
+    results, _ = get_results_from_hybrid_response(response)
+    # 3 results are returned:
+    # - 3 containing "shoes" -> doc:1, doc:2, doc:4 -> s_score is present
+    # - 1 containing "blue"  -> doc:4 -> v_score is present
+    env.assertEqual(len(results.keys()), 3)
+    for doc_key, doc_result in results.items():
+        if doc_key in ["doc:1", "doc:2"]:
+            env.assertTrue('s_score' in doc_result)
+            env.assertFalse('v_score' in doc_result)
+        if doc_key == "doc:4":
+            env.assertTrue('s_score' in doc_result)
+            env.assertTrue('v_score' in doc_result)
+
+def test_vsim_yield_score_as_with_filter_and_post_filter():
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+            'YIELD_SCORE_AS', 's_score',
+        'VSIM', '@embedding', query_vector,
+            'KNN', '2', 'K', '10',
+            'FILTER', '@description:blue',
+            'YIELD_SCORE_AS', 'v_score',
+        'FILTER', '@__key=="doc:4"')
+    results, _ = get_results_from_hybrid_response(response)
+    # a single result is returned, due to post-filter:
+    # - doc:4 -> v_score is present
+    env.assertEqual(len(results.keys()), 1)
+    for doc_key, doc_result in results.items():
+        if doc_key == "doc:4":
+            env.assertTrue('s_score' in doc_result)
+            env.assertTrue('v_score' in doc_result)
