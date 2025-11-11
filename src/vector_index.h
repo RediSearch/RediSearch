@@ -189,7 +189,8 @@ extern "C" {
 #endif
 
 QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
-                                                          bool yields_metric);
+                                                          bool yields_metric,
+                                                          bool sorted_by_id);
 #ifdef __cplusplus
 }
 #endif
