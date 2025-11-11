@@ -400,7 +400,10 @@ def testCursorDepletionNonStrictTimeoutPolicySortby():
     env.assertEqual(cursor, 0, message=f"expected cursor to be depleted after one FT.CURSOR READ.")
     env.assertEqual(len(res['results']), 0, message=f"expected to receive 0 results after one FT.CURSOR READ. First query got {n_received} results, read results:{len(res['results'])}")
 
-    env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
+    # Ensure that the cursors we opened were closed properly (this may happen asynchronously)
+    with TimeLimit(5, "shard cursors were not deleted"):
+        while getCursorStats(env)['index_total'] != starting_cursor_count:
+            sleep(0.1)
 
 def testCursorDepletionNonStrictTimeoutPolicy(env):
     """Tests that the cursor id is returned in case the timeout policy is
@@ -430,8 +433,10 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
         cursor_runs += 1
 
     env.assertEqual(n_received, num_docs, message=f"unexpected results count after {cursor_runs} cursor runs (including the initial query)")
-    # Ensure that the cursors we opened were closed properly
-    env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
+    # Ensure that the cursors we opened were closed properly (this may happen asynchronously)
+    with TimeLimit(5, "shard cursors were not deleted"):
+        while getCursorStats(env)['index_total'] != starting_cursor_count:
+            sleep(0.1)
 
 def testTimeoutPartialWithEmptyResults(env):
     env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
@@ -499,8 +504,10 @@ def testCursorDepletionBM25NORMNonStrictTimeoutPolicy():
 
     # Verify total number of results received
     env.assertEqual(n_received, env.shardsCount * timeout_res_count, message=f"expected to receive 9 results in total. Got {n_received} results")
-
-    env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
+    # Ensure that the cursors we opened were closed properly (this may happen asynchronously)
+    with TimeLimit(5, "shard cursors were not deleted"):
+        while getCursorStats(env)['index_total'] != starting_cursor_count:
+            sleep(0.1)
 
 def testCursorDepletionStrictTimeoutPolicy():
     """Tests that the cursor returns a timeout error in case of a timeout, when
