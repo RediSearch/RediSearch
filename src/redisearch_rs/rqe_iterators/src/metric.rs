@@ -10,13 +10,14 @@
 //! Metric iterator implementation
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdList};
-use ffi::{RSYieldableMetric, array_ensure_append_n_func, t_docId};
+use ffi::{RLookupKey, RLookupKeyHandle, RSYieldableMetric, array_ensure_append_n_func, t_docId};
 use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
 use value::{RSValueFFI, RSValueTrait};
 
 /// The different types of metrics.
 /// At the moment, only vector distance is supported.
 #[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MetricType {
     VectorDistance,
 }
@@ -27,10 +28,30 @@ pub struct Metric<'index> {
     metric_data: Vec<f64>,
     #[allow(dead_code)]
     type_: MetricType,
+    own_key: *mut RLookupKey,
+    /// # Invariants
+    ///
+    /// The handle is either:
+    ///
+    /// - A null pointer, indicating that the iterator is not associated with a key.
+    /// - A valid pointer to a [`RLookupKeyHandle`] instance.
+    key_handle: *mut RLookupKeyHandle,
+}
+
+impl Drop for Metric<'_> {
+    fn drop(&mut self) {
+        if !self.key_handle.is_null() {
+            // Safety: thanks to [`Self::key_handle`]'s invariant, we can safely
+            // dereference it if it's not null.
+            unsafe {
+                (*self.key_handle).is_valid = false;
+            }
+        }
+    }
 }
 
 #[inline(always)]
-fn set_result_metrics(result: &mut RSIndexResult, val: f64) {
+fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey) {
     if let Some(num) = result.as_numeric_mut() {
         *num = val;
     } else {
@@ -45,7 +66,7 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64) {
 
     let value = RSValueFFI::create_num(val);
     let new_metrics: *const RSYieldableMetric = &RSYieldableMetric {
-        key: std::ptr::null_mut(),
+        key,
         value: value.as_ptr(),
     };
     // Prevent value::drop() from being called to avoid use-after-free as the C code now owns this value.
@@ -69,7 +90,31 @@ impl<'index> Metric<'index> {
             base: IdList::with_result(ids, RSIndexResult::metric()),
             metric_data,
             type_: MetricType::VectorDistance,
+            own_key: std::ptr::null_mut(),
+            key_handle: std::ptr::null_mut(),
         }
+    }
+
+    /// Set the [`RLookupKeyHandle`] for the metric iterator.
+    ///
+    /// # Safety
+    ///
+    /// The provided `key_handle` can either be:
+    ///
+    /// - A null pointer, indicating that the metric iterator does not have a key.
+    /// - A valid pointer to a [`RLookupKeyHandle`] instance.
+    pub const unsafe fn set_handle(&mut self, key_handle: *mut RLookupKeyHandle) {
+        self.key_handle = key_handle;
+    }
+
+    /// Get the metric type used by this iterator.
+    pub const fn metric_type(&self) -> MetricType {
+        self.type_
+    }
+
+    /// Return a mutable reference to the key for this metric iterator.
+    pub const fn key_mut_ref(&mut self) -> &mut *mut RLookupKey {
+        &mut self.own_key
     }
 }
 
@@ -84,7 +129,7 @@ impl<'index> RQEIterator<'index> for Metric<'index> {
         };
         let val = self.metric_data[offset - 1];
 
-        set_result_metrics(result, val);
+        set_result_metrics(result, val, self.own_key);
         Ok(Some(result))
     }
 
@@ -96,12 +141,12 @@ impl<'index> RQEIterator<'index> for Metric<'index> {
         match skip_outcome {
             Some((SkipToOutcome::Found(result), offset)) => {
                 let val = self.metric_data[offset - 1];
-                set_result_metrics(result, val);
+                set_result_metrics(result, val, self.own_key);
                 Ok(Some(SkipToOutcome::Found(result)))
             }
             Some((SkipToOutcome::NotFound(result), offset)) => {
                 let val = self.metric_data[offset - 1];
-                set_result_metrics(result, val);
+                set_result_metrics(result, val, self.own_key);
                 Ok(Some(SkipToOutcome::NotFound(result)))
             }
             None => Ok(None),
