@@ -13,9 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{
-    DecodedBy, Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData, TermDecoder,
-};
+use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData, TermDecoder};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -71,14 +69,6 @@ impl Encoder for Full {
     }
 }
 
-impl DecodedBy for Full {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 /// Create a [`RSIndexResult`] from the given parameters and read its offsets from the reader.
 ///
 /// # Safety
@@ -129,7 +119,6 @@ pub fn decode_term_record_offsets<'index>(
 impl Decoder for Full {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -153,7 +142,6 @@ impl Decoder for Full {
     }
 
     fn seek<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
@@ -228,18 +216,9 @@ impl Encoder for FullWide {
     }
 }
 
-impl DecodedBy for FullWide {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FullWide {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -256,7 +235,6 @@ impl Decoder for FullWide {
     }
 
     fn seek<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
