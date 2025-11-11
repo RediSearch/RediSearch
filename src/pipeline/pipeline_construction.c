@@ -4,7 +4,7 @@
 #include "vector_normalization.h"
 #include "vector_index.h"
 #include "iterators/hybrid_reader.h"
-#include "iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 #include "util/misc.h"
 
 #ifdef __cplusplus

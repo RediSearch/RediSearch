@@ -9,9 +9,8 @@
 
 
 #include <algorithm>
-#include "rmutil/alloc.h"
 #include "gtest/gtest.h"
-#include "src/iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 
 static bool cmp_docids(const t_docId& d1, const t_docId& d2) {
   return d1 < d2;
@@ -31,7 +30,7 @@ protected:
     //do a copy of the docIds vector before passing it to iterator
     t_docId* ids_array = (t_docId*)rm_malloc(docIds.size() * sizeof(t_docId));
     std::copy(docIds.begin(), docIds.end(), ids_array);
-    iterator_base = NewIdListIterator(ids_array, docIds.size(), 1.0);
+    iterator_base = NewSortedIdListIterator(ids_array, docIds.size(), 1.0);
   }
   void TearDown() override {
     iterator_base->Free(iterator_base);
@@ -44,7 +43,6 @@ TEST_P(IDListIteratorCommonTest, Revalidate) {
 
 
 TEST_P(IDListIteratorCommonTest, Read) {
-  IdListIterator *iterator = (IdListIterator *)iterator_base;
   IteratorStatus rc;
   ASSERT_EQ(iterator_base->NumEstimated(iterator_base), docIds.size());
 
@@ -64,20 +62,17 @@ TEST_P(IDListIteratorCommonTest, Read) {
 }
 
 TEST_P(IDListIteratorCommonTest, SkipTo) {
-  IdListIterator *iterator = (IdListIterator *)iterator_base;
   IteratorStatus rc;
 
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
   ASSERT_EQ(iterator_base->current->docId, docIds[0]);
   ASSERT_EQ(iterator_base->lastDocId, docIds[0]);
-  ASSERT_EQ(iterator->offset, 1);
   ASSERT_FALSE(iterator_base->atEOF);
 
   // Skip To to higher than last docID returns EOF, but the lastDocId and EOF is not updated
   ASSERT_EQ(iterator_base->SkipTo(iterator_base, docIds.back() + 1), ITERATOR_EOF);
   ASSERT_EQ(iterator_base->current->docId, docIds[0]);
   ASSERT_EQ(iterator_base->lastDocId, docIds[0]);
-  ASSERT_EQ(iterator->offset, 1);
   ASSERT_TRUE(iterator_base->atEOF);
 
   iterator_base->Rewind(iterator_base);
@@ -92,7 +87,6 @@ TEST_P(IDListIteratorCommonTest, SkipTo) {
       ASSERT_EQ(rc, ITERATOR_NOTFOUND);
       ASSERT_EQ(iterator_base->current->docId, id);
       ASSERT_EQ(iterator_base->lastDocId, id);
-      ASSERT_EQ(iterator->offset, index + 1); //offset is pointing to the next already
       ASSERT_FALSE(iterator_base->atEOF); // EOF would be set in another iteration
       iterator_base->Rewind(iterator_base);
       i++;
@@ -102,7 +96,6 @@ TEST_P(IDListIteratorCommonTest, SkipTo) {
     ASSERT_EQ(rc, ITERATOR_OK);
     ASSERT_EQ(iterator_base->current->docId, id);
     ASSERT_EQ(iterator_base->lastDocId, id);
-    ASSERT_EQ(iterator->offset, index + 1); //offset is pointing to the next already
     ASSERT_FALSE(iterator_base->atEOF); // EOF would be set in another iteration
     i++;
   }
@@ -119,7 +112,6 @@ TEST_P(IDListIteratorCommonTest, SkipTo) {
 }
 
 TEST_P(IDListIteratorCommonTest, Rewind) {
-  IdListIterator *iterator = (IdListIterator *)iterator_base;
   IteratorStatus rc;
   for (t_docId id : docIds) {
     rc = iterator_base->SkipTo(iterator_base, id);
