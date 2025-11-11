@@ -57,6 +57,16 @@ jobs:
             architecture: x86_64
           - platform: amazonlinux:2
             architecture: x86_64
+          - platform: amazonlinux:2023
+            architecture: x86_64
+          - platform: debian:bullseye
+            architecture: x86_64
+          - platform: debian:bookworm
+            architecture: x86_64
+          - platform: mariner:2
+            architecture: x86_64
+          - platform: azurelinux:3
+            architecture: x86_64
           - platform: alpine:3
             architecture: x86_64
           # Linux platforms - ARM64
@@ -71,6 +81,16 @@ jobs:
           - platform: rockylinux:9
             architecture: aarch64
           - platform: amazonlinux:2
+            architecture: aarch64
+          - platform: amazonlinux:2023
+            architecture: aarch64
+          - platform: debian:bullseye
+            architecture: aarch64
+          - platform: debian:bookworm
+            architecture: aarch64
+          - platform: mariner:2
+            architecture: aarch64
+          - platform: azurelinux:3
             architecture: aarch64
           - platform: alpine:3
             architecture: aarch64
