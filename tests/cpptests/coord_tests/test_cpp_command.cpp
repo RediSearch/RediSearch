@@ -19,7 +19,6 @@
 
 #include "hiredis/hiredis.h"
 #include "hiredis/read.h"
-#include "hiredis/sds.h"
 #include "rmutil/args.h"
 
 // Helper functions for testing
@@ -402,16 +401,15 @@ TEST_P(MRCommandSlotRangeTest, testSlotRangeRoundTrip) {
     MRCommand_SetSlotInfo(&cmd, testSlotArray);
 
     // Format the command using redisFormatSdsCommandArgv
-    sds formatted_cmd = NULL;
-    long long cmd_len = redisFormatSdsCommandArgv(&formatted_cmd, cmd.num, (const char **)cmd.strs, cmd.lens);
+    long long cmd_len = redisFormatSdsCommandArgv(&cmd.cmd, cmd.num, (const char **)cmd.strs, cmd.lens);
     EXPECT_GT(cmd_len, 0) << "Command formatting should succeed";
-    EXPECT_NE(formatted_cmd, (sds)NULL) << "Formatted command should not be NULL";
+    EXPECT_NE(cmd.cmd, (sds)NULL) << "Formatted command should not be NULL";
 
     // Parse the formatted command back using redisReader
     redisReader *reader = redisReaderCreate();
     EXPECT_NE(reader, (redisReader*)NULL) << "Reader creation should succeed";
 
-    int feed_result = redisReaderFeed(reader, formatted_cmd, cmd_len);
+    int feed_result = redisReaderFeed(reader, cmd.cmd, cmd_len);
     EXPECT_EQ(feed_result, REDIS_OK) << "Feeding data to reader should succeed";
 
     void *reply_ptr;
@@ -453,6 +451,5 @@ TEST_P(MRCommandSlotRangeTest, testSlotRangeRoundTrip) {
     // Cleanup
     freeReplyObject(reply);
     redisReaderFree(reader);
-    sdsfree(formatted_cmd);
     MRCommand_Free(&cmd);
 }
