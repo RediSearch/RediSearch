@@ -78,8 +78,9 @@ def test_hybrid_vector_knn_with_score():
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_score')
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green',
+                       'VSIM', '@embedding', query_vector,
+                       'KNN', '2', 'K', '10', 'YIELD_SCORE_AS', 'vector_score')
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
 
@@ -99,8 +100,11 @@ def test_hybrid_vector_range_with_score():
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     radius = 2
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
-                        'RANGE', '4', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_score')
+    response = env.cmd('FT.HYBRID', 'idx',
+                       'SEARCH', 'green',
+                       'VSIM', '@embedding', query_vector,
+                            'RANGE', '2', 'RADIUS', str(radius),
+                            'YIELD_SCORE_AS', 'vector_score')
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
 

@@ -65,8 +65,15 @@ def test_hybrid_linear_default_weights():
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'YIELD_SCORE_AS', 's_score', 'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10','YIELD_SCORE_AS', 'v_score', 'COMBINE', 'LINEAR', '2', 'YIELD_SCORE_AS', 'fused_score')
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+            'YIELD_SCORE_AS', 's_score',
+        'VSIM', '@embedding', query_vector,
+            'KNN', '2', 'K', '10',
+            'YIELD_SCORE_AS', 'v_score',
+        'COMBINE', 'LINEAR', '2',
+            'YIELD_SCORE_AS', 'fused_score')
     results, _ = get_results_from_hybrid_response(response)
     env.assertGreater(len(results.keys()), 0)
     for doc_key, doc_result in results.items():
@@ -100,8 +107,15 @@ def test_hybrid_linear_explicit_weights():
     alpha = 0.1
     beta = 0.9
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'YIELD_SCORE_AS', 's_score', 'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10','YIELD_SCORE_AS', 'v_score', 'COMBINE', 'LINEAR', '6', 'ALPHA', alpha, 'BETA', beta, 'YIELD_SCORE_AS', 'fused_score')
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+            'YIELD_SCORE_AS', 's_score',
+        'VSIM', '@embedding', query_vector,
+            'KNN', '2', 'K', '10',
+            'YIELD_SCORE_AS', 'v_score',
+        'COMBINE', 'LINEAR', '6', 'ALPHA', alpha, 'BETA', beta,
+            'YIELD_SCORE_AS', 'fused_score')
     results, _ = get_results_from_hybrid_response(response)
     env.assertGreater(len(results.keys()), 0)
     for doc_key, doc_result in results.items():

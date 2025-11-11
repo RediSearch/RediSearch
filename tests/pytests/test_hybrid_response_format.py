@@ -189,7 +189,8 @@ def test_query_with_yield_score_as():
         'FT.HYBRID', 'idx',
         'SEARCH', '*',
         'VSIM' ,'@embedding', np.array([1.2, 0.2]).astype(np.float32).tobytes(),
-        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_score',
+            'KNN', '2', 'K', '10',
+            'YIELD_SCORE_AS', 'vector_score',
         'SORTBY', 2, '@description', 'ASC'
     ]
     resp3_expected = {
