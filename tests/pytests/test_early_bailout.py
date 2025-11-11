@@ -43,7 +43,6 @@ class TestEarlyBailoutEmptyResultsSA_Resp2:
     def __init__(self):
         skipTest(cluster=True)
         self.env = Env(protocol=2)
-        self.env.expect('HSET', 'doc', 't', 'hello').equal(1)
         self.env.expect('FT.CREATE', 'empty', 'PREFIX', '1', 'NonExistingPrefix:', 'SCHEMA', 't', 'TEXT').ok()
         self.env.expect('FT.CREATE', 'empty_hybrid', 'PREFIX', '1', 'NonExistingPrefix:', 'SCHEMA',
             'description', 'TEXT',
@@ -52,6 +51,8 @@ class TestEarlyBailoutEmptyResultsSA_Resp2:
         self.env.expect('FT.CREATE', 'not_empty_hybrid', 'SCHEMA',
             'description', 'TEXT',
             'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+        self.env.expect('HSET', 'doc', 't', 'hello').equal(1)
 
         # Make sure the empty index returns empty results and not_empty returns 1 result
         res = self.env.cmd('FT.SEARCH', 'empty', '*')
@@ -179,7 +180,6 @@ class TestEarlyBailoutEmptyResultsSA_Resp3:
     def __init__(self):
         skipTest(cluster=True)
         self.env = Env(protocol=3)
-        self.env.expect('HSET', 'doc', 't', 'hello').equal(1)
         self.env.expect('FT.CREATE', 'empty', 'PREFIX', '1', 'NonExistingPrefix:', 'SCHEMA', 't', 'TEXT').ok()
         self.env.expect('FT.CREATE', 'empty_hybrid', 'PREFIX', '1', 'NonExistingPrefix:', 'SCHEMA',
             'description', 'TEXT',
@@ -188,6 +188,8 @@ class TestEarlyBailoutEmptyResultsSA_Resp3:
         self.env.expect('FT.CREATE', 'not_empty_hybrid', 'SCHEMA',
             'description', 'TEXT',
             'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+        self.env.expect('HSET', 'doc', 't', 'hello').equal(1)
 
         # Make sure the empty index returns empty results and not_empty returns 1 result
         total_results = self.env.cmd('FT.SEARCH', 'empty', '*')['total_results']
@@ -336,7 +338,6 @@ class TestEarlyBailoutEmptyResultsCoord_Resp2:
     def __init__(self):
         skipTest(cluster=False)
         self.env = Env(shardsCount=3, protocol=2)
-        self.env.expect('HSET', 'doc', 't', 'hello').equal(1)
         self.env.expect('FT.CREATE', 'empty', 'PREFIX', '1', 'NonExistingPrefix:', 'SCHEMA', 't', 'TEXT').ok()
         self.env.expect('FT.CREATE', 'empty_hybrid', 'PREFIX', '1', 'NonExistingPrefix:', 'SCHEMA',
             'description', 'TEXT',
@@ -345,6 +346,8 @@ class TestEarlyBailoutEmptyResultsCoord_Resp2:
         self.env.expect('FT.CREATE', 'not_empty_hybrid', 'SCHEMA',
             'description', 'TEXT',
             'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+        self.env.expect('HSET', 'doc', 't', 'hello').equal(1)
 
         # Make sure the empty index returns empty results and not_empty returns 1 result
         res = self.env.cmd('FT.SEARCH', 'empty', '*')
@@ -472,7 +475,6 @@ class TestEarlyBailoutEmptyResultsCoord_Resp3:
     def __init__(self):
         skipTest(cluster=False)
         self.env = Env(shardsCount=3, protocol=3)
-        self.env.expect('HSET', 'doc', 't', 'hello').equal(1)
         self.env.expect('FT.CREATE', 'empty', 'PREFIX', '1', 'NonExistingPrefix:', 'SCHEMA', 't', 'TEXT').ok()
         self.env.expect('FT.CREATE', 'empty_hybrid', 'PREFIX', '1', 'NonExistingPrefix:', 'SCHEMA',
             'description', 'TEXT',
@@ -481,6 +483,8 @@ class TestEarlyBailoutEmptyResultsCoord_Resp3:
         self.env.expect('FT.CREATE', 'not_empty_hybrid', 'SCHEMA',
             'description', 'TEXT',
             'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+        self.env.expect('HSET', 'doc', 't', 'hello').equal(1)
 
         # Make sure the empty index returns empty results and not_empty returns 1 result
         total_results = self.env.cmd('FT.SEARCH', 'empty', '*')['total_results']
