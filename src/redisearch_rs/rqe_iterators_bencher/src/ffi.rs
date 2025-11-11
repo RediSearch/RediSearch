@@ -49,8 +49,6 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{NumericFilter, RSIndexResult};
 use std::ptr;
 
-use crate::ffi::bindings::Metric_VECTOR_DISTANCE;
-
 // Direct C benchmark functions that eliminate FFI overhead
 // by implementing the benchmark loop entirely in C
 unsafe extern "C" {
@@ -82,30 +80,6 @@ impl QueryIterator {
         Self(unsafe { bindings::NewEmptyIterator() })
     }
 
-    #[inline(always)]
-    pub fn new_id_list(vec: Vec<u64>) -> Self {
-        // Convert the Rust vector to use C allocation because the C iterator takes ownership of the array
-        let len = vec.len();
-        let data =
-            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
-        }
-        Self(unsafe { bindings::NewIdListIterator(data, len as u64, 1f64) })
-    }
-    #[inline(always)]
-    pub fn new_metric(vec: Vec<u64>, metric_data: Vec<f64>) -> Self {
-        let len = vec.len();
-        let data =
-            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };
-        let m_data =
-            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<f64>()) as *mut f64 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
-            std::ptr::copy_nonoverlapping(metric_data.as_ptr(), m_data, len);
-        }
-        Self(unsafe { bindings::NewMetricIterator(data, m_data, len, Metric_VECTOR_DISTANCE) })
-    }
     #[inline(always)]
     pub fn new_wildcard(max_id: u64, num_docs: usize) -> Self {
         Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, num_docs, 1f64) })
