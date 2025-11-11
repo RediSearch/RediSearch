@@ -319,3 +319,42 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
     // Safety: ensured by caller (1.,2.)
     unsafe { lookup.unwrap().drop_in_place() };
 }
+
+/// Add all non-overridden keys from `lookup` to `dest`.
+///
+/// For each key in `lookup`, check if it already exists *by name*.
+/// - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+/// - If it doesn't a new key will be created.
+///
+/// Flag handling:
+///  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+///  * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+///  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+///  * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+/// 2. `dest` must be a [valid], non-null pointer to a [`RLookup`]
+/// 3. All bits set in `flags` must correspond to a value of [`RLookupKeyFlags`]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
+    lookup: Option<NonNull<RLookup<'a>>>,
+    dest: Option<NonNull<RLookup<'a>>>,
+    flags: u32,
+) {
+    // Safety: must be ensured by caller (1)
+    let lookup = unsafe {
+        lookup
+            .expect("RLookup_AddKeysFrom: lookup is null")
+            .as_ref()
+    };
+
+    // Safety: must be ensured by caller (2)
+    let dest = unsafe { dest.expect("RLookup_AddKeysFrom: dest is null").as_mut() };
+
+    // Safety: must be ensured by caller (3)
+    let flags = RLookupKeyFlags::from_bits(flags).expect("RLookup_AddKeysFrom: invalid flags");
+
+    dest.add_keys_from(lookup, flags);
+}
