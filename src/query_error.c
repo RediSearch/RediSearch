@@ -154,8 +154,8 @@ QueryErrorCode QueryError_GetCodeFromMessage(const char *errorMessage) {
     return QUERY_ETIMEDOUT;
   }
 
-  if (!strcmp(errorMessage, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY))) {
-    return QUERY_ERROR_CODE_OUT_OF_MEMORY;
+  if (!strcmp(errorMessage, QueryError_Strerror(QUERY_EOOM))) {
+    return QUERY_EOOM;
   }
 
   return QUERY_EGENERIC;

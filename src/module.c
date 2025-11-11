@@ -183,7 +183,7 @@ bool QueryMemoryGuard(RedisModuleCtx *ctx) {
 
 int QueryMemoryGuardFailure_WithReply(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-  return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+  return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
 }
 
 // Returns true if the current context has permission to execute debug commands
@@ -2924,7 +2924,7 @@ bool should_return_error(QueryErrorCode errCode) {
     return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
   }
   // Check if this is an OOM error with non-fail policy
-  if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
+  if (errCode == QUERY_EOOM) {
     return RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail;
   }
 
@@ -3246,10 +3246,10 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
     if (NumShards > 1) {
       // Handle OOM policy return in Coord, return empty results
-      return coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+      return coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_EOOM);
     } else {
       // Handle OOM policy return in single-shard, return empty results
-      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_EOOM);
     }
   }
 
@@ -3310,7 +3310,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
     RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
-    return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_OUT_OF_MEMORY, false);
+    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM, false);
   }
 
   // Coord callback
@@ -3653,10 +3653,10 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
     if (NumShards > 1) {
       // Handle OOM policy return in Coord, return empty results
-      return coord_search_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+      return coord_search_query_reply_empty(ctx, argv, argc, QUERY_EOOM);
     } else {
       // Handle OOM policy return in single-shard, return empty results
-      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_EOOM);
     }
   }
 

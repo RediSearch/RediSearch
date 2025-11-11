@@ -72,7 +72,7 @@ extern "C" {
   X(QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM")   \
   X(QUERY_EWEIGHT_NOT_ALLOWED, "Weight attributes are not allowed")              \
   X(QUERY_EVECTOR_NOT_ALLOWED, "Vector queries are not allowed")                 \
-  X(QUERY_ERROR_CODE_OUT_OF_MEMORY, "Not enough memory available to execute the query")              \
+  X(QUERY_EOOM, "Not enough memory available to execute the query")              \
 
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
