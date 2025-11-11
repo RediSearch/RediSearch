@@ -20,7 +20,7 @@ extern "C" {
 #include "varint.h"
 #include "src/iterators/inverted_index_iterator.h"
 #include "src/iterators/hybrid_reader.h"
-#include "src/iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 #include "src/iterators/union_iterator.h"
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/not_iterator.h"
@@ -878,7 +878,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
   // Run simple range query.
-  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true);
+  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true, true);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
@@ -957,7 +957,7 @@ TEST_F(IndexTest, testMetric_SkipTo) {
   double metrics[7] = {1.0};
   memcpy(metrics_arr, metrics, sizeof(double) * results_num);
 
-  QueryIterator *metric_it = NewMetricIterator(ids_arr, metrics_arr, results_num, VECTOR_DISTANCE);
+  QueryIterator *metric_it = NewMetricIteratorSortedById(ids_arr, metrics_arr, results_num, VectorDistance);
 
   // Copy the behaviour of INV_IDX_ITERATOR in terms of SkipTo. That is, the iterator will return the
   // next docId whose id is equal or greater than the given id, as if we call Read and returned
