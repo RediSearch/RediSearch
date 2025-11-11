@@ -1927,7 +1927,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
     printProfileTime(wallTime);
   }
 
-  printProfileCounter(counter);
+  printProfileIteratorCounter(counter);
 
   // if MAXPREFIXEXPANSIONS reached
   if (ui->norig == config->iteratorsConfig->maxPrefixExpansions) {
@@ -1964,7 +1964,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
     printProfileTime(wallTime);
   }
 
-  printProfileCounter(counter);
+  printProfileIteratorCounter(counter);
 
   RedisModule_Reply_SimpleString(reply, "Child iterators");
   if (reply->resp3) {
@@ -2004,7 +2004,7 @@ PRINT_PROFILE_FUNC(printMetricIt) {
     printProfileTime(wallTime);
   }
 
-  printProfileCounter(counter);
+  printProfileIteratorCounter(counter);
 
   RedisModule_Reply_MapEnd(reply);
 }
@@ -2017,7 +2017,7 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, si
     if (config->printProfileClock) {
       printProfileTime(wallTime);
     }
-    printProfileCounter(counter);
+    printProfileIteratorCounter(counter);
 
     if (root->type == HYBRID_ITERATOR) {
       HybridIterator *hi = root->ctx;

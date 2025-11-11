@@ -175,9 +175,9 @@ def test_issue1880(env):
   conn.execute_command('HSET', 'doc1', 't', 'hello world')
   conn.execute_command('HSET', 'doc2', 't', 'hello')
 
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 2]]
+  excepted_res = ['Type', 'INTERSECT', 'Number of reading operations', 1, 'Child iterators', [
+                    ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 1, 'Estimated number of matches', 1],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 2]]]
   res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
   res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
   # both queries return `world` iterator before `hello`
@@ -185,10 +185,10 @@ def test_issue1880(env):
   env.assertEqual(res2[1][4][1], excepted_res)
 
   # test with a term which does not exist
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 0, 'Child iterators',
+  excepted_res = ['Type', 'INTERSECT', 'Number of reading operations', 0, 'Child iterators',
                     None,
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 0, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0, 'Size', 2]]
+                    ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 0, 'Estimated number of matches', 1],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 0, 'Estimated number of matches', 2]]
   res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
 
   env.assertEqual(res3[1][4][1], excepted_res)
@@ -410,34 +410,34 @@ def test_SkipFieldWithNoMatch(env):
   env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
 
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 2]]
+  excepted_res = ['Type', 'INTERSECT', 'Number of reading operations', 1, 'Child iterators',
+                    ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 1, 'Estimated number of matches', 1],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 2]]
 
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   # bar exists in `t2` only
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][4][1], ['Type', 'EMPTY', 'Counter', 0])
+  env.assertEqual(res[1][4][1], ['Type', 'EMPTY', 'Number of reading operations', 0])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1] )
 
   # Check with NOFIELDS flag
   env.execute_command('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   waitForIndex(env, 'idx_nomask')
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
 @skip(cluster=True)
 def test_update_num_terms(env):
@@ -1548,4 +1548,3 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     expected_min_yields = 7 * num_docs // yield_every_n_ops
     env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
-
