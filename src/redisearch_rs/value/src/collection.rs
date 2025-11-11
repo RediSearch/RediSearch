@@ -133,7 +133,7 @@ impl<T> RsValueCollection<T> {
     /// Panics if `iter.len()` exceeds `isize::MAX / size_of::<T>()`.
     pub fn clone_from_exact_size_iterator<'m, I: ExactSizeIterator<Item = &'m T>>(iter: I) -> Self
     where
-        T: Clone + 'static,
+        T: Clone + 'm,
     {
         let len = iter.len();
         assert!(
@@ -172,7 +172,7 @@ impl<T> RsValueCollection<T> {
     }
 }
 
-impl<T: Clone + 'static> Clone for RsValueCollection<T> {
+impl<T: Clone> Clone for RsValueCollection<T> {
     fn clone(&self) -> Self {
         Self::clone_from_exact_size_iterator(self.iter())
     }
