@@ -19,6 +19,7 @@
 
 #include "hiredis/hiredis.h"
 #include "hiredis/read.h"
+#include "hiredis/sds.h"
 #include "rmutil/args.h"
 
 // Helper functions for testing
