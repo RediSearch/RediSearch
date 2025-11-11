@@ -40,8 +40,11 @@ int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block
 /* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
 void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS);
 
-/* Set a new topology for the cluster */
-void MR_UpdateTopology(MRClusterTopology *newTopology);
+/* @brief Set a new topology for the cluster and refresh local slots information.
+ * @param newTopology The new cluster topology, consumed by this function.
+ * @param localSlots The local slots information to refresh. Does NOT take ownership.
+ */
+void MR_UpdateTopology(MRClusterTopology *newTopology, const RedisModuleSlotRangeArray *localSlots);
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
