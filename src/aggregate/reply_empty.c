@@ -131,6 +131,11 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     rs_wall_clock_init(&req->initClock);
     rs_wall_clock_init(&AREQ_QueryProcessingCtx(req)->initTime);
 
+    // Check if command in internal
+    if (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_') {
+        AREQ_AddRequestFlags(req, QEXEC_F_INTERNAL);
+    }
+
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
 

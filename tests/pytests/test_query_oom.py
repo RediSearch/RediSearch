@@ -299,7 +299,7 @@ class testOomHybridClusterBehavior:
         self.env.assertEqual(res[5][0], OOM_WARNING)
 
 @skip(cluster=False)
-def test_oom_verbosity_cluster_return(env):
+def test_oom_verbosity_cluster_return():
     env  = Env(shardsCount=3, protocol=3)
 
     # Init all shards
