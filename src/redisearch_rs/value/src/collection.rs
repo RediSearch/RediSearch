@@ -72,7 +72,8 @@ impl<T> RsValueCollection<T> {
         // Safety: the size of `layout` is always greater than 0
         // as we return early if `cap` equals 0.
         let ptr = unsafe { alloc(layout) };
-        let entries = NonNull::new(ptr as *mut T).unwrap();
+        let entries =
+            NonNull::new(ptr as *mut T).expect("error allocating space for RsValueCollection");
         Self { entries, cap }
     }
 
@@ -133,7 +134,7 @@ impl<T> RsValueCollection<T> {
     /// Panics if `iter.len()` exceeds `isize::MAX / size_of::<T>()`.
     pub fn clone_from_exact_size_iterator<'m, I: ExactSizeIterator<Item = &'m T>>(iter: I) -> Self
     where
-        T: Clone + 'static,
+        T: Clone + 'm,
     {
         let len = iter.len();
         assert!(
@@ -172,7 +173,7 @@ impl<T> RsValueCollection<T> {
     }
 }
 
-impl<T: Clone + 'static> Clone for RsValueCollection<T> {
+impl<T: Clone> Clone for RsValueCollection<T> {
     fn clone(&self) -> Self {
         Self::clone_from_exact_size_iterator(self.iter())
     }
@@ -259,7 +260,8 @@ impl<'m, T> Iterator for Iter<'m, T> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         let cap = self.map.cap as usize;
-        (cap, Some(cap))
+        let len = cap - self.i;
+        (len, Some(len))
     }
 }
 
@@ -354,12 +356,27 @@ mod tests {
 
     #[test]
     fn test_map_create_iter_destroy() {
-        let items = std::iter::repeat_n((), 100).enumerate().map(|(i, _)| {
-            let key = SharedRsValue::number(i as f64);
-            let value = SharedRsValue::number((2 * i) as f64);
-            RsValueMapEntry { key, value }
-        });
-        RsValueCollection::collect_from_exact_size_iterator(items);
+        let entries = || {
+            std::iter::repeat_n((), 100).enumerate().map(|(i, _)| {
+                let key = SharedRsValue::number(i as f64);
+                let value = SharedRsValue::number((2 * i) as f64);
+                RsValueMapEntry { key, value }
+            })
+        };
+        let collection = RsValueCollection::collect_from_exact_size_iterator(entries());
+        collection
+            .iter()
+            .zip(entries())
+            .for_each(|(collection_entry, iter_entry)| {
+                assert_eq!(
+                    collection_entry.key.get_number(),
+                    iter_entry.key.get_number()
+                );
+                assert_eq!(
+                    collection_entry.value.get_number(),
+                    iter_entry.value.get_number()
+                );
+            });
     }
 
     #[test]
