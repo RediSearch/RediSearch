@@ -117,7 +117,14 @@ jobs:
       rejson-branch: master
       test-config: '' # run all tests
 
-  sanitizer:
+  run-on-intel:
+    needs: get-latest-redis-tag
+    secrets: inherit
+    uses: ./.github/workflows/flow-intel.yml
+    with:
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+
+  sanitize:
     needs: get-latest-redis-tag
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
@@ -127,13 +134,6 @@ jobs:
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
       test-config: '' # run all tests
-
-  run-on-intel:
-    needs: get-latest-redis-tag
-    secrets: inherit
-    uses: ./.github/workflows/flow-intel.yml
-    with:
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
 
   pr-validation:
     needs:
