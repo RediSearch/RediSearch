@@ -304,7 +304,7 @@ def queries_sanity(test_name, compression_type, data_type, metric, workers):
 
 
     env.debugPrint(f"Extended tests: {EXTENDED_PYTESTS}", force=True)
-    index_name = f"idx_{compression_type}"
+    index_name = f"idx"
     index_params = ['CONSTRUCTION_WINDOW_SIZE', num_docs, 'SEARCH_WINDOW_SIZE', num_docs]
     if compression_type != 'NO_COMPRESSION':
         index_params.extend(['COMPRESSION', compression_type, 'TRAINING_THRESHOLD', training_threshold])
