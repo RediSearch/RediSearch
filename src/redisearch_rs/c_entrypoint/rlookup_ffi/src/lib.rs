@@ -8,6 +8,6 @@
 */
 
 mod lookup;
-mod row;
+//mod row;
 
 pub use rlookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags};

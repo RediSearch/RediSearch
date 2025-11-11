@@ -201,7 +201,6 @@ pub struct RLookupKeyHeader<'a> {
 /// An append-only list of [`RLookupKey`]s.
 ///
 /// This type maintains a mapping from string names to [`RLookupKey`]s.
-/// cbindgen:no-export
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookup<'a> {

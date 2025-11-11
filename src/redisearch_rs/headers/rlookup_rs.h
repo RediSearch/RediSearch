@@ -11,9 +11,22 @@ typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
 
 // forward declarations for types that are only used as a pointer
-typedef struct RLookupRow RLookupRow;
 typedef struct RSValue RSValue;
 
+
+enum RLookupCoerceType
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  Str = 0,
+  Int = 1,
+  Dbl = 2,
+  Bool = 3,
+};
+#ifndef __cplusplus
+typedef uint32_t RLookupCoerceType;
+#endif // __cplusplus
 
 enum RLookupKeyFlag
 #ifdef __cplusplus
@@ -105,20 +118,6 @@ typedef uint32_t RLookupOption;
 
 typedef struct IndexSpecCache IndexSpecCache;
 
-/**
- * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
- * or from dynamic values stored in the row during processing.
- *
- * The type itself exposes the dynamic values, [`RLookupRow::dyn_values`], as a vector of `Option<T>`, where `T` is the type
- * of the value and it also provides methods to get the length of the dynamic values and check if they are empty.
- *
- * The type `T` is the type of the value stored in the row, which must implement the [`RSValueTrait`].
- * [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
- *
- * The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
- */
-typedef struct RLookupRow RLookupRow;
-
 typedef struct RLookupKey {
   /**
    * Index into the dynamic values array within the associated `RLookupRow`.
@@ -163,8 +162,28 @@ typedef struct KeyList {
   uint32_t rowlen;
 } KeyList;
 
-typedef struct RLookup {
+typedef struct RLookupHeader {
   struct KeyList keys;
+} RLookupHeader;
+
+/**
+ * An append-only list of [`RLookupKey`]s.
+ *
+ * This type maintains a mapping from string names to [`RLookupKey`]s.
+ */
+typedef struct RLookup {
+  /**
+   * This is a temporary field that should not be accessed. It ensures correct
+   * initialization in case of FFI usage.
+   */
+  uint64_t _canary;
+  /**
+   * RLookup fields exposed to C.
+   */
+  struct RLookupHeader header;
+  RLookupOptions options;
+  IndexSpecCache* index_spec_cache;
+  uint64_t id;
 } RLookup;
 
 #ifdef __cplusplus
@@ -476,48 +495,6 @@ void RLookup_Free_Heap(struct RLookup *lookup);
  */
 void RLookup_KeySetPath(struct RLookupKey *rlk,
                         const char *path);
-
-/**
- * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
- *
- * Safety:
- * 1. `key` must be a valid pointer to an [`RLookupKey`].
- * 2. `row` must be a valid pointer to an [`RLookupRow`].
- * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
- */
-void RLookup_WriteKey(const struct RLookupKey *key,
-                      struct RLookupRow *row,
-                      RSValue *value);
-
-/**
- * Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.
- *
- * Safety:
- * 1. `key` must be a valid pointer to an [`RLookupKey`].
- * 2. `row` must be a valid pointer to an [`RLookupRow`].
- * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
- */
-void RLookup_WriteOwnKey(const struct RLookupKey *key,
-                         struct RLookupRow *row,
-                         RSValue *value);
-
-/**
- * Wipes a RLookupRow by decrementing all values and resetting the row.
- *
- * Safety:
- * 1. The pointer must be a valid pointer to an [`RLookupRow`].
- */
-void RLookupRow_Wipe(struct RLookupRow *row);
-
-/**
- * Resets a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory of the dynamic values.
- *
- * This does not affect the sorting vector.
- *
- * Safety:
- * 1. The pointer must be a valid pointer to an [`RLookupRow`].
- */
-void RLookupRow_Reset(struct RLookupRow *row);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -24,6 +24,7 @@ use value::RSValueTrait;
 /// [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
 ///
 /// The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
+/// cbindgen:no-export
 #[derive(Debug)]
 pub struct RLookupRow<'a, T: RSValueTrait> {
     /// Sorting vector attached to document
