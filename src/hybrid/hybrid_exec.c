@@ -127,12 +127,12 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
       int excludeFlags = RLOOKUPKEYFLAG_HIDDEN;
       int requiredFlags = RLOOKUP_F_NOFLAGS;  //Hybrid does not use RETURN fields; it uses LOAD fields instead
-      int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
-      memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
+      int skipFieldIndex[lk->header.keys.rowlen]; // Array has `0` for fields which will be skipped
+      memset(skipFieldIndex, 0, lk->header.keys.rowlen * sizeof(*skipFieldIndex));
       size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
 
       int i = 0;
-      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+      for (const RLookupKey *kk = lk->header.keys.head; kk; kk = kk->next) {
         if (!kk->name || !skipFieldIndex[i++]) {
           continue;
         }

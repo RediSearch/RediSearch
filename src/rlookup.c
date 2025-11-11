@@ -20,7 +20,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
                          int requiredFlags, int excludeFlags, SchemaRule *rule) {
   int i = 0;
   size_t nfields = 0;
-  for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
+  for (const RLookupKey *kk = lookup->header.keys.head; kk; kk = kk->next, ++i) {
     if (kk->name == NULL) {
       // Overridden key. Skip without incrementing the index
       --i;
@@ -47,7 +47,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
     skipFieldIndex[i] = 1;
     ++nfields;
   }
-  RS_LOG_ASSERT(i == lookup->rowlen, "'i' should be equal to lookup len");
+  RS_LOG_ASSERT(i == lookup->header.keys.rowlen, "'i' should be equal to lookup len");
   return nfields;
 }
 
@@ -100,7 +100,7 @@ void RLookupRow_Reset(RLookupRow *r) {
 }
 
 void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
-  for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+  for (const RLookupKey *kk = lk->header.keys.head; kk; kk = kk->next) {
     RSValue *vv = RLookup_GetItem(kk, src);
     if (vv) {
       RLookup_WriteKey(kk, dst, vv);
@@ -473,7 +473,7 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
       }
     }
   } else { // If we called load to perform IF operation with FT.ADD command
-    for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
+    for (const RLookupKey *kk = it->header.keys.head; kk; kk = kk->next) {
       /* key is not part of document schema. no need/impossible to 'load' it */
       if (!(kk->flags & RLOOKUPKEYFLAG_SCHEMASRC)) {
         continue;
@@ -674,14 +674,15 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   for (int i = 0; i < nkeys; ++i) {
     int idx = rule->filter_fields_index[i];
     if (idx == -1) {
-      keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), 0);
+      keys[i] = RLookup_CreateKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), 0);
       continue;
     }
     FieldSpec *fs = spec->fields + idx;
     size_t length = 0;
     const char *name = HiddenString_GetUnsafe(fs->fieldName, &length);
-    keys[i] = createNewKey(it, name, length, 0);
-    keys[i]->path = HiddenString_GetUnsafe(fs->fieldPath, NULL);
+    keys[i] = RLookup_CreateKey(it, name, length, 0);
+    RLookup_KeySetPath(keys[i], HiddenString_GetUnsafe(fs->fieldPath, NULL));
+    //keys[i]->path = HiddenString_GetUnsafe(fs->fieldPath, NULL);
   }
 
   // load
@@ -707,7 +708,7 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
   RS_ASSERT(destRow && destLookup);
 
   // Iterate through all source keys
-  for (const RLookupKey *src_key = srcLookup->head; src_key; src_key = src_key->next) {
+  for (const RLookupKey *src_key = srcLookup->header.keys.head; src_key; src_key = src_key->next) {
     if (!src_key->name) {
       // Skip overridden keys
       continue;

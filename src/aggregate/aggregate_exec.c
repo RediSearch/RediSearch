@@ -231,7 +231,6 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       // Excludes hidden fields, fields not included in RETURN and, score and language fields.
       RedisSearchCtx *sctx = AREQ_SearchCtx(req);
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
-
       int excludeFlags = RLOOKUPKEYFLAG_HIDDEN;
       int requiredFlags = (req->outFields.explicitReturn ? RLOOKUPKEYFLAG_EXPLICITRETURN : 0);
       int skipFieldIndex[lk->header.keys.rowlen]; // Array has `0` for fields which will be skipped
@@ -241,7 +240,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 
       RedisModule_Reply_Map(reply);
         int i = 0;
-        for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+        for (const RLookupKey *kk = lk->header.keys.head; kk; kk = kk->next) {
           if (!kk->name || !skipFieldIndex[i++]) {
             continue;
           }

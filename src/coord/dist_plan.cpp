@@ -408,7 +408,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           }
           // Step 2: generate a LOAD step for the keys. If the keys are already loaded (or sortable),
           //         this step will be optimized out.
-          if (filter_keys.rowlen) {
+          if (filter_keys.header.keys.rowlen) {
             PLN_LoadStep *load = (PLN_LoadStep *)rm_calloc(1, sizeof(*load));
             load->base.type = PLN_T_LOAD;
             load->base.dtor = [](PLN_BaseStep *stp) {
@@ -419,9 +419,9 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
               rm_free(load->args.objs);
               rm_free(stp);
             };
-            const char **argv = (const char**)rm_malloc(sizeof(*argv) * filter_keys.rowlen);
+            const char **argv = (const char**)rm_malloc(sizeof(*argv) * filter_keys.header.keys.rowlen);
             size_t argc = 0;
-            for (RLookupKey *kk = filter_keys.head; kk != NULL; kk = kk->next) {
+            for (RLookupKey *kk = filter_keys.header.keys.head; kk != NULL; kk = kk->next) {
               argv[argc++] = rm_strndup(kk->name, kk->name_len);
             }
             ArgsCursor_InitCString(&load->args, argv, argc);
@@ -581,7 +581,6 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   }
 
   std::vector<const RLookupKey *> loadFields;
-
   for (RLookupKey *kk = dstp->lk.header.keys.head; kk != NULL; kk = kk->next) {
     if (kk->flags & RLOOKUPKEYFLAG_UNRESOLVED) {
       loadFields.push_back(kk);
