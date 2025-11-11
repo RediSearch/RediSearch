@@ -185,12 +185,12 @@ const struct RsValue *RsValue_NullStatic(void);
 enum RsValueType RsValue_Type(const struct RsValue *v);
 
 /**
- * Create a new, uninitialized `RsValueMap`, reserving space for `cap`
- * entries. The map entries are uninitialized and must be set using `RSValueMap_SetEntry`.
+ * Create a new, uninitialized [`RsValueMap`], reserving space for `cap`
+ * entries. The map entries are uninitialized and must be set using [`RsValueMap_SetEntry`].
  *
  * # Safety
- * - (1) All items of the returned `RsValueMap` must be initialized using
- *   `RsValueMap_SetEntry` prior to using it.
+ * - (1) All items of the returned [`RsValueMap`] must be initialized using
+ *   [`RsValueMap_SetEntry`] prior to using it.
  *
  * @param cap the number of entries (key and value) the map needs to store
  * @returns an uninitialized `RsValueMap` of `cap` capacity.
@@ -202,11 +202,11 @@ RsValueMap RsValueMap_AllocUninit(uint32_t cap);
  * Takes ownership of both the key and value RSValues.
  *
  * # Safety
- * - (1) `map` must be a valid pointer to an `RsValueMap` that
- *   has been created by `RsValueMap_AllocUninit` and
+ * - (1) `map` must be a valid pointer to an [`RsValueMap`] that
+ *   has been created by [`RsValueMap_AllocUninit`] and
  *   that is valid for writes;
- * - (2) `i` must smaller than the capacity of the `RsValueMap`,
- *   which cannot exceed `u32::MAX`.
+ * - (2) `i` must smaller than the capacity of the [`RsValueMap`],
+ *   which cannot exceed [`u32::MAX`].
  *
  * @param map The map to modify
  * @param i The index where to set the entry (must be < map->len)
@@ -224,7 +224,7 @@ void RsValueMap_SetEntry(RsValueMap *map,
  * # Safety
  * See [`RsValueCollection::reserve_uninit`](value::collection::RsValueCollection::reserve_uninit)
  *
- * @param cap The desired capacity of the `RsValueArray`
+ * @param cap The desired capacity of the [`RsValueArray`]
  * @return An uninitialized `RsValueArray` of `cap` capacity
  */
 RsValueArray RsValueArray_AllocUninit(uint32_t cap);
@@ -233,11 +233,11 @@ RsValueArray RsValueArray_AllocUninit(uint32_t cap);
  * Writes a value into the [`RsValueArray`] at `i`.
  *
  * # Safety
- * - (1) `arr` must be a non-null pointer to an `RsValueArray` originating from
+ * - (1) `arr` must be a non-null pointer to an [`RsValueArray`] originating from
  *   [`RsValueArray_AllocUninit`];
  * - (2) `arr` must be unique;
- * - (3) `i` must not exceed the `RsValueArray`'s capacity, which cannot
- *   exceed `u32::MAX`.
+ * - (3) `i` must not exceed the [`RsValueArray`]'s capacity, which cannot
+ *   exceed [`u32::MAX`].
  *
  * @param arr The array to modify
  * @param i The index at which to write the value
