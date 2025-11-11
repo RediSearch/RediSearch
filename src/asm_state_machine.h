@@ -1,0 +1,53 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+#pragma once
+
+#include "slots_tracker.h"
+
+/**
+ * When slots are being imported, we need to mark them as partially available.
+ * This means that these slots may exist partially in the key space, but we don't own them.
+*/
+void ASM_StateMachine_StartImport(const RedisModuleSlotRangeArray *slots) {
+  slots_tracker_mark_partially_available_slots(slots);
+}
+
+/*
+* When slots have finished importing, we need to promote the slots to local ownership.
+*/
+void ASM_StateMachine_CompleteImport(const RedisModuleSlotRangeArray *slots) {
+  slots_tracker_promote_to_local_slots(slots);
+}
+
+/**
+ * When slots have finished migrating, we need to mark them as fully available but not owned.
+ * THis means that these slots are fully available in the key space, but we don't own them, as they will start trimming.
+*/
+void ASM_StateMachine_CompleteMigration(const RedisModuleSlotRangeArray *slots) {
+  slots_tracker_mark_fully_available_slots(slots);
+}
+
+/**
+ * When slots are being trimmed, we need to check if there is a fully available overlap, to detect if they come from a failed import
+ * If there is, we need to drain the worker thread pool and bump the key space version.
+ * The draining function is passed as a parameter to allow for easier unit testing
+*/
+void ASM_StateMachine_StartTrim(const RedisModuleSlotRangeArray *slots, void (*draining_bound_fn)(void)) {
+  if (slots_tracker_has_fully_available_overlap(slots)) {
+    draining_bound_fn();
+    atomic_fetch_add_explicit(&key_space_version, 1, memory_order_relaxed);
+  }
+}
+
+/**
+ * When slots have finished trimming, we need to remove them from the partially available set.
+*/
+void ASM_StateMachine_CompleteTrim(const RedisModuleSlotRangeArray *slots) {
+  slots_tracker_remove_deleted_slots(slots);
+}
