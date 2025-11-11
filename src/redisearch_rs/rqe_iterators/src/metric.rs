@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Metric iterator implementation
-
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdList};
 use ffi::{RLookupKey, RLookupKeyHandle, RSYieldableMetric, array_ensure_append_n_func, t_docId};
 use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
@@ -22,9 +20,18 @@ pub enum MetricType {
     VectorDistance,
 }
 
-/// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
-pub struct Metric<'index> {
-    base: IdList<'index>,
+/// An iterator that yields document ids alongside a metric value (e.g. a score or a distance),
+/// sorted by document id.
+pub type MetricIteratorSortedById<'index> = MetricIterator<'index, true>;
+/// An iterator that yields document ids alongside a metric value (e.g. a score or a distance),
+/// sorted by metric value.
+pub type MetricIteratorSortedByScore<'index> = MetricIterator<'index, false>;
+
+/// An iterator that yields document ids alongside a metric value (e.g. a score or a distance).
+/// The iterator can be sorted by document id or by metric value,
+/// but the choice is made at compile time.
+pub struct MetricIterator<'index, const SORTED_BY_ID: bool> {
+    base: IdList<'index, SORTED_BY_ID>,
     metric_data: Vec<f64>,
     #[allow(dead_code)]
     type_: MetricType,
@@ -38,7 +45,7 @@ pub struct Metric<'index> {
     key_handle: *mut RLookupKeyHandle,
 }
 
-impl Drop for Metric<'_> {
+impl<'index, const SORTED_BY_ID: bool> Drop for MetricIterator<'index, SORTED_BY_ID> {
     fn drop(&mut self) {
         if !self.key_handle.is_null() {
             // Safety: thanks to [`Self::key_handle`]'s invariant, we can safely
@@ -82,11 +89,11 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
     }
 }
 
-impl<'index> Metric<'index> {
+impl<'index, const SORTED_BY_ID: bool> MetricIterator<'index, SORTED_BY_ID> {
     pub fn new(ids: Vec<t_docId>, metric_data: Vec<f64>) -> Self {
         debug_assert!(ids.len() == metric_data.len());
 
-        Metric {
+        Self {
             base: IdList::with_result(ids, RSIndexResult::metric()),
             metric_data,
             type_: MetricType::VectorDistance,
@@ -118,7 +125,9 @@ impl<'index> Metric<'index> {
     }
 }
 
-impl<'index> RQEIterator<'index> for Metric<'index> {
+impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index>
+    for MetricIterator<'index, SORTED_BY_ID>
+{
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.base.at_eof() {
             return Ok(None);
