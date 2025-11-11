@@ -11,19 +11,18 @@ members = [
     "redis_mock",
     "result_processor",
     "rlookup",
+    "rqe_iterators",
+    "rqe_iterators_bencher",
+    "search_result",
+    "slots_tracker",
     "sorting_vector",
     "tools/license_header_linter",
     "trie_bencher",
     "trie_rs",
     "value",
     "varint",
-    "rlookup",
-    "build_utils",
-    "rqe_iterators",
-    "rqe_iterators_bencher",
     "varint_bencher",
     "wildcard",
-    "search_result",
 ]
 
 resolver = "3"
@@ -65,6 +64,7 @@ trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
 result_processor = { path = "./result_processor" }
+slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector"}
 value = { path = "./value" }
 varint = { path = "./varint" }
