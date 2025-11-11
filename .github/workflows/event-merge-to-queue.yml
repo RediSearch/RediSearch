@@ -141,6 +141,8 @@ jobs:
       - lint
       - unified-test-matrix
       - run-on-intel
+      - coverage
+      - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
     steps:

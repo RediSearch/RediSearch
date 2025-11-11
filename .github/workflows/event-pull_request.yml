@@ -91,7 +91,7 @@ jobs:
       - coverage
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    if: ${{!cancelled()}}
+    if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
