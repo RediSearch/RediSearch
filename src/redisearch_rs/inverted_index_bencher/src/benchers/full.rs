@@ -7,26 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, ptr::NonNull, time::Duration, vec};
+use std::{io::Cursor, vec};
 
-use buffer::Buffer;
-use criterion::{
-    BatchSize, BenchmarkGroup, Criterion, black_box,
-    measurement::{Measurement, WallTime},
-};
+use criterion::{BatchSize, Criterion, black_box};
 use ffi::t_fieldMask;
 use inverted_index::{
-    Decoder, Encoder,
+    Decoder, Encoder, RSIndexResult,
     full::{Full, FullWide},
     test_utils::TestTermRecord,
 };
 use itertools::Itertools;
-
-use crate::ffi::{TestBuffer, encode_full, read_freq_offsets_flags};
-
-// The encode C implementation relies on this symbol. Re-export it to ensure it is not discarded by the linker.
-#[allow(unused_imports)]
-pub use types_ffi::RSOffsetVector_GetData;
 
 pub struct Bencher {
     test_values: Vec<TestValue>,
@@ -50,9 +40,6 @@ impl Default for Bencher {
 }
 
 impl Bencher {
-    const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
-    const WARMUP_TIME: Duration = Duration::from_millis(200);
-
     pub fn wide() -> Self {
         Self::new(true)
     }
@@ -104,67 +91,12 @@ impl Bencher {
         Self { test_values, wide }
     }
 
-    fn benchmark_group<'a>(
-        &self,
-        c: &'a mut Criterion,
-        label: &str,
-    ) -> BenchmarkGroup<'a, WallTime> {
-        let mut label = label.to_string();
-        if self.wide {
-            label.push_str(" Wide");
-        }
-        let mut group = c.benchmark_group(label);
-        group.measurement_time(Self::MEASUREMENT_TIME);
-        group.warm_up_time(Self::WARMUP_TIME);
-        group
-    }
-
     pub fn encoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Encode - Full");
-        self.c_encode(&mut group);
-        self.rust_encode(&mut group);
-        group.finish();
-    }
-
-    pub fn decoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Decode - Full");
-        self.c_decode(&mut group);
-        self.rust_decode(&mut group);
-        group.finish();
-    }
-
-    fn c_encode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         // Use a single buffer big enough to hold all encoded values
         let buffer_size = self.test_values.iter().map(|test| test.encoded.len()).sum();
+        let id = format!("Encode Full{}", if self.wide { "Wide" } else { "" });
 
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || TestBuffer::with_capacity(buffer_size),
-                |buffer| {
-                    for test in &self.test_values {
-                        let mut record = TestTermRecord::new(
-                            100,
-                            test.field_mask,
-                            test.freq,
-                            test.term_offsets.clone(),
-                        );
-
-                        let grew_size =
-                            encode_full(buffer, &mut record.record, test.delta as u64, self.wide);
-
-                        black_box(grew_size);
-                    }
-                },
-                BatchSize::SmallInput,
-            );
-        });
-    }
-
-    fn rust_encode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        // Use a single buffer big enough to hold all encoded values
-        let buffer_size = self.test_values.iter().map(|test| test.encoded.len()).sum();
-
-        group.bench_function("Rust", |b| {
+        c.bench_function(&id, |b| {
             b.iter_batched_ref(
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
@@ -193,38 +125,21 @@ impl Bencher {
         });
     }
 
-    fn c_decode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
+    pub fn decoding(&self, c: &mut Criterion) {
+        let id = format!("Decode Full{}", if self.wide { "Wide" } else { "" });
+
+        c.bench_function(&id, |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || {
-                        let buffer_ptr = NonNull::new(test.encoded.as_ptr() as *mut _).unwrap();
-                        unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
-                    },
-                    |buffer| {
-                        let (_filtered, result) = read_freq_offsets_flags(buffer, 100, self.wide);
-
-                        black_box(result);
-                    },
-                    BatchSize::SmallInput,
-                );
-            }
-        });
-    }
-
-    fn rust_decode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("Rust", |b| {
-            for test in &self.test_values {
-                b.iter_batched_ref(
-                    || Cursor::new(test.encoded.as_ref()),
-                    |buffer| {
-                        let result = if self.wide {
-                            FullWide.decode_new(buffer, 100).unwrap()
+                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    |(cursor, result)| {
+                        let res = if self.wide {
+                            FullWide.decode(cursor, 100, result)
                         } else {
-                            Full.decode_new(buffer, 100).unwrap()
+                            Full.decode(cursor, 100, result)
                         };
 
-                        let _ = black_box(result);
+                        let _ = black_box(res);
                     },
                     BatchSize::SmallInput,
                 );

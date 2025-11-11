@@ -98,9 +98,12 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   array_append(tmparr, n_prefixes);
-  for (uint i = 0; i < array_len(prefixes); i++) {
+  for (uint32_t i = 0; i < array_len(prefixes); i++) {
     array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
   }
+
+  // Slots info will be added here
+  uint32_t slotsInfoPos = array_len(tmparr);
 
   argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
@@ -133,6 +136,9 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   }
 
   *xcmd = MR_NewCommandArgv(array_len(tmparr), tmparr);
+
+  // Prepare command for slot info (Cluster mode)
+  MRCommand_PrepareForSlotInfo(xcmd, slotsInfoPos);
 
   // PARAMS was already validated at AREQ_Compile
   int loc = RMUtil_ArgIndex("PARAMS", argv + 3 + profileArgs, argc - 3 - profileArgs);
@@ -248,7 +254,7 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
       AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
     }
     if (RMUtil_ArgIndex("QUERY", argv + 3, 2) == -1) {
-      QueryError_SetError(AREQ_QueryProcessingCtx(r)->err, QUERY_EPARSEARGS, "No QUERY keyword provided");
+      QueryError_SetError(AREQ_QueryProcessingCtx(r)->err, QUERY_ERROR_CODE_PARSE_ARGS, "No QUERY keyword provided");
       return -1;
     }
   }
@@ -366,7 +372,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
-    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     goto err;
   }
 
@@ -413,7 +419,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   sp = StrongRef_Get(strong_ref);
   if (!sp) {
-    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     goto err;
   }
 

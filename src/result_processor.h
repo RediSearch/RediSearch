@@ -176,7 +176,7 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const SharedSlotRangeArray *slotRanges, RedisSearchCtx *sctx);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const SharedSlotRangeArray *slotRanges, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,

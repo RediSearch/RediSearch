@@ -424,9 +424,6 @@ def set_max_dialect(env):
 def get_redisearch_index_memory(env, index_key):
     return float(index_info(env, index_key)["inverted_sz_mb"])
 
-def get_redisearch_vector_index_memory(env, index_key):
-    return float(index_info(env, index_key)["vector_index_sz_mb"])
-
 def module_ver_filter(env, module_name, ver_filter):
     info = env.getConnection().info()
     for module in info['modules']:
@@ -458,10 +455,12 @@ def create_np_array_typed(data, data_type='FLOAT32'):
         return Bfloat16Array(data)
     return np.array(data, dtype=data_type.lower())
 
-def create_random_np_array_typed(dim, data_type='FLOAT32', seed=10):
-    np.random.seed(seed)
-    return create_np_array_typed(np.random.rand(dim), data_type)
-
+np.random.seed(42)
+def create_random_np_array_typed(dim, data_type='FLOAT32', normalize=False):
+    vector = create_np_array_typed(np.random.rand(dim), data_type)
+    if normalize:
+        vector /= np.linalg.norm(vector)
+    return vector
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
         return False
@@ -709,10 +708,9 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
     total_size = 0
     for field in fields:
         if field in ['GEO', 'NUMERIC']:
-            block_size = 48
-            initial_block_cap = 6
-            inverted_index_meta_data = 40
-            total_size += (block_size + initial_block_cap + inverted_index_meta_data)
+            inverted_index_size = 40
+            inverted_index_meta_data = 8
+            total_size += inverted_index_size + inverted_index_meta_data
             continue
         env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR'], message=f"type {field} is not supported", depth=depth+1)
 
@@ -1058,3 +1056,36 @@ def call_and_store(fn, args, out_list):
         out_list: List to append the function's return value to
     """
     out_list.append(fn(*args))
+
+def generate_slots(slots = range(2**14)) -> bytes:
+    """Generate slot ranges in binary format matching RedisModuleSlotRangeArray serialization.
+
+    Args:
+        slots: Iterable of slot numbers (default: 0-16383)
+
+    Returns:
+        bytes: Binary format with:
+            - First 4 bytes: int32 number of ranges (little-endian)
+            - Following bytes: pairs of uint16 (start, end) for each range (little-endian)
+    """
+    slots = set(slots)
+    ranges_list = []
+
+    for slot in range(2**14):
+        if slot in slots:
+            if ranges_list and slot == ranges_list[-1][1] + 1:
+                ranges_list[-1][1] = slot
+            else:
+                ranges_list.append([slot, slot])
+
+    # Convert list to numpy array of uint16 pairs
+    ranges_array = np.array(ranges_list, dtype=np.uint16)
+
+    # Create the output: 4 bytes for count (int32) + flattened uint16 pairs
+    num_ranges = np.int32(len(ranges_list))
+
+    # Use sys.byteorder to handle endianness properly, but force little-endian
+    count_bytes = num_ranges.tobytes() if sys.byteorder == 'little' else num_ranges.byteswap().tobytes()
+    ranges_bytes = ranges_array.tobytes() if sys.byteorder == 'little' else ranges_array.byteswap().tobytes()
+
+    return count_bytes + ranges_bytes

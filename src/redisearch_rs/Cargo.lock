@@ -794,17 +794,13 @@ dependencies = [
 name = "inverted_index_bencher"
 version = "0.0.1"
 dependencies = [
- "bindgen 0.72.0",
  "buffer",
- "build_utils",
  "criterion",
  "ffi",
  "inverted_index",
  "itertools 0.14.0",
  "redis-module",
  "redis_mock",
- "types_ffi",
- "varint_ffi",
 ]
 
 [[package]]
@@ -1282,6 +1278,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "query_error_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "query_error",
+]
+
+[[package]]
 name = "quote"
 version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1363,7 +1368,7 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
 dependencies = [
  "backtrace",
  "bindgen 0.66.1",
@@ -1385,7 +1390,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -1408,6 +1413,8 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "fnv_ffi",
+ "inverted_index_ffi",
+ "query_error_ffi",
  "redis-module",
  "result_processor_ffi",
  "triemap_ffi",
@@ -1532,11 +1539,17 @@ dependencies = [
 name = "rqe_iterators"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "inverted_index",
  "pretty_assertions",
  "proptest",
+ "redis_mock",
+ "rqe_iterators",
  "thiserror",
+ "types_ffi",
+ "value",
+ "value_ffi",
 ]
 
 [[package]]
@@ -1549,11 +1562,13 @@ dependencies = [
  "criterion",
  "ffi",
  "inverted_index",
+ "inverted_index_ffi",
  "itertools 0.14.0",
  "redis_mock",
  "rqe_iterators",
  "triemap_ffi",
  "types_ffi",
+ "value_ffi",
  "varint_ffi",
 ]
 
@@ -1724,6 +1739,19 @@ name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
+name = "slots_tracker"
+version = "0.0.1"
+
+[[package]]
+name = "slots_tracker_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "slots_tracker",
+]
 
 [[package]]
 name = "smallvec"

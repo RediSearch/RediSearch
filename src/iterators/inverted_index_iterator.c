@@ -461,14 +461,14 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
 
 static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
                                         bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
-  RS_ASSERT(idx && InvertedIndex_NumBlocks(idx) > 0);
+  RS_ASSERT(idx);
   InvIndIterator *it = rm_calloc(1, sizeof(*it));
   return InitInvIndIterator(it, idx, res, filterCtx, skipMulti, sctx, decoderCtx, checkAbortFn);
 }
 
 static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, RSIndexResult *res, const FieldSpec* fieldSpec, const FieldFilterContext *filterCtx,
                 bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
-  RS_ASSERT(idx && InvertedIndex_NumBlocks(idx) > 0);
+  RS_ASSERT(idx);
   NumericInvIndIterator *it = rm_calloc(1, sizeof(*it));
 
   // Initialize the iterator first
@@ -542,6 +542,12 @@ static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
 // IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
 // IDF computation).
 static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
+  // totalDocs should never be less than termDocs, as that causes an underflow
+  // wraparound in the below calculation.
+  // Yet, that can happen in some scenarios of deletions/updates, until fixed in
+  // the next GC run.
+  // In that case, we set totalDocs to termDocs, as a temporary fix.
+  totalDocs = MAX(totalDocs, termDocs);
   return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
 }
 

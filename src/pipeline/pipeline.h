@@ -89,6 +89,8 @@ typedef struct QueryPipelineParams {
 
     /** Slot ranges for the root iterator, used for cluster-aware query execution. */
     const SharedSlotRangeArray *slotRanges;
+    const RedisModuleSlotRangeArray *querySlots;
+    uint32_t slotsVersion;
 
     /** Name of the scoring function to use for document relevance calculation.
      *  Examples include "BM25", "TFIDF", or custom scorer names. This determines

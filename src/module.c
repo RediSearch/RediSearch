@@ -161,11 +161,24 @@ static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
   return !IsEnterprise() || ACLUserMayAccessIndex(ctx, sp);
 }
 
-// OOM guardrail with heuristics
+// OOM check with heuristics
 // TODO: add heuristics
 // Assumes the GIL is held by the caller
-bool estimateOOM(RedisModuleCtx *ctx) {
+static inline bool estimateOOM(RedisModuleCtx *ctx) {
   return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
+}
+
+// OOM guardrail for queries function
+// Such as DistSearchCommand/DistAggregateCommand and hybridCommandHandler
+// Assumes the GIL is held by the caller
+// Returns true if the query should be aborted due to OOM
+bool QueryMemoryGuard(RedisModuleCtx *ctx) {
+  // Check OOM if OOM policy is not ignore
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
+    // No need to hold the GIL since we are not in a background thread
+    return estimateOOM(ctx);
+  }
+  return false;
 }
 
 // Returns true if the current context has permission to execute debug commands
@@ -887,12 +900,12 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   StrongRef ref = IndexSpec_LoadUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    QueryError_SetError(error, QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
+    QueryError_SetError(error, QUERY_ERROR_CODE_NO_INDEX, "Unknown index name (or name is an alias itself)");
     return REDISMODULE_ERR;
   }
 
   if (!checkEnterpriseACL(ctx, sp)) {
-    QueryError_SetError(error, QUERY_EGENERIC, NOPERM_ERR);
+    QueryError_SetError(error, QUERY_ERROR_CODE_GENERIC, NOPERM_ERR);
     return REDISMODULE_ERR;
   }
 
@@ -903,7 +916,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   HiddenString *alias = NewHiddenString(rawAlias, length, false);
   if (dictFetchValue(specDict_g, alias)) {
     HiddenString_Free(alias, false);
-    QueryError_SetCode(error, QUERY_EALIASCONFLICT);
+    QueryError_SetCode(error, QUERY_ERROR_CODE_ALIAS_CONFLICT);
     CurrentThread_ClearIndexSpec();
     return REDISMODULE_ERR;
   }
@@ -1155,7 +1168,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
   char *enterpriseStr = strstr(replyStr, "rlec_version:");
   if (enterpriseStr) {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
-               &rlecVersion.minorVersion, &rlecVersion.buildVersion, &rlecVersion.patchVersion);
+               &rlecVersion.minorVersion, &rlecVersion.patchVersion, &rlecVersion.buildVersion);
     if (n != 4) {
       RedisModule_Log(ctx, "warning", "Could not extract enterprise version");
     }
@@ -1928,7 +1941,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
     if (k > MAX_KNN_K) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
       goto cleanup;
     }
     specialCaseCtx *ctx = SpecialCaseCtx_New();
@@ -2884,11 +2897,11 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
 // TODO - get RequestConfig ptr as parameter instead of global config
 bool should_return_error(QueryErrorCode errCode) {
   // Check if this is a timeout error with non-fail policy
-  if (errCode == QUERY_ETIMEDOUT) {
+  if (errCode == QUERY_ERROR_CODE_TIMED_OUT) {
     return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
   }
   // Check if this is an OOM error with non-fail policy
-  if (errCode == QUERY_EOOM) {
+  if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
     return RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail;
   }
 
@@ -2930,7 +2943,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
         goto cleanup;
       } else {
         // Check if OOM
-        if (errCode == QUERY_EOOM) {
+        if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
           req->queryOOM = true;
         }
       }
@@ -2976,7 +2989,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
       // If we timed out on strict timeout policy, return a timeout error
       if (should_return_timeout_error(req)) {
-        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
         goto cleanup;
       }
     }
@@ -2987,7 +3000,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       // Check that the reply is not an error, can be caused if a shard failed to execute the query (i.e OOM).
       if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
         // Since we expect this to happen only with OOM, we assert it until this invariant changes.
-        RS_ASSERT(QueryError_GetCodeFromMessage(MRReply_String(replies[i], NULL)) == QUERY_EOOM);
+        RS_ASSERT(QueryError_GetCodeFromMessage(MRReply_String(replies[i], NULL)) == QUERY_ERROR_CODE_OUT_OF_MEMORY);
         continue;
       }
 
@@ -3000,7 +3013,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
       // If we timed out on strict timeout policy, return a timeout error
       if (should_return_timeout_error(req)) {
-        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
         goto cleanup;
       }
     }
@@ -3207,6 +3220,12 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
+  // Memory guardrail
+  if (QueryMemoryGuard(ctx)) {
+    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+  }
+
   // Coord callback
   ConcurrentCmdHandler dist_callback = RSExecDistAggregate;
 
@@ -3227,14 +3246,6 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
   }
 
-  // Check OOM if OOM policy is not ignore
-  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
-    // No need to hold the GIL since we are not in a background thread
-    if (estimateOOM(ctx)) {
-      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
-    }
-  }
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
   // Check the ACL key permissions of the user w.r.t the queried index (only if
@@ -3250,8 +3261,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CMDCTX_NO_GIL,
-                                               dist_callback, ctx, argv, argc,
+  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                StrongRef_Demote(spec_ref));
 }
 
@@ -3263,6 +3273,12 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
     return RedisModule_WrongArity(ctx);
+  }
+
+  // Memory guardrail
+  if (QueryMemoryGuard(ctx)) {
+    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
   }
 
   // Coord callback
@@ -3288,8 +3304,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CMDCTX_NO_GIL,
-                                               dist_callback, ctx, argv, argc,
+  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                StrongRef_Demote(spec_ref));
 }
 
@@ -3313,8 +3328,7 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CMDCTX_NO_GIL,
-                                               CursorCommandInternal, ctx, argv, argc,
+  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CursorCommandInternal, ctx, argv, argc,
                                                (WeakRef){0});
 }
 
@@ -3490,7 +3504,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
-    QueryError_SetCode(status, QUERY_EDROPPEDBACKGROUND);
+    QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
 
     bailOut(bc, status);
     return REDISMODULE_ERR;
@@ -3504,11 +3518,15 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   MRCommand_Insert(cmd, arg_pos++, n_prefixes, string_len);
   rm_free(n_prefixes);
 
-  for (uint i = 0; i < array_len(prefixes); i++) {
+  for (uint32_t i = 0; i < array_len(prefixes); i++) {
     size_t len;
     const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
     MRCommand_Insert(cmd, arg_pos++, prefix, len);
   }
+
+  // Prepare command for slot info (Cluster mode)
+  MRCommand_PrepareForSlotInfo(cmd, arg_pos);
+  arg_pos += 2;
 
   // Return spec references, no longer needed
   IndexSpecRef_Release(strong_ref);
@@ -3594,6 +3612,12 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
+  // Memory guardrail
+  if (QueryMemoryGuard(ctx)) {
+    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+  }
+
   // Coord callback
   void (*dist_callback)(void *) = DistSearchCommandHandler;
 
@@ -3602,15 +3626,6 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     argv++;
     argc--;
     dist_callback = DEBUG_DistSearchCommandHandler;
-  }
-
-  // Check OOM if OOM policy is not ignore
-  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
-    // No need to hold the GIL since we are not in a background thread
-    if (estimateOOM(ctx)) {
-      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
-    }
   }
 
   // Prepare spec ref for the background thread
@@ -3696,17 +3711,19 @@ int RefreshClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc);
+  uint32_t my_shard_idx = UINT32_MAX;
+  MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc, &my_shard_idx);
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
     return REDISMODULE_ERR;
   }
 
-  RedisModule_Log(ctx, "debug", "SetClusterCommand: Setting number of partitions to %u", topo->numShards);
-  NumShards = topo->numShards;
+  // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
+  RS_ASSERT(my_shard_idx < topo->numShards);
+  const RedisModuleSlotRangeArray *my_slots = topo->shards[my_shard_idx].slotRanges;
 
   // send the topology to the cluster
-  MR_UpdateTopology(topo);
+  MR_UpdateTopology(topo, my_slots);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

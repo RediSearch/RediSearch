@@ -58,10 +58,7 @@ pub unsafe extern "C" fn RedisModule_ScanKey(
 ) -> ::std::os::raw::c_int {
     // Safety: Caller has to ensure 1
     let key = unsafe { &*(key.cast::<UserKey>()) };
-    let Some(ctx) = key.get_ctx() else {
-        // early return we miss the data holder
-        return 0;
-    };
+    let ctx = key.get_ctx();
 
     // Safety: Caller is has to ensure 2 and thus we can cast the context as [crate::TestContext]
     let test_ctx = unsafe {

@@ -49,7 +49,7 @@ static bool ensureSimpleMode(AREQ *req) {
 */
 static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *status) {
   if (*reqflags & QEXEC_F_IS_SEARCH) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
                            "option `%s` is mutually exclusive with simple (i.e. search) options",
                            name);
     return 0;
@@ -142,7 +142,7 @@ static int parseRequiredFields(const char ***requiredFields, ArgsCursor *ac, Que
   ArgsCursor args = {0};
   int rv = AC_GetVarArgs(ac, &args);
   if (rv != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for _REQUIRED_FIELDS: %s", AC_Strerror(rv));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for _REQUIRED_FIELDS: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   int requiredFieldNum = AC_NumArgs(&args);
@@ -166,12 +166,12 @@ static int parseRequiredFields(const char ***requiredFields, ArgsCursor *ac, Que
 
 int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
   if (AC_NumRemaining(ac) < 1) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need an argument for DIALECT");
       return REDISMODULE_ERR;
     }
     if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
       QueryError_SetWithoutUserDataFmt(
-        status, QUERY_EPARSEARGS,
+        status, QUERY_ERROR_CODE_PARSE_ARGS,
         "DIALECT requires a non negative integer >=%u and <= %u",
         MIN_DIALECT_VERSION, MAX_DIALECT_VERSION
       );
@@ -185,7 +185,7 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   const char *format;
   int rv = AC_GetString(ac, &format, NULL, 0);
   if (rv != AC_OK) {
-    QueryError_SetError(status, QUERY_EBADVAL, "Need an argument for FORMAT");
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Need an argument for FORMAT");
     return REDISMODULE_ERR;
   }
   if (!strcasecmp(format, "EXPAND")) {
@@ -193,7 +193,7 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   } else if (!strcasecmp(format, "STRING")) {
     *flags &= ~QEXEC_FORMAT_EXPAND;
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "FORMAT", " %s is not supported", format);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "FORMAT", " %s is not supported", format);
     return REDISMODULE_ERR;
   }
   *flags &= ~QEXEC_FORMAT_DEFAULT;
@@ -203,12 +203,12 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
 // Parse the timeout value
 int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status) {
   if (AC_NumRemaining(ac) < 1) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for TIMEOUT");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need an argument for TIMEOUT");
     return REDISMODULE_ERR;
   }
 
   if (AC_GetLongLong(ac, timeout, AC_F_GE0) != AC_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS,
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
       "TIMEOUT requires a non negative integer.");
     return REDISMODULE_ERR;
   }
@@ -224,11 +224,11 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
 
   if (*flags & QEXEC_FORMAT_EXPAND) {
     if (!is_resp3) {
-      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format is only supported with RESP3");
+      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "EXPAND format is only supported with RESP3");
       return REDISMODULE_ERR;
     }
     if (!is_json) {
-      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format is only supported with JSON");
+      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "EXPAND format is only supported with JSON");
       return REDISMODULE_ERR;
     }
   }
@@ -257,17 +257,17 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     arng->isLimited = 1;
     // Parse offset, length
     if (AC_NumRemaining(ac) < 2) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT requires two arguments");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT requires two arguments");
       return ARG_ERROR;
     }
     if ((rv = AC_GetU64(ac, &arng->offset, 0)) != AC_OK ||
         (rv = AC_GetU64(ac, &arng->limit, 0)) != AC_OK) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT needs two numeric arguments");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT needs two numeric arguments");
       return ARG_ERROR;
     }
 
     if (arng->limit == 0 && arng->offset != 0) {
-      QueryError_SetError(status, QUERY_ELIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
+      QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
       return ARG_ERROR;
     }
 
@@ -278,15 +278,15 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       // TODO: unify if when req holds only maxResults according to the query type.
       //(SEARCH / AGGREGATE)
     } else if ((arng->limit > *papCtx->maxSearchResults) && (*papCtx->reqflags & (QEXEC_F_IS_SEARCH))) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "LIMIT exceeds maximum of %llu",
                              *papCtx->maxSearchResults);
       return ARG_ERROR;
     } else if ((arng->limit > *papCtx->maxAggregateResults) && !(*papCtx->reqflags & (QEXEC_F_IS_SEARCH))) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "LIMIT exceeds maximum of %llu",
                              *papCtx->maxAggregateResults);
       return ARG_ERROR;
     } else if (arng->offset > *papCtx->maxSearchResults) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "OFFSET exceeds maximum of %llu",
                              *papCtx->maxSearchResults);
       return ARG_ERROR;
     }
@@ -306,11 +306,11 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
     if (AC_NumRemaining(ac) < 1) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need argument for TIMEOUT");
       return ARG_ERROR;
     }
     if (AC_GetLongLong(ac, &papCtx->reqConfig->queryTimeoutMS, AC_F_GE0) != AC_OK) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT requires a non negative integer");
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
@@ -349,20 +349,39 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if (AC_AdvanceIfMatch(ac, "BM25STD_TANH_FACTOR")) {
     if (AC_NumRemaining(ac) < 1) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for BM25STD_TANH_FACTOR");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need an argument for BM25STD_TANH_FACTOR");
       return ARG_ERROR;
     }
     if (AC_GetUnsignedLongLong(ac, (unsigned long long *)&papCtx->reqConfig->BM25STD_TanhFactor, AC_F_GE1) != AC_OK) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
     }
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, SLOTS_STR)) {
+    if (*papCtx->querySlots) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SLOTS_STR" already specified");
+      return ARG_ERROR;
+    }
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SLOTS_STR" missing argument");
+      return ARG_ERROR;
+    }
+    size_t serialization_len;
+    const char *serialization = AC_GetStringNC(ac, &serialization_len);
+    RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
+    if (!slot_array) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
+      return ARG_ERROR;
+    }
+    // TODO ASM: check if the requested slots are available
+    *papCtx->querySlots = slot_array;
+    *papCtx->slotsVersion = 0;
   } else {
     return ARG_UNKNOWN;
   }
 
   if (dialect_specified && papCtx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && *papCtx->reqflags & QEXEC_FORMAT_EXPAND) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
     return ARG_ERROR;
   }
 
@@ -374,9 +393,9 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   // Prevent multiple SORTBY steps
   if (arng->sortKeys != NULL) {
     if (isLegacy) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Multiple SORTBY steps are not allowed");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Multiple SORTBY steps are not allowed");
     } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
     }
     return REDISMODULE_ERR;
   }
@@ -406,7 +425,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   } else {
     rv = AC_GetVarArgs(ac, &subArgs);
     if (rv != AC_OK) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for SORTBY: %s", AC_Strerror(rv));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for SORTBY: %s", AC_Strerror(rv));
       goto err;
     }
   }
@@ -428,7 +447,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
       const char *s = AC_GetStringNC(&subArgs, NULL);
       if (*s == '@') {
         if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
-          QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
           goto err;
         }
         s++;
@@ -442,7 +461,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
         SORTASCMAP_SETDESC(ascMap, array_len(keys) - 1);
       } else {
         // Unknown token - neither a property nor ASC/DESC
-        QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "MISSING ASC or DESC after sort field", " (%s)", s);
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "MISSING ASC or DESC after sort field", " (%s)", s);
         goto err;
       }
     }
@@ -453,12 +472,12 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   // back to `ac`
   if (AC_AdvanceIfMatch(ac, "MAX")) {
     if (isLegacy) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "SORTBY MAX is not supported by FT.SEARCH");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SORTBY MAX is not supported by FT.SEARCH");
       goto err;
     }
     unsigned mx = 0;
     if ((rv = AC_GetUnsigned(ac, &mx, 0) != AC_OK)) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for MAX: %s", AC_Strerror(rv));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for MAX: %s", AC_Strerror(rv));
       goto err;
     }
     arng->limit = mx;
@@ -468,7 +487,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   arng->sortKeys = keys;
   return REDISMODULE_OK;
 err:
-  QueryError_SetError(status, QUERY_EPARSEARGS, "Bad SORTBY arguments");
+  QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad SORTBY arguments");
   if (keys) {
     array_free(keys);
   }
@@ -553,23 +572,23 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     // See if this is one of our arguments which requires special handling
     if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
       if(!ensureSimpleMode(req)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "SUMMARIZE is not supported on FT.AGGREGATE");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SUMMARIZE is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
       }
       if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for SUMMARIZE");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
       }
       AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
       if(!ensureSimpleMode(req)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "HIGHLIGHT is not supported on FT.AGGREGATE");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HIGHLIGHT is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
       }
 
       if (ParseHighlight(ac, &req->outFields) == REDISMODULE_ERR) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for HIGHLIGHT");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for HIGHLIGHT");
         return REDISMODULE_ERR;
       }
       AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
@@ -596,7 +615,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .cursorConfig = &req->cursorConfig,
         .requiredFields = &req->requiredFields,
         .maxSearchResults = &req->maxSearchResults,
-        .maxAggregateResults = &req->maxAggregateResults
+        .maxAggregateResults = &req->maxAggregateResults,
+        .querySlots = &req->querySlots,
+        .slotsVersion = &req->slotsVersion,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -611,7 +632,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   // In dialect 2, we require a non empty numeric filter
   if (req->reqConfig.dialectVersion >= 2 && hasEmptyFilterValue){
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Numeric/Geo filter value/s cannot be empty");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Numeric/Geo filter value/s cannot be empty");
       return REDISMODULE_ERR;
   }
 
@@ -623,12 +644,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
   if ((reqFlags & QEXEC_F_SEND_SCOREEXPLAIN) && !(reqFlags & QEXEC_F_SEND_SCORES)) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "EXPLAINSCORE must be accompanied with WITHSCORES");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE must be accompanied with WITHSCORES");
     return REDISMODULE_ERR;
   }
 
   if (IsSearch(req) && HasScoreInPipeline(req)) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "ADDSCORES is not supported on FT.SEARCH");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "ADDSCORES is not supported on FT.SEARCH");
     return REDISMODULE_ERR;
   }
 
@@ -646,7 +667,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   if (AC_IsInitialized(&returnFields)) {
     if(!ensureSimpleMode(req)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "RETURN is not supported on FT.AGGREGATE");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "RETURN is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
     }
 
@@ -661,10 +682,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       if (AC_AdvanceIfMatch(&returnFields, SPEC_AS_STR)) {
         int rv = AC_GetString(&returnFields, &name, NULL, 0);
         if (rv != AC_OK) {
-          QueryError_SetError(status, QUERY_EPARSEARGS, "RETURN path AS name - must be accompanied with NAME");
+          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "RETURN path AS name - must be accompanied with NAME");
           return REDISMODULE_ERR;
         } else if (!strcasecmp(name, SPEC_AS_STR)) {
-          QueryError_SetError(status, QUERY_EPARSEARGS, "Alias for RETURN cannot be `AS`");
+          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Alias for RETURN cannot be `AS`");
           return REDISMODULE_ERR;
         }
       }
@@ -760,7 +781,7 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
   if (AC_AdvanceIfMatch(ac, "AS")) {
     rv = AC_GetString(ac, &alias, NULL, 0);
     if (rv != AC_OK) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for AS: %s", AC_Strerror(rv));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for AS: %s", AC_Strerror(rv));
       goto error;
     }
   }
@@ -803,7 +824,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   long long nproperties;
   int rv = AC_GetLongLong(ac, &nproperties, 0);
   if (rv != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
@@ -813,12 +834,12 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
     size_t propertyLen;
     rv = AC_GetString(ac, &property, &propertyLen, 0);
     if (rv != AC_OK) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
       array_free(properties);
       return REDISMODULE_ERR;
     }
     if (property[0] != '@') {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
                          property, property);
       array_free(properties);
       return REDISMODULE_ERR;
@@ -834,7 +855,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
     const char *name;
     if (AC_GetString(ac, &name, NULL, 0) != AC_OK) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for REDUCE: %s", AC_Strerror(rv));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for REDUCE: %s", AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
     if (PLNGroupStep_AddReducer(gstp, name, ac, status) != REDISMODULE_OK) {
@@ -871,7 +892,7 @@ static int handleApplyOrFilter(AGGPlan *plan, ArgsCursor *ac, QueryError *status
   size_t exprLen;
   int rv = AC_GetString(ac, &expr, &exprLen, 0);
   if (rv != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for APPLY/FILTER: %s", AC_Strerror(rv));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for APPLY/FILTER: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
@@ -885,7 +906,7 @@ static int handleApplyOrFilter(AGGPlan *plan, ArgsCursor *ac, QueryError *status
       const char *alias;
       size_t aliasLen;
       if (AC_GetString(ac, &alias, &aliasLen, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "AS needs argument");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "AS needs argument");
         goto error;
       }
       stp->base.alias = rm_strndup(alias, aliasLen);
@@ -903,8 +924,6 @@ error:
   return REDISMODULE_ERR;
 }
 
-
-
 static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
@@ -913,16 +932,16 @@ static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryEr
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
     if (rc != AC_OK) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for LOAD: %s", AC_Strerror(rc));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for LOAD: %s", AC_Strerror(rc));
       return REDISMODULE_ERR;
     } else if (strcmp(s, "*")) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for LOAD: Expected number of fields or `*`");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for LOAD: Expected number of fields or `*`");
       return REDISMODULE_ERR;
     }
     // Successfully got a '*', load all fields
     REQFLAGS_AddFlags(reqflags, QEXEC_AGG_LOAD_ALL);
   } else if (rc != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for LOAD: %s", AC_Strerror(rc));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for LOAD: %s", AC_Strerror(rc));
     return REDISMODULE_ERR;
   }
 
@@ -1025,7 +1044,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   ArgsCursor_InitSDS(&ac, req->args, req->nargs);
 
   if (AC_IsAtEnd(&ac)) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "No query string provided");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided");
     return REDISMODULE_ERR;
   }
 
@@ -1047,9 +1066,17 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .cursorConfig = &req->cursorConfig,
     .requiredFields = &req->requiredFields,
     .maxSearchResults = &req->maxSearchResults,
-    .maxAggregateResults = &req->maxAggregateResults
+    .maxAggregateResults = &req->maxAggregateResults,
+    .querySlots = &req->querySlots,
+    .slotsVersion = &req->slotsVersion,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  // Verify we got slots requested if needed
+  if (IsInternal(req) && !req->querySlots) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Internal query missing slots specification");
     goto error;
   }
 
@@ -1087,9 +1114,9 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
         if (dialect != 1) {
           const HiddenString *fieldName = filter->field;
           if (fs) {
-            QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Field is not a numeric field", ", field: %s", HiddenString_GetUnsafe(fieldName, NULL));
+            QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Field is not a numeric field", ", field: %s", HiddenString_GetUnsafe(fieldName, NULL));
           } else {
-            QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Unknown Field", " '%s'", HiddenString_GetUnsafe(fieldName, NULL));
+            QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Unknown Field", " '%s'", HiddenString_GetUnsafe(fieldName, NULL));
           }
           return REDISMODULE_ERR;
         } else {
@@ -1119,7 +1146,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
           const char *generalError = fs ? "Field is not a geo field" : "Unknown Field";
-          QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, generalError, ", field: %s", HiddenString_GetUnsafe(gf->field, NULL));
+          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, generalError, ", field: %s", HiddenString_GetUnsafe(gf->field, NULL));
           return REDISMODULE_ERR;
         } else {
           // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
@@ -1153,29 +1180,11 @@ static bool IsIndexCoherent(AREQ *req) {
     return true;
   }
 
-  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-  IndexSpec *spec = sctx->spec;
   sds *args = req->args;
   long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
-
-  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
-  if (n_prefixes != array_len(spec_prefixes)) {
-    return false;
-  }
-
-  // Validate that the prefixes in the arguments are the same as the ones in the
-  // index (also in the same order)
   // The first argument is at req->prefixesOffset + 2
-  uint base_idx = req->prefixesOffset + 2;
-  for (uint i = 0; i < n_prefixes; i++) {
-    sds arg = args[base_idx + i];
-    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
-      // Unmatching prefixes
-      return false;
-    }
-  }
-
-  return true;
+  sds *prefixes = args + req->prefixesOffset + 2;
+  return IndexSpec_IsCoherent(AREQ_SearchCtx(req)->spec, prefixes, n_prefixes);
 }
 
 
@@ -1187,10 +1196,10 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   // Resolve field spec
   const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, strlen(fieldName));
   if (!vectorField) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Unknown field", " `%s`", fieldName);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Unknown field", " `%s`", fieldName);
     return REDISMODULE_ERR;
   } else if (!FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", fieldName);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", fieldName);
     return REDISMODULE_ERR;
   }
   vq->field = vectorField;
@@ -1248,21 +1257,21 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   req->sctx = sctx;
 
   if (!IsIndexCoherent(req)) {
-    QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
+    QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     return REDISMODULE_ERR;
   }
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
   if (isSpecJson(index) && (reqFlags & QEXEC_F_SEND_HIGHLIGHT)) {
     QueryError_SetError(
-        status, QUERY_EINVAL,
+        status, QUERY_ERROR_CODE_INVAL,
         "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes");
     return REDISMODULE_ERR;
   }
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (reqFlags & QEXEC_F_SEND_HIGHLIGHT)) {
     QueryError_SetError(
-        status, QUERY_EINVAL,
+        status, QUERY_ERROR_CODE_INVAL,
         "Cannot use HIGHLIGHT/SUMMARIZE because NOOFSETS was specified at index level");
     return REDISMODULE_ERR;
   }
@@ -1281,13 +1290,13 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   if (opts->language == RS_LANG_UNSET) {
     opts->language = index->rule->lang_default;
   } else if (opts->language == RS_LANG_UNSUPPORTED) {
-    QueryError_SetError(status, QUERY_EINVAL, "No such language");
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "No such language");
     return REDISMODULE_ERR;
   }
 
   if (opts->scorerName) {
     if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "No such scorer %s", opts->scorerName);
       return REDISMODULE_ERR;
     }
   } else {
@@ -1385,6 +1394,7 @@ void AREQ_Free(AREQ *req) {
   }
 
   Slots_FreeLocalSlots(req->slotRanges);
+  rm_free((void *)req->querySlots);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.

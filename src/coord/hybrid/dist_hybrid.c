@@ -221,6 +221,9 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Numeric responses are encoded as simple strings.
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
+  // Prepare command for slot info (Cluster mode)
+  MRCommand_PrepareForSlotInfo(xcmd, xcmd->num);
+
   if (sp && sp->rule && sp->rule->prefixes && array_len(sp->rule->prefixes) > 0) {
     MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
     arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
@@ -229,7 +232,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
     rm_free(n_prefixes);
 
-    for (uint i = 0; i < array_len(prefixes); i++) {
+    for (uint32_t i = 0; i < array_len(prefixes); i++) {
       size_t len;
       const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
       MRCommand_Append(xcmd, prefix, len);
@@ -469,22 +472,11 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     QueryError status = {0};
 
-    if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
-      // OOM guardrail
-      if (estimateOOM(ctx)) {
-        RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-        QueryError_SetCode(&status, QUERY_EOOM);
-        // Cleanup
-        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
-        return;
-      }
-    }
-
     // CMD, index, expr, args...
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
     RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
     if (!sctx) {
-        QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
+        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
         // return QueryError_ReplyAndClear(ctx, &status);
         DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
         return;
@@ -494,7 +486,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpec *sp = StrongRef_Get(strong_ref);
     if (!sp) {
-        QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+        QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
         return;
     }

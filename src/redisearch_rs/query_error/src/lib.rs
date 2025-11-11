@@ -213,8 +213,11 @@ impl QueryError {
         &mut self.warnings
     }
 
+    /// Clears error code and messages, but _not_ warnings.
     pub fn clear(&mut self) {
-        *self = Self::default();
+        self.code = QueryErrorCode::default();
+        self.private_message = None;
+        self.public_message = None;
     }
 }
 
