@@ -62,6 +62,7 @@ jobs:
       coverage: true
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
+      test-config: QUICK=0
     secrets: inherit
 
   sanitize:
@@ -78,6 +79,7 @@ jobs:
       san: address
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
+      test-config: QUICK=0
 
   pr-validation:
     needs:
