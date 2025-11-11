@@ -899,9 +899,7 @@ void test_drain_high_priority_beyond_tickets(T* test) {
   size_t remaining_jobs = redisearch_thpool_get_stats(test->pool).total_pending_jobs +
                          redisearch_thpool_num_jobs_in_progress(test->pool);
 
-  // Either jobs are still running/pending, or they completed very quickly
-  // The key test is that drain_high_priority returned without waiting for low priority jobs
-  ASSERT_TRUE(remaining_jobs == 0);
+  ASSERT_EQ(remaining_jobs, 0);
   ASSERT_EQ(high_ctx.jobs_completed.load(), num_high_jobs);
 
   // Clean up - wait for all jtobs to complete
