@@ -642,7 +642,13 @@ private:
         // Create the iterator with proper sctx so NumericCheckAbort can work
         FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = fs->index}};
         FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-        iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, fs, -INFINITY, INFINITY);
+        const NumericRangeTree *rt = NULL;
+        if (fs) {
+              RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, fs, INDEXFLD_T_NUMERIC);
+              rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
+              RS_ASSERT(rt);
+          }
+        iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, rt, -INFINITY, INFINITY);
 
         Vector_Free(ranges);
         RedisModule_FreeString(ctx, numField);
