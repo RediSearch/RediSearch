@@ -11,13 +11,12 @@
 
 use std::time::Duration;
 
+use crate::ffi;
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use rqe_iterators::{RQEIterator, id_list::IdList};
-
-use crate::ffi;
+use rqe_iterators::{RQEIterator, id_list::SortedIdList};
 
 #[derive(Default)]
 pub struct Bencher;
@@ -112,7 +111,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data = (1..1_000_000).collect();
-                    IdList::new(data)
+                    SortedIdList::new(data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -128,7 +127,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    IdList::new(data)
+                    SortedIdList::new(data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -185,7 +184,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data = (1..1_000_000).collect();
-                    IdList::new(data)
+                    SortedIdList::new(data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
@@ -202,7 +201,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    IdList::new(data)
+                    SortedIdList::new(data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {

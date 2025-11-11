@@ -9,6 +9,9 @@ publish.workspace = true
 # feature enabled when building tests so they can link on the C code in build.rs
 # see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
 unittest = []
+# They currently trigger a bug in hybrid (MOD-12370). This feature should be removed
+# once the bug has been fixed.
+disable_sort_checks_in_idlist = []
 
 [dependencies]
 ffi.workspace = true
