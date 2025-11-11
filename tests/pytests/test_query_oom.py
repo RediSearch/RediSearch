@@ -10,6 +10,9 @@ OOM_WARNING = "One or more shards failed to execute the query due to insufficien
 def run_cmd_expect_oom(env, query_args):
     env.expect(*query_args).error().contains(OOM_QUERY_ERROR)
 
+def run_cmd(env, query_args):
+    return (env.cmd(*query_args))
+
 def pid_cmd(conn):
     return conn.execute_command('info', 'server')['process_id']
 
@@ -390,7 +393,7 @@ def test_hybrid_query_oom_cluster_shards_error_first_reply():
 
     t_query = threading.Thread(
         target=call_and_store,
-        args=(run_cmd_expect_oom,
+        args=(run_cmd,
             (env, query_args),
             query_result),
         daemon=True
