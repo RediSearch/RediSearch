@@ -13,9 +13,9 @@
 #include "iterators/optional_iterator.h"
 #include "iterators/union_iterator.h"
 #include "iterators/intersection_iterator.h"
-#include "iterators/idlist_iterator.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
+#include "iterators_rs.h"
 #include "reply_macros.h"
 #include "util/units.h"
 
@@ -388,10 +388,10 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 
 PRINT_PROFILE_FUNC(printMetricIt) {
   RedisModule_Reply_Map(reply);
-  MetricIterator *it = (MetricIterator *)root;
+  MetricType type = GetMetricType(root);
 
-  switch (it->type) {
-    case VECTOR_DISTANCE: {
+  switch (type) {
+    case VectorDistance: {
       printProfileType("METRIC - VECTOR DISTANCE");
       break;
     }

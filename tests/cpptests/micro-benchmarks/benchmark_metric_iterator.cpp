@@ -8,13 +8,14 @@
 */
 
 #include "benchmark/benchmark.h"
+#include "iterators_rs.h"
 #include "redismock/util.h"
 
 #include <random>
 #include <vector>
 
 #include "src/iterators/iterator_api.h"
-#include "src/iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 
 template <bool yield_metric>
 class BM_MetricIterator : public benchmark::Fixture {
@@ -76,9 +77,9 @@ public:
     memcpy(scoresArray, scores.data(), numDocuments * sizeof(double));
 
     if (yield_metric) {
-      iterator_base = NewMetricIterator(docIdsArray, scoresArray, numDocuments, VECTOR_DISTANCE);
+      iterator_base = NewMetricIteratorSortedById(docIdsArray, scoresArray, numDocuments, VectorDistance);
     } else {
-      iterator_base = NewIdListIterator(docIdsArray, numDocuments, 1.0);
+      iterator_base = NewSortedIdListIterator(docIdsArray, numDocuments, 1.0);
       rm_free(scoresArray);
     }
   }

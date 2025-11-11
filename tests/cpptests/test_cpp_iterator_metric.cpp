@@ -5,21 +5,21 @@
 */
 
 #include <algorithm>
-#include "rmutil/alloc.h"
+#include "iterators_rs.h"
 #include "gtest/gtest.h"
-#include "src/iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 
 static bool cmp_docids(const t_docId& d1, const t_docId& d2) {
   return d1 < d2;
 }
 
-class MetricIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<double>, Metric>>  {
+class MetricIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<double>, MetricType>>  {
 protected:
   std::vector<t_docId> docIds;
   std::vector<double> scores;
   std::vector<double> sortedScores;
   std::vector<t_docId> sortedDocIds;
-  Metric metric_type;
+  MetricType metric_type;
   bool yields_metric;
   QueryIterator *iterator_base;
 
@@ -39,7 +39,7 @@ protected:
     double *scores_array = (double*)rm_malloc(sortedScores.size() * sizeof(double));
     std::copy(sortedDocIds.begin(), sortedDocIds.end(), ids_array);
     std::copy(sortedScores.begin(), sortedScores.end(), scores_array);
-    iterator_base = NewMetricIterator(ids_array, scores_array, indices.size(), metric_type);
+    iterator_base = NewMetricIteratorSortedById(ids_array, scores_array, indices.size(), metric_type);
   }
   void TearDown() override {
     iterator_base->Free(iterator_base);
@@ -188,27 +188,27 @@ INSTANTIATE_TEST_SUITE_P(MetricIteratorP, MetricIteratorCommonTest,
   std::make_tuple(
     std::vector<t_docId>{1, 2, 3, 40, 50},
     std::vector<double>{0.1, 0.2, 0.3, 0.4, 0.5},
-    VECTOR_DISTANCE
+    VectorDistance
   ),
   std::make_tuple(
     std::vector<t_docId>{6, 5, 1, 98, 20, 1000, 500, 3, 2},
     std::vector<double>{0.6, 0.5, 0.1, 0.98, 0.2, 1.0, 0.5, 0.3, 0.2},
-    VECTOR_DISTANCE
+    VectorDistance
   ),
   std::make_tuple(
     std::vector<t_docId>{10, 20, 30, 40, 50},
     std::vector<double>{0.9, 0.8, 0.7, 0.6, 0.5},
-    VECTOR_DISTANCE
+    VectorDistance
   ),
   std::make_tuple(
     std::vector<t_docId>{1000000, 2000000, 3000000},
     std::vector<double>{0.1, 0.5, 0.9},
-    VECTOR_DISTANCE
+    VectorDistance
   ),
   std::make_tuple(
     std::vector<t_docId>{42},
     std::vector<double>{1.0},
-    VECTOR_DISTANCE
+    VectorDistance
   )
  )
 );
