@@ -27,7 +27,7 @@ use crate::SharedRsValue;
 ///   is less than `u32::MAX`. The reason for this is that when doing pointer
 ///   addition, we must ensure we don't overflow `isize::MAX`.
 ///   See [`NonNull::add`].
-#[repr(C)]
+#[repr(C, packed)]
 pub struct RsValueCollection<T> {
     /// Pointer to a heap-allocated array of `Self::cap` items.
     entries: NonNull<T>,

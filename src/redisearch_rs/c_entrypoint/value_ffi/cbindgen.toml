@@ -8,11 +8,16 @@ after_includes = """
 // Required to ensure that the alignment declared by cbindgen is respected on
 // the C/C++ side.
 #define ALIGNED(n) __attribute__((aligned(n)))
+
+// Required to ensure that the layout declared by cbindgen is respected on
+// the C/C++ side
+#define PACKED __attribute__((packed))
 """
 
 
 [layout]
 aligned_n = "ALIGNED"
+packed = "PACKED"
 
 
 [parse]
