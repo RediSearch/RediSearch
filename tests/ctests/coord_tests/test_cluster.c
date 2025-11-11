@@ -10,6 +10,7 @@
 #include "endpoint.h"
 #include "command.h"
 #include "cluster.h"
+#include "slot_ranges.h"
 
 #include "hiredis/hiredis.h"
 #include "rmutil/alloc.h"
@@ -56,12 +57,27 @@ void testEndpoint() {
   MREndpoint_Free(&ep);
 }
 
+static RedisModuleSlotRangeArray *createSlotRangeArray(size_t numRanges, uint16_t ranges[][2]) {
+  size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * numRanges;
+  RedisModuleSlotRangeArray *array = (RedisModuleSlotRangeArray *)rm_malloc(total_size);
+  array->num_ranges = numRanges;
+
+  for (size_t i = 0; i < numRanges; i++) {
+    array->ranges[i].start = ranges[i][0];
+    array->ranges[i].end = ranges[i][1];
+  }
+
+  return array;
+}
+
 static MRClusterTopology *getTopology(size_t numNodes, const char **hosts){
 
   MRClusterTopology *topo = rm_malloc(sizeof(*topo));
   topo->numShards = numNodes;
   topo->capShards = numNodes;
   topo->shards = rm_calloc(numNodes, sizeof(MRClusterShard));
+
+  size_t slots_per_node = 16384 / numNodes;
 
   for (int i = 0; i < numNodes; i++) {
     MRClusterNode *node = &topo->shards[i].node;
@@ -70,6 +86,8 @@ static MRClusterTopology *getTopology(size_t numNodes, const char **hosts){
       return NULL;
     }
     node->id = rm_strdup(hosts[i]);
+    uint16_t ranges[][2] = {{i * slots_per_node, (i + 1) * slots_per_node - 1}};
+    topo->shards[i].slotRanges = createSlotRangeArray(1, ranges);
   }
 
   return topo;
@@ -99,6 +117,11 @@ void testClusterTopology_Clone() {
     mu_check(cloned_sh->node.id != original_sh->node.id); // Different memory address
     mu_check(strcmp(cloned_sh->node.endpoint.host, original_sh->node.endpoint.host) == 0);
     mu_check(cloned_sh->node.endpoint.port == original_sh->node.endpoint.port);
+
+    // Verify slot ranges
+    mu_check(cloned_sh->slotRanges != original_sh->slotRanges); // Different memory address
+    mu_check(cloned_sh->slotRanges->num_ranges == original_sh->slotRanges->num_ranges);
+    mu_check(!memcmp(cloned_sh->slotRanges, original_sh->slotRanges, SlotRangeArray_SizeOf(original_sh->slotRanges->num_ranges)));
   }
 
   // Clean up

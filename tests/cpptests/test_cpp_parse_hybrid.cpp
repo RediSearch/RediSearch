@@ -17,7 +17,6 @@
 #include "src/hybrid/vector_query_utils.h"
 #include "src/spec.h"
 #include "src/search_ctx.h"
-#include "src/query_error.h"
 #include "src/rmalloc.h"
 // #include "src/index.h"
 #include "src/aggregate/aggregate.h"
@@ -25,6 +24,7 @@
 #include "VecSim/query_results.h"
 #include "info/global_stats.h"
 #include "src/ext/default.h"
+#include "src/redisearch_rs/headers/query_error.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -107,7 +107,7 @@ class ParseHybridTest : public ::testing::Test {
     QueryError status = QueryError_Default();
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
+    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
     EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
@@ -661,7 +661,16 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
 
 TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
+        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING", SLOTS_STR);
+  static RedisModuleSlotRangeArray slots = {
+    .num_ranges = 1,
+    .ranges = {
+      { .start = 0, .end = 16383 }
+    }
+  };
+  char * serializedSlots = SlotRangesArray_Serialize(&slots);
+  args.add(serializedSlots, SlotRangeArray_SizeOf(1));
+  rm_free(serializedSlots);
 
   QueryError status = QueryError_Default();
 
@@ -720,7 +729,7 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
+  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_STREQ(QueryError_GetUserError(&status), expected_detail) << "parsing error: " << QueryError_GetUserError(&status);

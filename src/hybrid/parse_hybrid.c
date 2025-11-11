@@ -579,6 +579,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Prefixes for the index
   arrayof(sds) prefixes = array_new(sds, 0);
 
+  // Slot ranges info for distributed execution
+  const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
+  uint32_t slotsVersion;
+
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
     goto error;
@@ -604,10 +608,21 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
+      .querySlots = &requestSlotRanges,
+      .slotsVersion = &slotsVersion,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
+  }
+
+  // Set slots info in both subqueries
+  if (internal) {
+    vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
+    vectorRequest->slotsVersion = slotsVersion;
+    searchRequest->querySlots = requestSlotRanges;
+    searchRequest->slotsVersion = slotsVersion;
+    requestSlotRanges = NULL; // ownership transferred
   }
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
@@ -731,6 +746,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 error:
   array_free_ex(prefixes, sdsfree(*(sds *)ptr));
   prefixes = NULL;
+  if (requestSlotRanges) {
+    rm_free((void *)requestSlotRanges);
+  }
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
   }

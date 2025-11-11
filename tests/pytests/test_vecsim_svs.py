@@ -273,7 +273,8 @@ def test_memory_info():
 func_gen = lambda tn, dt, dist, wr: lambda: queries_sanity(tn, dt, dist, wr)
 for workers in [0, 4]:
     name_suffix = "_async" if workers else ""
-    for data_type in VECSIM_SVS_DATA_TYPES:
+    data_types = ['FLOAT32'] if (SANITIZER or CODE_COVERAGE) else VECSIM_SVS_DATA_TYPES
+    for data_type in data_types:
         metrics = ['IP']
         if EXTENDED_PYTESTS:
             metrics = VECSIM_DISTANCE_METRICS

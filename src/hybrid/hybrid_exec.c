@@ -406,20 +406,26 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
     RedisModule_EndReply(reply);
 }
 
-int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, QueryError *status) {
+int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, QueryError *status, bool backgroundDepletion) {
     HybridRequest *req = StrongRef_Get(hybrid_ref);
     if (req->nrequests == 0) {
       QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
       return REDISMODULE_ERR;
     }
-    arrayof(ResultProcessor*) depleters = array_new(ResultProcessor*, req->nrequests);
+    // helper array to collect depleters so in async we can deplete them all at once before returning the cursors
+    arrayof(ResultProcessor*) depleters = NULL; 
+    if (backgroundDepletion) {
+      depleters = array_new(ResultProcessor *, req->nrequests);
+    }
     arrayof(Cursor*) cursors = array_new(Cursor*, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
-      if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
-         break;
+      if (backgroundDepletion) {
+        if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
+          break;
+        }
+        array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
       }
-      array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
       Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
       if (!cursor) {
         break;
@@ -433,22 +439,26 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     if (array_len(cursors) != req->nrequests) {
       array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
-      array_free(depleters);
+      if (depleters) {
+        array_free(depleters);
+      }
       // verify error exists
       RS_ASSERT(QueryError_HasError(status));
       return REDISMODULE_ERR;
     }
 
-    int rc = RPDepleter_DepleteAll(depleters);
-    array_free(depleters);
-    if (rc != RS_RESULT_OK) {
-      array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
-      if (rc == RS_RESULT_TIMEDOUT) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
-      } else {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
+    if (backgroundDepletion) {
+      int rc = RPDepleter_DepleteAll(depleters);
+      array_free(depleters);
+      if (rc != RS_RESULT_OK) {
+        array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
+        if (rc == RS_RESULT_TIMEDOUT) {
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
+        } else {
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
+        }
+        return REDISMODULE_ERR;
       }
-      return REDISMODULE_ERR;
     }
     replyWithCursors(replyCtx, cursors);
     array_free(cursors);
@@ -464,11 +474,12 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
  * @param sctx Redis search context
  * @param status Output parameter for error reporting
  * @param internal Whether the request is internal (not exposed to the user)
+ * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
 */
 static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *hybridParams,
                                    RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError *status,
-                                   bool internal) {
+                                   bool internal, bool depleteInBackground) {
   // Build the pipeline and execute
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
@@ -477,16 +488,16 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
-    if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams) != REDISMODULE_OK) {
+    if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-  } else if (HybridRequest_BuildPipeline(hreq, hybridParams) != REDISMODULE_OK) {
+  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
   if (!isCursor) {
     HybridRequest_Execute(hreq, ctx, sctx);
-  } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status) != REDISMODULE_OK) {
+  } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status, depleteInBackground) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -538,7 +549,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     return REDISMODULE_OK;
   } else {
     // Single-threaded execution path
-    return buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal);
+    return buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
   }
 }
 
@@ -672,7 +683,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     sctx->redisCtx = outctx;
   }
 
-  if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal) == REDISMODULE_OK) {
+  if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
   } else if (QueryError_HasError(&status)) {

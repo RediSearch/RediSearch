@@ -91,6 +91,18 @@ static void parseMasterNode(RedisModuleCallReply *nodes, MRClusterNode *n) {
   RS_ABORT_ALWAYS("No master node found in shard");
 }
 
+static void parseSlots(RedisModuleCallReply *slots, MRClusterShard *sh) {
+  size_t len = RedisModule_CallReplyLength(slots);
+  RS_ASSERT(len % 2 == 0);
+  size_t buffer_size = SlotRangeArray_SizeOf(len / 2);
+  sh->slotRanges = rm_malloc(buffer_size);
+  sh->slotRanges->num_ranges = (int32_t)(len / 2);
+  for (size_t r = 0; r < sh->slotRanges->num_ranges; r++) {
+    sh->slotRanges->ranges[r].start = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(slots, r * 2));
+    sh->slotRanges->ranges[r].end = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(slots, r * 2 + 1));
+  }
+}
+
 static bool hasSlots(RedisModuleCallReply *shard) {
   ASSERT_KEY(shard, 0, "slots");
   RedisModuleCallReply *slots = RedisModule_CallReplyArrayElement(shard, 1);
@@ -112,8 +124,8 @@ static void sortShards(MRClusterTopology *topo) {
   }
 }
 
+// Assumes auto memory was enabled on ctx
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
-  RS_AutoMemory(ctx);
 
   RedisModuleCallReply *cluster_shards = RedisModule_Call(ctx, "CLUSTER", "c", "SHARDS");
   if (cluster_shards == NULL || RedisModule_CallReplyType(cluster_shards) != REDISMODULE_REPLY_ARRAY) {
@@ -177,7 +189,8 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
 
     // Handle slots
     ASSERT_KEY(currShard, 0, "slots");
-    // We don't actually use the slots, as we don't handle slot-level routing ourselves
+    RedisModuleCallReply *slots = RedisModule_CallReplyArrayElement(currShard, 1);
+    parseSlots(slots, &topo->shards[i]);
 
     // Handle nodes
     ASSERT_KEY(currShard, 2, "nodes");
@@ -192,13 +205,12 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   return topo;
 }
 
-extern size_t NumShards;
 void UpdateTopology(RedisModuleCtx *ctx) {
+  RS_AutoMemory(ctx);
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
   if (topo) { // if we didn't get a topology, do nothing. Log was already printed
-    RedisModule_Log(ctx, "debug", "UpdateTopology: Setting number of partitions to %u", topo->numShards);
-    NumShards = topo->numShards;
-    MR_UpdateTopology(topo);
+    // Pass the local slots info directly from the RedisModule API, as we enabled auto memory
+    MR_UpdateTopology(topo, RedisModule_ClusterGetLocalSlotRanges(ctx));
     Slots_DropCachedLocalSlots(); // Local slots may have changed, drop the cache
   }
 }

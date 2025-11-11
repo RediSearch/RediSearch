@@ -1057,6 +1057,39 @@ def call_and_store(fn, args, out_list):
     """
     out_list.append(fn(*args))
 
+def generate_slots(slots = range(2**14)) -> bytes:
+    """Generate slot ranges in binary format matching RedisModuleSlotRangeArray serialization.
+
+    Args:
+        slots: Iterable of slot numbers (default: 0-16383)
+
+    Returns:
+        bytes: Binary format with:
+            - First 4 bytes: int32 number of ranges (little-endian)
+            - Following bytes: pairs of uint16 (start, end) for each range (little-endian)
+    """
+    slots = set(slots)
+    ranges_list = []
+
+    for slot in range(2**14):
+        if slot in slots:
+            if ranges_list and slot == ranges_list[-1][1] + 1:
+                ranges_list[-1][1] = slot
+            else:
+                ranges_list.append([slot, slot])
+
+    # Convert list to numpy array of uint16 pairs
+    ranges_array = np.array(ranges_list, dtype=np.uint16)
+
+    # Create the output: 4 bytes for count (int32) + flattened uint16 pairs
+    num_ranges = np.int32(len(ranges_list))
+
+    # Use sys.byteorder to handle endianness properly, but force little-endian
+    count_bytes = num_ranges.tobytes() if sys.byteorder == 'little' else num_ranges.byteswap().tobytes()
+    ranges_bytes = ranges_array.tobytes() if sys.byteorder == 'little' else ranges_array.byteswap().tobytes()
+
+    return count_bytes + ranges_bytes
+
 def change_oom_policy(env, policy):
     env.expect(config_cmd(), 'SET', 'ON_OOM', policy).ok()
 
