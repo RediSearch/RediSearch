@@ -1058,6 +1058,7 @@ static QueryIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode 
   size_t num = 0;
   t_docId* it_ids = rm_malloc(sizeof(*it_ids) * node->len);
   for (size_t ii = 0; ii < node->len; ++ii) {
+    // TODO: Get key and use DocIdMeta_Get
     t_docId did = DocTable_GetId(&q->sctx->spec->docs, node->keys[ii], sdslen(node->keys[ii]));
     if (did) {
       it_ids[num++] = did;
@@ -1966,6 +1967,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
 
       s = sdscat(s, "IDS {");
       for (int i = 0; i < qs->fn.len; i++) {
+        // TODO: Get key and use DocIdMeta_Get
         t_docId id = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
         if (id != 0) {
           s = sdscatprintf(s, "%lu,", id);

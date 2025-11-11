@@ -263,6 +263,7 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec* sp = __RefManager_Get_Object(rm);
   int rc = REDISMODULE_OK;
+  // TODO(Joan): Get key and use DocIdMeta_Get
   t_docId id = DocTable_GetId(&sp->docs, docKey, len);
   if (id == 0) {
     rc = REDISMODULE_ERR;
@@ -653,6 +654,7 @@ end:
 
 int RediSearch_DocumentExists(RefManager* rm, const void* docKey, size_t len) {
   IndexSpec* sp = __RefManager_Get_Object(rm);
+  // TODO: Get key and use DocIdMeta_Get
   return DocTable_GetId(&sp->docs, docKey, len) != 0;
 }
 
