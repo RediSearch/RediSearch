@@ -868,6 +868,16 @@ TEST_F(ParseHybridTest, testKNNDuplicateYieldDistanceAs) {
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS: Unknown argument");
 }
 
+TEST_F(ParseHybridTest, testKNNCountingYieldDistanceAs) {
+  // Test KNN with YIELD_SCORE_AS as counting argument
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "YIELD_SCORE_AS", "v_score",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `YIELD_SCORE_AS` in KNN");
+}
+
 TEST_F(ParseHybridTest, testVsimKNNWithEpsilon) {
   // Test KNN with EPSILON (should be RANGE-only)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "EPSILON", "0.01", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
@@ -921,10 +931,21 @@ TEST_F(ParseHybridTest, testRangeDuplicateYieldDistanceAs) {
   // Test RANGE with duplicate YIELD_SCORE_AS arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
     "SEARCH", "hello",
-    "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5",
+    "VSIM", "@vector", "$BLOB",
+      "RANGE", "2", "RADIUS", "0.5",
       "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS: Unknown argument");
+}
+
+TEST_F(ParseHybridTest, testRangeCountingYieldDistanceAs) {
+  // Test RANGE with YIELD_SCORE_AS as counting argument
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS", "v_score",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `YIELD_SCORE_AS` in RANGE");
 }
 
 TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
