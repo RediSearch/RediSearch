@@ -366,6 +366,29 @@ void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
 void RLookup_Cleanup(struct RLookup *lookup);
 
 /**
+ * Add all non-overridden keys from `lookup` to `dest`.
+ *
+ * For each key in `lookup`, check if it already exists *by name*.
+ * - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+ * - If it doesn't a new key will be created.
+ *
+ * Flag handling:
+ *  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+ *  * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+ *  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+ *  * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+ * 2. `dest` must be a [valid], non-null pointer to a [`RLookup`]
+ * 3. All bits set in `flags` must correspond to a value of [`RLookupKeyFlags`]
+ */
+void RLookup_AddKeysFrom(struct RLookup *lookup,
+                         struct RLookup *dest,
+                         uint32_t flags);
+
+/**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
  * Safety:
