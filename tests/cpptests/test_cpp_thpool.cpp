@@ -870,3 +870,52 @@ TEST_P(PriorityThpoolTestDrainEqualBiasThreads, TestDrainHighPriorityWithNoHighP
 TEST_P(PriorityThpoolTestDrainMoreBiasThanThreads, TestDrainHighPriorityWithNoHighPriorityJobs) {
     test_drain_high_priority_with_no_high_priority_jobs(this);
 }
+
+
+template <typename T>
+void test_drain_high_priority_beyond_tickets(T* test) {
+  DrainTestContext high_ctx;
+  high_ctx.work_duration = std::chrono::milliseconds(300); // Longer duration
+
+  // Add only high priority jobs
+  size_t num_high_jobs = 30; // More jobs than threads
+  for (size_t i = 0; i < num_high_jobs; i++) {
+    redisearch_thpool_add_work(test->pool, drain_test_job, &high_ctx, THPOOL_PRIORITY_HIGH);
+  }
+
+  // Wait a bit for some jobs to start
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  // Check that jobs are running before drain
+  size_t jobs_before_drain = redisearch_thpool_get_stats(test->pool).total_pending_jobs +
+                            redisearch_thpool_num_jobs_in_progress(test->pool);
+  ASSERT_EQ(jobs_before_drain, num_high_jobs);
+
+  // Test drain high priority when no high priority jobs exist
+  DrainTestContext yield_ctx;
+  redisearch_thpool_drain_high_priority(test->pool, 10, drain_yield_callback, &yield_ctx);
+
+  // Low priority jobs should still be running or pending (drain_high_priority shouldn't affect them)
+  size_t remaining_jobs = redisearch_thpool_get_stats(test->pool).total_pending_jobs +
+                         redisearch_thpool_num_jobs_in_progress(test->pool);
+
+  // Either jobs are still running/pending, or they completed very quickly
+  // The key test is that drain_high_priority returned without waiting for low priority jobs
+  ASSERT_TRUE(remaining_jobs == 0);
+  ASSERT_EQ(high_ctx.jobs_completed.load(), num_high_jobs);
+
+  // Clean up - wait for all jtobs to complete
+  redisearch_thpool_wait(test->pool);
+}
+
+TEST_P(PriorityThpoolTestDrain, TestDrainHighPriorityBeyondTickets) {
+    test_drain_high_priority_beyond_tickets(this);
+}
+
+TEST_P(PriorityThpoolTestDrainEqualBiasThreads, TestDrainHighPriorityBeyondTickets) {
+  test_drain_high_priority_beyond_tickets(this);
+}
+
+TEST_P(PriorityThpoolTestDrainMoreBiasThanThreads, TestDrainHighPriorityBeyondTickets) {
+  test_drain_high_priority_beyond_tickets(this);
+}
