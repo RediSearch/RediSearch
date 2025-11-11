@@ -51,7 +51,6 @@ pub enum RsValueInternal {
     Trio(RsValueTrio),
     /// Map value
     Map(RsValueMap),
-    // TODO add array variant, possibly based on LowMemoryThinVec
     // TODO add string variants
 }
 
@@ -166,7 +165,7 @@ pub mod opaque {
     /// non-FFI-safe [`RsValue`] to be passed to C
     /// and even allow C land to place it on the stack.
     #[repr(C, align(8))]
-    pub struct OpaqueRsValue(Size<24>);
+    pub struct OpaqueRsValue(Size<16>);
 
     // Safety: `OpaqueRsValue` is defined as a `MaybeUninit` slice of
     // bytes with the same size and alignment as `RsValue`, so any valid

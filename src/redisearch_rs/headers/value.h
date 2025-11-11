@@ -11,6 +11,10 @@
 // the C/C++ side.
 #define ALIGNED(n) __attribute__((aligned(n)))
 
+// Required to ensure that the layout declared by cbindgen is respected on
+// the C/C++ side
+#define PACKED __attribute__((packed))
+
 
 /**
  * Enumeration of the types an
@@ -34,7 +38,7 @@ typedef struct RsValueInternal RsValueInternal;
 /**
  * A type with size `N`.
  */
-typedef uint8_t Size_24[24];
+typedef uint8_t Size_16[16];
 
 /**
  * Opaque projection of [`RsValue`], allowing the
@@ -42,7 +46,7 @@ typedef uint8_t Size_24[24];
  * and even allow C land to place it on the stack.
  */
 typedef struct ALIGNED(8) RsValue {
-  Size_24 _0;
+  Size_16 _0;
 } RsValue;
 
 /**
@@ -86,7 +90,7 @@ typedef struct RsValueMapEntry {
  *   addition, we must ensure we don't overflow `isize::MAX`.
  *   See [`NonNull::add`].
  */
-typedef struct RsValueCollection_RsValueMapEntry {
+typedef struct PACKED RsValueCollection_RsValueMapEntry {
   /**
    * Pointer to a heap-allocated array of `Self::cap` items.
    */
@@ -113,7 +117,7 @@ typedef struct RsValueCollection_RsValueMapEntry RsValueMap;
  *   addition, we must ensure we don't overflow `isize::MAX`.
  *   See [`NonNull::add`].
  */
-typedef struct RsValueCollection_SharedRsValue {
+typedef struct PACKED RsValueCollection_SharedRsValue {
   /**
    * Pointer to a heap-allocated array of `Self::cap` items.
    */
