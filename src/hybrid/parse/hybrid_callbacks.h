@@ -121,6 +121,11 @@ void handleExplainScore(ArgParser *parser, const void *value, void *user_data);
  */
 void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data);
 
+/**
+ * _SLOTS_INFO callback - handles _SLOTS_INFO <binary_data>
+ */
+void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data);
+
 #ifdef __cplusplus
 }
 #endif

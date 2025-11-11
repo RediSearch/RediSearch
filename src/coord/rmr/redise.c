@@ -9,6 +9,7 @@
 #include "redise.h"
 #include "rmalloc.h"
 #include "rmutil/args.h"
+#include "slot_ranges.h"
 #include <strings.h>
 
 typedef struct {
@@ -19,7 +20,13 @@ typedef struct {
 
 static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   // New shard
-  MRClusterShard csh = MR_NewClusterShard(&sh->node);
+  uint32_t num_ranges = 1; // CLUSTERSET only supports a single range per shard
+  size_t total_size = SlotRangeArray_SizeOf(num_ranges);
+  RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
+  array->num_ranges = num_ranges;
+  array->ranges[0].start = sh->startSlot;
+  array->ranges[0].end = sh->endSlot;
+  MRClusterShard csh = MR_NewClusterShard(&sh->node, array);
   MRClusterTopology_AddShard(t, &csh);
 }
 
@@ -55,12 +62,12 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   })
 
 MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv,
-                                                 int argc) {
+                                                 int argc, uint32_t *my_shard_idx) {
   ArgsCursor ac; // Name is important for error macros, same goes for `ctx`
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
   const char *myID = NULL;                 // Mandatory. No default.
-  size_t numShards = 0;                    // Mandatory. No default.
-  size_t numSlots = 16384;                 // Default.
+  uint32_t numShards = 0;                  // Mandatory. No default.
+  uint32_t numSlots = 16384;               // Default.
 
   // Parse general arguments. No allocation is done here, so we can just return on error
   while (!AC_IsAtEnd(&ac)) {
@@ -77,16 +84,16 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
         return NULL;
       }
     } else if (AC_AdvanceIfMatch(&ac, "NUMSLOTS")) {
-      int rc = AC_GetSize(&ac, &numSlots, AC_F_GE1);
+      int rc = AC_GetU32(&ac, &numSlots, AC_F_GE1);
       if (rc != AC_OK) {
         ERROR_BAD_OR_MISSING("NUMSLOTS", rc);
         return NULL;
       } else if (numSlots > 16384) {
-        ERROR_FMT("Bad value for NUMSLOTS: %zu", numSlots);
+        ERROR_FMT("Bad value for NUMSLOTS: %u", numSlots);
         return NULL;
       }
     } else if (AC_AdvanceIfMatch(&ac, "RANGES")) {  // End of general arguments
-      int rc = AC_GetSize(&ac, &numShards, AC_F_GE1);
+      int rc = AC_GetU32(&ac, &numShards, AC_F_GE1);
       if (rc != AC_OK) {
         ERROR_BAD_OR_MISSING("RANGES", rc);
         return NULL;
@@ -107,7 +114,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   MRClusterTopology *topo = MR_NewTopology(numShards);
 
   // Parse shards. We have to free the topology and previous shards if we encounter an error
-  for (size_t i = 0; i < numShards; i++) {
+  for (uint32_t i = 0; i < numShards; i++) {
     RLShard sh;
     int rc;
     /* Mandatory: SHARD <shard_id> SLOTRANGE <start_slot> <end_slot> ADDR <tcp> */
@@ -116,6 +123,10 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     if (!sh.node.id) {
       ERROR_MISSING("SHARD");
       goto error;
+    }
+
+    if (!strcmp(sh.node.id, myID)) {
+      *my_shard_idx = i;
     }
 
     VERIFY_ARG("SLOTRANGE");

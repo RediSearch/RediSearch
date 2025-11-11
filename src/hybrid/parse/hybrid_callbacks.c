@@ -14,6 +14,7 @@
 #include <string.h>
 #include <limits.h>
 #include "util/misc.h"
+#include "slot_ranges.h"
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
@@ -442,4 +443,23 @@ void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) 
     sds prefixSds = sdsnewlen(prefix, prefixLen);
     array_ensure_append_1(*ctx->prefixes, prefixSds);
   }
+}
+
+// SLOTS_STR callback - implements EXACT original logic from handleCommonArgs
+void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ArgsCursor *ac = (ArgsCursor*)value;
+    QueryError *status = ctx->status;
+
+    // Parse binary slots information
+    size_t serialization_len;
+    const char *serialization = AC_GetStringNC(ac, &serialization_len);
+    RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
+    if (!slot_array) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to deserialize "SLOTS_STR" data");
+        return;
+    }
+    // TODO ASM: check if the requested slots are available
+    *ctx->querySlots = slot_array;
+    *ctx->slotsVersion = 0;
 }

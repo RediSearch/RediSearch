@@ -72,9 +72,9 @@ protected:
         }
 
         // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, _INDEX_PREFIXES, and prefix count are added at the end
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "WITHCURSOR") << "WITHCURSOR should be fifth to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "WITHSCORES") << "WITHSCORES should be fourth to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "_NUM_SSTRING") << "_NUM_SSTRING should be third to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 5], "WITHCURSOR") << "WITHCURSOR should be fifth to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 4], "WITHSCORES") << "WITHSCORES should be fourth to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "_NUM_SSTRING") << "_NUM_SSTRING should be third to last";
 
         MRCommand_Free(&xcmd);
     }
@@ -106,9 +106,11 @@ protected:
           EXPECT_STREQ(xcmd.strs[i], inputArgs[i]) << "Argument at index " << i << " should be preserved";
       }
       // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, _INDEX_PREFIXES, and prefix count are added at the end
-      EXPECT_STREQ(xcmd.strs[xcmd.num - 7], "WITHCURSOR") << "WITHCURSOR should be seventh to last";
-      EXPECT_STREQ(xcmd.strs[xcmd.num - 6], "WITHSCORES") << "WITHSCORES should be sixth to last";
-      EXPECT_STREQ(xcmd.strs[xcmd.num - 5], "_NUM_SSTRING") << "_NUM_SSTRING should be fifth to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 9], "WITHCURSOR") << "WITHCURSOR should be seventh to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 8], "WITHSCORES") << "WITHSCORES should be sixth to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 7], "_NUM_SSTRING") << "_NUM_SSTRING should be fifth to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 6], SLOTS_STR) << SLOTS_STR << " should be fourth to last";
+      // slots blob is third to last
       EXPECT_STREQ(xcmd.strs[xcmd.num - 4], "_INDEX_PREFIXES") << "_INDEX_PREFIXES should be fourth to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "2") << "Prefix count should be third to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "prefix1") << "First prefix should be second to last";
