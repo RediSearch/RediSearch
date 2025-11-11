@@ -10,6 +10,10 @@
 
 #include "slots_tracker.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * When slots are being imported, we need to mark them as partially available.
  * This means that these slots may exist partially in the key space, but we don't own them.
@@ -51,3 +55,7 @@ void ASM_StateMachine_StartTrim(const RedisModuleSlotRangeArray *slots, void (*d
 void ASM_StateMachine_CompleteTrim(const RedisModuleSlotRangeArray *slots) {
   slots_tracker_remove_deleted_slots(slots);
 }
+
+#ifdef __cplusplus
+}
+#endif

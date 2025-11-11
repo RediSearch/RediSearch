@@ -6,6 +6,10 @@ pragma_once = true
 
 after_includes = """
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // static definitions in header                                                                             //
 // We want to avoid atomic read access through FFI boundary, so we maintain atomic version counter here.    //

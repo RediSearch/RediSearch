@@ -9,6 +9,10 @@
 #include <stdatomic.h>
 #include "redismodule.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // static definitions in header                                                                             //
 // We want to avoid atomic read access through FFI boundary, so we maintain atomic version counter here.    //
@@ -202,3 +206,7 @@ bool slots_tracker_has_fully_available_overlap(const RedisModuleSlotRangeArray *
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
 struct OptionSlotTrackerVersion slots_tracker_check_availability(const RedisModuleSlotRangeArray *ranges);
+
+#ifdef __cplusplus
+}
+#endif
