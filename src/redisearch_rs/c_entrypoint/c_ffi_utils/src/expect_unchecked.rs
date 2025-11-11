@@ -106,3 +106,99 @@ macro_rules! expect_unchecked {
         do_expect($opt, $msg)
     }};
 }
+
+/// A convenience macro that allows for `expect`-ing and dereferencing `Option<NonNull<T>>` as `&T`,
+/// in debug mode, and calls `unwrap_unchecked` and dereferences as `&T` in release mode.
+///
+/// This macro is conceptually like a combination of [`crate::expect_unchecked!`] and [`std::ptr::NonNull::as_ref`] and avoids
+/// boilerplate code while allowing `#[clippy::multiple_unsafe_ops_per_block]`
+///
+/// ```ignore
+/// // Safety: ensured by caller (1.)
+/// let lookup = unsafe { lookup.expect("lookup must not be NULL") };
+/// // Safety: ensured by caller (1.)
+/// let lookup = unsafe { lookup.as_ref() };
+/// ```
+///
+/// but leads to the more concise:
+///
+/// ```ignore
+/// // Safety: ensured by caller (1.)
+/// let lookup = unsafe { as_ref_unchecked!(lookup, "FunctionName: lookup most not be null") };
+/// ```
+#[macro_export]
+macro_rules! as_ref_unchecked {
+    ($opt:expr) => {{
+        let ptr: Option<std::ptr::NonNull<_>> = $opt;
+        let nn_ptr = $crate::as_ref_unchecked!(ptr, concat!(stringify!($opt), " must not be NULL"));
+    }};
+    ($opt:expr, $msg:expr) => {{
+        #[inline(always)]
+        unsafe fn do_as_ref_unchecked<'a, T>(
+            opt: Option<std::ptr::NonNull<T>>,
+            msg: &str,
+        ) -> &'a T {
+            #[cfg(debug_assertions)]
+            {
+                let nn_ptr = opt.expect(msg);
+                // Safety: nn_ptr is guaranteed to be non-null
+                unsafe { nn_ptr.as_ref() }
+            }
+            #[cfg(not(debug_assertions))]
+            unsafe {
+                let nn_ptr = opt.unwrap_unchecked();
+                // Safety: nn_ptr is guaranteed to be non-null
+                nn_ptr.as_ref()
+            }
+        }
+        do_as_ref_unchecked($opt, $msg)
+    }};
+}
+
+/// A convenience macro that allows for `expect`-ing and dereferencing `Option<NonNull<T>>` as `&T`,
+/// in debug mode, and calls `unwrap_unchecked` and dereferences as `&T` in release mode.
+///
+/// This macro is conceptually like a combination of [`crate::expect_unchecked!`] and [`std::ptr::NonNull::as_mut`] and avoids
+/// boilerplate code while allowing `#[clippy::multiple_unsafe_ops_per_block]`
+///
+/// ```ignore
+/// // Safety: ensured by caller (1.)
+/// let lookup = unsafe { lookup.expect("lookup must not be NULL") };
+/// // Safety: ensured by caller (1.)
+/// let lookup = unsafe { lookup.as_mut() };
+/// ```
+///
+/// but leads to the more concise:
+///
+/// ```ignore
+/// // Safety: ensured by caller (1.)
+/// let lookup = unsafe { as_mut_unchecked!(lookup, "FunctionName: lookup most not be null") };
+/// ```
+#[macro_export]
+macro_rules! as_mut_unchecked {
+    ($opt:expr) => {{
+        let ptr: Option<std::ptr::NonNull<_>> = $opt;
+        let nn_ptr = $crate::as_mut_unchecked!(ptr, concat!(stringify!($opt), " must not be NULL"));
+    }};
+    ($opt:expr, $msg:expr) => {{
+        #[inline(always)]
+        unsafe fn do_as_mut_unchecked<'a, T>(
+            opt: Option<std::ptr::NonNull<T>>,
+            msg: &str,
+        ) -> &'a mut T {
+            #[cfg(debug_assertions)]
+            {
+                let mut nn_ptr = opt.expect(msg);
+                // Safety: nn_ptr is guaranteed to be non-null
+                unsafe { nn_ptr.as_mut() }
+            }
+            #[cfg(not(debug_assertions))]
+            unsafe {
+                let mut nn_ptr = opt.unwrap_unchecked();
+                // Safety: nn_ptr is guaranteed to be non-null
+                nn_ptr.as_mut()
+            }
+        }
+        do_as_mut_unchecked($opt, $msg)
+    }};
+}
