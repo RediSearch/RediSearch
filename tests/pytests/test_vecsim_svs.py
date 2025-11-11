@@ -278,9 +278,7 @@ for workers in [0, 4]:
     compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8']
     for compression_type in compression_types:
         for data_type in VECSIM_SVS_DATA_TYPES:
-            metrics = ['IP']
-            if EXTENDED_PYTESTS:
-                metrics = VECSIM_DISTANCE_METRICS
+            metrics = VECSIM_DISTANCE_METRICS if EXTENDED_PYTESTS else ['IP']
             for metric in metrics:
                 test_name = f"test_queries_sanity_{compression_type}_{data_type}_{metric}" + name_suffix
                 globals()[test_name] = func_gen(test_name, compression_type, data_type, metric, workers)
