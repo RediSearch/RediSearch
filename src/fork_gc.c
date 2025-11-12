@@ -820,17 +820,14 @@ typedef struct {
   double uniqueSum;
 } NumGcInfo;
 
+// Assumes pointers are valid and their targets are zeroed
 static int recvCardvals(ForkGC *fgc, arrayof(CardinalityValue) *tgt, size_t *len, double *uniqueSum) {
   // len = CardinalityValue count
   if (FGC_recvFixed(fgc, len, sizeof(*len)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
   if (!*len) {
-    *tgt = NULL;
     return REDISMODULE_OK;
-  }
-  if (*tgt) {
-    rm_free(*tgt);
   }
 
   // We use array_newlen since we read the cardinality values entries directly to the memory in tgt.
@@ -849,6 +846,7 @@ static int recvCardvals(ForkGC *fgc, arrayof(CardinalityValue) *tgt, size_t *len
   return REDISMODULE_OK;
 }
 
+// Assumes that ninfo is zeroed
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
   if (FGC_recvFixed(gc, &ninfo->node, sizeof(ninfo->node)) != REDISMODULE_OK) {
     goto error;
@@ -870,6 +868,7 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
 error:
   printf("Error receiving numeric index!\n");
   freeInvIdx(&ninfo->idxbufs, &ninfo->info);
+  array_free(ninfo->cardValsArr);
   memset(ninfo, 0, sizeof(*ninfo));
   return FGC_CHILD_ERROR;
 }
