@@ -33,6 +33,17 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     return;
   }
 
+  if (cmd->forProfiling && cmd->protocol == 3) {
+    // Check if we got timeout
+    MRReply *warning = MRReply_MapElement(rep, "warning");
+    if (MRReply_Length(warning) > 0) {
+      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
+      // Set an error to be later picked up by `getCursorCommand`
+      if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
+        MRIteratorCallback_SetTimedOut(MRIteratorCallback_GetCtx(ctx));
+      }
+    }
+  }
   // Normal reply from the shard.
   // In any case, the cursor id is the second element in the reply
   RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
@@ -133,7 +144,12 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
     const char *idx = MRCommand_ArgStringPtrLen(cmd, 1, NULL);
     // If we timed out and not in cursor mode, we want to send the shard a DEL
     // command instead of a READ command (here we know it has more results)
-    if (timedout && !cmd->forCursor) {
+    if (timedout && cmd->forProfiling) {
+      newCmd = MR_NewCommand(4, "_FT.CURSOR", "PROFILE", idx, buf);
+      // Internally we delete the cursor
+      // TODO: we are not really deleting!
+      newCmd.rootCommand = C_DEL;
+    } else if (timedout && !cmd->forCursor) {
       newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
       // Mark that the last command was a DEL command
       newCmd.rootCommand = C_DEL;

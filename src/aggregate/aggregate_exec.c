@@ -462,7 +462,7 @@ done_2:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
-
+    req->has_timedout = has_timedout;
     // Prepare profile printer context
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
     ProfilePrinterCtx profileCtx = {
@@ -1208,6 +1208,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
 
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
+ * FT.CURSOR PROFILE {CID}
  * FT.CURSOR DEL {index} {CID}
  * FT.CURSOR GC {index}
  */
@@ -1266,6 +1267,38 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else {
       cursorRead(reply, cursor, count, false);
     }
+  } else if (strcasecmp(cmd, "PROFILE") == 0) {
+    // Return profile
+        Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+    if (cursor == NULL) {
+      RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
+    AREQ *req = cursor->execState;
+    if (!IsProfile(req)) {
+          RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+
+        }
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+        ProfilePrinterCtx profileCtx = {
+      .req = req,
+      .timedout = req->has_timedout,
+      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
+      .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
+      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
+    };
+
+    RedisModule_Reply_Array(reply);
+    // Profile_PrepareMapForReply(reply);
+    req->profile(reply, &profileCtx);
+      RedisModule_Reply_LongLong(reply, 0);
+RedisModule_Reply_ArrayEnd(reply);
+    // int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
+
   } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
     if (rc != REDISMODULE_OK) {

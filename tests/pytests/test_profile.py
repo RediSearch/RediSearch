@@ -570,10 +570,8 @@ def TimedOutWarningtestCoord(env):
 
   # Current test is only for the coordinator's component of the profile output.
   # Once the shards' response is stably responded with, check the shards' output as well.
-  res = env.cmd(
-    'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', '1'
-  )
-
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', '1'  )
+  print(res)
   if env.protocol == 2:
     coord_profile = res[-1][-1]
     env.assertEqual(to_dict(coord_profile)['Warning'], "Timeout limit was reached")
@@ -582,8 +580,8 @@ def TimedOutWarningtestCoord(env):
     env.assertEqual(coord_profile['Warning'], 'Timeout limit was reached')
 
 @skip(asan=True, msan=True, cluster=False)
-def testTimedOutWarningCoord(env):
-  TimedOutWarningtestCoord(env)
+def testTimedOutWarningCoord():
+  TimedOutWarningtestCoord(Env(protocol=3))
 
 # This test is currently skipped due to flaky behavior of some of the machines'
 # timers. MOD-6436
