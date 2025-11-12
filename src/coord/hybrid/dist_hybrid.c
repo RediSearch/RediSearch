@@ -116,11 +116,24 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
 
   int actualFilterOffset = RMUtil_ArgIndex("FILTER", argv + vsimOffset, argc - vsimOffset);
   actualFilterOffset = actualFilterOffset != -1 ? actualFilterOffset + vsimOffset : -1;
+  int expectedYieldScoreOffset = expectedFilterOffset;
 
   if (actualFilterOffset == expectedFilterOffset && actualFilterOffset < argc - 1) {
     // This is a VSIM FILTER - append it to the command
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
+    expectedYieldScoreOffset += 2; // Update expected offset after processing FILTER
+  }
+
+  // Add YIELD_SCORE_AS if present
+  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] [FILTER <expression>] YIELD_SCORE_AS <alias>
+  int yieldScoreOffset = RMUtil_ArgIndex("YIELD_SCORE_AS", argv + vsimOffset, argc - vsimOffset);
+  yieldScoreOffset = yieldScoreOffset != -1 ? yieldScoreOffset + vsimOffset : -1;
+
+  if (yieldScoreOffset == expectedYieldScoreOffset && yieldScoreOffset < argc - 1) {
+    // This is a VSIM YIELD_SCORE_AS - append it to the command
+    MRCommand_AppendRstr(xcmd, argv[yieldScoreOffset]);     // YIELD_SCORE_AS keyword
+    MRCommand_AppendRstr(xcmd, argv[yieldScoreOffset + 1]); // score alias
   }
 }
 
