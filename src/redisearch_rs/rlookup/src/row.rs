@@ -77,7 +77,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         excluded_flags: RLookupKeyFlags,
         rule: Option<&SchemaRuleWrapper>,
     ) -> (usize, Vec<bool>) {
-        let mut skip_field_indices = vec![false; self.len()];
+        let mut skip_field_indices = vec![false; lookup.get_row_len() as usize];
         let num_fields = self.get_length_no_alloc(
             lookup,
             required_flags,
@@ -103,33 +103,39 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         out_flags: &mut [bool],
     ) -> usize {
         let mut num_fields = 0;
-        for (idx, key) in lookup.cursor().enumerate() {
-            // check flags and if key exists in row:
-            if !key.flags.contains(required_flags)
-                || key.flags.intersects(excluded_flags)
-                || self.get(key).is_none()
-            {
-                continue;
-            }
+        let mut idx = 0;
+        let mut cursor = lookup.cursor();
 
-            // ensure a value is part of the RLookupRow:
-            // is there a rule, if not we're on coordinator...
-            if let Some(rule) = &rule
-                && (rule.lang_field().is_some_and(|lf| lf == key.name_as_cstr())
-                    || rule
-                        .score_field()
-                        .is_some_and(|sf| sf == key.name_as_cstr())
-                    || rule
-                        .payload_field()
-                        .is_some_and(|p| p == key.name_as_cstr()))
-            {
-                // we trust the shards to not send those fields.
-                // on coordinator, we reach this code
-                continue;
+        loop {
+            let Some(key) = cursor.current() else {
+                break;
             };
 
-            out_flags[idx] = true;
-            num_fields += 1;
+            let increment_idx = !key.is_overridden();
+            let should_count = increment_idx
+                && key.flags.contains(required_flags)
+                && !key.flags.intersects(excluded_flags)
+                && self.get(key).is_some()
+                && !rule.is_some_and(|rule| {
+                    rule.lang_field().is_some_and(|lf| lf == key.name_as_cstr())
+                        || rule
+                            .score_field()
+                            .is_some_and(|sf| sf == key.name_as_cstr())
+                        || rule
+                            .payload_field()
+                            .is_some_and(|p| p == key.name_as_cstr())
+                });
+
+            cursor.move_next();
+
+            if should_count {
+                out_flags[idx] = true;
+                num_fields += 1;
+            }
+
+            if increment_idx {
+                idx += 1;
+            }
         }
 
         num_fields
