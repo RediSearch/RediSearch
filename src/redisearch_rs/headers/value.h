@@ -293,6 +293,30 @@ bool RsValue_IsAnyString(const struct RsValue *v);
 bool RsValue_IsNull(const struct RsValue *v);
 
 /**
+ * Gets the `f64` wrapped by the [`RsValue`]
+ *
+ * # Safety
+ * - (1) `v` must point to an `RsValue` originating from one of the constructors.
+ * - (2) `v` must be non-null;
+ * - (3) `v` must be valid for reads;
+ * - (4) `v` must be a number value.
+ */
+double RsValue_Number_Get(const struct RsValue *v);
+
+/**
+ * Convert an [`RsValue`] to a number type in-place.
+ * This clears the existing value and replaces it with the given value.
+ *
+ * @param v The value to modify
+ * @param n The numeric value to set
+ *
+ * # Safety
+ * - (1) `v` must be non-null;
+ * - (2) `v` must point to an `RsValue` originating from one of the constructors.
+ */
+void RsValue_IntoNumber(struct RsValue *v, double n);
+
+/**
  * Create a new, uninitialized [`RsValueMap`], reserving space for `cap`
  * entries. The map entries are uninitialized and must be set using [`RsValueMap_SetEntry`].
  *
@@ -615,12 +639,12 @@ bool SharedRsValue_IsAnyString(struct SharedRsValue v);
 bool SharedRsValue_IsNull(struct SharedRsValue v);
 
 /**
- * Gets the `f64` wrapped by the `SharedRsValue`
+ * Gets the `f64` wrapped by the [`SharedRsValue`]
  *
  * # Safety
  * - (1) `v` must be a number value.
  */
-double SharedRsValue_Number_Get(const struct SharedRsValue *v);
+double SharedRsValue_Number_Get(struct SharedRsValue v);
 
 #ifdef __cplusplus
 }  // extern "C"

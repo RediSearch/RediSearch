@@ -251,6 +251,12 @@ pub trait Value: Sized {
         };
         Some(*number)
     }
+
+    /// Convert the value to a number in-place,
+    /// dropping the existing value.
+    fn to_number(&mut self, n: f64) {
+        *self = Self::number(n);
+    }
 }
 
 pub mod opaque {

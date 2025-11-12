@@ -217,3 +217,42 @@ pub unsafe extern "C" fn RsValue_IsNull(v: *const OpaqueRsValue) -> bool {
     // are met.
     unsafe { RsValue_Type(v).is_null() }
 }
+
+/// Gets the `f64` wrapped by the [`RsValue`]
+///
+/// # Safety
+/// - (1) `v` must point to an `RsValue` originating from one of the constructors.
+/// - (2) `v` must be non-null;
+/// - (3) `v` must be valid for reads;
+/// - (4) `v` must be a number value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Number_Get(v: *const OpaqueRsValue) -> f64 {
+    // Safety: caller must ensure (1)
+    let v = unsafe { RsValue::from_opaque_ptr(v) };
+    // Safety: caller must ensure (2) and (3)
+    let v = unsafe { expect_unchecked!(v, "`v` must not be NULL") };
+    // Safety: caller must ensure (4).
+    unsafe { expect_unchecked!(v.get_number(), "v must be of type 'Number'") }
+}
+
+/// Convert an [`RsValue`] to a number type in-place.
+/// This clears the existing value and replaces it with the given value.
+///
+/// @param v The value to modify
+/// @param n The numeric value to set
+///
+/// # Safety
+/// - (1) `v` must be non-null;
+/// - (2) `v` must point to an `RsValue` originating from one of the constructors.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_IntoNumber(v: Option<NonNull<OpaqueRsValue>>, n: f64) {
+    // Safety: caller must ensure (1)
+    let v = unsafe { expect_unchecked!(v) };
+    // Safety: caller must ensure (2)
+    let v = unsafe { RsValue::from_opaque_mut_ptr(v.as_ptr()) };
+    // Safety: caller must ensure (1). The previous statement casts the pointer
+    // to an `Option<&mut RsValue>`, which will be None if and only if `v` were null.
+    let v = unsafe { v.unwrap_unchecked() };
+
+    v.to_number(n);
+}

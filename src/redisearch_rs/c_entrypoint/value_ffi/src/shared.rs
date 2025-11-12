@@ -443,12 +443,21 @@ pub extern "C" fn SharedRsValue_IsNull(v: SharedRsValue) -> bool {
     v.as_value_type().is_null()
 }
 
-/// Gets the `f64` wrapped by the `SharedRsValue`
+/// Gets the `f64` wrapped by the [`SharedRsValue`]
 ///
 /// # Safety
 /// - (1) `v` must be a number value.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn SharedRsValue_Number_Get(v: &SharedRsValue) -> f64 {
+pub unsafe extern "C" fn SharedRsValue_Number_Get(v: SharedRsValue) -> f64 {
     // Safety: caller must ensure (1).
     unsafe { expect_unchecked!(v.get_number(), "v must be of type 'Number'") }
+}
+
+/// Convert a [`SharedRsValue`] to a number type in-place.
+/// This clears the existing value and replaces it with the given value.
+///
+/// @param v The value to modify
+/// @param n The numeric value to set
+pub extern "C" fn SharedRsValue_IntoNumber(mut v: SharedRsValue, n: f64) {
+    v.to_number(n);
 }
