@@ -336,9 +336,8 @@ static void uvGetConnectionPoolState(void *p) {
   if (pending_threads == 0) {
     // We are the last ones to reply, so we can now send the response (from the unblock callback)
     RedisModule_UnblockClient(bc, mt_bc);
+    IORuntimeCtx_RequestCompleted(ioRuntime);
   }
-  // Request is complete for this ioRuntime
-  IORuntimeCtx_RequestCompleted(ioRuntime);
   rm_free(reducedConnPoolStateCtx);
 }
 
