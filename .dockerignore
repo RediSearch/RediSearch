@@ -1,0 +1,16 @@
+**/*.rdb*
+**/*.aof*
+**/*.rdb
+**/*.out
+**/*.md
+**/*.zip
+**/*.gz
+**/*.so
+**/*.o
+**/*.a
+# .git
+/bin/
+/site/
+/deps/RedisJSON/
+/tests/pytests/logs/
+/1/
