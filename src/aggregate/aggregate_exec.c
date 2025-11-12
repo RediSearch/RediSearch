@@ -405,7 +405,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       ReplyWithTimeoutError(reply);
       cursor_done = true;
-      QueryErrorsGlobalStats_UpdateError(QUERY_ETIMEDOUT, 1);
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1);
       goto done_2_err;
     }
 
@@ -527,7 +527,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       ReplyWithTimeoutError(reply);
       cursor_done = true;
-      QueryErrorsGlobalStats_UpdateError(QUERY_ETIMEDOUT, 1);
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1);
       goto done_3_err;
     }
 
@@ -596,7 +596,7 @@ done_3:
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_EOOM, 1);
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1);
       // TODO - add comment explaning the assumption that only coordinator can't fail with OOM.
       // And with Return, it should add warning on resp3
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);

@@ -108,16 +108,16 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
 
 void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd) {
   switch (code) {
-    case QUERY_ETIMEDOUT:
+    case QUERY_ERROR_CODE_TIMED_OUT:
       INCR_BY(RSGlobalStats.totalStats.queries.errors.timeout, toAdd);
       break;
-    case QUERY_EOOM:
+    case QUERY_ERROR_CODE_OUT_OF_MEMORY:
       INCR_BY(RSGlobalStats.totalStats.queries.errors.oom, toAdd);
       break;
-    case QUERY_ESYNTAX:
+    case QUERY_ERROR_CODE_SYNTAX:
       INCR_BY(RSGlobalStats.totalStats.queries.errors.syntax, toAdd);
       break;
-    case QUERY_EADDARGS:
+    case QUERY_ERROR_CODE_PARSE_ARGS:
       INCR_BY(RSGlobalStats.totalStats.queries.errors.arguments, toAdd);
       break;
   }
@@ -125,10 +125,10 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd) {
 
 void QueryWarningsGlobalStats_UpdateWarning(QueryErrorCode code, int toAdd) {
   switch (code) {
-    case QUERY_ETIMEDOUT:
+    case QUERY_ERROR_CODE_TIMED_OUT:
       INCR_BY(RSGlobalStats.totalStats.queries.warnings.timeout, toAdd);
       break;
-    case QUERY_EOOM:
+    case QUERY_ERROR_CODE_OUT_OF_MEMORY:
       INCR_BY(RSGlobalStats.totalStats.queries.warnings.oom, toAdd);
       break;
     default:
