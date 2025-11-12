@@ -14,13 +14,6 @@
 #include "trie/trie_type.h"
 extern "C" {
 #include "dictionary.h"
-#include "slot_ranges.h"
-
-// Definition of SharedSlotRangeArray for use in the test (as it's opaque in the header)
-struct SharedSlotRangeArray {
-  uint32_t refcount;
-  RedisModuleSlotRangeArray array;
-};
 }
 
 class ClusterTest : public ::testing::Test {
@@ -139,48 +132,4 @@ TEST_F(ClusterTest, DictionaryPropagation) {
         ASSERT_EQ(cmd_words, expected_words) << "Words in dictionary command do not match expected words";
         ASSERT_EQ(cmd.size() - 2, expected_words.size()) << "Word count mismatch for dictionary: " << dictName;
     }
-}
-
-TEST_F(ClusterTest, SlotRangesManagement) {
-    // Get local slot ranges
-    auto *ranges = Slots_GetLocalSlots();
-
-    ASSERT_EQ(ranges->refcount, 2) << "Initial refcount should be 2 after first get - caller and cache";
-    // Sanity - expect the mock ranges
-    ASSERT_EQ(ranges->array.num_ranges, 2);
-    ASSERT_EQ(ranges->array.ranges[0].start, 0);
-    ASSERT_EQ(ranges->array.ranges[0].end, 5460);
-    ASSERT_EQ(ranges->array.ranges[1].start, 10923);
-    ASSERT_EQ(ranges->array.ranges[1].end, 16383);
-
-    // Get again - should increase refcount
-    auto *ranges2 = Slots_GetLocalSlots();
-    ASSERT_EQ(ranges2, ranges) << "Subsequent get should return same pointer";
-    ASSERT_EQ(ranges->refcount, 3) << "Refcount should be 3 after second get";
-
-    // Drop cache reference
-    Slots_DropCachedLocalSlots();
-    ASSERT_EQ(ranges->refcount, 2) << "Refcount should be 2 after dropping cache reference";
-
-    // Drop one reference
-    Slots_FreeLocalSlots(ranges2);
-    ASSERT_EQ(ranges->refcount, 1) << "Refcount should be 1 after dropping one reference";
-
-    // Get again - should create new ranges since cache was dropped
-    ranges2 = Slots_GetLocalSlots();
-    ASSERT_NE(ranges2, ranges) << "After dropping cache, new get should return different pointer";
-    ASSERT_EQ(ranges2->refcount, 2) << "New ranges refcount should be 2 after get";
-
-    // Check slot access
-    ASSERT_TRUE(Slots_CanAccessKeysInSlot(ranges2, 0));
-    ASSERT_TRUE(Slots_CanAccessKeysInSlot(ranges2, 5000));
-    ASSERT_FALSE(Slots_CanAccessKeysInSlot(ranges2, 6000));
-    ASSERT_TRUE(Slots_CanAccessKeysInSlot(ranges2, 11000));
-    ASSERT_FALSE(Slots_CanAccessKeysInSlot(ranges2, 9000));
-    ASSERT_TRUE(Slots_CanAccessKeysInSlot(ranges2, 16383));
-
-    // Cleanup
-    Slots_FreeLocalSlots(ranges);
-    Slots_FreeLocalSlots(ranges2);
-    Slots_DropCachedLocalSlots();
 }

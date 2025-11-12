@@ -49,7 +49,6 @@ typedef struct {
   uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
   uint32_t slotsVersion;                        // version of the slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
-  const SharedSlotRangeArray *slotRanges;       // Owned slot ranges info, may be used for filtering. TODO ASM: remove
 } RPQueryIterator;
 
 
@@ -152,9 +151,9 @@ validate_current:
       }
     }
     if (should_filter_slots) {
-      RS_ASSERT(self->slotRanges != NULL);
+      RS_ASSERT(self->querySlots != NULL);
       int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
-      if (!Slots_CanAccessKeysInSlot(self->slotRanges, slot)) {
+      if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
         DMD_Return(dmd);
         continue;
       }
@@ -178,15 +177,13 @@ static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
   self->iterator->Free(self->iterator);
   rm_free((void *)self->querySlots);
-  Slots_FreeLocalSlots(self->slotRanges);
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root, const SharedSlotRangeArray *slotRanges, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx) {
   RS_ASSERT(root != NULL);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
-  ret->slotRanges = slotRanges;
   ret->querySlots = querySlots;
   ret->slotsVersion = slotsVersion;
   ret->base.Next = rpQueryItNext;

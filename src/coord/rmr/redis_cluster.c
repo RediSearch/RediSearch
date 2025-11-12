@@ -211,7 +211,7 @@ void UpdateTopology(RedisModuleCtx *ctx) {
   if (topo) { // if we didn't get a topology, do nothing. Log was already printed
     // Pass the local slots info directly from the RedisModule API, as we enabled auto memory
     MR_UpdateTopology(topo, RedisModule_ClusterGetLocalSlotRanges(ctx));
-    Slots_DropCachedLocalSlots(); // Local slots may have changed, drop the cache
+    // TODO ASM: Maybe we should also update the ASM state machine with the new topology?
   }
 }
 

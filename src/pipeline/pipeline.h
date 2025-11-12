@@ -85,7 +85,6 @@ typedef struct QueryPipelineParams {
     const QueryIterator *rootiter;
 
     /** Slot ranges for the root iterator, used for cluster-aware query execution. */
-    const SharedSlotRangeArray *slotRanges;
     const RedisModuleSlotRangeArray *querySlots;
     uint32_t slotsVersion;
 

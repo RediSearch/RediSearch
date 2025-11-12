@@ -373,7 +373,6 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED:
       ASM_StateMachine_CompleteMigration(slots);
       // TODO ASM: Try to update the cluster topology
-      Slots_DropCachedLocalSlots(); // Local slots have changed, drop the cache
       break;
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
