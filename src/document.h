@@ -286,9 +286,6 @@ typedef struct RSAddDocumentCtx {
   FieldSpec *fspecs;
   RSTokenizer *tokenizer;
 
-  // Old document data. Contains sortables
-  RSDocumentMetadata *oldMd;
-
   // New flags to assign to the document
   RSDocumentFlags docFlags;
 

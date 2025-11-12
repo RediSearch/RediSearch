@@ -227,7 +227,7 @@ TEST_F(AggTest, testGroupSplit) {
     if (p->counter >= NUM_RESULTS) return RS_RESULT_EOF;
     SearchResult_SetDocId(res, ++p->counter);
     RLookup_WriteOwnKey(p->kvalue, SearchResult_GetRowDataMut(res),
-                        RSValue_NewStringArrayT((char **)&p->values[0], p->values.size(), RSStringType_Const));
+                        RSValue_NewConstStringArray((char **)&p->values[0], p->values.size()));
     //* res = * p->res;
     return RS_RESULT_OK;
   };

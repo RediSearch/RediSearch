@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
+use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
 
 /// Encode and decode the delta, frequency and field mask of a record.
 ///
@@ -23,7 +23,7 @@ use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 /// The delta, frequency, field mask are encoded using [qint encoding](qint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FreqsFields;
 
 impl Encoder for FreqsFields {
@@ -45,17 +45,9 @@ impl Encoder for FreqsFields {
     }
 }
 
-impl DecodedBy for FreqsFields {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FreqsFields {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -83,7 +75,7 @@ impl Decoder for FreqsFields {
 /// The field mask is then encoded using [varint encoding](varint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FreqsFieldsWide;
 
 impl Encoder for FreqsFieldsWide {
@@ -101,17 +93,9 @@ impl Encoder for FreqsFieldsWide {
     }
 }
 
-impl DecodedBy for FreqsFieldsWide {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FreqsFieldsWide {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -130,3 +114,6 @@ impl Decoder for FreqsFieldsWide {
         RSIndexResult::term()
     }
 }
+
+impl TermDecoder for FreqsFields {}
+impl TermDecoder for FreqsFieldsWide {}

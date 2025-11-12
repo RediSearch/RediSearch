@@ -62,6 +62,7 @@ class TestDebugCommands(object):
             'YIELDS_ON_LOAD_COUNTER',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'QUERY_CONTROLLER',
+            'DUMP_SCHEMA',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
@@ -188,6 +189,11 @@ class TestDebugCommands(object):
 
     def testDumpTermsUnknownIndex(self):
         self.env.expect(debug_cmd(), 'dump_terms', 'idx1').error()
+
+    def testDumpSchema(self):
+        self.env.expect(debug_cmd(), 'dump_schema', NEVER_DECODE=True).error().contains('wrong number of arguments')
+        self.env.expect(debug_cmd(), 'dump_schema', 'idx1', NEVER_DECODE=True).error().contains('Can not create a search ctx')
+        self.env.expect(debug_cmd(), 'dump_schema', 'idx', NEVER_DECODE=True).noError().equal([ANY, ANY])
 
     def testInvertedIndexSummary(self):
         self.env.expect(debug_cmd(), 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
@@ -370,8 +376,8 @@ def testSpecIndexesInfo(env: Env):
     env.expect('HSET', 'doc1', 'n', 1).equal(1)
     expected_reply["inverted_indexes_dict_size"] = 1
 
-    # assuming the document doesn't exceed the initial block size
-    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC'])
+    # adding the document will create a new index block (48 bytes) with 1 byte of buffer capacity
+    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 49
     debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
     env.assertEqual(to_dict(debug_output), expected_reply)
 

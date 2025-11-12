@@ -146,11 +146,13 @@ void QueryNode_Free(QueryNode *n) {
 }
 
 // Add a new metric request to the metricRequests array. Returns the index of the request
-static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr, bool isInternal) {
-  MetricRequest mr = {metric_name, key_addr, isInternal};
+static int addMetricRequest(QueryEvalCtx *q, char *metric_name, bool isInternal) {
+  MetricRequest mr = {metric_name, NULL, isInternal};
   array_ensure_append_1(*q->metricRequestsP, mr);
   return array_len(*q->metricRequestsP) - 1;
 }
+
+
 
 QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = rm_calloc(1, sizeof(QueryNode));
@@ -646,7 +648,7 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   size_t nstr;
   rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, qn->pfx.tok.len, &nstr) : NULL;
   if (!str) {
-    QueryError_SetWithoutUserDataFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
+    QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_LIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
     return NULL;
   }
 
@@ -670,7 +672,7 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
       };
       Suffix_IterateContains(&sufCtx);
     } else {
-      QueryError_SetError(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   } else {
     TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
@@ -702,7 +704,7 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   size_t nstr;
   rune *str = strToLowerRunes(token->str, token->len, &nstr);
   if (!str) {
-    QueryError_SetError(q->status, QUERY_ELIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
+    QueryError_SetError(q->status, QUERY_ERROR_CODE_LIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
     return NULL;
   }
 
@@ -732,7 +734,7 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
         fallbackBruteForce = true;
       }
     } else {
-      QueryError_SetError(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   }
 
@@ -950,7 +952,7 @@ static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   QueryIterator *ret = api->query(q->sctx, &filterCtx, index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
   if (ret == NULL) {
-    QueryError_SetWithUserDataFmt(q->status, QUERY_EBADVAL, "Error querying geoshape index", ": %s",
+    QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_BAD_VAL, "Error querying geoshape index", ": %s",
                            RedisModule_StringPtrLen(errMsg, NULL));
     RedisModule_FreeString(NULL, errMsg);
   }
@@ -971,7 +973,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       sprintf(default_score_field, "__%s_score", fieldName);
       // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
       if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_EDUPFIELD,
+        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_DUP_FIELD,
                                "Distance field was specified twice for vector query", ": %s and %s",
                                qn->vn.vq->scoreField, qn->opts.distField);
         return NULL;
@@ -986,7 +988,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // This function creates the array if it's the first name, and ensure its size is sufficient.
   size_t idx;
   if (qn->vn.vq->scoreField) {
-    idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL, qn->opts.flags & QueryNode_HideVectorDistanceField);
+    idx = addMetricRequest(q, qn->vn.vq->scoreField, qn->opts.flags & QueryNode_HideVectorDistanceField);
   }
 
   QueryIterator *child_it = NULL;
@@ -1000,19 +1002,27 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
   // If iterator was created successfully, and we have a metric to yield, update the
-  // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
-  if (it && qn->vn.vq->scoreField) {
+  // Only create MetricRequest entries for iterators that actually yield metrics
+  if (it && qn->vn.vq->scoreField &&
+      (it->type == HYBRID_ITERATOR || it->type == METRIC_ITERATOR)) {
+    MetricRequest *request = array_ensure_at(q->metricRequestsP, idx, MetricRequest);
+
+    // Create a handle that points to the iterator's ownKey field
+    // Both HYBRID_ITERATOR and METRIC_ITERATOR have the same ownKey and keyHandle layout
+    RLookupKeyHandle *handle = rm_malloc(sizeof(RLookupKeyHandle));
+    handle->is_valid = true;
+
     if (it->type == HYBRID_ITERATOR) {
       HybridIterator *hybridIt = (HybridIterator *)it;
-      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &hybridIt->ownKey;
-    } else if (it->type == METRIC_ITERATOR) {
+      handle->key_ptr = &hybridIt->ownKey;
+      hybridIt->keyHandle = handle; // Set up back-reference
+    } else { // Must be METRIC_ITERATOR due to the condition above
       MetricIterator *metricIt = (MetricIterator *)it;
-      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &metricIt->ownKey;
-    } else {
-      // Only reason to get an iterator of type different than HYBRID or METRIC
-      // is if the entire iterator was optimized away
-      RS_ASSERT(it->type == EMPTY_ITERATOR);
+      handle->key_ptr = &metricIt->ownKey;
+      metricIt->keyHandle = handle; // Set up back-reference
     }
+
+    request->key_handle = handle;
   }
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);
@@ -1545,6 +1555,16 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
+
+  // Free the key handles in metric requests
+  if (q->metricRequests) {
+    for (size_t i = 0; i < array_len(q->metricRequests); i++) {
+      if (q->metricRequests[i].key_handle) {
+        rm_free(q->metricRequests[i].key_handle);
+      }
+    }
+  }
+
   array_free(q->metricRequests);
   q->metricRequests = NULL;
   q->numTokens = 0;
@@ -1667,7 +1687,7 @@ static inline bool QueryNode_DoesIndexEmpty(QueryNode *n, IndexSpec *spec, RSSea
 // empty strings, we should return an error
 static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
   if (n->tn.len == 0 && n->tn.str && !strcmp(n->tn.str, "") && !QueryNode_DoesIndexEmpty(n, spec, opts)) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Use `" SPEC_INDEXEMPTY_STR "` in field creation in order to index and query for empty strings");
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Use `" SPEC_INDEXEMPTY_STR "` in field creation in order to index and query for empty strings");
     return false;
   }
   return true;
@@ -1684,7 +1704,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
 
   // Check for weight attribute restrictions
   if ((effectiveFlags & QAST_NO_WEIGHT) && n->opts.explicitWeight) {
-    QueryError_SetError(status, QUERY_EWEIGHT_NOT_ALLOWED, NULL);
+    QueryError_SetError(status, QUERY_ERROR_CODE_WEIGHT_NOT_ALLOWED, NULL);
     return REDISMODULE_ERR;
   }
 
@@ -1726,7 +1746,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
     case QN_NUMERIC: {
         if (n->nn.nf->min > n->nn.nf->max) {
-          QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric range (min > max)", ": @%s:[%f %f]",
+          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid numeric range (min > max)", ": @%s:[%f %f]",
                                  HiddenString_GetUnsafe(n->nn.nf->fieldSpec->fieldName, NULL), n->nn.nf->min, n->nn.nf->max);
           res = REDISMODULE_ERR;
         }
@@ -1734,7 +1754,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
     case QN_VECTOR:
       if (effectiveFlags & QAST_NO_VECTOR) {
-        QueryError_SetError(status, QUERY_EVECTOR_NOT_ALLOWED, NULL);
+        QueryError_SetError(status, QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED, NULL);
         res = REDISMODULE_ERR;
       }
       break;
@@ -2093,13 +2113,13 @@ int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ct
 
 static int ValidateShardKRatio(const char *value, double *ratio, QueryError *status) {
   if (!ParseDouble(value, ratio, 1)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
       "Invalid shard k ratio value", " '%s'", value);
     return 0;
   }
 
   if (*ratio <= MIN_SHARD_WINDOW_RATIO || *ratio > MAX_SHARD_WINDOW_RATIO) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
       "Invalid shard k ratio value: Shard k ratio must be greater than %g and at most %g (got %g)",
       MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, *ratio);
     return 0;
@@ -2140,7 +2160,7 @@ static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr,
 static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryError *status) {
 
 #define MK_INVALID_VALUE()                                                             \
-  QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid value", " (%.*s) for `%.*s`", \
+  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid value", " (%.*s) for `%.*s`", \
                          (int)attr->vallen, attr->value, (int)attr->namelen, attr->name)
 
   int res = 0;
@@ -2210,7 +2230,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   }
 
   if (!res) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ENOOPTION, "Invalid attribute", " %.*s", (int)attr->namelen,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_OPTION, "Invalid attribute", " %.*s", (int)attr->namelen,
                            attr->name);
   }
   return res;

@@ -43,6 +43,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                          REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
+    RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
     return RediSearch_InitModuleInternal(ctx);
 }
 
@@ -64,10 +65,11 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       // based on the current <percent>. Every child iterator of the union contains ids: [i, step+i, 2*step+i , ...]
       InvertedIndex *inv_indices[percent];
       QueryIterator **its = (QueryIterator **)rm_calloc(percent, sizeof(QueryIterator *));
+      FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
       for (size_t i = 0; i < percent; i++) {
         InvertedIndex *w = createPopulateTermsInvIndex(n, step, i);
         inv_indices[i] = w;
-        its[i] = NewInvIndIterator_TermFull(w);
+        its[i] = NewInvIndIterator_TermQuery(w, NULL, f, NULL, 1);
       }
       IteratorsConfig config{};
       iteratorsConfig_init(&config);

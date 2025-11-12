@@ -13,6 +13,8 @@
 #include "result_processor.h"
 #include <string.h>
 #include <limits.h>
+#include "util/misc.h"
+#include "slot_ranges.h"
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
@@ -42,23 +44,23 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
     ctx->specifiedArgs |= SPECIFIED_ARG_LIMIT;
 
     if (AC_NumRemaining(ac) < 2) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT requires 2 arguments");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT requires 2 arguments");
         return;
     }
 
     uint64_t offset = 0;
     uint64_t num = 0;
     if (AC_GetU64(ac, &offset, AC_F_GE0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT offset must be a non-negative integer");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT offset must be a non-negative integer");
         return;
     }
     if (AC_GetU64(ac, &num, AC_F_GE0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT count must be a non-negative integer");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT count must be a non-negative integer");
         return;
     }
 
     if (num == 0 && offset != 0) {
-        QueryError_SetError(status, QUERY_ELIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
+        QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
         return;
     }
 
@@ -69,11 +71,11 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
         // TODO: unify if when req holds only maxResults according to the query type.
         //(SEARCH / AGGREGATE)
     } else if (num > *ctx->maxResults) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "LIMIT exceeds maximum of %llu",
                              *ctx->maxResults);
         return;
     } else if (offset > LLONG_MAX - num) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT offset + count overflow");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT offset + count overflow");
         return;
     }
 
@@ -83,34 +85,38 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
     arng->limit = num;
 }
 
+// Helper function to set error for SORTBY with NOSORT since they are not allowed to go together
+void fillSortAndNoSortError(QueryError *status) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "NOSORT is not allowed with SORTBY");
+}
+
 #define ASC_BY_DEFAULT true
 
-// SORTBY callback - implements EXACT original logic from lines 298-323
 void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_SORTBY;
 
-    // We managed to get a valid arg cursor
-    if (AC_IsAtEnd(ac)) {
-        // We essentially got SORTBY 0
-        *ctx->reqFlags |= QEXEC_F_NO_SORT;
+    if (*ctx->reqFlags & QEXEC_F_NO_SORT) {
+        fillSortAndNoSortError(status);
         return;
     }
 
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(ctx->plan);
     // Parse field/direction pairs
     while (!AC_IsAtEnd(ac)) {
-        const char *field = AC_GetStringNC(ac, NULL);
+        size_t fieldLen;
+        const char *field = AC_GetStringNC(ac, &fieldLen);
         if (!field) {
-            QueryError_SetError(status, QUERY_EPARSEARGS, "Missing field name in SORTBY");
+            QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing field name in SORTBY");
             return;
         }
 
         // Remove '@' prefix if present (same logic as parseSortby)
-        if (*field == '@') {
-            field++;  // Skip the '@' prefix
+        field = ExtractKeyName(field, &fieldLen, status, true, "SORTBY");
+        if (!field) {
+            return;
         }
 
         // Default to ascending
@@ -135,6 +141,14 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     }
 
     return;
+}
+
+void handleNoSort(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)AGPLN_FindStep(ctx->plan, NULL, NULL, PLN_T_ARRANGE);
+    if (arng && arng->sortKeys) {
+        fillSortAndNoSortError(ctx->status);
+    }
 }
 
 // WITHCURSOR callback - parses cursor settings directly
@@ -176,19 +190,19 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
 
     // Early validation checks
     if (ctx->searchopts->params) {
-        QueryError_SetError(status, QUERY_EADDARGS, "Multiple PARAMS are not allowed. Parameters can be defined only once");
+        QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Multiple PARAMS are not allowed. Parameters can be defined only once");
         return;
     }
     // Validate argument count (must be even for key-value pairs)
     if (paramsArgs->argc == 0 || paramsArgs->argc % 2) {
-        QueryError_SetError(status, QUERY_EADDARGS, "Parameters must be specified in PARAM VALUE pairs");
+        QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Parameters must be specified in PARAM VALUE pairs");
         return;
     }
 
     // Create parameter dictionary and populate
     dict *params = Param_DictCreate();
     if (!params) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create parameter dictionary");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create parameter dictionary");
         return;
     }
 
@@ -210,7 +224,7 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
 void handleDialect(ArgParser *parser, const void *value, void *user_data) {
   HybridParseContext *ctx = (HybridParseContext*)user_data;
   QueryError *status = ctx->status;
-  QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
+  QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, DIALECT_ERROR_MSG);
 }
 
 // FORMAT callback - implements EXACT original logic from lines 359-366
@@ -229,7 +243,7 @@ void handleFormat(ArgParser *parser, const void *value, void *user_data) {
 // Helper function to ensure extended mode for aggregation operations
 static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *status) {
     if (*reqflags & QEXEC_F_IS_SEARCH) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
                                "option `%s` is mutually exclusive with simple (i.e. search) options",
                                name);
         return 0;
@@ -251,7 +265,7 @@ void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
 
     const long long nproperties = AC_NumRemaining(ac);
     if (nproperties <= 0) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY: Expected at least one property", ", got: %d", nproperties);
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for GROUPBY: Expected at least one property", ", got: %d", nproperties);
         return;
     }
     const char **properties = array_newlen(const char *, nproperties);
@@ -261,12 +275,12 @@ void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
         int rv = AC_GetString(ac, &property, &propertyLen, 0);
         if (rv != AC_OK) {
             const size_t oneBasedIndex = i + 1;
-            QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY: Failed to parse property %zu, %s", oneBasedIndex, AC_Strerror(rv));
+            QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for GROUPBY: Failed to parse property %zu, %s", oneBasedIndex, AC_Strerror(rv));
             array_free(properties);
             return;
         }
         if (property[0] != '@') {
-            QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
+            QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
                                property, property);
             array_free(properties);
             return;
@@ -276,7 +290,7 @@ void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
 
     // Number of fields.. now let's see the reducers
     StrongRef properties_ref = StrongRef_New((void *)properties, (RefManager_Free)array_free);
-    PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref);
+    PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref, true);
     AGPLN_AddStep(ctx->plan, &gstp->base);
 
     ArgsCursor *reduce = parser->cursor;
@@ -284,7 +298,7 @@ void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
         const char *name;
         const int rv = AC_GetString(reduce, &name, NULL, 0);
         if (rv != AC_OK) {
-            QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for REDUCE", ": %s", AC_Strerror(rv));
+            QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for REDUCE", ": %s", AC_Strerror(rv));
             return;
         }
         if (PLNGroupStep_AddReducer(gstp, name, reduce, status) != REDISMODULE_OK) {
@@ -314,7 +328,7 @@ void handleApply(ArgParser *parser, const void *value, void *user_data) {
         const char *alias;
         size_t aliasLen;
         if (AC_GetString(ac, &alias, &aliasLen, 0) != AC_OK) {
-            QueryError_SetError(status, QUERY_EPARSEARGS, "AS needs argument");
+            QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "AS needs argument");
             goto error;
         }
         stp->base.alias = rm_strndup(alias, aliasLen);
@@ -348,12 +362,12 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data) {
         char *end = NULL;
         long long numFields = strtoll(firstArg, &end, 10);
         if (*end != '\0' || numFields <= 0) {
-            QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for LOAD: Expected number of fields or `*`");
+            QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for LOAD: Expected number of fields or `*`");
             return;
         }
         // Successfully got a number, slice that many fields
         if (AC_GetSlice(ac, &loadfields, numFields) != AC_OK) {
-            QueryError_SetError(status, QUERY_EPARSEARGS, "Not enough arguments for LOAD");
+            QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Not enough arguments for LOAD");
             return;
         }
     }
@@ -361,6 +375,7 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data) {
     PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
     lstp->base.type = PLN_T_LOAD;
     lstp->base.dtor = loadDtor;
+    lstp->strictPrefix = true;  // Enable strict field validation
     if (loadfields.argc > 0) {
         lstp->args = loadfields;
         lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
@@ -413,3 +428,38 @@ void handleNumSString(ArgParser *parser, const void *value, void *user_data) {
     ctx->specifiedArgs |= SPECIFIED_ARG_NUM_SSTRING;
 }
 
+// _INDEX_PREFIXES callback - implements EXACT original logic from handleIndexPrefixes
+void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) {
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  ArgsCursor *paramsArgs = (ArgsCursor*)value;
+  QueryError *status = ctx->status;
+  while (!AC_IsAtEnd(paramsArgs)) {
+    const char *prefix;
+    size_t prefixLen;
+    if (AC_GetString(paramsArgs, &prefix, &prefixLen, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for _INDEX_PREFIXES");
+      return;
+    }
+    sds prefixSds = sdsnewlen(prefix, prefixLen);
+    array_ensure_append_1(*ctx->prefixes, prefixSds);
+  }
+}
+
+// SLOTS_STR callback - implements EXACT original logic from handleCommonArgs
+void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ArgsCursor *ac = (ArgsCursor*)value;
+    QueryError *status = ctx->status;
+
+    // Parse binary slots information
+    size_t serialization_len;
+    const char *serialization = AC_GetStringNC(ac, &serialization_len);
+    RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
+    if (!slot_array) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
+        return;
+    }
+    // TODO ASM: check if the requested slots are available
+    *ctx->querySlots = slot_array;
+    *ctx->slotsVersion = 0;
+}

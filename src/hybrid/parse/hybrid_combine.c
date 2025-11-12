@@ -12,29 +12,32 @@
 #include "util/arg_parser.h"
 #include <string.h>
 
+#define HYBRID_DEFAULT_ALPHA 0.3
+#define HYBRID_DEFAULT_BETA 0.7
+
 static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const char *clause, QueryError* status) {
   unsigned int count = 0;
   int rc = AC_GetUnsigned(ac, &count, 0);
   if (rc == AC_ERR_NOARG) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Missing %s argument count", clause);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing %s argument count", clause);
     return false;
   } else if (rc != AC_OK) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s argument count, error: %s", clause, AC_Strerror(rc));
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid %s argument count, error: %s", clause, AC_Strerror(rc));
     return false;
   } else if (count == 0) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Explicitly specifying %s requires at least one argument, argument count must be positive", clause);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Explicitly specifying %s requires at least one argument, argument count must be positive", clause);
     return false;
   } else if (count % 2 != 0) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "%s expects pairs of key value arguments, argument count must be an even number", clause);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "%s expects pairs of key value arguments, argument count must be an even number", clause);
     return false;
   }
 
   rc = AC_GetSlice(ac, target, count);
   if (rc == AC_ERR_NOARG) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Not enough arguments", " in %s, specified %u but provided only %u", clause, count, AC_NumRemaining(ac));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %u but provided only %u", clause, count, AC_NumRemaining(ac));
     return false;
   } else if (rc != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Bad arguments", " in %s: %s", clause, AC_Strerror(rc));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad arguments", " in %s: %s", clause, AC_Strerror(rc));
     return false;
   }
   return true;
@@ -56,7 +59,7 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RS
   // Create ArgParser for clean argument parsing
   ArgParser *parser = ArgParser_New(&linear, "LINEAR");
   if (!parser) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create LINEAR argument parser");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create LINEAR argument parser");
     return;
   }
 
@@ -75,26 +78,26 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RS
   // Parse the arguments
   ArgParseResult result = ArgParser_Parse(parser);
   if (!result.success) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
     ArgParser_Free(parser);
     return;
   }
 
-  // Check that both required arguments were parsed
-  if (!ArgParser_WasParsed(parser, "ALPHA")) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for ALPHA");
-    ArgParser_Free(parser);
-    return;
-  }
-  if (!ArgParser_WasParsed(parser, "BETA")) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for BETA");
+  bool hasAlpha = ArgParser_WasParsed(parser, "ALPHA");
+  bool hasBeta = ArgParser_WasParsed(parser, "BETA");
+  if (hasAlpha ^ hasBeta) { // all or none of ALPHA and BETA must be present
+    if (hasAlpha) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Missing value for BETA");
+    } else {
+      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Missing value for ALPHA");
+    }
     ArgParser_Free(parser);
     return;
   }
 
   // Store the parsed values
-  linearCtx->linearWeights[0] = alphaValue;
-  linearCtx->linearWeights[1] = betaValue;
+  linearCtx->linearWeights[0] = hasAlpha ? alphaValue : HYBRID_DEFAULT_ALPHA;
+  linearCtx->linearWeights[1] = hasBeta ? betaValue : HYBRID_DEFAULT_BETA;
   linearCtx->window = windowValue;
 
   ArgParser_Free(parser);
@@ -109,7 +112,7 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
 
   ArgParser *parser = ArgParser_New(&rrf, "RRF");
   if (!parser) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create RRF argument parser");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create RRF argument parser");
     return false;
   }
 
@@ -129,7 +132,7 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
   // Parse the arguments
   ArgParseResult result = ArgParser_Parse(parser);
   if (!result.success) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
     ArgParser_Free(parser);
     return false;
   }
@@ -176,7 +179,7 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
   } else if (strcasecmp(method, "RRF") == 0) {
     parsedScoringType = HYBRID_SCORING_RRF;
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Unknown COMBINE method", " `%s`", method);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Unknown COMBINE method", " `%s`", method);
     return;
   }
 

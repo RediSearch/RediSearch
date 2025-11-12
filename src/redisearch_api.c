@@ -267,9 +267,15 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
-    if (DocTable_Delete(&sp->docs, docKey, len)) {
+    RSDocumentMetadata* md = DocTable_Pop(&sp->docs, docKey, len);
+    if (md) {
       // Delete returns true/false, not RM_{OK,ERR}
+      RS_LOG_ASSERT(sp->stats.numDocuments > 0, "numDocuments cannot be negative");
       sp->stats.numDocuments--;
+      RS_LOG_ASSERT(sp->stats.totalDocsLen >= md->len, "totalDocsLen is smaller than dmd->len");
+      sp->stats.totalDocsLen -= md->len;
+      DMD_Return(md);
+
       if (sp->gc) {
         GCContext_OnDelete(sp->gc);
       }
@@ -623,7 +629,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   RS_ASSERT(it->internal);
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
-  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
+  const char *defaultScorer = RSGlobalConfig.defaultScorer;
+  RS_LOG_ASSERT(defaultScorer, "No default scorer");
+  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
   RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;

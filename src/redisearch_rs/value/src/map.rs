@@ -154,7 +154,7 @@ impl RsValueMap {
     }
 
     /// Create a non-consuming iterator over the map's entries.
-    pub fn iter(&self) -> Iter<'_> {
+    pub const fn iter(&self) -> Iter<'_> {
         Iter { map: self, i: 0 }
     }
 
@@ -330,13 +330,16 @@ mod tests {
             RsValueMapEntry { key, value }
         });
         let map = RsValueMap::collect_from_exact_size_iterator(items);
-        std::thread::spawn({
+        let t1 = std::thread::spawn({
             let map_ref = &map;
             || {
                 let _ = map_ref;
             }
         });
 
-        std::thread::spawn(move || drop(map));
+        let t2 = std::thread::spawn(move || drop(map));
+        // Explicitly join to make Miri happy
+        t1.join().unwrap();
+        t2.join().unwrap();
     }
 }

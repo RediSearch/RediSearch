@@ -50,8 +50,6 @@ def test_debug_timeout_fail_search():
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout limit was reached')
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_debug_timeout_fail_vsim():
     """Test FAIL policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
@@ -83,8 +81,6 @@ def test_debug_timeout_return_search():
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2')
     env.assertTrue(['Timeout limit was reached (SEARCH)'] == get_warnings(response))
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_debug_timeout_return_vsim():
     """Test RETURN policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
@@ -175,7 +171,7 @@ def test_tail_property_not_loaded_error():
     setup_basic_index(env)
     response = env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', \
                           '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
-                          query_vector, 'LOAD', '1', '__key', 'APPLY', '2*@__score',\
+                          query_vector, 'LOAD', '1', '@__key', 'APPLY', '2*@__score',\
                           'AS', 'doubled_score').error().contains('Property `__score` not loaded nor in pipeline')
 
 # Real timeout tests - grouped in a class like TestTimeoutReached in test_vecsim.py
@@ -183,8 +179,6 @@ class TestRealTimeouts(object):
     """Tests for real timeout conditions with large datasets"""
 
     def __init__(self):
-        #TODO: remove skip once FT.HYBRID for cluster is implemented
-        skipTest(cluster=True)
         self.dim = 128
         self.num_docs = 100000
         self.timeout_ms = 1  # Very short timeout to ensure timeout occurs
@@ -194,6 +188,9 @@ class TestRealTimeouts(object):
         self._create_index(self.env)
         self._populate_vectors(self.env)
         self._populate_text(self.env)
+        self.heavy_query = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                   '@vector', '$BLOB', 'KNN', '2', 'K', '10000', 'COMBINE', 'RRF', '2', 'WINDOW', '10000', 'PARAMS', '2', 'BLOB', self.query_vector,
+                   'TIMEOUT', str(self.timeout_ms)]
 
     def tearDown(self):
         """Cleanup after each test"""
@@ -220,9 +217,7 @@ class TestRealTimeouts(object):
         env.cmd('CONFIG', 'SET', 'search-on-timeout', 'fail')
 
         # Test hybrid timeout with FAIL policy
-        env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
-                   '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', self.query_vector,
-                   'TIMEOUT', str(self.timeout_ms)).error().contains('Timeout limit was reached')
+        env.expect(*self.heavy_query).error().contains('Timeout limit was reached')
 
     def test_hybrid_return(self):
         """Test real timeout - hybrid (both text and vector) with RETURN policy"""
@@ -230,11 +225,15 @@ class TestRealTimeouts(object):
         env.cmd('CONFIG', 'SET', 'search-on-timeout', 'return')
 
         # Test hybrid timeout with RETURN policy
-        response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
-                           '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', self.query_vector,
-                           'TIMEOUT', str(self.timeout_ms))
+        response = env.cmd(*self.heavy_query)
 
         warnings = get_warnings(response)
 
-        env.assertTrue('Timeout limit was reached (SEARCH)' in warnings)
-        env.assertTrue('Timeout limit was reached (VSIM)' in warnings)
+        env.assertTrue(
+            'Timeout limit was reached (SEARCH)' in warnings,
+            message=f"Expected 'Timeout limit was reached (SEARCH)' in warnings: {warnings}"
+        )
+        env.assertTrue(
+            'Timeout limit was reached (VSIM)' in warnings,
+            message=f"Expected 'Timeout limit was reached (VSIM)' in warnings: {warnings}"
+        )

@@ -136,7 +136,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   int rv = REDISMODULE_ERR;
   // This is possible if the key has expired for example in previous redis API calls in this notification flow.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Key does not exist or is not a hash", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist or is not a hash", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 
@@ -200,7 +200,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   int rv = REDISMODULE_ERR;
   if (!japi) {
     RedisModule_Log(sctx->redisCtx, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
-    QueryError_SetError(status, QUERY_EGENERIC, "cannot operate on a JSON index as RedisJSON is not loaded");
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "cannot operate on a JSON index as RedisJSON is not loaded");
     return REDISMODULE_ERR;
   }
   IndexSpec *spec = sctx->spec;
@@ -211,7 +211,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   if (!k) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Key does not exist", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 
@@ -221,14 +221,9 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
   RedisModule_CloseKey(k);
 
-  RedisJSON jsonRoot = NULL;
-  if (japi_ver >= 5) {
-    jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
-  } else {
-    jsonRoot = japi->openKey(ctx, doc->docKey);
-  }
+  RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
   if (!jsonRoot) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
   Document_MakeStringsOwner(doc); // TODO: necessary??

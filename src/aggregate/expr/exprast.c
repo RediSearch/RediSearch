@@ -242,7 +242,7 @@ RSExpr *ExprAST_Parse(const HiddenString* expr, QueryError *status) {
   const char* raw = HiddenString_GetUnsafe(expr, &len);
   RSExpr *ret = RSExpr_Parse(raw, len, &errtmp);
   if (!ret) {
-    QueryError_SetError(status, QUERY_EEXPR, errtmp);
+    QueryError_SetError(status, QUERY_ERROR_CODE_EXPR, errtmp);
   }
   rm_free(errtmp);
   return ret;

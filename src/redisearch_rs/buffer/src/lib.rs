@@ -48,35 +48,35 @@ impl Buffer {
     }
 
     /// Returns the initialized portion of the buffer as a slice.
-    pub fn as_slice(&self) -> &[u8] {
+    pub const fn as_slice(&self) -> &[u8] {
         // Safety: We assume `self.len` is a valid length within the allocated memory.
         // Creates a slice referencing the initialized portion of the buffer.
         unsafe { slice::from_raw_parts(self.0.data as *const u8, self.len()) }
     }
 
     /// Returns the initialized portion of the buffer as a mutable slice.
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+    pub const fn as_mut_slice(&mut self) -> &mut [u8] {
         // Safety: We assume `self.0.offset` is a valid length within the allocated memory.
         unsafe { slice::from_raw_parts_mut(self.0.data as *mut u8, self.len()) }
     }
 
     /// Returns the length of the buffer (number of initialized bytes).
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.offset
     }
 
     /// Returns true if the buffer is empty (length is zero).
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.0.offset == 0
     }
 
     /// Returns the total capacity of the buffer (maximum number of bytes it can hold).
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.0.cap
     }
 
     /// Returns the remaining capacity of the buffer (capacity - length).
-    pub fn remaining_capacity(&self) -> usize {
+    pub const fn remaining_capacity(&self) -> usize {
         self.0.cap - self.0.offset
     }
 

@@ -10,51 +10,20 @@
 #include "cluster_topology.h"
 #include "endpoint.h"
 #include "rmalloc.h"
+#include "slot_ranges.h"
+#include "rmutil/rm_assert.h"
 
-void MRClusterShard_AddNode(MRClusterShard *sh, MRClusterNode *n) {
-  if (sh->capNodes == sh->numNodes) {
-    sh->capNodes += 1;
-    sh->nodes = rm_realloc(sh->nodes, sh->capNodes * sizeof(MRClusterNode));
-  }
-
-  if (n->flags & MRNode_Master && sh->numNodes > 0) {
-    // Ensure that master nodes are always at the front of the list
-    sh->nodes[sh->numNodes] = sh->nodes[0];
-    sh->nodes[0] = *n;
-  } else {
-    // Otherwise, just append
-    sh->nodes[sh->numNodes] = *n;
-  }
-  sh->numNodes++;
-}
-
-
-void MRClusterShard_AddRange(MRClusterShard *sh, mr_slot_t start, mr_slot_t end) {
-  if (sh->capRanges == sh->numRanges) {
-    sh->capRanges++;
-    sh->ranges = rm_realloc(sh->ranges, sh->capRanges * sizeof(mr_slot_range_t));
-  }
-  sh->ranges[sh->numRanges].start = start;
-  sh->ranges[sh->numRanges].end = end;
-  sh->numRanges++;
-}
-
-MRClusterShard MR_NewClusterShard(uint32_t capNodes) {
+MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges) {
   MRClusterShard ret = (MRClusterShard){
-      .numRanges = 0,
-      .capRanges = 1,
-      .ranges = rm_calloc(1, sizeof(mr_slot_range_t)),
-      .numNodes = 0,
-      .capNodes = capNodes,
-      .nodes = rm_calloc(capNodes, sizeof(MRClusterNode)),
+      .node = *node,
+      .slotRanges = slotRanges,
   };
   return ret;
 }
 
-MRClusterTopology *MR_NewTopology(size_t numShards, size_t numSlots, MRHashFunc hashFunc) {
+
+MRClusterTopology *MR_NewTopology(uint32_t numShards) {
   MRClusterTopology *topo = rm_new(MRClusterTopology);
-  topo->numSlots = numSlots;
-  topo->hashFunc = hashFunc;
   topo->numShards = 0;
   topo->capShards = numShards;
   topo->shards = rm_calloc(topo->capShards, sizeof(MRClusterShard));
@@ -62,10 +31,7 @@ MRClusterTopology *MR_NewTopology(size_t numShards, size_t numSlots, MRHashFunc 
 }
 
 void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh) {
-  if (topo->capShards == topo->numShards) {
-    topo->capShards++;
-    topo->shards = rm_realloc(topo->shards, topo->capShards * sizeof(MRClusterShard));
-  }
+  RS_LOG_ASSERT(topo->numShards < topo->capShards, "Expected to have enough capacity for all shards");
   topo->shards[topo->numShards++] = *sh;
 }
 
@@ -73,43 +39,35 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
   if (!t) {
     return NULL;
   }
-  MRClusterTopology *topo = MR_NewTopology(t->numShards, t->numSlots, t->hashFunc);
+  MRClusterTopology *topo = MR_NewTopology(t->numShards);
   for (int s = 0; s < t->numShards; s++) {
     MRClusterShard *original_shard = &t->shards[s];
-    MRClusterShard new_shard = MR_NewClusterShard(original_shard->numNodes);
-    new_shard.numRanges = original_shard->numRanges;
-    new_shard.capRanges = original_shard->numRanges;
-    new_shard.ranges = rm_realloc(new_shard.ranges, new_shard.capRanges * sizeof(mr_slot_range_t));
-    memcpy(new_shard.ranges, original_shard->ranges, original_shard->numRanges * sizeof(mr_slot_range_t));
 
-    for (int n = 0; n < original_shard->numNodes; n++) {
-      MRClusterNode *node = &original_shard->nodes[n];
-      MRClusterShard_AddNode(&new_shard, node);
-    }
-    for (int n = 0; n < new_shard.numNodes; n++) {
-      new_shard.nodes[n].id = rm_strdup(original_shard->nodes[n].id);
-      MREndpoint_Copy(&new_shard.nodes[n].endpoint, &original_shard->nodes[n].endpoint);
-      new_shard.nodes[n].endpoint.port = original_shard->nodes[n].endpoint.port;
-      new_shard.nodes[n].flags = 0;
-      new_shard.nodes[n].flags = original_shard->nodes[n].flags;
-    }
+    RedisModuleSlotRangeArray *slot_ranges = SlotRangeArray_Clone(original_shard->slotRanges);
+    MRClusterShard new_shard = MR_NewClusterShard(&original_shard->node, slot_ranges);
+
+    new_shard.node.id = rm_strdup(original_shard->node.id);
+    MREndpoint_Copy(&new_shard.node.endpoint, &original_shard->node.endpoint);
+    new_shard.node.endpoint.port = original_shard->node.endpoint.port;
+
     MRClusterTopology_AddShard(topo, &new_shard);
   }
   return topo;
 }
 
-void MRClusterNode_Free(MRClusterNode *n) {
+static void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
   rm_free((char *)n->id);
 }
 
+static void MRClusterShard_Free(MRClusterShard *sh) {
+  MRClusterNode_Free(&sh->node);
+  rm_free(sh->slotRanges);
+}
+
 void MRClusterTopology_Free(MRClusterTopology *t) {
   for (int s = 0; s < t->numShards; s++) {
-    for (int n = 0; n < t->shards[s].numNodes; n++) {
-      MRClusterNode_Free(&t->shards[s].nodes[n]);
-    }
-    rm_free(t->shards[s].nodes);
-    rm_free(t->shards[s].ranges);
+    MRClusterShard_Free(&t->shards[s]);
   }
   rm_free(t->shards);
   rm_free(t);

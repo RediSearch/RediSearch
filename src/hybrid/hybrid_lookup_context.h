@@ -17,6 +17,8 @@
 extern "C" {
 #endif
 
+typedef struct AREQ AREQ;
+
 /**
  * HybridLookupContext structure that provides RLookup context for field merging.
  * Contains source lookups from each upstream and the unified destination lookup.
@@ -29,6 +31,17 @@ typedef struct {
   arrayof(const RLookup*) sourceLookups;  // Source lookups from each request
   RLookup *tailLookup;                    // Unified destination lookup
 } HybridLookupContext;
+
+/**
+ * Initialize unified lookup schema and hybrid lookup context for field merging.
+ *
+ * @param requests Array of AREQ pointers containing source lookups (non-null)
+ * @param tailLookup The destination lookup to populate with unified schema (non-null)
+ * @return HybridLookupContext* to an initialized HybridLookupContext
+ */
+HybridLookupContext* HybridLookupContext_New(arrayof(AREQ*) requests, RLookup *tailLookup);
+
+void HybridLookupContext_Free(HybridLookupContext *lookupCtx);
 
 #ifdef __cplusplus
 }

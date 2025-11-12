@@ -65,7 +65,7 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
   }
 
   printProfileCounters(counters);
-  RedisModule_ReplyKV_LongLong(reply, "Size", root->NumEstimated(root));
+  RedisModule_ReplyKV_LongLong(reply, "Estimated number of matches", root->NumEstimated(root));
 
   RedisModule_Reply_MapEnd(reply);
 }
@@ -119,7 +119,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
   }
-  printProfileCounter(RPProfile_GetCount(rp) - 1);
+  printProfileRPCounter(RPProfile_GetCount(rp) - 1);
   RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }
@@ -176,7 +176,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_CLUSTER);
       }
       if (timedout) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
       } else if (reachedMaxPrefixExpansions) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
       } else if (!warningRaised) {

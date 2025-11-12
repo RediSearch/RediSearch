@@ -18,17 +18,6 @@
 #include "spec.h"
 #include "config.h"
 
-/* increasing the ref count of the given dmd */
-/*
- * This macro is atomic and fits for single writer and multiple readers as it is used only
- * after we locked the index spec (R/W) and we either have a writer alone or multiple readers.
- */
-#define DMD_Incref(md)                                                        \
-  ({                                                                          \
-    uint16_t count = __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED); \
-    RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
-  })
-
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
   DocTable ret = {
@@ -357,15 +346,6 @@ static void DocTable_DmdUnchain(DocTable *t, RSDocumentMetadata *md) {
   dllist2_delete(&dmdChain->lroot, &md->llnode);
 }
 
-int DocTable_Delete(DocTable *t, const char *s, size_t n) {
-  RSDocumentMetadata *md = DocTable_Pop(t, s, n);
-  if (md) {
-    DMD_Return(md);
-    return 1;
-  }
-  return 0;
-}
-
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
   t_docId docId = DocIdMap_Get(&t->dim, s, n);
 
@@ -401,7 +381,7 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     DocTable_DmdUnchain(t, md);
     DocIdMap_Delete(&t->dim, s, n);
     --t->size;
-    DMD_Return(md); // Index ref. The caller gets a ref from the `Get` call
+    DMD_Return(md); // Return the ref from the `Borrow` call. The caller needs to release the index ref.
 
     return md;
   }

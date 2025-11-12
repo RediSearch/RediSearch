@@ -17,7 +17,6 @@
 #include "src/hybrid/vector_query_utils.h"
 #include "src/spec.h"
 #include "src/search_ctx.h"
-#include "src/query_error.h"
 #include "src/rmalloc.h"
 // #include "src/index.h"
 #include "src/aggregate/aggregate.h"
@@ -25,6 +24,7 @@
 #include "VecSim/query_results.h"
 #include "info/global_stats.h"
 #include "src/ext/default.h"
+#include "src/redisearch_rs/headers/query_error.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -105,8 +105,9 @@ class ParseHybridTest : public ::testing::Test {
    */
   int parseCommandInternal(RMCK::ArgvList& args) {
     QueryError status = QueryError_Default();
-
-    int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
+    ArgsCursor ac = {0};
+    HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
+    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
     EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
@@ -188,6 +189,39 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   // Verify dialect is set correctly
   ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
   ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
+}
+
+TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
+  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Fail;
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+
+  parseCommand(args);
+  ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Fail);
+  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Fail);
+  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Fail);
+}
+
+TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
+  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+
+  parseCommand(args);
+  ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Return);
+  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Return);
+  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Return);
+}
+
+TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
+
+  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+  parseCommand(args);
+  ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Ignore);
+  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Ignore);
+  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Ignore);
 }
 
 TEST_F(ParseHybridTest, testWithCombineLinear) {
@@ -320,9 +354,9 @@ TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
   ASSERT_EQ(vq->knn.k, HYBRID_DEFAULT_KNN_K);
 }
 
-TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
+TEST_F(ParseHybridTest, testNOSORTDisablesImplicitSort) {
   // Test SORTBY 0 to disable implicit sorting
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "0");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "NOSORT");
 
   parseCommand(args);
 
@@ -489,7 +523,12 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
 
 TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
   // YIELD_SCORE_AS should work
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "8", "YIELD_SCORE_AS", "distance_score", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "2", "K", "8",
+      "YIELD_SCORE_AS", "distance_score",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -516,7 +555,8 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
 
 TEST_F(ParseHybridTest, testVsimRangeBasic) {
   // Parse hybrid request
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -611,9 +651,11 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
         "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
 
-  QueryError status = {QueryErrorCode(0)};
-  parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, false);
-  EXPECT_EQ(QueryError_GetCode(&status), QUERY_EPARSEARGS) << "Should fail as external command";
+  QueryError status = QueryError_Default();
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
+  EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_PARSE_ARGS) << "Should fail as external command";
   QueryError_ClearError(&status);
 
   // Clean up any partial allocations from the failed parse
@@ -625,13 +667,24 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
 
 TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING");
+        "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "_NUM_SSTRING", SLOTS_STR);
+  static RedisModuleSlotRangeArray slots = {
+    .num_ranges = 1,
+    .ranges = {
+      { .start = 0, .end = 16383 }
+    }
+  };
+  char * serializedSlots = SlotRangesArray_Serialize(&slots);
+  args.add(serializedSlots, SlotRangeArray_SizeOf(1));
+  rm_free(serializedSlots);
 
-  QueryError status = {QueryErrorCode(0)};
+  QueryError status = QueryError_Default();
 
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
-  parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
-  ASSERT_TRUE(QueryError_IsOk(&status)) << "Should succeed as internal command";
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
+  EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_OK) << "Should succeed as internal command";
   QueryError_ClearError(&status);
 
   // Verify _NUM_SSTRING flag is set after parsing
@@ -672,7 +725,7 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "FILTER","@title:(foo bar)=> {$weight: 2.0}" );
-  testErrorCode(args, QUERY_EWEIGHT_NOT_ALLOWED, "Weight attributes are not allowed in FT.HYBRID VSIM FILTER");
+  testErrorCode(args, QUERY_ERROR_CODE_WEIGHT_NOT_ALLOWED, "Weight attributes are not allowed in FT.HYBRID VSIM FILTER");
 }
 
 // Helper function to test error cases with less boilerplate
@@ -680,7 +733,9 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   QueryError status = QueryError_Default();
 
   // Create a fresh sctx for this test
-  int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
+  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_STREQ(QueryError_GetUserError(&status), expected_detail) << "parsing error: " << QueryError_GetUserError(&status);
@@ -695,7 +750,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, 2);
 
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "FILTER", "@vector:[VECTOR_RANGE 0.01 $BLOB]", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EVECTOR_NOT_ALLOWED, "Vector expressions are not allowed in FT.HYBRID VSIM FILTER");
+  testErrorCode(args, QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED, "Vector expressions are not allowed in FT.HYBRID VSIM FILTER");
 
   // Teardown: Restore previous dialect version
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, previousDialectVersion);
@@ -709,174 +764,203 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
 TEST_F(ParseHybridTest, testMissingSearchArgument) {
   // Missing SEARCH argument: FT.HYBRID <index> VSIM @vector_field
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "VSIM", "vector_field");
-  testErrorCode(args, QUERY_ESYNTAX, "SEARCH argument is required");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
 }
 
 TEST_F(ParseHybridTest, testMissingQueryStringAfterSearch) {
   // Missing query string after SEARCH: FT.HYBRID <index> SEARCH
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH");
-  testErrorCode(args, QUERY_EPARSEARGS, "No query string provided for SEARCH");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided for SEARCH");
 }
 
 TEST_F(ParseHybridTest, testMissingSecondSearchArgument) {
   // Missing second search argument: FT.HYBRID <index> SEARCH hello
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello");
-  testErrorCode(args, QUERY_ESYNTAX, "VSIM argument is required");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "VSIM argument is required");
 }
 
 TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
   // Test invalid syntax: FT.HYBRID <index> SEARCH hello SEARCH world (should fail)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SEARCH", "world");
-  testErrorCode(args, QUERY_EPARSEARGS, "Unknown argument `SEARCH` in SEARCH");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `SEARCH` in SEARCH");
 }
 
 // VSIM parsing error tests
 TEST_F(ParseHybridTest, testVsimMissingVectorField) {
   // Test missing vector field name after VSIM
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM");
-  testErrorCode(args, QUERY_ESYNTAX, "Missing vector field name");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Missing vector field name");
 }
 
 TEST_F(ParseHybridTest, testVsimMissingVectorArgument) {
   // Test missing vector argument after field name
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector");
-  testErrorCode(args, QUERY_ESYNTAX, "Missing vector argument");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Missing vector argument");
 }
 
 TEST_F(ParseHybridTest, testVsimVectorFieldMissingAtPrefix) {
   // Test vector field name without @ prefix - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "K", "10", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Missing @ prefix for vector field name");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Missing @ prefix for vector field name");
 }
 
 // Parameter parsing error tests
 TEST_F(ParseHybridTest, testBlobWithoutParams) {
   // Test using $BLOB without PARAMS section - should fail
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10");
-  testErrorCode(args, QUERY_ENOPARAM, "No such parameter `BLOB`");
+  testErrorCode(args, QUERY_ERROR_CODE_NO_PARAM, "No such parameter `BLOB`");
 }
 
 // KNN parsing error tests
 TEST_F(ParseHybridTest, testKNNMissingArgumentCount) {
   // Test KNN without argument count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument count");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument count");
 }
 
 TEST_F(ParseHybridTest, testVsimKNNOddParamCount) {
   // Test KNN with count=1 (odd count, missing K value)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "1", "K", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count: 1 (must be a positive even number for key/value pairs)");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid argument count: 1 (must be a positive even number for key/value pairs)");
 }
 
 TEST_F(ParseHybridTest, testKNNZeroArgumentCount) {
   // Test KNN with zero argument count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "0");
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count: 0 (must be a positive even number for key/value pairs)");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid argument count: 0 (must be a positive even number for key/value pairs)");
 }
 
 TEST_F(ParseHybridTest, testVsimSubqueryMissingK) {
   // Test KNN without K argument
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "EF_RUNTIME", "100", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing required argument K");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing required argument K");
 }
 
 TEST_F(ParseHybridTest, testKNNInvalidKValue) {
   // Test KNN with invalid K value (non-numeric)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "invalid", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid K value");
 }
 
 TEST_F(ParseHybridTest, testKNNNegativeKValue) {
   // Test KNN with negative K value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "-1", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid K value");
 }
 
 TEST_F(ParseHybridTest, testKNNZeroKValue) {
   // Test KNN with zero K value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "0", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid K value");
 }
 
 TEST_F(ParseHybridTest, testVsimKNNDuplicateK) {
   // Test KNN with duplicate K arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "K", "20", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate K argument");
+  testErrorCode(args, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate K argument");
 }
 
 TEST_F(ParseHybridTest, testVsimKNNDuplicateEFRuntime) {
   // Test KNN with duplicate EF_RUNTIME arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "6", "K", "10", "EF_RUNTIME", "100", "EF_RUNTIME", "200", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate EF_RUNTIME argument");
+  testErrorCode(args, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate EF_RUNTIME argument");
 }
-
 
 TEST_F(ParseHybridTest, testKNNDuplicateYieldDistanceAs) {
   // Test KNN with duplicate YIELD_SCORE_AS arguments
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "6", "K", "10", "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "2", "K", "10",
+      "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS: Unknown argument");
+}
+
+TEST_F(ParseHybridTest, testKNNCountingYieldDistanceAs) {
+  // Test KNN with YIELD_SCORE_AS as counting argument
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "YIELD_SCORE_AS", "v_score",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `YIELD_SCORE_AS` in KNN");
 }
 
 TEST_F(ParseHybridTest, testVsimKNNWithEpsilon) {
   // Test KNN with EPSILON (should be RANGE-only)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "EPSILON", "0.01", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "Unknown argument `EPSILON` in KNN");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `EPSILON` in KNN");
 }
 
 TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
   // Test with wrong argument count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "\"hello\"", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "FILTER", "@text:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "Unknown argument `FILTER` in KNN");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `FILTER` in KNN");
 }
 
 // RANGE parsing error tests
 TEST_F(ParseHybridTest, testRangeMissingArgumentCount) {
   // Test RANGE without argument count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument count");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument count");
 }
 
 TEST_F(ParseHybridTest, testVsimRangeOddParamCount) {
   // Test RANGE with count=3 (odd count, missing EPSILON value)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "3", "RADIUS", "0.5", "EPSILON", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count: 3 (must be a positive even number for key/value pairs)");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid argument count: 3 (must be a positive even number for key/value pairs)");
 }
 
 TEST_F(ParseHybridTest, testRangeZeroArgumentCount) {
   // Test RANGE with zero argument count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "0");
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count: 0 (must be a positive even number for key/value pairs)");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid argument count: 0 (must be a positive even number for key/value pairs)");
 }
 
 TEST_F(ParseHybridTest, testRangeInvalidRadiusValue) {
   // Test RANGE with invalid RADIUS value (non-numeric)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "invalid", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid RADIUS value");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Invalid RADIUS value");
 }
 
 TEST_F(ParseHybridTest, testVsimRangeDuplicateRadius) {
   // Test RANGE with duplicate RADIUS arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "RADIUS", "0.8", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate RADIUS argument");
+  testErrorCode(args, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RADIUS argument");
 }
 
 TEST_F(ParseHybridTest, testVsimRangeDuplicateEpsilon) {
   // Test RANGE with duplicate EPSILON arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "6", "RADIUS", "0.5", "EPSILON", "0.01", "EPSILON", "0.02", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate EPSILON argument");
+  testErrorCode(args, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate EPSILON argument");
 }
 
 TEST_F(ParseHybridTest, testRangeDuplicateYieldDistanceAs) {
   // Test RANGE with duplicate YIELD_SCORE_AS arguments
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "6", "RADIUS", "0.5", "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "RANGE", "2", "RADIUS", "0.5",
+      "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS: Unknown argument");
+}
+
+TEST_F(ParseHybridTest, testRangeCountingYieldDistanceAs) {
+  // Test RANGE with YIELD_SCORE_AS as counting argument
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS", "v_score",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `YIELD_SCORE_AS` in RANGE");
 }
 
 TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
   // Test RANGE with EF_RUNTIME (should be KNN-only)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "EF_RUNTIME", "100", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "Unknown argument `EF_RUNTIME` in RANGE");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `EF_RUNTIME` in RANGE");
 }
 
 // NOTE: Invalid parameter values of EF_RUNTIME EPSILON_STRING are NOT validated during parsing.
@@ -890,7 +974,7 @@ TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {
       "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
       "COMBINE", "RRF", "2", "CONSTANT", "invalid",
       "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "CONSTANT: Could not convert argument to expected type");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "CONSTANT: Could not convert argument to expected type");
 }
 
 TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
@@ -899,7 +983,7 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
 
   parseCommand(args);
   // No explicit scorer should be set; the default scorer will be used
-  ASSERT_EQ(result.search->searchopts.scorerName, nullptr);
+  ASSERT_STREQ(result.search->searchopts.scorerName, DEFAULT_SCORER_NAME);
 }
 
 TEST_F(ParseHybridTest, testExplicitTextScorerForLinear) {
@@ -918,7 +1002,7 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForRRF) {
   parseCommand(args);
 
   // No explicit scorer should be set; the default scorer will be used
-  ASSERT_EQ(result.search->searchopts.scorerName, nullptr);
+  ASSERT_STREQ(result.search->searchopts.scorerName, DEFAULT_SCORER_NAME);
 }
 
 TEST_F(ParseHybridTest, testExplicitTextScorerForRRF) {
@@ -932,76 +1016,84 @@ TEST_F(ParseHybridTest, testExplicitTextScorerForRRF) {
 
 TEST_F(ParseHybridTest, testLinearPartialWeightsAlpha) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "2", "ALPHA", "0.6");
-  testErrorCode(args, QUERY_ESYNTAX, "Missing value for BETA");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Missing value for BETA");
 }
 
 TEST_F(ParseHybridTest, testLinearMissingArgs) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "4", "ALPHA", "0.6");
-  testErrorCode(args, QUERY_ESYNTAX, "Not enough arguments in LINEAR, specified 4 but provided only 2");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments in LINEAR, specified 4 but provided only 2");
 }
 
 TEST_F(ParseHybridTest, testLinearPartialWeightsBeta) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "2", "BETA", "0.6");
-  testErrorCode(args, QUERY_ESYNTAX, "Missing value for ALPHA");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Missing value for ALPHA");
 }
 
 TEST_F(ParseHybridTest, testLinearNegativeArgumentCount) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "-2", "ALPHA", "0.6", "BETA", "0.4");
-  testErrorCode(args, QUERY_EPARSEARGS, "Invalid LINEAR argument count, error: Value is outside acceptable bounds");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid LINEAR argument count, error: Value is outside acceptable bounds");
 }
 
 TEST_F(ParseHybridTest, testLinearMissingArgumentCount) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing LINEAR argument count");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing LINEAR argument count");
 }
 
 // Missing parameter value tests
 TEST_F(ParseHybridTest, testKNNMissingKValue) {
   // Test KNN with missing K value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "2", "K");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for K");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for K");
 }
 
 TEST_F(ParseHybridTest, testKNNMissingEFRuntimeValue) {
   // Test KNN with missing EF_RUNTIME value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "4", "K", "10", "EF_RUNTIME");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for EF_RUNTIME");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for EF_RUNTIME");
 }
 
 TEST_F(ParseHybridTest, testRangeMissingRadiusValue) {
   // Test RANGE with missing RADIUS value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "2", "RADIUS");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for RADIUS");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for RADIUS");
 }
 
 TEST_F(ParseHybridTest, testRangeMissingEpsilonValue) {
   // Test RANGE with missing EPSILON value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "4", "RADIUS", "0.5", "EPSILON");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for EPSILON");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for EPSILON");
 }
 
 TEST_F(ParseHybridTest, testLinearMissingAlphaValue) {
   // Test LINEAR with missing ALPHA value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "2", "ALPHA");
-  testErrorCode(args, QUERY_ESYNTAX, "Not enough arguments in LINEAR, specified 2 but provided only 1");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments in LINEAR, specified 2 but provided only 1");
 }
 
 TEST_F(ParseHybridTest, testLinearMissingBetaValue) {
   // Test LINEAR with missing BETA value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "2", "BETA");
-  testErrorCode(args, QUERY_ESYNTAX,"Not enough arguments in LINEAR, specified 2 but provided only 1");
+  testErrorCode(args, QUERY_ERROR_CODE_SYNTAX,"Not enough arguments in LINEAR, specified 2 but provided only 1");
 }
 
 TEST_F(ParseHybridTest, testKNNMissingYieldDistanceAsValue) {
   // Test KNN with missing YIELD_SCORE_AS value (early return before CheckEnd)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "4", "K", "10", "YIELD_SCORE_AS");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", TEST_BLOB_DATA,
+      "KNN", "2", "K", "10",
+      "YIELD_SCORE_AS");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for YIELD_SCORE_AS");
 }
 
 TEST_F(ParseHybridTest, testRangeMissingYieldDistanceAsValue) {
   // Test RANGE with missing YIELD_SCORE_AS value (early return before CheckEnd)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", TEST_BLOB_DATA,
+      "RANGE", "2", "RADIUS", "0.5",
+      "YIELD_SCORE_AS");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for YIELD_SCORE_AS");
 }
 
 // ============================================================================
@@ -1012,91 +1104,106 @@ TEST_F(ParseHybridTest, testRangeMissingYieldDistanceAsValue) {
 TEST_F(ParseHybridTest, testLimitZeroCountWithNonZeroOffset) {
   // Test LIMIT 0 0 vs LIMIT 5 0 - the callback should catch the second case
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LIMIT", "5", "0");
-  testErrorCode(args, QUERY_ELIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
+  testErrorCode(args, QUERY_ERROR_CODE_LIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
 }
 
 TEST_F(ParseHybridTest, testLimitInvalidOffset) {
   // Test LIMIT with invalid offset (negative)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LIMIT", "-1", "10");
-  testErrorCode(args, QUERY_EPARSEARGS, "LIMIT offset must be a non-negative integer");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT offset must be a non-negative integer");
 }
 
 TEST_F(ParseHybridTest, testLimitInvalidCount) {
   // Test LIMIT with invalid count (negative)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LIMIT", "0", "-5");
-  testErrorCode(args, QUERY_EPARSEARGS, "LIMIT count must be a non-negative integer");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT count must be a non-negative integer");
 }
 
 TEST_F(ParseHybridTest, testLimitExceedsMaxResults) {
   // Test LIMIT that exceeds maxResults (default is 1000000)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LIMIT", "0", "2000000");
-  testErrorCode(args, QUERY_ELIMIT, "LIMIT exceeds maximum of 1000000");
+  testErrorCode(args, QUERY_ERROR_CODE_LIMIT, "LIMIT exceeds maximum of 1000000");
+}
+
+TEST_F(ParseHybridTest, testLimitOnlyOffset) {
+  // Test LIMIT with only offset (should fail)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LIMIT", "1");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT: Not enough arguments were provided");
 }
 
 // SORTBY callback error tests
 TEST_F(ParseHybridTest, testSortByMissingFieldName) {
   // Test SORTBY with missing field name (empty args after SORTBY)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY");
-  testErrorCode(args, QUERY_EPARSEARGS, "SORTBY: Failed to parse the argument count");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "SORTBY: Failed to parse the argument count");
 }
 
 // PARAMS callback error tests
 TEST_F(ParseHybridTest, testParamsOddArgumentCount) {
   // Test PARAMS with odd number of arguments (not key-value pairs)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "PARAMS", "3", "key1", "value1", "key2");
-  testErrorCode(args, QUERY_EADDARGS, "Parameters must be specified in PARAM VALUE pairs");
+  testErrorCode(args, QUERY_ERROR_CODE_ADD_ARGS, "Parameters must be specified in PARAM VALUE pairs");
 }
 
 TEST_F(ParseHybridTest, testParamsZeroArguments) {
   // Test PARAMS with zero arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "PARAMS", "0");
-  testErrorCode(args, QUERY_EADDARGS, "Parameters must be specified in PARAM VALUE pairs");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "PARAMS: Invalid argument count");
+}
+
+TEST_F(ParseHybridTest, testParamsSpecifiedMultipleTimes) {
+  // Test PARAMS with multiple PARAMS clauses
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
+    "PARAMS", "2", "p1", "val1", "PARAMS", "2", "p2", "val2");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "PARAMS: Argument specified multiple times");
 }
 
 // WITHCURSOR callback error tests
 TEST_F(ParseHybridTest, testWithCursorInvalidMaxIdle) {
   // Test WITHCURSOR with invalid MAXIDLE value (zero)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "WITHCURSOR", "MAXIDLE", "0");
-  testErrorCode(args, QUERY_EPARSEARGS, "Bad arguments for MAXIDLE: Value is outside acceptable bounds");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for MAXIDLE: Value is outside acceptable bounds");
 }
 
 TEST_F(ParseHybridTest, testWithCursorInvalidCount) {
   // Test WITHCURSOR with invalid COUNT value (zero)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "WITHCURSOR", "COUNT", "0");
-  testErrorCode(args, QUERY_EPARSEARGS, "Bad arguments for COUNT: Value is outside acceptable bounds");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for COUNT: Value is outside acceptable bounds");
 }
 
 // GROUPBY callback error tests
 TEST_F(ParseHybridTest, testGroupByNoProperties) {
   // Test GROUPBY with no properties specified
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "GROUPBY");
-  testErrorCode(args, QUERY_EPARSEARGS, "GROUPBY: Failed to parse the argument count");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "GROUPBY: Failed to parse the argument count");
 }
 
 TEST_F(ParseHybridTest, testGroupByPropertyMissingAtPrefix) {
   // Test GROUPBY with property missing @ prefix
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "GROUPBY", "1", "title");
-  testErrorCode(args, QUERY_EPARSEARGS, "Bad arguments for GROUPBY: Unknown property `title`. Did you mean `@title`?");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for GROUPBY: Unknown property `title`. Did you mean `@title`?");
 }
 
 // APPLY callback error tests
 TEST_F(ParseHybridTest, testApplyMissingAsArgument) {
   // Test APPLY with AS but missing alias argument
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "APPLY", "upper(@title)", "AS");
-  testErrorCode(args, QUERY_EPARSEARGS, "AS needs argument");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "AS needs argument");
 }
 
 // LOAD callback error tests
 TEST_F(ParseHybridTest, testLoadInvalidFieldCount) {
   // Test LOAD with invalid field count (non-numeric)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LOAD", "invalid");
-  testErrorCode(args, QUERY_EPARSEARGS, "Bad arguments for LOAD: Expected number of fields or `*`");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for LOAD: Expected number of fields or `*`");
 }
 
 TEST_F(ParseHybridTest, testLoadInsufficientFields) {
   // Test LOAD with insufficient fields for specified count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LOAD", "3", "@title");
-  testErrorCode(args, QUERY_EPARSEARGS, "Not enough arguments for LOAD");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Not enough arguments for LOAD");
 }
 
 // ============================================================================
@@ -1106,19 +1213,19 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
 TEST_F(ParseHybridTest, testCombineRRFWithoutArgument) {
   // Test RANGE with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "RRF", "0");
-  testErrorCode(args, QUERY_EPARSEARGS, "Explicitly specifying RRF requires at least one argument, argument count must be positive");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Explicitly specifying RRF requires at least one argument, argument count must be positive");
 }
 
 TEST_F(ParseHybridTest, testCombineRRFWithOddArgumentCount) {
   // Test RANGE with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "RRF", "1", "WINDOW");
-  testErrorCode(args, QUERY_EPARSEARGS, "RRF expects pairs of key value arguments, argument count must be an even number");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "RRF expects pairs of key value arguments, argument count must be an even number");
 }
 
 TEST_F(ParseHybridTest, testExplainScore) {
   // Test EXPLAINSCORE - currently should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "EXPLAINSCORE");
-  testErrorCode(args, QUERY_EPARSEARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
 }
 
 // ============================================================================
@@ -1128,25 +1235,25 @@ TEST_F(ParseHybridTest, testExplainScore) {
 TEST_F(ParseHybridTest, testDialectInSearchSubquery) {
   // Test DIALECT in SEARCH subquery - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "DIALECT", "2", "VSIM", "@vector", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.");
 }
 
 TEST_F(ParseHybridTest, testDialectInVectorKNNSubquery) {
   // Test DIALECT in vector KNN subquery - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "Unknown argument `DIALECT` in KNN");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `DIALECT` in KNN");
 }
 
 TEST_F(ParseHybridTest, testDialectInVectorRangeSubquery) {
   // Test DIALECT in vector RANGE subquery - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "Unknown argument `DIALECT` in RANGE");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `DIALECT` in RANGE");
 }
 
 TEST_F(ParseHybridTest, testDialectInTail) {
   // Test DIALECT in tail (after subqueries) - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "DIALECT", "2");
-  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.");
 }
 
 
@@ -1157,23 +1264,34 @@ TEST_F(ParseHybridTest, testDialectInTail) {
 TEST_F(ParseHybridTest, testCombineRRFNegativeWindow) {
   // Test RRF with negative WINDOW value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "RRF", "2", "WINDOW", "-5");
-  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "WINDOW: Value below minimum");
 }
 
 TEST_F(ParseHybridTest, testCombineRRFZeroWindow) {
   // Test RRF with zero WINDOW value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "RRF", "2", "WINDOW", "0");
-  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "WINDOW: Value below minimum");
 }
 
 TEST_F(ParseHybridTest, testCombineLinearNegativeWindow) {
   // Test LINEAR with negative WINDOW value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "-10");
-  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "WINDOW: Value below minimum");
 }
 
 TEST_F(ParseHybridTest, testCombineLinearZeroWindow) {
   // Test LINEAR with zero WINDOW value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "0");
-  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "WINDOW: Value below minimum");
+}
+
+TEST_F(ParseHybridTest, testSortby0InvalidArgumentCount) {
+  // SORTBY requires at least one argument (param count)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "0");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "SORTBY: Invalid argument count");
+}
+
+TEST_F(ParseHybridTest, testSortbyNotEnoughArguments) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "2", "title");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "SORTBY: Not enough arguments were provided based on argument count");
 }

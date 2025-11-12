@@ -56,17 +56,8 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
 
 static void threadHandleCommand(void *p) {
   ConcurrentCmdCtx *ctx = p;
-  // Lock GIL if needed
-  if (!(ctx->options & CMDCTX_NO_GIL)) {
-    RedisModule_ThreadSafeContextLock(ctx->ctx);
-  }
 
   ctx->handler(ctx->ctx, ctx->argv, ctx->argc, ctx);
-
-  // Unlock GIL if needed
-  if (!(ctx->options & CMDCTX_NO_GIL)) {
-    RedisModule_ThreadSafeContextUnlock(ctx->ctx);
-  }
 
   if (!(ctx->options & CMDCTX_KEEP_RCTX)) {
     RedisModule_FreeThreadSafeContext(ctx->ctx);
@@ -87,7 +78,7 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
   return cctx->spec_ref;
 }
 
-int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
+int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           WeakRef spec_ref) {
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
@@ -98,7 +89,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
-  cmdCtx->options = options;
+  cmdCtx->options = 0;
   // Copy command arguments so they can be released by the calling thread
   cmdCtx->argv = rm_calloc(argc, sizeof(RedisModuleString *));
   for (int i = 0; i < argc; i++) {
@@ -109,9 +100,4 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
 
   ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmdCtx, poolType);
   return REDISMODULE_OK;
-}
-
-int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
-                                        RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return ConcurrentSearch_HandleRedisCommandEx(poolType, 0, handler, ctx, argv, argc, (WeakRef){0});
 }

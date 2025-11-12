@@ -14,7 +14,7 @@ use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
 use crate::{
-    DecodedBy, Decoder, Encoder, RSIndexResult, RSResultData,
+    Decoder, Encoder, RSIndexResult, RSResultData, TermDecoder,
     full::{decode_term_record_offsets, offsets},
 };
 
@@ -27,7 +27,7 @@ use crate::{
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FieldsOffsets;
 
 impl Encoder for FieldsOffsets {
@@ -57,17 +57,9 @@ impl Encoder for FieldsOffsets {
     }
 }
 
-impl DecodedBy for FieldsOffsets {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FieldsOffsets {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -91,7 +83,6 @@ impl Decoder for FieldsOffsets {
     }
 
     fn seek<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
@@ -138,7 +129,7 @@ impl Decoder for FieldsOffsets {
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FieldsOffsetsWide;
 
 impl Encoder for FieldsOffsetsWide {
@@ -164,17 +155,9 @@ impl Encoder for FieldsOffsetsWide {
     }
 }
 
-impl DecodedBy for FieldsOffsetsWide {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FieldsOffsetsWide {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -199,7 +182,6 @@ impl Decoder for FieldsOffsetsWide {
     }
 
     fn seek<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
@@ -237,3 +219,6 @@ impl Decoder for FieldsOffsetsWide {
         Ok(true)
     }
 }
+
+impl TermDecoder for FieldsOffsets {}
+impl TermDecoder for FieldsOffsetsWide {}

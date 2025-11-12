@@ -44,8 +44,11 @@ static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status
 typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
-  size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
   RedisSearchCtx *sctx;
+  uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
+  uint32_t slotsVersion;                        // version of the slot ranges used for filtering
+  const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
+  const SharedSlotRangeArray *slotRanges;       // Owned slot ranges info, may be used for filtering. TODO ASM: remove
 } RPQueryIterator;
 
 
@@ -85,6 +88,10 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   }
   return true;
 }
+
+// TODO ASM: use this to decide if we need to filter by slots
+extern atomic_uint key_space_version;
+atomic_uint key_space_version = 0;
 
 /* Next implementation */
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
@@ -143,6 +150,14 @@ validate_current:
         continue;
       }
     }
+    if (should_filter_slots) {
+      RS_ASSERT(self->slotRanges != NULL);
+      int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
+      if (!Slots_CanAccessKeysInSlot(self->slotRanges, slot)) {
+        DMD_Return(dmd);
+        continue;
+      }
+    }
 
     // Increment the total results barring deleted results
     base->parent->totalResults++;
@@ -161,13 +176,18 @@ validate_current:
 static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
   self->iterator->Free(self->iterator);
+  rm_free((void *)self->querySlots);
+  Slots_FreeLocalSlots(self->slotRanges);
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root, RedisSearchCtx *sctx) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root, const SharedSlotRangeArray *slotRanges, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx) {
   RS_ASSERT(root != NULL);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
+  ret->slotRanges = slotRanges;
+  ret->querySlots = querySlots;
+  ret->slotsVersion = slotsVersion;
   ret->base.Next = rpQueryItNext;
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
@@ -177,7 +197,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, RedisSearchCtx *sctx) 
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
   /* On coordinator, the root result processor will be a network result processor and we should ignore it */
-  if (it->rootProc->type == RP_INDEX) {
+  if (it->rootProc && it->rootProc->type == RP_INDEX) {
     return ((RPQueryIterator *)it->rootProc)->iterator;
   }
   return NULL;
@@ -1456,7 +1476,9 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   // Depleting thread is done, it's safe to return the results.
   if (self->cur_idx == array_len(self->results)) {
     // We've reached the end of the array, return the last code from the upstream.
-    return self->last_rc;
+    int rc = self->last_rc;
+    self->last_rc = RS_RESULT_EOF;
+    return rc;
   }
   // Return the next result in the array.
   SearchResult *current = self->results[self->cur_idx];
@@ -1649,7 +1671,7 @@ int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
       usleep(1000);
     }
   }
-  return RS_RESULT_OK;;
+  return RS_RESULT_OK;
 }
 
 // Wrapper for HybridSearchResult destructor to match dictionary value destructor signature
@@ -1714,14 +1736,19 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   * @param numUpstreams - the number of upstreams
   * @param score - used to override the result's score
  */
- static bool hybridMergerStoreUpstreamResult(SearchResult *r, dict *hybridResults, const RLookupKey *docKey, int upstreamIndex, size_t numUpstreams, double score) {
+ static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
+  RLookupRow translated = {0};
+  RLookupRow_WriteFieldsFrom(&r->rowdata, self->lookupCtx->sourceLookups[upstreamIndex], &translated, self->lookupCtx->tailLookup);
+  RLookupRow_Reset(&r->rowdata);
+  r->rowdata = translated;
+
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
   // Coordinator case - no dmd - use docKey in rlookup
-  const bool fallbackToLookup = !keyPtr && docKey;
+  const bool fallbackToLookup = !keyPtr && self->docKey;
   if (fallbackToLookup) {
-    RSValue *docKeyValue = RLookup_GetItem(docKey, &r->rowdata);
+    RSValue *docKeyValue = RLookup_GetItem(self->docKey, &r->rowdata);
     if (docKeyValue != NULL) {
       keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
     }
@@ -1731,12 +1758,12 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   }
 
   // Check if we've seen this document before
-  HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(hybridResults, keyPtr);
+  HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(self->hybridResults, keyPtr);
 
   if (!hybridResult) {
     // First time seeing this document - create new hybrid result
-    hybridResult = HybridSearchResult_New(numUpstreams);
-    dictAdd(hybridResults, (void*)keyPtr, hybridResult);
+    hybridResult = HybridSearchResult_New(self->numUpstreams);
+    dictAdd(self->hybridResults, (void*)keyPtr, hybridResult);
   }
 
    SearchResult_SetScore(r, score);
@@ -1745,17 +1772,18 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  }
 
  /* Helper function to consume results from a single upstream */
- static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, ResultProcessor *upstream, int upstreamIndex) {
+ static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, size_t upstreamIndex) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
+   ResultProcessor *upstream = self->upstreams[upstreamIndex];
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
        double score = SearchResult_GetScore(r);
        consumed++;
        if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
          score = consumed;
        }
-       if (hybridMergerStoreUpstreamResult(r, self->hybridResults, self->docKey, upstreamIndex, self->numUpstreams, score)) {
+       if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
          r = rm_calloc(1, sizeof(*r));
        } else {
          SearchResult_Clear(r);
@@ -1767,43 +1795,50 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  }
 
  /* Yield phase - iterate through results and apply hybrid scoring */
- static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
-   RPHybridMerger *self = (RPHybridMerger *)rp;
+static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
+  RPHybridMerger *self = (RPHybridMerger *)rp;
 
-   RS_ASSERT(self->iterator);
-   // Get next entry from iterator
-   dictEntry *entry = dictNext(self->iterator);
-     if (!entry) {
+  RS_ASSERT(self->iterator);
+  // Get next entry from iterator
+  dictEntry *entry = dictNext(self->iterator);
+  if (!entry) {
     // No more results to yield
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
   }
 
-   // Get the key and value before removing the entry
-   void *key = dictGetKey(entry);
-   HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
-   RS_ASSERT(hybridResult);
+  // Get the key and value before removing the entry
+  void *key = dictGetKey(entry);
+  HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
+  RS_ASSERT(hybridResult);
 
-   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
-   if (!mergedResult) {
-     return RS_RESULT_ERROR;
-   }
+  SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
+  if (!mergedResult) {
+    return RS_RESULT_ERROR;
+  }
 
-   // Override the output result with merged data
-   SearchResult_Override(r, mergedResult);
-   rm_free(mergedResult);
+  // Override the output result with merged data
+  SearchResult_Override(r, mergedResult);
+  rm_free(mergedResult);
 
-   // Add score as field if scoreKey is provided
-   if (self->scoreKey) {
-     RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
-   }
+  // Add score as field if scoreKey is provided
+  if (self->scoreKey) {
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
+  }
 
-   return RS_RESULT_OK;
+  return RS_RESULT_OK;
  }
 
  /* Accumulation phase - consume window results from all upstreams */
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
-   RPHybridMerger *self = (RPHybridMerger *)rp;
+  RPHybridMerger *self = (RPHybridMerger *)rp;
+
+  size_t window;
+  if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    window = self->hybridScoringCtx->rrfCtx.window;
+  } else {
+    window = self->hybridScoringCtx->linearCtx.window;
+  }
 
   bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
   size_t numConsumed = 0;
@@ -1813,13 +1848,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
       if (consumed[i]) {
         continue;
       }
-      size_t window;
-      if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-        window = self->hybridScoringCtx->rrfCtx.window;
-      } else {
-        window = self->hybridScoringCtx->linearCtx.window;
-      }
-      int rc = hybridMergerConsumeFromUpstream(self, window, self->upstreams[i], i);
+      int rc = hybridMergerConsumeFromUpstream(self, window, i);
 
       if (rc == RS_RESULT_DEPLETING) {
         // Upstream is still active but not ready to provide results. Skip to the next.
@@ -1843,10 +1872,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
     return RS_RESULT_ERROR;
   } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
     return RS_RESULT_TIMEDOUT;
-  }
-
-  for (size_t i = 0; i < self->numUpstreams; i++) {
-    RLookup_AddKeysFrom(self->lookupCtx->sourceLookups[i], self->lookupCtx->tailLookup, RLOOKUP_F_NOFLAGS);
   }
 
   // Initialize iterator for yield phase
@@ -1879,8 +1904,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
    // Free lookup context if it exists
    if (self->lookupCtx) {
-     array_free(self->lookupCtx->sourceLookups);
-     rm_free(self->lookupCtx);
+     HybridLookupContext_Free(self->lookupCtx);
    }
 
    // Free the processor itself
@@ -1912,10 +1936,10 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
   RS_ASSERT(hybridScoringCtx);
   ret->hybridScoringCtx = hybridScoringCtx;
 
-  // Store the scoreKey for reading document keys from rlookup
-  ret->docKey = docKey;
-  // Store the scoreKey for writing scores as fields when YIELD_SCORE_AS is specified
+  // Store the scoreKey for writing scores as fields when YIELD_SCORE_AS is specified or __score otherwise
   ret->scoreKey = scoreKey;
+
+  ret->docKey = docKey;
 
   // Store reference to the hybrid request's subqueries return codes array
   RS_ASSERT(subqueriesReturnCodes);
@@ -2152,7 +2176,7 @@ bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, boo
 
   if (!RPPauseAfterCount) {
     // Set query error
-    QueryError_SetError(status, QUERY_EGENERIC, "Failed to create pause RP or another debug RP is already set");
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to create pause RP or another debug RP is already set");
     return false;
   }
 
@@ -2165,7 +2189,7 @@ bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, boo
   // Free if failed
   if (!success) {
     RPPauseAfterCount->Free(RPPauseAfterCount);
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "%s RP type not found in stream or tried to insert after last RP", RPTypeToString(rp_type));
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "%s RP type not found in stream or tried to insert after last RP", RPTypeToString(rp_type));
   }
   return success;
 

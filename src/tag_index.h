@@ -23,7 +23,7 @@ struct InvertedIndex;
 extern "C" {
 #endif
 
-/**
+/*
  * A Tag Index is an index that indexes textual tags for documents, in a simple manner than a full
  * text index, although
  * it uses the same internal mechanism as a full-text index.

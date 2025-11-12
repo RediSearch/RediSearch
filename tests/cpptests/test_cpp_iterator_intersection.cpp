@@ -393,6 +393,27 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithNULLChild) {
   ii_base->Free(ii_base);
 }
 
+TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithNoChild) {
+  QueryIterator *ii_base;
+  size_t num = 0;
+
+  // Test with zero children, but allocated children array
+  QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *));
+  ii_base = NewIntersectionIterator(children, num, -1, false, 1.0);
+  children = NULL; // Lose pointer to children array to ensure it is freed inside the function and does not leak
+
+  // Should return an empty iterator when no children are provided
+  ASSERT_EQ(ii_base->type, EMPTY_ITERATOR);
+  ii_base->Free(ii_base);
+
+  // Test with zero children and NULL children array
+  ii_base = NewIntersectionIterator(NULL, num, -1, false, 1.0);
+
+  // Should return an empty iterator when no children are provided
+  ASSERT_EQ(ii_base->type, EMPTY_ITERATOR);
+  ii_base->Free(ii_base);
+}
+
 TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
@@ -402,7 +423,6 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
   size_t memsize;
   InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
   ASSERT_TRUE(idx != nullptr);
-  ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,

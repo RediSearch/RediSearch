@@ -18,6 +18,7 @@
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
+#include "extension.h"
 #include "util/dict.h"
 #include "resp3.h"
 #include "util/workers.h"
@@ -50,6 +51,7 @@ configPair_t __configPairs[] = {
   {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
   {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
   {"DEFAULT_DIALECT",                 "search-default-dialect"},
+  {"DEFAULT_SCORER",                  "search-default-scorer"},
   {"EXTLOAD",                         "search-ext-load"},
   {"FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
   {"FORK_GC_CLEAN_THRESHOLD",         "search-fork-gc-clean-threshold"},
@@ -193,6 +195,37 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
   return REDISMODULE_OK;
 }
 
+int set_default_scorer_config(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err) {
+    REDISMODULE_NOT_USED(name);
+    if (RSGlobalConfig.defaultScorer == NULL) {
+      RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
+    }
+
+    // Get the scorer name from the Redis module string
+    size_t len;
+    const char *newScorerName = RedisModule_StringPtrLen(val, &len);
+
+    // If Extension is not yet initialized, we will validate the defaultScorer after initialization for validation
+    if (Extensions_InitDone()) {
+      // Validate the scorer name against registered scorers only when the extension system is initialized
+      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, newScorerName);
+      if (scoreCtx == NULL) {
+          if (err) {
+              *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
+          }
+          return REDISMODULE_ERR;
+      }
+    }
+
+    // Validation passed, now allocate and apply it to RSGlobalConfig
+    char **ptr = (char **)privdata;
+    if (*ptr) {
+        rm_free(*ptr);   // Free the existing default scorer string
+    }
+    *ptr = rm_strndup(newScorerName, len);;  // Transfer ownership
+    return REDISMODULE_OK;
+}
+
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
   if (config->extLoad) {
@@ -289,7 +322,7 @@ CONFIG_SETTER(setMaxDocTableSize) {
   int acrc = AC_GetSize(ac, &newsize, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc)
   if (newsize > MAX_DOC_TABLE_SIZE) {
-    QueryError_SetError(status, QUERY_ELIMIT, "Value exceeds maximum possible document table size");
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "Value exceeds maximum possible document table size");
     return REDISMODULE_ERR;
   }
   config->maxDocTableSize = newsize;
@@ -368,7 +401,7 @@ CONFIG_GETTER(getTimeout) {
 }
 
 static inline int errorTooManyThreads(QueryError *status) {
-  QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+  QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
   return REDISMODULE_ERR;
 }
 
@@ -448,7 +481,7 @@ long long get_min_operation_workers(const char *name, void *privdata) {
 }
 
 static inline int errorMemoryLimitG100(QueryError *status) {
-  QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Memory limit for indexing cannot be greater then 100%%");
+  QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Memory limit for indexing cannot be greater then 100%%");
   return REDISMODULE_ERR;
 }
 // SET MEMORY LIMIT PERCENTAGE
@@ -474,7 +507,7 @@ CONFIG_SETTER(setBM25StdTanhFactor) {
   int acrc = AC_GetUnsigned(ac, &newFactor, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newFactor > BM25STD_TANH_FACTOR_MAX) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
       "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
     return REDISMODULE_ERR;
@@ -520,7 +553,7 @@ CONFIG_SETTER(setDeprWorkThreads) {
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newNumThreads > MAX_WORKER_THREADS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
     return REDISMODULE_ERR;
   }
   numWorkerThreads_config = newNumThreads;
@@ -558,7 +591,7 @@ CONFIG_SETTER(setMtMode) {
   } else if (!strcasecmp(mt_mode, "MT_MODE_FULL")){
     mt_mode_config = MT_MODE_FULL;
   } else {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalie MT mode");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -643,6 +676,47 @@ RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   return config_friso_ini;
 }
 
+RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
+  char *str = *(char **)privdata;
+  RS_ASSERT(str != NULL);
+  if (config_default_scorer) {
+    RedisModule_FreeString(NULL, config_default_scorer);
+  }
+  config_default_scorer = RedisModule_CreateString(NULL, str, strlen(str));
+  return config_default_scorer;
+}
+
+// DEFAULT_SCORER
+CONFIG_SETTER(setDefaultScorer) {
+  const char *scorerName;
+  int acrc = AC_GetString(ac, &scorerName, NULL, 0);
+  if (acrc == AC_OK) {
+    // Validate scorer name against registered scorers
+    if (Extensions_InitDone()) {
+      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, scorerName);
+      if (scoreCtx == NULL) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid default scorer value");
+        return REDISMODULE_ERR;
+      }
+    }
+    // Free the old scorer name before assigning the new one
+    if (config->defaultScorer) {
+      rm_free((void *)config->defaultScorer);
+    }
+    config->defaultScorer = rm_strdup(scorerName);
+  }
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getDefaultScorer) {
+  RS_ASSERT(config->defaultScorer != NULL);
+  if (config->defaultScorer && strlen(config->defaultScorer) > 0) {
+    return sdsnew(config->defaultScorer);
+  } else {
+    return NULL;
+  }
+}
+
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {
   size_t len;
@@ -651,7 +725,7 @@ CONFIG_SETTER(setOnTimeout) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, len);
   if (top == TimeoutPolicy_Invalid) {
-    QueryError_SetError(status, QUERY_EBADVAL, "Invalid ON_TIMEOUT value");
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid ON_TIMEOUT value");
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.timeoutPolicy = top;
@@ -787,7 +861,7 @@ CONFIG_SETTER(setNumericTreeMaxDepthRange) {
   int acrc = AC_GetSize(ac, &maxDepthRange, AC_F_GE0);
   // Prevent rebalancing/rotating of nodes with ranges since we use highest node with range.
   if (maxDepthRange > NR_MAX_DEPTH_BALANCE) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Max depth for range cannot be higher "
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Max depth for range cannot be higher "
                                                   "than max depth for balance");
     return REDISMODULE_ERR;
   }
@@ -848,10 +922,10 @@ CONFIG_SETTER(setGcPolicy) {
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcConfigParams.gcPolicy = GCPolicy_Fork;
   } else if (!strcasecmp(policy, "LEGACY")) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;
   } else {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid GC Policy value");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid GC Policy value");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -880,7 +954,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   int acrc = AC_GetString(ac, &rawIndexName, &len, 0);
 
   if (acrc != AC_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Index name was not given to upgrade argument");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Index name was not given to upgrade argument");
     return REDISMODULE_ERR;
   }
 
@@ -888,7 +962,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   HiddenString *indexName = NewHiddenString(rawIndexName, len, false);
   if (dictFetchValue(legacySpecRules, indexName)) {
     HiddenString_Free(indexName, false);
-    QueryError_SetError(status, QUERY_EPARSEARGS,
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
                         "Upgrade index definition was given more then once on the same index");
     return REDISMODULE_ERR;
   }
@@ -1000,7 +1074,7 @@ CONFIG_SETTER(setOnOom) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   RSOomPolicy oom = OomPolicy_Parse(policy, len);
   if (oom == OomPolicy_Invalid) {
-    QueryError_SetError(status, QUERY_EBADVAL, "Invalid ON_OOM value");
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid ON_OOM value");
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.oomPolicy = oom;
@@ -1205,6 +1279,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setFrisoINI,
          .getValue = getFrisoINI,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "DEFAULT_SCORER",
+         .helpText = "Default scorer to use when no scorer is specified in queries",
+         .setValue = setDefaultScorer,
+         .getValue = getDefaultScorer},
         {.name = "ON_TIMEOUT",
          .helpText = "Action to perform when search timeout is exceeded (choose RETURN or FAIL)",
          .setValue = setOnTimeout,
@@ -1475,6 +1553,10 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   if (config->frisoIni && strlen(config->frisoIni) > 0) {
     ss = sdscatprintf(ss, "friso ini: %s, ", config->frisoIni);
   }
+
+  if (config->defaultScorer && strlen(config->defaultScorer) > 0) {
+    ss = sdscatprintf(ss, "default scorer: %s, ", config->defaultScorer);
+  }
   return ss;
 }
 
@@ -1540,11 +1622,11 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
                        RedisModuleString **argv, int argc, size_t *offset, QueryError *status) {
   RSConfigVar *var = findConfigVar(options, name);
   if (!var) {
-    QueryError_SetError(status, QUERY_ENOOPTION, NULL);
+    QueryError_SetError(status, QUERY_ERROR_CODE_NO_OPTION, NULL);
     return REDISMODULE_ERR;
   }
   if (var->flags & RSCONFIGVAR_F_IMMUTABLE) {
-    QueryError_SetError(status, QUERY_EINVAL, "Not modifiable at runtime");
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Not modifiable at runtime");
     return REDISMODULE_ERR;
   }
   ArgsCursor ac;
@@ -1882,6 +1964,15 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     )
   )
 
+  RM_TRY(
+    RedisModule_RegisterStringConfig(
+      ctx, "search-default-scorer", DEFAULT_SCORER_NAME,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_default_scorer_config, set_default_scorer_config, NULL,
+      (void *)&(RSGlobalConfig.defaultScorer)
+    )
+  )
+
   // Enum parameters
   RM_TRY(
     RedisModule_RegisterEnumConfig(
@@ -1895,7 +1986,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-on-oom", OomPolicy_Ignore,
+      ctx, "search-on-oom", OomPolicy_Return,
       REDISMODULE_CONFIG_UNPREFIXED,
       on_oom_vals, on_oom_enums, 3,
       get_on_oom, set_on_oom, NULL,
