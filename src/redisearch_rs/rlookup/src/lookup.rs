@@ -233,7 +233,7 @@ struct KeyList<'a> {
     head: Option<NonNull<RLookupKey<'a>>>,
     tail: Option<NonNull<RLookupKey<'a>>>,
     // Length of the data row. This is not necessarily the number
-    // of lookup keys. Hidden keys created through [`CursorMut::override_current`] increase
+    // of lookup keys. Overridden keys created through [`CursorMut::override_current`] increase
     // the number of actually allocated keys without increasing the conceptual rowlen.
     rowlen: u32,
 }
@@ -446,8 +446,14 @@ impl<'a> RLookupKey<'a> {
         unsafe { Pin::new_unchecked(b) }
     }
 
+    #[cfg(not(any(debug_assertions, test)))]
+    #[inline(always)]
+    pub fn is_overridden(&self) -> bool {
+        self.name.is_null()
+    }
+
     #[cfg(any(debug_assertions, test))]
-    fn is_tombstone(&self) -> bool {
+    pub fn is_overridden(&self) -> bool {
         self.name.is_null()
             && self.name_len == usize::MAX
             && self.path.is_null()
@@ -486,7 +492,7 @@ impl<'a> RLookupKey<'a> {
             self.flags
         );
 
-        if !self.is_tombstone() {
+        if !self.is_overridden() {
             use std::ptr;
 
             assert!(
@@ -1013,8 +1019,7 @@ impl<'a> RLookup<'a> {
         let mut cursor = src.cursor();
 
         while let Some(src_key) = cursor.current() {
-            // overridden keys have a null name, so we can use that to skip them
-            if !src_key.flags.contains(RLookupKeyFlag::Override) {
+            if !src_key.is_overridden() {
                 // Combine caller's control flags with source key's persistent properties
                 // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
                 // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
@@ -2002,7 +2007,7 @@ mod tests {
         let mut c = keylist.cursor_front();
 
         // we expect the first item to be the tombstone of the old key
-        assert!(c.current().unwrap().is_tombstone());
+        assert!(c.current().unwrap().is_overridden());
 
         // and the next item to be the new key
         c.move_next();
@@ -2647,8 +2652,8 @@ mod tests {
 
         // Store pointer to original dest key to check override behavior, without getting
         // borrow checker involved
-        let original_dest_key_ptr = &raw const *dest_key_after_src1;
-
+        //let original_dest_key_ptr = &raw const *dest_key_after_src1;
+        let original_dest_key_ptr = std::ptr::from_ref(dest_key_after_src1);
         // Add src2 keys with Override flag - test flag override behavior
         dest.add_keys_from(&src2, make_bitflags!(RLookupKeyFlag::Override));
         assert_eq!(dest.get_row_len(), 1);
