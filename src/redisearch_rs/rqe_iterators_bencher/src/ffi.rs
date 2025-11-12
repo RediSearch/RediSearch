@@ -26,6 +26,14 @@ mod bindings {
     pub type RSOffsetVector = inverted_index::RSOffsetVector<'static>;
     pub type IndexDecoderCtx = inverted_index::ReadFilter<'static>;
 
+    // Type alias to Rust defined inverted index types
+    pub use inverted_index_ffi::{
+        InvertedIndex_Free, InvertedIndex_WriteEntryGeneric, InvertedIndex_WriteNumericEntry,
+        NewInvertedIndex_Ex,
+    };
+    pub type InvertedIndex = inverted_index_ffi::InvertedIndex;
+    pub type IndexReader = inverted_index_ffi::IndexReader<'static>;
+
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
@@ -199,7 +207,7 @@ impl InvertedIndex {
     #[inline(always)]
     pub fn new(flags: bindings::IndexFlags) -> Self {
         let mut memsize = 0;
-        let ptr = unsafe { bindings::NewInvertedIndex_Ex(flags, false, false, &mut memsize) };
+        let ptr = bindings::NewInvertedIndex_Ex(flags, false, false, &mut memsize);
         Self(ptr)
     }
 

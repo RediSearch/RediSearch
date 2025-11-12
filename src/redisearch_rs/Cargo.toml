@@ -13,19 +13,18 @@ members = [
     "redis_mock",
     "result_processor",
     "rlookup",
+    "rqe_iterators",
+    "rqe_iterators_bencher",
+    "search_result",
+    "slots_tracker",
     "sorting_vector",
     "tools/license_header_linter",
     "trie_bencher",
     "trie_rs",
     "value",
     "varint",
-    "rlookup",
-    "build_utils",
-    "rqe_iterators",
-    "rqe_iterators_bencher",
     "varint_bencher",
     "wildcard",
-    "search_result",
 ]
 
 resolver = "3"
@@ -71,6 +70,7 @@ wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
 query_error = { path = "./query_error" }
 result_processor = { path = "./result_processor" }
+slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector"}
 value = { path = "./value" }
 varint = { path = "./varint" }
@@ -111,6 +111,7 @@ default-features = false
 
 [workspace.dependencies.redis-module]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
+rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42"
 default-features = false
 
 [profile.release]

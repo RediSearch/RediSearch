@@ -73,6 +73,7 @@
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "util/shared_exclusive_lock.h"
+#include "aggregate/reply_empty.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -180,6 +181,11 @@ bool QueryMemoryGuard(RedisModuleCtx *ctx) {
     return estimateOOM(ctx);
   }
   return false;
+}
+
+int QueryMemoryGuardFailure_WithReply(RedisModuleCtx *ctx) {
+  RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+  return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
 }
 
 // Returns true if the current context has permission to execute debug commands
@@ -1169,7 +1175,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
   char *enterpriseStr = strstr(replyStr, "rlec_version:");
   if (enterpriseStr) {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
-               &rlecVersion.minorVersion, &rlecVersion.buildVersion, &rlecVersion.patchVersion);
+               &rlecVersion.minorVersion, &rlecVersion.patchVersion, &rlecVersion.buildVersion);
     if (n != 4) {
       RedisModule_Log(ctx, "warning", "Could not extract enterprise version");
     }
@@ -1845,7 +1851,7 @@ static void searchRequestCtx_Free(searchRequestCtx *r) {
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
 
-static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
+int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     req->profileArgs += 2;
@@ -2886,6 +2892,27 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     RedisModule_Reply_MapEnd(reply); // >root
 }
 
+// Coordinator reply with empty search results for FT.SEARCH command.
+// Creates a dummy searchReducerCtx with empty heap to use existing sendSearchResults logic.
+// Handles RESP2/RESP3 protocol and formatting.
+// Currently used during OOM conditions for early bailout and return empty results instead of failing.
+void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req) {
+    // Setup a dummy searchReducerCtx that will be used by sendSearchResults
+    searchReducerCtx rCtx = {NULL};
+    rCtx.postProcess = (postProcessReplyCB)(noOpPostProcess);
+    rCtx.searchCtx = req;
+    // Create empty heap (dynamic allocation is necessary for heap_free in sendSearchResults)
+    heap_t* emptyHeap = heap_new(cmp_results, req);
+    // The empty heap will result in an empty reply
+    rCtx.pq = emptyHeap;
+
+    if (req->profileArgs > 0) {
+      profileSearchReply(reply, &rCtx, 0, NULL, &req->profileClock, rs_wall_clock_now_ns());
+    } else {
+      sendSearchResults(reply, &rCtx);
+    }
+}
+
 static void searchResultReducer_wrapper(void *mc_v) {
   struct MRCtx *mc = mc_v;
   searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc));
@@ -2943,11 +2970,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       if (should_return_error(errCode)) {
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;
-      } else {
-        // Check if OOM
-        if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
-          req->queryOOM = true;
-        }
       }
     }
   }
@@ -2999,10 +3021,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     for (int i = 0; i < count; ++i) {
       MRReply *mr_reply;
 
-      // Check that the reply is not an error, can be caused if a shard failed to execute the query (i.e OOM).
+      // Check that the reply is not an error, can be caused if a shard failed to execute the query
       if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
-        // Since we expect this to happen only with OOM, we assert it until this invariant changes.
-        RS_ASSERT(QueryError_GetCodeFromMessage(MRReply_String(replies[i], NULL)) == QUERY_ERROR_CODE_OUT_OF_MEMORY);
         continue;
       }
 
@@ -3225,8 +3245,19 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+    // If we are in a single shard cluster, we should fail the query if we are out of memory
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      return QueryMemoryGuardFailure_WithReply(ctx);
+    }
+    // Assuming OOM policy is return since we didn't ignore the memory guardrail
+    RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
+    if (NumShards > 1) {
+      // Handle OOM policy return in Coord, return empty results
+      return coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    } else {
+      // Handle OOM policy return in single-shard, return empty results
+      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    }
   }
 
   // Coord callback
@@ -3279,8 +3310,13 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+    // If we are in a single shard cluster, we should fail the query if we are out of memory
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      return QueryMemoryGuardFailure_WithReply(ctx);
+    }
+    // Assuming OOM policy is return since we didn't ignore the memory guardrail
+    RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
+    return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_OUT_OF_MEMORY, false);
   }
 
   // Coord callback
@@ -3520,11 +3556,15 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   MRCommand_Insert(cmd, arg_pos++, n_prefixes, string_len);
   rm_free(n_prefixes);
 
-  for (uint i = 0; i < array_len(prefixes); i++) {
+  for (uint32_t i = 0; i < array_len(prefixes); i++) {
     size_t len;
     const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
     MRCommand_Insert(cmd, arg_pos++, prefix, len);
   }
+
+  // Prepare command for slot info (Cluster mode)
+  MRCommand_PrepareForSlotInfo(cmd, arg_pos);
+  arg_pos += 2;
 
   // Return spec references, no longer needed
   IndexSpecRef_Release(strong_ref);
@@ -3612,8 +3652,18 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
-    RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
-    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+    if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      return QueryMemoryGuardFailure_WithReply(ctx);
+    }
+    // Assuming policy is return, since we didn't ignore the memory guardrail
+    RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
+    if (NumShards > 1) {
+      // Handle OOM policy return in Coord, return empty results
+      return coord_search_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    } else {
+      // Handle OOM policy return in single-shard, return empty results
+      return single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    }
   }
 
   // Coord callback
@@ -3708,17 +3758,19 @@ int RefreshClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc);
+  uint32_t my_shard_idx = UINT32_MAX;
+  MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc, &my_shard_idx);
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
     return REDISMODULE_ERR;
   }
 
-  RedisModule_Log(ctx, "debug", "SetClusterCommand: Setting number of partitions to %u", topo->numShards);
-  NumShards = topo->numShards;
+  // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
+  RS_ASSERT(my_shard_idx < topo->numShards);
+  const RedisModuleSlotRangeArray *my_slots = topo->shards[my_shard_idx].slotRanges;
 
   // send the topology to the cluster
-  MR_UpdateTopology(topo);
+  MR_UpdateTopology(topo, my_slots);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

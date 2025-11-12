@@ -1528,6 +1528,28 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   return rc;
 }
 
+bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
+  if (!spec || !spec->rule) {
+    return false;
+  }
+  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
+  if (n_prefixes != array_len(spec_prefixes)) {
+    return false;
+  }
+
+  // Validate that the prefixes in the arguments are the same as the ones in the
+  // index (also in the same order)
+  for (size_t i = 0; i < n_prefixes; i++) {
+    sds arg = prefixes[i];
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
+      // Unmatching prefixes
+      return false;
+    }
+  }
+
+  return true;
+}
+
 inline static bool isSpecOnDisk(const IndexSpec *sp) {
   return isFlex;
 }
@@ -3454,9 +3476,13 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 }
 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id) {
-
-  if (DocTable_DeleteR(&spec->docs, key)) {
+  RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
+  if (md) {
+    RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
     spec->stats.numDocuments--;
+    RS_LOG_ASSERT(spec->stats.totalDocsLen >= md->len, "totalDocsLen is smaller than dmd->len");
+    spec->stats.totalDocsLen -= md->len;
+    DMD_Return(md);
 
     // Increment the index's garbage collector's scanning frequency after document deletions
     if (spec->gc) {

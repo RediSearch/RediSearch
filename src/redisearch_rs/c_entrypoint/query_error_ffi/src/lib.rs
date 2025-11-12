@@ -61,6 +61,32 @@ pub const extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
     code.to_c_str().as_ptr()
 }
 
+/// Returns a [`QueryErrorCode`] given an error message.
+///
+/// This only supports the query error codes [`QueryErrorCode::TimedOut`] and
+/// [`QueryErrorCode::OutOfMemory`]. If another message is provided,
+/// [`QueryErrorCode::Generic`] is returned.
+///
+/// # Safety
+///
+/// - `message` must be a valid C string or a NULL pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -> QueryErrorCode {
+    const TIMED_OUT_ERROR_CSTR: &CStr = QueryErrorCode::TimedOut.to_c_str();
+    const OUT_OF_MEMORY_ERROR_CSTR: &CStr = QueryErrorCode::OutOfMemory.to_c_str();
+
+    // Safety: see safety requirement above.
+    let message = unsafe { CStr::from_ptr(message) };
+
+    if message == TIMED_OUT_ERROR_CSTR {
+        QueryErrorCode::TimedOut
+    } else if message == OUT_OF_MEMORY_ERROR_CSTR {
+        QueryErrorCode::OutOfMemory
+    } else {
+        QueryErrorCode::Generic
+    }
+}
+
 /// Sets the [`QueryErrorCode`] and error message for a [`QueryError`].
 ///
 /// This does not mutate `query_error` if it already has an error set.

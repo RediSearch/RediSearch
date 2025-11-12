@@ -144,7 +144,7 @@ use std::io::{Cursor, IoSlice, Read, Write};
 
 use ffi::t_docId;
 
-use crate::{DecodedBy, Decoder, Encoder, IdDelta, NumericDecoder, RSIndexResult};
+use crate::{Decoder, Encoder, IdDelta, NumericDecoder, RSIndexResult};
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
@@ -393,14 +393,6 @@ impl Encoder for Numeric {
     }
 }
 
-impl DecodedBy for Numeric {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self::default()
-    }
-}
-
 impl Decoder for Numeric {
     /// Decode a numeric record from the given cursor, using the provided base document ID.
     /// The result is written into the provided `RSIndexResult` instance.
@@ -410,7 +402,6 @@ impl Decoder for Numeric {
     /// 1. `result.is_numeric()` must be true to ensure `result` is holding numeric data.
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,

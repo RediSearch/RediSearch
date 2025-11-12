@@ -116,11 +116,24 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
 
   int actualFilterOffset = RMUtil_ArgIndex("FILTER", argv + vsimOffset, argc - vsimOffset);
   actualFilterOffset = actualFilterOffset != -1 ? actualFilterOffset + vsimOffset : -1;
+  int expectedYieldScoreOffset = expectedFilterOffset;
 
   if (actualFilterOffset == expectedFilterOffset && actualFilterOffset < argc - 1) {
     // This is a VSIM FILTER - append it to the command
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
+    expectedYieldScoreOffset += 2; // Update expected offset after processing FILTER
+  }
+
+  // Add YIELD_SCORE_AS if present
+  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] [FILTER <expression>] YIELD_SCORE_AS <alias>
+  int yieldScoreOffset = RMUtil_ArgIndex("YIELD_SCORE_AS", argv + vsimOffset, argc - vsimOffset);
+  yieldScoreOffset = yieldScoreOffset != -1 ? yieldScoreOffset + vsimOffset : -1;
+
+  if (yieldScoreOffset == expectedYieldScoreOffset && yieldScoreOffset < argc - 1) {
+    // This is a VSIM YIELD_SCORE_AS - append it to the command
+    MRCommand_AppendRstr(xcmd, argv[yieldScoreOffset]);     // YIELD_SCORE_AS keyword
+    MRCommand_AppendRstr(xcmd, argv[yieldScoreOffset + 1]); // score alias
   }
 }
 
@@ -221,6 +234,9 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Numeric responses are encoded as simple strings.
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
+  // Prepare command for slot info (Cluster mode)
+  MRCommand_PrepareForSlotInfo(xcmd, xcmd->num);
+
   if (sp && sp->rule && sp->rule->prefixes && array_len(sp->rule->prefixes) > 0) {
     MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
     arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
@@ -229,7 +245,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
     rm_free(n_prefixes);
 
-    for (uint i = 0; i < array_len(prefixes); i++) {
+    for (uint32_t i = 0; i < array_len(prefixes); i++) {
       size_t len;
       const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
       MRCommand_Append(xcmd, prefix, len);
