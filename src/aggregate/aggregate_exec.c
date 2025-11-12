@@ -1087,7 +1087,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     // Update global stats, this function is internal, so set coord to false
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, false);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, SHARD_ERR_WRNG);
 
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
       return QueryMemoryGuardFailure_WithReply(ctx);

@@ -282,6 +282,10 @@ done:
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
+      // Update global stats, since OOM warning is only possible on coordinator (on SA it's handled with common_hybrid_query_reply_empty)
+      // We set the coord flag to true
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WRNG);
+
       // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
       // because this warning is not related to subqueries or post-processing terminology
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
@@ -413,7 +417,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       return REDISMODULE_ERR;
     }
     // helper array to collect depleters so in async we can deplete them all at once before returning the cursors
-    arrayof(ResultProcessor*) depleters = NULL; 
+    arrayof(ResultProcessor*) depleters = NULL;
     if (backgroundDepletion) {
       depleters = array_new(ResultProcessor *, req->nrequests);
     }

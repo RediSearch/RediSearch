@@ -2700,6 +2700,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     if (rCtx->warning) {
       MR_ReplyWithMRReply(reply, rCtx->warning);
     } else if (req->queryOOM) {
+      // Update global stats, since this function is onlu used by the coord's reducer, we set the coord flag to true
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WRNG);
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     } else {
       RedisModule_Reply_EmptyArray(reply);
@@ -3243,7 +3245,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     // Update global stats, set coord to true regardless of NumShards to avoid duplicate counting
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, true);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WRNG);
 
     // If we are in a single shard cluster, we should fail the query if we are out of memory
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
@@ -3313,7 +3315,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (QueryMemoryGuard(ctx)) {
 
     // Update global stats, set coord to true regardless of NumShards to avoid duplicate counting
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, true);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WRNG);
 
     // If we are in a single shard cluster, we should fail the query if we are out of memory
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
@@ -3659,7 +3661,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (QueryMemoryGuard(ctx)) {
 
     // Update global stats, set coord to true regardless of NumShards to avoid duplicate counting
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, true);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WRNG);
 
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
       return QueryMemoryGuardFailure_WithReply(ctx);

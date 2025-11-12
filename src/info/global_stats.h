@@ -15,6 +15,10 @@
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 
+// Coord/Shard error or warning
+#define COORD_ERR_WRNG true
+#define SHARD_ERR_WRNG !COORD_ERR_WRNG
+
 typedef struct {
   size_t numTextFields;
   size_t numTextFieldsSortable;

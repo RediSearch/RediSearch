@@ -14,7 +14,7 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 
 pub use crate::opaque::{OpaqueQueryError, QueryErrorExt};
-pub use query_error::QueryErrorCode;
+pub use query_error::{QueryErrorCode, QueryWarningCode};
 
 /// Returns the default [`QueryError`].
 #[unsafe(no_mangle)]
