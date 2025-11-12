@@ -200,7 +200,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("compression", VecSimSvsCompression_ToString(svs_params.quantBits));
           if (svs_params.quantBits != VecSimSvsQuant_NONE) {
             REPLY_KVINT("training_threshold", algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
-            if (VecSim_IsLeanVecCompressionType(svs_params.quantBits)) {
+            if (isLVQSupported() && VecSim_IsLeanVecCompressionType(svs_params.quantBits)) {
               REPLY_KVINT("reduced_dim", svs_params.leanvec_dim);
             }
           }
