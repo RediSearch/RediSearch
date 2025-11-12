@@ -59,15 +59,15 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         self.dyn_values.len()
     }
 
-    /// Get the length of this [`RLookupRow`] in respect to it's associated [`RLookup`] after applying the required and excluded flags.
+    /// Returns the number of visible fields in this [`RLookupRow`].
     ///
     /// # Arguments
     ///
     /// * `lookup` - The RLookup instance containing the keys and their flags.
     /// * `required_flags` - Flags that must be present on a key for it to be counted.
     /// * `excluded_flags` - Flags that must not be present on a key for it to be counted.
-    /// * `rule` - An optional [`SchemaRuleWrapper`] to exclude specific fields based on schema rules.
-    ///   The rule is not used for coordinator nodes.
+    /// * `rule` - An optional [`SchemaRuleWrapper`] to exclude key names used for special purposes, e.g. score, lang or payload.
+    ///   If set to `None`, no such exclusions are applied (this is the case on the coordinator).
     ///
     /// The returned `Vec<bool>` indicates which fields were counted (true) or skipped (false).
     pub fn get_length(
@@ -88,7 +88,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         (num_fields, skip_field_indices)
     }
 
-    /// Get the length of this [`RLookupRow`] in respect to it's associated [`RLookup`] after applying the required and excluded flags.
+    /// Returns the number of visible fields in this [`RLookupRow`].
     ///
     /// It acts as [`RLookupRow::get_length`] but instead of allocating a Vec internally, it takes a mutable slice, thus
     /// avoiding allocations and allowing the caller to reuse memory.
@@ -114,20 +114,19 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
 
             // ensure a value is part of the RLookupRow:
             // is there a rule, if not we're on coordinator...
-            let Some(rule) = &rule else {
+            if let Some(rule) = &rule
+                && (rule.lang_field().is_some_and(|lf| lf == key.name_as_cstr())
+                    || rule
+                        .score_field()
+                        .is_some_and(|sf| sf == key.name_as_cstr())
+                    || rule
+                        .payload_field()
+                        .is_some_and(|p| p == key.name_as_cstr()))
+            {
                 // we trust the shards to not send those fields.
-                // on coordinator, we reach this code without sctx or rule,
+                // on coordinator, we reach this code
                 continue;
             };
-
-            // rule may exclude via lang, score or payload:
-            let kn = key.name_as_cstr();
-            if rule.lang_field().is_some_and(|lf| lf == kn)
-                || rule.score_field().is_some_and(|sf| sf == kn)
-                || rule.payload_field().is_some_and(|p| p == kn)
-            {
-                continue;
-            }
 
             out_flags[idx] = true;
             num_fields += 1;
@@ -425,7 +424,7 @@ mod tests {
         assert_eq!(flags, vec![false, false, false]);
     }
 
-    // Without a rule we expect get length to return zero (happens on coordinator)
+    // Without a rule we expect no filtering for special purpose keys like score, lang or payload
     #[test]
     fn get_length_without_rule() {
         let mut rlookup = RLookup::new();
@@ -441,7 +440,50 @@ mod tests {
             None,
         );
 
-        assert_eq!(len, 0);
-        assert_eq!(flags, vec![false, false, false]);
+        assert_eq!(len, 3);
+        assert_eq!(flags, vec![true, true, true]);
+    }
+
+    // The rule is used to filter special purpose keys like score, lang or payload
+    #[test]
+    fn get_length_with_rule() {
+        let mut rlookup = RLookup::new();
+        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        row.write_key_by_name(&mut rlookup, c"a", RSValueMock::create_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
+        row.write_key_by_name(&mut rlookup, c"score", RSValueMock::create_num(100.));
+
+        let (len, flags) = row.get_length(
+            &rlookup,
+            RLookupKeyFlags::empty(),
+            RLookupKeyFlags::empty(),
+            Some(create_schema_rule_wrapper(None, Some(c"score"), None)),
+        );
+
+        assert_eq!(len, 2);
+        assert_eq!(flags, vec![true, true, false]);
+
+        // add some more keys with special keys:
+        row.write_key_by_name(
+            &mut rlookup,
+            c"lang",
+            RSValueMock::create_string("en".to_string()),
+        );
+        row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(42.));
+        row.write_key_by_name(&mut rlookup, c"payload", RSValueMock::create_num(815.0));
+
+        let (len, flags) = row.get_length(
+            &rlookup,
+            RLookupKeyFlags::empty(),
+            RLookupKeyFlags::empty(),
+            Some(create_schema_rule_wrapper(
+                Some(c"lang"),
+                Some(c"score"),
+                Some(c"payload"),
+            )),
+        );
+
+        assert_eq!(len, 3);
+        assert_eq!(flags, vec![true, true, false, false, true, false]);
     }
 }
