@@ -197,10 +197,10 @@ def test_profile_resp2():
     conn.execute_command('HSET', '2', 't', 'world')
 
     if env.isCluster():
-        rp0 = ['Type', 'Network', 'Time', ANY, 'Counter', ANY]
+        rp0 = ['Type', 'Network', 'Time', ANY, 'Results processed', ANY]
     else:
-        rp0 = ['Type', 'Index', 'Time', ANY, 'Counter', ANY]
-    rp1 = ['Type', 'Depleter', 'Time', ANY, 'Counter', ANY]
+        rp0 = ['Type', 'Index', 'Time', ANY, 'Results processed', ANY]
+    rp1 = ['Type', 'Depleter', 'Time', ANY, 'Results processed', ANY]
 
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').ok()
     # No strict mode + WITHOUTCOUNT doesn't add a depleter
@@ -258,9 +258,9 @@ def test_profile_resp3():
     conn.execute_command('HSET', '2', 't', 'world')
 
     if env.isCluster():
-        rp0 = {'Type': 'Network', 'Time': ANY, 'Counter': ANY}
+        rp0 = {'Type': 'Network', 'Time': ANY, 'Results processed': ANY}
     else:
-        rp0 = {'Type': 'Index', 'Time': ANY, 'Counter': ANY}
+        rp0 = {'Type': 'Index', 'Time': ANY, 'Results processed': ANY}
 
     queries = [
         ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',],
