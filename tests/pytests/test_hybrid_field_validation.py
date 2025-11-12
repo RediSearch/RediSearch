@@ -6,15 +6,13 @@ import json
 
 def setup_basic_index(env):
     """Setup basic index with test data for field validation tests"""
-    conn = env.getClusterConnectionIfNeeded()
     env.expect('FT.CREATE idx SCHEMA description TEXT embedding VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 category TAG price NUMERIC').noError()
 
 
 def setup_json_index(env):
     """Setup JSON index with test data for JSON path validation tests"""
-    conn = env.getClusterConnectionIfNeeded()
     env.expect('FT.CREATE json_idx ON JSON SCHEMA $.description AS description TEXT $.embedding AS embedding VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 $.category AS category TAG $.price AS price NUMERIC').noError()
-    
+
 
 LOAD_ERROR_MSG = 'Missing prefix: name requires \'@\' prefix, JSON path require \'$\' prefix'
 
