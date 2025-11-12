@@ -294,7 +294,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     const char *firstArg;
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
-    if (isSortby0 && *papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) {
+    if (isSortby0 && ((*papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) || (*papCtx->reqflags & QEXEC_F_IS_AGGREGATE))) {
       AC_Advance(ac);  // Advance without adding SortBy step to the plan
       *papCtx->reqflags |= QEXEC_F_NO_SORT;
     } else {

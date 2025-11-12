@@ -5,37 +5,23 @@ import json
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
-def _setup_index_and_data(env, number_of_iterations=1):
+def _setup_index_and_data(env, docs):
     env.cmd('FT.CREATE', 'games', 'ON', 'HASH',
                         'SCHEMA', 'title', 'TEXT', 'SORTABLE',
                         'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
                         'description', 'TEXT', 'price', 'NUMERIC',
                         'categories', 'TAG')
-    con = env.getClusterConnectionIfNeeded()
+    conn = env.getClusterConnectionIfNeeded()
 
-    # Use pipeline for much faster bulk HSET operations
-    pipeline = con.pipeline(transaction=False)
-    batch_size = 10000  # Execute pipeline every 10000 docs to avoid memory issues
-
-    j = 0
-    for i in range(number_of_iterations):
-        fp = bz2.BZ2File(GAMES_JSON, 'r')
-        for line in fp:
-            obj = json.loads(line)
-            id = obj['asin'] + (str(i) if i > 0 else '')
-            del obj['asin']
-            obj['price'] = obj.get('price') or 0
-            obj['categories'] = ','.join(obj['categories'])
-            cmd = ['HSET', id] + \
-                [str(x) if x is not None else '' for x in itertools.chain(
-                    *obj.items())]
-            pipeline.execute_command(*cmd)
-            j += 1
-            # Execute pipeline every batch_size docs to avoid memory issues
-            if j % batch_size == 0:
-                pipeline.execute()
-        fp.close()
-    pipeline.execute()
+    for i in range(docs):
+        title = f'Game {i}'
+        brand = f'Brand {i % 10}'
+        description = f'Description for game {i}'
+        price = i * 1.5
+        category = f'Category {i % 5}'
+        conn.execute_command(
+            'HSET', f'doc_{i}', 'title', title, 'brand', brand,
+            'description', description, 'price', price, 'categories', category)
 
 
 def _get_total_results(res):
@@ -53,9 +39,8 @@ def _get_results(res):
 
 def _test_limit00(protocol):
     env = Env(protocol=protocol)
-    add_values_iterations = 1
-    _setup_index_and_data(env, number_of_iterations=add_values_iterations)
-    docs = 2265 * add_values_iterations
+    docs = 2265
+    _setup_index_and_data(env, docs)
 
     queries_and_results = [
         (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, 0], docs),
@@ -63,6 +48,7 @@ def _test_limit00(protocol):
         (['FT.AGGREGATE', 'games', '*', 'LIMIT', 0, 0], ANY),
     ]
 
+    env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').ok()
     for query, expected_results in queries_and_results:
         cmd=' '.join(str(x) for x in query)
         for dialect in [1, 2, 3, 4]:
@@ -88,9 +74,8 @@ def test_limit00_resp2():
 
 def _test_withcount(protocol):
     env = Env(protocol=protocol)
-    add_values_iterations = 1
-    _setup_index_and_data(env, number_of_iterations=add_values_iterations)
-    docs = 2265 * add_values_iterations
+    docs = 2265
+    _setup_index_and_data(env, docs)
 
     queries_and_results = [
         # WITHCOUNT
@@ -104,11 +89,13 @@ def _test_withcount(protocol):
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LOAD', '1', '@title'], docs),
         (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LOAD', '1', '@price'], docs),
+        # WITHCOUNT + SORTBY 0
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '0'], docs),
         # WITHCOUNT + SORTBY
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'], 2265),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '1', '@price'], 2265),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'], 2265),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'], 2265),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'], docs),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '1', '@price'], docs),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'], docs),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'], docs),
         # WITHCOUNT + SORTBY + LIMIT
         (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], 50),
         (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, int(docs/2)], int(docs/2)),
@@ -140,10 +127,8 @@ def test_withcount_resp2():
 
 def _test_withoutcount(protocol):
     env = Env(protocol=protocol)
-    add_values_iterations = 1
-    _setup_index_and_data(env, number_of_iterations=add_values_iterations)
-    docs = 2265 * add_values_iterations
-
+    docs = 2265
+    _setup_index_and_data(env, docs)
 
     queries_and_results = [
         # WITHOUTCOUNT
@@ -157,6 +142,8 @@ def _test_withoutcount(protocol):
         # WITHOUTCOUNT + LOAD
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LOAD', '1', '@title'], docs),
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LOAD', '1', '@price'], docs),
+        # WITHOUTCOUNT + SORTBY 0
+        (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'SORTBY', '0'], docs),
         # WITHOUTCOUNT + SORTBY - backwards compatible, returns only 10 results
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'], 10),
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price'], 10),
