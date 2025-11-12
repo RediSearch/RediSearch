@@ -15,47 +15,8 @@
 // This removes any overhead when checking versions from the query execution path.                          //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// internal - must come before static functions that use them
-/**
- * Sets the local slot ranges this shard is responsible for.
- *
- * This function updates the "local slots" set to match the provided ranges.
- * If the ranges differ from the current configuration:
- * - Updates "local slots" to the new ranges
- * - Removes any overlapping slots from "fully available slots" and "partially available slots"
- * - Increments the version counter
- *
- * If the ranges are identical to the current configuration, no changes are made.
- *
- * Returns the current version after the operation.
- *
- * # Safety
- *
- * This function must be called from the main thread only.
- * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` valid elements.
- * All ranges must be sorted and have start <= end, with values in [0, 16383].
- */
+// Forward declarations for internal functions used by static inline functions
 uint32_t slots_tracker_set_local_slots_internal(const RedisModuleSlotRangeArray *ranges);
-
-/**
- * Marks the given slot ranges as partially available.
- *
- * This function updates the "partially available slots" set by adding the provided ranges.
- * It also removes the given slots from "local slots" and "fully available slots", and
- * increments the version counter.
- * DO NOT call this function directly, use `slots_tracker_mark_partially_available_slots` in the C header instead.
- *
- * Returns the current version after the operation, used by `slots_tracker_mark_partially_available_slots`
- * in the C header for atomic version management.
- *
- * # Safety
- *
- * This function must be called from the main thread only.
- * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` valid elements.
- * All ranges must be sorted and have start <= end, with values in [0, 16383].
- */
 uint32_t slots_tracker_mark_partially_available_slots_internal(const RedisModuleSlotRangeArray *ranges);
 
 // Global version counter for the key space state.
