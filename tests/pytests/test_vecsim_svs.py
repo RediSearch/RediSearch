@@ -156,7 +156,7 @@ def test_svs_vamana_info():
     data_type = random.choice(VECSIM_SVS_DATA_TYPES)
 
     # Create SVS VAMANA index with all compression flavors (except for global SQ8).
-    compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8']
+    compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8', 'LeanVec4x8']
     for compression_type in compression_types:
         cmd_params = ['TYPE', data_type,
                     'DIM', dim, 'DISTANCE_METRIC', 'L2']
