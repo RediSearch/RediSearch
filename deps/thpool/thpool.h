@@ -220,6 +220,23 @@ void redisearch_thpool_drain(redisearch_thpool_t *, long timeout,
                              size_t threshold);
 
 /**
+ * @brief Drain only high-priority jobs from the threadpool
+ *
+ * This function temporarily sets the high-priority bias threshold to infinity,
+ * waits until no more high-priority jobs are running or pending, then restores
+ * the original bias threshold. This ensures that all high-priority jobs are
+ * completed while allowing low-priority jobs to continue being queued.
+ *
+ * @param threadpool     the threadpool to drain high-priority jobs from
+ * @param timeout        timeout in milliseconds between checks
+ * @param yieldCB        callback to call periodically (can be NULL)
+ * @param yield_ctx      context to pass to yieldCB (can be NULL)
+ */
+void redisearch_thpool_drain_high_priority(redisearch_thpool_t *threadpool,
+                                           long timeout, yieldFunc yieldCB,
+                                           void *yield_ctx);
+
+/**
  * @brief Terminate the working threads (without deallocating the threadpool members).
  */
 void redisearch_thpool_terminate_threads(redisearch_thpool_t *);
@@ -278,7 +295,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t *);
  *    threadpool thpool1 = thpool_init(2);
  *    threadpool thpool2 = thpool_init(2);
  *    ..
- *    printf("Working threads: %d\n", redisearch_thpool_num_jobs_in_progress(thpool1));
+ *    printf("Working threads: %d\n", redisearch_thpool_total_num_jobs_in_progress(thpool1));
  *    ..
  *    return 0;
  * }
@@ -286,7 +303,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t *);
  * @param threadpool     the threadpool of interest
  * @return integer       number of threads working
  */
-size_t redisearch_thpool_num_jobs_in_progress(redisearch_thpool_t *);
+size_t redisearch_thpool_total_num_jobs_in_progress(redisearch_thpool_t *);
 
 int redisearch_thpool_paused(redisearch_thpool_t *);
 
