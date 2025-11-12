@@ -110,6 +110,13 @@ static void slots_tracker_mark_partially_available_slots(const RedisModuleSlotRa
 }
 """
 
+trailer = """
+
+#ifdef __cplusplus
+}
+#endif
+"""
+
 [export.rename]
 "SlotRange" = "RedisModuleSlotRange"
 "SlotRangeArray" = "RedisModuleSlotRangeArray"
