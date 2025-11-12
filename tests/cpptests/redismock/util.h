@@ -105,6 +105,10 @@ class ArgvList {
   size_t size() const {
     return m_list.size();
   }
+
+  void add(const char *s, size_t n) {
+    m_list.push_back(RedisModule_CreateString(m_ctx, s, n));
+  }
 };
 
 class Context {

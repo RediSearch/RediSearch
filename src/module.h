@@ -128,6 +128,12 @@ bool should_return_error(QueryErrorCode errCode);
 
 bool QueryMemoryGuard(RedisModuleCtx *ctx);
 
+int QueryMemoryGuardFailure_WithReply(RedisModuleCtx *ctx);
+
+void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req);
+
+int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv);
+
 #ifdef __cplusplus
 }
 #endif

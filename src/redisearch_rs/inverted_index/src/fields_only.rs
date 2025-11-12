@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{DecodedBy, Decoder, Encoder, RSIndexResult, TermDecoder};
+use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
 
 /// Encode and decode the delta and field mask of a record.
 ///
@@ -44,18 +44,9 @@ impl Encoder for FieldsOnly {
     }
 }
 
-impl DecodedBy for FieldsOnly {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FieldsOnly {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -99,18 +90,9 @@ impl Encoder for FieldsOnlyWide {
     }
 }
 
-impl DecodedBy for FieldsOnlyWide {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FieldsOnlyWide {
     #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,

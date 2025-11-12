@@ -164,7 +164,7 @@ class testHybridSearch:
     def test_knn_yield_score_as(self):
          """Test hybrid search using KNN + YIELD_SCORE_AS parameter"""
          scenario = {
-             "hybrid_query": "SEARCH '@text:even ~@text:(text)' VSIM @vector $BLOB KNN 4 K 10 YIELD_SCORE_AS vector_distance",
+             "hybrid_query": "SEARCH '@text:even ~@text:(text)' VSIM @vector $BLOB KNN 2 K 10 YIELD_SCORE_AS vector_distance",
              "search_equivalent": "@text:even ~@text:(text)",
              "vector_equivalent": "*=>[KNN 10 @vector $BLOB]=>{$YIELD_DISTANCE_AS: vector_distance}"
          }

@@ -120,7 +120,7 @@ class TestHybridVectorNormalizer:
         test_data = self.setup_index(env, algorithm, data_type, metric, index_command)
         query_vector = np.array([0.5, 0.5], dtype=data_type.lower()).tobytes()
 
-        for vector_query in [['KNN', '4', 'K', '10'], ['RANGE', '4', 'RADIUS', '10']]:
+        for vector_query in [['KNN', '2', 'K', '10'], ['RANGE', '2', 'RADIUS', '10']]:
             response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
                                 *vector_query, 'YIELD_SCORE_AS', 'vector_score')
             results, _ = get_results_from_hybrid_response(response)

@@ -175,26 +175,6 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
 
-    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-      if (pvd->vectorScoreFieldAlias != NULL) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate YIELD_SCORE_AS argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      const char *value;
-      if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid YIELD_SCORE_AS value");
-        return REDISMODULE_ERR;
-      }
-      // Add as QueryAttribute (for query node processing, not vector-specific)
-      QueryAttribute attr = {
-        .name = YIELD_DISTANCE_ATTR,
-        .namelen = strlen(YIELD_DISTANCE_ATTR),
-        .value = rm_strdup(value),
-        .vallen = strlen(value)
-      };
-      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      pvd->vectorScoreFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -268,26 +248,6 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
       hasEpsilon = true;
 
-    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-      if (pvd->vectorScoreFieldAlias != NULL) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate YIELD_SCORE_AS argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      const char *value;
-      if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid YIELD_SCORE_AS value");
-        return REDISMODULE_ERR;
-      }
-      // Add as QueryAttribute (for query node processing, not vector-specific)
-      QueryAttribute attr = {
-        .name = YIELD_DISTANCE_ATTR,
-        .namelen = strlen(YIELD_DISTANCE_ATTR),
-        .value = rm_strdup(value),
-        .vallen = strlen(value)
-      };
-      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      pvd->vectorScoreFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -306,6 +266,35 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   // VSIM @vectorfield vector [KNN/RANGE ...] FILTER ...
   //                                                 ^
   vreq->query = AC_GetStringNC(ac, NULL);
+  return REDISMODULE_OK;
+}
+
+static int parseYieldScoreClause(ArgsCursor *ac, ParsedVectorData *pvd, QueryError *status) {
+  // VSIM @vectorfield vector [KNN/RANGE ...] [FILTER ...] YIELD_SCORE_AS <alias>
+  //                                                       ^
+  if (pvd->vectorScoreFieldAlias != NULL) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate YIELD_SCORE_AS argument");
+    return REDISMODULE_ERR;
+  }
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for YIELD_SCORE_AS");
+    return REDISMODULE_ERR;
+  }
+  const char *value;
+  if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid YIELD_SCORE_AS value");
+    return REDISMODULE_ERR;
+  }
+  // Add as QueryAttribute (for query node processing, not vector-specific)
+  QueryAttribute attr = {
+    .name = YIELD_DISTANCE_ATTR,
+    .namelen = strlen(YIELD_DISTANCE_ATTR),
+    .value = rm_strdup(value),
+    .vallen = strlen(value)
+  };
+  pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+  pvd->vectorScoreFieldAlias = rm_strdup(value);
+
   return REDISMODULE_OK;
 }
 
@@ -381,6 +370,13 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   // Check for optional FILTER clause - argument may not be in our scope
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
     if (parseFilterClause(ac, vreq, status) != REDISMODULE_OK) {
+      goto error;
+    }
+  }
+
+  // Check for optional YIELD_SCORE_AS clause
+  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+    if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
       goto error;
     }
   }
@@ -579,6 +575,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Prefixes for the index
   arrayof(sds) prefixes = array_new(sds, 0);
 
+  // Slot ranges info for distributed execution
+  const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
+  uint32_t slotsVersion;
+
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
     goto error;
@@ -604,10 +604,21 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
+      .querySlots = &requestSlotRanges,
+      .slotsVersion = &slotsVersion,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
+  }
+
+  // Set slots info in both subqueries
+  if (internal) {
+    vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
+    vectorRequest->slotsVersion = slotsVersion;
+    searchRequest->querySlots = requestSlotRanges;
+    searchRequest->slotsVersion = slotsVersion;
+    requestSlotRanges = NULL; // ownership transferred
   }
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
@@ -731,6 +742,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 error:
   array_free_ex(prefixes, sdsfree(*(sds *)ptr));
   prefixes = NULL;
+  if (requestSlotRanges) {
+    rm_free((void *)requestSlotRanges);
+  }
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
   }

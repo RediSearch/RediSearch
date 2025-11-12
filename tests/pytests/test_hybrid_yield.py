@@ -79,8 +79,12 @@ def test_hybrid_vsim_knn_yield_score_as():
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_score')
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', query_vector,
+            'KNN', '2', 'K', '10',
+            'YIELD_SCORE_AS', 'vector_score')
     results, _ = get_results_from_hybrid_response(response)
 
     # Validate the score field for all returned results
@@ -101,8 +105,12 @@ def test_hybrid_vsim_range_yield_score_as():
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     radius = 2
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'RANGE', '4', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_score')
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', query_vector,
+            'RANGE', '2', 'RADIUS', str(radius),
+            'YIELD_SCORE_AS', 'vector_score')
     results, _ = get_results_from_hybrid_response(response)
 
     # Validate the vector_score field for all returned results
@@ -142,9 +150,13 @@ def test_hybrid_search_and_vsim_yield_parameters():
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'YIELD_SCORE_AS', 'search_score',
-                        'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_distance')
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', '*',
+            'YIELD_SCORE_AS', 'search_score',
+        'VSIM', '@embedding', query_vector,
+            'KNN', '2', 'K', '10',
+        'YIELD_SCORE_AS', 'vector_distance')
     results, _ = get_results_from_hybrid_response(response)
 
     # Validate both search_score and vector_distance fields
@@ -242,9 +254,16 @@ def test_hybrid_yield_score_as_all_possible_scores():
     alpha = 0.3
     beta = 0.7
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes','YIELD_SCORE_AS', 's_score', 'VSIM', '@embedding', query_vector,
-               'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'v_score', 'COMBINE', 'LINEAR', '6', 'ALPHA', alpha, 'BETA', beta,
-               'YIELD_SCORE_AS', 'fused_score', 'APPLY', f"{alpha}*case(exists(@s_score), @s_score ,0) + {beta}*case(exists(@v_score), @v_score,0)", 'AS', 'calculated_score')
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+            'YIELD_SCORE_AS', 's_score',
+        'VSIM', '@embedding', query_vector,
+            'KNN', '2', 'K', '10',
+            'YIELD_SCORE_AS', 'v_score',
+        'COMBINE', 'LINEAR', '6', 'ALPHA', alpha, 'BETA', beta,
+            'YIELD_SCORE_AS', 'fused_score',
+        'APPLY', f"{alpha}*case(exists(@s_score), @s_score ,0) + {beta}*case(exists(@v_score), @v_score,0)", 'AS', 'calculated_score')
     results, _ = get_results_from_hybrid_response(response)
 
     # Validate the vector_distance and vector_score fields
@@ -262,3 +281,50 @@ def test_hybrid_yield_score_as_all_possible_scores():
         fused_score = float(doc_result[f'fused_score'])
         env.assertGreater(fused_score, 0)
         env.assertAlmostEqual(calculated_score, fused_score, delta=1e-6, message=f"Fused score and calculated score for {doc_key} do not match")
+
+def test_vsim_yield_score_as_with_filter():
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+            'YIELD_SCORE_AS', 's_score',
+        'VSIM', '@embedding', query_vector,
+            'KNN', '2', 'K', '10',
+            'FILTER', '@description:blue',
+            'YIELD_SCORE_AS', 'v_score')
+    results, _ = get_results_from_hybrid_response(response)
+    # 3 results are returned:
+    # - 3 containing "shoes" -> doc:1, doc:2, doc:4 -> s_score is present
+    # - 1 containing "blue"  -> doc:4 -> v_score is present
+    env.assertEqual(len(results.keys()), 3)
+    for doc_key, doc_result in results.items():
+        if doc_key in ["doc:1", "doc:2"]:
+            env.assertTrue('s_score' in doc_result)
+            env.assertFalse('v_score' in doc_result)
+        if doc_key == "doc:4":
+            env.assertTrue('s_score' in doc_result)
+            env.assertTrue('v_score' in doc_result)
+
+def test_vsim_yield_score_as_with_filter_and_post_filter():
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+            'YIELD_SCORE_AS', 's_score',
+        'VSIM', '@embedding', query_vector,
+            'KNN', '2', 'K', '10',
+            'FILTER', '@description:blue',
+            'YIELD_SCORE_AS', 'v_score',
+        'FILTER', '@__key=="doc:4"')
+    results, _ = get_results_from_hybrid_response(response)
+    # a single result is returned, due to post-filter:
+    # - doc:4 -> v_score is present
+    env.assertEqual(len(results.keys()), 1)
+    for doc_key, doc_result in results.items():
+        if doc_key == "doc:4":
+            env.assertTrue('s_score' in doc_result)
+            env.assertTrue('v_score' in doc_result)
