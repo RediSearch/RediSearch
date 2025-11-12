@@ -9,18 +9,13 @@
 #include <stdatomic.h>
 #include "redismodule.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // static definitions in header                                                                             //
 // We want to avoid atomic read access through FFI boundary, so we maintain atomic version counter here.    //
 // This removes any overhead when checking versions from the query execution path.                          //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// internal - must come before static functions that use them
-
+// Forward declarations for internal functions used by static inline functions
 uint32_t slots_tracker_set_local_slots_internal(const RedisModuleSlotRangeArray *ranges);
 uint32_t slots_tracker_mark_partially_available_slots_internal(const RedisModuleSlotRangeArray *ranges);
 
@@ -225,8 +220,3 @@ struct OptionSlotTrackerVersion slots_tracker_check_availability(const RedisModu
  * in production code.
  */
 void slots_tracker_reset_for_testing(void);
-
-
-#ifdef __cplusplus
-}
-#endif
