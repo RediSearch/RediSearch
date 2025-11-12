@@ -31,65 +31,16 @@ jobs:
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
-  # Run tests on multiple platforms - matrix defined directly in event
+  generate-matrix:
+    uses: ./.github/workflows/generate-matrix.yml
+
+  # Run tests on multiple platforms - matrix generated dynamically
   unified-test-matrix:
     name: ${{ matrix.platform }} (${{ matrix.architecture }})
-    needs: [get-latest-redis-tag]
+    needs: [get-latest-redis-tag, generate-matrix]
     strategy:
       fail-fast: true  # This will cancel ALL matrix jobs on first failure
-      matrix:
-        include:
-          # macOS platforms
-          - platform: macos
-            architecture: x86_64
-          - platform: macos
-            architecture: aarch64
-          # Linux platforms - x86_64
-          - platform: ubuntu:noble
-            architecture: x86_64
-          - platform: ubuntu:jammy
-            architecture: x86_64
-          - platform: ubuntu:focal
-            architecture: x86_64
-          - platform: rockylinux:8
-            architecture: x86_64
-          - platform: rockylinux:9
-            architecture: x86_64
-          - platform: amazonlinux:2
-            architecture: x86_64
-          - platform: amazonlinux:2023
-            architecture: x86_64
-          - platform: debian:bullseye
-            architecture: x86_64
-          - platform: debian:bookworm
-            architecture: x86_64
-          - platform: mariner:2
-            architecture: x86_64
-          - platform: azurelinux:3
-            architecture: x86_64
-          - platform: alpine:3
-            architecture: x86_64
-          # Linux platforms - ARM64
-          - platform: ubuntu:noble
-            architecture: aarch64
-          - platform: ubuntu:jammy
-            architecture: aarch64
-          - platform: ubuntu:focal
-            architecture: aarch64
-          - platform: rockylinux:8
-            architecture: aarch64
-          - platform: rockylinux:9
-            architecture: aarch64
-          - platform: amazonlinux:2023
-            architecture: aarch64
-          - platform: debian:bullseye
-            architecture: aarch64
-          - platform: debian:bookworm
-            architecture: aarch64
-          - platform: azurelinux:3
-            architecture: aarch64
-          - platform: alpine:3
-            architecture: aarch64
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
     uses: ./.github/workflows/task-test-with-config.yml
     secrets: inherit
     with:
@@ -98,7 +49,6 @@ jobs:
       test-config: QUICK=1
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
-      skip-condition: ${{ matrix.skip-condition || 'false' }}
 
 
   coverage:

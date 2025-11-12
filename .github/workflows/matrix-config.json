@@ -1,0 +1,48 @@
+{
+  "platforms": [
+    "ubuntu:noble",
+    "ubuntu:jammy",
+    "ubuntu:focal",
+    "rockylinux:8",
+    "rockylinux:9",
+    "amazonlinux:2",
+    "amazonlinux:2023",
+    "debian:bullseye",
+    "debian:bookworm",
+    "mariner:2",
+    "azurelinux:3",
+    "alpine:3",
+    "macos"
+  ],
+  "architectures": [
+    "x86_64",
+    "aarch64"
+  ],
+  "matrix": [
+    { "platform": "ubuntu:noble", "architecture": "x86_64" },
+    { "platform": "ubuntu:noble", "architecture": "aarch64" },
+    { "platform": "ubuntu:jammy", "architecture": "x86_64" },
+    { "platform": "ubuntu:jammy", "architecture": "aarch64" },
+    { "platform": "ubuntu:focal", "architecture": "x86_64" },
+    { "platform": "ubuntu:focal", "architecture": "aarch64" },
+    { "platform": "rockylinux:8", "architecture": "x86_64" },
+    { "platform": "rockylinux:8", "architecture": "aarch64" },
+    { "platform": "rockylinux:9", "architecture": "x86_64" },
+    { "platform": "rockylinux:9", "architecture": "aarch64" },
+    { "platform": "amazonlinux:2", "architecture": "x86_64" },
+    { "platform": "amazonlinux:2023", "architecture": "x86_64" },
+    { "platform": "amazonlinux:2023", "architecture": "aarch64" },
+    { "platform": "debian:bullseye", "architecture": "x86_64" },
+    { "platform": "debian:bullseye", "architecture": "aarch64" },
+    { "platform": "debian:bookworm", "architecture": "x86_64" },
+    { "platform": "debian:bookworm", "architecture": "aarch64" },
+    { "platform": "mariner:2", "architecture": "x86_64" },
+    { "platform": "azurelinux:3", "architecture": "x86_64" },
+    { "platform": "azurelinux:3", "architecture": "aarch64" },
+    { "platform": "alpine:3", "architecture": "x86_64" },
+    { "platform": "alpine:3", "architecture": "aarch64" },
+    { "platform": "macos", "architecture": "x86_64" },
+    { "platform": "macos", "architecture": "aarch64" }
+  ]
+}
+

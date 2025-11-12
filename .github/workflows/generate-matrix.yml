@@ -1,0 +1,62 @@
+name: Generate Test Matrix
+
+# This workflow generates a dynamic matrix for test and build workflows
+# It reads from matrix-config.json and filters based on platform/architecture inputs
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform filter (e.g., "ubuntu:noble" or "all")'
+        type: string
+        default: all
+      architecture:
+        description: 'Architecture filter (e.g., "x86_64" or "all")'
+        type: string
+        default: all
+    outputs:
+      matrix:
+        description: "Generated matrix as JSON"
+        value: ${{ jobs.generate.outputs.matrix }}
+
+jobs:
+  generate:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    outputs:
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate filtered matrix
+        id: generate-matrix
+        shell: python
+        run: |
+          import json
+          import os
+
+          # Read matrix configuration
+          with open('.github/workflows/matrix-config.json', 'r') as f:
+              config = json.load(f)
+
+          platform_filter = "${{ inputs.platform }}"
+          architecture_filter = "${{ inputs.architecture }}"
+
+          # Filter matrix based on inputs
+          matrix_items = []
+          for item in config['matrix']:
+              platform = item['platform']
+              architecture = item['architecture']
+
+              # Only include items that match the filters
+              if (platform == platform_filter or platform_filter == 'all') and \
+                 (architecture == architecture_filter or architecture_filter == 'all'):
+                  matrix_items.append({
+                      'platform': platform,
+                      'architecture': architecture
+                  })
+
+          matrix_output = {'include': matrix_items}
+
+          # Write to GitHub output
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'matrix={json.dumps(matrix_output)}\n')
+
