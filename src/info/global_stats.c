@@ -123,12 +123,15 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd) {
   }
 }
 
-void QueryWarningsGlobalStats_UpdateWarning(QueryErrorCode code, int toAdd) {
+void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd) {
   switch (code) {
-    case QUERY_ERROR_CODE_TIMED_OUT:
+    case QUERY_WARNING_CODE_TIMEOUT:
       INCR_BY(RSGlobalStats.totalStats.queries.warnings.timeout, toAdd);
       break;
-    case QUERY_ERROR_CODE_OUT_OF_MEMORY:
+    case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS:
+      INCR_BY(RSGlobalStats.totalStats.queries.warnings.max_prefix_expansions, toAdd);
+      break;
+    case QUERY_WARNING_CODE_OUT_OF_MEMORY:
       INCR_BY(RSGlobalStats.totalStats.queries.warnings.oom, toAdd);
       break;
     default:
