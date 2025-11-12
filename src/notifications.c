@@ -393,8 +393,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
 }
 
 static void drainHighPriorityJobs(void) {
-  //TODO(Joan): Change to drain only high priority jobs when available
-  workersThreadPool_Drain(RSDummyContext, 0);
+  workersThreadPool_DrainHighPriority(RSDummyContext);
 }
 
 void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
