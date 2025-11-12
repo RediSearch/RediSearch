@@ -11,19 +11,15 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "redismodule.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct SharedSlotRangeArray SharedSlotRangeArray;
-typedef struct RedisModuleSlotRangeArray RedisModuleSlotRangeArray;
+#define SLOTS_STR "_SLOTS_INFO"
 
-typedef enum {
-  SLOT_RANGES_MATCH,
-  SLOT_RANGES_SUBSET,
-  SLOT_RANGES_DOES_NOT_INCLUDE
-} SlotRangesComparisonResult;
+typedef struct SharedSlotRangeArray SharedSlotRangeArray;
 
 /// @brief Get slot ranges for the local node. The returned value must be freed using FreeLocalSlots
 /// @returns A pointer to the shared slot range array, or NULL if not in cluster mode
@@ -45,20 +41,29 @@ void Slots_DropCachedLocalSlots(void);
 /// @returns true if the slot is in one of the ranges, false otherwise
 bool Slots_CanAccessKeysInSlot(const SharedSlotRangeArray *slotRanges, uint16_t slot);
 
-/// @brief Compare two slot range arrays.
+/// @brief Get the memory size of a slot range array with the given number of ranges
+/// @param num_ranges The number of ranges in the array
+/// @return The memory size in bytes
+size_t SlotRangeArray_SizeOf(uint32_t num_ranges);
 
-/// This has some assumptions:
-///
-/// - The ranges are sorted
-/// - The ranges are non-overlapping
-/// - The ranges come in merged form (adjacent ranges are merged into a single range)
-///
-/// @param ranges1 The slot range array from which we expect the keys to be
-/// @param ranges2 The slot range from which we actually have keys
-/// @returns SLOT_RANGES_MATCH if the ranges are identical, SLOT_RANGES_SUBSET if ranges_expected is a subset of ranges_actual,
-/// and SLOT_RANGES_DOES_NOT_INCLUDE if any of the range in ranges_expected is not in ranges_actual
-SlotRangesComparisonResult CompareSlotRanges(const RedisModuleSlotRangeArray *ranges_expected,
-                                             const RedisModuleSlotRangeArray *ranges_actual);
+/// @brief Serialize a slot range array to a newly allocated buffer in little-endian format
+/// @param slot_range_array The slot range array to serialize
+/// @returns A pointer to the serialized buffer
+/// @note The caller is responsible for freeing the returned buffer with rm_free
+char *SlotRangesArray_Serialize(const RedisModuleSlotRangeArray *slot_range_array);
+
+/// @brief Deserialize a slot range array from a buffer in little-endian format
+/// @param buf The buffer to deserialize from
+/// @param buf_len The length of the buffer
+/// @returns A pointer to the deserialized slot range array
+/// @note The caller is responsible for freeing the returned structure with rm_free
+RedisModuleSlotRangeArray *SlotRangesArray_Deserialize(const char *buf, size_t buf_len);
+
+/// @brief Clone a slot range array
+/// @param src The slot range array to clone
+/// @return A pointer to the cloned slot range array
+/// @note The caller is responsible for freeing the returned structure with rm_free
+RedisModuleSlotRangeArray *SlotRangeArray_Clone(const RedisModuleSlotRangeArray *src);
 
 #ifdef __cplusplus
 }

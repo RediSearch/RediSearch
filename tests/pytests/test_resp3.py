@@ -171,12 +171,12 @@ def test_profile(env):
           'Total GIL time': ANY,
           'Warning': 'None',
           'Iterators profile':
-            {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2},
+            {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': 2},
           'Result processors profile': [
-            {'Type': 'Index',  'Time': ANY, 'Counter': 2},
-            {'Type': 'Scorer', 'Time': ANY, 'Counter': 2},
-            {'Type': 'Sorter', 'Time': ANY, 'Counter': 2},
-            {'Type': 'Loader', 'Time': ANY, 'Counter': 2}
+            {'Type': 'Index',  'Time': ANY, 'Results processed': 2},
+            {'Type': 'Scorer', 'Time': ANY, 'Results processed': 2},
+            {'Type': 'Sorter', 'Time': ANY, 'Results processed': 2},
+            {'Type': 'Loader', 'Time': ANY, 'Results processed': 2}
           ]
         }],
         'Coordinator': {}
@@ -211,11 +211,11 @@ def test_coord_profile():
       'Profile': {
         'Shards': env.shardsCount * [
                       {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': 'None',
-                        'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
-                        'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
-                                                      {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
-                                                      {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
-                                                      {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]}],
+                        'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
+                        'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
+                                                      {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
+                                                      {'Type': 'Sorter', 'Time': ANY, 'Results processed': ANY},
+                                                      {'Type': 'Loader', 'Time': ANY, 'Results processed': ANY}]}],
         'Coordinator': {'Total Coordinator time': ANY, 'Post Processing time': ANY},
       },
     }
@@ -242,7 +242,7 @@ def test_coord_profile():
           'Pipeline creation time': ANY,
           'Total GIL time': ANY,
           'Warning': 'None',
-          'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Counter': 2}]
+          'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Results processed': 2}]
         }
       }
     }
@@ -252,8 +252,8 @@ def test_coord_profile():
       'Pipeline creation time': ANY,
       'Total GIL time': ANY,
       'Warning': 'None',
-      'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
-      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},]
+      'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
+      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},]
     }
     res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*', 'FORMAT', 'STRING')
     env.assertEqual(res, exp)
@@ -619,19 +619,19 @@ def test_profile_crash_mod5323():
           'Iterators profile':
             { 'Child iterators': [
               { 'Child iterators': 'The number of iterators in the union is 3',
-                'Counter': 3,
+                'Number of reading operations': 3,
                 'Query type': 'FUZZY - hell',
                 'Time': ANY,
                 'Type': 'UNION'
                 },
                 { 'Child iterators': 'The number of iterators in the union is 4',
-                  'Counter': 3,
+                  'Number of reading operations': 3,
                   'Query type': 'PREFIX - hel',
                   'Time': ANY,
                   'Type': 'UNION'
                 }
               ],
-              'Counter': 3,
+              'Number of reading operations': 3,
               'Time': ANY,
               'Type': 'INTERSECT'
             },
@@ -640,9 +640,9 @@ def test_profile_crash_mod5323():
           'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
-            { 'Counter': 3, 'Time': ANY, 'Type': 'Index' },
-            { 'Counter': 3, 'Time': ANY, 'Type': 'Scorer' },
-            { 'Counter': 3, 'Time': ANY, 'Type': 'Sorter' }
+            { 'Results processed': 3, 'Time': ANY, 'Type': 'Index' },
+            { 'Results processed': 3, 'Time': ANY, 'Type': 'Scorer' },
+            { 'Results processed': 3, 'Time': ANY, 'Type': 'Sorter' }
           ],
           'Total profile time': ANY
         }],
@@ -676,10 +676,10 @@ def test_profile_child_itrerators_array():
         'Shards': [{
           'Iterators profile':
             { 'Child iterators': [
-                {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
-                {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
+                {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
+                {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
               ],
-              'Counter': 2,
+              'Number of reading operations': 2,
               'Query type': 'UNION',
               'Time': ANY,
               'Type': 'UNION'
@@ -689,9 +689,9 @@ def test_profile_child_itrerators_array():
           'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
-            {'Counter': 2, 'Time': ANY, 'Type': 'Index'},
-            {'Counter': 2, 'Time': ANY, 'Type': 'Scorer'},
-            {'Counter': 2, 'Time': ANY, 'Type': 'Sorter'}
+            {'Results processed': 2, 'Time': ANY, 'Type': 'Index'},
+            {'Results processed': 2, 'Time': ANY, 'Type': 'Scorer'},
+            {'Results processed': 2, 'Time': ANY, 'Type': 'Sorter'}
           ],
           'Total profile time': ANY
         }],
@@ -715,10 +715,10 @@ def test_profile_child_itrerators_array():
         'Shards': [{
           'Iterators profile':
             { 'Child iterators': [
-                {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
-                {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
+                {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
+                {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
               ],
-              'Counter': 0,
+              'Number of reading operations': 0,
               'Time': ANY,
               'Type': 'INTERSECT'
             },
@@ -727,9 +727,9 @@ def test_profile_child_itrerators_array():
           'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
-            { 'Counter': 0, 'Time': ANY, 'Type': 'Index'},
-            { 'Counter': 0, 'Time': ANY, 'Type': 'Scorer'},
-            {'Counter': 0, 'Time': ANY, 'Type': 'Sorter'}
+            { 'Results processed': 0, 'Time': ANY, 'Type': 'Index'},
+            { 'Results processed': 0, 'Time': ANY, 'Type': 'Scorer'},
+            {'Results processed': 0, 'Time': ANY, 'Type': 'Sorter'}
           ],
           'Total profile time': ANY
         }],

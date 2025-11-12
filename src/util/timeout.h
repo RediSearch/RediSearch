@@ -61,8 +61,8 @@ static inline double rs_timer_ms(struct timespec *a){
 #define TIMEOUT_COUNTER_LIMIT 100
 
 typedef struct TimeoutCtx {
-  size_t counter;
   struct timespec timeout;
+  uint32_t counter;
 } TimeoutCtx;
 
 typedef int(*TimeoutCb)(TimeoutCtx *);
@@ -77,7 +77,7 @@ static inline int TimedOut(const struct timespec *timeout) {
 }
 
 // Check if time has been reached (run once every TIMEOUT_COUNTER_LIMIT calls)
-static inline int TimedOut_WithCounter(const struct timespec *timeout, size_t *counter) {
+static inline int TimedOut_WithCounter(const struct timespec *timeout, uint32_t *counter) {
   if (RS_IsMock) return 0;
 
   if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == TIMEOUT_COUNTER_LIMIT) {
@@ -88,7 +88,7 @@ static inline int TimedOut_WithCounter(const struct timespec *timeout, size_t *c
 }
 
 // Check if time has been reached (run once every `gran` calls)
-static inline int TimedOut_WithCounter_Gran(const struct timespec *timeout, size_t *counter, uint32_t gran) {
+static inline int TimedOut_WithCounter_Gran(const struct timespec *timeout, uint32_t *counter, uint32_t gran) {
   if (RS_IsMock) return 0;
 
   if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == gran) {

@@ -175,26 +175,6 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
 
-    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-      if (pvd->vectorScoreFieldAlias != NULL) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate YIELD_SCORE_AS argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      const char *value;
-      if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid YIELD_SCORE_AS value");
-        return REDISMODULE_ERR;
-      }
-      // Add as QueryAttribute (for query node processing, not vector-specific)
-      QueryAttribute attr = {
-        .name = YIELD_DISTANCE_ATTR,
-        .namelen = strlen(YIELD_DISTANCE_ATTR),
-        .value = rm_strdup(value),
-        .vallen = strlen(value)
-      };
-      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      pvd->vectorScoreFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -268,26 +248,6 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
       hasEpsilon = true;
 
-    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-      if (pvd->vectorScoreFieldAlias != NULL) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate YIELD_SCORE_AS argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      const char *value;
-      if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid YIELD_SCORE_AS value");
-        return REDISMODULE_ERR;
-      }
-      // Add as QueryAttribute (for query node processing, not vector-specific)
-      QueryAttribute attr = {
-        .name = YIELD_DISTANCE_ATTR,
-        .namelen = strlen(YIELD_DISTANCE_ATTR),
-        .value = rm_strdup(value),
-        .vallen = strlen(value)
-      };
-      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      pvd->vectorScoreFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -306,6 +266,35 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   // VSIM @vectorfield vector [KNN/RANGE ...] FILTER ...
   //                                                 ^
   vreq->query = AC_GetStringNC(ac, NULL);
+  return REDISMODULE_OK;
+}
+
+static int parseYieldScoreClause(ArgsCursor *ac, ParsedVectorData *pvd, QueryError *status) {
+  // VSIM @vectorfield vector [KNN/RANGE ...] [FILTER ...] YIELD_SCORE_AS <alias>
+  //                                                       ^
+  if (pvd->vectorScoreFieldAlias != NULL) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate YIELD_SCORE_AS argument");
+    return REDISMODULE_ERR;
+  }
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for YIELD_SCORE_AS");
+    return REDISMODULE_ERR;
+  }
+  const char *value;
+  if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid YIELD_SCORE_AS value");
+    return REDISMODULE_ERR;
+  }
+  // Add as QueryAttribute (for query node processing, not vector-specific)
+  QueryAttribute attr = {
+    .name = YIELD_DISTANCE_ATTR,
+    .namelen = strlen(YIELD_DISTANCE_ATTR),
+    .value = rm_strdup(value),
+    .vallen = strlen(value)
+  };
+  pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+  pvd->vectorScoreFieldAlias = rm_strdup(value);
+
   return REDISMODULE_OK;
 }
 
@@ -381,6 +370,13 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   // Check for optional FILTER clause - argument may not be in our scope
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
     if (parseFilterClause(ac, vreq, status) != REDISMODULE_OK) {
+      goto error;
+    }
+  }
+
+  // Check for optional YIELD_SCORE_AS clause
+  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+    if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
       goto error;
     }
   }
@@ -493,39 +489,6 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     return implicitLoadStep;
 }
 
-// This cannot be easily merged with IsIndexCoherent from aggregate_request.c since aggregate request parses prefixes differently.
-// Unifying would require some refactor on the aggregate flow.
-static bool IsIndexCoherentWithQuery(arrayof(const char*) prefixes, IndexSpec *spec)  {
-
-  size_t n_prefixes = array_len(prefixes);
-  if (n_prefixes == 0) {
-    // No prefixes in the query --> No validation needed.
-    return true;
-  }
-
-  if (n_prefixes > 0 && (!spec || !spec->rule || !spec->rule->prefixes)) {
-    // Index has no prefixes, but query has prefixes --> Incoherent
-    return false;
-  }
-
-  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
-  if (n_prefixes != array_len(spec_prefixes)) {
-    return false;
-  }
-
-  // Validate that the prefixes in the arguments are the same as the ones in the
-  // index (also in the same order)
-  // The prefixes start right after the number
-  for (uint i = 0; i < n_prefixes; i++) {
-    if (HiddenUnicodeString_CompareC(spec_prefixes[i], prefixes[i]) != 0) {
-      // Unmatching prefixes
-      return false;
-    }
-  }
-
-  return true;
-}
-
 /**
  * Handle load step distribution for hybrid search pipelines.
  *
@@ -610,7 +573,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
   // Prefixes for the index
-  arrayof(const char*) prefixes = array_new(const char*, 0);
+  arrayof(sds) prefixes = array_new(sds, 0);
+
+  // Slot ranges info for distributed execution
+  const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
+  uint32_t slotsVersion;
 
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
@@ -637,10 +604,21 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
+      .querySlots = &requestSlotRanges,
+      .slotsVersion = &slotsVersion,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
+  }
+
+  // Set slots info in both subqueries
+  if (internal) {
+    vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
+    vectorRequest->slotsVersion = slotsVersion;
+    searchRequest->querySlots = requestSlotRanges;
+    searchRequest->slotsVersion = slotsVersion;
+    requestSlotRanges = NULL; // ownership transferred
   }
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
@@ -723,11 +701,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  if (!IsIndexCoherentWithQuery(*hybridParseCtx.prefixes, parsedCmdCtx->search->sctx->spec)) {
+  IndexSpec *spec = parsedCmdCtx->search->sctx->spec;
+  const size_t prefixCount = array_len(*hybridParseCtx.prefixes);
+  if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
   }
-  array_free(prefixes);
+  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
   prefixes = NULL;
 
   // Apply context to each request
@@ -760,8 +740,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   return REDISMODULE_OK;
 
 error:
-  array_free(prefixes);
+  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
   prefixes = NULL;
+  if (requestSlotRanges) {
+    rm_free((void *)requestSlotRanges);
+  }
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
   }

@@ -173,7 +173,7 @@ class testHybridSearch:
              raise SkipTest()
          scenario = {
              "test_name": "KNN query with parameters",
-             "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 4 K 10 YIELD_SCORE_AS vector_distance",
+             "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 10 YIELD_SCORE_AS vector_distance",
              "search_equivalent": "even",
              "vector_equivalent": "*=>[KNN 10 @vector $BLOB]=>{$YIELD_DISTANCE_AS: vector_distance}"
          }

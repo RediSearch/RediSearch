@@ -158,14 +158,14 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridReq, &ac, args, args.size());
   // Parse the hybrid command - this fills out hybridParams
-  int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, status, true);
+  int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, status, false);
   if (rc != REDISMODULE_OK) {
     HybridRequest_Free(hybridReq);
     return nullptr;
   }
 
   // Build the pipeline using the parsed hybrid parameters
-  rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams);
+  rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams, true);
   if (rc != REDISMODULE_OK) {
     HybridRequest_Free(hybridReq);
     return nullptr;

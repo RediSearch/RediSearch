@@ -44,6 +44,9 @@
 /* A cluster is a pool of IORuntimes. It is owned by the main thread and accessed in the coordinator threads */
 static MRCluster *cluster_g = NULL;
 
+// Number of shards in the cluster (main-thread variable)
+extern size_t NumShards;
+
 /* Coordination request timeout */
 long long timeout_g = 5000; // unused value. will be set in MR_Init
 
@@ -248,7 +251,15 @@ static void uvUpdateTopologyRequest(void *p) {
 }
 
 /* Set a new topology for the cluster.*/
-void MR_UpdateTopology(MRClusterTopology *newTopo) {
+void MR_UpdateTopology(MRClusterTopology *newTopo, const RedisModuleSlotRangeArray *localSlots) {
+  RedisModule_Log(RSDummyContext, "debug", "UpdateTopology: Setting number of partitions to %u", newTopo->numShards);
+  NumShards = newTopo->numShards;
+
+  // Refresh local slots info before propagating the topology, so that
+  // the tracker is up to date before any I/O thread.
+  // TODO ASM: enable
+  // slots_tracker_set_local_slots(localSlots);
+
   size_t lastIdx = cluster_g->num_io_threads - 1;
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, i == lastIdx);
@@ -271,7 +282,6 @@ static void uvUpdateConnPoolSize(void *p) {
   rm_free(ctx);
 }
 
-extern size_t NumShards;
 void MR_UpdateConnPoolSize(size_t conn_pool_size) {
   if (!cluster_g) return; // not initialized yet, we have nothing to update yet.
   if (NumShards == 1) {
@@ -533,6 +543,7 @@ void iterStartCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
+  MRClusterShard *shards = io_runtime_ctx->topo->shards;
   size_t numShards = io_runtime_ctx->topo->numShards;
   it->len = numShards;
   it->ctx.pending = numShards;
@@ -540,14 +551,21 @@ void iterStartCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  cmd->targetShard = 0; // Set the first command to target the first shard
-  for (size_t i = 1; i < numShards; i++) {
-    it->cbxs[i].it = it;
-    it->cbxs[i].cmd = MRCommand_Copy(cmd);
+  size_t targetShard;
+  for (targetShard = 1; targetShard < numShards; targetShard++) {
+    it->cbxs[targetShard].it = it;
+    it->cbxs[targetShard].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
-    it->cbxs[i].cmd.targetShard = i;
-    it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    it->cbxs[targetShard].cmd.targetShard = targetShard;
+    MRCommand_SetSlotInfo(&it->cbxs[targetShard].cmd, shards[targetShard].slotRanges);
+
+    it->cbxs[targetShard].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   }
+
+// Set the first command to target the first shard (while not having copied it)
+  targetShard = 0;
+  cmd->targetShard = targetShard;
+  MRCommand_SetSlotInfo(cmd, shards[targetShard].slotRanges);
 
   // This implies that every connection to each shard will work inside a single IO thread
   for (size_t i = 0; i < it->len; i++) {
