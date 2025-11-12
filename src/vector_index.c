@@ -123,7 +123,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
+        QueryError_SetWithUserDataFmt(q->status, QUERY_EINVAL,
                                       "Error parsing vector similarity query: query vector blob size",
                                       " (%zu) does not match index's expected size (%zu).",
                                       vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
@@ -135,7 +135,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         return NULL;
       }
       if (vq->knn.k > MAX_KNN_K) {
-        QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
+        QueryError_SetWithoutUserDataFmt(q->status, QUERY_EINVAL,
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
@@ -156,14 +156,14 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
+        QueryError_SetWithUserDataFmt(q->status, QUERY_EINVAL,
                                "Error parsing vector similarity query: query vector blob size",
                                " (%zu) does not match index's expected size (%zu).",
                                vq->range.vecLen, (dim * VecSimType_sizeof(type)));
         return NULL;
       }
       if (vq->range.radius < 0) {
-        QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
+        QueryError_SetWithoutUserDataFmt(q->status, QUERY_EINVAL,
                                "Error parsing vector similarity query: negative radius"
                                " (%g) given in a range query",
                                vq->range.radius);
@@ -179,7 +179,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                  &qParams, vq->range.order);
       if (VecSimQueryReply_GetCode(results) == VecSim_QueryReply_TimedOut) {
         VecSimQueryReply_Free(results);
-        QueryError_SetError(q->status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
+        QueryError_SetError(q->status, QUERY_ETIMEDOUT, NULL);
         return NULL;
       }
       bool yields_metric = vq->scoreField != NULL;
@@ -595,39 +595,39 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
   QueryErrorCode RSErrorCode;
   switch (vecSimCode) {
     case VecSimParamResolverErr_AlreadySet: {
-      RSErrorCode = QUERY_ERROR_CODE_DUP_PARAM;
+      RSErrorCode = QUERY_EDUPPARAM;
       break;
     }
     case VecSimParamResolverErr_UnknownParam: {
-      RSErrorCode = QUERY_ERROR_CODE_NO_OPTION;
+      RSErrorCode = QUERY_ENOOPTION;
       break;
     }
     case VecSimParamResolverErr_BadValue: {
-      RSErrorCode = QUERY_ERROR_CODE_BAD_VAL;
+      RSErrorCode = QUERY_EBADVAL;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_NHybrid: {
-      RSErrorCode = QUERY_ERROR_CODE_NON_HYBRID;
+      RSErrorCode = QUERY_ENHYBRID;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_NExits: {
-      RSErrorCode = QUERY_ERROR_CODE_HYBRID_NON_EXIST;
+      RSErrorCode = QUERY_EHYBRIDNEXIST;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_BatchSize: {
-      RSErrorCode = QUERY_ERROR_CODE_ADHOC_WITH_BATCH_SIZE;
+      RSErrorCode = QUERY_EADHOCWBATCHSIZE;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_EfRuntime: {
-      RSErrorCode = QUERY_ERROR_CODE_ADHOC_WITH_EF_RUNTIME;
+      RSErrorCode = QUERY_EADHOCWEFRUNTIME;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_NRange: {
-      RSErrorCode = QUERY_ERROR_CODE_NON_RANGE;
+      RSErrorCode = QUERY_ENRANGE;
       break;
     }
     default: {
-      RSErrorCode = QUERY_ERROR_CODE_GENERIC;
+      RSErrorCode = QUERY_EGENERIC;
     }
   }
   const char *error_msg = QueryError_Strerror(RSErrorCode);
