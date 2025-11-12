@@ -128,15 +128,8 @@ void* redisStringsKeyDup(void *privdata, const void *key){
 }
 
 static void stringsListValDestructor(void *privdata, void *val) {
-  if (!val) return;
-
-  char **list = val;
-  // Free each string in the list
-  for (int i = 0; list[i] != NULL; i++) {
-    rm_free(list[i]);
-  }
-  // Free the list itself
-  rm_free(list);
+  arrayof(char *) list = val;
+  array_free_ex(list, rm_free(*(char **)ptr));
 }
 
 dictType dictTypeHeapStringsListVal = {

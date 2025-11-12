@@ -151,17 +151,11 @@ void MRConnManager_ReplyState(dict *stateDict, RedisModuleCtx *ctx) {
     RedisModule_ReplyWithCString(ctx, key);
 
     // Get the value (array of connection state strings)
-    char **stateList = dictGetVal(entry);
-
-    // Count the number of states in the list
-    size_t stateCount = 0;
-    while (stateList && stateList[stateCount] != NULL) {
-      stateCount++;
-    }
+    arrayof(char *) stateList = dictGetVal(entry);
 
     // Reply with the array of connection states
-    RedisModule_ReplyWithArray(ctx, stateCount);
-    for (size_t i = 0; i < stateCount; i++) {
+    RedisModule_ReplyWithArray(ctx, array_len(stateList));
+    for (size_t i = 0; i < array_len(stateList); i++) {
       RedisModule_ReplyWithCString(ctx, stateList[i]);
     }
   }
@@ -178,47 +172,20 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
     MRConnPool *pool = dictGetVal(entry);
 
     // Create the key as "host:port"
-    char *key = rm_malloc(512); // Should be enough for host:port
-    snprintf(key, 512, "%s:%d", pool->conns[0]->ep.host, pool->conns[0]->ep.port);
+    char *key;
+    rm_asprintf(&key, "%s:%d", pool->conns[0]->ep.host, pool->conns[0]->ep.port);
 
-    // Check if key already exists in the dictionary
-    dictEntry *existingEntry = dictFind(stateDict, key);
-    char **existingList = NULL;
-    size_t existingCount = 0;
-
-    if (existingEntry) {
-      // Key exists, get the existing list and count its elements
-      existingList = dictGetVal(existingEntry);
-      while (existingList && existingList[existingCount] != NULL) {
-        existingCount++;
-      }
-    }
-
-    // Create new list with space for existing + new connection states + NULL terminator
-    char **newList = rm_malloc(sizeof(char*) * (existingCount + pool->num + 1));
-
-    // Copy existing strings if any
-    for (size_t i = 0; i < existingCount; i++) {
-      newList[i] = rm_strdup(existingList[i]);
-    }
+    // Get or create an entry in the stateDict
+    dictEntry *target_entry = dictAddOrFind(stateDict, key);
+    arrayof(char *) stateList = dictGetVal(target_entry);
 
     // Add connection states from this pool
     for (size_t i = 0; i < pool->num; i++) {
       const char *stateStr = MRConnState_Str(pool->conns[i]->state);
-      newList[existingCount + i] = rm_strdup(stateStr);
+      array_append(stateList, rm_strdup(stateStr));
     }
 
-    // NULL terminate the list
-    newList[existingCount + pool->num] = NULL;
-
-    // Add or replace the entry in the dictionary
-    if (existingEntry) {
-      // Replace existing entry - the old value will be freed by the destructor
-      dictReplace(stateDict, key, newList);
-    } else {
-      // Add new entry
-      dictAdd(stateDict, key, newList);
-    }
+    dictSetVal(stateDict, target_entry, stateList); // Update the value in case it was reallocated
     rm_free(key);
   }
 
