@@ -2737,13 +2737,11 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     sp->stopwords = DefaultStopWordList();
   }
 
-  IndexSpec_StartGC(ctx, spec_ref, sp);
-  Cursors_initSpec(sp);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
     if (sp->smap == NULL)
-      goto cleanup;
+    goto cleanup;
   }
 
   sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
@@ -2770,6 +2768,8 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     addPendingIndexDrop();
     StrongRef_Release(spec_ref);
   } else {
+    IndexSpec_StartGC(ctx, spec_ref, sp);
+    Cursors_initSpec(sp);
     dictAdd(specDict_g, (void*)sp->name, spec_ref.rm);
     for (int i = 0; i < sp->numFields; i++) {
       FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
