@@ -164,9 +164,23 @@ impl QueryErrorCode {
 pub enum QueryWarningCode {
     #[default]
     Ok = 0,
-    Timeout,
+    TimedOut,
     ReachedMaxPrefixExpansions,
     OutOfMemory,
+}
+
+impl QueryWarningCode {
+    pub const fn is_ok(self) -> bool {
+        matches!(self, Self::Ok)
+    }
+    pub const fn to_c_str(self) -> &'static CStr {
+        match self {
+            Self::Ok => c"Success (not a warning)",
+            Self::TimedOut => c"Timeout limit was reached",
+            Self::ReachedMaxPrefixExpansions => c"Max prefix expansions limit was reached",
+            Self::OutOfMemory => c"One or more shards failed to execute the query due to insufficient memory",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]

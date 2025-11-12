@@ -375,3 +375,32 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
 
     query_error.warnings_mut().set_out_of_memory()
 }
+
+/// Returns a [`QueryWarningCode`] given an warnings message.
+///
+/// This only supports the query error codes [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`]
+/// and [`QueryWarningCode::OutOfMemory`]. If another message is provided,
+/// [`QueryWarningCode::Ok`] is returned.
+///
+/// # Safety
+///
+/// - `message` must be a valid C string or a NULL pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(message: *const c_char) -> QueryWarningCode {
+    const TIMED_OUT_ERROR_CSTR: &CStr = QueryWarningCode::TimedOut.to_c_str();
+    const REACHED_MAX_PREFIX_EXPANSIONS_ERROR_CSTR: &CStr = QueryWarningCode::ReachedMaxPrefixExpansions.to_c_str();
+    const OUT_OF_MEMORY_ERROR_CSTR: &CStr = QueryWarningCode::OutOfMemory.to_c_str();
+
+    // Safety: see safety requirement above.
+    let message = unsafe { CStr::from_ptr(message) };
+
+    if message == TIMED_OUT_ERROR_CSTR {
+        QueryWarningCode::TimedOut
+    } else if message == REACHED_MAX_PREFIX_EXPANSIONS_ERROR_CSTR {
+        QueryWarningCode::ReachedMaxPrefixExpansions
+    } else if message == OUT_OF_MEMORY_ERROR_CSTR {
+        QueryWarningCode::OutOfMemory
+    } else {
+        QueryWarningCode::Ok
+    }
+}

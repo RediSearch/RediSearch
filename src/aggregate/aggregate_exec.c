@@ -602,7 +602,7 @@ done_3:
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     }
     if (rc == RS_RESULT_TIMEDOUT) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMEOUT, 1, IsInternal(req));
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, IsInternal(req));
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error

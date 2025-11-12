@@ -2698,6 +2698,13 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_Reply_SimpleString(reply, "warning"); // >warning
     if (rCtx->warning) {
+
+      const char* warning_str = MRReply_String(MRReply_ArrayElement(rCtx->warning, 0), NULL);
+      QueryWarningCode warning_code = QueryWarningCode_GetCodeFromMessage(warning_str);
+      if (warning_code != QUERY_WARNING_CODE_OK) {
+        QueryWarningsGlobalStats_UpdateWarning(warning_code, 1, COORD_ERR_WRNG);
+      }
+
       MR_ReplyWithMRReply(reply, rCtx->warning);
     } else if (req->queryOOM) {
       // Update global stats, since this function is onlu used by the coord's reducer, we set the coord flag to true

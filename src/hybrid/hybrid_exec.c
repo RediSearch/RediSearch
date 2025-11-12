@@ -585,6 +585,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
+    // Update global stats, set coord to false if internal
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, !internal);
+
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
       return QueryMemoryGuardFailure_WithReply(ctx);
     }

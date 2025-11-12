@@ -257,16 +257,13 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_warnings_timeout", stats.warnings.timeout);
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_warnings_oom", stats.warnings.oom);
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_warnings_reached_max_prefix_expansions", stats.warnings.max_prefix_expansions);
-  // If in cluster setting, add coordinator errors and warnings
-  if (GetNumShards_UnSafe() > 1) {
-    RedisModule_InfoBeginDictField(ctx, "coordinator_warnings_and_error");
-    RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout", stats.coord_errors.timeout);
-    RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_oom", stats.coord_errors.oom);
-    RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout", stats.coord_warnings.timeout);
-    RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_oom", stats.coord_warnings.oom);
-    RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_reached_max_prefix_expansions", stats.coord_warnings.max_prefix_expansions);
-    RedisModule_InfoEndDictField(ctx);
-  }
+  // Coordinator errors and warnings
+  RedisModule_InfoAddSection(ctx, "coordinator_warnings_and_errors");
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout", stats.coord_errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_oom", stats.coord_errors.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout", stats.coord_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_oom", stats.coord_warnings.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_reached_max_prefix_expansions", stats.coord_warnings.max_prefix_expansions);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {

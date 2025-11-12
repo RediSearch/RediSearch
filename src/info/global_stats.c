@@ -91,10 +91,23 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.total_queries_processed = READ(RSGlobalStats.totalStats.queries.total_queries_processed);
   stats.total_query_commands = READ(RSGlobalStats.totalStats.queries.total_query_commands);
   stats.total_query_execution_time = rs_wall_clock_convert_ns_to_ms(READ(RSGlobalStats.totalStats.queries.total_query_execution_time));
+
   stats.errors.timeout = READ(RSGlobalStats.totalStats.queries.errors.timeout);
   stats.errors.oom = READ(RSGlobalStats.totalStats.queries.errors.oom);
   stats.errors.syntax = READ(RSGlobalStats.totalStats.queries.errors.syntax);
   stats.errors.arguments = READ(RSGlobalStats.totalStats.queries.errors.arguments);
+  stats.warnings.timeout = READ(RSGlobalStats.totalStats.queries.warnings.timeout);
+  stats.warnings.oom = READ(RSGlobalStats.totalStats.queries.warnings.oom);
+  stats.warnings.max_prefix_expansions = READ(RSGlobalStats.totalStats.queries.warnings.max_prefix_expansions);
+
+  stats.coord_errors.timeout = READ(RSGlobalStats.totalStats.queries.coord_errors.timeout);
+  stats.coord_errors.oom = READ(RSGlobalStats.totalStats.queries.coord_errors.oom);
+  stats.coord_errors.syntax = READ(RSGlobalStats.totalStats.queries.coord_errors.syntax);
+  stats.coord_errors.arguments = READ(RSGlobalStats.totalStats.queries.coord_errors.arguments);
+  stats.coord_warnings.timeout = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout);
+  stats.coord_warnings.oom = READ(RSGlobalStats.totalStats.queries.coord_warnings.oom);
+  stats.coord_warnings.max_prefix_expansions = READ(RSGlobalStats.totalStats.queries.coord_warnings.max_prefix_expansions);
+
   return stats;
 }
 
@@ -127,7 +140,7 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coo
 void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord) {
   QueryWarningsGlobalStats *queries_warnings = coord ? &RSGlobalStats.totalStats.queries.coord_warnings : &RSGlobalStats.totalStats.queries.warnings;
   switch (code) {
-    case QUERY_WARNING_CODE_TIMEOUT:
+    case QUERY_WARNING_CODE_TIMED_OUT:
       INCR_BY(queries_warnings->timeout, toAdd);
       break;
     case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS:
