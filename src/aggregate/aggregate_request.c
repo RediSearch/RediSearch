@@ -24,6 +24,7 @@
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
+#include "slots_tracker.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -372,7 +373,12 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
       return ARG_ERROR;
     }
-    // TODO ASM: check if the requested slots are available
+    OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
+    if (!version.is_some) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
+      return REDISMODULE_ERR;
+    }
+    *papCtx->slotsVersion = version.version;
     *papCtx->querySlots = slot_array;
     *papCtx->slotsVersion = 0;
   } else {
@@ -1071,6 +1077,11 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     goto error;
   }
 
+  OptionSlotTrackerVersion version = slots_tracker_check_availability(req->querySlots);
+  if (!version.is_some) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Query requires unavailable slots");
+    goto error;
+  }
   return REDISMODULE_OK;
 
 error:
@@ -1435,9 +1446,15 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .querySlots = req->querySlots,
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
+      .slotsVersion = req->slotsVersion,
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     req->querySlots = NULL; // Ownership of the slot ranges is now with the params.
+    OptionSlotTrackerVersion version = slots_tracker_check_availability(params.querySlots);
+    if (!version.is_some) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Query requires unavailable slots");
+      return REDISMODULE_ERR;
+    }
     Pipeline_BuildQueryPart(&req->pipeline, &params);
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;

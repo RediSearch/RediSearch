@@ -89,7 +89,6 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   return true;
 }
 
-// TODO ASM: use this to decide if we need to filter by slots
 extern atomic_uint key_space_version;
 atomic_uint key_space_version = 0;
 
@@ -150,6 +149,7 @@ validate_current:
         continue;
       }
     }
+    bool should_filter_slots = self->slotsVersion == 0 || atomic_load(&key_space_version) != self->slotsVersion;
     if (should_filter_slots) {
       RS_ASSERT(self->querySlots != NULL);
       int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));

@@ -15,6 +15,7 @@
 #include <limits.h>
 #include "util/misc.h"
 #include "slot_ranges.h"
+#include "slots_tracker.h"
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
@@ -459,7 +460,12 @@ void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
         return;
     }
-    // TODO ASM: check if the requested slots are available
+    OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
+    if (!version.is_some) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
+        return;
+    }
+
     *ctx->querySlots = slot_array;
-    *ctx->slotsVersion = 0;
+    *ctx->slotsVersion = version.version;
 }
