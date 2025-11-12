@@ -162,6 +162,8 @@ def test_svs_vamana_info():
                     'DIM', dim, 'DISTANCE_METRIC', 'L2']
         if compression_type != 'NO_COMPRESSION':
             cmd_params.extend(['COMPRESSION', compression_type])
+            if compression_type == 'LeanVec4x8':
+                cmd_params.extend(['REDUCE', dim // 2])
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', len(cmd_params), *cmd_params).ok()
 
         # Validate that ft.info returns the default params for SVS VAMANA, along with compression
