@@ -272,15 +272,9 @@ fn decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchGroup)
         |b| {
             for (_, _, buffer) in values {
                 b.iter_batched_ref(
-                    || {
-                        (
-                            Cursor::new(buffer.as_ref()),
-                            Numeric::new(),
-                            RSIndexResult::numeric(0.0),
-                        )
-                    },
-                    |(cursor, decoder, result)| {
-                        let res = decoder.decode(cursor, 100, result);
+                    || (Cursor::new(buffer.as_ref()), RSIndexResult::numeric(0.0)),
+                    |(cursor, result)| {
+                        let res = Numeric::decode(cursor, 100, result);
 
                         let _ = black_box(res);
                     },

@@ -68,7 +68,7 @@ aligned_n = "ALIGNED"
 
 [parse]
 parse_deps = true
-include = ["mimic", "query_error"]
+include = ["c_ffi_utils", "query_error"]
 
 [export.rename]
 "OpaqueQueryError" = "QueryError"
