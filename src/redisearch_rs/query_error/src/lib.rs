@@ -153,6 +153,22 @@ impl QueryErrorCode {
     }
 }
 
+// Enum for query warnings
+// Unlike QueryErrorCode, this enum is not tied to any API or string mapping.
+// Its current purpose is only to serve as a lightweight identifier that can
+// be passed to functions and easily handled via switch/case logic.
+/// cbindgen:prefix-with-name
+/// cbindgen:rename-all=ScreamingSnakeCase
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum QueryWarningCode {
+    #[default]
+    Ok = 0,
+    Timeout,
+    ReachedMaxPrefixExpansions,
+    OutOfMemory,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct QueryError {
     // FIXME: once QueryError is no longer depended on by C code this should be

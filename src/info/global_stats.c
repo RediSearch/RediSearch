@@ -106,33 +106,35 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
   return READ(RSGlobalStats.totalStats.logically_deleted);
 }
 
-void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd) {
+void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coord) {
+  QueryErrorsGlobalStats *queries_errors = coord ? &RSGlobalStats.totalStats.queries.coord_errors : &RSGlobalStats.totalStats.queries.errors;
   switch (code) {
     case QUERY_ERROR_CODE_TIMED_OUT:
-      INCR_BY(RSGlobalStats.totalStats.queries.errors.timeout, toAdd);
+      INCR_BY(queries_errors->timeout, toAdd);
       break;
     case QUERY_ERROR_CODE_OUT_OF_MEMORY:
-      INCR_BY(RSGlobalStats.totalStats.queries.errors.oom, toAdd);
+      INCR_BY(queries_errors->oom, toAdd);
       break;
     case QUERY_ERROR_CODE_SYNTAX:
-      INCR_BY(RSGlobalStats.totalStats.queries.errors.syntax, toAdd);
+      INCR_BY(queries_errors->syntax, toAdd);
       break;
     case QUERY_ERROR_CODE_PARSE_ARGS:
-      INCR_BY(RSGlobalStats.totalStats.queries.errors.arguments, toAdd);
+      INCR_BY(queries_errors->arguments, toAdd);
       break;
   }
 }
 
-void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd) {
+void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord) {
+  QueryWarningsGlobalStats *queries_warnings = coord ? &RSGlobalStats.totalStats.queries.coord_warnings : &RSGlobalStats.totalStats.queries.warnings;
   switch (code) {
     case QUERY_WARNING_CODE_TIMEOUT:
-      INCR_BY(RSGlobalStats.totalStats.queries.warnings.timeout, toAdd);
+      INCR_BY(queries_warnings->timeout, toAdd);
       break;
     case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS:
-      INCR_BY(RSGlobalStats.totalStats.queries.warnings.max_prefix_expansions, toAdd);
+      INCR_BY(queries_warnings->max_prefix_expansions, toAdd);
       break;
     case QUERY_WARNING_CODE_OUT_OF_MEMORY:
-      INCR_BY(RSGlobalStats.totalStats.queries.warnings.oom, toAdd);
+      INCR_BY(queries_warnings->oom, toAdd);
       break;
     default:
       RS_LOG_ASSERT(false, "Query warning code is not supported in global stats");

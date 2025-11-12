@@ -58,6 +58,8 @@ typedef struct {
   rs_wall_clock_ns_t total_query_execution_time;   // Total time spent on queries, aggregated in ns and reported in ms
   QueryErrorsGlobalStats errors; // Number of queries that failed with an error
   QueryWarningsGlobalStats warnings; // Number of queries that completed with a warning
+  QueryErrorsGlobalStats coord_errors; // Number of queries that failed with an error, on the coordinator
+  QueryWarningsGlobalStats coord_warnings; // Number of queries that completed with a warning, on the coordinator
 } QueriesGlobalStats;
 
 typedef struct {
@@ -118,10 +120,10 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs();
  * Add or increase `toAdd` number of errors to the global query errors counter of error.
  * `toAdd` can be negative to decrease the counter.
  */
-void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd);
+void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool coord);
 
 /**
  * Add or increase `toAdd` number of warnings to the global query warnings counter of warning.
  * `toAdd` can be negative to decrease the counter.
  */
-void QueryWarningsGlobalStats_UpdateWarning(QueryErrorCode warning, int toAdd);
+void QueryWarningsGlobalStats_UpdateWarning(QueryErrorCode warning, int toAdd, bool coord);

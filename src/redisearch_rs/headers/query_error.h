@@ -34,23 +34,6 @@
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
 #define QUERY_WOOM_CLUSTER "One or more shards failed to execute the query due to insufficient memory"
 
-// Enum for query warnings
-// Unlike QueryErrorCode, this enum is not tied to any API or string mapping.
-// Its current purpose is only to serve as a lightweight identifier that can
-// be passed to functions and easily handled via switch/case logic.
-enum QueryWarningCode
-#ifdef __cplusplus
-  : uint8_t
-#endif // __cplusplus
-{
-  QUERY_WARNING_CODE_OK = 0,
-  QUERY_WARNING_CODE_TIMEOUT,
-  QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS,
-  QUERY_WARNING_CODE_OUT_OF_MEMORY,
-};
-#ifndef __cplusplus
-typedef uint8_t QueryWarningCode;
-#endif // __cplusplus
 
 enum QueryErrorCode
 #ifdef __cplusplus
