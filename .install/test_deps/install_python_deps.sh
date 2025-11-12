@@ -17,14 +17,19 @@ activate_venv() {
 		# We work around it by appending the required lines to the shell profile
 		# _after_ the venv activation script
 
-		# cargo
 		if [[ $GITHUB_ACTIONS == "true" ]]; then
+		    # cargo
 			echo '. "/root/.cargo/env"' >> ~/.bash_profile
+            # rustup
+			echo 'export RUSTUP_HOME=/root/.rustup' >> ~/.bash_profile
+			# uv
+			echo 'export PATH="/root/.local/bin:$PATH"' >> ~/.bash_profile
 		else
+            # cargo
 			echo '. "$HOME/.cargo/env"' >> ~/.bash_profile
+			# uv
+			echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bash_profile
 		fi
-		# uv
-		echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bash_profile
 	fi
 }
 
