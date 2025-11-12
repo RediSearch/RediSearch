@@ -177,7 +177,7 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
 
     // Get or create an entry in the stateDict
     dictEntry *target_entry = dictAddOrFind(stateDict, key);
-    arrayof(char *) stateList = dictGetVal(target_entry);
+    arrayof(char *) stateList = dictGetVal(target_entry) ?: array_new(char *, pool->num);
 
     // Add connection states from this pool
     for (size_t i = 0; i < pool->num; i++) {
