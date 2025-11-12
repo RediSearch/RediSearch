@@ -317,6 +317,19 @@ double RsValue_Number_Get(const struct RsValue *v);
 void RsValue_IntoNumber(struct RsValue *v, double n);
 
 /**
+ * Gets the string pointer and length from the value,
+ * dereferencing in case `value` is a (chain of) RSValue
+ * references. Works for all RSValue string types.
+ *
+ * The returned string may or may not be null-terminated.
+ *
+ * @param v The value from which to obtain the data
+ * @param lenp The location to which to write the string length
+ * @return A pointer to the start of the string.
+ */
+char *RsValue_StringPtrLen(const struct RsValue *v, uint32_t *lenp);
+
+/**
  * Create a new, uninitialized [`RsValueMap`], reserving space for `cap`
  * entries. The map entries are uninitialized and must be set using [`RsValueMap_SetEntry`].
  *

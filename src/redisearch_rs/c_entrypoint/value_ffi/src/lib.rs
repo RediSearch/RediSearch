@@ -256,3 +256,28 @@ pub unsafe extern "C" fn RsValue_IntoNumber(v: Option<NonNull<OpaqueRsValue>>, n
 
     v.to_number(n);
 }
+
+
+
+/// Gets the string pointer and length from the value,
+/// dereferencing in case `value` is a (chain of) RSValue
+/// references. Works for all RSValue string types.
+/// 
+/// The returned string may or may not be null-terminated.
+///
+/// @param v The value from which to obtain the data
+/// @param lenp The location to which to write the string length
+/// @return A pointer to the start of the string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_StringPtrLen(
+    v: *const OpaqueRsValue,
+    lenp: Option<NonNull<u32>>,
+) -> NonNull<c_char> {
+    let lenp = unsafe { expect_unchecked!(lenp) };
+    // Safety: caller must ensure (1)
+    let v = unsafe { RsValue::from_opaque_ptr(v) };
+    // Safety: caller must ensure (2) and (3)
+    let v = unsafe { expect_unchecked!(v, "`v` must not be NULL") };
+
+    todo!()
+}
