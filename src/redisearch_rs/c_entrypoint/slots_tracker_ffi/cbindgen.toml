@@ -6,10 +6,6 @@ pragma_once = true
 
 after_includes = """
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // static definitions in header                                                                             //
 // We want to avoid atomic read access through FFI boundary, so we maintain atomic version counter here.    //
@@ -108,13 +104,6 @@ static void slots_tracker_mark_partially_available_slots(const RedisModuleSlotRa
   uint32_t version = slots_tracker_mark_partially_available_slots_internal(ranges);
   atomic_store_explicit(&key_space_version, version, memory_order_relaxed);
 }
-"""
-
-trailer = """
-
-#ifdef __cplusplus
-}
-#endif
 """
 
 [export.rename]
