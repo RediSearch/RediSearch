@@ -30,6 +30,11 @@ impl SchemaRuleWrapper {
         NonNull::new(ptr).map(SchemaRuleWrapper)
     }
 
+    #[cfg(test)]
+    pub const fn inner(&self) -> NonNull<ffi::SchemaRule> {
+        self.0
+    }
+
     /// Access the underlying SchemaRule reference.
     ///
     /// # Safety
