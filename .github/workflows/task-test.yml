@@ -52,6 +52,7 @@ env:
 
 jobs:
   build-image:
+    if: inputs.container == 'rockylinux:9'
     name: Build container for ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
     permissions:
@@ -106,9 +107,9 @@ jobs:
     runs-on: ${{ inputs.env }}
     needs: build-image
     container:
-      image: ${{ needs.build-image.outputs.image }}
+      image: ${{ inputs.container == 'rockylinux:9' && needs.build-image.outputs.image || inputs.container }}
     # Nothing to do if both are `false`, skip
-    if: ${{ inputs.standalone || inputs.coordinator }}
+    if: ${{ !cancelled() && (inputs.standalone || inputs.coordinator) }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
