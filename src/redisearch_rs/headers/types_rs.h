@@ -14,6 +14,7 @@ typedef struct RSQueryTerm RSQueryTerm;
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef struct RSYieldableMetric RSYieldableMetric;
 typedef uint64_t t_docId;
+typedef uint16_t t_fieldIndex;
 
 /* Copied from `redisearch.h` */
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
@@ -491,6 +492,39 @@ typedef union IndexDecoderCtx {
     const struct NumericFilter *numeric;
   };
 } IndexDecoderCtx;
+
+/**
+ * Type representing either a field mask or field index.
+ */
+enum FieldMaskOrIndex_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  /**
+   * For textual fields, allows to host multiple field indices at once.
+   */
+  FieldMaskOrIndex_Index = 0,
+  /**
+   * For the other fields, allows a single field to be referenced.
+   */
+  FieldMaskOrIndex_Mask = 1,
+};
+#ifndef __cplusplus
+typedef uint8_t FieldMaskOrIndex_Tag;
+#endif // __cplusplus
+
+typedef union FieldMaskOrIndex {
+  FieldMaskOrIndex_Tag tag;
+  struct {
+    FieldMaskOrIndex_Tag index_tag;
+    t_fieldIndex index;
+  };
+  struct {
+    FieldMaskOrIndex_Tag mask_tag;
+    t_fieldMask mask;
+  };
+} FieldMaskOrIndex;
 
 #ifdef __cplusplus
 extern "C" {
