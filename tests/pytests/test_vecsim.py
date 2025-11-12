@@ -1904,7 +1904,7 @@ def test_index_multi_value_json():
             expected_res_knn.append(str(i))                                 # Expected id
             expected_res_knn.append([score_field_name, str(i * i * dim)])   # Expected score
 
-        radius = dim * k**2
+        radius = dim * k**2 + 40
         element = create_np_array_typed([n]*dim, data_t)
         cmd_range = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'LIMIT', 0, n]
         expected_res_range = []
@@ -1933,7 +1933,11 @@ def test_index_multi_value_json():
 
             cmd_range[2] = f'@hnsw:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
             hnsw_res = conn.execute_command(*cmd_range)
-            env.assertEqual(sortedResults(hnsw_res), expected_res_range, message=f'data_t: {data_t}')
+            try:
+                env.assertEqual(sortedResults(hnsw_res), expected_res_range, message=f'data_t: {data_t}')
+            except Exception as e:
+                env.debugPrint(f"Failed comparing results: {e} for data_t: {data_t}", force=True)
+                raise e
 
             cmd_range[2] = f'@flat:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
             flat_res = conn.execute_command(*cmd_range)
