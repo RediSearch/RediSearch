@@ -54,6 +54,21 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
+  benchmark-search-oss-standalone-threads-6:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        member_id: [1, 2, 3]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "search*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone-threads-6
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
   benchmark-vecsim-oss-standalone:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     strategy:
@@ -66,6 +81,21 @@ jobs:
       benchmark_glob: "vecsim*.yml"
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
+  benchmark-vecsim-oss-standalone-threads-6:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        member_id: [1, 2]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "vecsim*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone-threads-6
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
