@@ -15,6 +15,13 @@ extern "C" {
 #endif
 
 /**
+ * Initialize the ASM state machine with the local slots.
+ */
+void ASM_StateMachine_Init(const RedisModuleSlotRangeArray *local_slots) {
+  slots_tracker_set_local_slots(local_slots);
+}
+
+/**
  * When slots are being imported, we need to mark them as partially available.
  * This means that these slots may exist partially in the key space, but we don't own them.
 */
@@ -38,8 +45,8 @@ void ASM_StateMachine_CompleteMigration(const RedisModuleSlotRangeArray *slots) 
 }
 
 /**
- * When slots are being trimmed, we need to check if there is a fully available overlap, to detect if they come from a failed import
- * If there is, we need to drain the worker thread pool and bump the key space version.
+ * When slots are being trimmed, we need to check if there is a fully available overlap, to detect if they come from a failed import or not.
+ * If there is, it means that the trim is consequence of a successful migration, and we need to drain the worker thread pool and bump the key space version.
  * The draining function is passed as a parameter to allow for easier unit testing
 */
 void ASM_StateMachine_StartTrim(const RedisModuleSlotRangeArray *slots, void (*draining_bound_fn)(void)) {
