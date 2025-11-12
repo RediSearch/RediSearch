@@ -1,0 +1,65 @@
+Branch: omerl-add-memory-rail-cluster
+Commit: 415ffd1a4 - "Reply error from shards in ft.profile"
+
+DIFF SUMMARY:
+============
+
+This branch adds functionality to include error replies from shards in FT.PROFILE responses, 
+particularly for OOM (Out of Memory) scenarios in cluster environments.
+
+CHANGES:
+========
+
+1. deps/hiredis (submodule update)
+   - Updated from commit 294782041 to 138794853
+
+2. src/coord/dist_aggregate.c
+   - Added error handling in getNextReply() function
+   - When profiling is enabled and an error is returned, clone the error and append it to shardsProfile
+   - Lines 293-299: New code block to handle error profiling
+
+3. src/coord/rmr/reply.c
+   - Added new function MRReply_Clone() 
+   - Implements partial cloning for MR_REPLY_STRING and MR_REPLY_ERROR types
+   - Lines 258-272: Complete new function implementation
+
+4. src/coord/rmr/reply.h
+   - Added function declaration for MRReply_Clone()
+   - Lines 75-77: New function prototype and documentation
+
+5. src/module.c
+   - Modified PrintShardProfile_resp2() function
+   - Added MR_ReplyWithMRReply(reply, current) call for error handling
+   - Changed "if (isSearch)" to "else if (isSearch)" for proper control flow
+   - Lines 2771, 2774: Key changes in error handling logic
+   
+   - Modified PrintShardProfile_resp3() function  
+   - Added MR_ReplyWithMRReply(reply, current) call for error handling
+   - Line 2789: New error reply handling
+
+6. tests/pytests/test_query_oom.py
+   - Added import for ResponseError from redis.exceptions
+   - Enhanced test_oom_verbosity_cluster_return() function
+   - Added validation for error messages in shard responses for both RESP2 and RESP3
+   - Lines 299, 303-305, 312-314, 325-327, 332-334, 339-341: New test assertions
+   - Validates that exactly 2 OOM errors are returned from shards in profile responses
+
+POTENTIAL IMPACT ON testInvalidApplyFunction:
+============================================
+
+The changes in this branch are focused on OOM error handling and profiling in cluster environments.
+The testInvalidApplyFunction test deals with invalid APPLY expressions in FT.AGGREGATE commands.
+
+Possible reasons for test failure:
+1. Changes to error handling in module.c might affect how errors are propagated
+2. The MRReply_Clone() function might have memory management issues
+3. Changes to PrintShardProfile functions might affect error message formatting
+4. The test might be sensitive to changes in error response structure
+
+The test expects specific error messages:
+- "Error converting string" for invalid case conditions
+- "Unknown function name" for invalid functions  
+- "Could not find the value for a parameter name, consider using EXISTS" for missing properties
+
+If the error handling changes affect how these errors are formatted or returned,
+the test assertions using .error().contains() might fail.

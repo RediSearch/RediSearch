@@ -248,6 +248,14 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   // highest number of failures out of all specs
   RedisModule_InfoAddFieldULongLong(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
   RedisModule_InfoAddFieldULongLong(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
+  // Queries errors or warnings
+  QueriesGlobalStats stats = TotalGlobalStats_GetQueryStats();
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_timeout", stats.errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_oom", stats.errors.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_syntax", stats.errors.syntax);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_arguments", stats.errors.arguments);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_warnings_timeout", stats.warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_warnings_oom", stats.warnings.oom);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
