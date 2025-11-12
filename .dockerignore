@@ -3,6 +3,7 @@
 *
 !.install
 !.install/**
+!build.sh
 
 # Make sure we don't include the boost directory in the context.
 .install/boost/*

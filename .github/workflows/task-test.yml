@@ -113,7 +113,6 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
         if: inputs.pre-steps-script && inputs.container == 'alpine:3'
@@ -162,10 +161,10 @@ jobs:
       - name: Free up disk space
         run: |
           df -h
-          ${{ steps.mode.outputs.mode }} rm -rf /usr/share/dotnet || true
-          ${{ steps.mode.outputs.mode }} rm -rf /usr/local/lib/android || true
-          ${{ steps.mode.outputs.mode }} rm -rf /opt/ghc || true
-          ${{ steps.mode.outputs.mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
+          rm -rf /usr/share/dotnet || true
+          rm -rf /usr/local/lib/android || true
+          rm -rf /opt/ghc || true
+          rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
@@ -236,12 +235,12 @@ jobs:
           echo "Runner Architecture: ${{ runner.arch }}"
           echo "========================"
 
-      - name: Setup tests dependencies
+      - name: Setup Python test dependencies
         run: |
           SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if .install/test_deps/common_installations.sh; then
+            if .install/test_deps/install_python_deps.sh; then
               echo "Setup tests dependencies succeeded"
               SUCCESS=1
               break

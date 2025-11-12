@@ -22,6 +22,8 @@ COPY . .
 
 WORKDIR /project/.install
 RUN bash -l -eo pipefail install_script.sh
+WORKDIR /project
+RUN bash -l -eo pipefail .install/test_deps/install_rust_deps.sh
 # Expose newly-installed Rust and Python tools via PATH
 ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 
