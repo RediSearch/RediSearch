@@ -238,7 +238,7 @@ struct KeyList<'a> {
     rowlen: u32,
 }
 
-/// A cursor over an [`RLookup`]s key list usable as [`Iterator`]
+/// A cursor over an [`RLookup`]'s key list usable as [`Iterator`]
 ///
 /// This types `Iterator` implementation skips all hidden keys, i.e. the keys
 /// with hidden flags, also including keys that been overridden.
@@ -498,7 +498,7 @@ impl<'a> RLookupKey<'a> {
         mem::replace(me.header.next.get_mut(), next)
     }
 
-    /// Access the name of the RLookupKey as &CStr refereence
+    /// Access the name of the RLookupKey as &CStr reference
     pub fn name_as_cstr(&self) -> &CStr {
         self._name.as_ref()
     }
@@ -616,8 +616,8 @@ impl<'a> KeyList<'a> {
     /// Returns a [`Cursor`] starting at the first element.
     ///
     /// The [`Cursor`] type can be used as Iterator over this list.
-    /// The returned Cursors `Iterator` implementation skips all hidden keys, i.e. the keys
-    /// with hidden flags, also including keys that been overridden.
+    /// The returned Cursor's `Iterator` implementation skips hidden keys, i.e. the keys that have
+    /// been overridden.
     ///
     /// If you need to obtain the hidden keys use [`Cursor::move_next`].
     #[cfg(debug_assertions)]
@@ -1308,7 +1308,8 @@ impl<'a> RLookup<'a> {
         Some(key)
     }
 
-    pub const fn get_row_len(&self) -> u32 {
+    /// The row len is u
+    pub(crate) const fn get_row_len(&self) -> u32 {
         self.header.keys.rowlen
     }
 }
