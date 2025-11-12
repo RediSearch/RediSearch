@@ -152,12 +152,14 @@ def test_svs_vamana_info():
     data_type = random.choice(VECSIM_SVS_DATA_TYPES)
 
     # Create SVS VAMANA index with all compression flavors (except for global SQ8).
-    compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8']
+    compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8', 'LeanVec4x8']
     for compression_type in compression_types:
         cmd_params = ['TYPE', data_type,
                     'DIM', dim, 'DISTANCE_METRIC', 'L2']
         if compression_type != 'NO_COMPRESSION':
             cmd_params.extend(['COMPRESSION', compression_type])
+            if compression_type == 'LeanVec4x8':
+                cmd_params.extend(['REDUCE', dim // 2])
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', len(cmd_params), *cmd_params).ok()
 
         # Validate that ft.info returns the default params for SVS VAMANA, along with compression

@@ -21,7 +21,7 @@
 #define CPUID_AVAILABLE 1
 #endif
 
-static bool isLVQSupported() {
+bool isLVQSupported() {
 
 #if defined(CPUID_AVAILABLE) && BUILD_INTEL_SVS_OPT
   // Check if the machine is Intel based on the CPU vendor.
@@ -278,7 +278,7 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
 }
 
 bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits) {
-  return isLVQSupported() && (quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec);
+  return quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec;
 }
 
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {
