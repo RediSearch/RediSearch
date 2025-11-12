@@ -106,15 +106,15 @@ int testImportWorkflow() {
   ASM_StateMachine_CompleteImport(import_slots);
   version = slots_tracker_check_availability(complete_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // Stable, Local Equals while no partially available slots
   ASSERT_EQUAL(version.version, 3);
 
   version = slots_tracker_check_availability(import_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals (can query, but must filter (there are more slots available than the query requires))
   version = slots_tracker_check_availability(init_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals (can query, but must filter (there are more slots available than the query requires))
 
   freeSlotRangeArray(import_slots);
   freeSlotRangeArray(init_slots);
@@ -152,15 +152,15 @@ int testImportContinuousWorkflow() {
   ASM_StateMachine_CompleteImport(import_slots);
   version = slots_tracker_check_availability(complete_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // Stable, Local Equals while no partially available slots
   ASSERT_EQUAL(version.version, 3);
 
   version = slots_tracker_check_availability(import_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals (can query, but must filter (there are more slots available than the query requires))
   version = slots_tracker_check_availability(init_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals (can query, but must filter (there are more slots available than the query requires))
 
   freeSlotRangeArray(import_slots);
   freeSlotRangeArray(init_slots);
@@ -178,53 +178,45 @@ int testMigrationTrimmingWorkflow() {
   ASM_StateMachine_SetLocalSlots(init_slots);
   OptionSlotTrackerVersion version = slots_tracker_check_availability(init_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // Stable, Local Equals while no partially available slots
   ASSERT_EQUAL(version.version, 2);
   version = slots_tracker_check_availability(migration_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals (can query, but must filter (there are more slots available than the query requires))
   version = slots_tracker_check_availability(disjoint_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals (can query, but must filter (there are more slots available than the query requires))
 
   // Start migration does nothing
   ASM_StateMachine_CompleteMigration(migration_slots);
   version = slots_tracker_check_availability(init_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // ?????
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // Stable, Local Equals while no partially available slots
   ASSERT_EQUAL(version.version, 2);
   version = slots_tracker_check_availability(migration_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals (can query, but must filter (there are more slots available than the query requires))
   version = slots_tracker_check_availability(disjoint_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals (can query, but must filter (there are more slots available than the query requires))
 
   ASM_StateMachine_StartTrim(migration_slots, mock_draining_function);
   version = slots_tracker_check_availability(init_slots);
-  ASSERT_TRUE(version.is_some);
-  ASSERT_FALSE(version.version == atomic_load_explicit(&key_space_version, memory_order_relaxed));
-  ASSERT_EQUAL(version.version, 2);
-  ASSERT_EQUAL(atomic_load_explicit(&key_space_version, memory_order_relaxed), 3);
+  ASSERT_FALSE(version.is_some);
   version = slots_tracker_check_availability(migration_slots);
-  ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_FALSE(version.is_some);
   version = slots_tracker_check_availability(disjoint_slots);
   ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals (can query, but must filter (there are more slots available than the query requires))
 
   ASM_StateMachine_CompleteTrim(migration_slots);
   version = slots_tracker_check_availability(init_slots);
-  ASSERT_TRUE(version.is_some);
-  ASSERT_FALSE(version.version == atomic_load_explicit(&key_space_version, memory_order_relaxed));
-  ASSERT_EQUAL(version.version, 2);
-  ASSERT_EQUAL(atomic_load_explicit(&key_space_version, memory_order_relaxed), 3);
+  ASSERT_FALSE(version.is_some);
   version = slots_tracker_check_availability(migration_slots);
-  ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_FALSE(version.is_some);
   version = slots_tracker_check_availability(disjoint_slots);
-  ASSERT_TRUE(version.is_some);
-  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // Stable, Local Equals while no partially available slots
+  ASSERT_EQUAL(version.version, 3);
 
   freeSlotRangeArray(migration_slots);
   freeSlotRangeArray(init_slots);

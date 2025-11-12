@@ -52,8 +52,8 @@ void ASM_StateMachine_CompleteMigration(const RedisModuleSlotRangeArray *slots) 
 void ASM_StateMachine_StartTrim(const RedisModuleSlotRangeArray *slots, void (*draining_bound_fn)(void)) {
   if (slots_tracker_has_fully_available_overlap(slots)) {
     draining_bound_fn();
-    atomic_fetch_add_explicit(&key_space_version, 1, memory_order_relaxed);
   }
+  slots_tracker_mark_partially_available_slots(slots);
 }
 
 /**
