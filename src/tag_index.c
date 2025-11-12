@@ -228,7 +228,7 @@ static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchC
                                          const char *value, size_t len, double weight, t_fieldIndex fieldIndex) {
   RSToken tok = {.str = (char *)value, .len = len};
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = fieldIndex};
+  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex};
   return NewInvIndIterator_TagQuery(iv, idx, sctx, fieldMaskOrIndex, t, weight);
 }
 

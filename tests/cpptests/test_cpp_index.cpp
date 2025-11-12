@@ -266,7 +266,7 @@ TEST_F(IndexTest, testUnion) {
 
     // printf("Reading!\n");
     QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-    FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+    FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
     irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
     irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
     IteratorsConfig config{};
@@ -318,10 +318,10 @@ TEST_F(IndexTest, testUnion) {
 TEST_F(IndexTest, testWeight) {
   InvertedIndex *w = createPopulateTermsInvIndex(10, 1);
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 2);
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = { .index = RS_INVALID_FIELD_INDEX }};
+  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
   irs[0] = NewInvIndIterator_TermQuery(w, nullptr, fieldMaskOrIndex, nullptr, 0.5);
-  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
   IteratorsConfig config{};
   iteratorsConfig_init(&config);
@@ -358,7 +358,7 @@ TEST_F(IndexTest, testNot) {
   // not all numbers that divide by 3
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
   irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
 
@@ -380,7 +380,7 @@ TEST_F(IndexTest, testNot) {
 TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createPopulateTermsInvIndex(10, 3);
   auto ctx = std::make_unique<MockQueryEvalCtx>();
-  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
 
   RSIndexResult *h = NULL;
@@ -465,7 +465,7 @@ TEST_F(IndexTest, testNumericInverted) {
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
   t_docId i = 1;
@@ -498,7 +498,7 @@ TEST_F(IndexTest, testNumericVaried) {
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
 
@@ -562,7 +562,7 @@ void testNumericEncodingHelper(bool isMulti) {
     }
   }
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
 
@@ -597,7 +597,7 @@ TEST_F(IndexTest, testIntersection) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(100000, 2);
 
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
   irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
 
@@ -686,7 +686,7 @@ TEST_F(IndexTest, testHybridVector) {
   KNNVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_SCORE};
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = max_id;
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   // Run simple top k query.
   HybridIteratorParams hParams = {.sctx=NULL,
@@ -725,7 +725,7 @@ TEST_F(IndexTest, testHybridVector) {
   vecIt->Free(vecIt);
 
   // Test in hybrid mode.
-  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   QueryIterator *ir = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
   hParams.childIt = ir;
   QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
@@ -1419,7 +1419,7 @@ TEST_F(IndexTest, testRawDocId) {
   }
 
   // Test that we can read them back
-  FieldMaskOrIndex f = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+  FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   QueryIterator *ir = NewInvIndIterator_TermQuery(idx, nullptr, f, nullptr, 1);
   for (t_docId id = 1; id < 100; id += 2) {
     ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
@@ -1495,7 +1495,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
 
   VecSimQueryParams queryParams = {0};
   KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_DEFAULT};
 
   // Mock the WILDCARD_ITERATOR consideration
   QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, n, 1.0);

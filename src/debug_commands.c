@@ -335,7 +335,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
         ARRAY_LEN_VAR(numericHeader) += InvertedIndexSummaryHeader(sctx->redisCtx, invidx);
         END_POSTPONED_LEN_ARRAY(numericHeader);
       }
-      FieldFilterContext fieldCtx = {.field.isFieldMask = false, .field.value.index = RS_INVALID_FIELD_INDEX, .predicate = FIELD_EXPIRATION_DEFAULT};
+      FieldFilterContext fieldCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_DEFAULT};
       QueryIterator *iter = NewInvIndIterator_NumericQuery(range->entries, sctx, &fieldCtx, NULL, NULL, range->minVal, range->maxVal);
       ReplyIteratorResultsIDs(iter, sctx->redisCtx);
       ++ARRAY_LEN_VAR(numericInvertedIndex); // end (1)Header 2)entries (header is optional)
