@@ -7,7 +7,7 @@ $MODE apk update
 $MODE apk add --no-cache build-base gcc g++ make linux-headers openblas-dev \
     xsimd curl wget git openssl openssl-dev \
     tar xz which rsync bsd-compat-headers clang clang17-libclang curl \
-    clang-static ncurses-dev llvm-dev bash
+    clang-static ncurses-dev llvm-dev
 
 # We must install Python via the package manager until
 # `uv` starts providing aarch64-musl builds.
@@ -19,6 +19,4 @@ else
     # source, since it only started providing wheels for musl
     # in version 6.w.z.
     $MODE apk add --no-cache python3-dev
-    # Needed before checkout
-    $MODE apk add --no-cache gcompat libstdc++ libgcc
 fi
