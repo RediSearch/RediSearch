@@ -1307,6 +1307,10 @@ impl<'a> RLookup<'a> {
 
         Some(key)
     }
+
+    pub const fn get_row_len(&self) -> u32 {
+        self.header.keys.rowlen
+    }
 }
 
 #[cfg(test)]
