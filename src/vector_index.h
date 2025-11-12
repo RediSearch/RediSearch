@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
+#include "search_ctx.h"
 #include "VecSim/vec_sim.h"
 #include "iterators/iterator_api.h"
 #include "query_node.h"
