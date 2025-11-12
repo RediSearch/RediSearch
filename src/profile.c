@@ -44,7 +44,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
     printProfileTime(cpuTime);
   }
 
-  printProfileCounter(counter);
+  printProfileIteratorCounter(counter);
 
   RedisModule_ReplyKV_LongLong(reply, "Estimated number of matches", root->NumEstimated(ir));
 
