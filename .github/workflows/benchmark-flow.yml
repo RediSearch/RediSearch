@@ -7,14 +7,15 @@ on:
     inputs:
       module_path:
         type: string
-        default: bin/linux-x64-release/search/redisearch.so
-      json_module_path:
+        default: bin/linux-x64-release/search-community/redisearch.so
+      rejson_branch:
         type: string
-        default: bin/linux-jammy-x64/RedisJSON/rejson.so
+        default: master
+      rejson_module_path:
+        type: string
+        default: bin/linux-x64-release/RedisJSON/master/rejson.so
       profile_env:
         type: number # for default of 0
-      cluster_env:
-        type: string # for default of ""
       benchmark_glob:
         type: string
         default: "*.yml"
@@ -26,61 +27,52 @@ on:
         default: "oss-standalone"
       allowed_setups:
         type: string
+        default: "oss-standalone"
       benchmark_runner_group_member_id:
         type: number
         default: 1
       benchmark_runner_group_total:
         type: number
         default: 1
-env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
 
 jobs:
   benchmark-steps:
-    runs-on: ubuntu-latest
+    name: "Benchmark ${{ inputs.allowed_envs }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
+    runs-on: ubuntu-24.04  # We need the os to be a match to the base image used in the benchmarks.
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0 # fetch all history for accurate results
       - name: Setup specific
         working-directory: .install
         run: ./install_script.sh sudo
-      - name: Setup common
-        run: .install/common_installations.sh sudo
-  
+      - name: Setup tests dependencies
+        run: .install/test_deps/common_installations.sh sudo
       - name: Install Boost
         working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
-  
-      - name: Get Redis
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./deps/readies/bin/getredis --with-github-token
+        run: ./install_boost.sh
 
       - name: Build RediSearch
-        run: make build
-            COORD=${{ inputs.cluster_env }}
-            PROFILE=${{ inputs.profile_env }}
-            REDISEARCH_MT_BUILD=1
-            SHOW=1
-      - name: Prepare automation
+        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
+      - name: Install Python dependencies
         run: |
-          ./deps/readies/bin/getpy3
+          pip3 install --upgrade pip
           python3 -m pip install -r tests/benchmarks/requirements.txt
-          VERSION=0.14.8 sudo ./deps/readies/bin/getterraform
+      - name: install terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.11.1
+          terraform_wrapper: false
       - name: Prepare ReJSON Module
-        run: |
-          curl --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/rust-lang/rustup/master/rustup-init.sh -sSf | sudo sh -s -- -y
-          MODULE_FILE=bin/REJSON_PATH sudo ./sbin/build-redisjson
+        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
-        timeout-minutes: 240 # timeout for the step
+        timeout-minutes: 360 # timeout for the step
         working-directory: tests/benchmarks
-        continue-on-error: true
         env:
           # Hard-coded
           PERF_CALLGRAPH_MODE: dwarf
@@ -96,12 +88,13 @@ jobs:
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
         run: redisbench-admin run-remote
-              --module_path ../../${{ inputs.json_module_path }}
               --module_path ../../${{ inputs.module_path }}
+              --required-module search
               --github_actor ${{ github.triggering_actor }}
               --github_repo ${{ github.event.repository.name }}
               --github_org ${{ github.repository_owner }}
-              --required-module search
+              --module_path ../../${{ inputs.rejson_module_path }}
+              --required-module ReJSON
               --github_sha ${{ github.sha }}
               --github_branch ${{ github.head_ref || github.ref_name }}
               --upload_results_s3
@@ -119,7 +112,8 @@ jobs:
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
         run: redisbench-admin compare
               --defaults_filename ./tests/benchmarks/defaults.yml
-              --comparison-branch ${{ github.head_ref || github.ref_name }}
+              --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
+              --baseline-branch ${{ github.event.pull_request.base.ref }}
               --auto-approve
               --pull-request ${{ github.event.number }}
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}

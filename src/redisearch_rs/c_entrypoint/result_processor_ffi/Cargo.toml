@@ -1,0 +1,17 @@
+[package]
+name = "result_processor_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+result_processor.workspace = true
+ffi.workspace = true
+
+[build-dependencies]
+cbindgen.workspace = true
+build_utils = { path = "../../build_utils" }
+
+[lints]
+workspace = true

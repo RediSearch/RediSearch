@@ -1,19 +1,21 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <float.h>
-#include <assert.h>
 #include <stdio.h>
 #include "util/block_alloc.h"
 #include "quantile.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 typedef struct Sample {
   // Variables are named per the paper
@@ -69,34 +71,10 @@ static double getMaxValFromQuantiles(double r, double n, const double *quantiles
   return m;
 }
 
-static inline void verifyCount(const QuantStream *stream) {
-  size_t ii = 0;
-  for (const Sample *cur = stream->firstSample; cur; cur = cur->next) {
-    ++ii;
-  }
-  size_t expSize = stream->samplesLength;
-  if (ii != expSize) {
-    fprintf(stderr, "[->] Expected %lu. Have %lu\n", expSize, ii);
-    abort();
-  }
-
-  ii = 0;
-  for (const Sample *cur = stream->lastSample; cur; cur = cur->prev) {
-    ++ii;
-  }
-  if (ii != expSize) {
-    fprintf(stderr, "[<-] Expected %lu. Have %lu\n", expSize, ii);
-    abort();
-  }
-}
-
 #define INSERT_BEFORE 0
 #define INSERT_AFTER 1
 static void QS_InsertSampleAt(QuantStream *stream, Sample *pos, Sample *sample) {
-  assert(pos);
-  // printf("Inserting. Num=%lu. First=%p. Last=%p. posPrev=%p. posNext=%p\n",
-  // stream->samplesLength,
-  //        stream->firstSample, stream->lastSample, pos->prev, pos->next);
+  RS_ASSERT(pos);
 
   sample->next = pos;
   if (pos->prev) {
@@ -109,23 +87,21 @@ static void QS_InsertSampleAt(QuantStream *stream, Sample *pos, Sample *sample) 
 
   pos->prev = sample;
   stream->samplesLength++;
-  // verifyCount(stream);
 }
 
 static void QS_AppendSample(QuantStream *stream, Sample *sample) {
-  assert(sample->prev == NULL && sample->next == NULL);
+  RS_ASSERT(sample->prev == NULL && sample->next == NULL);
   if (stream->lastSample == NULL) {
-    assert(stream->samplesLength == 0);
+    RS_ASSERT(stream->samplesLength == 0);
     stream->lastSample = stream->firstSample = sample;
   } else {
     sample->prev = stream->lastSample;
     stream->lastSample->next = sample;
     stream->lastSample = sample;
-    assert(stream->samplesLength > 0);
+    RS_ASSERT(stream->samplesLength > 0);
   }
 
   stream->samplesLength++;
-  // verifyCount(stream);
 }
 
 static void QS_RemoveSample(QuantStream *stream, Sample *sample) {
@@ -146,7 +122,6 @@ static void QS_RemoveSample(QuantStream *stream, Sample *sample) {
   sample->next = stream->pool;
   stream->pool = sample;
   stream->samplesLength--;
-  // verifyCount(stream);
 }
 
 static Sample *QS_NewSample(QuantStream *stream) {
@@ -197,7 +172,7 @@ static void QS_Flush(QuantStream *stream) {
     }
 
     if (!inserted) {
-      assert(pos == NULL);
+      RS_ASSERT(pos == NULL);
       newSample->d = 0;
       QS_AppendSample(stream, newSample);
     }
@@ -207,22 +182,12 @@ static void QS_Flush(QuantStream *stream) {
 
   // Clear the buffer
   stream->bufferLength = 0;
-
-  // Verification
-  // for (Sample *s = stream->firstSample; s && s->next; s = s->next) {
-  //   if (s->v > s->next->v) {
-  //     printf("s->v (%lf) > s->next->v (%lf). ABORT\n", s->v, s->next->v);
-  //     abort();
-  //   }
-  // }
 }
 
 static void QS_Compress(QuantStream *stream) {
   if (stream->samplesLength < 2) {
     return;
   }
-
-  // printf("COMPRESS\n");
 
   Sample *cur = stream->lastSample->prev;
   double r = stream->n - 1 - stream->lastSample->g;
@@ -241,7 +206,7 @@ static void QS_Compress(QuantStream *stream) {
 }
 
 void QS_Insert(QuantStream *stream, double val) {
-  assert(stream->bufferLength != stream->bufferCap);
+  RS_ASSERT(stream->bufferLength != stream->bufferCap);
   stream->buffer[stream->bufferLength] = val;
   if (++stream->bufferLength == stream->bufferCap) {
     QS_Flush(stream);
@@ -260,7 +225,7 @@ double QS_Query(QuantStream *stream, double q) {
   double r = 0;
 
   if (!prev) {
-    return 0;
+    return NAN;
   }
 
   for (const Sample *cur = prev->next; cur; cur = cur->next) {
@@ -304,15 +269,6 @@ void QS_Free(QuantStream *qs) {
     cur = next;
   }
   rm_free(qs);
-}
-
-void QS_Dump(const QuantStream *stream, FILE *fp) {
-  size_t ii = 0;
-  for (Sample *cur = stream->firstSample; cur; cur = cur->next, ++ii) {
-    fprintf(fp, "[%lu]: Value: %lf. Width: %lf. Delta: %lf\n", ii, cur->v, cur->g, cur->d);
-  }
-  fprintf(fp, "N=%lu\n", stream->n);
-  fprintf(fp, "NumSamples: %lu\n", stream->samplesLength);
 }
 
 size_t QS_GetCount(const QuantStream *stream) {

@@ -12,9 +12,9 @@ def testSanity_dialect_3(env):
   dotestSanity(env, 3)
 
 def dotestSanity(env, dialect):
-  env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
-  env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).ok()
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  env.expect(config_cmd(), 'set', 'DEFAULT_DIALECT', dialect).ok()
+  env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 10000000).ok()
   item_qty = 1000
 
   index_list = ['idx_bf', 'idx_suffix']
@@ -72,18 +72,10 @@ def dotestSanity(env, dialect):
       pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
       pl.execute()
 
-  env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
+  env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
-  #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
-  #  .contains('Timeout limit was reached')
-
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'FAIL').ok()
-  env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
-  #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
-  #  .contains('Timeout limit was reached')
 
 @skip(cluster=True)
 def testSanityTag_dialect_2(env):
@@ -94,9 +86,9 @@ def testSanityTag_dialect_3(env):
   dotestSanityTag(env, 3)
 
 def dotestSanityTag(env, dialect):
-  env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
-  env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).ok()
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  env.expect(config_cmd(), 'set', 'DEFAULT_DIALECT', dialect).ok()
+  env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 10000000).ok()
   item_qty = 1000
 
   index_list = ['idx_bf', 'idx_suffix']
@@ -160,14 +152,8 @@ def dotestSanityTag(env, dialect):
       pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
       pl.execute()
 
-  env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-  env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
-  env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
-
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+  env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
@@ -175,10 +161,10 @@ def dotestSanityTag(env, dialect):
 
 @skip()
 def testBenchmark(env):
-  env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
-  env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
-  env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  env.expect(config_cmd(), 'set', 'DEFAULT_DIALECT', 2).ok()
+  env.expect(config_cmd(), 'set', 'TIMEOUT', 100000).ok()
+  env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
   item_qty = 1000000
 
   index_list = ['idx_bf']
@@ -230,10 +216,10 @@ def testBenchmark(env):
 def testEscape(env):
   conn = getConnectionByEnv(env)
 
-  env.expect('FT.CONFIG', 'SET', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', 2).ok()
-  env.expect('FT.CONFIG', 'SET', 'TIMEOUT', 100000).ok()
-  env.expect('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false').ok()
+  env.expect(config_cmd(), 'SET', 'MINPREFIX', 1).ok()
+  env.expect(config_cmd(), 'SET', 'DEFAULT_DIALECT', 2).ok()
+  env.expect(config_cmd(), 'SET', 'TIMEOUT', 100000).ok()
+  env.expect(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false').ok()
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
 
@@ -251,7 +237,7 @@ def testEscape(env):
   conn.execute_command('HSET', 'doc12', 't', 'hello\\\\')
   conn.execute_command('HSET', 'doc13', 't', 'halloween')
 
-  env.expect('FT.DEBUG', 'dump_terms', 'idx').equal(
+  env.expect(debug_cmd(), 'dump_terms', 'idx').equal(
       ["'hello", '\\hello', 'hallelujah', 'halloween', 'hello', "hello'", "hello'world",
        'hello\\', 'hello\\world', 'help', 'jello', 'jellyfish', 'mellow'])
 
@@ -299,6 +285,13 @@ def testEscape(env):
 
   query_type = lambda res: res[1][1][0][3][3]
 
+  # add more documents so the wildcard queries are not optimized to a single term
+  conn.execute_command('HSET', 'more_doc1', 't', 'heplo') # codespell:ignore heplo
+  conn.execute_command('HSET', 'more_doc7', 't', 'hello\\\'werld') # codespell:ignore werld
+  conn.execute_command('HSET', 'more_doc8', 't', 'hello\\\\werld') # codespell:ignore werld
+  conn.execute_command('HSET', 'more_doc9', 't', '\\\'helno') # codespell:ignore helno
+  conn.execute_command('HSET', 'more_doc10', 't', '\\\\helno') # codespell:ignore helno
+
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'he?lo'")
   env.assertEqual(query_type(res), "WILDCARD - he?lo")
 
@@ -330,10 +323,10 @@ def testEscape(env):
 def testLowerUpperCase(env):
   conn = getConnectionByEnv(env)
 
-  env.expect('FT.CONFIG', 'SET', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', 2).ok()
-  env.expect('FT.CONFIG', 'SET', 'TIMEOUT', 100000).ok()
-  env.expect('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false').ok()
+  env.expect(config_cmd(), 'SET', 'MINPREFIX', 1).ok()
+  env.expect(config_cmd(), 'SET', 'DEFAULT_DIALECT', 2).ok()
+  env.expect(config_cmd(), 'SET', 'TIMEOUT', 100000).ok()
+  env.expect(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false').ok()
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
 
@@ -361,10 +354,11 @@ def testBasic():
   conn.execute_command('HSET', 'doc7', 't', 'hall')
   conn.execute_command('HSET', 'doc8', 't', 'hallo')
 
-  env.expect('FT.SEARCH', 'idx', "w'*el*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
-  env.expect('FT.SEARCH', 'idx', "w'*ll*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc7', 'doc8'])
-  env.expect('FT.SEARCH', 'idx', "w'*llo'", 'NOCONTENT').equal([2, 'doc1', 'doc8'])
-  env.expect('FT.SEARCH', 'idx', "w'he*'", 'NOCONTENT').equal([5, 'doc1', 'doc2', 'doc3', 'doc4', 'doc6'])
+  q_params = ('NOCONTENT', 'SCORER', 'TFIDF')
+  env.expect('FT.SEARCH', 'idx', "w'*el*'", *q_params).equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
+  env.expect('FT.SEARCH', 'idx', "w'*ll*'", *q_params).equal([4, 'doc1', 'doc2', 'doc7', 'doc8'])
+  env.expect('FT.SEARCH', 'idx', "w'*llo'", *q_params).equal([2, 'doc1', 'doc8'])
+  env.expect('FT.SEARCH', 'idx', "w'he*'", *q_params).equal([5, 'doc1', 'doc2', 'doc3', 'doc4', 'doc6'])
 
   env.expect('FT.AGGREGATE', 'idx', "w'*el*'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')    \
         .equal([4, ['t', 'helen'], ['t', 'hell'], ['t', 'hello'], ['t', 'help']])
@@ -380,10 +374,35 @@ def testBasic():
 
 def testSuffixCleanup(env):
   conn = getConnectionByEnv(env)
-  env.expect(('_' if env.isCluster() else '') + 'FT.CONFIG SET FORK_GC_CLEAN_THRESHOLD 0').ok()
+  env.expect(config_cmd() + ' SET FORK_GC_CLEAN_THRESHOLD 0').ok()
 
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'WITHSUFFIXTRIE', 't2', 'TEXT')
   conn.execute_command('HSET', 'doc', 't1', 'foo', 't2', 'bar')
   conn.execute_command('DEL', 'doc')
 
   forceInvokeGC(env, 'idx')
+
+def testMOD7453():
+  """Tests that we don't enter an infinite loop when we match a wildcard to a
+    wildcard in the matched term"""
+
+  env = DialectEnv()
+  conn = getConnectionByEnv(env)
+
+  # Create an index with a TEXT and TAG field
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT')
+
+  # Populate the db
+  conn.execute_command('HSET', 'doc1', 'tag', 'ba*cl', 'text', 'ba*cl')
+
+  # Search via "problematic" wildcard
+  MAX_DIALECT = set_max_dialect(env)
+  for dialect in range(2, MAX_DIALECT + 1):
+    env.set_dialect(dialect)
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*a*'} @text:w'*a*'")
+    env.assertEqual(res, [1, 'doc1', ['tag', 'ba*cl', 'text', 'ba*cl']])
+
+    # TODO: Bug - this should work for intersection as well, but doesn't since
+    # the text wildcard doesn't match the result correctly.
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*a*?'} | @text:w'*a*?'")
+    env.assertEqual(res, [1, 'doc1', ['tag', 'ba*cl', 'text', 'ba*cl']])

@@ -53,11 +53,31 @@ def testCommandStatsOnRedis(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'LIMIT', 0, 0).equal([100])
     check_info_commandstats(env, 'FT.SEARCH')
 
-    env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([env.shardsCount])
+    env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).noError()
     check_info_commandstats(env, 'FT.AGGREGATE')
 
     conn.execute_command('FT.INFO', 'idx')
     check_info_commandstats(env, 'FT.INFO')
+
+@skip(cluster=False)
+def testPendingCommands(env:Env):
+    verify_shard_init(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    max_pending_commands = 50
+
+    # Run each command `max_pending_commands` times, to verify they are not pending
+    # after they are executed, and that the coordinator is still responsive.
+    for _ in range(max_pending_commands):
+        env.cmd(config_cmd(), 'SET', 'CONN_PER_SHARD', '0')
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([0])
+
+    for _ in range(max_pending_commands):
+        env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES')
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([0])
+
+    for _ in range(max_pending_commands):
+        env.cmd('SEARCH.CLUSTERINFO')
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([0])
 
 def test_curly_brackets(env):
     conn = getConnectionByEnv(env)
@@ -91,8 +111,8 @@ def test_error_propagation_from_shards(env):
     SkipOnNonCluster(env)
 
     # indexing an index that doesn't exist (today revealed only in the shards)
-    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('idx: no such index')
-    env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
+    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('No such index idx')
+    env.expect('FT.SEARCH', 'idx', '*').error().contains('No such index idx')
 
     # Bad query
     # create the index
@@ -171,7 +191,7 @@ def test_mod_6287(env):
     # Now (after PR 6287), the command for the errored shard will be set as
     # `depleted`, such that the `depleted` shards will be aligned with the
     # `pending` counter.
-    con2.execute_command('_FT.DEBUG', 'DELETE_LOCAL_CURSORS')
+    con2.execute_command(debug_cmd(), 'DELETE_LOCAL_CURSORS')
 
     # Dispatch an `FT.CURSOR READ` command that will request for more results from the shards
     # This results in the crash solved by #6287

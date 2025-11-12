@@ -19,6 +19,7 @@
 /.idea/
 .project
 .cproject
+.cache
 VSCODE.DB*
 callgrind.out.*
 **/.ipynb_checkpoints/
@@ -27,3 +28,6 @@ callgrind.out.*
 /deps/RedisJSON/
 /1/
 /.install/boost*
+tests/deps/RedisJSON
+**/target/*
+compile_commands.json

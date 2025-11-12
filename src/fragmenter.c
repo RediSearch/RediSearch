@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "fragmenter.h"
 #include "toksep.h"
 #include "tokenize.h"
@@ -233,7 +235,7 @@ char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const Highli
   char *docBuf = rm_malloc(docLen + 1);
   RS_LOG_ASSERT(docBuf, "failed malloc of docBuf");
   docBuf[docLen] = '\0';
-  
+
   size_t offset = 0;
   for (size_t ii = 0; ii < niovs; ++ii) {
     memcpy(docBuf + offset, iovs[ii].iov_base, iovs[ii].iov_len);
@@ -484,16 +486,12 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
   if (iter->byteIter->curPos < iter->curTokPos) {
     iter->curByteOffset = RSByteOffsetIterator_Next(iter->byteIter);
     // No matching term at this position.
-    // printf("IterPos=%lu. LastMatchPos=%u\n", iter->byteIter->curPos, iter->curTokPos);
     *termInfo = NULL;
     return 1;
   }
 
-  // printf("ByteOffset=%lu. LastMatchPos=%u\n", iter->curByteOffset, iter->curTokPos);
-
   RSQueryTerm *term = iter->curMatchRec;
 
-  // printf("Term Pointer: %p\n", term);
   iter->tmpTerm.score = term->idf;
   iter->tmpTerm.termId = term->id;
   iter->tmpTerm.len = term->len;
@@ -508,20 +506,3 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
   iter->curTokPos = nextPos;
   return 1;
 }
-
-// LCOV_EXCL_START debug
-void FragmentList_Dump(const FragmentList *fragList) {
-  printf("NumFrags: %u\n", fragList->numFrags);
-  for (size_t ii = 0; ii < fragList->numFrags; ++ii) {
-    const Fragment *frag = ARRAY_GETITEM_AS(&fragList->frags, ii, Fragment *);
-    printf("Frag[%lu]: Buf=%p, (pos=%lu), Len=%u\n", ii, frag->buf, frag->buf - fragList->doc,
-           frag->len);
-    printf("  Score: %f, Rank=%u. Total Tokens=%u\n", frag->score, frag->scoreRank,
-           frag->totalTokens);
-    printf("  BEGIN:\n");
-    printf("     %.*s\n", (int)frag->len, frag->buf);
-    printf("  END\n");
-    printf("\n");
-  }
-}
-// LCOV_EXCL_STOP

@@ -1,19 +1,17 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # [[ $VERBOSE == 1 ]] && set -x
 
 PROGNAME="${BASH_SOURCE[0]}"
 HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/../.. && pwd)
-READIES=$ROOT/deps/readies
-. $READIES/shibumi/defs
 
 export PYTHONUNBUFFERED=1
 
-VG_REDIS_VER=7.2
-VG_REDIS_SUFFIX=7.2
-SAN_REDIS_VER=7.2
-SAN_REDIS_SUFFIX=7.2
+VG_REDIS_VER=7.4
+VG_REDIS_SUFFIX=7.4
+SAN_REDIS_VER=7.4
+SAN_REDIS_SUFFIX=7.4
 
 cd $HERE
 
@@ -30,7 +28,8 @@ help() {
 		MODARGS=args          RediSearch module arguments
 		BINROOT=path          Path to repo binary root dir
 
-		COORD=1|oss|rlec      Test Coordinator
+		REDIS_STANDALONE=1|0  Test with standalone Redis (default: 1)
+		SA=1|0                Alias for REDIS_STANDALONE
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
 		CONFIG=cfg            Perform one of: raw_docid, dialect_2,
@@ -41,11 +40,10 @@ help() {
 
 		UNSTABLE=1            Do not skip unstable tests (default: 0)
 		ONLY_STABLE=1         Skip unstable tests
-
-		REJSON=0|1|get|view     Also load RedisJSON module (get: force download from S3; view: from local view)
-		REJSON_BRANCH=branch    Use a snapshot of given branch name
-		REJSON_PATH=path|view   RedisJSON module path
-		REJSON_MODARGS=args     RedisJSON module arguments
+		REJSON=1|0            Also load RedisJSON module (default: 1)
+		REJSON_BRANCH=branch  Use RedisJSON module from branch (default: 'master')
+		REJSON_PATH=path      Use RedisJSON module at `path` (default: '' - build from source)
+		REJSON_ARGS=args      RedisJSON module arguments
 
 		REDIS_SERVER=path     Location of redis-server
 		REDIS_PORT=n          Redis server port
@@ -77,7 +75,6 @@ help() {
 		UNIX=1                Use unix sockets
 		RANDPORTS=1           Use randomized ports
 
-		COLLECT_LOGS=1        Collect logs into .tar file
 		CLEAR_LOGS=0          Do not remove logs prior to running tests
 
 		LIST=1                List all tests and exit
@@ -91,40 +88,6 @@ help() {
 	END
 }
 
-#----------------------------------------------------------------------------------------------
-
-traps() {
-	local func="$1"
-	shift
-	local sig
-	for sig in "$@"; do
-		trap "$func $sig" "$sig"
-	done
-}
-
-linux_stop() {
-	local pgid=$(cat /proc/$PID/status | grep pgid | awk '{print $2}')
-	kill -9 -- -$pgid
-}
-
-macos_stop() {
-	local pgid=$(ps -o pid,pgid -p $PID | awk "/$PID/"'{ print $2 }' | tail -1)
-	pkill -9 -g $pgid
-}
-
-stop() {
-	trap - SIGINT
-	if [[ $OS == linux ]]; then
-		linux_stop
-	elif [[ $OS == macos ]]; then
-		macos_stop
-	fi
-	exit 1
-}
-
-traps 'stop' SIGINT
-
-#----------------------------------------------------------------------------------------------
 
 setup_rltest() {
 	if [[ $RLTEST == view ]]; then
@@ -187,53 +150,12 @@ setup_clang_sanitizer() {
 
 	# --no-output-catch --exit-on-failure --check-exitcode
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
-
-	if [[ -n $REJSON && $REJSON != 0 ]]; then
-		if [[ -z $REJSON_PATH ]]; then
-			if [[ -z $BINROOT ]]; then
-				eprint "BINROOT is not set - cannot build RedisJSON"
-				exit 1
-			fi
-			if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
-				echo Building RedisJSON ...
-				# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
-				export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
-				$ROOT/sbin/build-redisjson
-				REJSON_MODULE=$(cat $MODULE_FILE)
-				RLTEST_REJSON_ARGS="--module $REJSON_MODULE --module-args '$REJSON_MODARGS'"
-				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
-			fi
-			export REJSON_PATH=$BINROOT/RedisJSON/rejson.so
-		elif [[ ! -f $REJSON_PATH ]]; then
-			eprint "REJSON_PATH is set to '$REJSON_PATH' but does not exist"
-			exit 1
-		else
-			RLTEST_REJSON_ARGS="--module $REJSON_PATH --module-args '$REJSON_MODARGS'"
-			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH $REJSON_MODARGS"
-		fi
-	fi
-
 	if [[ $SAN == addr || $SAN == address ]]; then
-		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-$SAN_REDIS_SUFFIX}
-		if ! command -v $REDIS_SERVER > /dev/null; then
-			echo Building Redis for clang-asan ...
-			V="$VERBOSE" runn $READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
-				--suffix asan-${SAN_REDIS_SUFFIX} --clang-asan --clang-san-blacklist $ignorelist
-		fi
-
 		# RLTest places log file details in ASAN_OPTIONS
-		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=1:log_thread=1"
-		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=1:log_thread=1"
+		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=0"
+		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=0"
 		# :use_tls=0
 
-	elif [[ $SAN == mem || $SAN == memory ]]; then
-		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-$SAN_REDIS_VER}
-		if ! command -v $REDIS_SERVER > /dev/null; then
-			echo Building Redis for clang-msan ...
-			$READIES/bin/getredis --force -v $SAN_REDIS_VER  --no-run --own-openssl \
-				--suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan \
-				--clang-san-blacklist $ignorelist
-		fi
 	fi
 }
 
@@ -242,55 +164,12 @@ setup_clang_sanitizer() {
 setup_redis_server() {
 	REDIS_SERVER=${REDIS_SERVER:-redis-server}
 
-	if ! is_command $REDIS_SERVER; then
+	if ! command -v $REDIS_SERVER &> /dev/null; then
 		echo "Cannot find $REDIS_SERVER. Aborting."
 		exit 1
 	fi
 }
 
-#----------------------------------------------------------------------------------------------
-
-setup_valgrind() {
-	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg-$VG_REDIS_SUFFIX}
-	if ! is_command $REDIS_SERVER; then
-		echo Building Redis for Valgrind ...
-		V="$VERBOSE" runn $READIES/bin/getredis -v ${VG_REDIS_VER} --valgrind --suffix vg-${VG_REDIS_VER}
-	fi
-
-	if [[ $VG_LEAKS == 0 ]]; then
-		VG_LEAK_CHECK=no
-		RLTEST_VG_NOLEAKS="--vg-no-leakcheck"
-	else
-		VG_LEAK_CHECK=full
-		RLTEST_VG_NOLEAKS=""
-	fi
-	# RLTest reads this
-	VG_OPTIONS="\
-		-q \
-		--leak-check=$VG_LEAK_CHECK \
-		--show-reachable=no \
-		--track-origins=yes \
-		--show-possibly-lost=no"
-
-	VALGRIND_SUPRESSIONS=$ROOT/tests/memcheck/valgrind.supp
-
-	RLTEST_VG_ARGS+="\
-		--use-valgrind \
-		--vg-verbose \
-		$RLTEST_VG_NOLEAKS \
-		--vg-no-fail-on-errors \
-		--vg-suppressions $VALGRIND_SUPRESSIONS"
-
-
-	# for module
-	export RS_GLOBAL_DTORS=1
-
-	# for RLTest
-	export SHORT_READ_BYTES_DELTA=512
-	export VALGRIND=1
-	export VG_OPTIONS
-	export RLTEST_VG_ARGS
-}
 
 #----------------------------------------------------------------------------------------------
 
@@ -303,33 +182,8 @@ setup_coverage() {
 
 #----------------------------------------------------------------------------------------------
 
-setup_redisjson() {
-	REJSON_BRANCH=${REJSON_BRANCH:-master}
-
-	if [[ -n $REJSON && $REJSON != 0 && -z $SAN ]]; then
-		if [[ -n $REJSON_PATH ]]; then
-			REJSON_MODULE="$REJSON_PATH"
-			RLTEST_REJSON_ARGS="--module $REJSON_PATH"
-			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH"
-		else
-			FORCE_GET=
-			[[ $REJSON == get ]] && FORCE_GET=1
-			export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
-			OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $ROOT/sbin/get-redisjson
-			REJSON_MODULE=$(cat $MODULE_FILE)
-			RLTEST_REJSON_ARGS="--module $REJSON_MODULE"
-			XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE"
-		fi
-
-		RLTEST_REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
-		XREDIS_REJSON_ARGS+=" $REJSON_MODARGS"
-	fi
-}
-
-#----------------------------------------------------------------------------------------------
-
 run_env() {
-	if [[ $COORD == oss ]]; then
+	if [[ $REDIS_STANDALONE == 0 ]]; then
 		oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
 		RLTEST_ARGS+=" ${oss_cluster_args}"
 	fi
@@ -383,10 +237,11 @@ run_tests() {
 		if [[ -n $GITHUB_ACTIONS ]]; then
 			echo "::group::$title"
 		else
-			$READIES/bin/sep1 -0
 			printf "Running $title:\n\n"
 		fi
 	fi
+	# TODO:Remove this once RLTest progress bar is fixed
+	RLTEST_ARGS+=" --no-progress"
 
 	if [[ $EXT != 1 ]]; then
 		rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
@@ -416,7 +271,7 @@ run_tests() {
 	else # existing env
 		if [[ $EXT == run ]]; then
 			if [[ $REJSON_MODULE ]]; then
-				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
+				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_ARGS"
 			fi
 
 			xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
@@ -486,6 +341,9 @@ run_tests() {
 
 	if [[ -n $GITHUB_ACTIONS ]]; then
 		echo "::endgroup::"
+		if [[ $E != 0 ]]; then
+			echo "::error:: $title failed, code: $E"
+		fi
 	fi
 	return $E
 }
@@ -509,16 +367,16 @@ EXT_HOST=${EXT_HOST:-127.0.0.1}
 EXT_PORT=${EXT_PORT:-6379}
 
 PID=$$
-OS=$($READIES/bin/platform --os)
-ARCH=$($READIES/bin/platform --arch)
-OSNICK=$($READIES/bin/platform --osnick)
+
 
 # RLTest uses `fork` which might fail on macOS with the following variable set
 [[ $OS == macos ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
 #---------------------------------------------------------------------------------- Tests scope
 
-[[ $COORD == 1 ]] && COORD=oss
+# Fallback: REDIS_STANDALONE -> SA -> 1
+REDIS_STANDALONE=${REDIS_STANDALONE:-$SA}
+REDIS_STANDALONE=${REDIS_STANDALONE:-1}
 
 RLEC=${RLEC:-0}
 
@@ -528,17 +386,16 @@ if [[ $RLEC != 1 ]]; then
 
 	if [[ -z $MODULE ]]; then
 		if [[ -n $BINROOT ]]; then
-			if [[ -z $COORD ]]; then
-				MODULE=$BINROOT/search/redisearch.so
-			elif [[ $COORD == oss ]]; then
-				MODULE=$BINROOT/oss-coord/module-oss.so
-			fi
+			# By default, we test the module with the coordinator (for both cluster and standalone)
+			MODULE=$BINROOT/coord-oss/redisearch.so
 		fi
 		if [[ -z $MODULE || ! -f $MODULE ]]; then
 			echo "Module not found at ${MODULE}. Aborting."
 			exit 1
 		fi
 	fi
+else
+	REDIS_STANDALONE= # RLEC and REDIS_STANDALONE are mutually exclusive
 fi
 
 SHARDS=${SHARDS:-3}
@@ -573,13 +430,12 @@ PARALLEL=${PARALLEL:-1}
 
 if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 	if [[ $PARALLEL == 1 ]]; then
-		parallel="$($READIES/bin/nproc)"
+		parallel="$(nproc)"
 	else
 		parallel=$PARALLEL
 	fi
 	if (( $parallel==0 )) ; then parallel=1 ; fi
 	RLTEST_PARALLEL_ARG="--parallelism $parallel"
-	echo "Running tests in parallel using $parallel workers"
 fi
 #------------------------------------------------------------------------------- Test selection
 
@@ -618,14 +474,14 @@ if [[ $COV == 1 ]]; then
 	setup_coverage
 fi
 
-if [[ $REJSON == view ]]; then
-	REJSON=1
-	REJSON_PATH=view
+# Prepare RedisJSON module to be loaded into testing environment if required.
+if [[ $REJSON != 0 ]]; then
+  ROOT="$ROOT" BINROOT="${BINROOT}/${FULL_VARIANT}" REJSON_BRANCH="$REJSON_BRANCH" source $ROOT/tests/deps/setup_rejson.sh
+  echo "Using RedisJSON module at $JSON_BIN_PATH, with the following args: $REJSON_ARGS"
+  RLTEST_REJSON_ARGS="--module ${JSON_BIN_PATH} --module-args $REJSON_ARGS"
+else
+  echo "Skipping tests with RedisJSON module"
 fi
-if [[ $REJSON_PATH == view ]]; then
-	REJSON_PATH=$(cd $ROOT/../RedisJSON; pwd)/bin/${OS}-${ARCH}-release/rejson.so
-fi
-setup_redisjson
 
 RLTEST_ARGS+=" $@"
 
@@ -642,11 +498,6 @@ setup_rltest
 
 if [[ -n $SAN ]]; then
 	setup_clang_sanitizer
-fi
-
-if [[ $VG == 1 ]]; then
-	export VALGRIND=1
-	setup_valgrind
 fi
 
 if [[ $RLEC != 1 ]]; then
@@ -674,7 +525,9 @@ if [[ $GC == 0 ]]; then
 	MODARGS="${MODARGS}; NOGC;"
 fi
 
-if [[ -z $COORD ]]; then
+echo "Running tests in parallel using $parallel Python processes"
+
+if [[ $REDIS_STANDALONE == 1 ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
@@ -682,10 +535,8 @@ if [[ -z $COORD ]]; then
 	if [[ $QUICK != 1 ]]; then
 
 		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
-			if [[ $COV != 1 ]]; then
-				{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
-					run_tests "with raw DocID encoding"); (( E |= $? )); } || true
-			fi
+			{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
+				run_tests "with raw DocID encoding"); (( E |= $? )); } || true
 		fi
 
 		if [[ -z $CONFIG || $CONFIG == dialect_2 ]]; then
@@ -694,7 +545,7 @@ if [[ -z $COORD ]]; then
 		fi
 	fi
 
-elif [[ $COORD == oss ]]; then
+elif [[ $REDIS_STANDALONE == 0 ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
 
 	# Increase timeout (to 5 min) for tests with coordinator to avoid cluster fail when it take more time for
@@ -703,8 +554,9 @@ elif [[ $COORD == oss ]]; then
 
 	{ (MODARGS="${MODARGS}" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
+fi
 
-elif [[ $COORD == rlec ]]; then
+if [[ $RLEC == 1 ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
 	{ (RLTEST_ARGS+="${RLTEST_ARGS} --env existing-env --existing-env-addr $dhost:$RLEC_PORT" \
 	   run_tests "tests on RLEC"); (( E |= $? )); } || true
@@ -722,14 +574,5 @@ if [[ $NOP != 1 ]]; then
 	fi
 fi
 
-if [[ $COLLECT_LOGS == 1 ]]; then
-	cd $ROOT
-	mkdir -p bin/artifacts/tests
-	test_tar="bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz"
-	rm -f "$test_tar"
-	find tests/pytests/logs -name "*.log*" | tar -czf "$test_tar" -T -
-	echo "Test logs:"
-	du -ah --apparent-size bin/artifacts/tests
-fi
 
 exit $E

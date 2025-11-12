@@ -1,0 +1,19 @@
+[package]
+name = "redis_mock"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[dependencies]
+ffi.workspace = true
+redis-module.workspace = true
+value.workspace = true
+
+[lints]
+workspace = true

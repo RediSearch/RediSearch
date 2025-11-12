@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "spec.h"
 #include "synonym_map.h"
 #include "rmalloc.h"
@@ -43,7 +45,7 @@ static void TermData_AddId(TermData* t_data, const char* id) {
   if (!TermData_IdExists(t_data, id)) {
     char* newId;
     rm_asprintf(&newId, SYNONYM_PREFIX, id);
-    t_data->groupIds = array_append(t_data->groupIds, newId);
+    array_append(t_data->groupIds, newId);
   }
 }
 
@@ -146,7 +148,16 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
   int ret;
   for (size_t i = 0; i < size; i++) {
     char *lowerSynonym = rm_strdup(synonyms[i]);
-    strtolower(lowerSynonym);
+    size_t len = strlen(lowerSynonym);
+    char *dst = unicode_tolower(lowerSynonym, &len);
+    if (dst) {
+        rm_free(lowerSynonym);
+        lowerSynonym = dst;
+    } else {
+      // No memory allocation, just ensure null termination
+      lowerSynonym[len] = '\0';
+    }
+
     TermData* termData = dictFetchValue(smap->h_table, lowerSynonym);
     if (termData) {
       // if term exists in dictionary, we should release the lower cased string

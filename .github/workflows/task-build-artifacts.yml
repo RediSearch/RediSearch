@@ -1,10 +1,15 @@
 name: Build and Upload Artifacts
 
+# Added these to use JWT token to connect with AWS
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
 on:
   workflow_call:
     inputs:
       env:
-        default: "ubuntu-latest"
+        default: "${{ vars.RUNS_ON }}"
         type: string
       container:
         type: string
@@ -19,11 +24,16 @@ on:
         description: 'Optional: SHA to checkout. If not provided, `ref` will be used'
       redis-ref:
         type: string
+      beta-version:
+        type: string
+        description: 'Pre-generated beta version identifier for consistent versioning across builds'
 
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
   BRANCH: ${{ inputs.ref || github.ref_name }}        # Define "branch" name for pack name (used in `make pack`)
-  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+  AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
 
 jobs:
   build:
@@ -40,74 +50,159 @@ jobs:
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
     steps:
       # Setup
-      - name: Pre-steps Dependencies
-        if: inputs.pre-steps-script
-        run: ${{ inputs.pre-steps-script }}
+      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
+      - name: Pre-steps Dependencies (Alpine)
+        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
+        shell: sh -l -eo pipefail {0}
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if ${{ inputs.pre-steps-script }}; then
+              echo "Pre-steps Dependencies succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Pre-steps Dependencies failed after 5 attempts"
+          exit 1
+      - name: Pre-steps Dependencies (Non-Alpine)
+        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if ${{ inputs.pre-steps-script }}; then
+              echo "Pre-steps Dependencies succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Pre-steps Dependencies failed after 5 attempts"
+          exit 1
+      - name: Enable dynamic linking to C runtime in Alpine
+        if: inputs.container == 'alpine:3'
+        run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
+
       - name: Get Installation Mode
         id: mode
         run: |
           [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Check if node20 is Supported
-        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
-          for platform in ubuntu:bionic centos:7 amazonlinux:2; do
+          for platform in amazonlinux:2 alpine:3; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
-              # https://github.com/actions/checkout/issues/1809
-              echo "ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION=node16" >> $GITHUB_ENV
-              echo "ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION=node16" >> $GITHUB_ENV
-              # https://github.blog/changelog/2024-03-07-github-actions-all-actions-will-run-on-node20-instead-of-node16-by-default/
-              echo "ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true" >> $GITHUB_ENV
               exit 0
             fi
           done
           echo "supported=true" >> $GITHUB_OUTPUT
-      - name: Deps checkout (node20)
-        if: steps.node20.outputs.supported == 'true'
-        uses: actions/checkout@v4
-        with:
-          path: setup
-          ref: ${{ env.REF }}
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            .install
-            tests/pytests/requirements.txt
-      - name: Deps checkout (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          path: setup
-          ref: ${{ env.REF }}
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            .install
-            tests/pytests/requirements.txt
-      - name: Setup specific
-        working-directory: setup/.install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Install aws cli
-        working-directory: setup/.install
-        run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
-      - name: Full checkout (node20)
+      - name: checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
           submodules: recursive
           ref: ${{ env.REF }}
-      - name: Full checkout (node20 not supported)
+      - name: checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
-          ref: ${{ env.REF }}
-      - name: Setup common
-        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
-      - name: install build artifacts req
-        run: pip install -q -r .install/build_package_requirments.txt
+        run: |
+          # Execute the logic based on the detected platform
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
+            amazonlinux:2 | alpine:3)
 
-      - name: Install Boost
+              # Configure the safe directory
+              git config --global --add safe.directory /__w/${{ github.repository }}
+
+              # Checkout
+              REPO_URL="https://github.com/${{ github.repository }}.git"
+
+              # Initialize a Git repository
+              git init
+              git remote add origin "$REPO_URL"
+
+              # Fetch and checkout ref
+              git fetch origin "${{ env.REF }}" || {
+                echo "Failed to fetch ref: '${{ env.REF }}'";
+                exit 1;
+              }
+              git checkout FETCH_HEAD  # Check out the fetched ref
+
+              # Update submodules
+              git submodule update --init --recursive
+              ;;
+            *)
+              echo "Unsupported platform: '${{ inputs.container }}'"
+              exit 1
+              ;;
+          esac
+      - name: Setup
         working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
+              echo "Setup succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Setup failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Setup failed after 5 attempts"
+          exit 1
+      - name: Install aws cli
+        working-directory: .install
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
+              echo "Install aws cli succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Install aws cli failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Install aws cli failed after 5 attempts"
+          exit 1
+      - name: Setup test dependencies
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
+              echo "Setup test dependencies succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Setup test dependencies failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Setup test dependencies failed after 5 attempts"
+          exit 1
+      - name: install build artifacts req
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if uv pip install -q -r .install/build_package_requirments.txt; then
+              echo "Install build artifacts req succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Install build artifacts req failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Install build artifacts req failed after 5 attempts"
+          exit 1
 
       # Get Redis
       - name: Get Redis (node20)
@@ -119,11 +214,17 @@ jobs:
           path: redis
       - name: Get Redis (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          repository: redis/redis
-          ref: ${{ inputs.redis-ref }}
-          path: redis
+        run: |
+            REPO_URL="https://github.com/redis/redis.git"
+            DEST_DIR="redis"  # Directory to clone into
+
+            # Clone the repository (shallow clone without tags)
+            git clone $REPO_URL $DEST_DIR
+            cd $DEST_DIR
+
+            # Checkout the REF
+            git fetch origin ${{ inputs.redis-ref }}
+            git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
         run: ${{ steps.mode.outputs.mode }} make install
@@ -131,33 +232,81 @@ jobs:
       # Build & Pack
       - name: Build and Pack RediSearch OSS
         env:
-          REDISEARCH_MT_BUILD: 0
-        run: ${{ env.BUILD_CMD }} && make pack
-      - name: Build and Pack RediSearch Lite
-        env:
-          REDISEARCH_MT_BUILD: 1
-          LITE: 1
+            COORD: oss
         run: ${{ env.BUILD_CMD }} && make pack
       - name: Build and Pack RediSearch Enterprise
         env:
-          REDISEARCH_MT_BUILD: 1
           COORD: rlec
+          MAX_WORKER_THREADS: ${{ vars.MAX_WORKER_THREADS }}
+          BUILD_INTEL_SVS_OPT: 1
         run: ${{ env.BUILD_CMD }} && make pack
 
       # Upload
-      - name: Configure AWS Credentials (node20)
-        if: steps.node20.outputs.supported == 'true'
+      - name: Configure AWS Credentials Using Role (node20)
+        if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Configure AWS Credentials Using Role (node20 not supported)
+        if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'false'
+        run: |
+          # Variables from the workflow
+          ROLE_ARN="${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}"
+          AWS_REGION="${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}"
+          SESSION_NAME="github-actions-session"
+
+          # Assume the AWS role and configure temporary credentials
+          ASSUME_ROLE_OUTPUT=$(aws sts assume-role --role-arn "$ROLE_ARN" --role-session-name "$SESSION_NAME" --region "$AWS_REGION")
+          if [ $? -ne 0 ]; then
+            echo "Failed to assume AWS role" && exit 1
+          fi
+
+          echo "AWS credentials configured successfully."
+      - name: Configure AWS Credentials Using Keys (node20)
+        if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-      - name: Configure AWS Credentials (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
-        uses: aws-actions/configure-aws-credentials@v3
-        with:
-          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Configure AWS Credentials Using Keys (node20 not supported)
+        if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'false'
+        run: |
+          # Variables from the workflow
+          AWS_ACCESS_KEY_ID="${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}"
+          AWS_SECRET_ACCESS_KEY="${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}"
+          AWS_REGION="${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}"
+
+          # Check if the required environment variables are set
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_REGION" ]; then
+            echo "Missing AWS credentials or region configuration."
+            exit 1
+          fi
+
+          # Configure AWS CLI with provided credentials and region
+          echo "Configuring AWS CLI with access keys..."
+          aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
+          aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
+          aws configure set region "$AWS_REGION"
+      - name: Set Version identifier
+        id: beta-version
+        run: |
+          # Use the pre-generated beta version if provided (master branch builds)
+          # Otherwise generate regular version from version.h (non-master branch builds)
+          if [[ -n "${{ inputs.beta-version }}" ]]; then
+            BETA_VERSION="${{ inputs.beta-version }}"
+            echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
+            echo "Using pre-generated beta version: $BETA_VERSION"
+          else
+            # Generate regular version from version.h for non-master branches
+            MAJOR=$(grep '#define REDISEARCH_VERSION_MAJOR' src/version.h | awk '{print $3}')
+            MINOR=$(grep '#define REDISEARCH_VERSION_MINOR' src/version.h | awk '{print $3}')
+            PATCH=$(grep '#define REDISEARCH_VERSION_PATCH' src/version.h | awk '{print $3}')
+            REGULAR_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            echo "No beta version provided, using regular version: $REGULAR_VERSION"
+          fi
       - name: Upload Artifacts
+        env:
+          BETA_VERSION: ${{ steps.beta-version.outputs.BETA_VERSION }}
         run: make upload-artifacts

@@ -1,14 +1,17 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "forward_index.h"
 #include "stopwords.h"
 #include "tokenize.h"
 #include "toksep.h"
 #include "rmalloc.h"
+#include "config.h"
 #include <ctype.h>
 #include <stdlib.h>
 #include <strings.h>
@@ -16,17 +19,18 @@
 
 typedef struct {
   RSTokenizer base;
-  char **pos;
+  char *pos;
   Stemmer *stemmer;
 } simpleTokenizer;
 
-static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_t options) {
+static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint16_t options) {
   simpleTokenizer *self = (simpleTokenizer *)base;
   TokenizerCtx *ctx = &base->ctx;
   ctx->text = text;
   ctx->options = options;
   ctx->len = len;
-  self->pos = &ctx->text;
+  ctx->empty_input = len == 0;
+  self->pos = ctx->text;
 }
 
 // Normalization buffer
@@ -36,10 +40,11 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
  * Normalizes text.
  * - s contains the raw token
  * - dst is the destination buffer which contains the normalized text
- * - len on input contains the length of the raw token. on output contains the
- * on output contains the length of the normalized token
+ * - len on input contains the length of the raw token, on output contains the
+ *   length of the normalized token
+ * - allocated is set to 1 if the function allocated new memory, 0 otherwise
  */
-static char *DefaultNormalize(char *s, char *dst, size_t *len) {
+static char *DefaultNormalize(char *s, char *dst, size_t *len, int *allocated) {
   size_t origLen = *len;
   char *realDest = s;
   size_t dstLen = 0;
@@ -52,10 +57,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   // set to 1 if the previous character was a backslash escape
   int escaped = 0;
   for (size_t ii = 0; ii < origLen; ++ii) {
-    if (isupper(s[ii])) {
-      SWITCH_DEST();
-      realDest[dstLen++] = tolower(s[ii]);
-    } else if ((isblank(s[ii]) && !escaped) || iscntrl(s[ii])) {
+    if ((isblank(s[ii]) && !escaped) || iscntrl(s[ii])) {
       SWITCH_DEST();
     } else if (s[ii] == '\\' && !escaped) {
       SWITCH_DEST();
@@ -67,42 +69,64 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
     escaped = 0;
   }
 
+  char *longer_dst = unicode_tolower(dst, &dstLen);
   *len = dstLen;
-  return dst;
+
+  if (!longer_dst) {
+    *allocated = 0;
+    return dst;
+  } else {
+    *allocated = 1;
+    return longer_dst;
+  }
 }
 
 // tokenize the text in the context
 uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
   TokenizerCtx *ctx = &base->ctx;
   simpleTokenizer *self = (simpleTokenizer *)base;
-  bool empty_input = ctx->text && (strlen(ctx->text) == 0);
-  while (*self->pos != NULL) {
+  while (self->pos != NULL) {
     // get the next token
     size_t origLen;
-    char *tok = toksep(self->pos, &origLen);
+    char *tok = toksep(&self->pos, &origLen);
     // normalize the token
     size_t normLen = origLen;
-    if (normLen > MAX_NORMALIZE_SIZE) {
-      normLen = MAX_NORMALIZE_SIZE;
-    }
     char normalized_s[MAX_NORMALIZE_SIZE];
     char *normBuf;
-    if (ctx->options & TOKENIZE_NOMODIFY) {
+
+    if (ctx->options & TOKENIZE_NOMODIFY) { // This is a dead code
+      // The stack MAX_NORMALIZE_SIZE buffer is used only if we don't modify the token, for stack allocation safety
+      if (normLen > MAX_NORMALIZE_SIZE) {
+        normLen = MAX_NORMALIZE_SIZE;
+      }
       normBuf = normalized_s;
     } else {
       normBuf = tok;
     }
 
-    char *normalized = DefaultNormalize(tok, normBuf, &normLen);
+    int allocated = 0;
+    char *normalized = DefaultNormalize(tok, normBuf, &normLen, &allocated);
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
-    if ((normalized == NULL || normLen == 0) && !empty_input) {
+    if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
+      if (allocated) {
+        rm_free(normalized);
+      }
       continue;
     }
 
     // skip stopwords
-    if (!empty_input && StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
+    if (!ctx->empty_input && StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
+      if (allocated) {
+        rm_free(normalized);
+      }
       continue;
+    }
+
+    // If unicode_tolower allocated new memory, we need to ensure the forward index copies it
+    uint32_t flags = Token_CopyStem;
+    if (allocated) {
+      flags |= Token_CopyRaw;
     }
 
     *t = (Token){.tok = normalized,
@@ -110,14 +134,17 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
                  .raw = tok,
                  .rawLen = origLen,
                  .pos = ++ctx->lastOffset,
-                 .flags = Token_CopyStem,
-                 .phoneticsPrimary = t->phoneticsPrimary};
+                 .flags = flags,
+                 .phoneticsPrimary = t->phoneticsPrimary,
+                 .allocatedTok = allocated ? (char*)normalized : NULL};
+
+    const char *normalizedTok = allocated ? normalized : tok;
 
     // if we support stemming - try to stem the word
-    if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer && 
+    if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer &&
           normLen >= RSGlobalConfig.iteratorsConfigParams.minStemLength) {
       size_t sl;
-      const char *stem = self->stemmer->Stem(self->stemmer->ctx, tok, normLen, &sl);
+      const char *stem = self->stemmer->Stem(self->stemmer->ctx, normalizedTok, normLen, &sl);
       if (stem) {
         t->stem = stem;
         t->stemLen = sl;
@@ -144,7 +171,7 @@ void simpleTokenizer_Free(RSTokenizer *self) {
 }
 
 static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwords,
-                    uint32_t opts) {
+                    uint16_t opts) {
   simpleTokenizer *t = (simpleTokenizer *)tokbase;
   t->stemmer = stemmer;
   t->base.ctx.stopwords = stopwords;
@@ -157,7 +184,7 @@ static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwo
   }
 }
 
-RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint16_t opts) {
   simpleTokenizer *t = rm_calloc(1, sizeof(*t));
   t->base.Free = simpleTokenizer_Free;
   t->base.Next = simpleTokenizer_Next;

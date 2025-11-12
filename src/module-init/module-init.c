@@ -1,16 +1,20 @@
-
-#ifndef RS_NO_RMAPI
-#define REDISMODULE_MAIN
-#endif
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "redismodule.h"
 
 #include "module.h"
-#include "version.h"
 #include "config.h"
 #include "redisearch_api.h"
 #include <assert.h>
 #include <ctype.h>
+#include <dlfcn.h>
 #include "concurrent_ctx.h"
 #include "cursor.h"
 #include "extension.h"
@@ -25,17 +29,12 @@
 #include "util/array.h"
 #include "cursor.h"
 #include "fork_gc.h"
-#include "info_command.h"
+#include "info/info_command.h"
 #include "profile.h"
+#include "info/info_redis/info_redis.h"
+#include "util/logging.h"
 
-#ifndef RS_NO_ONLOAD
-int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
-                       REDISMODULE_APIVER_1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-  return RediSearch_InitModuleInternal(ctx, argv, argc);
-}
-#endif
+#define DEPLETER_POOL_SIZE 4
 
 /**
  * Check if we can run under the current AOF configuration. Returns true
@@ -58,9 +57,9 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   // Can't execute commands on the loading context, so make a new one
   RedisModuleCallReply *reply =
       RedisModule_Call(RSDummyContext, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
-  assert(reply);
-  assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
-  assert(RedisModule_CallReplyLength(reply) == 2);
+  RS_ASSERT(reply);
+  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
+  RS_ASSERT(RedisModule_CallReplyLength(reply) == 2);
   const char *value =
       RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(reply, 1), NULL);
 
@@ -98,71 +97,6 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
-  // Module version
-  RedisModule_InfoAddSection(ctx, "version");
-  char ver[64];
-  // RediSearch version
-  sprintf(ver, "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH);
-  RedisModule_InfoAddFieldCString(ctx, "version", ver);
-  // Redis version
-  GetFormattedRedisVersion(ver, sizeof(ver));
-  RedisModule_InfoAddFieldCString(ctx, "redis_version", ver);
-  // Redis Enterprise version
-  if (IsEnterprise()) {
-    GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
-    RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
-  }
-
-  // Numer of indexes
-  RedisModule_InfoAddSection(ctx, "index");
-  RedisModule_InfoAddFieldLongLong(ctx, "number_of_indexes", dictSize(specDict_g));
-
-  // Fields statistics
-  FieldsGlobalStats_AddToInfo(ctx);
-
-  // Memory
-  RedisModule_InfoAddSection(ctx, "memory");
-  TotalSpecsInfo total_info = RediSearch_TotalInfo();
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes", total_info.total_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", total_info.total_mem / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", total_info.indexing_time / (float)CLOCKS_PER_MILLISEC);
-
-  // Cursors
-  RedisModule_InfoAddSection(ctx, "cursors");
-  CursorsInfoStats cursorsStats = Cursors_GetInfoStats();
-  RedisModule_InfoAddFieldLongLong(ctx, "global_idle", cursorsStats.total_idle);
-  RedisModule_InfoAddFieldLongLong(ctx, "global_total", cursorsStats.total);
-
-  // GC stats
-  RedisModule_InfoAddSection(ctx, "gc");
-  InfoGCStats stats = total_info.gc_stats;
-  RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
-  RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
-  RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
-
-  // Dialect statistics
-  DialectsGlobalStats_AddToInfo(ctx);
-
-  // Run time configuration
-  RSConfig_AddToInfo(ctx);
-
-  #ifdef FTINFO_FOR_INFO_MODULES
-  // FT.INFO for some of the indexes
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry;
-  int count = 5;
-  while (count-- && (entry = dictNext(iter))) {
-    StrongRef ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(ref);
-    if (sp) {
-      IndexSpec_AddToInfo(ctx, sp);
-    }
-  }
-  dictReleaseIterator(iter);
-  #endif
-}
-
 static inline const char* RS_GetExtraVersion() {
 #ifdef GIT_VERSPEC
   return GIT_VERSPEC;
@@ -189,6 +123,12 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Print version string!
   DO_LOG("notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
          REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());
+#ifdef __USE_GNU
+  // we print the base addesss to allow easier translation of backtrace symbols
+  Dl_info info;
+  dladdr((void *)RediSearch_Init, &info);
+  DO_LOG("debug", "RediSearch base address: %p", info.dli_fbase);
+#endif
   RS_Initialized = 1;
 
   if (!RSDummyContext) {
@@ -219,18 +159,17 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   CursorList_Init(&g_CursorsList, false);
   CursorList_Init(&g_CursorsListCoord, true);
 
-#ifdef MT_BUILD
+  // Handle deprecated MT configurations
+  UpgradeDeprecatedMTConfigs();
+
   // Init threadpool.
   if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
   DO_LOG("verbose", "threadpool has %lu high-priority bias that always prefer running queries "
                     "when possible", RSGlobalConfig.highPriorityBiasNum);
-#else
-  // If we don't have a thread pool,
-  // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
-  VecSim_SetWriteMode(VecSim_WriteInPlace);
-#endif
+
+  depleterPool = redisearch_thpool_create(DEPLETER_POOL_SIZE, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "depleter");
 
   IndexAlias_InitGlobal();
 
@@ -238,7 +177,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   RegisterAllFunctions();
 
   /* Load extensions if needed */
-  if (RSGlobalConfig.extLoad != NULL) {
+  if (RSGlobalConfig.extLoad != NULL && strlen(RSGlobalConfig.extLoad)) {
 
     char *errMsg = NULL;
     // Load the extension so TODO: pass with param
@@ -256,12 +195,19 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     return REDISMODULE_ERR;
   }
 
+  RS_ASSERT(RSGlobalConfig.defaultScorer);
+  ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, RSGlobalConfig.defaultScorer);
+  if (scoreCtx == NULL) {
+    DO_LOG("warning", "The scorer '%s' specified in the configuration for the default scorer is not a valid scorer", RSGlobalConfig.defaultScorer);
+    return REDISMODULE_ERR;
+  }
+
   // Register to Info function
   if (RedisModule_RegisterInfoFunc && RedisModule_RegisterInfoFunc(ctx, RS_moduleInfoFunc) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
-  Initialize_KeyspaceNotifications(ctx);
+  Initialize_ServerEventNotifications(ctx);
   Initialize_CommandFilter(ctx);
   Initialize_RdbNotifications(ctx);
   Initialize_RoleChangeNotifications(ctx);

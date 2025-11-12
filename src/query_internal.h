@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef QUERY_INTERNAL_H
 #define QUERY_INTERNAL_H
 
@@ -67,14 +69,14 @@ QueryNode *NewPhraseNode(int exact);
 
 QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefix, bool suffix);
 QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist);
-QueryNode *NewNumericNode(QueryParam *p);
+QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs);
 QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt);
 QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec);
-QueryNode *NewTagNode(const char *tag, size_t len);
+QueryNode *NewTagNode(const FieldSpec *fs);
 QueryNode *NewVerbatimNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt);
-QueryNode *NewMissingNode(const char *field, size_t len);
+QueryNode *NewMissingNode(const FieldSpec *fs);
 
 QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 void QueryNode_InitParams(QueryNode *n, size_t num);
@@ -85,8 +87,6 @@ void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
 
 /* Free the query node and its children recursively */
 void QueryNode_Free(QueryNode *n);
-
-void RangeNumber_Free(RangeNumber *r);
 
 #ifdef __cplusplus
 }

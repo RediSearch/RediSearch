@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "aggregate_plan.h"
 #include "reducer.h"
 #include "expr/expression.h"
@@ -24,6 +26,8 @@ static const char *steptypeToString(PLN_StepType type) {
       return "GROUPBY";
     case PLN_T_LOAD:
       return "LOAD";
+    case PLN_T_VECTOR_NORMALIZER:
+      return "VECTOR_NORMALIZER";
     case PLN_T_DISTRIBUTE:
       return "DISTRIBUTE";
     case PLN_T_INVALID:
@@ -34,7 +38,7 @@ static const char *steptypeToString(PLN_StepType type) {
 
 /* add a step to the plan at its end (before the dummy tail) */
 void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step) {
-  RS_LOG_ASSERT(step->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  RS_LOG_ASSERT(step->type > PLN_T_INVALID, "Step type cannot be PLN_T_INVALID");
   dllist_append(&plan->steps, &step->llnodePln);
   plan->steptypes |= (1 << (step->type - 1));
 }
@@ -44,7 +48,7 @@ int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t) {
 }
 
 void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
-  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type cannot be PLN_T_INVALID");
   if (posstp == NULL || DLLIST_IS_FIRST(&pln->steps, &posstp->llnodePln)) {
     dllist_prepend(&pln->steps, &posstp->llnodePln);
   } else {
@@ -53,7 +57,7 @@ void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
 }
 
 void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
-  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type cannot be PLN_T_INVALID");
   if (posstp == NULL || DLLIST_IS_LAST(&pln->steps, &posstp->llnodePln)) {
     AGPLN_AddStep(pln, newstp);
   } else {
@@ -65,9 +69,8 @@ void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp) {
   dllist_prepend(&pln->steps, &newstp->llnodePln);
 }
 
-void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step) {
+void AGPLN_PopStep(PLN_BaseStep *step) {
   dllist_delete(&step->llnodePln);
-  (void)pln;
 }
 
 static void rootStepDtor(PLN_BaseStep *bstp) {
@@ -125,6 +128,33 @@ static void arrangeDtor(PLN_BaseStep *bstp) {
   rm_free(bstp);
 }
 
+void loadDtor(PLN_BaseStep *bstp) {
+  PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
+  rm_free(lstp->keys);
+  rm_free(lstp);
+}
+
+static void vectorNormalizerDtor(PLN_BaseStep *bstp) {
+  PLN_VectorNormalizerStep *vnStep = (PLN_VectorNormalizerStep *)bstp;
+  // vectorFieldName is not owned (points to parser tokens), so don't free it
+
+  if (vnStep->distanceFieldAlias) {
+    rm_free(vnStep->distanceFieldAlias);
+  }
+  rm_free(vnStep);
+
+}
+
+PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName, const char *distanceFieldAlias) {
+  PLN_VectorNormalizerStep *vnStep = rm_calloc(1, sizeof(*vnStep));
+  vnStep->base.type = PLN_T_VECTOR_NORMALIZER;
+  vnStep->base.dtor = vectorNormalizerDtor;
+  vnStep->base.getLookup = NULL;  // No lookup for this step
+  vnStep->vectorFieldName = vectorFieldName;
+  vnStep->distanceFieldAlias = distanceFieldAlias;
+  return vnStep;
+}
+
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   // Go backwards.. and stop at the cutoff
   for (const DLLIST_node *nn = pln->steps.prev; nn != &pln->steps; nn = nn->prev) {
@@ -148,7 +178,7 @@ PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *dis
   newStp->isLimited = true;
   newStp->limit = k;
   newStp->sortKeys = array_new(const char *, 1);
-  newStp->sortKeys = array_append(newStp->sortKeys, distFieldName);
+  array_append(newStp->sortKeys, distFieldName);
   newStp->sortAscMap = SORTASCMAP_INIT;  // all ascending which is the default
   newStp->runLocal = true;  // the distributed KNN step will run in shards via the hybrid iterator
 
@@ -165,6 +195,32 @@ PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   ret->base.dtor = arrangeDtor;
   AGPLN_AddStep(pln, &ret->base);
   return ret;
+}
+
+PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original) {
+  RS_ASSERT(original);
+
+  PLN_LoadStep *cloned = rm_calloc(1, sizeof(PLN_LoadStep));
+
+  // Copy base step properties
+  cloned->base.type = PLN_T_LOAD;
+  cloned->base.alias = original->base.alias ? rm_strdup(original->base.alias) : NULL;
+  cloned->base.flags = original->base.flags;
+  cloned->base.dtor = original->base.dtor;
+  cloned->base.getLookup = original->base.getLookup;
+
+
+  cloned->args = original->args; // Shallow copy of ArgsCursor
+  cloned->nkeys = 0;
+  cloned->strictPrefix = original->strictPrefix; // Copy the strict field validation flag
+  // Pre-allocate keys array based on the number of arguments
+  if (original->args.argc > 0) {
+    cloned->keys = rm_calloc(original->args.argc, sizeof(RLookupKey*));
+  }
+  // else - cloned->keys is already NULL
+
+
+  return cloned;
 }
 
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) {
@@ -236,7 +292,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
     switch (stp->type) {
       case PLN_T_APPLY:
       case PLN_T_FILTER:
-        printf("  EXPR:%s\n", ((PLN_MapFilterStep *)stp)->rawExpr);
+        printf("  EXPR:%s\n", HiddenString_GetUnsafe(((PLN_MapFilterStep *)stp)->expr, NULL));
         if (stp->alias) {
           printf("  AS:%s\n", stp->alias);
         }
@@ -265,9 +321,10 @@ void AGPLN_Dump(const AGGPlan *pln) {
       }
       case PLN_T_GROUP: {
         const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
+        arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
         printf("  BY:\n");
-        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-          printf("    %s\n", gstp->properties[ii]);
+        for (size_t ii = 0; ii < array_len(properties); ++ii) {
+          printf("    %s\n", properties[ii]);
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
           const PLN_Reducer *r = gstp->reducers + ii;
@@ -283,6 +340,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
         break;
       }
       case PLN_T_ROOT:
+      case PLN_T_VECTOR_NORMALIZER:
       case PLN_T_DISTRIBUTE:
       case PLN_T_INVALID:
       case PLN_T__MAX:
@@ -295,7 +353,7 @@ typedef char **myArgArray_t;
 
 static inline void append_string(myArgArray_t *arr, const char *src) {
   char *s = rm_strdup(src);
-  *arr = array_append(*arr, s);
+  array_append(*arr, s);
 }
 static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
   char s[64] = {0};
@@ -315,7 +373,7 @@ static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
   } else {
     append_string(arr, "FILTER");
   }
-  append_string(arr, mstp->rawExpr);
+  append_string(arr, HiddenString_GetUnsafe(mstp->expr, NULL));
   if (stp->alias) {
     append_string(arr, "AS");
     append_string(arr, stp->alias);
@@ -336,7 +394,7 @@ static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
     for (size_t ii = 0; ii < numsort; ++ii) {
       char *stmp;
       rm_asprintf(&stmp, "@%s", astp->sortKeys[ii]);
-      *arr = array_append(*arr, stmp);
+      array_append(*arr, stmp);
       if (SORTASCMAP_GETASC(astp->sortAscMap, ii)) {
         append_string(arr, "ASC");
       } else {
@@ -360,10 +418,11 @@ static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
 
 static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
+  arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
   append_string(arr, "GROUPBY");
-  append_uint(arr, gstp->nproperties);
-  for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-    append_string(arr, gstp->properties[ii]);
+  append_uint(arr, array_len(properties));
+  for (size_t ii = 0; ii < array_len(properties); ++ii) {
+    append_string(arr, properties[ii]);
   }
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -379,24 +438,24 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   }
 }
 
-array_t AGPLN_Serialize(const AGGPlan *pln) {
-  char **arr = array_new(char *, 1);
+void AGPLN_Serialize(const AGGPlan *pln, arrayof(char*) *target) {
   for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     switch (stp->type) {
       case PLN_T_APPLY:
       case PLN_T_FILTER:
-        serializeMapFilter(&arr, stp);
+        serializeMapFilter(target, stp);
         break;
       case PLN_T_ARRANGE:
-        serializeArrange(&arr, stp);
+        serializeArrange(target, stp);
         break;
       case PLN_T_LOAD:
-        serializeLoad(&arr, stp);
+        serializeLoad(target, stp);
         break;
       case PLN_T_GROUP:
-        serializeGroup(&arr, stp);
+        serializeGroup(target, stp);
         break;
+      case PLN_T_VECTOR_NORMALIZER:
       case PLN_T_INVALID:
       case PLN_T_ROOT:
       case PLN_T_DISTRIBUTE:
@@ -404,5 +463,4 @@ array_t AGPLN_Serialize(const AGGPlan *pln) {
         break;
     }
   }
-  return arr;
 }

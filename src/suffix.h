@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 
 #ifdef __cplusplus
@@ -11,14 +13,15 @@ extern "C" {
 #endif
 
 #include "trie/trie_type.h"
-#include "index.h"
+#include "triemap.h"
+#include "util/arr.h"
 
 #define MIN_SUFFIX 2
 
 typedef enum {
     SUFFIX_TYPE_SUFFIX = 0,
     SUFFIX_TYPE_CONTAINS = 1,
-    SUFFIX_TYPE_WILDCARD = 2,    
+    SUFFIX_TYPE_WILDCARD = 2,
 } SuffixType;
 
 /***********************************************************/
@@ -52,7 +55,7 @@ void suffixTrie_freeCallback(void *data);
 /* Iterate on suffix trie and add use callback function on results */
 void Suffix_IterateContains(SuffixCtx *sufCtx);
 
-/* Iterate on suffix trie and add use callback function on results 
+/* Iterate on suffix trie and add use callback function on results
  * If wildcard pattern does not support suffix trie, return 0, else return 1. */
 int Suffix_IterateWildcard(SuffixCtx *sufCtx);
 

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "libnu/libnu.h"
 #include "rune_util.h"
@@ -11,9 +13,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-
-// The maximum size we allow converting to at once
-#define MAX_RUNESTR_LEN 1024
 
 static uint32_t __fold(uint32_t runelike) {
   uint32_t lowered = 0;
@@ -30,27 +29,110 @@ rune runeFold(rune r) {
   return __fold((uint32_t)r);
 }
 
+static uint32_t __lower(uint32_t runelike) {
+  uint32_t lowered = 0;
+  const char *map = 0;
+  map = nu_tolower(runelike);
+  if (!map) {
+    return runelike;
+  }
+  nu_casemap_read(map, &lowered);
+  return lowered;
+}
+
+rune runeLower(rune r) {
+  return __lower((uint32_t)r);
+}
+
 char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   if (len > MAX_RUNESTR_LEN) {
     if (utflen) *utflen = 0;
     return NULL;
   }
-  uint32_t unicode[len + 1];
+
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *unicode = u_stack_buffer;
+
+  if (len > SSO_MAX_LENGTH - 1) {
+    unicode = rm_malloc((len + 1) * sizeof(*unicode));
+    if (!unicode) {
+      *utflen = 0;
+      return NULL;
+    }
+  }
+
   for (int i = 0; i < len; i++) {
     unicode[i] = (uint32_t)in[i];
   }
   unicode[len] = 0;
 
-  *utflen = nu_bytelen(unicode, nu_utf8_write);
-  char *ret = rm_calloc(1, *utflen + 1);
+  size_t bytelen = nu_bytelen(unicode, nu_utf8_write);
+  char *ret = rm_calloc(1, bytelen + 1);
 
   nu_writestr(unicode, ret, nu_utf8_write);
+  if (unicode != u_stack_buffer) {
+    rm_free(unicode);
+  }
+  *utflen = bytelen;
   return ret;
 }
 
-/* implementation is identical to that of
- * strToRunes except for line where __fold is called */
-rune *strToFoldedRunes(const char *str, size_t *len) {
+rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
+
+  // determine the length of the folded string
+  ssize_t rlen = nu_strtransformnlen(str, utf8_len, nu_utf8_read,
+                                     nu_tolower, nu_casemap_read);
+  if (rlen > MAX_RUNESTR_LEN) {
+    *unicode_len = 0;
+    return NULL;
+  }
+
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *u_buffer = u_stack_buffer;
+  if (rlen > SSO_MAX_LENGTH - 1) {
+    u_buffer = rm_malloc((rlen + 1) * sizeof(*u_buffer));
+  }
+
+  u_buffer[rlen] = 0;
+  nu_readstr(str, u_buffer, nu_utf8_read);
+
+  rune *ret = rm_calloc(rlen + 1, sizeof(rune));
+  const char *encoded_char = str;
+  uint32_t codepoint;
+  unsigned i = 0;
+  while (encoded_char < str + utf8_len) {
+    // Read unicode codepoint from utf8 string
+    encoded_char = nu_utf8_read(encoded_char, &codepoint);
+    // Transform unicode codepoint to lower case
+    const char *map = nu_tolower(codepoint);
+
+    // Read the transformed codepoint and store it in the unicode buffer
+    if (map != NULL) {
+      uint32_t mu;
+      while (1) {
+        map = nu_casemap_read(map, &mu);
+        if (mu == 0) {
+          break;
+        }
+        ret[i++] = mu;
+      }
+    } else {
+        ret[i++] = codepoint;
+    }
+  }
+  *unicode_len = rlen;
+
+  if (u_buffer != u_stack_buffer) {
+    rm_free(u_buffer);
+  }
+  return ret;
+}
+
+/* implementation is identical to that of strToRunes except for line where
+ * __fold is called.
+ * If the folded rune occupies more than 1 codepoint, only the first
+ * is used, the rest are ignored. */
+rune *strToSingleCodepointFoldedRunes(const char *str, size_t *len) {
 
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
   if (rlen > MAX_RUNESTR_LEN) {

@@ -1,14 +1,18 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "rules.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
+#include "document.h"
 #include "json.h"
 #include "rdb.h"
+#include "fast_float/fast_float_strtod.h"
 
 TrieMap *SchemaPrefixes_g;
 
@@ -22,7 +26,6 @@ const char *DocumentType_ToString(DocumentType type) {
       return "JSON";
     case DocumentType_Unsupported:
     default:
-      RS_LOG_ASSERT(true, "SchameRuleType_Any is not supported");
       return "";
   }
 }
@@ -35,7 +38,7 @@ int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *sta
     *type = DocumentType_Json;
     return REDISMODULE_OK;
   }
-  QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Invalid rule type: %s", type_str);
+  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid rule type", ": %s", type_str);
   return REDISMODULE_ERR;
 }
 
@@ -64,11 +67,14 @@ void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
   if (!legacySpecRules) return;
   dictIterator *iter = dictGetIterator(legacySpecRules);
   dictEntry *entry = NULL;
+  size_t upgradeFailures = 0;
   while ((entry = dictNext(iter))) {
-    char *indexName = dictGetKey(entry);
     SchemaRuleArgs *rule_args = dictGetVal(entry);
-    RedisModule_Log(ctx, "warning", "Index %s was defined for upgrade but was not found", indexName);
     SchemaRuleArgs_Free(rule_args);
+    ++upgradeFailures;
+  }
+  if (upgradeFailures) {
+    RedisModule_Log(ctx, "warning", "Indexes were defined for upgrade but failed to find %zu of them", upgradeFailures);
   }
   dictReleaseIterator(iter);
   dictEmpty(legacySpecRules, NULL);
@@ -83,7 +89,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     goto error;
   }
 
-  rule->filter_exp_str = args->filter_exp_str ? rm_strdup(args->filter_exp_str) : NULL;
+  rule->filter_exp_str = args->filter_exp_str ? NewHiddenString(args->filter_exp_str, strlen(args->filter_exp_str), true) : NULL;
   rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
   rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
   rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
@@ -91,9 +97,9 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
   if (args->score_default) {
     double score;
     char *endptr = {0};
-    score = strtod(args->score_default, &endptr);
+    score = fast_float_strtod(args->score_default, &endptr);
     if (args->score_default == endptr || score < 0 || score > 1) {
-      QueryError_SetError(status, QUERY_EADDARGS, "Invalid score");
+      QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid score");
       goto error;
     }
     rule->score_default = score;
@@ -104,7 +110,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
   if (args->lang_default) {
     RSLanguage lang = RSLanguage_Find(args->lang_default, 0);
     if (lang == RS_LANG_UNSUPPORTED) {
-      QueryError_SetError(status, QUERY_EADDARGS, "Invalid language");
+      QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid language");
       goto error;
     }
     rule->lang_default = lang;
@@ -112,22 +118,34 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     rule->lang_default = DEFAULT_LANGUAGE;
   }
 
-  rule->prefixes = array_new(sds, args->nprefixes);
+  rule->prefixes = array_new(HiddenUnicodeString*, args->nprefixes);
   for (int i = 0; i < args->nprefixes; ++i) {
-    sds p = sdsnew(args->prefixes[i]);
+    HiddenUnicodeString* p = NewHiddenUnicodeString(args->prefixes[i]);
     array_append(rule->prefixes, p);
   }
 
   if (rule->filter_exp_str) {
-    rule->filter_exp = ExprAST_Parse(rule->filter_exp_str, strlen(rule->filter_exp_str), status);
+    rule->filter_exp = ExprAST_Parse(rule->filter_exp_str, status);
     if (!rule->filter_exp) {
-      QueryError_SetError(status, QUERY_EADDARGS, "Invalid expression");
+      QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid expression");
+      goto error;
+    }
+  }
+
+  if (args->index_all) {
+    // Validate the arg (if it's not ENABLE or DISABLE -> throw an error)
+    if (!strcasecmp(args->index_all, "enable")) {
+      rule->index_all = true;
+    } else if (!strcasecmp(args->index_all, "disable")) {
+      rule->index_all = false;
+    } else {
+      QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid argument for `INDEXALL`, use ENABLE/DISABLE");
       goto error;
     }
   }
 
   for (int i = 0; i < array_len(rule->prefixes); ++i) {
-    SchemaPrefixes_Add(rule->prefixes[i], sdslen(rule->prefixes[i]), ref);
+    SchemaPrefixes_Add(rule->prefixes[i], ref);
   }
 
   return rule;
@@ -158,7 +176,10 @@ void SchemaRule_FilterFields(IndexSpec *spec) {
       for (int j = 0; j < spec->numFields; ++j) {
         // a match. save the field index for fast access
         FieldSpec *fs = spec->fields + j;
-        if (!strcmp(properties[i], fs->name) || !strcmp(properties[i], fs->path)) {
+        const char* property = properties[i];
+        size_t length = strlen(property);
+        if (!HiddenString_CompareC(fs->fieldName, property, length)
+            || !HiddenString_CompareC(fs->fieldPath, property, length)) {
           rule->filter_fields_index[i] = j;
           break;
         }
@@ -175,11 +196,13 @@ void SchemaRule_Free(SchemaRule *rule) {
   rm_free((void *)rule->lang_field);
   rm_free((void *)rule->score_field);
   rm_free((void *)rule->payload_field);
-  rm_free((void *)rule->filter_exp_str);
+  if (rule->filter_exp_str) {
+    HiddenString_Free(rule->filter_exp_str, true);
+  }
   if (rule->filter_exp) {
     ExprAST_Free((RSExpr *)rule->filter_exp);
   }
-  array_free_ex(rule->prefixes, sdsfree(*(sds *)ptr));
+  array_free_ex(rule->prefixes, HiddenUnicodeString_Free(*(HiddenUnicodeString**)ptr));
   array_free_ex(rule->filter_fields, rm_free(*(char **)ptr));
   rm_free(rule->filter_fields_index);
   rm_free((void *)rule);
@@ -191,7 +214,7 @@ static SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, StrongRef r
   SchemaPrefixNode *node = rm_calloc(1, sizeof(*node));
   node->prefix = rm_strdup(prefix);
   node->index_specs = array_new(StrongRef, 1);
-  node->index_specs = array_append(node->index_specs, ref);
+  array_append(node->index_specs, ref);
   return node;
 }
 
@@ -221,7 +244,7 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
   const char *lang_s = RedisModule_StringPtrLen(lang_rms, &len);
   lang = RSLanguage_Find(lang_s, len);
   if (lang == RS_LANG_UNSUPPORTED) {
-    RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
+    RedisModule_Log(rctx, "warning", "invalid language for key %s", kname);
     lang = rule->lang_default;
   }
 done:
@@ -240,7 +263,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  assert(japi);
+  RS_ASSERT(japi);
   if (!japi) {
     goto done;
   }
@@ -254,13 +277,13 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
   size_t len;
   RedisJSON langJson = japi->next(jsonIter);
   if (!langJson || japi->getString(langJson, &langStr, &len) != REDISMODULE_OK) {
-    RedisModule_Log(NULL, "warning", "invalid field %s for key %s: not a string", rule->lang_field, kname);
+    RedisModule_Log(ctx, "warning", "invalid field %s for key %s: not a string", rule->lang_field, kname);
     goto done;
   }
 
   lang = RSLanguage_Find(langStr, len);
   if (lang == RS_LANG_UNSUPPORTED) {
-    RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
+    RedisModule_Log(ctx, "warning", "invalid language for key %s", kname);
     lang = rule->lang_default;
     goto done;
   }
@@ -290,7 +313,7 @@ double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisM
 
   rv = RedisModule_StringToDouble(score_rms, &score);
   if (rv != REDISMODULE_OK) {
-    RedisModule_Log(NULL, "warning", "invalid score for key %s", kname);
+    RedisModule_Log(rctx, "warning", "invalid score for key %s", kname);
     score = rule->score_default;
   }
 done:
@@ -308,7 +331,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  assert(japi);
+  RS_ASSERT(japi);
   if (!japi) {
     goto done;
   }
@@ -320,7 +343,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
 
   RedisJSON scoreJson = japi->next(jsonIter);
   if (!scoreJson || japi->getDouble(scoreJson, &score) != REDISMODULE_OK) {
-    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
+    RedisModule_Log(ctx, "warning", "invalid field %s for key %s", rule->score_field, kname);
   }
 
 done:
@@ -347,7 +370,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 
 //---------------------------------------------------------------------------------------------
 
-int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver) {
+int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError *status) {
   SchemaRuleArgs args = {0};
   size_t len;
 #define RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK 32
@@ -386,15 +409,19 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver) {
   }
   double score_default = LoadDouble_IOError(rdb, goto cleanup);
   RSLanguage lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
+  bool index_all = false;
+  if (encver >= INDEX_INDEXALL_VERSION) {
+    index_all = LoadUnsigned_IOError(rdb, goto cleanup);
+  }
 
-  QueryError status = {0};
-  SchemaRule *rule = SchemaRule_Create(&args, ref, &status);
+  SchemaRule *rule = SchemaRule_Create(&args, ref, status);
   if (!rule) {
-    RedisModule_LogIOError(rdb, "warning", "%s", QueryError_GetError(&status));
-    RedisModule_Assert(rule);
+    ret = REDISMODULE_ERR;
+    goto cleanup;
   }
   rule->score_default = score_default;
   rule->lang_default = lang_default;
+  rule->index_all = index_all;
 
   // No need to validate the reference here, since we are loading it from the RDB
   IndexSpec *sp = StrongRef_Get(ref);
@@ -435,11 +462,11 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   RedisModule_SaveStringBuffer(rdb, ruleTypeStr, strlen(ruleTypeStr) + 1);
   RedisModule_SaveUnsigned(rdb, array_len(rule->prefixes));
   for (size_t i = 0; i < array_len(rule->prefixes); ++i) {
-    RedisModule_SaveStringBuffer(rdb, rule->prefixes[i], sdslen(rule->prefixes[i]) + 1);
+    HiddenUnicodeString_SaveToRdb(rule->prefixes[i], rdb);
   }
   if (rule->filter_exp_str) {
     RedisModule_SaveUnsigned(rdb, 1);
-    RedisModule_SaveStringBuffer(rdb, rule->filter_exp_str, strlen(rule->filter_exp_str) + 1);
+    HiddenString_SaveToRdb(rule->filter_exp_str, rdb);
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
@@ -463,6 +490,7 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   }
   RedisModule_SaveDouble(rdb, rule->score_default);
   RedisModule_SaveUnsigned(rdb, rule->lang_default);
+  RedisModule_SaveUnsigned(rdb, rule->index_all);
 }
 
 bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type) {
@@ -475,10 +503,12 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 
   // check prefixes (always found for an index with no prefixes)
   bool match = false;
-  sds *prefixes = sp->rule->prefixes;
+  HiddenUnicodeString **prefixes = sp->rule->prefixes;
   for (int i = 0; i < array_len(prefixes); ++i) {
     // Using `strncmp` to compare the prefix, since the key might be longer than the prefix
-    if (!strncmp(keyCstr, prefixes[i], sdslen(prefixes[i]))) {
+    size_t length = 0;
+    const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &length);
+    if (!strncmp(keyCstr, prefix, length)) {
       match = true;
       break;
     }
@@ -523,14 +553,16 @@ void SchemaPrefixes_Free(TrieMap *t) {
   TrieMap_Free(t, freePrefixNode);
 }
 
-void SchemaPrefixes_Add(const char *prefix, size_t len, StrongRef ref) {
-  void *p = TrieMap_Find(SchemaPrefixes_g, prefix, len);
+void SchemaPrefixes_Add(HiddenUnicodeString *prefix, StrongRef ref) {
+  size_t len = 0;
+  const char *prefix_cstr = HiddenUnicodeString_GetUnsafe(prefix, &len);
+  void *p = TrieMap_Find(SchemaPrefixes_g, prefix_cstr, len);
   if (p == TRIEMAP_NOTFOUND) {
-    SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix, ref);
-    TrieMap_Add(SchemaPrefixes_g, prefix, len, node, NULL);
+    SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix_cstr, ref);
+    TrieMap_Add(SchemaPrefixes_g, prefix_cstr, len, node, NULL);
   } else {
     SchemaPrefixNode *node = (SchemaPrefixNode *)p;
-    node->index_specs = array_append(node->index_specs, ref);
+    array_append(node->index_specs, ref);
   }
 }
 
@@ -538,10 +570,12 @@ void SchemaPrefixes_RemoveSpec(StrongRef ref) {
   IndexSpec *spec = StrongRef_Get(ref);
   if (!spec || !spec->rule || !spec->rule->prefixes) return;
 
-  sds *prefixes = spec->rule->prefixes;
+  arrayof(HiddenUnicodeString *) prefixes = spec->rule->prefixes;
   for (int i = 0; i < array_len(prefixes); ++i) {
     // retrieve list of specs matching the prefix
-    SchemaPrefixNode *node = TrieMap_Find(SchemaPrefixes_g, prefixes[i], sdslen(prefixes[i]));
+    size_t len = 0;
+    const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
+    SchemaPrefixNode *node = TrieMap_Find(SchemaPrefixes_g, prefix, len);
     if (node == TRIEMAP_NOTFOUND) {
       continue;
     }
@@ -551,7 +585,7 @@ void SchemaPrefixes_RemoveSpec(StrongRef ref) {
         array_del_fast(node->index_specs, j);
         if (array_len(node->index_specs) == 0) {
           // if all specs were deleted, remove the node
-          TrieMap_Delete(SchemaPrefixes_g, prefixes[i], sdslen(prefixes[i]), (freeCB)SchemaPrefixNode_Free);
+          TrieMap_Delete(SchemaPrefixes_g, prefix, len, (freeCB)SchemaPrefixNode_Free);
         }
         break;
       }

@@ -5,6 +5,7 @@ import sys
 from RLTest import Env
 from includes import *
 from test_info_modules import info_modules_to_dict
+from common import config_cmd
 
 
 if 'EXT_TEST_PATH' in os.environ:
@@ -27,12 +28,13 @@ def testExt(env):
         raise Exception("Path ({}) does not exist. "
             "Run from the build directory or set EXT_TEST_PATH in the environment".format(ext_path))
 
-    env = Env(moduleArgs='EXTLOAD %s' % ext_path)
+    env = Env(moduleArgs=f'EXTLOAD {ext_path}')
 
     N = 100
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
+    con = env.getClusterConnectionIfNeeded()
     for i in range(N):
-        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+        env.assertOk(con.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                          'f', 'hello world'))
     res = env.cmd('ft.search', 'idx', 'hello world')
     env.assertEqual(N, res[0])
@@ -43,5 +45,5 @@ def testExt(env):
     env.assertTrue('search_extension_load' in info['search_runtime_configurations'])
 
     if not env.isCluster():
-        res = env.cmd('ft.config', 'get', 'EXTLOAD')[0][1]
+        res = env.cmd(config_cmd(), 'get', 'EXTLOAD')[0][1]
         env.assertContains('libexample_extension', res)

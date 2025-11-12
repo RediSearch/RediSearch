@@ -1,4 +1,14 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "tag_index.h"
+#include "triemap.h"
 #include "gtest/gtest.h"
 
 #include <vector>
@@ -25,38 +35,40 @@ TEST_F(TagIndexTest, testCreate) {
     ASSERT_EQ(0, sz);
   }
 
-  ASSERT_EQ(v.size(), idx->values->cardinality);
+  ASSERT_EQ(v.size(), TrieMap_NUniqueKeys(idx->values));
 
-  // expectedTotalSZ should include the memory occupied by the inverted index 
+  // expectedTotalSZ should include the memory occupied by the inverted index
   // structure and its blocks.
 
-  // Buffer grows up to 1077 bytes trying to store 1000 bytes. See Buffer_Grow()
-  size_t buffer_cap = 1077;
-  size_t num_blocks = N / INDEX_BLOCK_SIZE_DOCID_ONLY;
+  // Buffer grows up to 1106 bytes trying to store 1000 bytes - it doubles each time
+  size_t buffer_cap = 1106;
+  size_t num_blocks = N / 1000;
 
-  // The size of the inverted index structure is 32 bytes
-  size_t iv_index_size = sizeof_InvertedIndex(Index_DocIdsOnly);
+  // The size of the inverted index structure is 40 bytes
+  size_t iv_index_size = 40;
 
-  size_t expectedTotalSZ = v.size() * (iv_index_size + ((buffer_cap + sizeof(IndexBlock)) * num_blocks));
+  // Each index block is 48 bytes + its buffer capacity
+  size_t expectedTotalSZ = v.size() * (iv_index_size + ((buffer_cap + 48) * num_blocks));
   ASSERT_EQ(expectedTotalSZ, totalSZ);
 
   // Add a new entry to and check the last block size
   std::vector<const char *> v2{"bye"};
   size_t sz = TagIndex_Index(idx, &v2[0], v2.size(), ++d);
-  size_t last_block_size = sizeof_InvertedIndex(Index_DocIdsOnly) +
-                            sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  // A base inverted index is 40 bytes
+  // An index block is 48 bytes
+  // And after the first insert the buffer capacity is 1 byte
+  size_t last_block_size = 40 + 48 + 1;
   ASSERT_EQ(expectedTotalSZ + last_block_size, totalSZ + sz);
 
-  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1);
+  QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(it != NULL);
-  RSIndexResult *r;
   t_docId n = 1;
 
   // TimeSample ts;
   // TimeSampler_Start(&ts);
-  while (INDEXREAD_EOF != it->Read(it->ctx, &r)) {
+  while (ITERATOR_EOF != it->Read(it)) {
     // printf("DocId: %d\n", r->docId);
-    ASSERT_EQ(n++, r->docId);
+    ASSERT_EQ(n++, it->lastDocId);
     // TimeSampler_Tick(&ts);
   }
 
@@ -64,6 +76,23 @@ TEST_F(TagIndexTest, testCreate) {
   // printf("%d iterations in %lldns, rate %fns/iter\n", N, ts.durationNS,
   //        TimeSampler_IterationMS(&ts) * 1000000);
   ASSERT_EQ(N + 1, n);
+  it->Free(it);
+  TagIndex_Free(idx);
+}
+
+TEST_F(TagIndexTest, testSkipToLastId) {
+  TagIndex *idx = NewTagIndex();
+  ASSERT_FALSE(idx == NULL);
+  std::vector<const char *> v{"hello"};
+  t_docId docId = 1;
+  TagIndex_Index(idx, &v[0], v.size(), docId);
+  QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  IteratorStatus rc = it->Read(it);
+  ASSERT_EQ(rc, ITERATOR_OK);
+  ASSERT_EQ(it->lastDocId, docId);
+  rc = it->SkipTo(it, docId + 1);
+  ASSERT_EQ(rc, ITERATOR_EOF);
+  ASSERT_GE(it->lastDocId, docId);
   it->Free(it);
   TagIndex_Free(idx);
 }

@@ -3,7 +3,6 @@
 import collections
 import random
 import re
-import shutil
 import subprocess
 import tempfile
 import zipfile
@@ -13,6 +12,7 @@ import tempfile
 import gevent.queue
 import gevent.server
 import gevent.socket
+import redis
 
 from common import *
 from includes import *
@@ -31,6 +31,7 @@ RDBS_SHORT_READS = {
     'short-reads/redisearch_2.8.4.rdb.zip'             : ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
     'short-reads/redisearch_2.10.3.rdb.zip'            : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [10, 35]),
     'short-reads/redisearch_2.10.3_missing.rdb.zip'    : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
+    'short-reads/redisearch_existing_3.0.rdb.zip'      : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
 }
 RDBS_COMPATIBILITY = {
     'redisearch_2.0.9.rdb': ExpectedIndex(1, 'idx', [1000]),
@@ -124,7 +125,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
     '''
 
     # Create the index
-    cmd_create = ['ft.create', index_name, 'ON', 'HASH' if isHash else 'JSON']
+    cmd_create = ['ft.create', index_name, 'ON', 'HASH' if isHash else 'JSON', 'INDEXALL', 'ENABLE']
     # With prefixes
     if num_prefs > 0:
         cmd_create.extend(['prefix', num_prefs])
@@ -202,7 +203,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
 def _testCreateIndexRdbFiles(env):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
-    create_indices(env, 'redisearch_2.10.3.rdb', 'idxSearch', True, False)
+    create_indices(env, 'redisearch_existing_3.0.rdb', 'idxSearch', True, False)
 
 def _testCreateIndexRdbFilesWithJSON(env):
     if not server_version_at_least(env, "6.2.0"):
@@ -308,7 +309,7 @@ class Connection(object):
             try:
                 args_count = int(line[1:])
             except ValueError:
-                raise Exception('Invalid mbulk header: %s' % line)
+                raise Exception(f'Invalid mbulk header: {line}')
         data = []
         for arg in range(args_count):
             data.append(self.read_response())
@@ -325,7 +326,7 @@ class Connection(object):
         try:
             args_count = int(line[1:])
         except ValueError:
-            raise Exception('Invalid mbulk request: %s' % line)
+            raise Exception(f'Invalid mbulk request: {line}')
         return self.read_mbulk(args_count)
 
     def read_request_and_reply_status(self, status):
@@ -363,14 +364,14 @@ class Connection(object):
             try:
                 return int(line[1:])
             except ValueError:
-                raise Exception('Invalid numeric value: %s' % line)
+                raise Exception(f'Invalid numeric value: {line}')
         elif line[0] == '-':
             return line.rstrip()
         elif line[0] == '$':
             try:
                 bulk_len = int(line[1:])
             except ValueError:
-                raise Exception('Invalid bulk response: %s' % line)
+                raise Exception(f'Invalid bulk response: {line}')
             if bulk_len == -1:
                 return None
             data = self.read(bulk_len + 2)
@@ -382,10 +383,10 @@ class Connection(object):
             try:
                 args_count = int(line[1:])
             except ValueError:
-                raise Exception('Invalid mbulk response: %s' % line)
+                raise Exception(f'Invalid mbulk response: {line}')
             return self.read_mbulk(args_count)
         else:
-            raise Exception('Invalid response: %s' % line)
+            raise Exception(f'Invalid response: {line}')
 
 
 class ShardMock:
@@ -554,8 +555,17 @@ def runShortRead(env, data, total_len, expected_index):
         conn.close()
 
         # Make sure replica did not crash
-        res = env.cmd('PING')
+        max_up_attempt = 60
+        while max_up_attempt > 0:
+            try:
+                res = env.cmd('PING')
+                break
+            except redis.exceptions.BusyLoadingError:
+                max_up_attempt = max_up_attempt - 1
+                time.sleep(0.1)
+        env.assertGreater(max_up_attempt, 0)
         env.assertEqual(res, True)
+
         conn = shardMock.GetConnection(timeout=3)
         env.assertNotEqual(conn, None)
 
@@ -587,32 +597,28 @@ def runShortRead(env, data, total_len, expected_index):
 seed = str(time.time())
 random.seed(seed)
 
-def downloadFile(file_name):
-    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
-    path_dir = os.path.dirname(path)
-    os.makedirs(path_dir, exist_ok=True)
-    if not os.path.exists(path):
-        subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + file_name, "-O", path, "-q"])
-        if os.path.splitext(path)[-1] == '.zip':
-            return unzip(path, path_dir)
-        else:
-            return os.path.exists(path) and os.path.getsize(path) > 0
+def getRDBFiles(env, rdb_name, depth=0):
+    if not downloadFile(env, rdb_name, depth=depth+1):
+        return False
+    path = os.path.join(REDISEARCH_CACHE_DIR, rdb_name)
+    if os.path.splitext(rdb_name)[-1] == '.zip':
+        path_dir = os.path.dirname(path)
+        if not unzip(path, path_dir):
+            env.assertTrue(False, message='Failed to unzip ' + path)
+            return False
     return True
 
-def doTest(env: Env, test_name, rdb_name, expected_index):
+def doTest(env: Env, test_name, rdb_name, expected_index, depth=0):
     env.debugPrint(f'random seed for {test_name}: {seed}', force=True)
-    env.assertTrue(downloadFile(rdb_name), message='Failed to download ' + rdb_name)
+    if not getRDBFiles(env, rdb_name, depth=depth+1):
+        return False
     name, ext = os.path.splitext(rdb_name)
     fullPath = os.path.join(REDISEARCH_CACHE_DIR, name if ext == '.zip' else rdb_name)
 
-    if MT_BUILD:
-        env.cmd('FT.CONFIG', 'SET', 'MIN_OPERATION_WORKERS', '0') # test without MT
-        sendShortReads(env, fullPath, expected_index)
-        if server_version_at_least(env, "7.0.0"):
-            env.cmd('FT.CONFIG', 'SET', 'MIN_OPERATION_WORKERS', '2') # test with MT
-            sendShortReads(env, fullPath, expected_index)
-    else:
-        # test without MT (no need to change configuration)
+    env.cmd(config_cmd(), 'SET', 'MIN_OPERATION_WORKERS', '0') # test without MT
+    sendShortReads(env, fullPath, expected_index)
+    if server_version_at_least(env, "7.0.0"):
+        env.cmd(config_cmd(), 'SET', 'MIN_OPERATION_WORKERS', '2') # test with MT
         sendShortReads(env, fullPath, expected_index)
 
 # Dynamically create a test function for each rdb file

@@ -1,23 +1,39 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef REDISEARCH_H__
 #define REDISEARCH_H__
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <time.h>
 #include "util/dllist.h"
 #include "stemmer.h"
+#include "types_rs.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
 // used to represent the id of a single field.
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
+#define RS_INVALID_FIELD_ID (t_fieldId)-1
+// Used to identify any field index within the spec, not just textual fields
+typedef uint16_t t_fieldIndex;
+#define RS_INVALID_FIELD_INDEX (t_fieldIndex)0xFFFF
+struct timespec;
+typedef struct timespec t_expirationTimePoint;
+
+typedef uint64_t t_uniqueId;
+#define SIGN_CHAR_LENGTH 0 // t_uniqueId is unsigned
+#define LOG_10_ON_256_UPPER_BOUND 3 // 2^8 = 10 ^ y, 2^16 = 2^8 * 2^8 = 10^y * 10^y = 10^2y -> y == 2.40824 -> upper bound for y is 3
+#define MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND ((sizeof(t_uniqueId) * LOG_10_ON_256_UPPER_BOUND) + SIGN_CHAR_LENGTH)
 
 #define DOCID_MAX UINT64_MAX
 
@@ -76,11 +92,30 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
-  Document_FailedToOpen = 0x10, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
+  Document_HasExpiration = 0x10, // Document and/or at least one of its fields has an expiration time
+  Document_FailedToOpen = 0x20, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
                                 // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
+enum FieldExpirationPredicate {
+  FIELD_EXPIRATION_DEFAULT, // one of the fields need to be valid
+  FIELD_EXPIRATION_MISSING // one of the fields need to be expired for the entry to be considered missing
+};
+
+typedef struct {
+  // tells us the actual type of the field member
+  // true - fieldMask, false - fieldIndex
+  bool isFieldMask;
+  union {
+    // For textual fields, allows to host multiple field indices at once
+    t_fieldMask mask;
+    // For the other fields, allows a single field to be referenced
+    t_fieldIndex index;
+  } value;
+} FieldMaskOrIndex;
+
 #define hasPayload(x) (x & Document_HasPayload)
+#define hasExpirationTimeInformation(x) (x & Document_HasExpiration)
 
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
@@ -199,7 +234,7 @@ typedef int (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
 typedef void (*RSFreeFunction)(void *);
 
 /* A single term being evaluated in query time */
-typedef struct {
+typedef struct RSQueryTerm {
   /* The term string, not necessarily NULL terminated, hence the length is given as well */
   char *str;
   /* The term length */
@@ -225,13 +260,6 @@ typedef struct {
  * When calling the iterator you should check for this return value */
 #define RS_OFFSETVECTOR_EOF UINT32_MAX
 
-/* RSOffsetVector represents the encoded offsets of a term in a document. You can read the offsets
- * by iterating over it with RSOffsetVector_Iterate */
-typedef struct RSOffsetVector {
-  char *data;
-  uint32_t len;
-} RSOffsetVector;
-
 /* RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records */
 typedef struct RSOffsetIterator {
   void *ctx;
@@ -240,16 +268,6 @@ typedef struct RSOffsetIterator {
   void (*Free)(void *ctx);
 } RSOffsetIterator;
 
-/* RSIndexRecord represents a single record of a document inside a term in the inverted index */
-typedef struct {
-
-  /* The term that brought up this record */
-  RSQueryTerm *term;
-
-  /* The encoded offsets in which the term appeared in the document */
-  RSOffsetVector offsets;
-
-} RSTermRecord;
 
 /* A virtual record represents a record that doesn't have a term or an aggregate, like numeric
  * records */
@@ -257,34 +275,8 @@ typedef struct {
   char dummy;
 } RSVirtualRecord;
 
-typedef struct {
-  double value;
-} RSNumericRecord;
 
-typedef enum {
-  RSResultType_Union = 0x1,
-  RSResultType_Intersection = 0x2,
-  RSResultType_Term = 0x4,
-  RSResultType_Virtual = 0x8,
-  RSResultType_Numeric = 0x10,
-  RSResultType_Metric = 0x20,
-  RSResultType_HybridMetric = 0x40,
-} RSResultType;
-
-#define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
-#define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
-
-typedef struct {
-  /* The number of child records */
-  int numChildren;
-  /* The capacity of the records array. Has no use for extensions */
-  int childrenCap;
-  /* An array of recods */
-  struct RSIndexResult **children;
-
-  // A map of the aggregate type of the underlying results
-  uint32_t typeMask;
-} RSAggregateResult;
+#define RS_RESULT_NUMERIC (RSResultData_Numeric | RSResultData_Metric)
 
 // Forward declaration of needed structs
 struct RLookupKey;
@@ -297,57 +289,6 @@ typedef struct RSYieldableMetric{
   struct RSValue *value;
 } RSYieldableMetric;
 
-#pragma pack(16)
-
-typedef struct RSIndexResult {
-
-  /******************************************************************************
-   * IMPORTANT: The order of the following 4 variables must remain the same, and all
-   * their type aliases must remain uint32_t. The record is decoded by casting it
-   * to an array of 4 uint32_t integers to avoid redundant memcpy
-   *******************************************************************************/
-  /* The docId of the result */
-  t_docId docId;
-  const RSDocumentMetadata *dmd;
-
-  /* the total frequency of all the records in this result */
-  uint32_t freq;
-
-  /* The aggregate field mask of all the records in this result */
-  t_fieldMask fieldMask;
-
-  /* For term records only. This is used as an optimization, allowing the result to be loaded
-   * directly into memory */
-  uint32_t offsetsSz;
-
-  /*******************************************************************************
-   * END OF the "magic 4 uints" section
-   ********************************************************************************/
-
-  union {
-    // Aggregate record
-    RSAggregateResult agg;
-    // Term record
-    RSTermRecord term;
-    // virtual record with no values
-    RSVirtualRecord virt;
-    // numeric record with float value
-    RSNumericRecord num;
-  };
-
-  RSResultType type;
-
-  // Holds an array of metrics yielded by the different iterators in the AST
-  RSYieldableMetric *metrics;
-
-  // we mark copied results so we can treat them a bit differently on deletion, and pool them if we
-  // want
-  int isCopy;
-
-  /* Relative weight for scoring calculations. This is derived from the result's iterator weight */
-  double weight;
-} RSIndexResult;
-
 #pragma pack()
 
 RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t);
@@ -356,8 +297,6 @@ RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t)
 RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res);
 
 int RSIndexResult_HasOffsets(const RSIndexResult *res);
-
-int RSIndexResult_IsAggregate(const RSIndexResult *r);
 
 /* RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
  * order to completely filter out results and disregard them in the totals count */
@@ -389,13 +328,16 @@ typedef struct {
   /* The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
    * that can be used to factor the result score */
   int (*GetSlop)(const RSIndexResult *res);
+
+  /* Tanh factor (used only in the `BM25STD.TANH` scorer)*/
+  uint64_t tanhFactor;
 } ScoringFunctionArgs;
 
 /* RSScoringFunction is a callback type for query custom scoring function modules */
 typedef double (*RSScoringFunction)(const ScoringFunctionArgs *ctx, const RSIndexResult *res,
                                     const RSDocumentMetadata *dmd, double minScore);
 
-/* The extension registeration context, containing the callbacks avaliable to the extension for
+/* The extension registration context, containing the callbacks available to the extension for
  * registering query expanders and scorers. */
 typedef struct RSExtensionCtx {
   int (*RegisterScoringFunction)(const char *alias, RSScoringFunction func, RSFreeFunction ff,

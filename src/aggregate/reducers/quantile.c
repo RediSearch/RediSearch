@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <aggregate/reducer.h>
 #include "util/quantile.h"
 
@@ -15,7 +17,7 @@ typedef struct {
 
 static void *quantileNewInstance(Reducer *parent) {
   QTLReducer *qt = (QTLReducer *)parent;
-  return NewQuantileStream(&qt->pct, 0, qt->resolution);
+  return NewQuantileStream(NULL, 0, qt->resolution);
 }
 
 static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
@@ -27,7 +29,7 @@ static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
     return 1;
   }
 
-  if (v->t != RSValue_Array) {
+  if (!RSValue_IsArray(v)) {
     if (RSValue_ToNumber(v, &d)) {
       QS_Insert(qs, d);
     }
@@ -46,7 +48,7 @@ static RSValue *quantileFinalize(Reducer *r, void *ctx) {
   QuantStream *qs = ctx;
   QTLReducer *qt = (QTLReducer *)r;
   double value = QS_Query(qs, qt->pct);
-  return RS_NumVal(value);
+  return RSValue_NewNumber(value);
 }
 
 static void quantileFreeInstance(Reducer *unused, void *p) {
@@ -66,17 +68,18 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
     goto error;
   }
   if (!(r->pct >= 0 && r->pct <= 1.0)) {
-    QERR_MKBADARGS_FMT(options->status, "Percentage must be between 0.0 and 1.0");
+    QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS, "Percentage must be between 0.0 and 1.0");
     goto error;
   }
 
   if (!AC_IsAtEnd(options->args)) {
+    // TODO: why do we need this hidden option? why isn't it available in cluster mode?
     if ((rv = AC_GetUnsigned(options->args, &r->resolution, 0)) != AC_OK) {
       QERR_MKBADARGS_AC(options->status, "<resolution>", rv);
       goto error;
     }
     if (r->resolution < 1 || r->resolution > MAX_SAMPLE_SIZE) {
-      QERR_MKBADARGS_FMT(options->status, "Invalid resolution");
+      QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid resolution");
       goto error;
     }
   }

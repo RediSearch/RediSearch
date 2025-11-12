@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 
 #include "geo_index.h"
@@ -41,9 +43,10 @@ void QueryParam_Free(QueryParam *p);
  * Resolve the value of a param
  * Return 0 if not parameterized
  * Return 1 if value was resolved successfully
+ * Return 2 if a parameter of type PARAM_TERM has a numeric value
  * Return -1 if param is missing or its kind is wrong
  */
-int QueryParam_Resolve(Param *param, dict *params, QueryError *status);
+int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, QueryError *status);
 
 /*
  * Set the `target` Param according to `source`

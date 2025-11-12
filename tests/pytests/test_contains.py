@@ -71,8 +71,8 @@ def testBasicContains(env):
 
 @skip(cluster=True)
 def testSanity(env: Env):
-    env.expect('ft.config', 'set', 'MINPREFIX', 1).ok()
-    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 10000000).ok()
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+    env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 10000000).ok()
     item_qty = 1000
 
     index_list = ['idx_bf', 'idx_suffix']
@@ -127,14 +127,8 @@ def testSanity(env: Env):
         pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
         pl.execute()
 
-    env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+    env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
     env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
@@ -142,8 +136,8 @@ def testSanity(env: Env):
 
 @skip(cluster=True)
 def testSanityTags(env):
-    env.expect('ft.config', 'set', 'MINPREFIX', 1).ok()
-    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 10000000).ok()
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+    env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 10000000).ok()
     item_qty = 1000
 
     index_list = ['idx_bf', 'idx_suffix']
@@ -198,14 +192,8 @@ def testSanityTags(env):
         pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
         pl.execute()
 
-    env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+    env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
     env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0).error() \
@@ -216,24 +204,24 @@ def testEscape(env):
   conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
   conn.execute_command('HSET', 'doc1', 't', '1foo1')
-  conn.execute_command('HSET', 'doc2', 't', '\*foo2')
-  conn.execute_command('HSET', 'doc3', 't', '3\*foo3')
-  conn.execute_command('HSET', 'doc4', 't', '4foo\*')
-  conn.execute_command('HSET', 'doc5', 't', '5foo\*5')
-  all_docs = [5, 'doc1', ['t', '1foo1'], 'doc2', ['t', '\\*foo2'], 'doc3', ['t', '3\\*foo3'],
-                 'doc4', ['t', '4foo\\*'], 'doc5', ['t', '5foo\\*5']]
+  conn.execute_command('HSET', 'doc2', 't', r'\*foo2')
+  conn.execute_command('HSET', 'doc3', 't', r'3\*foo3')
+  conn.execute_command('HSET', 'doc4', 't', r'4foo\*')
+  conn.execute_command('HSET', 'doc5', 't', r'5foo\*5')
+  all_docs = [5, 'doc1', ['t', '1foo1'], 'doc2', ['t', r'\*foo2'], 'doc3', ['t', r'3\*foo3'],
+                 'doc4', ['t', r'4foo\*'], 'doc5', ['t', r'5foo\*5']]
   # contains
   res = env.cmd('ft.search', 'idx', '*foo*')
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(all_docs))
 
   # prefix only
-  env.expect('ft.search', 'idx', '\*foo*').equal([1, 'doc2', ['t', '\\*foo2']])
+  env.expect('ft.search', 'idx', r'\*foo*').equal([1, 'doc2', ['t', r'\*foo2']])
   # suffix only
-  env.expect('ft.search', 'idx', '*foo\*').equal([1, 'doc4', ['t', '4foo\\*']])
+  env.expect('ft.search', 'idx', r'*foo\*').equal([1, 'doc4', ['t', r'4foo\*']])
   # none
-  env.expect('ft.search', 'idx', '\*foo\*').equal([0])
+  env.expect('ft.search', 'idx', r'\*foo\*').equal([0])
 
-  env.expect('ft.search', 'idx', '*\*foo\**').equal([0])
+  env.expect('ft.search', 'idx', r'*\*foo\**').equal([0])
 
 
 def test_misc1(env):
@@ -281,65 +269,65 @@ def test_misc1(env):
 
 @skip(cluster=True)
 def testContainsGC(env):
-  env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
+  env.expect(config_cmd() + ' set FORK_GC_CLEAN_THRESHOLD 0').ok()
 
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE')
 
   conn.execute_command('HSET', 'doc1', 't', 'hello')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ello', 'hello', 'llo', 'lo'])
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(['ello', 'hello', 'llo', 'lo'])
   conn.execute_command('HSET', 'doc1', 't', 'world')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'orld', 'rld', 'world'])
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'orld', 'rld', 'world'])
 
   conn.execute_command('HSET', 'doc2', 't', 'bold')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['bold', 'ld', 'old', 'orld', 'rld', 'world'])
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(['bold', 'ld', 'old', 'orld', 'rld', 'world'])
   conn.execute_command('DEL', 'doc2')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'orld', 'rld', 'world'])
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'orld', 'rld', 'world'])
 
 @skip(cluster=True)
 def testContainsGCTag(env):
-  env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
+  env.expect(config_cmd() + ' set FORK_GC_CLEAN_THRESHOLD 0').ok()
 
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE', 'SORTABLE')
 
   conn.execute_command('HSET', 'doc1', 't', 'hello')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ello', 'hello', 'llo', 'lo'])
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ello', 'hello', 'llo', 'lo'])
   conn.execute_command('HSET', 'doc1', 't', 'world')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'orld', 'rld', 'world'])
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'orld', 'rld', 'world'])
 
   conn.execute_command('HSET', 'doc2', 't', 'bold')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['bold', 'ld', 'old', 'orld', 'rld', 'world'])
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['bold', 'ld', 'old', 'orld', 'rld', 'world'])
   conn.execute_command('DEL', 'doc2')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'orld', 'rld', 'world'])
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'orld', 'rld', 'world'])
 
 @skip(cluster=True)
 def testContainsDebugCommand(env):
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'WITHSUFFIXTRIE')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'field').error()  \
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 'field').error()  \
     .contains('Could not find given field in index spec')
 
   conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 'text', 'TEXT')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx_no').error()  \
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx_no').error()  \
     .contains('Index does not have suffix trie')
 
   conn.execute_command('FT.CREATE', 'idx_tag', 'SCHEMA', 'tag', 'TAG', 'WITHSUFFIXTRIE')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no').error() \
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no').error() \
     .contains('Could not find given field in index spec')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no', 'tag_yes').error(). \
+  env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no', 'tag_yes').error(). \
     contains('wrong number of arguments')
 
 @skip(cluster=True)

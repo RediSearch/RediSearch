@@ -1,13 +1,16 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 
 #include "util/arr.h"
 #include "redismodule.h"
+#include "value.h"
 
 #ifndef __cplusplus
 #include <stdbool.h>
@@ -36,9 +39,15 @@ typedef struct RedisModule_Reply {
 #endif
 } RedisModule_Reply;
 
+typedef enum {
+  SENDREPLY_FLAG_TYPED = 0x01,
+  SENDREPLY_FLAG_EXPAND = 0x02,
+} SendReplyFlags;
+
+
 //---------------------------------------------------------------------------------------------
 
-bool RedisModule_HasMap(RedisModule_Reply *reply);
+bool RedisModule_IsRESP3(RedisModule_Reply *reply);
 int RedisModule_Reply_LocalCount(RedisModule_Reply *reply);
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx);
@@ -63,6 +72,8 @@ int RedisModule_Reply_Set(RedisModule_Reply *reply);
 int RedisModule_Reply_SetEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply);
 int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply);
+/* Based on the value type, serialize the value into redis client response */
+int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);;
 
 int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long long val);
 int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double val);
@@ -73,8 +84,6 @@ int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const 
 int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key);
-
-void print_reply(RedisModule_Reply *reply);
 
 /*
  * This function is a workaround helper for replying with a string that may contain

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <aggregate/reducer.h>
 
 typedef struct {
@@ -13,7 +15,7 @@ typedef struct {
 
 typedef struct {
   Reducer base;
-  int isAvg;
+  bool isAvg;
 } SumReducer;
 
 #define BLOCK_SIZE 32 * sizeof(sumCtx)
@@ -27,15 +29,11 @@ static void *sumNewInstance(Reducer *r) {
 
 static int sumAdd(Reducer *r, void *instance, const RLookupRow *row) {
   sumCtx *ctr = instance;
-  ctr->count++;
+  double d;
   const RSValue *v = RLookup_GetItem(r->srckey, row);
-  if (v && v->t == RSValue_Number) {
-    ctr->total += v->numval;
-  } else {  // try to convert value to number
-    double d = 0;
-    if (RSValue_ToNumber(v, &d)) {
-      ctr->total += d;
-    }
+  if (RSValue_ToNumber(v, &d)) {
+    ctr->total += d;
+    ctr->count++;
   }
   return 1;
 }
@@ -43,18 +41,18 @@ static int sumAdd(Reducer *r, void *instance, const RLookupRow *row) {
 static RSValue *sumFinalize(Reducer *baseparent, void *instance) {
   sumCtx *ctr = instance;
   SumReducer *parent = (SumReducer *)baseparent;
-  double v = 0;
-  if (parent->isAvg) {
-    if (ctr->count) {
+  double v = NAN;
+  if (ctr->count) {
+    if (parent->isAvg) {
       v = ctr->total / ctr->count;
+    } else {
+      v = ctr->total;
     }
-  } else {
-    v = ctr->total;
   }
-  return RS_NumVal(v);
+  return RSValue_NewNumber(v);
 }
 
-static Reducer *newReducerCommon(const ReducerOptions *options, int isAvg) {
+static Reducer *newReducerCommon(const ReducerOptions *options, bool isAvg) {
   SumReducer *r = rm_calloc(1, sizeof(*r));
   if (!ReducerOpts_GetKey(options, &r->base.srckey)) {
     rm_free(r);
@@ -69,9 +67,9 @@ static Reducer *newReducerCommon(const ReducerOptions *options, int isAvg) {
 }
 
 Reducer *RDCRSum_New(const ReducerOptions *options) {
-  return newReducerCommon(options, 0);
+  return newReducerCommon(options, false);
 }
 
 Reducer *RDCRAvg_New(const ReducerOptions *options) {
-  return newReducerCommon(options, 1);
+  return newReducerCommon(options, true);
 }

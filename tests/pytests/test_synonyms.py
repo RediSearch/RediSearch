@@ -1,16 +1,15 @@
 from includes import *
 from common import getConnectionByEnv, waitForIndex, toSortedFlatList
 
-
 def testBasicSynonymsUseCase(env):
     env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(env.cmd('ft.synupdate', 'idx', 'id1', 'boy', 'child'), 'OK')
 
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'he is a boy',
-                                    'body', 'this is a test').ok()
+                                    'body', 'this is a test'))
 
     res = env.cmd('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
     env.assertEqual(res[0:2], [1, 'doc1'])
@@ -23,8 +22,8 @@ def testTermOnTwoSynonymsGroup(env):
     env.assertEqual(env.cmd('ft.synupdate', 'idx', 'id1', 'boy', 'child'), 'OK')
     env.assertEqual(env.cmd('ft.synupdate', 'idx', 'id2', 'boy', 'offspring'), 'OK')
 
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-               'title', 'he is a boy', 'body', 'this is a test').ok()
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+               'title', 'he is a boy', 'body', 'this is a test'))
 
     res = env.cmd('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
 
@@ -39,8 +38,8 @@ def testSynonymGroupWithThreeSynonyms(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(env.cmd('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring'), 'OK')
 
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-               'title', 'he is a boy', 'body', 'this is a test').ok()
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+               'title', 'he is a boy', 'body', 'this is a test'))
 
     res = env.cmd('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
     env.assertEqual(res[0:2], [1, 'doc1',])
@@ -54,12 +53,13 @@ def testSynonymWithMultipleDocs(env):
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(env.cmd('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring'), 'OK')
+    con = env.getClusterConnectionIfNeeded()
 
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-               'title', 'he is a boy', 'body', 'this is a test').ok()
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+               'title', 'he is a boy', 'body', 'this is a test'))
 
-    env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields',
-               'title', 'she is a girl', 'body', 'the child sister').ok()
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
+               'title', 'she is a girl', 'body', 'the child sister'))
 
     res = env.cmd('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
     env.assertEqual(res[0], 2)
@@ -68,17 +68,17 @@ def testSynonymWithMultipleDocs(env):
     env.assertEqual(res[3], 'doc2')
     env.assertEqual(set(res[4]), set(['title', 'she is a girl', 'body', 'the child sister']))
 
-
 def testSynonymUpdate(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(env.cmd('ft.synupdate', 'idx', 'id1', 'SKIPINITIALSCAN', 'boy', 'child', 'offspring'), 'OK')
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-               'title', 'he is a baby', 'body', 'this is a test').ok()
+    con = env.getClusterConnectionIfNeeded()
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+               'title', 'he is a baby', 'body', 'this is a test'))
 
     env.expect('ft.synupdate', 'idx', 'id1', 'SKIPINITIALSCAN', 'baby').ok()
 
-    env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields',
-               'title', 'he is another baby', 'body', 'another test').ok()
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
+               'title', 'he is another baby', 'body', 'another test'))
 
     res = env.cmd('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
     # synonyms are applied from the moment they were added, previuse docs are not reindexed
@@ -101,7 +101,7 @@ def testSynonymUpdateWorngArity(env):
         env.cmd('ft.synupdate', 'idx', 'id1')
 
 def testSynonymUpdateUnknownIndex(env):
-    env.expect('ft.synupdate', 'idx', '0', 'child').error().contains('Unknown index name')
+    env.expect('ft.synupdate', 'idx', '0', 'child').error().contains('no such index')
 
 def testSynonymDumpWorngArity(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
@@ -111,7 +111,7 @@ def testSynonymDumpWorngArity(env):
     env.expect('ft.syndump idx foo').error().contains('wrong number of arguments')
 
 def testSynonymUnknownIndex(env):
-    env.expect('ft.syndump', 'idx').error().equal('Unknown index name')
+    env.expect('ft.syndump', 'idx').error().contains('no such index')
 
 def testSynonymsRdb(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
@@ -125,9 +125,9 @@ def testSynonymsRdb(env):
 def testTwoSynonymsSearch(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(env.cmd('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring'), 'OK')
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'he is a boy child boy',
-                                    'body', 'another test').ok()
+                                    'body', 'another test'))
 
     res = env.cmd('ft.search', 'idx', 'offspring offspring', 'EXPANDER', 'SYNONYM')
     # synonyms are applied from the moment they were added, previous docs are not reindexed
@@ -139,13 +139,20 @@ def testSynonymsIntensiveLoad(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     for i in range(iterations):
         env.assertEqual(env.cmd('ft.synupdate', 'idx', 'id%d' % i, 'boy%d' % i, 'child%d' % i, 'offspring%d' % i), 'OK')
+    con = env.getClusterConnectionIfNeeded()
     for i in range(iterations):
-        env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                   'title', 'he is a boy%d' % i, 'body', 'this is a test').ok()
+        env.assertOk(con.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                   'title', 'he is a boy%d' % i, 'body', 'this is a test'))
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         for i in range(iterations):
             res = env.cmd('ft.search', 'idx', 'child%d' % i, 'EXPANDER', 'SYNONYM')
+            env.assertEqual(res[0:2], [1, 'doc%d' % i])
+            env.assertEqual(set(res[2]), set(['title', 'he is a boy%d' % i, 'body', 'this is a test']))
+
+            # Test using PARAMS
+            res = env.cmd('ft.search', 'idx', '$p', 'EXPANDER', 'SYNONYM',
+                          'PARAMS', 2, 'p', 'child%d' % i, 'DIALECT', 2)
             env.assertEqual(res[0:2], [1, 'doc%d' % i])
             env.assertEqual(set(res[2]), set(['title', 'he is a boy%d' % i, 'body', 'this is a test']))
 
@@ -154,8 +161,9 @@ def testSynonymsLowerCase(env):
     env.expect('FT.SYNUPDATE lowcase id1 HELLO SHALOM AHALAN').ok()
     dump = env.cmd('FT.SYNDUMP lowcase')
     env.assertEqual(toSortedFlatList(dump), toSortedFlatList((['ahalan', ['id1'], 'shalom', ['id1'], 'hello', ['id1']])))
-    env.expect('FT.ADD lowcase doc1 1 FIELDS foo hello').ok()
-    env.expect('FT.ADD lowcase doc2 1 FIELDS foo HELLO').ok()
+    con = env.getClusterConnectionIfNeeded()
+    env.assertOk(con.execute_command('FT.ADD', 'lowcase', 'doc1', '1', 'FIELDS', 'foo', 'hello'))
+    env.assertOk(con.execute_command('FT.ADD', 'lowcase', 'doc2', '1', 'FIELDS', 'foo', 'HELLO'))
     res = [2, 'doc1', ['foo', 'hello'], 'doc2', ['foo', 'HELLO']]
     env.expect('FT.SEARCH lowcase SHALOM').equal(res)
     env.expect('FT.SEARCH lowcase shalom').equal(res)

@@ -1,0 +1,4 @@
+{
+    "image": "ubuntu:latest",
+    "onCreateCommand": "./.devcontainer/onCreateCommand.sh",
+}

@@ -1,0 +1,72 @@
+name: Lint for warnings, missing license headers and check that code is well-formatted
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_call:
+
+jobs:
+  lint:
+    name: Linting
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup
+        working-directory: .install
+        run: ./install_script.sh sudo
+
+      - name: Lint
+        id: lint
+        continue-on-error: true
+        run: make lint
+
+      - name: Diff
+        id: git-diff
+        continue-on-error: true
+        # error if there is uncommitted changes as it's likely generated code which has not been committed
+        run: git diff --exit-code
+
+      - name: License header
+        id: license-header
+        continue-on-error: true
+        run: make license-check
+      - name: Format check
+        id: fmt
+        continue-on-error: true
+        run: make fmt CHECK=1
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        id: advisories
+        continue-on-error: true
+        with:
+          command: check advisories
+          arguments: --all-features
+          manifest-path: src/redisearch_rs/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        id: dep-licenses
+        continue-on-error: true
+        with:
+          command: check licenses
+          arguments: --all-features
+          manifest-path: src/redisearch_rs/Cargo.toml
+      - name: Fail if any step failed
+        if: |
+          steps.lint.outcome == 'failure' ||
+          steps.git-diff.outcome == 'failure' ||
+          steps.license-header.outcome == 'failure' ||
+          steps.fmt.outcome == 'failure' ||
+          steps.advisories.outcome == 'failure' ||
+          steps.dep-licenses.outcome == 'failure'
+        run: |
+          echo "Linting: ${{ steps.lint.outcome }}"
+          echo "License header: ${{ steps.license-header.outcome }}"
+          echo "Diff: ${{ steps.git-diff.outcome }}"
+          echo "Formatting: ${{ steps.fmt.outcome }}"
+          echo "Security advisories: ${{ steps.advisories.outcome }}"
+          echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
+          exit 1

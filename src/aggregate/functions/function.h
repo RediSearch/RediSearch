@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_FUNCTION_H_
 #define RS_FUNCTION_H_
 
@@ -15,30 +17,24 @@
 extern "C" {
 #endif
 
-#define VALIDATE_ARGS(fname, minargs, maxargs, err)                                           \
-  if (argc < minargs || argc > maxargs) {                                                     \
-    QueryError_SetError(err, QUERY_EPARSEARGS, "Invalid arguments for function '" fname "'"); \
-    return EXPR_EVAL_ERR;                                                                     \
-  }
-
 #define VALIDATE_ARG__COMMON(fname, args, idx, verifier, varg)                                 \
   {                                                                                            \
-    RSValue *dref = RSValue_Dereference(args[idx]);                                            \
+    RSValue *dref = RSValue_Dereference(&args[idx]);                                           \
     if (!verifier(dref, varg)) {                                                               \
-                                                                                               \
-      QueryError_SetErrorFmt(                                                                  \
-          err, QUERY_EPARSEARGS,                                                               \
-          "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref->t, \
+      RSValueType dref_ty = RSValue_Type(dref);                                                \
+      QueryError_SetWithoutUserDataFmt(                                                        \
+          ctx->err, QUERY_ERROR_CODE_PARSE_ARGS,                                                          \
+          "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref_ty, \
           idx, fname, #verifier, #varg);                                                       \
       return EXPR_EVAL_ERR;                                                                    \
     }                                                                                          \
   }
 
-#define VALIDATE_ARG__TYPE(arg, t_) ((arg)->t == t_)
+#define VALIDATE_ARG__TYPE(arg, t_) (RSValue_Type(arg) == t_)
 #define VALIDATE_ARG_TYPE(fname, args, idx, t) \
   VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__TYPE, t)
 
-#define VALIDATE_ARG__STRING(arg, unused) RSValue_IsString(arg)
+#define VALIDATE_ARG__STRING(arg, unused) RSValue_IsAnyString(arg)
 #define VALIDATE_ARG_ISSTRING(fname, args, idx) \
   VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__STRING, 0)
 
@@ -57,26 +53,27 @@ struct ExprEval;
  *
  * @return EXPR_EVAL_ERR or EXPR_EVAL_OK
  */
-typedef int (*RSFunction)(struct ExprEval *e, RSValue *result, RSValue **args, size_t nargs,
-                          QueryError *err);
+typedef int (*RSFunction)(struct ExprEval *e, RSValue *args, size_t nargs, RSValue *result);
+
+typedef struct RSFunctionInfo {
+  RSFunction f;
+  const char *name;
+  RSValueType retType;
+  uint8_t minArgs;
+  uint16_t maxArgs;
+} RSFunctionInfo;
 
 typedef struct {
   size_t len;
   size_t cap;
-  struct RSFunctionInfo {
-    RSFunction f;
-    const char *name;
-    RSValueType retType;
-    unsigned minargs;
-    int maxargs;
-  } * funcs;
+  RSFunctionInfo* funcs;
 } RSFunctionRegistry;
 
 typedef struct RSFunctionInfo RSFunctionInfo;
 
-RSFunction RSFunctionRegistry_Get(const char *name, size_t len);
+RSFunctionInfo *RSFunctionRegistry_Get(const char *name, size_t len);
 
-int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueType retType);
+int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueType retType, uint8_t minArgs, uint16_t maxArgs);
 
 void RegisterMathFunctions();
 void RegisterStringFunctions();

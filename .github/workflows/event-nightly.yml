@@ -25,11 +25,45 @@ jobs:
       test-config: QUICK=1
 
   coverage:
-    uses: ./.github/workflows/flow-coverage.yml
-    secrets: inherit
-
-  sanitize:
-    uses: ./.github/workflows/flow-sanitizer.yml
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      flow-config: QUICK=1
+      coverage: true
+      test-config: QUICK=1
+      get-redis: unstable
+
+  run-on-intel:
+    secrets: inherit
+    uses: ./.github/workflows/flow-intel.yml
+    with:
+      get-redis: unstable
+
+  sanitize:
+    secrets: inherit
+    uses: ./.github/workflows/task-test.yml
+    with:
+      get-redis: unstable
+      test-config: QUICK=1
+      san: address
+      env: ubuntu-latest
+
+  micro-benchmarks:
+    uses: ./.github/workflows/flow-micro-benchmarks.yml
+    secrets: inherit
+
+
+  notify-failure:
+    needs: [test-linux, test-macos, coverage, run-on-intel, sanitize, micro-benchmarks]
+    if: failure()
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - name: Notify Failure
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}

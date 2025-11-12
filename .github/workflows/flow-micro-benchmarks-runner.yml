@@ -1,0 +1,174 @@
+on:
+  workflow_call:
+    inputs:
+      architecture:
+        required: true
+        type: string
+      instance-type:
+        required: true
+        type: string
+      ami-id:
+        required: true
+        type: string
+
+env:
+  TAGS: | # Make sure there is no trailing comma!
+    [
+      {"Key": "Name",         "Value": "redisearch-ci-runner"},
+      {"Key": "Environment",  "Value": "CI"},
+      {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
+      {"Key": "PR",           "Value": "${{ github.event.number }}"},
+      {"Key": "Owner",        "Value": "${{ github.actor }}"},
+      {"Key": "Project",      "Value": "${{ github.repository }}"},
+      {"Key": "Context",      "Value": "micro-benchmarks"}
+    ]
+
+jobs:
+  start-runner:
+    name: Start self-hosted EC2 runner
+    runs-on: ubuntu-latest
+    outputs:
+      runner_label: ${{ steps.start-ec2-runner.outputs.label }}
+      ec2_instance_id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Start EC2 runner
+        id: start-ec2-runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: start
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          ec2-image-id: ${{ inputs.ami-id }}
+          ec2-instance-type: ${{ inputs.instance-type }}
+          subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
+          security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
+          aws-resource-tags: ${{ env.TAGS }}
+
+  micro-benchmark:
+    name: Run micro-benchmarks on runner
+    needs: start-runner
+    runs-on: ${{ needs.start-runner.outputs.runner_label }}
+    steps:
+      - name: Pre checkout deps
+        run:  sudo apt-get update && sudo apt-get -y install git
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Print runner info
+        run: |
+          printf "Runner lscpu:\n$(lscpu)\n"
+          printf "Runner lsmem:\n$(lsmem)\n"
+          printf "Runner nproc:\n$(nproc)\n"
+          printf "Runner uname:\n$(uname -a)\n"
+          printf "Runner arch:\n$(arch)\n"
+      - name: Install python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+      - name: Install benchmark dependencies
+        run: |
+          export HOME=/home/ubuntu
+          cd .install
+          ./install_script.sh sudo
+          cd ..
+          # Then install Python dependencies
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.11.51
+        env:
+          DEBIAN_FRONTEND: noninteractive
+      - name: Run Micro Benchmark
+        env:
+          ARCH: ${{ inputs.architecture }}
+        timeout-minutes: 300
+        run: |
+          export HOME=/home/ubuntu
+          export PATH="$HOME/.cargo/bin:$PATH"
+          make micro-benchmarks
+      - name: Collect results
+        run: |
+          # Determine OS name
+          OS_NAME=$(uname | tr '[:upper:]' '[:lower:]')
+          if [[ "$OS_NAME" == "darwin" ]]; then
+            OS_NAME="macos"
+          fi
+
+          # Get architecture using uname -m
+          ARCH=$(uname -m)
+          if [[ "$ARCH" == "arm64" ]]; then
+            ARCH="aarch64"
+          elif [[ "$ARCH" == "x86_64" ]]; then
+            ARCH="x64"
+          fi
+
+          # Set flavor (assuming release build for benchmarks)
+          FLAVOR="release"
+
+          # Create full variant string for the build directory
+          FULL_VARIANT="${OS_NAME}-${ARCH}-${FLAVOR}"
+
+          # Set coordinator type (assuming OSS)
+          COORD="oss"
+          OUTDIR="search-community"
+
+          # Set the final BINDIR
+          BINDIR="bin/${FULL_VARIANT}/${OUTDIR}"
+
+          # Update the binary directory path for ARM architectures
+          echo "Looking for benchmark results in $BINDIR/micro-benchmarks"
+
+          # Find all JSON result files
+          JSON_FILES=$(find $BINDIR/micro-benchmarks -name "*_results.json")
+
+          if [ -z "$JSON_FILES" ]; then
+            echo "No benchmark result files found in $BINDIR/micro-benchmarks"
+            exit 1
+          fi
+
+          # Print found files for debugging
+          echo "Found the following result files:"
+          echo "$JSON_FILES" | tr ' ' '\n'
+
+          # Process each file individually
+          for file in $JSON_FILES; do
+            echo "Processing $file..."
+            redisbench-admin export \
+              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }} \
+              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }} \
+              --redistimeseries_user default \
+              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}' \
+              --github_repo ${{ github.event.repository.name }} \
+              --github_org ${{ github.repository_owner }} \
+              --github_branch ${{ github.head_ref || github.ref_name }} \
+              --github_actor ${{ github.triggering_actor }} \
+              --results-format google.benchmark \
+              --benchmark-result-file "$file" \
+              --triggering_env redisearch-micro-benchmarks \
+              --architecture ${{ inputs.architecture }}
+          done
+
+  stop-runner:
+    name: Stop self-hosted EC2 runner
+    needs:
+      - start-runner # required to get output from the start-runner job
+      - micro-benchmark # required to wait when the main job is done
+    runs-on: ubuntu-latest
+    if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Stop EC2 runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: stop
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          label: ${{ needs.start-runner.outputs.runner_label }}
+          ec2-instance-id: ${{ needs.start-runner.outputs.ec2_instance_id }}

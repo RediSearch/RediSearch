@@ -1,11 +1,14 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "exprast.h"
 #include <ctype.h>
+#include "obfuscation/obfuscation_api.h"
 
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
 
@@ -28,8 +31,8 @@ static RSExpr *newExpr(RSExprType t) {
   return e;
 }
 
-// unquote and unescape a stirng literal, and return a cleaned copy of it
-char *unescapeStringDup(const char *s, size_t sz) {
+// unquote and unescape a string literal, and return a cleaned copy of it
+char *unescapeStringDup(const char *s, size_t sz, uint32_t *newSz) {
 
   char *dst = rm_malloc(sz);
   char *dstStart = dst;
@@ -44,28 +47,28 @@ char *unescapeStringDup(const char *s, size_t sz) {
     *dst++ = *src++;
   }
   *dst = '\0';
+  *newSz = dst - dstStart;
   return dstStart;
 }
+
 RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Literal);
-  e->literal = RS_StaticValue(RSValue_String);
-  e->literal.strval.str = unescapeStringDup(str, len);
-  e->literal.strval.len = strlen(e->literal.strval.str);
-  e->literal.strval.stype = RSString_Malloc;
+  uint32_t newLen;
+  char* cleaned_str = unescapeStringDup(str,len, &newLen);
+  e->literal = RSValue_String(cleaned_str, newLen);
   return e;
 }
 
 RSExpr *RS_NewNullLiteral() {
   RSExpr *e = newExpr(RSExpr_Literal);
-  RSValue_MakeReference(&e->literal, RS_NullVal());
+  RSValue_MakeReference(&e->literal, RSValue_NullStatic());
   return e;
 }
 
 RSExpr *RS_NewNumberLiteral(double n) {
   RSExpr *e = newExpr(RSExpr_Literal);
 
-  e->literal = RS_StaticValue(RSValue_Number);
-  e->literal.numval = n;
+  e->literal = RSValue_Number(n);
   return e;
 }
 
@@ -90,11 +93,11 @@ RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
   return e;
 }
 
-RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb) {
+RSExpr *RS_NewFunc(RSFunctionInfo *cb, RSArgList *args) {
   RSExpr *e = newExpr(RSExpr_Function);
   e->func.args = args;
-  e->func.name = rm_strndup(str, len);
-  e->func.Call = cb;
+  e->func.name = cb->name;
+  e->func.Call = cb->f;
   return e;
 }
 
@@ -126,7 +129,6 @@ void RSExpr_Free(RSExpr *e) {
       RSValue_Clear(&e->literal);
       break;
     case RSExpr_Function:
-      rm_free((char *)e->func.name);
       RSArgList_Free(e->func.args);
       break;
     case RSExpr_Op:
@@ -151,7 +153,7 @@ void RSExpr_GetProperties(RSExpr *e, char ***props) {
   if (!e) return;
   switch (e->t) {
     case RSExpr_Property:
-      *props = array_append(*props, rm_strdup(e->property.key));
+      array_append(*props, rm_strdup(e->property.key));
       break;
     case RSExpr_Literal:
       break;
@@ -173,64 +175,74 @@ void RSExpr_GetProperties(RSExpr *e, char ***props) {
   }
 }
 
-void RSExpr_Print(const RSExpr *e) {
+sds RSExpr_DumpSds(const RSExpr *e, sds s, bool obfuscate) {
   if (!e) {
-    printf("NULL");
-    return;
+    return sdscat(s, "NULL");
   }
   switch (e->t) {
     case RSExpr_Literal:
-      RSValue_Print(&e->literal);
+      s = RSValue_DumpSds(&e->literal, s, obfuscate);
       break;
     case RSExpr_Function:
-      printf("%s(", e->func.name);
+      s = sdscatfmt(s, "%s(", e->func.name);
       for (size_t i = 0; e->func.args != NULL && i < e->func.args->len; i++) {
-        RSExpr_Print(e->func.args->args[i]);
-        if (i < e->func.args->len - 1) printf(", ");
+        s = RSExpr_DumpSds(e->func.args->args[i], s, obfuscate);
+        if (i < e->func.args->len - 1) s = sdscat(s, ", ");
       }
-      printf(")");
+      s = sdscat(s, ")");
       break;
     case RSExpr_Op:
-      printf("(");
-      RSExpr_Print(e->op.left);
-      printf(" %c ", e->op.op);
-      RSExpr_Print(e->op.right);
-      printf(")");
+      s = sdscat(s, "(");
+      s = RSExpr_DumpSds(e->op.left, s, obfuscate);
+      const char buffer[2] = {e->op.op, 0};
+      s = sdscatfmt(s, " %s ", buffer);
+      s = RSExpr_DumpSds(e->op.right, s, obfuscate);
+      s = sdscat(s, ")");
       break;
 
     case RSExpr_Predicate:
-      printf("(");
-      RSExpr_Print(e->pred.left);
-      printf(" %s ", getRSConditionStrings(e->pred.cond));
-      RSExpr_Print(e->pred.right);
-      printf(")");
-
+      s = sdscat(s, "(");
+      s = RSExpr_DumpSds(e->pred.left, s, obfuscate);
+      s = sdscatfmt(s, " %s ", getRSConditionStrings(e->pred.cond));
+      s = RSExpr_DumpSds(e->pred.right, s, obfuscate);
+      s = sdscat(s, ")");
       break;
     case RSExpr_Property:
-      printf("@%s", e->property.key);
+      if (obfuscate) {
+        s = sdscatfmt(s, "@%s", Obfuscate_Text(e->property.key));
+      } else {
+        s = sdscatfmt(s, "@%s", e->property.key);
+      }
       break;
     case RSExpr_Inverted:
-      printf("!");
-      RSExpr_Print(e->inverted.child);
+      s = sdscat(s, "!");
+      s = RSExpr_DumpSds(e->inverted.child, s, obfuscate);
       break;
   }
+  return s;
 }
 
 void ExprAST_Free(RSExpr *e) {
   RSExpr_Free(e);
 }
 
-void ExprAST_Print(const RSExpr *e) {
-  RSExpr_Print(e);
+char *ExprAST_Dump(const RSExpr *e, bool obfuscate) {
+  sds s = sdsempty();
+  s = RSExpr_DumpSds(e, s, obfuscate);
+  char *ret = rm_strdup(s);
+  sdsfree(s);
+  return ret;
 }
 
-RSExpr *ExprAST_Parse(const char *e, size_t n, QueryError *status) {
+RSExpr *ExprAST_Parse(const HiddenString* expr, QueryError *status) {
   char *errtmp = NULL;
   RS_LOG_ASSERT(!QueryError_HasError(status), "Query has error")
 
-  RSExpr *ret = RSExpr_Parse(e, n, &errtmp);
+  size_t len;
+  const char* raw = HiddenString_GetUnsafe(expr, &len);
+  RSExpr *ret = RSExpr_Parse(raw, len, &errtmp);
   if (!ret) {
-    QueryError_SetError(status, QUERY_EEXPR, errtmp);
+    QueryError_SetError(status, QUERY_ERROR_CODE_EXPR, errtmp);
   }
   rm_free(errtmp);
   return ret;

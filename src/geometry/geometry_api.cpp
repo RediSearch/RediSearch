@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "geometry_api.h"
 #include "rtree.hpp"
 
@@ -51,13 +53,14 @@ namespace {
   int Index_##variant##_Remove(GeometryIndex *idx, t_docId id) {                            \
     return std::get<rtree_ptr<variant>>(idx->index)->remove(id);                            \
   }                                                                                         \
-  auto Index_##variant##_Query(const GeometryIndex *idx, QueryType query_type,              \
+  auto Index_##variant##_Query(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, \
+                               const GeometryIndex *idx, QueryType query_type,              \
                                GEOMETRY_FORMAT format, const char *str, std::size_t len,    \
-                               RedisModuleString **err_msg) -> IndexIterator * {            \
+                               RedisModuleString **err_msg) -> QueryIterator * {            \
     switch (format) {                                                                       \
       case GEOMETRY_FORMAT_WKT:                                                             \
         return std::get<rtree_ptr<variant>>(idx->index)                                     \
-            ->query(std::string_view{str, len}, query_type, err_msg);                       \
+            ->query(sctx, filterCtx, std::string_view{str, len}, query_type, err_msg);      \
       case GEOMETRY_FORMAT_GEOJSON:                                                         \
       default:                                                                              \
         return nullptr;                                                                     \

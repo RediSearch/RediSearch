@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __REDISEARCH_EXTN_H__
 #define __REDISEARCH_EXTN_H__
 
@@ -16,6 +18,10 @@ extern "C" {
 void Extensions_Init();
 /* clear the extensions list */
 void Extensions_Free();
+
+/* Check if the extensions have been initialized. Only used for assertions, initialization happens in main thread so no thread
+synchronization is needed */
+bool Extensions_InitDone();
 
 /* Context for saving a scoring function and its private data and free */
 typedef struct {

@@ -9,7 +9,7 @@ def aofTestCommon(env, reloadfn):
         conn = getConnectionByEnv(env)
         env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'field1', 'text', 'field2', 'numeric')
         for x in range(1, 10):
-            conn.execute_command('hset', 'doc{}'.format(x), 'field1', 'myText{}'.format(x), 'field2', 20 * x)
+            conn.execute_command('hset', f'doc{x}', 'field1', f'myText{x}', 'field2', 20 * x)
 
         reloadfn()
         waitForIndex(env, 'idx')
@@ -40,15 +40,15 @@ def testRewriteAofSortables():
     env = Env(useAof=True)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'schema', 'field1', 'TEXT', 'SORTABLE', 'num1', 'NUMERIC', 'SORTABLE')
-    env.cmd('FT.ADD', 'idx', 'doc', 1.0,
-            'FIELDS', 'field1', 'Hello World')
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS', 'field1', 'Hello World')
     env.restartAndReload()
     env.broadcast('SAVE')
 
     # Load some documents
     for x in range(100):
-        env.cmd('FT.ADD', 'idx', 'doc{}'.format(x), 1.0, 'FIELDS',
-                'field1', 'txt{}'.format(random.random()),
+        con.execute_command('FT.ADD', 'idx', f'doc{x}', 1.0, 'FIELDS',
+                'field1', f'txt{random.random()}',
                 'num1', random.random())
     for sspec in [('field1', 'asc'), ('num1', 'desc')]:
         cmd = ['FT.SEARCH', 'idx', 'txt', 'SORTBY', sspec[0], sspec[1]]
@@ -62,8 +62,9 @@ def testAofRewriteSortkeys():
     env = Env(useAof=True)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
-    env.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
-    env.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
+    con.execute_command('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
 
     res_exp = env.cmd('FT.SEARCH', 'idx', '@bar:{1}', 'SORTBY', 'foo', 'ASC',
                       'RETURN', '1', 'foo', 'WITHSORTKEYS')
@@ -81,8 +82,9 @@ def testAofRewriteTags():
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
-    env.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
-    env.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
+    con.execute_command('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
 
     info_a = to_dict(env.cmd('FT.INFO', 'idx'))
     env.restartAndReload()
@@ -98,8 +100,8 @@ def testAofRewriteTags():
     # Try to create it again - should work!
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
-    env.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
-    env.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
+    con.execute_command('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
+    con.execute_command('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
     res = env.cmd('FT.SEARCH', 'idx', '@bar:{1}', 'SORTBY', 'foo', 'ASC',
                   'RETURN', '1', 'foo', 'WITHSORTKEYS')
     env.assertEqual([2, '1', '$a', ['foo', 'A'],

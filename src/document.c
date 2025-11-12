@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <string.h>
 #include <inttypes.h>
 
@@ -23,6 +25,9 @@
 #include "geometry/geometry_api.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
+#include "redis_index.h"
+#include "fast_float/fast_float_strtod.h"
+#include "obfuscation/obfuscation_api.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -42,13 +47,15 @@ static void freeDocumentContext(void *p) {
 
   rm_free(aCtx->fspecs);
   rm_free(aCtx->fdatas);
-  rm_free(aCtx->specName);
+  if (aCtx->specName) {
+    HiddenString_Free(aCtx->specName, true);
+  }
   rm_free(aCtx);
 }
 
 #define DUP_FIELD_ERRSTR "Requested to index field twice"
 
-#define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
+#define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].fieldName != NULL)
 #define FIELD_IS_NULL(aCtx, ix) ((aCtx)->fdatas[ix].isNull)
 
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
@@ -75,18 +82,17 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   for (size_t i = 0; i < doc->numFields; i++) {
     DocumentField *f = doc->fields + i;
-    const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
+    const FieldSpec *fs = IndexSpec_GetField(sp, f->docFieldName);
     if (!fs || (isSpecHash(sp) && !f->text)) {
-      aCtx->fspecs[i].name = NULL;
-      aCtx->fspecs[i].path = NULL;
+      aCtx->fspecs[i].fieldName = NULL;
+      aCtx->fspecs[i].fieldPath = NULL;
       aCtx->fspecs[i].types = 0;
       continue;
     }
 
     aCtx->fspecs[i] = *fs;
     if (dedupe[fs->index]) {
-      QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert `%s` twice",
-                             fs->name);
+      QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_ERROR_CODE_DUP_FIELD, "Tried to insert field twice", ": '%s'", HiddenString_GetUnsafe(fs->fieldName, NULL));
       return -1;
     }
 
@@ -103,8 +109,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     } else {
       // Verify the flags:
       if ((f->indexAs & fs->types) != f->indexAs) {
-        QueryError_SetErrorFmt(&aCtx->status, QUERY_EUNSUPPTYPE,
-                               "Tried to index field %s as type not specified in schema", fs->name);
+        QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_ERROR_CODE_UNSUPP_TYPE,
+                               "Tried to index field as a type that is not specified in schema", ": %s", HiddenString_GetUnsafe(fs->fieldName, NULL));
         return -1;
       }
     }
@@ -141,7 +147,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   }
 
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv == NULL) {
-    aCtx->sv = NewSortingVector(sp->sortables->len);
+    aCtx->sv = NewSortingVector(sp->numSortableFields);
   }
 
   int empty = (aCtx->sv == NULL) && !hasTextFields && !hasOtherFields;
@@ -178,27 +184,16 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->sctx = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
-  aCtx->indexer = sp->indexer;
   aCtx->spec = sp;
-  aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
-    size_t len = sp->nameLen + 1;
-    if (aCtx->specName == NULL) {
-      aCtx->specName = rm_malloc(len);
-    } else if (len > aCtx->specNameLen) {
-      aCtx->specName = rm_realloc(aCtx->specName, len);
-      aCtx->specNameLen = len;
-    }
-    strncpy(aCtx->specName, sp->name, len);
-    aCtx->specId = sp->uniqueId;
+    HiddenString_Clone(sp->specName, &aCtx->specName);
   }
-  RS_LOG_ASSERT(sp->indexer, "No indexer");
 
   // Assign the document:
   aCtx->doc = doc;
   if (AddDocumentCtx_SetDocument(aCtx, sp) != 0) {
-    *status = aCtx->status;
-    aCtx->status.detail = NULL;
+    QueryError_CloneFrom(&aCtx->status, status);
+    QueryError_ClearError(&aCtx->status);
     mempool_release(actxPool_g, aCtx);
     return NULL;
   }
@@ -247,17 +242,6 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 // How many bytes in a document to warrant it being tokenized in a separate thread
 #define SELF_EXEC_THRESHOLD 1024
 
-// LCOV_EXCL_START debug
-void Document_Dump(const Document *doc) {
-  printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(doc->docKey, NULL),
-         doc->docId);
-  for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    printf("  [%lu]: %s => %s\n", ii, doc->fields[ii].name,
-           RedisModule_StringPtrLen(doc->fields[ii].text, NULL));
-  }
-}
-// LCOV_EXCL_STOP
-
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 
 static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
@@ -267,7 +251,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    * fields must be reindexed.
    */
   int rv = REDISMODULE_ERR;
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   Document_Clear(aCtx->doc);
 
   // Path is not covered and is not relevant
@@ -280,7 +264,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   }
   if (rv != REDISMODULE_OK) {
     // Add error to the spec global stats
-    IndexError_AddError(&sctx->spec->stats.indexError, status.detail, aCtx->doc->docKey);
+    IndexError_AddQueryError(&sctx->spec->stats.indexError, &status, aCtx->doc->docKey);
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
     AddDocumentCtx_Free(aCtx);
     QueryError_ClearError(&status);
@@ -355,15 +339,19 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     aCtx->tokenizer = NULL;
   }
 
-  if (aCtx->oldMd) {
-    DMD_Return(aCtx->oldMd);
-    aCtx->oldMd = NULL;
-  }
-
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
   QueryError_ClearError(&aCtx->status);
 
   mempool_release(actxPool_g, aCtx);
+}
+
+/***
+ * Write the byte offset of the token to the byte offset writer. This is used for highlighting.
+ */
+static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo) {
+  if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
+    VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
+  }
 }
 
 #define FIELD_HANDLER(name)                                                                \
@@ -371,9 +359,8 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
                   FieldIndexerData *fdata, QueryError *status)
 
 #define FIELD_BULK_INDEXER(name)                                                            \
-  static int name(IndexBulkData *bulk, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,         \
-                  const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata, \
-                  QueryError *status)
+  static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,  \
+                  const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status)
 
 #define FIELD_BULK_CTOR(name) \
   static void name(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *ctx)
@@ -401,20 +388,21 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   size_t fl;
   const char *c = DocumentField_GetValueCStr(field, &fl);
   size_t valueCount = (field->unionType != FLD_VAR_T_ARRAY ? 1 : field->arrayLen);
-  bool indexesEmpty = FieldSpec_IndexesEmpty(fs);
 
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+      bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
+      const char* str_param = is_normalized ? rm_strdup(c) : normalizeStr(c);
+      RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str_param);
     } else if (field->multisv) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
+      RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
       field->multisv = NULL;
     }
   }
 
   if (FieldSpec_IsIndexable(fs)) {
     ForwardIndexTokenizerCtx tokCtx;
-    VarintVectorWriter *curOffsetWriter = NULL;
+    ByteOffsetWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
     if (aCtx->byteOffsets) {
       curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
@@ -435,6 +423,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     } else {
       multiTextOffsetDelta = 0;
     }
+    bool indexesEmpty = FieldSpec_IndexesEmpty(fs);
 
     for (size_t i = 0; i < valueCount; ++i) {
 
@@ -447,12 +436,19 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
       Token tok = {0};
       while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok)) {
-        if (!indexesEmpty && strlen(tok.tok) == 0) {
+        // We always want to write the byte offset, even when string is empty since it is global across all fields and
+        // we need to know the start position of the next field. This is required for highlighting.
+        writeByteOffsets(&tokCtx, &tok);
+        if (!indexesEmpty && tok.tokLen == 0) {
           // Skip empty values if the field should not index them
           // Empty tokens are returned only if the original value was empty
           continue;
         }
         forwardIndexTokenFunc(&tokCtx, &tok);
+        if (tok.allocatedTok) {
+          rm_free(tok.allocatedTok);
+          tok.allocatedTok = NULL;
+        }
       }
       uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
 
@@ -475,7 +471,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
     case FLD_VAR_T_RMS:
       fdata->isMulti = 0;
       if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-        QueryError_SetErrorFmt(status, QUERY_ENOTNUMERIC, "Invalid numeric value: '%s'",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NOT_NUMERIC, "Invalid numeric value", ": '%s'",
                                RedisModule_StringPtrLen(field->text, NULL));
         return -1;
       }
@@ -484,9 +480,9 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
       {
         char *end;
         fdata->isMulti = 0;
-        fdata->numeric = strtod(field->strval, &end);
+        fdata->numeric = fast_float_strtod(field->strval, &end);
         if (*end) {
-          QueryError_SetCode(status, QUERY_ENOTNUMERIC);
+          QueryError_SetCode(status, QUERY_ERROR_CODE_NOT_NUMERIC);
           return -1;
         }
       }
@@ -510,9 +506,9 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   // If this is a sortable numeric value - copy the value to the sorting vector
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
+      RSSortingVector_PutNum(aCtx->sv, fs->sortIdx, fdata->numeric);
     } else if (field->multisv) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
+      RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
       field->multisv = NULL;
     }
   }
@@ -552,21 +548,17 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
-  GeometryIndex *rt = bulk->indexDatas[IXFLDPOS_GEOMETRY];
+  GeometryIndex *rt = OpenGeometryIndex(ctx->spec, fs, CREATE_INDEX);
   if (!rt) {
-    rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] =
-        OpenGeometryIndex(ctx->redisCtx, ctx->spec, &bulk->indexKeys[IXFLDPOS_GEOMETRY], fs);
-    if (!rt) {
-      QueryError_SetError(status, QUERY_EGENERIC, "Could not open geoshape index for indexing");
-      return -1;
-    }
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open geoshape index for indexing");
+    return -1;
   }
 
   const GeometryApi *api = GeometryApi_Get(rt);
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
-      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geoshape: %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Error indexing geoshape", ": %s",
                              RedisModule_StringPtrLen(errMsg, NULL));
       RedisModule_FreeString(NULL, errMsg);
       return -1;
@@ -582,15 +574,11 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 
 
 FIELD_BULK_INDEXER(numericIndexer) {
-  NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
+  RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
+  NumericRangeTree *rt = openNumericKeysDict(ctx->spec, keyName, CREATE_INDEX);
   if (!rt) {
-    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
-    rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
-        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
-    if (!rt) {
-      QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
-      return -1;
-    }
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open numeric index for indexing");
+    return -1;
   }
 
   if (!fdata->isMulti) {
@@ -627,30 +615,25 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   }
   if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
 
-    QueryError_SetErrorFmt(status, QUERY_EBADATTR,
-                           "Could not add vector with blob size %zu (expected size %zu)", fdata->vecLen,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_ATTR,
+                           "Could not add vector with blob size", " %zu (expected size %zu)", fdata->vecLen,
                            fs->vectorOpts.expBlobSize);
     return -1;
   }
-  aCtx->fwIdx->maxFreq++;
   return 0;
 }
 
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
-  VecSimIndex *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
-  if (!rt) {
-    RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-    rt = bulk->indexDatas[IXFLDPOS_VECTOR] =
-        OpenVectorIndex(sp, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
-    if (!rt) {
-      QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
-      return -1;
-    }
+  RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
+  VecSimIndex *vecsim = openVectorIndex(sp, keyName, CREATE_INDEX);
+  if (!vecsim) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open vector for indexing");
+    return -1;
   }
   char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
-    VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
+    VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
   sp->stats.numRecords += fdata->numVec;
@@ -668,13 +651,13 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       fdata->isMulti = 0;
       geohash = calcGeoHash(field->lon, field->lat);
       if (geohash == INVALID_GEOHASH) {
-        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Invalid geo coordinates: %f, %f",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
                                field->lon, field->lat);
         return REDISMODULE_ERR;
       }
       fdata->numeric = geohash;
       if (FieldSpec_IsSortable(fs)) {
-        RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
+        RSSortingVector_PutNum(aCtx->sv, fs->sortIdx, fdata->numeric);
       }
       return REDISMODULE_OK;
     case FLD_VAR_T_CSTR:
@@ -689,7 +672,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
-      RS_LOG_ASSERT(0, "Unsupported field type for GEO index");
+      RS_ABORT_ALWAYS("Unsupported field type for GEO index");
+      break;
   }
 
   const char *str = NULL;
@@ -701,7 +685,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     }
     geohash = calcGeoHash(lon, lat);
     if (geohash == INVALID_GEOHASH) {
-      QueryError_SetErrorFmt(status, QUERY_EINVAL, "Invalid geo coordinates: %f, %f",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);
       return REDISMODULE_ERR;
     }
@@ -718,7 +702,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       }
       geohash = calcGeoHash(lon, lat);
       if (geohash == INVALID_GEOHASH) {
-        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Invalid geo coordinates: %f, %f",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);
         array_free(arr);
         fdata->arrNumeric = NULL;
@@ -732,9 +716,11 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 
   if (str && FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+      bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
+      const char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
+      RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str_param);
     } else if (field->multisv) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
+      RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
       field->multisv = NULL;
     }
   }
@@ -748,9 +734,11 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
       if (field->unionType != FLD_VAR_T_ARRAY) {
         size_t fl;
         const char *str = DocumentField_GetValueCStr(field, &fl);
-        RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+        bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
+        const char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
+        RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str_param);
       } else if (field->multisv) {
-        RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
+        RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
         field->multisv = NULL;
       }
     }
@@ -759,18 +747,14 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
-  TagIndex *tidx = bulk->indexDatas[IXFLDPOS_TAG];
+  RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
+  TagIndex *tidx = TagIndex_Open(ctx->spec, kname, CREATE_INDEX);
   if (!tidx) {
-    RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
-    tidx = bulk->indexDatas[IXFLDPOS_TAG] =
-        TagIndex_Open(ctx, kname, 1, &bulk->indexKeys[IXFLDPOS_TAG]);
-    if (!tidx) {
-      QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
-      return -1;
-    }
-    if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
-      tidx->suffix = NewTrieMap();
-    }
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open tag index for indexing");
+    return -1;
+  }
+  if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
+    tidx->suffix = NewTrieMap();
   }
 
   ctx->spec->stats.invertedSize +=
@@ -789,7 +773,7 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_GEOMETRY] = geometryPreprocessor,
     };
 
-int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
+int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status) {
   int rc = 0;
@@ -798,36 +782,28 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
     if (field->indexAs & INDEXTYPE_FROM_POS(ii)) {
       switch (ii) {
         case IXFLDPOS_TAG:
-          rc = tagIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          rc = tagIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_NUMERIC:
         case IXFLDPOS_GEO:
-          rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          rc = numericIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_VECTOR:
-          rc = vectorIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          rc = vectorIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_GEOMETRY:
-          rc = geometryIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          rc = geometryIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;
         default:
           rc = -1;
-          QueryError_SetError(status, QUERY_EINVAL, "BUG: invalid index type");
+          QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "BUG: invalid index type");
           break;
       }
     }
   }
   return rc;
-}
-
-void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
-  for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
-    if (cur->indexKeys[ii]) {
-      RedisModule_CloseKey(cur->indexKeys[ii]);
-    }
-  }
 }
 
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
@@ -846,8 +822,8 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, sctx, ff, fs, fdata, &aCtx->status) != 0) {
-        IndexError_AddError(&aCtx->spec->stats.indexError, QueryError_GetError(&aCtx->status), doc->docKey);
-        IndexError_AddError(&aCtx->spec->fields[fs->index].indexError, QueryError_GetError(&aCtx->status), doc->docKey);
+        IndexError_AddQueryError(&aCtx->spec->stats.indexError, &aCtx->status, doc->docKey);
+        FieldSpec_AddQueryError(&aCtx->spec->fields[fs->index], &aCtx->status, doc->docKey);
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }
@@ -859,7 +835,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     }
   }
 
-  if (Indexer_Add(aCtx->indexer, aCtx) != 0) {
+  if (IndexDocument(aCtx) != 0) {
     ourRv = REDISMODULE_ERR;
     goto cleanup;
   }
@@ -872,7 +848,7 @@ cleanup:
     if (docId)
       IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey, docId);
 
-    QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
+    QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_GENERIC);
     AddDocumentCtx_Finish(aCtx);
   }
   return ourRv;
@@ -885,7 +861,7 @@ cleanup:
  * of it internally
  *
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
-int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
+int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const HiddenString *expr,
                             int *result, QueryError *status) {
 
   int rc = REDISMODULE_ERR;
@@ -894,12 +870,12 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
-    QueryError_SetError(status, QUERY_ENODOC, "");
+    QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "");
     goto done;
   }
 
   // Try to parser the expression first, fail if we can't
-  if (!(e = ExprAST_Parse(expr, strlen(expr), status)) || QueryError_HasError(status)) {
+  if (!(e = ExprAST_Parse(expr, status)) || QueryError_HasError(status)) {
     goto done;
   }
 
@@ -918,7 +894,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
-  RSValue rv = RSVALUE_STATIC;
+  RSValue rv = RSValue_Undefined();
   if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
     goto CleanUp;
   }
@@ -928,7 +904,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   rc = REDISMODULE_OK;
 
 CleanUp:
-  RLookupRow_Cleanup(&row);
+  RLookupRow_Reset(&row);
   RLookup_Cleanup(&lookup_s);
 done:
   ExprAST_Free(e);
@@ -940,7 +916,7 @@ done:
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 #define BAIL(s)                                            \
   do {                                                     \
-    QueryError_SetError(&aCtx->status, QUERY_EGENERIC, s); \
+    QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC, s); \
     goto done;                                             \
   } while (0)
 
@@ -968,7 +944,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->docFieldName);
       if (fs == NULL || !FieldSpec_IsSortable(fs)) {
         continue;
       }
@@ -979,11 +955,11 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
       dedupes[fs->index] = 1;
 
-      int idx = RSSortingTable_GetFieldIdx(sctx->spec->sortables, f->name);
+      int idx = fs->sortIdx;
       if (idx < 0) continue;
 
       if (!md->sortVector) {
-        md->sortVector = NewSortingVector(sctx->spec->sortables->len);
+        md->sortVector = NewSortingVector(sctx->spec->numSortableFields);
       }
 
       RS_LOG_ASSERT((fs->options & FieldSpec_Dynamic) == 0, "Dynamic field cannot use PARTIAL");
@@ -991,16 +967,19 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
         case INDEXFLD_T_TAG:
-        case INDEXFLD_T_GEO:
-          RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
-                              RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+        case INDEXFLD_T_GEO: {
+          const char* str = RedisModule_StringPtrLen(f->text, NULL);
+          bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
+          const char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
+          RSSortingVector_PutStr(md->sortVector, idx, str_param);
           break;
+        }
         case INDEXFLD_T_NUMERIC: {
           double numval;
           if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
             BAIL("Could not parse numeric index value");
           }
-          RSSortingVector_Put(md->sortVector, idx, &numval, RS_SORTABLE_NUM, 0);
+          RSSortingVector_PutNum(md->sortVector, idx, numval);
           break;
         }
         default:
@@ -1022,7 +1001,7 @@ DocumentField *Document_GetField(Document *d, const char *fieldName) {
   if (!d || !fieldName) return NULL;
 
   for (int i = 0; i < d->numFields; i++) {
-    if (!strcasecmp(d->fields[i].name, fieldName)) {
+    if (!HiddenString_CaseInsensitiveCompareC(d->fields[i].docFieldName, fieldName, strlen(fieldName))) {
       return &d->fields[i];
     }
   }
@@ -1050,7 +1029,8 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_GEOMETRY:
-      RS_LOG_ASSERT(0, "invalid types");
+      RS_ABORT_ALWAYS("invalid types");
+      break;
   }
   return NULL;
 }

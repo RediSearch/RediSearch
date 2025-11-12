@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "rtree.hpp"
 
 #include <string>     // std::string, std::char_traits
@@ -138,7 +140,7 @@ constexpr auto geometry_reporter =
                return std::transform_reduce(
 // apple clang does not implement `std::execution` despite being a C++17 feature
 // feature test macro for std::execution. hopefully the most applicable, smallest necessary tool
-// nobody would define the feature test macro witout implementing the feature
+// nobody would define the feature test macro without implementing the feature
 #if defined(__cpp_lib_execution)
                    std::execution::unseq,
 #endif
@@ -295,17 +297,17 @@ auto RTree<cs>::query_begin(QueryType query_type, geom_type const& query_geom) c
 }
 
 template <typename cs>
-auto RTree<cs>::query(std::string_view wkt, QueryType query_type, RedisModuleString** err_msg) const
-    -> IndexIterator* {
+auto RTree<cs>::query(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, std::string_view wkt, QueryType query_type, RedisModuleString** err_msg) const
+    -> QueryIterator* {
   try {
-    using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
+    using alloc_type = Allocator::TrackingAllocator<CPPQueryIterator>;
     auto alloc = alloc_type{allocated_};
     const auto query_geom = from_wkt<cs>(wkt);
     const auto qbegin = query_begin(query_type, query_geom);
     const auto results =
         std::ranges::subrange{qbegin, rtree_.qend()} | std::views::transform(get_id<cs>);
     const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
-    std::allocator_traits<alloc_type>::construct(alloc, qi, results, allocated_);
+    std::allocator_traits<alloc_type>::construct(alloc, qi, sctx, filterCtx, results, allocated_);
     return qi->base();
   } catch (const std::exception& e) {
     if (err_msg) {

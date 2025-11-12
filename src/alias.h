@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef ALIAS_H
 #define ALIAS_H
 
@@ -16,8 +18,8 @@ extern "C" {
 
 typedef struct {
   struct dict *d;
-  void (*on_add)(const char *alias, const IndexSpec *spec);
-  void (*on_del)(const char *alias, const IndexSpec *spec);
+  void (*on_add)(const HiddenString *alias, const IndexSpec *spec);
+  void (*on_del)(const HiddenString *alias, const IndexSpec *spec);
 } AliasTable;
 
 extern AliasTable *AliasTable_g;
@@ -31,9 +33,9 @@ AliasTable *AliasTable_New(void);
 void IndexAlias_InitGlobal(void);
 void IndexAlias_DestroyGlobal(AliasTable **t);
 
-int IndexAlias_Add(const char *alias, StrongRef spec, int options, QueryError *status);
-int IndexAlias_Del(const char *alias, StrongRef spec, int options, QueryError *status);
-StrongRef IndexAlias_Get(const char *alias);
+int IndexAlias_Add(const HiddenString *alias, StrongRef spec, int options, QueryError *status);
+int IndexAlias_Del(const HiddenString *alias, StrongRef spec, int options, QueryError *status);
+StrongRef IndexAlias_Get(const HiddenString *alias);
 
 #ifdef __cplusplus
 }

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "libnu/libnu.h"
 #include "rmutil/strings.h"
@@ -53,7 +55,7 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
 
 int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int incr,
                     RSPayload *payload) {
-  int rc = 0;                              
+  int rc = 0;
   if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
     rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE, t->freecb);
     t->size += rc;
@@ -116,7 +118,7 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 
 TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
   size_t rlen;
-  rune *runes = strToFoldedRunes(prefix, &rlen);
+  rune *runes = strToLowerRunes(prefix, len, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     if (runes) {
       rm_free(runes);
@@ -126,7 +128,7 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
 
   DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
-  TrieIterator *it = TrieNode_Iterate(t->root, FilterFunc, StackPop, fc);
+  TrieIterator *it = TrieNode_Iterate(t->root, LoweringFilterFunc, StackPop, fc);
   rm_free(runes);
   return it;
 }
@@ -138,7 +140,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
     return NULL;
   }
   size_t rlen;
-  rune *runes = strToFoldedRunes(s, &rlen);
+  rune *runes = strToSingleCodepointFoldedRunes(s, &rlen);
   // make sure query length does not overflow
   if (!runes || rlen >= TRIE_MAX_PREFIX) {
     rm_free(runes);
@@ -150,7 +152,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
 
   DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
-  TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, fc);
+  TrieIterator *it = TrieNode_Iterate(tree->root, FoldingFilterFunc, StackPop, fc);
   // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
   rune *rstr;
   t_len slen;
@@ -218,11 +220,6 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   if (pooledEntry) {
     TrieSearchResult_Free(pooledEntry);
   }
-
-  // printf("Nodes consumed: %d/%d (%.02f%%)\n", it->nodesConsumed,
-  //        it->nodesConsumed + it->nodesSkipped,
-  //        100.0 * (float)(it->nodesConsumed) / (float)(it->nodesConsumed +
-  //        it->nodesSkipped));
 
   // put the results from the heap on a vector to return
   size_t n = MIN(heap_count(pq), num);
@@ -322,7 +319,6 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
     RedisModule_Free(str);
     if (payload.data != NULL) RedisModule_Free(payload.data);
   }
-  // TrieNode_Print(tree->root, 0, 0);
   return tree;
 
 cleanup:
@@ -376,10 +372,6 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
     }
     TrieIterator_Free(it);
   }
-}
-
-void TrieType_Digest(RedisModuleDigest *digest, void *value) {
-  /* TODO: The DIGEST module interface is yet not implemented. */
 }
 
 void TrieType_Free(void *value) {

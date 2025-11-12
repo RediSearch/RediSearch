@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "khtable.h"
 #include <stdlib.h>
 #include <string.h>
@@ -57,8 +59,6 @@ static int KHTable_Rehash(KHTable *table) {
   if (!newCapacity) {
     return 0;
   }
-
-  // printf("Rehashing %lu -> %lu\n", table->numBuckets, newCapacity);
 
   KHTableEntry **newEntries = rm_calloc(newCapacity, sizeof(*table->buckets));
   for (size_t ii = 0; ii < table->numBuckets; ++ii) {
@@ -177,25 +177,4 @@ void KHTable_FreeEx(KHTable *table, void *arg,
     Free(ent, table->alloc, arg);
   }
   KHTable_Free(table);
-}
-
-static void khTable_Dump(const KHTable *table, FILE *fp) {
-  printf("Table=%p\n", table);
-  printf("NumEntries: %lu\n", table->numItems);
-  printf("NumBuckets: %lu\n", table->numBuckets);
-  for (size_t ii = 0; ii < table->numBuckets; ++ii) {
-    KHTableEntry *baseEnt = table->buckets[ii];
-    if (!baseEnt) {
-      continue;
-    }
-    printf("Bucket[%lu]\n", ii);
-    for (; baseEnt; baseEnt = baseEnt->next) {
-      printf("   => ");
-      if (table->procs.Print) {
-        table->procs.Print(baseEnt, fp);
-      } else {
-        fprintf(fp, "%p", baseEnt);
-      }
-    }
-  }
 }

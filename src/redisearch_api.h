@@ -1,16 +1,20 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef SRC_REDISEARCH_API_H_
 #define SRC_REDISEARCH_API_H_
 
 #include "redismodule.h"
 #include <limits.h>
 #include "fork_gc.h"
-#include "info_command.h"
+#include "rules.h"
+#include "info/indexes_info.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -101,8 +105,8 @@ struct RSIdxOptions {
 };
 
 struct RSIdxField {
-  char *path;
-  char *name;
+  HiddenString *path;
+  HiddenString *name;
 
   int types;
   int options;
@@ -174,7 +178,7 @@ MODULE_API_FUNC(int, RediSearch_ValidateLanguage)(const char*);
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetFlags)(RSIndexOptions* opts, uint32_t flags);
 
 MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
-(const char* name, const RSIndexOptions* options);
+(const char *name, const RSIndexOptions* options);
 
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 
@@ -208,9 +212,11 @@ MODULE_API_FUNC(RSFieldID, RediSearch_CreateField)
   RediSearch_CreateField(idx, name, RSFLDTYPE_GEO, RSFLDOPT_NONE)
 #define RediSearch_CreateVectorField(idx, name) \
   RediSearch_CreateField(idx, name, RSFLDTYPE_VECTOR, RSFLDOPT_NONE)
-// TODO: GEOMETRY 
+// TODO: GEOMETRY
 // #define RediSearch_CreateGeometryField(idx, name) \
 //   RediSearch_CreateField(idx, name, RSFLDTYPE_GEOMETRY, RSFLDOPT_NONE)
+
+MODULE_API_FUNC(void, RediSearch_IndexExisting)(RSIndex* sp, SchemaRuleArgs* args);
 
 MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(RSIndex* sp, RSFieldID fs, double w);
 MODULE_API_FUNC(void, RediSearch_TagFieldSetSeparator)(RSIndex* sp, RSFieldID fs, char sep);
@@ -236,15 +242,15 @@ MODULE_API_FUNC(int, RediSearch_DeleteDocument)(RSIndex* sp, const void* docKey,
  *  bitmask of RSFieldType.
  */
 MODULE_API_FUNC(void, RediSearch_DocumentAddField)
-(RSDoc* d, const char* fieldName, RedisModuleString* s, unsigned indexAsTypes);
+(RSDoc* d, const char *fieldname, RedisModuleString* s, unsigned indexAsTypes);
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
-(RSDoc* d, const char* fieldName, const char* s, size_t n, unsigned indexAsTypes);
+(RSDoc* d, const char *fieldname, const char* s, size_t n, unsigned indexAsTypes);
 #define RediSearch_DocumentAddFieldCString(doc, fieldname, s, indexAs) \
   RediSearch_DocumentAddFieldString(doc, fieldname, s, strlen(s), indexAs)
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
-(RSDoc* d, const char* fieldName, double val, unsigned indexAsTypes);
+(RSDoc* d, const char *fieldname, double val, unsigned indexAsTypes);
 
 /**
  * Add geo field to a document.
@@ -252,7 +258,7 @@ MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
  * otherwise, returns REDISMODULE_OK
  */
 MODULE_API_FUNC(int, RediSearch_DocumentAddFieldGeo)
-(RSDoc* d, const char* fieldName, double lat, double lon, unsigned indexAsTypes);
+(RSDoc* d, const char* fieldname, double lat, double lon, unsigned indexAsTypes);
 
 /**
  * Replace document if it already exists
@@ -294,7 +300,7 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagContainsNode)
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagSuffixNode)
 (RSIndex* sp, const char* s);
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagLexRangeNode)
-(RSIndex* sp, const char* begin, const char* end, int includeBegin,
+(RSIndex* sp, const char* fieldName, const char* begin, const char* end, int includeBegin,
  int includeEnd);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateIntersectNode)(RSIndex* sp, int exact);
@@ -314,6 +320,8 @@ MODULE_API_FUNC(int, RediSearch_QueryNodeGetFieldMask)(RSQNode* qn);
 MODULE_API_FUNC(RSResultsIterator*, RediSearch_GetResultsIterator)(RSQNode* qn, RSIndex* sp);
 
 MODULE_API_FUNC(void, RediSearch_SetCriteriaTesterThreshold)(size_t num);
+
+MODULE_API_FUNC(const char*, RediSearch_HiddenStringGet)(const HiddenString* hs);
 
 /**
  * Return an iterator over the results of the specified query string
@@ -360,7 +368,7 @@ MODULE_API_FUNC(size_t, RediSearch_MemUsage)(RSIndex* sp);
 
 MODULE_API_FUNC(size_t, RediSearch_TotalMemUsage)(void);
 
-MODULE_API_FUNC(TotalSpecsInfo, RediSearch_TotalInfo)(void);
+MODULE_API_FUNC(TotalIndexesInfo, RediSearch_TotalInfo)(void);
 
 MODULE_API_FUNC(InfoGCStats, RediSearch_GC_total)(void);
 
@@ -435,7 +443,6 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
   if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \
-    printf("could not initialize RediSearch_" #name "\r\n");                   \
     rv__ = REDISMODULE_ERR;                                                    \
     goto rsfunc_init_end__;                                                    \
   }

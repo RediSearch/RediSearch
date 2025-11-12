@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
@@ -8,6 +17,7 @@
 #include "common.h"
 #include "module.h"
 #include "version.h"
+#include "search_result.h"
 
 #include <vector>
 #include <array>
@@ -22,7 +32,7 @@ using RS::addDocument;
 
 TEST_F(AggTest, testBasic) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  QueryError qerr = {QueryErrorCode(0)};
+  QueryError qerr = QueryError_Default();
 
   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH",
                       "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
@@ -48,21 +58,21 @@ TEST_F(AggTest, testBasic) {
   AREQ *rr = AREQ_New();
   RMCK::ArgvList aggArgs(ctx, "*");
   rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
-  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->name, true);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->specName, true);
   ASSERT_FALSE(sctx == NULL);
   rv = AREQ_ApplyContext(rr, sctx, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv);
 
   rv = AREQ_BuildPipeline(rr, &qerr);
-  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
 
   auto rp = AREQ_RP(rr);
   ASSERT_FALSE(rp == NULL);
 
   SearchResult res = {0};
-  RLookup *lk = AGPLN_GetLookup(&rr->ap, NULL, AGPLN_GETLOOKUP_LAST);
+  RLookup *lk = AGPLN_GetLookup(AREQ_AGGPlan(rr), NULL, AGPLN_GETLOOKUP_LAST);
   size_t count = 0;
   while ((rv = rp->Next(rp, &res)) == RS_RESULT_OK) {
     count++;
@@ -71,8 +81,9 @@ TEST_F(AggTest, testBasic) {
     //   RSValue *vv = RLookup_GetItem(kk, &res.rowdata);
     //   if (vv != NULL) {
     //     std::cerr << "  " << kk->name << ": ";
-    //     RSValue_Print(vv);
-    //     std::cerr << std::endl;
+    //     sds s = RSValue_DumpSds(vv);
+    //     std::cerr << s << std::endl;
+    //     sdsfree(s)
     //   }
     // }
     SearchResult_Clear(&res);
@@ -126,25 +137,25 @@ class ReducerOptionsCXX : public ReducerOptions {
 };
 
 TEST_F(AggTest, testGroupBy) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
   RPMock ctx;
   RLookup rk_in = {0};
   const char *values[] = {"foo", "bar", "baz", "foo"};
   ctx.values = values;
   ctx.numvals = sizeof(values) / sizeof(values[0]);
-  ctx.rkscore = RLookup_GetKey(&rk_in, "score", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  ctx.rkvalue = RLookup_GetKey(&rk_in, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  ctx.rkscore = RLookup_GetKey_Write(&rk_in, "score", RLOOKUP_F_NOFLAGS);
+  ctx.rkvalue = RLookup_GetKey_Write(&rk_in, "value", RLOOKUP_F_NOFLAGS);
   ctx.Next = [](ResultProcessor *rp, SearchResult *res) -> int {
     RPMock *p = (RPMock *)rp;
     if (p->counter >= NUM_RESULTS) {
       return RS_RESULT_EOF;
     }
-    res->docId = ++p->counter;
+    SearchResult_SetDocId(res, ++p->counter);
 
-    RSValue *sval = RS_ConstStringValC((char *)p->values[p->counter % p->numvals]);
-    RSValue *scoreval = RS_NumVal(p->counter);
-    RLookup_WriteOwnKey(p->rkvalue, &res->rowdata, sval);
-    RLookup_WriteOwnKey(p->rkscore, &res->rowdata, scoreval);
+    RSValue *sval = RSValue_NewConstCString((char *)p->values[p->counter % p->numvals]);
+    RSValue *scoreval = RSValue_NewNumber(p->counter);
+    RLookup_WriteOwnKey(p->rkvalue, SearchResult_GetRowDataMut(res), sval);
+    RLookup_WriteOwnKey(p->rkscore, SearchResult_GetRowDataMut(res), scoreval);
     //* res = * p->res;
     return RS_RESULT_OK;
   };
@@ -152,9 +163,9 @@ TEST_F(AggTest, testGroupBy) {
   QITR_PushRP(&qitr, &ctx);
 
   RLookup rk_out = {0};
-  RLookupKey *v_out = RLookup_GetKey(&rk_out, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *score_out = RLookup_GetKey(&rk_out, "SCORE", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *count_out = RLookup_GetKey(&rk_out, "COUNT", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupKey *v_out = RLookup_GetKey_Write(&rk_out, "value", RLOOKUP_F_NOFLAGS);
+  RLookupKey *score_out = RLookup_GetKey_Write(&rk_out, "SCORE", RLOOKUP_F_NOFLAGS);
+  RLookupKey *count_out = RLookup_GetKey_Write(&rk_out, "COUNT", RLOOKUP_F_NOFLAGS);
 
   Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1);
   ASSERT_TRUE(gr != NULL);
@@ -165,14 +176,13 @@ TEST_F(AggTest, testGroupBy) {
   Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
   ReducerOptionsCXX sumOptions("SUM", &rk_in, "score");
   auto sumReducer = RDCRSum_New(&sumOptions);
-  ASSERT_TRUE(sumReducer != NULL) << QueryError_GetError(sumOptions.status);
+  ASSERT_TRUE(sumReducer != NULL) << QueryError_GetUserError(sumOptions.status);
   Grouper_AddReducer(gr, sumReducer, score_out);
   SearchResult res = {0};
   ResultProcessor *gp = Grouper_GetRP(gr);
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    // RLookupRow_Dump(&res.rowdata);
     SearchResult_Clear(&res);
   }
   SearchResult_Destroy(&res);
@@ -194,13 +204,13 @@ class ArrayGenerator : public ResultProcessor {
 };
 
 TEST_F(AggTest, testGroupSplit) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
   ArrayGenerator gen;
   RLookup lk_in = {0};
   RLookup lk_out = {0};
-  gen.kvalue = RLookup_GetKey(&lk_in, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *val_out = RLookup_GetKey(&lk_out, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *count_out = RLookup_GetKey(&lk_out, "COUNT", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  gen.kvalue = RLookup_GetKey_Write(&lk_in, "value", RLOOKUP_F_NOFLAGS);
+  RLookupKey *val_out = RLookup_GetKey_Write(&lk_out, "value", RLOOKUP_F_NOFLAGS);
+  RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);
   Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1);
   ArgsCursor args = {0};
   ReducerOptions opt = {0};
@@ -215,9 +225,9 @@ TEST_F(AggTest, testGroupSplit) {
   gen.Next = [](ResultProcessor *rp, SearchResult *res) -> int {
     ArrayGenerator *p = static_cast<ArrayGenerator *>(rp);
     if (p->counter >= NUM_RESULTS) return RS_RESULT_EOF;
-    res->docId = ++p->counter;
-    RLookup_WriteOwnKey(p->kvalue, &res->rowdata,
-                        RS_StringArrayT((char **)&p->values[0], p->values.size(), RSString_Const));
+    SearchResult_SetDocId(res, ++p->counter);
+    RLookup_WriteOwnKey(p->kvalue, SearchResult_GetRowDataMut(res),
+                        RSValue_NewConstStringArray((char **)&p->values[0], p->values.size()));
     //* res = * p->res;
     return RS_RESULT_OK;
   };
@@ -225,14 +235,13 @@ TEST_F(AggTest, testGroupSplit) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    // RLookupRow_Dump(&res.rowdata);
-    RSValue *rv = RLookup_GetItem(val_out, &res.rowdata);
+    RSValue *rv = RLookup_GetItem(val_out, SearchResult_GetRowData(&res));
     ASSERT_FALSE(NULL == rv);
     ASSERT_FALSE(RSValue_IsNull(rv));
     ASSERT_TRUE(RSValue_IsString(rv));
     bool foundValue = false;
     for (auto s : gen.values) {
-      if (!strcmp(rv->strval.str, s)) {
+      if (!strcmp(RSValue_String_Get(rv, NULL), s)) {
         foundValue = true;
         break;
       }
@@ -280,3 +289,39 @@ int testAggregatePlan() {
   RETURN_TEST_SUCCESS
 }
 #endif
+
+TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+
+  auto scenario = [&](QEFlags flags, auto... args) -> bool {
+    QueryError qerr = QueryError_Default();
+    AREQ *rr = AREQ_New();
+    AREQ_AddRequestFlags(rr, flags);
+    RMCK::ArgvList aggArgs(ctx, "*", args...);
+    int rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
+    EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
+    bool res = rr->searchopts.flags & Search_CanSkipRichResults;
+    QueryError_ClearError(&qerr);
+    AREQ_Free(rr);
+    return res;
+  };
+
+  // Default search command, we have an implicit sorter by scores
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "LIMIT", "0", "100"));
+
+  // Explicit sorting, no need for scores
+  EXPECT_TRUE(scenario(QEXEC_F_IS_SEARCH, "SORTBY", "foo", "ASC"));
+  // Explicit sorting, with explicit request for scores
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "WITHSCORES", "SORTBY", "foo", "ASC"));
+  // Explicit sorting, with explicit request for scores in a different order
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "SORTBY", "foo", "ASC", "WITHSCORES"));
+  // Requesting HIGHLIGHT, which requires rich results
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "SORTBY", "foo", "HIGHLIGHT", "FIELDS", "1", "foo"));
+
+  // Default aggregate command, no need for scores
+  EXPECT_TRUE(scenario(QEXEC_F_IS_AGGREGATE, "LIMIT", "0", "100"));
+  // Explicit request for scores
+  EXPECT_FALSE(scenario(QEXEC_F_IS_AGGREGATE, "ADDSCORES"));
+
+  RedisModule_FreeThreadSafeContext(ctx);
+}

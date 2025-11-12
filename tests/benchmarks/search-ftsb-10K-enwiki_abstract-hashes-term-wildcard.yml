@@ -4,9 +4,7 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
-  - oss-standalone-threads-3
   - oss-standalone-threads-6
-  - oss-standalone-threads-12
   - oss-cluster-02-primaries
   - oss-cluster-04-primaries
   - oss-cluster-08-primaries
@@ -32,4 +30,5 @@ clientconfig:
   - parameters:
     - workers: 64
     - reporting-period: 1s
+    - duration: 120s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/enwiki_abstract-hashes-wildcard/enwiki_abstract-hashes-wildcard.redisearch.commands.BENCH.QUERY_wildcard.csv"

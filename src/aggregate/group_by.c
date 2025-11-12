@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <redisearch.h>
 #include <result_processor.h>
 #include <util/block_alloc.h>
@@ -102,7 +104,7 @@ static void writeGroupValues(const Grouper *g, const Group *gr, SearchResult *r)
     const RLookupKey *dstkey = g->dstkeys[ii];
     RSValue *groupval = RLookup_GetItem(dstkey, &gr->rowdata);
     if (groupval) {
-      RLookup_WriteKey(dstkey, &r->rowdata, groupval);
+      RLookup_WriteKey(dstkey, SearchResult_GetRowDataMut(r), groupval);
     }
   }
 }
@@ -121,7 +123,7 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
     for (size_t ii = 0; ii < GROUPER_NREDUCERS(g); ++ii) {
       Reducer *rd = g->reducers[ii];
       RSValue *v = rd->Finalize(rd, gr->accumdata[ii]);
-      RLookup_WriteOwnKey(rd->dstkey, &r->rowdata, v);
+      RLookup_WriteOwnKey(rd->dstkey, SearchResult_GetRowDataMut(r), v);
     }
     ++g->iter;
     return RS_RESULT_OK;
@@ -173,14 +175,14 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
   // get the value
   const RSValue *v = RSValue_Dereference(xarr[xpos]);
   // regular value - just move one step -- increment XPOS
-  if (v->t != RSValue_Array) {
+  if (!RSValue_IsArray(v)) {
     hval = RSValue_Hash(v, hval);
     extractGroups(g, xarr, xpos + 1, xlen, hval, res);
   } else if (RSValue_ArrayLen(v) == 0) {
     // Empty array - hash as null
-    hval = RSValue_Hash(RS_NullVal(), hval);
+    hval = RSValue_Hash(RSValue_NullStatic(), hval);
     const RSValue *array = xarr[xpos];
-    xarr[xpos] = RS_NullVal();
+    xarr[xpos] = RSValue_NullStatic();
     extractGroups(g, xarr, xpos + 1, xlen, hval, res);
     xarr[xpos] = array;
   } else {
@@ -207,7 +209,7 @@ static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
     const RLookupKey *srckey = g->srckeys[ii];
     RSValue *v = RLookup_GetItem(srckey, srcrow);
     if (v == NULL) {
-      v = RS_NullVal();
+      v = RSValue_NullStatic();
     }
     groupvals[ii] = v;
   }
@@ -221,7 +223,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   int rc;
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
-    invokeGroupReducers(g, &res->rowdata);
+    invokeGroupReducers(g, SearchResult_GetRowDataMut(res));
     SearchResult_Clear(res);
   }
   base->parent->resultLimit = chunkLimit; // restore the limit
@@ -254,7 +256,7 @@ static void Grouper_rpFree(ResultProcessor *grrp) {
       continue;
     }
     Group *gr = kh_value(g->groups, it);
-    RLookupRow_Cleanup(&gr->rowdata);
+    RLookupRow_Reset(&gr->rowdata);
   }
   kh_destroy(khid, g->groups);
   BlkAlloc_FreeAll(&g->groupsAlloc, cleanCallback, g, GROUP_BYTESIZE(g));

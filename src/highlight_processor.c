@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "result_processor.h"
 #include "fragmenter.h"
 #include "value.h"
@@ -187,7 +189,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
       char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
-      return RS_StringVal(summarized, docLen);
+      return RSValue_NewString(summarized, docLen);
     } else {
       // Otherwise, just return the whole field, but without highlighting
     }
@@ -201,7 +203,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
     // highlighted.
     char *hlDoc = FragmentList_HighlightWholeDocS(&frags, &tags);
     FragmentList_Free(&frags);
-    return RS_StringValC(hlDoc);
+    return RSValue_NewCString(hlDoc);
   }
 
   size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, FragmentList_GetNumFrags(&frags));
@@ -241,7 +243,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
   char *hlText = Array_Steal(&bufTmp, &hlLen);
   Array_Free(&bufTmp);
   FragmentList_Free(&frags);
-  return RS_StringVal(hlText, hlLen);
+  return RSValue_NewString(hlText, hlLen);
 }
 
 static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
@@ -261,7 +263,7 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
   const char *fName = spec->name;
   const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
 
-  if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
+  if (fieldValue == NULL || !RSValue_IsAnyString(fieldValue)) {
     return;
   }
   RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
@@ -272,16 +274,24 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
 }
 
 static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
-  IndexIterator *it = QITR_GetRootFilter(rp->parent);
-  RSIndexResult *ir = NULL;
-  if (!it) {
-    return NULL;
+  QueryIterator *it = QITR_GetRootFilter(rp->parent);
+  if (!it) return NULL;
+
+  it->Rewind(it);
+  IteratorStatus rc;
+  if (it->SkipTo) {
+    rc = it->SkipTo(it, docId);
+  } else {
+    // If the root iterator does not support SkipTo, we have to read the iterator until we find the
+    // document. This is logically equivalent to SkipTo, especially in this context where we know
+    // that the document was found in the root iterator before.
+    // This is not efficient, but if the root iterator does not support SkipTo, we have no other
+    // choice. Look for "SkipTo = NULL" in the codebase for examples.
+    do {
+      rc = it->Read(it);
+    } while (rc == ITERATOR_OK && it->lastDocId != docId);
   }
-  it->Rewind(it->ctx);
-  if (INDEXREAD_OK != it->SkipTo(it->ctx, docId, &ir)) {
-    return NULL;
-  }
-  return ir;
+  return rc == ITERATOR_OK ? it->current : NULL;
 }
 
 static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
@@ -294,7 +304,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   // Get the index result for the current document from the root iterator.
   // The current result should not contain an index result
-  const RSIndexResult *ir = r->indexResult ? r->indexResult : getIndexResult(rbase, r->docId);
+  const RSIndexResult *ir = SearchResult_HasIndexResult(r) ? SearchResult_GetIndexResult(r) : getIndexResult(rbase, SearchResult_GetDocId(r));
 
   // we can't work without the index result, just return QUEUED
   if (!ir) {
@@ -303,7 +313,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   size_t numIovsArr = 0;
   const FieldList *fields = hlp->fields;
-  const RSDocumentMetadata *dmd = r->dmd;
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   if (!dmd) {
     return RS_RESULT_OK;
   }
@@ -311,7 +321,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
   hlpDocContext docParams = {.byteOffsets = dmd->byteOffsets,  // nl
                              .iovsArr = NULL,
                              .indexResult = ir,
-                             .row = &r->rowdata};
+                             .row = SearchResult_GetRowDataMut(r)};
 
   if (fields->numFields) {
     for (size_t ii = 0; ii < fields->numFields; ++ii) {
@@ -349,10 +359,10 @@ static void hlpFree(ResultProcessor *p) {
   rm_free(p);
 }
 
-ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
+ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
                                    const RLookup *lookup) {
   HlpProcessor *hlp = rm_calloc(1, sizeof(*hlp));
-  if (searchopts->language == RS_LANG_CHINESE) {
+  if (language == RS_LANG_CHINESE) {
     hlp->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }
   hlp->base.Next = hlpNext;

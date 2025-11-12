@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef MINMAX_HEAP_H_
 #define MINMAX_HEAP_H_
 
@@ -26,7 +28,6 @@ mm_heap_t* mmh_init_with_size(size_t size, mmh_cmp_func cmp, void* cmp_ctx, mmh_
 void mmh_free(mm_heap_t* h);
 void mmh_clear(mm_heap_t* h);
 
-// void mmh_dump(mm_heap_t* h);
 void mmh_insert(mm_heap_t* h, void* value);
 void* mmh_pop_min(mm_heap_t* h);
 void* mmh_pop_max(mm_heap_t* h);

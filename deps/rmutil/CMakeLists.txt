@@ -4,14 +4,9 @@ add_library(rmutil OBJECT
     cmdparse.c
     heap.c
     priority_queue.c
-    sds.c
-    strings.c
+	strings.c
     util.c
     vector.c)
-
-if(RMUTIL_NO_SDS)
-	target_compile_definitions(rmutil PRIVATE RMUTIL_NO_SDS)
-endif()
 
 if (RMUTIL_TESTS)
 	function(_rmutilTest name)

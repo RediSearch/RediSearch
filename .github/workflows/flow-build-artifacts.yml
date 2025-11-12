@@ -7,14 +7,18 @@ on:
         type: choice
         options:
           - all
+          - ubuntu:noble
           - ubuntu:jammy
           - ubuntu:focal
-          - ubuntu:bionic
           - rockylinux:8
           - rockylinux:9
           - debian:bullseye
+          - debian:bookworm
           - amazonlinux:2
+          - amazonlinux:2023
           - mariner:2
+          - azurelinux:3
+          - alpine:3
           - macos
         description: 'Platform to build on. Use "all" to build on all'
         default: all
@@ -26,6 +30,10 @@ on:
           - aarch64
         description: 'Architecture to build on. Use "all" to build on all'
         default: all
+      force_beta:
+        type: boolean
+        description: 'Force beta version generation even for non-master branches (for testing)'
+        default: false
   workflow_call:
     inputs:
       platform:
@@ -34,14 +42,18 @@ on:
       architecture:
         type: string
         default: all
+      force_beta:
+        type: boolean
+        default: false
 
 jobs:
   setup:
     # Sets SHA and Validates the reference Input (branch or tag)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ steps.get-redis.outputs.tag }}
+      beta-version: ${{ steps.beta-version.outputs.BETA_VERSION }}
     steps:
       - uses: actions/checkout@v4
       - id: set-sha
@@ -49,14 +61,39 @@ jobs:
       - id: get-redis
         shell: bash -l -eo pipefail {0}
         run: |
-          TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          # TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
+          # echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tag=unstable" >> $GITHUB_OUTPUT
+      - name: Generate Beta Version unique identifier
+        id: beta-version
+        run: |
+          # Generate beta version for master branch builds or when force_beta is enabled
+          BRANCH_NAME="${{ github.ref_name }}"
+          FORCE_BETA="${{ inputs.force_beta }}"
+          echo "Building from branch: $BRANCH_NAME"
+          echo "Force beta enabled: $FORCE_BETA"
+
+          if [[ "$BRANCH_NAME" == "master" ]] || [[ "$FORCE_BETA" == "true" ]]; then
+            # Generate timestamp at workflow start for consistent beta versioning across all builds
+            TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
+            # Add workflow number to ensure the version is unique (if multiple workflows started at the same time)
+            WORKFLOW_NUM=${{ github.run_number }}
+            BETA_VERSION="99.99.99.${TIMESTAMP}.${WORKFLOW_NUM}"
+            echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
+            if [[ "$BRANCH_NAME" == "master" ]]; then
+              echo "Master branch detected, generating beta version: $BETA_VERSION"
+            else
+              echo "Force beta enabled for branch $BRANCH_NAME, generating beta version: $BETA_VERSION"
+            fi
+          else
+            echo "Non-master branch detected ($BRANCH_NAME) and force_beta not enabled, no beta version generated"
+          fi
       - name: Validate Reference
         shell: python
         run: |
           from re import fullmatch
           ref = '${{ github.ref_name }}'
-          if bool(fullmatch('[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
+          if bool(fullmatch(r'[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
             if '${{ inputs.architecture }}' != 'all' or '${{ inputs.platform }}' != 'all':
               print("::error title=Invalid Request::"
                     "You can only build all configurations for master or a release branch")
@@ -70,7 +107,7 @@ jobs:
       architecture: ${{ inputs.architecture }}
 
   decide-macos:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
     outputs:
       platforms: ${{ steps.decide.outputs.platforms }}
@@ -82,9 +119,9 @@ jobs:
           platforms = []
 
           if '${{ inputs.architecture }}' in ['all', 'x86_64']:
-            platforms.append('macos-12')
+            platforms.append('macos-15-intel')
           if '${{ inputs.architecture }}' in ['all', 'aarch64']:
-            platforms.append('macos-latest-xlarge')
+            platforms.append('macos-latest')
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             print(f'platforms={platforms}', file=f)
@@ -104,6 +141,7 @@ jobs:
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      beta-version: ${{ needs.setup.outputs.beta-version }}
 
   build-linux-arm:
     needs: [decide-linux, setup]
@@ -113,14 +151,15 @@ jobs:
       matrix:
         OS: ${{ fromJson(needs.decide-linux.outputs.platforms_arm) }}
         include: ${{ fromJson(needs.decide-linux.outputs.include_arm) }}
-    uses: ./.github/workflows/flow-self-hosted-arm.yml
+    uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:
-      build: true
+      env: ${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}
-      get-redis: ${{ needs.setup.outputs.redis-ref }}
+      redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      beta-version: ${{ needs.setup.outputs.beta-version }}
 
   build-macos:
     needs: [decide-macos, setup]
@@ -135,3 +174,4 @@ jobs:
       env: ${{ matrix.OS }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      beta-version: ${{ needs.setup.outputs.beta-version }}

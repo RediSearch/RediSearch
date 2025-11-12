@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "tokenize.h"
 #include "toksep.h"
 #include "config.h"
@@ -35,7 +37,7 @@ static void maybeFrisoInit() {
   friso_g = friso_new();
   config_g = friso_new_config();
 
-  if (configfile) {
+  if (configfile && strlen(configfile)) {
     if (!friso_init_from_ifile(friso_g, config_g, (char *)configfile)) {
       fprintf(stderr, "Failed to initialize friso. Abort\n");
       abort();
@@ -52,11 +54,12 @@ static void maybeFrisoInit() {
   config_g->en_sseg = 0;
 }
 
-static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_t options) {
+static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint16_t options) {
   cnTokenizer *self = (cnTokenizer *)base;
   base->ctx.text = text;
   base->ctx.len = len;
   base->ctx.options = options;
+  base->ctx.empty_input = len == 0;
   friso_set_text(self->fTask, text);
   self->nescapebuf = 0;
 }
@@ -73,7 +76,6 @@ static int appendToEscbuf(cnTokenizer *cn, const char *s, size_t n) {
   size_t toCp = Min(n, CNTOKENIZE_BUF_MAX - cn->nescapebuf);
   memcpy(cn->escapebuf + cn->nescapebuf, s, toCp);
   cn->nescapebuf += toCp;
-  // printf("Added %.*s to escbuf\n", (int)n, s);
   return toCp == n;
 }
 
@@ -100,7 +102,6 @@ static int appendEscapedChars(cnTokenizer *self, friso_token_t ftok, int mode) {
   }
 
   if (appendToEscbuf(self, escbegin, 1)) {
-    // printf("appending %.*s\n", 1, escbegin);
     self->fTask->idx += skipBy;
 
     // if there are more tokens...
@@ -122,6 +123,7 @@ static void initToken(RSTokenizer *base, Token *t, const friso_token_t from) {
   t->stemLen = 0;
   t->flags = Token_CopyRaw | Token_CopyStem;
   t->pos = ++base->ctx.lastOffset;
+  t->allocatedTok = NULL;  // Chinese tokenizer doesn't use unicode_tolower allocation
 }
 
 static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
@@ -148,7 +150,6 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
     if (ctx->stopwords && StopWordList_Contains(ctx->stopwords, tok->word, tok->length)) {
       continue;
     }
-    // printf("Type: %d\n", tok->type);
 
     switch (tok->type) {
         // Skip words we know we don't care about.
@@ -225,12 +226,12 @@ static void cnTokenizer_Free(RSTokenizer *base) {
 }
 
 static void cnTokenizer_Reset(RSTokenizer *base, Stemmer *stemmer, StopWordList *stopwords,
-                              uint32_t opts) {
+                              uint16_t opts) {
   // Nothing to do here
   base->ctx.lastOffset = 0;
 }
 
-RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
+RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint16_t opts) {
   cnTokenizer *tokenizer = rm_calloc(1, sizeof(*tokenizer));
   tokenizer->fTask = friso_new_task();
   maybeFrisoInit();

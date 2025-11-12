@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "mempool.h"
 #include <sys/param.h>
 #include <stdio.h>
@@ -47,7 +49,7 @@ mempool_t *mempool_new(const mempool_options *options) {
   p->top = 0;
   if (mempoolDisable_g == -1) {
     if (getenv("REDISEARCH_NO_MEMPOOL")) {
-      fprintf(stderr, "[redisearch]: REDISEARCH_NO_MEMPOOL in environment. Disabling\n");
+      RedisModule_Log(NULL, "warning", "[redisearch]: REDISEARCH_NO_MEMPOOL in environment. Disabling");
       mempoolDisable_g = 1;
     } else {
       mempoolDisable_g = 0;

@@ -1,5 +1,6 @@
 from common import *
 import json
+import faker
 
 fields_and_values = [
     # Field, Type, CommonOptions, Value, Field1Options
@@ -47,19 +48,19 @@ def testMissingValidations():
     # when `field` does not index missing values.
     env.expect('FT.SEARCH', 'idx', 'ismissing(@tag)').error().contains(
         #'`INDEXMISSING` applied to field `tag`, which does not index missing values'
-        "'ismissing' requires field 'tag' to be defined with 'INDEXMISSING'"
+        "'ismissing' requires defining the field with 'INDEXMISSING'"
         )
     env.expect('FT.SEARCH', 'idx', 'ismissing(@text)').error().contains(
-        "'ismissing' requires field 'text' to be defined with 'INDEXMISSING'"
+        "'ismissing' requires defining the field with 'INDEXMISSING'"
     )
     env.expect('FT.SEARCH', 'idx', 'ismissing(@numeric)').error().contains(
-        "'ismissing' requires field 'numeric' to be defined with 'INDEXMISSING'"
+        "'ismissing' requires defining the field with 'INDEXMISSING'"
     )
 
     # Tests that we get an error in case of a user tries to use "ismissing(@field)"
     # when `field` is created with `NOINDEX` and `INDEXMISSING`
     env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'f1', 'TAG', 'INDEXMISSING', 'NOINDEX').error().contains(
-        'Field `f1` cannot be defined with both `NOINDEX` and `INDEXMISSING`'
+        'Field cannot be defined with both `NOINDEX` and `INDEXMISSING` `f1`'
     )
 
 def testMissingInfo():
@@ -192,7 +193,7 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
     dialect = int(env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1])
     if dialect in [2, 3]:
         res = conn.execute_command(
-            'FT.AGGREGATE', idx, '*', 'GROUPBY', '1', f'@{field1}', 
+            'FT.AGGREGATE', idx, '*', 'GROUPBY', '1', f'@{field1}',
             'REDUCE', 'COUNT', '0', 'AS', 'count',
             'SORTBY', 2, '@count', 'DESC'
         )
@@ -202,7 +203,7 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
                     # Decode the string
                     s = f'{val1}'
                     s = s[2:-1]
-                    val1 = bytes(s, 'utf-8').decode('unicode_escape')            
+                    val1 = bytes(s, 'utf-8').decode('unicode_escape')
             expected = [2, [field1, f'{val1}', 'count', '3'], [field1, None, 'count', '2']]
         else: # JSON
             if dialect == 2:
@@ -423,9 +424,9 @@ def HashMissingTest(env, conn):
                                  field2, val2, 'id', 3)
             conn.execute_command('HSET', DOC_WITH_NONE, 'text', 'dummy',
                                  'id', 4)
-            conn.execute_command('HSET', DOC_WITH_BOTH_AND_TEXT, field1, val1, 
+            conn.execute_command('HSET', DOC_WITH_BOTH_AND_TEXT, field1, val1,
                                 field2, val2, 'text', 'dummy', 'id', 5)
-    
+
     # Create an index with multiple fields types that index missing values, i.e.,
     # index documents that do not have these fields.
     for field, ftype, opt, val1, val2, field1Opt in fields_and_values:
@@ -467,17 +468,29 @@ def HashMissingTest(env, conn):
         MissingTestTwoMissingFields(env, conn, idx, ftype, field1, field2, val1, val2, False)
         env.flush()
 
-def testMissing(env):
+def testMissingHash():
     """Tests the missing values indexing feature thoroughly."""
 
+    env = DialectEnv()
+    conn = getConnectionByEnv(env)
     MAX_DIALECT = set_max_dialect(env)
 
     for dialect in range(2, MAX_DIALECT + 1):
-        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
-        conn = getConnectionByEnv(env)
+        env.set_dialect(dialect)
 
         # Test missing fields indexing on hash documents
         HashMissingTest(env, conn)
+
+@skip(no_json=True)
+def testMissingJSON():
+    """Tests the missing values indexing feature thoroughly."""
+
+    env = DialectEnv()
+    conn = getConnectionByEnv(env)
+    MAX_DIALECT = set_max_dialect(env)
+
+    for dialect in range(2, MAX_DIALECT + 1):
+        env.set_dialect(dialect)
 
         # Test missing fields indexing on JSON documents
         JSONMissingTest(env, conn)
@@ -500,18 +513,83 @@ def testMissingWithExists():
     exists = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD',  '2', 'foo', 'goo', 'FILTER', '!EXISTS(@foo)')
     env.assertEqual(ismissing[2], exists[1])
 
-def testFilterOnMissingValues():
-    """Tests the missing values indexing feature with the `exists` operator"""
+@skip(cluster=True)
+def testMissingGC():
+    """Tests that the GC missing indexing functionality works as expected"""
 
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
 
-    # Create an index with a TAG field that indexes missing values
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TAG', 'goo', 'NUMERIC').ok()
+    # Create an index with a field that indexes missing values
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'INDEXMISSING').ok()
 
-    # Add some documents, with\without the indexed fields.
-    conn.execute_command('HSET', 'doc1', 'foo', 'val')
-    conn.execute_command('HSET', 'doc2', 'foo', 'val', 'goo', '3')
+    # Add some documents, with\without the indexed fields
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't2', 'world')
 
-    # Search for the documents with the indexed fields (sanity)
-    env.expect('FT.SEARCH', 'idx', '@foo:{val}', 'FILTER', 'goo', '0', '10').equal([1, 'doc2', ['foo', 'val', 'goo', '3']])
+    # Wait for docs to be indexed
+    waitForIndex(env, 'idx')
+
+    # Search for the doc
+    res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@t)', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc2'])
+
+    # Set the GC clean threshold to 0, and stop its periodic execution
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+
+    # Delete `doc2`
+    conn.execute_command('DEL', 'doc2')
+
+    # Run GC, and wait for it to finish
+    env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+
+    # Search for the deleted document
+    res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@t)', 'NOCONTENT')
+    env.assertEqual(res, [0])
+
+    # Make sure the GC indeed cleaned the document, and it is reported in the
+    # GC stats
+    res = env.cmd('FT.INFO', 'idx')
+    gc_sec = res[res.index('gc_stats') + 1]
+    bytes_collected = gc_sec[gc_sec.index('bytes_collected') + 1]
+    env.assertGreater(int(bytes_collected), 0)
+
+    # Reschedule the gc - add a job to the queue
+    env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')
+
+    env.flush()
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'INDEXMISSING').ok()
+    # Same flow with more documents
+    n_docs = 1005       # 5 more than the amount of entries in an index block
+    fake = faker.Faker()
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{2 *i}', 't', fake.name())
+        conn.execute_command('HSET', f'doc{2 * i + 1}', 't2', fake.name())
+
+    # Set the GC clean threshold to 0, and stop its periodic execution
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+
+    # Delete docs with 'missing values'
+    for i in range(n_docs):
+        conn.execute_command('DEL', f'doc{2 * i + 1}')
+
+    # Run GC, and wait for it to finish
+    env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
+
+    # Make sure we have updated the index, by searching for the docs, and
+    # verifying that `bytes_collected` > 0
+    res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@t)', 'NOCONTENT')
+    env.assertEqual(res, [0])
+
+    res = env.cmd('FT.INFO', 'idx')
+    gc_sec = res[res.index('gc_stats') + 1]
+    bytes_collected = gc_sec[gc_sec.index('bytes_collected') + 1]
+    env.assertTrue(int(bytes_collected) > 0)
+
+    # Reschedule the gc - add a job to the queue
+    env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')

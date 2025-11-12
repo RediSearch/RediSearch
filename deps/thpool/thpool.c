@@ -538,6 +538,9 @@ void redisearch_thpool_destroy(redisearch_thpool_t *thpool_p) {
   if (!thpool_p)
     return;
 
+  // Wait for all jobs to finish
+  redisearch_thpool_wait(thpool_p);
+
   redisearch_thpool_terminate_threads(thpool_p);
 
   /* Job queue cleanup */
@@ -664,8 +667,6 @@ static void *thread_do(redisearch_thpool_t *thpool_p) {
   threadCtx thread_ctx = {.thread_state = THREAD_RUNNING};
 
   while (true) {
-    LOG_IF_EXISTS("debug", "Thread %s is running iteration", thread_name)
-
     /** Read job from queue and execute it.
      * @note At this point the thread state can be either RUNNING or TERMINATE_WHEN_EMPTY which
      * are the only valid indices of pull_and_execute_ht. */

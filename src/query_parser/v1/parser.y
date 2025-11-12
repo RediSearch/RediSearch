@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 %left LOWEST.
 %left TILDE.
 %left TAGLIST.
@@ -14,7 +16,7 @@
 %left STOPWORD.
 
 %left TERMLIST.
-%left TERM. 
+%left TERM.
 %left PREFIX SUFFIX CONTAINS.
 %left PERCENT.
 %left ATTRIBUTE.
@@ -27,17 +29,17 @@
 %left ORX.
 %left ARROW.
 
-%token_type {QueryToken}  
+%token_type {QueryToken}
 
 %name RSQueryParser_v1_
 
-%syntax_error {  
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-        "Syntax error at offset %d near %.*s",
+%syntax_error {
+    QueryError_SetWithUserDataFmt(ctx->status, QUERY_ERROR_CODE_SYNTAX,
+        "Syntax error", " at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 }
-   
-%include {   
+
+%include {
 
 #include <stdlib.h>
 #include <string.h>
@@ -49,35 +51,14 @@
 #include "rmutil/vector.h"
 #include "query_node.h"
 
-// strndup + lowercase in one pass!
-static char *strdupcase(const char *s, size_t len) {
-  char *ret = rm_strndup(s, len);
-  char *dst = ret;
-  char *src = dst;
-  while (*src) {
-      // unescape 
-      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst = tolower(*src);
-      ++dst;
-      ++src;
-
-  }
-  *dst = '\0';
-  
-  return ret;
-}
-
-// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself 
+// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
-  
+
   char *dst = s;
   char *src = dst;
   char *end = s + sz;
   while (src < end) {
-      // unescape 
+      // unescape
       if (*src == '\\' && src + 1 < end &&
          (ispunct(*(src+1)) || isspace(*(src+1)))) {
           ++src;
@@ -85,17 +66,17 @@ static size_t unescapen(char *s, size_t sz) {
       }
       *dst++ = *src++;
   }
- 
+
   return (size_t)(dst - s);
 }
 
 #define NODENN_BOTH_VALID 0
 #define NODENN_BOTH_INVALID -1
-#define NODENN_ONE_NULL 1 
+#define NODENN_ONE_NULL 1
 // Returns:
 // 0 if a && b
 // -1 if !a && !b
-// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out` 
+// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out`
 static int one_not_null(void *a, void *b, void *out) {
     if (a && b) {
         return NODENN_BOTH_VALID;
@@ -109,14 +90,35 @@ static int one_not_null(void *a, void *b, void *out) {
         return NODENN_ONE_NULL;
     }
 }
-   
-} // END %include  
+
+// optimize NOT nodes: NOT(NOT(A)) = A
+// if the child is a NOT node, return its child instead of creating a double negation
+static inline struct RSQueryNode* not_step(struct RSQueryNode* child) {
+    if (!child) {
+        return NULL;
+    }
+
+    // If the child is a NOT node, return its child (double negation elimination)
+    if (child->type == QN_NOT) {
+        struct RSQueryNode* grandchild = child->children[0];
+        // Detach the grandchild from its parent to prevent it from being freed
+        child->children[0] = NULL;
+        // Free the NOT node (the parent)
+        QueryNode_Free(child);
+        return grandchild;
+    }
+
+    // Otherwise, create a new NOT node
+    return NewNotNode(child);
+}
+
+} // END %include
 
 %extra_argument { QueryParseCtx *ctx }
 %default_type { QueryToken }
 %default_destructor { }
 
-%type expr { QueryNode * } 
+%type expr { QueryNode * }
 %destructor expr { QueryNode_Free($$); }
 
 %type attribute { QueryAttribute }
@@ -125,10 +127,10 @@ static int one_not_null(void *a, void *b, void *out) {
 %type attribute_list {QueryAttribute *}
 %destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
 
-%type affix { QueryNode * } 
+%type affix { QueryNode * }
 %destructor affix { QueryNode_Free($$); }
 
-%type termlist { QueryNode * } 
+%type termlist { QueryNode * }
 %destructor termlist { QueryNode_Free($$); }
 
 %type union { QueryNode *}
@@ -145,13 +147,13 @@ static int one_not_null(void *a, void *b, void *out) {
 %destructor geo_filter { QueryParam_Free($$); }
 
 %type modifierlist { Vector* }
-%destructor modifierlist { 
+%destructor modifierlist {
     for (size_t i = 0; i < Vector_Size($$); i++) {
         char *s;
         Vector_Get($$, i, &s);
         rm_free(s);
     }
-    Vector_Free($$); 
+    Vector_Free($$);
 }
 
 %type num { RangeNumber }
@@ -160,11 +162,11 @@ static int one_not_null(void *a, void *b, void *out) {
 %type numeric_range { QueryParam * }
 %destructor numeric_range { QueryParam_Free($$); }
 
-query ::= expr(A) . { 
+query ::= expr(A) . {
  /* If the root is a negative node, we intersect it with a wildcard node */
- 
+
     ctx->root = A;
- 
+
 }
 query ::= . {
     ctx->root = NULL;
@@ -185,16 +187,16 @@ expr(A) ::= expr(B) expr(C) . [AND] {
     } else if (rv == NODENN_ONE_NULL) {
         // Nothing- `out` is already assigned
     } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
             B->opts.fieldMask == RS_FIELDMASK_ALL ) {
             A = B;
-        } else {     
+        } else {
             A = NewPhraseNode(0);
             QueryNode_AddChild(A, B);
         }
         QueryNode_AddChild(A, C);
     }
-} 
+}
 
 
 /////////////////////////////////////////////////////////////////
@@ -217,23 +219,29 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
         }
 
         // Handle C
         QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
-    
 }
 
 union(A) ::= union(B) OR expr(C). [ORX] {
-    A = B;
-    if (C) {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+        }
+
+        // Handle C
         QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(C, A->opts.fieldMask);
     }
 }
 
@@ -248,13 +256,13 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
         if (ctx->sctx->spec) {
             QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
         }
-        A = C; 
+        A = C;
     }
 }
 
 
 expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
-    
+
     if (C == NULL) {
         for (size_t i = 0; i < Vector_Size(B); i++) {
           char *s;
@@ -265,7 +273,7 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
         A = NULL;
     } else {
         //C->opts.fieldMask = 0;
-        t_fieldMask mask = 0; 
+        t_fieldMask mask = 0;
         for (int i = 0; i < Vector_Size(B); i++) {
             char *p;
             Vector_Get(B, i, &p);
@@ -278,7 +286,7 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
         QueryNode_SetFieldMask(C, mask);
         A=C;
     }
-} 
+}
 
 expr(A) ::= LP expr(B) RP . {
     A = B;
@@ -289,17 +297,17 @@ expr(A) ::= LP expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON term(C). {
-    
     A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(C.s, C.len), .vallen = C.len };
 }
 
 attribute_list(A) ::= attribute(B) . {
     A = array_new(QueryAttribute, 2);
-    A = array_append(A, B);
+    array_append(A, B);
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON attribute(C) . {
-    A = array_append(B, C);
+    array_append(B, C);
+    A = B;
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON . {
@@ -331,13 +339,13 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
 }
 
 expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+    A = NewTokenNode(ctx, rm_normalize(B.s, B.len), -1);
     A->opts.flags |= QueryNode_Verbatim;
-    
+
 }
 
 expr(A) ::= term(B) . [LOWEST]  {
-   A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+   A = NewTokenNode(ctx, rm_normalize(B.s, B.len), -1);
 }
 
 expr(A) ::= affix(B) . [PREFIX]  {
@@ -354,13 +362,13 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_normalize(B.s, B.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_normalize(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_normalize(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -371,19 +379,15 @@ termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
 // Negative Clause
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= MINUS expr(B) . { 
-    if (B) {
-        A = NewNotNode(B);
-    } else {
-        A = NULL;
-    }
+expr(A) ::= MINUS expr(B) . {
+    A = not_step(B);
 }
 
 /////////////////////////////////////////////////////////////////
 // Optional Clause
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= TILDE expr(B) . { 
+expr(A) ::= TILDE expr(B) . {
     if (B) {
         A = NewOptionalNode(B);
     } else {
@@ -450,7 +454,7 @@ expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX
 modifier(A) ::= MODIFIER(B) . {
     B.len = unescapen((char*)B.s, B.len);
     A = B;
- } 
+ }
 
 modifierlist(A) ::= modifier(B) OR term(C). {
     A = NewVector(char *, 2);
@@ -474,16 +478,22 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
     if (!C) {
         A= NULL;
     } else {
-        // Tag field names must be case sensitive, we we can't do strdupcase
-        char *s = rm_strndup(B.s, B.len);
-        size_t slen = unescapen((char*)s, B.len);
-
-        A = NewTagNode(s, slen);
+        A = NewTagNode(NULL);
         QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
-        
+
         // Set the children count on C to 0 so they won't get recursively free'd
         QueryNode_ClearChildren(C, 0);
         QueryNode_Free(C);
+
+        if (ctx->sctx->spec) {
+            // Tag field names must be case sensitive, we can't do strdupcase
+            B.len = unescapen((char*)B.s, B.len);
+            A->tag.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+            if (!A->tag.fs) {
+                QueryNode_Free(A);
+                A = NULL;
+            }
+        }
     }
 }
 
@@ -539,14 +549,20 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
-    C->nf->fieldName = rm_strndup(B.s, B.len);
-    A = NewNumericNode(C);
+    A = NULL;
+    const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len) : NULL;
+    if (fs) {
+        A = NewNumericNode(C, fs);
+    } else if (C) {
+        QueryParam_Free(C);
+        C = NULL;
+    }
 }
 
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
   A = NewQueryParam(QP_NUMERIC_FILTER);
-  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true);
+  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true, NULL);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -556,8 +572,14 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
-    C->gf->property = rm_strndup(B.s, B.len);
     A = NewGeofilterNode(C);
+    if (ctx->sctx->spec) {
+        A->gn.gf->fieldSpec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+        if (!A->gn.gf->fieldSpec) {
+            QueryNode_Free(A);
+            A = NULL;
+        }
+    }
 }
 
 // v2.2.9 diff - geo_filter type changed to match current functions usage
@@ -589,10 +611,9 @@ num(A) ::= MINUS num(B). {
 }
 
 term(A) ::= TERM(B) . {
-    A = B; 
+    A = B;
 }
 
 term(A) ::= NUMBER(B) . {
-    A = B; 
+    A = B;
 }
-

@@ -1,0 +1,319 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+#ifndef UTIL_ARR_H_
+#define UTIL_ARR_H_
+/* arr.h - simple, easy to use dynamic array with fat pointers,
+ * to allow native access to members. It can accept pointers, struct literals and scalars.
+ *
+ * Example usage:
+ *
+ *  int *arr = array_new(int, 8);
+ *  // Add elements to the array
+ *  for (int i = 0; i < 100; i++) {
+ *   array_append(arr, i);
+ *  }
+ *
+ *  // read individual elements
+ *  for (int i = 0; i < array_len(arr); i++) {
+ *    printf("%d\n", arr[i]);
+ *  }
+ *
+ *  array_free(arr);
+ *
+ *
+ *  */
+#include <stdlib.h>
+#include <string.h>
+#include <sys/param.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Definition of malloc & friends that can be overridden before including arr.h.
+ * Alternatively you can include arr_rm_alloc.h, which wraps arr.h and sets the allocation functions
+ * to those of the RM_ family
+ */
+#ifndef array_alloc_fn
+#define array_alloc_fn rm_malloc
+#define array_realloc_fn rm_realloc
+#define array_free_fn rm_free
+#endif
+
+#ifdef _MSC_VER
+#define ARR_FORCEINLINE __forceinline
+#elif defined(__GNUC__)
+#define ARR_FORCEINLINE __inline__ __attribute__((__always_inline__))
+#else
+#define ARR_FORCEINLINE inline
+#endif
+
+typedef struct {
+  uint32_t len;
+  uint16_t remain_cap; // Remaining capacity of the array
+  uint16_t elem_sz;
+  char buf[];
+} array_hdr_t;
+
+#define arrayof(T) T *
+
+typedef void *array_t;
+/* Internal - calculate the array size for allocations */
+#define array_sizeof(hdr) (sizeof(array_hdr_t) + (uint64_t) ((hdr)->len + (hdr)->remain_cap) * (hdr)->elem_sz)
+/* Internal - get a pointer to the array header */
+#define array_hdr(arr) ((array_hdr_t *)(((char *)(arr)) - sizeof(array_hdr_t)))
+/* Internal - get a pointer to an element inside the array at a given index */
+#define array_elem(arr, idx) (*((void **)((char *)(arr) + ((idx)*array_hdr(arr)->elem_sz))))
+
+static inline uint32_t array_len(array_t arr);
+
+uint32_t array_len_func(array_t arr);
+
+/* Initialize a new array with a given element size and remaining capacity. Should not be used directly - use
+ * array_new instead */
+array_t array_new_sz(uint16_t elem_sz, uint16_t remain_cap, uint32_t len);
+
+/* Free the array, without dealing with individual elements */
+/* Function declared as a symbol to allow invocation from Rust */
+void array_free(array_t arr);
+
+/* Function declared as a symbol to allow invocation from Rust */
+array_t array_ensure_append_n_func(array_t arr, array_t src, uint16_t n, uint16_t elem_sz);
+
+/* Function declared as a symbol to allow invocation from Rust */
+array_t array_clear_func(array_t arr, uint16_t elem_sz);
+
+/* Initialize an array for a given type T with a given capacity and zero length. The array should be
+ * case to a pointer to that type. e.g.
+ *
+ *  int *arr = array_new(int, 4);
+ *
+ * This allows direct access to elements
+ *  */
+#define array_new(T, cap) (T *)(array_new_sz(sizeof(T), cap, 0))
+
+/* Initialize an array for a given type T with a given length. The capacity allocated is identical
+ * to the length
+ *  */
+#define array_newlen(T, len) (T *)(array_new_sz(sizeof(T), 0, len))
+
+/* Ensure capacity for the array to grow by n elements */
+static inline array_t array_grow(array_t arr, size_t n) {
+  array_hdr_t *hdr = array_hdr(arr);
+  uint32_t arr_alloc_len = hdr->len + hdr->remain_cap;
+  hdr->len += n;
+  if (n > hdr->remain_cap) {
+    hdr->remain_cap = MAX(2*arr_alloc_len, hdr->len) - hdr->len;
+    hdr = (array_hdr_t *)array_realloc_fn(hdr, array_sizeof(hdr));
+  } else {
+    hdr->remain_cap -= n;
+  }
+  
+  return (array_t)hdr->buf;
+}
+
+static inline array_t array_ensure_len(array_t arr, size_t len) {
+  if (len <= array_len(arr)) {
+    return arr;
+  }
+  len -= array_len(arr);
+  return array_grow(arr, len);
+}
+
+/* Ensures that array_tail will always point to a valid element. */
+#define array_ensure_tail(arrpp, T)            \
+  ({                                           \
+    if (!*(arrpp)) {                           \
+      *(arrpp) = array_newlen(T, 1);           \
+    } else {                                   \
+      *(arrpp) = (T *)array_grow(*(arrpp), 1); \
+    }                                          \
+    &(array_tail(*(arrpp)));                   \
+  })
+
+/**
+ * Appends elements to the end of the array, creating the array if it does
+ * not exist
+ * @param arrpp array pointer. Can be NULL
+ * @param src array (i.e. C array) of elements to append
+ * @param n length of src
+ * @param T type of the array (for sizeof)
+ * @return the array
+ */
+#define array_ensure_append(arrpp, src, n, T)      \
+  ({                                               \
+    size_t a__oldlen = 0;                          \
+    if (!arrpp) {                                  \
+      arrpp = array_newlen(T, n);                  \
+    } else {                                       \
+      a__oldlen = array_len(arrpp);                \
+      arrpp = (T *)array_grow(arrpp, n);           \
+    }                                              \
+    memcpy(arrpp + a__oldlen, src, n * sizeof(T)); \
+    arrpp;                                         \
+  })
+
+#define array_ensure_append_1(arrpp, src) array_ensure_append(arrpp, &(src), 1, __typeof__(*arrpp))
+#define array_ensure_append_n(arrpp, src, n) array_ensure_append(arrpp, src, n, __typeof__(*arrpp))
+
+/**
+ * Does the same thing as ensure_append, but the added elements are
+ * at the _beginning_ of the array
+ */
+#define array_ensure_prepend(arrpp, src, n, T)                          \
+  ({                                                                    \
+    size_t a__oldlen = 0;                                               \
+    if (!arrpp) {                                                       \
+      arrpp = array_newlen(T, n);                                       \
+    } else {                                                            \
+      a__oldlen = array_len(arrpp);                                     \
+      arrpp = (T *)array_grow(arrpp, n);                                \
+    }                                                                   \
+    memmove(((char *)arrpp) + sizeof(T), arrpp, a__oldlen * sizeof(T)); \
+    memcpy(arrpp, src, n * sizeof(T));                                  \
+    arrpp;                                                              \
+  })
+
+/*
+ * This macro is useful for sparse arrays. It ensures that `*arrpp` will
+ * point to a valid index in the array, growing the array to fit.
+ *
+ * If the array needs to be expanded in order to contain the index, then
+ * the unused portion of the array (i.e. the space between the previously
+ * last-valid element and the new index) is zero'd
+ *
+ * @param arrpp a pointer to the array (e.g. `T**`)
+ * @param pos the index that should be considered valid
+ * @param T the type of the array (in case it must be created)
+ * @return A pointer of T at the requested index
+ */
+#define array_ensure_at(arrpp, pos, T)                                    \
+  ({                                                                      \
+    if (!(*arrpp)) {                                                      \
+      *(arrpp) = array_new(T, 1);                                         \
+    }                                                                     \
+    if (array_len(*arrpp) <= pos) {                                       \
+      size_t curlen = array_len(*arrpp);                                  \
+      uint32_t delta = (pos + 1) - curlen;                                \
+      *arrpp = (T *)array_grow(*(arrpp), delta);                          \
+      memset((T *)*arrpp + curlen, 0, sizeof(T) * ((pos + 1) - curlen));  \
+    }                                                                     \
+    (T *)(*arrpp) + pos;                                                  \
+  })
+
+/* get the last element in the array */
+#define array_tail(arr) ((arr)[array_hdr(arr)->len - 1])
+
+/* Append an element to the array, returning the array which may have been reallocated */
+#define array_append(arr, x)                       \
+  do {                                             \
+    (arr) = (__typeof__(arr))array_grow((arr), 1); \
+    array_tail((arr)) = (x);                       \
+  } while(0)
+
+/* Get the length of the array */
+static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
+  return arr ? array_hdr(arr)->len : 0;
+}
+
+/* Get the length of the array */
+static ARR_FORCEINLINE uint16_t array_remain_cap(array_t arr) {
+  return arr ? array_hdr(arr)->remain_cap : 0;
+}
+
+static inline void *array_trimm(array_t arr, uint32_t new_len) {
+  array_hdr_t *arr_hdr = array_hdr(arr);
+  RS_LOG_ASSERT(new_len >= 0, "trimming len is negative");
+  RS_LOG_ASSERT((new_len <= arr_hdr->len), "trimming len is greater then current len");
+  arr_hdr->remain_cap += arr_hdr->len - new_len;
+  arr_hdr->len = new_len;
+  return arr_hdr->buf;
+}
+
+/* Trim array by `len` elements */
+#define array_trimm_len(arr, len) (__typeof__(arr)) array_trimm(arr, array_len(arr) - (len))
+
+#define array_clear(arr)                    \
+  ({                                        \
+    if (!arr) {                             \
+      arr = array_new(__typeof__(*arr), 1); \
+    } else {                                \
+      array_hdr_t *arr_hdr = array_hdr(arr);\
+      arr_hdr->remain_cap += arr_hdr->len;  \
+      arr_hdr->len = 0;                     \
+    }                                       \
+    arr;                                    \
+  })
+
+/* Repeat the code in "blk" for each element in the array, and give it the name of "as".
+ * e.g:
+ *  int *arr = array_new(int, 10);
+ *  array_append(arr, 1);
+ *  array_foreach(arr, i, printf("%d\n", i));
+ */
+#define array_foreach(arr, as, blk)                 \
+  ({                                                \
+    for (uint32_t i = 0; i < array_len(arr); i++) { \
+      __typeof__(*arr) as = arr[i];                 \
+      blk;                                          \
+    }                                               \
+  })
+
+/* Free the array, freeing individual elements with free_cb */
+#define array_free_ex(arr, blk)                       \
+  ({                                                  \
+    if (arr) {                                        \
+      for (uint32_t i = 0; i < array_len(arr); i++) { \
+        void *ptr = &arr[i];                          \
+        { blk; }                                      \
+      }                                               \
+      array_free(arr);                                \
+    }                                                 \
+  })
+
+/* Pop the top element from the array, reduce the size and return it */
+#define array_pop(arr)                  \
+  ({                                    \
+    RS_ASSERT(array_hdr(arr)->len > 0); \
+    ++array_hdr(arr)->remain_cap;       \
+    arr[--(array_hdr(arr)->len)];       \
+  })
+
+/* Remove a specified element from the array */
+#define array_del(arr, ix)                                                        \
+  ({                                                                              \
+    RS_ASSERT(array_len(arr) > ix);                                               \
+    if (array_len(arr) - 1 > ix) {                                                \
+      memcpy(arr + ix, arr + ix + 1, sizeof(*arr) * (array_len(arr) - (ix + 1))); \
+    }                                                                             \
+    ++array_hdr(arr)->remain_cap;                                                 \
+    --array_hdr(arr)->len;                                                        \
+    arr;                                                                          \
+  })
+
+/* Remove a specified element from the array, but does not preserve order */
+#define array_del_fast(arr, ix)          \
+  ({                                     \
+    if (array_len(arr) > 1) {            \
+      arr[ix] = arr[array_len(arr) - 1]; \
+    }                                    \
+    ++array_hdr(arr)->remain_cap;        \
+    --array_hdr(arr)->len;               \
+    arr;                                 \
+  })
+
+#ifdef __cplusplus
+}
+#endif
+#endif

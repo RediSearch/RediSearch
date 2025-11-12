@@ -1,13 +1,16 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "spell_check.h"
 #include "util/arr.h"
 #include "dictionary.h"
 #include "reply.h"
+#include "iterators/inverted_index_iterator.h"
 #include <stdbool.h>
 
 /** Forward declaration **/
@@ -84,29 +87,24 @@ void RS_SuggestionsFree(RS_Suggestions *s) {
  */
 static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t len,
                                   t_fieldMask fieldMask) {
-  RedisModuleKey *keyp = NULL;
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(scCtx->sctx, suggestion, len, 0, NULL, &keyp);
+  InvertedIndex *invidx = Redis_OpenInvertedIndex(scCtx->sctx, suggestion, len, 0, NULL);
   double retVal = 0;
   if (!invidx) {
     // can not find inverted index key, score is 0.
     goto end;
   }
-  IndexReader *reader = NewTermIndexReader(invidx, NULL, fieldMask, NULL, 1);
-  IndexIterator *iter = NewReadIterator(reader);
-  RSIndexResult *r;
-  if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value.mask = fieldMask};
+  QueryIterator *iter = NewInvIndIterator_TermQuery(invidx, scCtx->sctx, fieldMaskOrIndex, NULL, 1);
+  if (iter->Read(iter) == ITERATOR_OK) {
     // we have at least one result, the suggestion is relevant.
-    retVal = invidx->numDocs;
+    retVal = InvertedIndex_NumDocs(invidx);
   } else {
     // fieldMask has filtered all docs, this suggestions should not be returned
     retVal = -1;
   }
-  ReadIterator_Free(iter);
+  iter->Free(iter);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   return retVal;
 }
 
@@ -165,7 +163,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   size_t termLen;
   while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
-    ret = array_append(ret, RS_SuggestionCreate(res, termLen, score));
+    array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }
   TrieIterator_Free(iter);
   return ret;
@@ -173,7 +171,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
 
 void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber) {
-  bool resp3 = RedisModule_HasMap(reply);
+  bool resp3 = RedisModule_IsRESP3(reply);
 
   if (totalDocNumber == 0) { // Can happen with FT.DICTADD
     totalDocNumber = 1;

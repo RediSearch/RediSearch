@@ -1,21 +1,23 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __DOC_TABLE_H__
 #define __DOC_TABLE_H__
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
-#include "triemap/triemap.h"
+#include "triemap.h"
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
-#include "rmutil/sds.h"
-#include "util/dict.h"
+#include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
+#include "ttl_table.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,13 +68,14 @@ typedef struct {
 typedef struct {
   size_t size;
   t_docId maxSize;          // the maximum size this table is allowed to grow to
-  t_docId maxDocId;
-  size_t cap;
-  size_t memsize;
-  size_t sortablesSize;
+  t_docId maxDocId;         // the maximum docId assigned
+  size_t cap;               // current capacity of buckets
+  size_t memsize;           // total memory size occupied by the table
+  size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
   DocIdMap dim;             // Mapping between document name to internal id
+  TimeToLiveTable* ttl;
 } DocTable;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
@@ -117,7 +120,7 @@ sds DocTable_GetKey(const DocTable *t, t_docId docId, size_t *n);
  * document */
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len);
 
-int DocTable_Exists(const DocTable *t, t_docId docId);
+bool DocTable_Exists(const DocTable *t, t_docId docId);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
@@ -128,7 +131,36 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
  */
 void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
 
-/** Get the docId of a key if it exists in the table, or 0 if it doesnt */
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted);
+
+typedef struct {
+  FieldMaskOrIndex field;
+  // our field expiration predicate
+  enum FieldExpirationPredicate predicate;
+} FieldFilterContext;
+
+bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
+
+// Will return true if the document passed the predicate
+// default predicate - one of the fields did not yet expire -> entry is still valid
+// missing predicate - one of the fields did expire -> entry is valid in the context of missing
+static inline bool DocTable_CheckFieldExpirationPredicate(const DocTable *t, t_docId docId, t_fieldIndex field, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
+  if (!t->ttl) return true;
+  return TimeToLiveTable_VerifyDocAndField(t->ttl, docId, field, predicate, expirationPoint);
+}
+// Same as above, but for a field mask (non-wide schema)
+static inline bool DocTable_CheckFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, uint32_t fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
+  if (!t->ttl) return true;
+  return TimeToLiveTable_VerifyDocAndFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
+}
+// Same as above, but for a wide field mask
+static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
+  if (!t->ttl) return true;
+  return TimeToLiveTable_VerifyDocAndWideFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
+}
+
+
+/** Get the docId of a key if it exists in the table, or 0 if it doesn't */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
 
 #define STRVARS_FROM_RSTRING(r) \
@@ -142,12 +174,6 @@ static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) 
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
-
-int DocTable_Delete(DocTable *t, const char *key, size_t n);
-static inline int DocTable_DeleteR(DocTable *t, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_Delete(t, s, n);
-}
 
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n);
 static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *r) {
@@ -167,6 +193,17 @@ static inline const RSDocumentMetadata *DocTable_BorrowByKey(DocTable *dt, const
 int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
                      size_t to_len);
 
+/* increasing the ref count of the given dmd */
+/*
+ * This macro is atomic and fits for single writer and multiple readers as it is used only
+ * after we locked the index spec (R/W) and we either have a writer alone or multiple readers.
+ */
+#define DMD_Incref(md)                                                        \
+  ({                                                                          \
+    uint16_t count = __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED); \
+    RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
+  })
+
 /* don't use this function directly. Use DMD_Return */
 void DMD_Free(const RSDocumentMetadata *);
 
@@ -178,13 +215,7 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   }
 }
 
-/* Save the table to RDB. Called from the owning index */
-void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
-
 void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
-
-/* Load the table from RDB */
-void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 #ifdef __cplusplus
 }

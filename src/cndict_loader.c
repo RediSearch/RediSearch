@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "buffer.h"
 
 #include "cndict_loader.h"
@@ -72,7 +74,6 @@ static int readRecord(ReaderCtx *ctx) {
     freq = htonl(freq);
   }
 
-  // printf("Adding record TYPE: %u. TERM: %s. NSYNS: %u\n", lexType, term, numSyns);
   friso_dic_add_with_fre(ctx->dic, lexType, rm_strdup(term), syns, freq);
   return 1;
 }

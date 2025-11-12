@@ -1,13 +1,16 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "block_alloc.h"
 #include <assert.h>
 #include <stdio.h>
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t elemSize,
                        int reuse) {
@@ -28,11 +31,6 @@ static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, siz
     cur = curNext;
   }
 
-  // size_t n = 0;
-  // for (cur = blocks->avail; cur; cur = cur->next) {
-  //   n++;
-  // }
-  // printf("%p: Have %lu available blocks\n", blocks, n);
   if (reuse) {
     // assert(blocks->avail);
   } else if (blocks->avail) {
@@ -55,10 +53,8 @@ void BlkAlloc_Clear(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t
 }
 
 static BlkAllocBlock *getNewBlock(BlkAlloc *alloc, size_t blockSize) {
-  // printf("%p: getNewBlock BEGIN (sz=%llu)\n", alloc, blockSize);
   BlkAllocBlock *block = NULL;
   if (alloc->avail) {
-    // printf("%p: have avail..\n", alloc);
     BlkAllocBlock *prev = NULL;
     for (BlkAllocBlock *cur = alloc->avail; cur; cur = cur->next) {
       if (cur->capacity >= blockSize) {
@@ -67,7 +63,7 @@ static BlkAllocBlock *getNewBlock(BlkAlloc *alloc, size_t blockSize) {
         if (cur == alloc->avail) {
           alloc->avail = cur->next;
         } else {
-          assert(prev != NULL);
+          RS_ASSERT(prev != NULL);
           prev->next = cur->next;
         }
         break;
@@ -78,21 +74,17 @@ static BlkAllocBlock *getNewBlock(BlkAlloc *alloc, size_t blockSize) {
   }
 
   if (!block) {
-    // printf("Allocating new block..\n");
     block = rm_malloc(sizeof(*alloc->root) + blockSize);
     block->capacity = blockSize;
-  } else {
-    // printf("Reusing block %p. Alloc->Avail=%p\n", block, alloc->avail);
   }
 
   block->numUsed = 0;
   block->next = NULL;
-  // printf("%p: getNewBlock END\n", alloc);
   return block;
 }
 
 void *BlkAlloc_Alloc(BlkAlloc *blocks, size_t elemSize, size_t blockSize) {
-  assert(blockSize >= elemSize);
+  RS_ASSERT(blockSize >= elemSize);
   if (!blocks->root) {
     blocks->root = blocks->last = getNewBlock(blocks, blockSize);
 
@@ -101,12 +93,6 @@ void *BlkAlloc_Alloc(BlkAlloc *blocks, size_t elemSize, size_t blockSize) {
     BlkAllocBlock *newBlock = getNewBlock(blocks, blockSize);
     blocks->last->next = newBlock;
     blocks->last = newBlock;
-
-    // size_t n = 0;
-    // for (BlkAllocBlock *tmp = blocks->root; tmp; tmp = tmp->next) {
-    //   n++;
-    // }
-    // printf("%p Allocated new block, elem size %d %d\n", blocks, elemSize, blockSize / elemSize);
   }
 
   void *p = blocks->last->data + blocks->last->numUsed;

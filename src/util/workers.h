@@ -1,12 +1,13 @@
 /*
- * Copyright 2018-2022 Redis Labs Ltd. and Contributors
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
  *
- * This file is available under the Redis Labs Source Available License Agreement
- */
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #pragma once
-
-#ifdef MT_BUILD
 
 #include "redismodule.h"
 #include "thpool/thpool.h"
@@ -19,6 +20,7 @@
 int workersThreadPool_CreatePool(size_t worker_count);
 
 // Set the number of workers according to the configuration and server state
+// Should only be called from the main thread
 void workersThreadPool_SetNumWorkers(void);
 
 // return number of currently working threads
@@ -39,12 +41,16 @@ void workersThreadPool_Terminate(void);
 // Destroys thread pool, can be called on uninitialized threadpool.
 void workersThreadPool_Destroy(void);
 
-// Configure the thread pool for operation start according to module configuration.
+/// Configure the thread pool for operation start according to module configuration.
+/// @warning Should only be called from the main thread
 void workersThreadPool_OnEventStart(void);
 
 /** Configure the thread pool for operation end according to module configuration.
- * @param wait - if true, the function will wait for all pending jobs to finish. */
-void workersThreadPool_OnEventEnd(bool wait);
+ * @param wait - if true, the function will wait for all pending jobs to finish.
+ * @return REDISMODULE_ERR if `wait` is true but another event is already in progress, REDISMODULE_OK otherwise.
+ * @warning Should only be called from the main thread
+ */
+int workersThreadPool_OnEventEnd(bool wait);
 
 /********************************************* for debugging **********************************/
 
@@ -57,5 +63,3 @@ int workersThreadPool_resume();
 thpool_stats workersThreadPool_getStats();
 
 void workersThreadPool_wait();
-
-#endif // MT_BUILD

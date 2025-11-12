@@ -19,6 +19,7 @@ def testGeoSortable(env):
              'APPLY', 'geodistance(@location,1.25,4.5)', 'AS', 'distance',
              'GROUPBY', '1', '@distance').equal([1, ['distance', '7032.37']])
 
+@skip(cluster=True)
 def testGeoFtAdd(env):
   env.expect('FT.CREATE idx SCHEMA g GEO').ok()
   env.expect('FT.ADD', 'idx', 'geo1', '1', 'FIELDS', 'g', '1.23', '4.56').error().contains('Fields must be specified in FIELD VALUE pairs')
@@ -53,8 +54,8 @@ def testGeoDistanceSimple(env):
   env.expect('FT.SEARCH', 'idx', '@location:[181 4.56 10 km]').error().contains('Invalid GeoFilter lat/lon')
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 86 10 km]').equal([0])
   # test profile
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-  res = ['Type', 'GEO', 'Term', '1.23,4.55 - 1.24,4.56', 'Counter', 4, 'Size', 4]
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  res = ['Type', 'GEO', 'Term', '1.23,4.55 - 1.24,4.56', 'Number of reading operations', 4, 'Estimated number of matches', 4]
 
   act_res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@location:[1.23 4.56 10 km]', 'nocontent')
   env.assertEqual(act_res[1][1][0][3], res)
@@ -114,9 +115,10 @@ from hotels import hotels
 def testGeoDistanceFile(env):
   env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo').ok()
 
+  con = env.getClusterConnectionIfNeeded()
   for i, hotel in enumerate(hotels):
-    env.expect('ft.add', 'idx', 'hotel{}'.format(i), 1.0, 'fields', 'name',
-                  hotel[0], 'location', '{},{}'.format(hotel[2], hotel[1])).ok()
+    env.assertOk(con.execute_command('ft.add', 'idx', f'hotel{i}', 1.0, 'fields', 'name',
+                  hotel[0], 'location', f'{hotel[2]},{hotel[1]}'))
 
   res = [102, ['distance', '0'], ['distance', '95.43'], ['distance', '399.66'], ['distance', '1896.44'],
                ['distance', '2018.14'], ['distance', '2073.48'], ['distance', '2640.42'],
@@ -130,9 +132,9 @@ def testGeoDistanceFile(env):
 
 # causes server crash before MOD-5646 fix
 @skip(cluster=True)
-def testGeoOnReopen(env):
-  env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
-  env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 1000).ok()
+def testGeoOnReopen(env:Env):
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 1000).ok()
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'location', 'GEO').ok()
   conn = getConnectionByEnv(env)
 
@@ -150,12 +152,12 @@ def testGeoOnReopen(env):
   ids = set()
   def checkResults(res):
     for id in [int(r[1]) for r in res[1:]]:
-      env.assertNotContains(id, ids)
+      env.assertNotContains(id, ids, depth=1, message=f"Duplicate id {id} found in results")
       ids.add(id)
 
   res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '@location:[-0.15036 51.50566 10000 km]',
                                      'LOAD', 3, '@__key', 'AS', 'id',
-                                     'WITHCURSOR', 'COUNT', 100)
+                                     'WITHCURSOR', 'COUNT', 1000)
   checkResults(res)
 
   forceInvokeGC(env) # trigger the GC to clean all the overwritten docs

@@ -1,0 +1,106 @@
+name: Run a Micro Benchmark Flow
+
+on:
+  workflow_call:
+    inputs:
+      architecture:
+        type: string
+        required: false
+        default: 'all'
+        description: 'Run only on specific architecture'
+  workflow_dispatch:
+    inputs:
+      architecture:
+          type: choice
+          options:
+            - all
+            - aarch64
+            - x86_64
+          description: 'Run only on specific architecture'
+          default: 'all'
+
+jobs:
+  prepare_runner_configurations:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          # Define the full matrix as a JSON string
+          FULL_MATRIX='
+          {
+            "include": [
+              {
+                "architecture": "aarch64",
+                "instance-type": "r8g.xlarge",
+                "ami-id": "ami-0d6c92b636b74f843"
+              },
+              {
+                "architecture": "x86_64",
+                "instance-type": "r7i.xlarge",
+                "ami-id": "ami-09fabd03bb09b3704"
+              }
+            ]
+          }
+          '
+
+          # Filter the matrix based on architecture
+          if [ "${{ inputs.architecture }}" = "all" ]; then
+            # Use the full matrix
+            FILTERED_MATRIX="$FULL_MATRIX"
+          else
+            # Filter to only the selected architecture
+            FILTERED_MATRIX=$(echo "$FULL_MATRIX" | jq -c '{include: [.include[] | select(.architecture | contains("${{ inputs.architecture }}"))]}')
+          fi
+
+          # Use multiline output delimiter syntax for GitHub Actions
+          echo "matrix<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILTERED_MATRIX" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  run_micro_benchmarks:
+    name: Run ${{ matrix.architecture }} micro-benchmarks
+    needs: prepare_runner_configurations
+    uses: ./.github/workflows/flow-micro-benchmarks-runner.yml
+    secrets: inherit
+    strategy:
+      matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
+      fail-fast: false
+    with:
+      architecture: ${{ matrix.architecture }}
+      instance-type: ${{ matrix.instance-type }}
+      ami-id: ${{ matrix.ami-id }}
+
+  compare_micro_benchmarks:
+    needs: run_micro_benchmarks
+    if: github.event.number
+    runs-on: ubuntu-latest
+    env:
+      PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
+      PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install benchmark dependencies
+        run: |
+          # Then install Python dependencies
+          sudo apt install python3-pip -y
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.11.51
+      - name: Compare benchmark results
+        run: |
+          redisbench-admin compare \
+          --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }} \
+          --baseline-branch ${{ github.event.pull_request.base.ref }} \
+          --auto-approve \
+          --pull-request ${{ github.event.number }} \
+          --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }} \
+          --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }} \
+          --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}' \
+          --github_repo ${{ github.event.repository.name }} \
+          --github_org ${{ github.repository_owner }} \
+          --triggering_env redisearch-micro-benchmarks \
+          --metric_name cpu_time \
+          --metric_mode 'lower-better' \
+          --grafana_uid 8171e685-e93d-49dd-86a5-859e779d652c

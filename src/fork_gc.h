@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #ifndef SRC_FORK_GC_H_
 #define SRC_FORK_GC_H_
@@ -11,6 +13,7 @@
 #include "redismodule.h"
 #include "gc.h"
 #include "VecSim/vec_sim.h"
+#include <poll.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,7 +21,9 @@ extern "C" {
 
 typedef struct {
   // total bytes collected by the GC
-  size_t totalCollected;
+  // This is signed because block splitting (when deltas are too big) can cause more bytes to be
+  // allocated by the GC than the number of bytes collected.
+  ssize_t totalCollected;
   // number of cycle ran
   size_t numCycles;
 
@@ -40,7 +45,10 @@ typedef struct ForkGC {
   // statistics for reporting
   ForkGCStats stats;
 
-  int pipefd[2];
+  int pipe_read_fd;
+  int pipe_write_fd;
+  struct pollfd pollfd_read[1]; // pollfd to poll the read pipe so that we don't block while read
+
   volatile uint32_t pauseState;
   volatile uint32_t execState;
 
@@ -50,6 +58,8 @@ typedef struct ForkGC {
   // current value of RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.
   int cleanNumericEmptyNodes;
+  // a variable to store a percentage of the progress of the child process, used to send heartbeats
+  float progress;
 } ForkGC;
 
 ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
@@ -111,7 +121,10 @@ void FGC_ForkAndWaitBeforeApply(ForkGC *gc);
 void FGC_Apply(ForkGC *gc);
 
 typedef struct InfoGCStats {
-  size_t totalCollectedBytes; // Total bytes collected by the GCs
+  // Total bytes collected by the GCs
+  // This is signed because block splitting (when deltas are too big) can cause more bytes to be
+  // allocated by a GC than the number of bytes collected.
+  ssize_t totalCollectedBytes;
   size_t totalCycles;         // Total number of cycles ran
   size_t totalTime;           // In ms
 } InfoGCStats;

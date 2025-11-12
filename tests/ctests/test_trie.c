@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "src/trie/trie.h"
 #include "src/trie/levenshtein.h"
@@ -93,7 +95,7 @@ int testRuneUtil() {
   free(backUnicodeStr);
 
   size_t foldedLen;
-  rune *foldedRunes = strToFoldedRunes("yY", &foldedLen);
+  rune *foldedRunes = strToSingleCodepointFoldedRunes("yY", &foldedLen);
   ASSERT_EQUAL(foldedLen, 2);
   ASSERT_EQUAL(foldedRunes[0], 121);
   ASSERT_EQUAL(foldedRunes[1], 121);
@@ -101,7 +103,7 @@ int testRuneUtil() {
 
   // TESTING ∏ and Å because ∏ doesn't have a lowercase form, but Å does
   size_t foldedUnicodeLen;
-  rune *foldedUnicodeRunes = strToFoldedRunes("Ø∏πåÅ", &foldedUnicodeLen);
+  rune *foldedUnicodeRunes = strToSingleCodepointFoldedRunes("Ø∏πåÅ", &foldedUnicodeLen);
   ASSERT_EQUAL(runeFold(foldedUnicodeRunes[1]), foldedUnicodeRunes[1]);
   ASSERT_EQUAL(foldedUnicodeLen, 5);
   ASSERT_EQUAL(foldedUnicodeRunes[0], 248);
@@ -128,7 +130,7 @@ int testPayload() {
   size_t rlen;
   rune *runes = strToRunes("hel", &rlen);
   DFAFilter *fc = NewDFAFilter(runes, rlen, 1, 1);
-  TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, fc);
+  TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
   rune *s;
   t_len len;
   float score;
@@ -268,10 +270,10 @@ int testDFAFilter() {
   clock_gettime(CLOCK_REALTIME, &start_time);
 
   for (i = 0; terms[i] != NULL; i++) {
-    runes = strToFoldedRunes(terms[i], &rlen);
+    runes = strToSingleCodepointFoldedRunes(terms[i], &rlen);
     DFAFilter *fc = NewDFAFilter(runes, rlen, 2, 0);
 
-    TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, fc);
+    TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
     rune *s;
     t_len len;
     float score;
@@ -303,7 +305,7 @@ int testDFAFilter() {
 
     DFAFilter *fc = NewDFAFilter(runes, rlen, 1, 1);
 
-    TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, fc);
+    TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
     rune *s;
     t_len len;
     float score;

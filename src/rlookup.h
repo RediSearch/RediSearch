@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RLOOKUP_H
 #define RLOOKUP_H
 #include <stdint.h>
@@ -122,6 +124,9 @@ typedef struct {
   size_t ndyn;
 } RLookupRow;
 
+static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
+static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}
+
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
   RLOOKUP_M_WRITE,  // Get key for writing
@@ -204,24 +209,36 @@ typedef enum {
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)
 
 /**
- * Get a RLookup key for a given name. The behavior of this function depends on
- * the flags and mode. For loading, use RLookup_GetKey_Load().
+ * Get a RLookup key for a given name.
  *
- * 1. On READ mode, a key is returned only if it's already in the lookup table (available from the pipeline upstream),
- *    it is part of the index schema and is sortable (and then it is created),
- *    or if the lookup table excepts unresolved keys.
+ * 1. On READ mode, a key is returned only if it's already in the lookup table (available from the
+ * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
+ * if the lookup table accepts unresolved keys.
+ */
+RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags);
+RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup, const char *name, size_t name_len,
+                                  uint32_t flags);
+/**
+ * Get a RLookup key for a given name.
  *
- * 2. On WRITE mode, a key is created and returned only if it's NOT in the lookup table, unless the override flag is set.
+ * 2. On WRITE mode, a key is created and returned only if it's NOT in the lookup table, unless the
+ * override flag is set.
  */
-RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, RLookupMode mode, uint32_t flags);
-RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len, RLookupMode mode, uint32_t flags);
- /**
- * 3. On LOAD mode, a key is created and returned only if it's NOT in the lookup table (unless the override flag is set),
- *    and it is not already loaded. It will override an existing key if it was created for read out of a sortable field,
- *    and the field was normalized. A sortable un-normalized field counts as loaded.
+RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags);
+RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup, const char *name, size_t name_len,
+                                   uint32_t flags);
+/**
+ * Get a RLookup key for a given name.
+ *
+ * 3. On LOAD mode, a key is created and returned only if it's NOT in the lookup table (unless the
+ * override flag is set), and it is not already loaded. It will override an existing key if it was
+ * created for read out of a sortable field, and the field was normalized. A sortable un-normalized
+ * field counts as loaded.
  */
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name, uint32_t flags);
-RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len, const char *field_name, uint32_t flags);
+RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name,
+                                uint32_t flags);
+RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
+                                  const char *field_name, uint32_t flags);
 
 /**
  * Get the amount of visible fields is the RLookup
@@ -243,7 +260,7 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
 
 /**
  * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
- * idioms such as RLookup_WriteKey(..., RS_NumVal(10)); which would otherwise cause
+ * idioms such as RLookup_WriteKey(..., RSValue_NewNumber(10)); which would otherwise cause
  * a leak.
  */
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
@@ -283,15 +300,17 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RL
  * @return the value if found, NULL otherwise.
  */
 static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
+
   RSValue *ret = NULL;
   if (row->dyn && array_len(row->dyn) > key->dstidx) {
     ret = row->dyn[key->dstidx];
   }
   if (!ret) {
     if (key->flags & RLOOKUP_F_SVSRC) {
-      if (row->sv && row->sv->len > key->svidx) {
-        ret = row->sv->values[key->svidx];
-        if (ret != NULL && ret == RS_NullVal()) {
+      const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
+      if (sv && RSSortingVector_Length(sv) > key->svidx) {
+        ret = RSSortingVector_Get(sv, key->svidx);
+        if (ret != NULL && ret == RSValue_NullStatic()) {
           ret = NULL;
         }
       }
@@ -311,9 +330,7 @@ void RLookupRow_Wipe(RLookupRow *row);
  * Frees all the memory consumed by the row. Implies Wipe(). This should be used
  * when the row object will no longer be used.
  */
-void RLookupRow_Cleanup(RLookupRow *row);
-
-void RLookupRow_Dump(const RLookupRow *row);
+void RLookupRow_Reset(RLookupRow *row);
 
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */
@@ -384,20 +401,15 @@ void RLookup_Init(RLookup *l, IndexSpecCache *cache);
  */
 void RLookup_Cleanup(RLookup *l);
 
-static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f) {
-  for (const RLookupKey *k = l->head; k; k = k->next) {
-    if (k->flags & f) {
-      return k;
-    }
-  }
-  return NULL;
-}
+/**
+ * Frees an individual RLookupKey, cleaning up its allocated strings
+ */
+void RLookupKey_Free(RLookupKey *k);
 
 /**
  * Initialize the lookup with fields from hash.
  */
 int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
-
 
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 
@@ -406,6 +418,44 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
  * Search an index field by its name in the lookup table spec cache.
  */
 const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
+
+/**
+ * Add non-overridden keys from source lookup into destination lookup (overridden keys are skipped).
+ * For each key in src, check if it already exists in dest by name.
+ * If doesn't exists, create new key in dest.
+ * Handle existing keys based on flags (skip with RLOOKUP_F_NOFLAGS, override with RLOOKUP_F_OVERRIDE).
+ *
+ * Flag handling:
+ * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+ * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+ * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+ * - Targat flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+ */
+void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags);
+
+/**
+ * Write field data from source row to destination row with different schemas.
+ * Iterate through source lookup keys, find corresponding keys in destination by name,
+ * and write it to destination row using RLookup_WriteOwnKey().
+ * Assumes all source keys exist in destination (enforce with ASSERT).
+ */
+void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
+                               RLookupRow *destRow, RLookup *destLookup);
+
+// exposed to be called from Rust, was inline before that.
+int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
+
+// exposed to be called from Rust, was inline before that.
+int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
+
+// exposed to be called from Rust, was inline before that.
+RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type);
+
+// exposed to be called from Rust, was inline before that.
+RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype);
+
+// exposed to be called from Rust, is part of a dependency and was inline before that.
+size_t sdslen__(const char* s);
 
 #ifdef __cplusplus
 }

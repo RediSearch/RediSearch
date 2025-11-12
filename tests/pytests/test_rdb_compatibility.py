@@ -15,18 +15,6 @@ RDBS = [
     'redisearch_2.0.9.rdb'
 ]
 
-def downloadFiles(rdbs = None):
-    rdbs = RDBS if rdbs is None else rdbs
-
-    os.makedirs(REDISEARCH_CACHE_DIR, exist_ok=True) # create cache dir if not exists
-    for f in rdbs:
-        path = os.path.join(REDISEARCH_CACHE_DIR, f)
-        if not os.path.exists(path):
-            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
-        if not os.path.exists(path):
-            return False
-    return True
-
 @skip(cluster=True)
 def testRDBCompatibility(env):
     # temp skip for out-of-index
@@ -38,12 +26,8 @@ def testRDBCompatibility(env):
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
-    if not downloadFiles():
-        if CI:
-            env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
-        else:
-            env.skip()
-            return
+    if not downloadFiles(env, RDBS):
+        return
 
     for fileName in RDBS:
         env.stop()
@@ -59,7 +43,7 @@ def testRDBCompatibility(env):
         env.expect('DBSIZE').equal(1000)
         res = env.cmd('FT.INFO idx')
         res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-        env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload'])
+        env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload', 'indexes_all', 'false'])
         env.assertEqual(res['num_docs'], 1000)
         env.expect('FT.SEARCH', 'idx', 'Short', 'LIMIT', '0', '0').equal([943])
         if fileName == 'redisearch_1.6.13_with_synonyms.rdb':
@@ -67,7 +51,7 @@ def testRDBCompatibility(env):
             res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
             env.assertEqual(res, {'term2': ['0'], 'term1': ['0']})
         env.cmd('flushall')
-        env.assertTrue(env.checkExitCode())
+        env.assertTrue(env.checkExitCode(), message=fileName)
 
 @skip(cluster=True)
 def testRDBCompatibility_vecsim():
@@ -78,14 +62,12 @@ def testRDBCompatibility_vecsim():
     rdbFilePath = os.path.join(dbDir, dbFileName)
 
     rdbs = ['redisearch_2.4.14_with_vecsim.rdb',
-            'redisearch_2.6.9_with_vecsim.rdb']
+            'redisearch_2.6.9_with_vecsim.rdb',
+            'redisearch_8.0_with_vecsim.rdb']
+
     algorithms = ['FLAT', 'HNSW']
-    if not downloadFiles(rdbs):
-        if CI:
-            env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
-        else:
-            env.skip()
-            return
+    if not downloadFiles(env, rdbs):
+        return
 
     for fileName in rdbs:
         env.stop()
@@ -106,22 +88,27 @@ def testRDBCompatibility_vecsim():
         res = to_dict(env.cmd('FT.INFO idx'))
         env.assertEqual(res['num_docs'], 100)
         env.assertEqual(res['hash_indexing_failures'], 0)
-        infos = {}
-        for vec_field, algo in zip(vec_fields, algorithms):
-            infos[algo] = to_dict(env.cmd('FT.DEBUG VECSIM_INFO idx ' + vec_field))
-            for k, v in infos[algo].items():
-                if k in ['BACKEND_INDEX', 'FRONTEND_INDEX']:
-                    infos[algo][k] = to_dict(v)
 
-        infos['FLAT']['ALGORITHM'] = 'FLAT'
-        infos['HNSW']['ALGORITHM'] = 'TIERED'
-        infos['HNSW']['BACKEND_INDEX']['ALGORITHM'] = 'HNSW'
-
+        expected_attr_info = [[
+          'identifier', 'hnsw_vec',
+          'attribute', 'hnsw_vec',
+          'type', 'VECTOR',
+          'algorithm', 'HNSW',
+          'data_type', 'FLOAT32',
+          'dim', 2,
+          'distance_metric', 'L2',
+          'M', 16,
+          'ef_construction', 200
+        ], [
+          'identifier', 'flat_vec',
+          'attribute', 'flat_vec',
+          'type', 'VECTOR',
+          'algorithm', 'FLAT',
+          'data_type', 'FLOAT32',
+          'dim', 2,
+          'distance_metric', 'L2',
+        ]]
+        assertInfoField(env, 'idx', 'attributes', expected_attr_info)
 
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
-
-if __name__ == "__main__":
-    if not downloadFiles():
-        raise Exception("Couldn't download RDB files")
-    print("RDB Files ready for testing!")

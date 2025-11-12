@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #pragma once
 
@@ -32,7 +34,7 @@ extern "C" {
 namespace RS {
 
 static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
-  // printf("Finished indexing document. Status: %s\n", QueryError_GetError(&aCtx->status));
+  // printf("Finished indexing document. Status: %s\n", QueryError_GetUserError(&aCtx->status));
 }
 
 template <typename... Ts>
@@ -47,7 +49,7 @@ bool addDocument(RedisModuleCtx *ctx, RSIndex *index, const char *docid, Ts... a
   options.score = 1.0;
   options.options = DOCUMENT_ADD_REPLACE;
 
-  QueryError status = {QueryErrorCode(0)};
+  QueryError status = QueryError_Default();
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(index));
   int rv = RS_AddDocument(&sctx, RMCK::RString(docid), &options, &status);
   RedisModule_FreeString(ctx, options.keyStr);

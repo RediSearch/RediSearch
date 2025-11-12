@@ -36,7 +36,8 @@ def testDeleteIndex(env):
 
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     r.expect('ft.drop', 'idx').ok()
-    r.expect('ft.info', 'idx').equal('Unknown index name')
+
+    r.expect('ft.info', 'idx').contains('no such index')
     # time.sleep(1)
 
 
@@ -58,7 +59,6 @@ def test_mod4745(env):
     # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')
 
-@skip(noWorkers=True)
 def test_eval_node_errors_async():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)

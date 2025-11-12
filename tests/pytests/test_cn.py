@@ -22,7 +22,8 @@ def testCn(env):
     text = open(SRCTEXT).read()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE', 'CHINESE', 'schema', 'txt', 'text')
     waitForIndex(env, 'idx')
-    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'txt', text)
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'txt', text)
     res = env.cmd('ft.search', 'idx', '之旅', 'SUMMARIZE', 'HIGHLIGHT', 'LANGUAGE', 'chinese')
     cn = '2009年８月６日开始大学<b>之旅</b>，岳阳今天的气温为38.6℃, 也就是101.48℉... ， 单位 和 全角 : 2009年 8月 6日 开始 大学 <b>之旅</b> ， 岳阳 今天 的 气温 为 38.6℃ , 也就是 101... '
     env.assertContains(cn, res[2])
@@ -33,13 +34,13 @@ def testCn(env):
 
     # Check that we can tokenize english with friso (sub-optimal, but don't want gibberish)
     gentxt = open(GENTXT).read()
-    env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'txt', gentxt)
+    con.execute_command('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'txt', gentxt)
     res = env.cmd('ft.search', 'idx', 'abraham', 'summarize', 'highlight')
     cn = 'thy name any more be called Abram, but thy name shall be <b>Abraham</b>; for a father of many nations have I made thee. {17:6} And... and I will be their God. {17:9} And God said unto <b>Abraham</b>, Thou shalt keep my covenant therefore, thou, and thy seed... he hath broken my covenant. {17:15} And God said unto <b>Abraham</b>, As for Sarai thy wife, thou shalt not call her name Sarai... '
     env.assertContains(cn, res[2])
 
     # Add an empty document. Hope we don't crash!
-    env.cmd('ft.add', 'idx', 'doc3', 1.0, 'fields', 'txt1', '')
+    con.execute_command('ft.add', 'idx', 'doc3', 1.0, 'fields', 'txt1', '')
 
     # Check splitting. TODO - see how to actually test for matches
     env.cmd('ft.search', 'idx', 'redis客户端', 'language', 'chinese')
@@ -49,9 +50,19 @@ def testMixedHighlight(env):
     txt = r"""
 Redis支持主从同步。数据可以从主服务器向任意数量的从服务器上同步，从服务器可以是关联其他从服务器的主服务器。这使得Redis可执行单层树复制。从盘可以有意无意的对数据进行写操作。由于完全实现了发布/订阅机制，使得从数据库在任何地方同步树时，可订阅一个频道并接收主服务器完整的消息发布记录。同步对读取操作的可扩展性和数据冗余很有帮助。[8]
 """
+    # This test sets LANGUAGE_FIELD to a field that is not part of the document
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', 'chinese', 'schema', 'txt', 'text')
     waitForIndex(env, 'idx')
-    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
+    # Should not crash!
+    env.cmd('ft.search', 'idx', 'redis', 'highlight')
+    env.flush()
+
+    # Test with LANGUAGE_FIELD = __language
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', '__language', 'schema', 'txt', 'text')
+    waitForIndex(env, 'idx')
+    con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
     # Should not crash!
     env.cmd('ft.search', 'idx', 'redis', 'highlight')
 
@@ -59,8 +70,9 @@ def testTradSimp(env):
     # Ensure that traditional chinese characters get converted to their simplified variants
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', '__language', 'schema', 'txt', 'text')
     waitForIndex(env, 'idx')
-    env.cmd('ft.add', 'idx', 'genS', 1.0, 'language', 'chinese', 'fields', 'txt', GEN_CN_S)
-    env.cmd('ft.add', 'idx', 'genT', 1.0, 'language', 'chinese', 'fields', 'txt', GEN_CN_T)
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('ft.add', 'idx', 'genS', 1.0, 'language', 'chinese', 'fields', 'txt', GEN_CN_S)
+    con.execute_command('ft.add', 'idx', 'genT', 1.0, 'language', 'chinese', 'fields', 'txt', GEN_CN_T)
 
     res = env.cmd('ft.search', 'idx', '那时', 'language', 'chinese', 'highlight', 'summarize', **{NEVER_DECODE: []})
     env.assertContains(b'<b>\xe9\x82\xa3\xe6\x97\xb6</b>\xef... ', res[2])
@@ -82,9 +94,10 @@ def testTradSimp(env):
 def testMixedEscapes(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', '__language', 'schema', 'txt', 'text')
     waitForIndex(env, 'idx')
-    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', 'hello\\-world 那时')
-    env.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields', 'txt', 'hello\\-world')
-    env.cmd('ft.add', 'idx', 'doc3', 1.0, 'language', 'chinese', 'fields', 'txt', 'one \\:\\:hello two 器上同步 \\-hello world\\- two 器上同步')
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', 'hello\\-world 那时')
+    con.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields', 'txt', 'hello\\-world')
+    con.execute_command('ft.add', 'idx', 'doc3', 1.0, 'language', 'chinese', 'fields', 'txt', 'one \\:\\:hello two 器上同步 \\-hello world\\- two 器上同步')
 
     r = env.cmd('ft.search', 'idx', 'hello\\-world')
     env.assertEqual(2, r[0])
@@ -103,14 +116,26 @@ def testSynonym(env):
     # TODO: remove once Sanitizer/Coordinator problem is fixed (issue #3523)
     if SANITIZER:
         env.skipOnCluster()
-    
+
     txt = r"""
 测试 同义词 功能
 """
+    # This test sets LANGUAGE_FIELD to a field that is not part of the document
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', 'chinese', 'schema', 'txt', 'text')
     waitForIndex(env, 'idx')
+    con = env.getClusterConnectionIfNeeded()
     env.cmd('ft.synupdate', 'idx', 'group1', '同义词', '近义词')
-    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
+    con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
+    r = env.cmd('ft.search', 'idx', '近义词', 'language', 'chinese')
+    env.assertEqual(1, r[0])
+    env.assertContains('doc1', r)
+    env.flush()
+
+    # Test with LANGUAGE_FIELD = __language
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', '__language', 'schema', 'txt', 'text')
+    waitForIndex(env, 'idx')
+    env.cmd('ft.synupdate', 'idx', 'group1', '同义词', '近义词')
+    con.execute_command('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
     r = env.cmd('ft.search', 'idx', '近义词', 'language', 'chinese')
     env.assertEqual(1, r[0])
     env.assertContains('doc1', r)

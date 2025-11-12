@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __TESTUTIL_H__
 #define __TESTUTIL_H__
 
@@ -11,8 +13,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
-
-pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 
 static int numTests = 0;
 static int numAsserts = 0;
@@ -42,6 +42,9 @@ static int numAsserts = 0;
   numAsserts++;
 
 #define ASSERT_STRING_EQ(s1, s2) ASSERT(!strcmp(s1, s2));
+
+#define ASSERT_TRUE(expr) ASSERT(expr)
+#define ASSERT_FALSE(expr) ASSERT(!(expr))
 
 #define ASSERT_EQUAL(x, y, ...)                                           \
   if (x != y) {                                                           \

@@ -1,0 +1,19 @@
+[package]
+name = "sorting_vector_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+ffi.workspace = true
+libc.workspace = true
+sorting_vector.workspace = true
+value = { workspace = true, features = ["c_ffi_impl"] }
+
+[build-dependencies]
+cbindgen.workspace = true
+build_utils = { path = "../../build_utils" }
+
+[lints]
+workspace = true

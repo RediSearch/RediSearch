@@ -9,23 +9,23 @@ def test_dialect_config_get_set_from_default(env):
     # skip when default MODARGS for pytest is DEFAULT_DIALECT 2. RediSearch>=2.4 is loading with dialect v1 as default.
     skipOnDialect(env, 2)
     MAX_DIALECT = set_max_dialect(env)
-    env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 2").ok()
-    env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 0").error()
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT -1").error()
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT {}".format(MAX_DIALECT + 1)).error()
+    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT 2").ok()
+    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT 0").error()
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT -1").error()
+    env.expect(config_cmd() + f" SET DEFAULT_DIALECT {MAX_DIALECT + 1}").error()
 
 @skip(cluster=True)
 def test_dialect_config_get_set_from_config(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     MAX_DIALECT = set_max_dialect(env)
-    env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 1").ok()
-    env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 0").error()
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT -1").error()
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT {}".format(MAX_DIALECT + 1)).error()
+    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT 1").ok()
+    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT 0").error()
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT -1").error()
+    env.expect(config_cmd() + f" SET DEFAULT_DIALECT {MAX_DIALECT + 1}").error()
 
 def test_dialect_query_errors(env):
     conn = getConnectionByEnv(env)
@@ -33,8 +33,8 @@ def test_dialect_query_errors(env):
     env.expect("FT.CREATE idx SCHEMA t TEXT").ok()
     conn.execute_command("HSET", "h", "t", "hello")
     env.expect("FT.SEARCH idx 'hello' DIALECT").error().contains("Need an argument for DIALECT")
-    env.expect("FT.SEARCH idx 'hello' DIALECT 0").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
-    env.expect("FT.SEARCH idx 'hello' DIALECT 6").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
+    env.expect("FT.SEARCH idx 'hello' DIALECT 0").error().contains(f"DIALECT requires a non negative integer >=1 and <= {MAX_DIALECT}")
+    env.expect("FT.SEARCH idx 'hello' DIALECT 6").error().contains(f"DIALECT requires a non negative integer >=1 and <= {MAX_DIALECT}")
 
 def test_v1_vs_v2(env):
     env.expect("FT.CREATE idx SCHEMA title TAG t1 TEXT t2 TEXT t3 TEXT num NUMERIC v VECTOR HNSW 6 TYPE FLOAT32 DIM 1 DISTANCE_METRIC COSINE").ok()
@@ -53,19 +53,117 @@ def test_v1_vs_v2(env):
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 10.000000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 2).error().contains('Syntax error')
 
-    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
-    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
 
-    env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 1).contains('@NULL:UNION {\n  @NULL:hello\n  @NULL:+hello(expanded)\n}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .00]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .00]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-0 -.00]', 'DIALECT', 1).contains('NUMERIC {-0.000000 <= @num <= -0.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-0 -.00]', 'DIALECT', 2).contains('NUMERIC {-0.000000 <= @num <= -0.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[+0 +.00]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[+0 +.00]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-0.02 -.01]', 'DIALECT', 1).error().contains('Invalid numeric range (min > max): @num:[-0.020000 -1.000000]')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-0.02 -.01]', 'DIALECT', 2).contains('NUMERIC {-0.020000 <= @num <= -0.010000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1e1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 10.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1e1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1e-1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1e-1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.010000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1e+1]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1e+1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .01]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .01]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.010000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 1.]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 1.]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1. +1.]', 'DIALECT', 1).contains('NUMERIC {-1.000000 <= @num <= 1.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1. +1.]', 'DIALECT', 2).contains('NUMERIC {-1.000000 <= @num <= 1.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1e 0]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1e 0]', 'DIALECT', 2).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e 0]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e 0]', 'DIALECT', 2).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[+1e 0]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[+1e 0]', 'DIALECT', 2).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1e]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1e]', 'DIALECT', 2).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-.1e 0]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-.1e 0]', 'DIALECT', 2).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 +.1e]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 +.1e]', 'DIALECT', 2).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e1 1e1]', 'DIALECT', 1).contains('NUMERIC {-10.000000 <= @num <= 10.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e1 1e1]', 'DIALECT', 2).contains('NUMERIC {-10.000000 <= @num <= 10.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e-1 +1e1]', 'DIALECT', 1).contains('NUMERIC {-0.100000 <= @num <= 10.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e-1 +1e1]', 'DIALECT', 2).contains('NUMERIC {-0.100000 <= @num <= 10.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e-1 1e+1]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e-1 1e+1]', 'DIALECT', 2).contains('NUMERIC {-0.100000 <= @num <= 10.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1e1.1 0]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1e1.1 0]', 'DIALECT', 2).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1.e1 1.e2]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1.e1 1.e2]', 'DIALECT', 2).contains('NUMERIC {10.000000 <= @num <= 100.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-.1e-1 0]', 'DIALECT', 1).contains('NUMERIC {-0.100000 <= @num <= 0.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-.1e-1 0]', 'DIALECT', 2).contains('NUMERIC {-0.010000 <= @num <= 0.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-.1e+1 0]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-.1e+1 0]', 'DIALECT', 2).contains('NUMERIC {-1.000000 <= @num <= 0.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-.1e1 0]', 'DIALECT', 1).contains('NUMERIC {-10.000000 <= @num <= 0.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-.1e1 0]', 'DIALECT', 2).contains('NUMERIC {-1.000000 <= @num <= 0.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 +.1e-1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 +.1e-1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.010000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 +.1e+1]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 +.1e+1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 +.1e1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 10.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 +.1e1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1.e-1 +1.e+2]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1.e-1 +1.e+2]', 'DIALECT', 2).contains('NUMERIC {-0.100000 <= @num <= 100.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1.e+1 +1.e-1]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1.e+1 +1.e-1]', 'DIALECT', 2).contains('NUMERIC {-10.000000 <= @num <= 0.100000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 . 1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    # This does not return error because the '.' is consumed by the lexer, should be fixed by MOD-6933
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 . 1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 #$^ 1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    # This does not return error because '#$^' are consumed by the lexer, should be fixed by MOD-6933
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 #$^ 1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 1).contains('@NULL:hello\n')
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 2).error().contains('Syntax error')
 
     env.expect('FT.EXPLAIN', 'idx', '@title:{foo}}}}}', 'DIALECT', 1).contains('TAG:@title {\n  foo\n}\n')
     env.expect('FT.EXPLAIN', 'idx', '@title:{foo}}}}}', 'DIALECT', 2).error().contains('Syntax error')
 
-    env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 1).contains("Syntax error")
-    env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).contains("{K=10 nearest vector")
-    env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 1).contains("Syntax error")
-    env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 4, 'K', 10, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).contains("{K=10 nearest vector")
+    env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 1).error().contains("Syntax error")
+    env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).noError().contains("{K=10 nearest vector")
+    env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 1).error().contains("Syntax error")
+    env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 4, 'K', 10, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).error().contains("Unknown field")
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:(a-b-*)', 'DIALECT', 1).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '@t1:(a-b-*)', 'DIALECT', 2).error().contains('Syntax error')
@@ -99,7 +197,7 @@ def test_v1_vs_v2(env):
 
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 1)
     expected = [
-      'INTERSECT {',                                                                                                                                 
+      'INTERSECT {',
       '  UNION {',
       '    1.2',
       '    +1.2(expanded)',
@@ -118,10 +216,7 @@ def test_v1_vs_v2(env):
     env.assertEqual(res, expected)
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 2)
     expected = [
-      'UNION {',
-      '  1.2e+3',
-      '  +1.2e+3(expanded)',
-      '}',
+      '1.2e+3',
       '']
     env.assertEqual(res, expected)
 
@@ -145,33 +240,54 @@ def test_v1_vs_v2(env):
     ]
     env.assertEqual(res, expected)
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 2)
-    expected = [
-      'INTERSECT {',
-      '  UNION {',
-      '    1',
-      '    +1(expanded)',
-      '  }',
-      '  INTERSECT {',
-      '    UNION {',
-      '      e',
-      '      +e(expanded)',
-      '    }',
-      '    UNION {',
-      '      +3',
-      '      ++3(expanded)',
-      '    }',
-      '  }',
-      '}',
-      ''
-    ]
+    expected = ['1.e+3', '']
+    env.assertEqual(res, expected)
+
+    # DIALECT 2 does not expand numbers
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '705', 'DIALECT', 1)
+    expected = ['UNION {', '  705', '  +705(expanded)', '}', '']
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '705', 'DIALECT', 2)
+    expected = ['705', '']
+    env.assertEqual(res, expected)
+
+    res = env.cmd('FT.EXPLAINCLI', 'idx', 'inf', 'DIALECT', 1)
+    expected = ['UNION {', '  inf', '  +inf(expanded)', '}', '']
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', 'inf', 'DIALECT', 2)
+    expected = ['inf', '']
+    env.assertEqual(res, expected)
+
+    env.expect('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', '1.2e-3',
+               'DIALECT', 1).error().contains('Syntax error')
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', '1.2e-3',
+                  'DIALECT', 2)
+    expected = ['1.2e-3', '']
+    env.assertEqual(res, expected)
+
+    env.expect('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', '-inf',
+               'DIALECT', 1).error().contains('Syntax error')
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', '-inf',
+                  'DIALECT', 2)
+    expected = ['-inf', '']
+    env.assertEqual(res, expected)
+
+    # terms wich contain numbers are expanded
+    expected = ['UNION {', '  cherry1', '  +cherry1(expanded)', '}', '']
+    res = env.cmd('FT.EXPLAINCLI', 'idx', 'cherry1', 'DIALECT', 1)
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', 'cherry1', 'DIALECT', 2)
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', 'cherry1',
+                  'DIALECT', 2)
     env.assertEqual(res, expected)
 
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
     MAX_DIALECT = set_max_dialect(env)
     env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT').error().contains("Need an argument for DIALECT")
-    env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', 0).error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
-    env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', "{}".format(MAX_DIALECT + 1)).error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
+    env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', 0).error().contains(f"DIALECT requires a non negative integer >=1 and <= {MAX_DIALECT}")
+    env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', f"{MAX_DIALECT + 1}").error().contains(f"DIALECT requires a non negative integer >=1 and <= {MAX_DIALECT}")
 
 def test_dialect_aggregate(env):
     conn = getConnectionByEnv(env)
@@ -179,7 +295,7 @@ def test_dialect_aggregate(env):
     env.expect("FT.CREATE idx SCHEMA t1 TEXT t2 TEXT").ok()
     conn.execute_command("HSET", "h1", "t1", "James Brown", "t2", "Jimi Hendrix")
     conn.execute_command("HSET", "h2", "t1", "James", "t2", "Brown")
-    
+
     # In dialect 2, both documents are returned ("James" in t1 and "Brown" in any field)
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t1:James Brown', 'GROUPBY', '2', '@t1', '@t2', 'DIALECT', 1)
     env.assertEqual(res[0], 1)
@@ -209,9 +325,7 @@ def check_info_results(env, command, idx1_expect, idx2_expect, should_succeed):
 
 def test_dialect_info(env):
   conn = getConnectionByEnv(env)
-  config = ("_" if env.isCluster() else "") + "FT.CONFIG SET DEFAULT_DIALECT 1"
-  env.expect(config).ok()
-  info = env.cmd('INFO', 'MODULES')
+  env.expect(config_cmd() + " SET DEFAULT_DIALECT 1").ok()
 
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'business', 'TEXT')
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'country', 'TEXT')

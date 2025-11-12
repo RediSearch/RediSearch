@@ -1,0 +1,30 @@
+# This section is considered when running `cargo deny check advisories`
+# More documentation for the advisories section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
+[advisories]
+# A list of advisory IDs to ignore. Note that ignored advisories will still
+# output a note when they are encountered.
+ignore = [
+    { id = "RUSTSEC-2024-0436", reason = """`paste` is a transitive dependency, coming through `lending-iterator`.
+It is unmaintained, but it doesn't have a runtime footprint—it provides helpers for writing macros.
+Since there are no known vulnerabilities (nor ways to remove it), it's safe to allow it at this point.""" },
+]
+
+# This section is considered when running `cargo deny check licenses`
+# More documentation for the licenses section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
+[licenses]
+# List of explicitly allowed licenses
+allow = [
+    # OSI-approved licenses
+    "MIT",
+    "Apache-2.0",
+    "ISC",
+    "BSD-3-Clause",
+    "MPL-2.0",
+    "Unicode-3.0",
+    # Data licenses
+    "CDLA-Permissive-2.0",
+]
+# Workspace packages will be ignored.
+private = { ignore = true }

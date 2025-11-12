@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <aggregate/reducer.h>
 #include <util/block_alloc.h>
 
@@ -26,12 +28,12 @@ static int counterAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *counterFinalize(Reducer *r, void *instance) {
   counterData *dd = instance;
-  return RS_NumVal(dd->count);
+  return RSValue_NewNumber(dd->count);
 }
 
 Reducer *RDCRCount_New(const ReducerOptions *options) {
   if (options->args->argc != 0) {
-    QueryError_SetError(options->status, QUERY_EBADATTR, "Count accepts 0 values only");
+    QueryError_SetError(options->status, QUERY_ERROR_CODE_BAD_ATTR, "Count accepts 0 values only");
     return NULL;
   }
   Reducer *r = rm_calloc(1, sizeof(*r));

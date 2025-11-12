@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef EXPRAST_H
 #define EXPRAST_H
 
@@ -22,7 +24,7 @@ RSExpr *RS_NewStringLiteral(const char *str, size_t len);
 RSExpr *RS_NewNullLiteral();
 RSExpr *RS_NewNumberLiteral(double n);
 RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right);
-RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb);
+RSExpr *RS_NewFunc(RSFunctionInfo *cb, RSArgList *args);
 RSExpr *RS_NewProp(const char *str, size_t len);
 RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right);
 RSExpr *RS_NewInverted(RSExpr *child);

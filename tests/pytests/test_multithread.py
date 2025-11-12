@@ -2,10 +2,7 @@
 from common import *
 
 def initEnv(moduleArgs: str = 'WORKERS 1'):
-    if(moduleArgs == ''):
-        raise SkipTest('moduleArgs cannot be empty')
-    if not MT_BUILD:
-        raise SkipTest('MT_BUILD is not set')
+    assert(moduleArgs != '')
     env = Env(enableDebugCommand=True, moduleArgs=moduleArgs)
     return env
 
@@ -63,7 +60,7 @@ def test_worker_threads_sanity():
     for it in range(2):
         # At first iteration insert vectors 0,1,...,n_vectors-1, and the second insert ids
         # n_vectors, n_vector+1,...,2*n_vectors-1.
-        env.expect('FT.DEBUG', 'WORKERS', 'PAUSE').ok()
+        env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
         load_vectors_to_redis(env, n_vectors, 0, dim, ids_offset=it*n_vectors)
         env.assertEqual(getWorkersThpoolStats(env)['totalPendingJobs'], n_vectors, message=f"iteration {it+1}")
         env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 0 if it==0 else 2*n_vectors,
@@ -89,13 +86,13 @@ def test_worker_threads_sanity():
             assertInfoField(env, 'idx', 'num_docs', n_vectors*(it+1))
             # Resume the workers thread pool, let the background indexing start (in the first iteration it is paused)
             if i==1:
-                env.expect('FT.DEBUG', 'WORKERS', 'RESUME').ok()
+                env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
             # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
             # are indexed before RDB loading ends
             debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
             if i==2:
                 env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0, message=f"iteration {it+1} after reloading")
-            env.expect('FT.DEBUG', 'WORKERS', 'drain').ok()
+            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
 
 def test_delete_index_while_indexing():
@@ -132,11 +129,12 @@ def do_burst_threads_sanity(algo, data_type, test_name):
     k = 10
     expected_total_jobs = 0
 
-    additional_params = ['EF_CONSTRUCTION', n_vectors, 'EF_RUNTIME', n_vectors] if algo == 'HNSW' else []
+    additional_params = {'HNSW': ['EF_CONSTRUCTION', n_vectors, 'EF_RUNTIME', n_vectors],
+    'FLAT': [], 'SVS-VAMANA': ['CONSTRUCTION_WINDOW_SIZE', n_vectors, 'SEARCH_WINDOW_SIZE', n_vectors]}
     # Load random vectors into redis, save the first one to use as query vector later on. We set EF_C and
     # EF_R to n_vectors to ensure that all vectors would be reachable in HNSW and avoid flakiness in search.
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, str(6+len(additional_params)),
-                'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', *additional_params).ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, str(6+len(additional_params[algo])),
+                'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', *additional_params[algo]).ok()
     query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
     n_local_vectors = get_vecsim_debug_dict(env, 'idx', 'vector')['INDEX_LABEL_COUNT']
 
@@ -149,7 +147,7 @@ def do_burst_threads_sanity(algo, data_type, test_name):
     waitForRdbSaveToFinish(env)
     for i in env.reloadingIterator():
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-        env.assertEqual(debug_info['ALGORITHM'], 'TIERED' if algo == 'HNSW' else algo)
+        env.assertEqual(debug_info['ALGORITHM'], 'TIERED' if algo == 'HNSW' or algo == 'SVS-VAMANA' else algo)
         if algo == 'HNSW':
             env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0,
                             message=f"{'before loading' if i==1 else 'after loading'}")
@@ -171,6 +169,8 @@ def do_burst_threads_sanity(algo, data_type, test_name):
 func_gen = lambda al, dt, tn: lambda: do_burst_threads_sanity(al, dt, tn)
 for algo in VECSIM_ALGOS:
     for data_type in VECSIM_DATA_TYPES:
+        if algo == 'SVS-VAMANA' and data_type not in ('FLOAT32', 'FLOAT16'):
+            continue
         test_name = f"test_burst_threads_sanity_{algo}_{data_type}"
         globals()[test_name] = func_gen(algo, data_type, test_name)
 
@@ -245,7 +245,7 @@ def test_buffer_limit():
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], 0)
     env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
 
-
+@skip(asan=True, msan=True)
 def test_async_updates_sanity():
     env = initEnv(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2 TIERED_HNSW_BUFFER_LIMIT 10000')
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
@@ -288,7 +288,7 @@ def test_async_updates_sanity():
     local_marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
     env.assertEqual(local_marked_deleted_vectors, n_local_vectors_before_update)
 
-    # Get the updated numer of local vectors after the update, and validate that all of them are in the frontend
+    # Get the updated number of local vectors after the update, and validate that all of them are in the frontend
     # index (hadn't been ingested already).
     n_local_vectors = get_vecsim_debug_dict(env, 'idx', 'vector')['INDEX_LABEL_COUNT']
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
@@ -311,8 +311,9 @@ def test_async_updates_sanity():
                       query_before_update.tobytes())
         env.assertGreater(float(res[2][1]), float(0))
 
-        # Invoke GC, so we clean zombies for which all their repair jobs are done.
-        forceInvokeGC(env)
+        # Invoke GC, so we clean zombies for which all their repair jobs are done. We run in background
+        # so in case child process is not receiving cpu time, we do not hang the gc thread in the parent process.
+        forceBGInvokeGC(env)
 
         # Number of zombies should decrease from one iteration to another.
         env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'PAUSE']), ['OK']*n_shards)
@@ -326,7 +327,7 @@ def test_async_updates_sanity():
     env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'RESUME']), ['OK']*n_shards)
     env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'DRAIN']), ['OK']*n_shards)
 
-    forceInvokeGC(env)
+    forceInvokeGC(env, timeout=0)
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
     env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], 0)
@@ -368,7 +369,7 @@ def test_switch_loader_modes():
     _, cursor1 = env.cmd(*query)
 
     # Turn off the multithread mode (1)
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
 
     # Create a cursor while using the off mode
     _, cursor2 = env.cmd(*query)
@@ -376,21 +377,21 @@ def test_switch_loader_modes():
     cursor1 = read_from_cursor(cursor1)
 
     # Turn on the multithread mode (2)
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '1').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
 
     # Read from the cursors
     cursor1 = read_from_cursor(cursor1)
     cursor2 = read_from_cursor(cursor2)
 
     # Turn off the multithread mode (3)
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
 
     # Read from the cursors
     cursor1 = read_from_cursor(cursor1)
     cursor2 = read_from_cursor(cursor2)
 
     # Turn on the multithread mode last time (4)
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '1').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
 
     # Read from the second cursor
     cursor2 = read_from_cursor(cursor2)
@@ -405,19 +406,19 @@ def test_switch_loader_modes():
     _, cursor3 = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
                          'WITHCURSOR', 'COUNT', cursor_count)
 
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
 
     cursor3 = read_from_cursor(cursor3)
 
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '1').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
 
     cursor3 = read_from_cursor(cursor3)
 
     env.expect('FT.CURSOR', 'DEL', 'idx', cursor3).noError().ok()
 
-@skip(cluster=False, noWorkers=True)
-def test_change_num_connections(env: Env):
-
+@skip(cluster=False)
+def test_change_num_connections():
+    env = initEnv('SEARCH_IO_THREADS 20')
     # Validate the default values
     env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '0']])
     env.expect(config_cmd(), 'GET', 'CONN_PER_SHARD').equal([['CONN_PER_SHARD', '0']])
@@ -425,6 +426,7 @@ def test_change_num_connections(env: Env):
     # The logic of the number of connections is as follows:
     # - If `CONN_PER_SHARD` is not 0, the number of connections is `CONN_PER_SHARD`
     # - If `CONN_PER_SHARD` is 0, the number of connections is `WORKERS` + 1
+    # - Each SEARCH_IO_THREAD has this number of connections: CEIL_DIV(connPerShard, coordinatorIOThreads)
 
     # Helper that will return the expected output structure.
     # In this test we don't care about the actual values, so we use the ANY matcher.
@@ -432,45 +434,64 @@ def test_change_num_connections(env: Env):
     # ['127.0.0.1:6379', ['Connected', 'Connected'],
     #  '127.0.0.1:6381', ['Connected', 'Connecting'],
     #  '127.0.0.1:6383', ['Connected', 'Connected']]
+    num_io_threads = 20
+
+    # This function implements the same logic as CEIL_DIV(connPerShard, coordinatorIOThreads)
+    # from src/coord/config.c line 85: size_t conn_pool_size = CEIL_DIV(connPerShard, realConfig->coordinatorIOThreads);
+    def compute_total_number_of_connections(num_connections):
+        import math
+        return num_io_threads * max(1, math.ceil(num_connections // num_io_threads))
+
     def expected(conns):
         return [
             ANY,          # The shard id (host:port)
             [ANY] * conns # The connections states
         ] * env.shardsCount
 
-    # By default, the number of connections is 1
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
+    # By default, the number of connections is 1 (WORKERS=0, so connPerShard=0+1=1, conn_pool_size=ceil(1/20)=1)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(1)))
 
     # Increase the number of worker threads to 6
     env.expect(config_cmd(), 'SET', 'WORKERS', '6').ok()
-    # The number of connections should be 7
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(7))
+    # The number of connections should be ceil(7/20) = 1
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(7)))
 
     # Set the number of connections to 4
     env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '4').ok()
-    # The number of connections should be 4
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(4))
+    # The number of connections should be ceil(4/20) = 1
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(4)))
 
     # Decrease the number of worker threads to 5
     env.expect(config_cmd(), 'SET', 'WORKERS', '5').ok()
-    # The number of connections should remain 4
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(4))
+    # The number of connections should remain ceil(4/20) = 1 (CONN_PER_SHARD takes precedence)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(4)))
 
     # Set the number of connections to 0
     env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '0').ok()
-    # The number of connections should be 6 (5 worker threads + 1)
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(6))
+    # The number of connections should be ceil(6/20) = 1 (5 worker threads + 1)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(6)))
 
     # Set back the number of worker threads to 0
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
-    # The number of connections should be 1 again
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
+    # The number of connections should be ceil(1/20) = 1 again
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(1)))
+
+    # Set back Connection per shard to 40
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '40').ok()
+    # The number of connections should be ceil(40/20) = 2
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(40)))
+
+    # Set Connection per shard to 100
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '100').ok()
+    # The number of connections should be ceil(100/20) = 5
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(100)))
 
 def test_change_workers_number():
 
     def check_threads(expected_num_threads_alive, expected_n_threads):
-        env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive)
-        env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads)
+        env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1, message='numThreadsAlive should match num_threads_alive')
+        env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
+
     # On start up the threadpool is not initialized. We can change the value of requested threads
     # without actually creating the threads.
     env = initEnv(moduleArgs='WORKERS 1')
@@ -518,3 +539,244 @@ def test_change_workers_number():
     # Query should not be executed by the threadpool
     env.expect('ft.search', 'idx', '*').equal([0])
     env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
+
+
+def testNameLoader(env: Env):
+    def get_RP_name(profile_res):
+        shard0 = to_dict(profile_res[1])['Shards'][0]
+        last_rp = to_dict(shard0)['Result processors profile'][-1]
+        return to_dict(last_rp)['Type']
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sortable', 'TEXT', 'SORTABLE', 'UNF', 'not-sortable', 'TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(10):
+            con.execute_command('HSET', f'doc:{i}', 'sortable', f'S{i}', 'not-sortable', f'NS{i}')
+
+    normal_search = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable', 'RETURN', 1, '__key')
+    normal_aggregate = env.cmd('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@sortable', 'LOAD', 3, '@__key', 'AS', 'doc_id')
+
+    # enable unstable features so we have the special loader
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+
+    # Run the search and aggregate commands again, expecting the same results
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable', 'RETURN', 1, '__key').equal(normal_search)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@sortable', 'LOAD', 3, '@__key', 'AS', 'doc_id').equal(normal_aggregate)
+
+    # Check that the right loader is used
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'RETURN', 1, '__key')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader')
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 3, '@__key', 'AS', 'doc_id')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader')
+
+    # Check that the right loader is used in the aggregate command when loading multiple fields
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@sortable', '@__key')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@sortable')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@not-sortable', '@__key')
+    env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@not-sortable')
+    env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@not-sortable')
+    env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@__key', 'SORTBY', '1', '@__key').equal(
+        [10] + [['__key', f'doc:{i}'] for i in range(10)])
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 3, '@__key', 'AS', 'key',
+                                           'GROUPBY', '1', '@key', 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                                           'SORTBY', '1', '@key').equal(
+        [10] + [['key', f'doc:{i}', 'count', '1'] for i in range(10)])
+
+    # Check that the right loader is used in the aggregate command when loading multiple fields with BG query
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '1')
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@sortable', '@__key')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@sortable')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@not-sortable', '@__key')
+    env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@not-sortable')
+    env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@not-sortable')
+    env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+
+def _test_ft_search_with_io_threads(io_threads):
+    """Helper function to test queries with specific IO thread count"""
+    # Create environment with specific IO thread count
+    env = initEnv(moduleArgs=f'SEARCH_IO_THREADS {io_threads}')
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE').ok()
+
+    # Add test documents
+    conn = getConnectionByEnv(env)
+    doc_count = 100
+    for i in range(doc_count):
+        conn.execute_command('HSET', f'doc:{i}',
+                            'txt', f'hello world document {i}',
+                            'num', i)
+
+    # Run different query types and verify results
+
+    # 1. Simple search
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'NOCONTENT')
+    env.assertEqual(res[0], doc_count, message=f"Simple search with {io_threads} IO threads")
+
+    # 2. Numeric range query
+    res = env.cmd('FT.SEARCH', 'idx', '@num:[10 50]', 'NOCONTENT')
+    env.assertEqual(res[0], 41, message=f"Numeric range query with {io_threads} IO threads")
+
+    # 3. Combined query with sorting
+    res = env.cmd('FT.SEARCH', 'idx', 'world @num:[20 40]', 'SORTBY', 'num', 'DESC', 'NOCONTENT')
+    env.assertEqual(res[0], 21, message=f"Combined query with {io_threads} IO threads")
+    # Check sort order (first result should be doc:40)
+    env.assertEqual(res[1], 'doc:40', message=f"Sort order with {io_threads} IO threads")
+
+    # 4. Aggregate query
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'GROUPBY', '1', '@num',
+                 'REDUCE', 'count', '0', 'AS', 'count',
+                 'FILTER', '@count > 0')
+    env.assertEqual(len(res), doc_count + 1, message=f"Aggregate query with {io_threads} IO threads")
+
+    # Clean up for next iteration
+    env.cmd('FLUSHALL')
+    env.flush()
+    env.stop()
+
+
+@skip(cluster=False)
+def test_ft_search_with_coord_1_io_thread():
+    _test_ft_search_with_io_threads(1)
+
+@skip(cluster=False)
+def test_ft_search_with_coord_5_io_threads():
+    _test_ft_search_with_io_threads(5)
+
+@skip(cluster=False)
+def test_ft_search_with_coord_10_io_threads():
+    _test_ft_search_with_io_threads(10)
+
+
+def _test_ft_aggregate_with_io_threads(io_threads):
+    """Helper function to test aggregate queries with specific IO thread count"""
+    # Create environment with specific IO thread count
+    env = initEnv(moduleArgs=f'SEARCH_IO_THREADS {io_threads}')
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE', 'tag', 'TAG').ok()
+
+    # Add test documents
+    conn = getConnectionByEnv(env)
+    doc_count = 100
+    for i in range(doc_count):
+        tag_value = f"tag{i % 10}" # Create 10 different tag values
+        conn.execute_command('HSET', f'doc:{i}',
+                            'txt', f'hello world document {i}',
+                            'num', i,
+                            'tag', tag_value)
+
+    # Run different aggregate queries and verify results
+
+    # 1. Simple aggregate
+    res = env.cmd('FT.AGGREGATE', 'idx', '*')
+    # Check exact structure - 100 empty arrays after the counter
+    env.assertEqual(len(res), 101, message=f"Simple aggregate with {io_threads} IO threads")
+    env.assertEqual(res[1:], [[] for _ in range(100)], message=f"Simple aggregate structure with {io_threads} IO threads")
+
+    # 2. Aggregate with LOAD
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@num', 'LIMIT', 0, 10)
+    # Check exact number of results and structure
+    env.assertEqual(len(res), 11, message=f"Aggregate with LOAD with {io_threads} IO threads")
+    # Verify each result has the correct format ['num', value]
+    for i in range(1, len(res)):
+        env.assertEqual(len(res[i]), 2, message=f"Result format with {io_threads} IO threads")
+        env.assertEqual(res[i][0], 'num', message=f"Field name with {io_threads} IO threads")
+
+    # 3. Aggregate with GROUPBY
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'GROUPBY', 1, '@tag',
+                 'REDUCE', 'COUNT', 0, 'AS', 'count')
+    # Check exact number of groups and their structure
+    env.assertEqual(len(res), 11, message=f"Aggregate with GROUPBY with {io_threads} IO threads")
+    for i in range(1, len(res)):
+        env.assertEqual(len(res[i]), 4, message=f"Group format with {io_threads} IO threads")
+        env.assertEqual(res[i][0], 'tag', message=f"Group field name with {io_threads} IO threads")
+        env.assertEqual(res[i][2], 'count', message=f"Count field name with {io_threads} IO threads")
+        env.assertEqual(res[i][3], '10', message=f"Group count with {io_threads} IO threads")
+
+    # 4. Aggregate with SORTBY
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'SORTBY', 2, '@num', 'DESC',
+                 'LIMIT', 0, 5)
+    # Check exact number of results and descending order
+    env.assertEqual(len(res), 6, message=f"Aggregate with SORTBY with {io_threads} IO threads")
+    # Verify descending order of results
+    expected_values = ['99', '98', '97', '96', '95']
+    for i in range(5):
+        env.assertEqual(res[i+1][1], expected_values[i],
+                       message=f"Sort order at position {i} with {io_threads} IO threads")
+
+    # 5. Aggregate with APPLY
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'LOAD', 1, '@num',
+                 'APPLY', '@num * 2', 'AS', 'doubled',
+                 'LIMIT', 0, 5)
+    # Check exact structure and calculated values
+    env.assertEqual(len(res), 6, message=f"Aggregate with APPLY with {io_threads} IO threads")
+    for i in range(1, len(res)):
+        env.assertEqual(len(res[i]), 4, message=f"Result format with {io_threads} IO threads")
+        env.assertEqual(res[i][0], 'num', message=f"First field name with {io_threads} IO threads")
+        env.assertEqual(res[i][2], 'doubled', message=f"Second field name with {io_threads} IO threads")
+        # Verify doubled value is correct
+        num_val = int(res[i][1])
+        doubled_val = int(res[i][3])
+        env.assertEqual(doubled_val, num_val * 2,
+                       message=f"APPLY calculation for {num_val} with {io_threads} IO threads")
+
+    # 6. Aggregate with FILTER
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'LOAD', 1, '@num',
+                 'FILTER', '@num > 90')
+    # Check exact number of results (9 documents with num > 90)
+    env.assertEqual(len(res), 10, message=f"Aggregate with FILTER with {io_threads} IO threads")
+    # Verify all values are > 90
+    for i in range(1, len(res)):
+        env.assertGreater(int(res[i][1]), 90,
+                         message=f"Filter condition with {io_threads} IO threads")
+
+    # 7. Complex aggregate with multiple operations
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'GROUPBY', 1, '@tag',
+                 'REDUCE', 'AVG', 1, '@num', 'AS', 'avg_num',
+                 'REDUCE', 'COUNT', 0, 'AS', 'count',
+                 'SORTBY', 2, '@avg_num', 'DESC')
+    # Check exact number of groups and descending order of avg_num
+    env.assertEqual(len(res), 11, message=f"Complex aggregate with {io_threads} IO threads")
+    # Verify descending order of avg_num
+    for i in range(1, len(res)-1):
+        current_avg = float(res[i][5])  # Fixed: value is at index 5, not 4
+        next_avg = float(res[i+1][5])   # Fixed: value is at index 5, not 4
+        env.assertGreaterEqual(current_avg, next_avg,
+                              message=f"Sort order of avg_num with {io_threads} IO threads")
+
+    # Clean up for next iteration
+    env.cmd('FLUSHALL')
+    env.flush()
+    env.stop()
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_1_io_thread():
+    _test_ft_aggregate_with_io_threads(1)
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_5_io_threads():
+    _test_ft_aggregate_with_io_threads(5)
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_10_io_threads():
+    _test_ft_aggregate_with_io_threads(10)
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_20_io_threads():
+    _test_ft_aggregate_with_io_threads(20)

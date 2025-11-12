@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #pragma once
 
@@ -49,3 +51,4 @@ dict *Param_DictCreate();
 int Param_DictAdd(dict *d, const char *name, const char *value, size_t value_len, QueryError *status);
 const char *Param_DictGet(dict *d, const char *name, size_t *value_len, QueryError *status);
 void Param_DictFree(dict *);
+dict *Param_DictClone(dict *source);

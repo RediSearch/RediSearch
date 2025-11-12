@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include <string.h>
 #include <stdbool.h>
@@ -12,6 +14,7 @@
 
 #include "redisearch.h"
 #include "spec.h"
+#include "types_rs.h"
 #include "query.h"
 #include "synonym_map.h"
 #include "snowball/include/libstemmer.h"
@@ -36,24 +39,6 @@
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
 
-#define EXPLAIN(exp, fmt, args...) \
-  {                                \
-    if (exp) {                     \
-      explain(exp, fmt, ##args);   \
-    }                              \
-  }
-
-static inline void explain(RSScoreExplain *scrExp, char *fmt, ...) {
-  void *tempStr = scrExp->str;
-
-  va_list ap;
-  va_start(ap, fmt);
-  rm_vasprintf((char **restrict) & scrExp->str, fmt, ap);
-  va_end(ap);
-
-  rm_free(tempStr);
-}
-
 static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **scrExp) {
   if (*scrExp) {
     RSScoreExplain *finalScrExp = rm_calloc(1, sizeof(RSScoreExplain));
@@ -66,25 +51,35 @@ static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **
 // recursively calculate tf-idf
 static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd,
                              RSScoreExplain *scrExp) {
-  if (r->type == RSResultType_Term) {
-    double idf = r->term.term ? r->term.term->idf : 0;
+  if (r->data.tag == RSResultData_Term) {
+    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    double idf = term ? term->idf : 0;
     double res = r->weight * ((double)r->freq) * idf;
     EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
     return res;
   }
-  if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
+  if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
     double ret = 0;
-    int numChildren = r->agg.numChildren;
+    // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+    // and skip the tag check on the next line.
+    const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
     if (!scrExp) {
-      for (int i = 0; i < numChildren; i++) {
-        ret += tfidfRecursive(r->agg.children[i], dmd, NULL);
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+
+      for (int i = 0; i < children.len; i++) {
+        ret += tfidfRecursive(children.ptr[i], dmd, NULL);
       }
     } else {
+      size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
-      for (int i = 0; i < numChildren; i++) {
-        ret += tfidfRecursive(r->agg.children[i], dmd, &scrExp->children[i]);
+
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+
+      for (int i = 0; i < children.len; i++) {
+        ret += tfidfRecursive(children.ptr[i], dmd, &scrExp->children[i]);
       }
+
       EXPLAIN(scrExp, "(Weight %.2f * total children TFIDF %.2f)", r->weight, ret);
     }
     return r->weight * ret;
@@ -103,6 +98,10 @@ static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndex
     return 0;
   }
   uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxFreq : dmd->len;
+  if (norm == 0) {
+    EXPLAIN(scrExp, "Document %s is 0", normMode == NORM_MAXFREQ ? "max frequency" : "length");
+    return 0;
+  }
   double rawTfidf = tfidfRecursive(h, dmd, scrExp);
   double tfidf = dmd->score * rawTfidf / norm;
   strExpCreateParent(ctx, &scrExp);
@@ -152,25 +151,33 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   static const float k1 = 1.2;
   double f = (double)r->freq;
   double ret = 0;
-  if (r->type == RSResultType_Term) {
-    double idf = (r->term.term ? r->term.term->idf : 0);
-
-    ret = idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
+  if (r->data.tag == RSResultData_Term) {
+    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    double idf = (term ? term->idf : 0);
+    ret = r->weight * idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
     EXPLAIN(scrExp,
-            "(%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
-            ret, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
-  } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
-    int numChildren = r->agg.numChildren;
+            "(%.2f = Weight %.2f * IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
+            ret, r->weight, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
+
+  } else if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
+    // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+    // and skip the tag check on the next line.
+    const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
     if (!scrExp) {
-      for (int i = 0; i < numChildren; i++) {
-        ret += bm25Recursive(ctx, r->agg.children[i], dmd, NULL);
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+      for (int i = 0; i < children.len; i++) {
+        ret += bm25Recursive(ctx, children.ptr[i], dmd, NULL);
       }
     } else {
+      size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
-      for (int i = 0; i < numChildren; i++) {
-        ret += bm25Recursive(ctx, r->agg.children[i], dmd, &scrExp->children[i]);
+
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+      for (int i = 0; i < children.len; i++) {
+        ret += bm25Recursive(ctx, children.ptr[i], dmd, &scrExp->children[i]);
       }
+
       EXPLAIN(scrExp, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     }
     ret *= r->weight;
@@ -216,49 +223,55 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
  ******************************************************************************************/
 
 static double inline CalculateBM25Std(float b, float k1, double idf, double f, int doc_len,
-                                      double avg_doc_len, RSScoreExplain *scrExp, const char *term) {
-  double ret = idf * f * (k1 + 1) / (f + k1 * (1.0f - b + b * (float)doc_len/avg_doc_len));
+                                      double avg_doc_len, double weight, RSScoreExplain *scrExp, const char *term) {
+  double ret = weight * idf * f * (k1 + 1) / (f + k1 * (1.0f - b + b * (float)doc_len/avg_doc_len));
   EXPLAIN(scrExp,
-          "%s: (%.2f = IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.5 + b 0.5 *"
+          "%s: (%.2f = Weight %.2f * IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.75 + b 0.75 *"
           " Doc Len %d / Average Doc Len %.2f)))",
-          term, ret, idf, f, f, doc_len, avg_doc_len);
+          term, ret, weight, idf, f, f, doc_len, avg_doc_len);
   return ret;
 }
 
 /* recursively calculate score for each token, summing up sub tokens */
 static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                             const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) {
-  static const float b = 0.5f;
+  static const float b = 0.75f;
   static const float k1 = 1.2f;
   double f = (double)r->freq;
   double ret = 0;
-  if (r->type == RSResultType_Term) {
+  if (r->data.tag == RSResultData_Term) {
     // Compute IDF based on total number of docs in the index and the term's total frequency.
-    double idf = r->term.term->bm25_idf;
-    ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, scrExp,
-                           r->term.term->str);
-  } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
-    int numChildren = r->agg.numChildren;
+    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    double idf = term->bm25_idf;
+    ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp,
+                           term->str);
+  } else if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
+    // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+    // and skip the tag check on the next line.
+    const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
     if (!scrExp) {
-      for (int i = 0; i < numChildren; i++) {
-        ret += bm25StdRecursive(ctx, r->agg.children[i], dmd, NULL);
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+      for (int i = 0; i < children.len; i++) {
+        ret += bm25StdRecursive(ctx, children.ptr[i], dmd, NULL);
       }
     } else {
+      size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
-      for (int i = 0; i < numChildren; i++) {
-        ret += bm25StdRecursive(ctx, r->agg.children[i], dmd, &scrExp->children[i]);
+
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+      for (int i = 0; i < children.len; i++) {
+        ret += bm25StdRecursive(ctx, children.ptr[i], dmd, &scrExp->children[i]);
       }
+
       EXPLAIN(scrExp, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     }
     ret *= r->weight;
-  } else if (r->type == RSResultType_Virtual && f && r->weight) {
+  } else if (r->data.tag == RSResultData_Virtual && f && r->weight) {
     // For wildcard, score should be determined only by the weight
     // and the document's length (so we set idf and f to be 1).
     double idf = 1.0;
-    double bm25 = CalculateBM25Std(b, k1, idf, 1, dmd->len, ctx->indexStats.avgDocLen, scrExp,
-                                   "*");
-    ret = r->weight * bm25;
+    ret = CalculateBM25Std(b, k1, idf, 1, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp, "*");
   } else {
     // Record is either optional term with no match or non text token.
     // For optional term with no match - we would expect 0 contribution to the score
@@ -283,6 +296,48 @@ static double BM25StdScorer(const ScoringFunctionArgs *ctx, const RSIndexResult 
   return score;
 }
 
+/******************************************************************************************
+ *
+ * Normalized BM25 Scoring Function
+ *
+ ******************************************************************************************/
+
+/* Stretched tanh.
+ * The stretching is in the sense that we increase the range in which the tanh
+ * function behaves as a linear function, thus more suiting to our scoring
+ * expectations.
+ */
+static inline double tanhStretched(double x, double stretch) {
+  return tanh((1 / stretch) * x);
+}
+
+/* Normalized BM25 scoring function (of the standard version)
+ * The normalization is done by applying the stretched hyperbolic tangent function
+ * on the standard BM25 score of the result, resulting in a score in the range [0,1].
+ * The stretch factor is used to control the range of the linear part of the
+ * tanh function, after which the scores are mapped to ~1.
+*/
+static double BM25StdTanhScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                         const RSDocumentMetadata *dmd, double minScore) {
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  double bm25res = bm25StdRecursive(ctx, r, dmd, scrExp);
+  double score = dmd->score * bm25res;
+  strExpCreateParent(ctx, &scrExp);
+
+  EXPLAIN(scrExp, "Final BM25 : words BM25 %.2f * document score %.2f", bm25res,
+          dmd->score);
+
+  // Normalize the score
+  double normalizedScore = tanhStretched(score, ctx->tanhFactor);
+
+  // Modify the explanation to include the normalization
+  strExpCreateParent(ctx, &scrExp);
+  EXPLAIN(scrExp,
+    "Final Normalized BM25 : tanh(stretch factor 1/%d * Final BM25 %.2f)",
+    ctx->tanhFactor, score);
+
+  return normalizedScore;
+}
 
 /******************************************************************************************
  *
@@ -305,57 +360,83 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
                               RSScoreExplain *scrExp) {
   // for terms - we return the term frequency
   double ret = 0;
-  switch (r->type) {
-    case RSResultType_Term:
-    case RSResultType_Metric:
-    case RSResultType_Numeric:
-    case RSResultType_Virtual:
+  switch (r->data.tag) {
+    case RSResultData_Term:
+    case RSResultData_Metric:
+    case RSResultData_Numeric:
+    case RSResultData_Virtual:
       ret = r->freq;
       EXPLAIN(scrExp, "DISMAX %.2f = Weight %.2f * Frequency %d", r->weight * ret, r->weight,
               r->freq);
       break;
     // for intersections - we sum up the term scores
-    case RSResultType_Intersection:
+    case RSResultData_Intersection:
       if (!scrExp) {
-        for (int i = 0; i < r->agg.numChildren; i++) {
-          ret += dismaxRecursive(ctx, r->agg.children[i], NULL);
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
+        const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+        AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+        for (int i = 0; i < children.len; i++) {
+          ret += dismaxRecursive(ctx, children.ptr[i], NULL);
         }
       } else {
-        scrExp->numChildren = r->agg.numChildren;
-        scrExp->children = rm_calloc(r->agg.numChildren, sizeof(RSScoreExplain));
-        for (int i = 0; i < r->agg.numChildren; i++) {
-          ret += dismaxRecursive(ctx, r->agg.children[i], &scrExp->children[i]);
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
+        const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+        size_t numChildren = AggregateResult_NumChildren(agg);
+        scrExp->numChildren = numChildren;
+        scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
+
+        AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+        for (int i = 0; i < children.len; i++) {
+          ret += dismaxRecursive(ctx, children.ptr[i], &scrExp->children[i]);
         }
+
         EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
                 ret);
       }
       break;
     // for unions - we take the max frequency
-    case RSResultType_Union:
+    case RSResultData_Union:
       if (!scrExp) {
-        for (int i = 0; i < r->agg.numChildren; i++) {
-          ret = MAX(ret, dismaxRecursive(ctx, r->agg.children[i], NULL));
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
+        const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+        AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+        for (int i = 0; i < children.len; i++) {
+          ret = MAX(ret, dismaxRecursive(ctx, children.ptr[i], NULL));
         }
       } else {
-        scrExp->numChildren = r->agg.numChildren;
-        scrExp->children = rm_calloc(r->agg.numChildren, sizeof(RSScoreExplain));
-        for (int i = 0; i < r->agg.numChildren; i++) {
-          ret = MAX(ret, dismaxRecursive(ctx, r->agg.children[i], &scrExp->children[i]));
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
+        const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+        size_t numChildren = AggregateResult_NumChildren(agg);
+        scrExp->numChildren = numChildren;
+        scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
+
+        AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+        for (int i = 0; i < children.len; i++) {
+          ret = MAX(ret, dismaxRecursive(ctx, children.ptr[i], &scrExp->children[i]));
         }
+
         EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
                 ret);
       }
       break;
     // for hybrid - just take the non-vector child score (the second one).
-    case RSResultType_HybridMetric:
-      return dismaxRecursive(ctx, r->agg.children[1], scrExp);
+    case RSResultData_HybridMetric:
+    {
+      // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+      // and skip the tag check on the next line.
+      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+      return dismaxRecursive(ctx, AggregateResult_Get(agg, 1), scrExp);
+    }
   }
   return r->weight * ret;
 }
 /* Calculate sum(TF-IDF)*document score for each result */
 static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
                            const RSDocumentMetadata *dmd, double minScore) {
-  // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
   return dismaxRecursive(ctx, h, ctx->scrExp);
 }
@@ -479,10 +560,46 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     char *dup = rm_malloc(sl + 2);
     dup[0] = STEM_PREFIX;
     memcpy(dup + 1, stemmed, sl + 1);
+
+    // Get fieldMask which includes only expandable fields
+    QueryNode *qn = *ctx->currentNode;
+    t_fieldMask orig_fm = qn->opts.fieldMask;
+    t_fieldMask expandable_fm = qn->opts.fieldMask;
+    if (orig_fm != RS_FIELDMASK_ALL) {
+      t_fieldMask fm = qn->opts.fieldMask;
+      t_fieldMask bit_mask = 1;
+      while (fm) {
+        if (fm & bit_mask) {
+            const FieldSpec *fs = IndexSpec_GetFieldByBit(ctx->handle->spec, bit_mask);
+            if (fs && FieldSpec_IsNoStem(fs)) {
+              expandable_fm &= ~bit_mask;
+            }
+        }
+        fm &= ~bit_mask;
+        bit_mask <<= 1;
+      }
+    }
+
+    /* Replace current node with a new union node if needed */
+    if (qn->type != QN_UNION) {
+      QueryNode *un = NewUnionNode();
+
+      un->opts.fieldMask = qn->opts.fieldMask;
+
+      /* Append current node to the new union node as a child */
+      QueryNode_AddChild(un, qn);
+      *ctx->currentNode = un;
+    }
+
+    // Add expanded nodes with corresponding field mask
+    qn = *ctx->currentNode;
+    qn->opts.fieldMask = expandable_fm;
     ctx->ExpandToken(ctx, dup, sl + 1, 0x0);  // TODO: Set proper flags here
     if (sl != token->len || strncmp((const char *)stemmed, token->str, token->len)) {
       ctx->ExpandToken(ctx, rm_strndup((const char *)stemmed, sl), sl, 0x0);
     }
+    // Restore field mask of UNION node
+    qn->opts.fieldMask = orig_fm;
   }
   return REDISMODULE_OK;
 }
@@ -577,7 +694,7 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
       }
     }
     if (!isValid) {
-      QueryError_SetError(ctx->status, QUERY_EINVAL, "field does not support phonetics");
+      QueryError_SetError(ctx->status, QUERY_ERROR_CODE_INVAL, "field does not support phonetics");
       return REDISMODULE_ERR;
     }
   }
@@ -585,7 +702,7 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     PhoneticExpand(ctx, token);
   }
 
-  // stemmer is happenning last because it might free the given 'RSToken *token'
+  // stemmer is happening last because it might free the given 'RSToken *token'
   // this is a bad solution and should be fixed, but for now its good enough
   // todo: fix the free of the 'RSToken *token' by the stemmer and allow any
   //       expnders ordering!!
@@ -600,8 +717,8 @@ void DefaultExpanderFree(void *p) {
 /* Register the default extension */
 int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
-  /* TF-IDF scorer is the default scorer */
-  if (ctx->RegisterScoringFunction(DEFAULT_SCORER_NAME, TFIDFScorer, NULL, NULL) ==
+  /* TF-IDF scorer */
+  if (ctx->RegisterScoringFunction(TFIDF_SCORER_NAME, TFIDFScorer, NULL, NULL) ==
       REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
@@ -619,6 +736,16 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
   /* Register BM25 scorer - STANDARD VARIATION */
   if (ctx->RegisterScoringFunction(BM25_STD_SCORER_NAME, BM25StdScorer, NULL, NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Register BM25 scorer - NORMALIZED STANDARD VARIATION - TANH */
+  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_TANH_SCORER_NAME, BM25StdTanhScorer, NULL, NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Register BM25 scorer - NORMALIZED STANDARD VARIATION - MAX */
+  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_MAX_SCORER_NAME, BM25StdScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

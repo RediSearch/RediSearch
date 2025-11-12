@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_REDUCER_H_
 #define RS_REDUCER_H_
 
@@ -122,13 +124,16 @@ typedef struct {
    * NOT NULL, then the error information will be set here.
    */
   QueryError *status;
+
+  // Whether to enforce strict parsing of arguments
+  bool strictPrefix;
 } ReducerOptions;
 
 /**
  * Macro to ensure that we don't skip important initialization steps
  */
-#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_) \
-  { name_, args_, lk_, lkl_, statusp_ }
+#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_) \
+  { name_, args_, lk_, lkl_, statusp_, strict_ }
 
 /**
  * Utility function to read the next argument as a lookup key.
@@ -167,8 +172,6 @@ Reducer *RDCRHLLSum_New(const ReducerOptions *);
 
 typedef Reducer *(*ReducerFactory)(const ReducerOptions *);
 ReducerFactory RDCR_GetFactory(const char *name);
-void RDCR_RegisterFactory(const char *name, ReducerFactory factory);
-void RDCR_RegisterBuiltins(void);
 
 #ifdef __cplusplus
 }

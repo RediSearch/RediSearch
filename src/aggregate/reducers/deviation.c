@@ -1,15 +1,17 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <aggregate/reducer.h>
 #include <math.h>
 
 typedef struct {
   size_t n;
-  double oldM, newM, oldS, newS;
+  double M, S;
 } devCtx;
 
 #define BLOCK_SIZE 1024 * sizeof(devCtx)
@@ -24,15 +26,15 @@ static void stddevAddInternal(devCtx *dctx, double d) {
   // https://www.johndcook.com/blog/standard_deviation/
   dctx->n++;
   if (dctx->n == 1) {
-    dctx->oldM = dctx->newM = d;
-    dctx->oldS = 0.0;
+    dctx->M = d;
+    dctx->S = 0.0;
   } else {
-    dctx->newM = dctx->oldM + (d - dctx->oldM) / dctx->n;
-    dctx->newS = dctx->oldS + (d - dctx->oldM) * (d - dctx->newM);
+    double newM = dctx->M + (d - dctx->M) / dctx->n;
+    double newS = dctx->S + (d - dctx->M) * (d - newM);
 
     // set up for next iteration
-    dctx->oldM = dctx->newM;
-    dctx->oldS = dctx->newS;
+    dctx->M = newM;
+    dctx->S = newS;
   }
 }
 
@@ -41,7 +43,7 @@ static int stddevAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   double d;
   RSValue *v = RLookup_GetItem(r->srckey, srcrow);
   if (v) {
-    if (v->t != RSValue_Array) {
+    if (!RSValue_IsArray(v)) {
       if (RSValue_ToNumber(v, &d)) {
         stddevAddInternal(dctx, d);
       }
@@ -59,9 +61,9 @@ static int stddevAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *stddevFinalize(Reducer *parent, void *instance) {
   devCtx *dctx = instance;
-  double variance = ((dctx->n > 1) ? dctx->newS / (dctx->n - 1) : 0.0);
+  double variance = ((dctx->n > 1) ? dctx->S / (dctx->n - 1) : 0.0);
   double stddev = sqrt(variance);
-  return RS_NumVal(stddev);
+  return RSValue_NewNumber(stddev);
 }
 
 Reducer *RDCRStdDev_New(const ReducerOptions *options) {

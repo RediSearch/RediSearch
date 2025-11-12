@@ -1,0 +1,13 @@
+[package]
+name = "low_memory_thin_vec"
+version.workspace = true
+edition.workspace = true
+# Same license as the original `thin_vec` crate.
+license = "MIT or Apache-2.0"
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[lints]
+workspace = true

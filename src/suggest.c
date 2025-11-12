@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "redisearch.h"
 #include "module.h"
 #include "rmutil/util.h"
@@ -161,7 +163,7 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RETURN_ERROR_ON_CRDT(ctx);
   RedisModule_ReplicateVerbatim(ctx);
 
-  RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
     RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
@@ -176,6 +178,10 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   size_t len;
   const char *str = RedisModule_StringPtrLen(argv[2], &len);
   RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, str, len));
+
+  if (tree->size == 0) {
+    RedisModule_DeleteKey(key);
+  }
 
 end:
   if (key) {
@@ -248,12 +254,12 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
   if (rv != AC_OK) {
     if (rv == AC_ERR_ENOENT) {
       // Argument not recognized
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unrecognized argument: %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unrecognized argument", ": %s",
                              AC_GetStringNC(&ac, NULL));
     } else if (errArg) {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "%s: %s", errArg->name, AC_Strerror(rv));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, errArg->name, ": %s", AC_Strerror(rv));
     } else {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Error parsing arguments: %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Error parsing arguments:", " %s",
                              AC_Strerror(rv));
     }
     return REDISMODULE_ERR;
@@ -274,7 +280,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   SuggestOptions options = {.numResults = 5};
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   if (parseSuggestOptions(argv + 3, argc - 3, &options, &status) != REDISMODULE_OK) {
     goto parse_error;
   }
@@ -285,7 +291,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
 parse_error:
   if (QueryError_HasError(&status)) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
   }
@@ -300,7 +306,7 @@ parse_error:
 
   Trie *tree = RedisModule_ModuleTypeGetValue(key);
   if (tree == NULL) {
-    RedisModule_ReplyWithNull(ctx);
+    RedisModule_ReplyWithArray(ctx, 0);
     goto end;
   }
 

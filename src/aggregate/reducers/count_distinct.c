@@ -1,15 +1,16 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "aggregate/reducer.h"
 #include "util/block_alloc.h"
 #include "util/khash.h"
 #include "util/fnv.h"
 #include "hll/hll.h"
-#include "rmutil/sds.h"
 
 #define HLL_PRECISION_BITS 8
 #define INSTANCE_BLOCK_NUM 1024
@@ -34,7 +35,7 @@ static void *distinctNewInstance(Reducer *r) {
 static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   distinctCounter *ctr = ctx;
   const RSValue *val = RLookup_GetItem(r->srckey, srcrow);
-  if (!val || val == RS_NullVal()) {
+  if (!val || val == RSValue_NullStatic()) {
     return 1;
   }
 
@@ -51,7 +52,7 @@ static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *distinctFinalize(Reducer *parent, void *ctx) {
   distinctCounter *ctr = ctx;
-  return RS_NumVal(ctr->count);
+  return RSValue_NewNumber(ctr->count);
 }
 
 static void distinctFreeInstance(Reducer *r, void *p) {
@@ -93,7 +94,7 @@ static void *distinctishNewInstance(Reducer *parent) {
 static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *srcrow) {
   distinctishCounter *ctr = instance;
   const RSValue *val = RLookup_GetItem(ctr->key, srcrow);
-  if (!val || val == RS_NullVal()) {
+  if (!val || val == RSValue_NullStatic()) {
     return 1;
   }
 
@@ -105,7 +106,7 @@ static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *src
 
 static RSValue *distinctishFinalize(Reducer *parent, void *instance) {
   distinctishCounter *ctr = instance;
-  return RS_NumVal((uint64_t)hll_count(&ctr->hll));
+  return RSValue_NewNumber((uint64_t)hll_count(&ctr->hll));
 }
 
 static void distinctishFreeInstance(Reducer *r, void *p) {
@@ -129,7 +130,7 @@ static RSValue *hllFinalize(Reducer *parent, void *ctx) {
   size_t hdrsize = sizeof(hdr);
   memcpy(str, &hdr, hdrsize);
   memcpy(str + hdrsize, ctr->hll.registers, ctr->hll.size);
-  RSValue *ret = RS_StringVal(str, sizeof(hdr) + ctr->hll.size);
+  RSValue *ret = RSValue_NewString(str, sizeof(hdr) + ctr->hll.size);
   return ret;
 }
 
@@ -168,7 +169,7 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   hllSumCtx *ctr = ctx;
   const RSValue *val = RLookup_GetItem(r->srckey, srcrow);
 
-  if (val == NULL || !RSValue_IsString(val)) {
+  if (val == NULL || !RSValue_IsAnyString(val)) {
     // Not a string!
     return 0;
   }
@@ -209,15 +210,14 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
     }
   } else {
     // Not yet initialized - make this our first register and continue.
-    hll_init(ctr, hdr->bits);
-    memcpy(ctr->registers, registers, regsz);
+    hll_load(ctr, registers, regsz);
   }
   return 1;
 }
 
 static RSValue *hllsumFinalize(Reducer *parent, void *ctx) {
   hllSumCtx *ctr = ctx;
-  return RS_NumVal(ctr->bits ? (uint64_t)hll_count(ctr) : 0);
+  return RSValue_NewNumber(ctr->bits ? (uint64_t)hll_count(ctr) : 0);
 }
 
 static void *hllsumNewInstance(Reducer *r) {

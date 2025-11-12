@@ -1,25 +1,29 @@
 /*
- * Copyright 2018-2022 Redis Labs Ltd. and Contributors
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
  *
- * This file is available under the Redis Labs Source Available License Agreement
- */
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "workers_pool.h"
 #include "workers.h"
 #include "redismodule.h"
 #include "config.h"
 #include "logging.h"
+#include "rmutil/rm_assert.h"
+#include "VecSim/vec_sim.h"
 
 #include <pthread.h>
 
-#ifdef MT_BUILD
 //------------------------------------------------------------------------------
 // Thread pool
 //------------------------------------------------------------------------------
 
 redisearch_thpool_t *_workers_thpool = NULL;
 size_t yield_counter = 0;
-bool in_event = false;
+size_t in_event = 0; // event counter, >0 means we should be in event mode (some events can start before others end)
 
 static void yieldCallback(void *yieldCtx) {
   yield_counter++;
@@ -47,7 +51,7 @@ static void workersThreadPool_OnDeactivation(size_t old_num) {
 
 // set up workers' thread pool
 int workersThreadPool_CreatePool(size_t worker_count) {
-  assert(_workers_thpool == NULL);
+  RS_ASSERT(_workers_thpool == NULL);
 
   _workers_thpool = redisearch_thpool_create(worker_count, RSGlobalConfig.highPriorityBiasNum, LogCallback, "workers");
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
@@ -78,8 +82,12 @@ void workersThreadPool_SetNumWorkers() {
     worker_count = RSGlobalConfig.minOperationWorkers;
   }
   size_t curr_workers = redisearch_thpool_get_num_threads(_workers_thpool);
-  size_t new_num_threads = worker_count;
 
+  if (worker_count != curr_workers) {
+    RedisModule_Log(RSDummyContext, "notice", "Changing workers threadpool size from %zu to %zu", curr_workers, worker_count);
+  }
+
+  size_t new_num_threads = worker_count;
   if (worker_count == 0 && curr_workers > 0) {
     redisearch_thpool_terminate_when_empty(_workers_thpool);
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
@@ -98,21 +106,21 @@ void workersThreadPool_SetNumWorkers() {
 
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void) {
-  assert(_workers_thpool != NULL);
+  RS_ASSERT(_workers_thpool != NULL);
 
   return redisearch_thpool_num_jobs_in_progress(_workers_thpool);
 }
 
 // return n_threads value.
 size_t workersThreadPool_NumThreads(void) {
-  assert(_workers_thpool);
+  RS_ASSERT(_workers_thpool);
   return redisearch_thpool_get_num_threads(_workers_thpool);
 }
 
 // add task for worker thread
 // DvirDu: I think we should add a priority parameter to this function
 int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
-  assert(_workers_thpool != NULL);
+  RS_ASSERT(_workers_thpool != NULL);
 
   return redisearch_thpool_add_work(_workers_thpool, function_p, arg_p, THPOOL_PRIORITY_HIGH);
 }
@@ -143,19 +151,21 @@ void workersThreadPool_Destroy(void) {
 }
 
 void workersThreadPool_OnEventStart() {
-  in_event = true;
+  in_event++;
   workersThreadPool_SetNumWorkers();
 }
 
-void workersThreadPool_OnEventEnd(bool wait) {
-  in_event = false;
+int workersThreadPool_OnEventEnd(bool wait) {
+  in_event--;
   workersThreadPool_SetNumWorkers();
   // Wait until all the threads are finished the jobs currently in the queue. Note that we call
   // block main thread while we wait, so we have to make sure that number of jobs isn't too large.
   // no-op if numWorkerThreads == minOperationWorkers == 0
   if (wait) {
+    if (in_event) return REDISMODULE_ERR; // cannot wait while another event is in progress
     redisearch_thpool_wait(_workers_thpool);
   }
+  return REDISMODULE_OK;
 }
 
 /********************************************* for debugging **********************************/
@@ -194,5 +204,3 @@ void workersThreadPool_wait() {
   }
   redisearch_thpool_wait(_workers_thpool);
 }
-
-#endif // MT_BUILD

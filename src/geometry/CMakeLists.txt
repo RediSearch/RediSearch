@@ -1,16 +1,16 @@
-
 set(CMAKE_CXX_STANDARD 20)
 
-# find_package(absl 20230125.1)
+# Collect source files
 file(GLOB SOURCES "*.cpp")
 
+# Find Boost (no need to specify `geometry` as it is header-only)
+find_package(Boost REQUIRED)
+
+# Add the library
 add_library(redisearch-geometry STATIC ${SOURCES})
 
-# include_directories(${absl_INCLUDE_DIR})
+# Include Boost headers
+target_include_directories(redisearch-geometry PRIVATE ${Boost_INCLUDE_DIRS})
 
-if(NOT BOOST_DIR STREQUAL "")
- 	message(STATUS "BOOST_DIR is not empty: ${BOOST_DIR}")
-	include_directories(${BOOST_DIR})
-else()
- 	message(STATUS "BOOST_DIR is not defined")
-endif()
+# Link Boost libraries (optional for header-only components, but safe to keep)
+target_link_libraries(redisearch-geometry PUBLIC ${Boost_LIBRARIES})

@@ -1,12 +1,15 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "reply.h"
 #include "resp3.h"
 #include "query_error.h"
+#include "value.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -18,8 +21,8 @@ typedef struct RedisModule_Reply_StackEntry StackEntry;
 
 //---------------------------------------------------------------------------------------------
 
-bool RedisModule_HasMap(RedisModule_Reply *reply) {
-  return _ReplyMap(reply->ctx);
+inline bool RedisModule_IsRESP3(RedisModule_Reply *reply) {
+  return reply->resp3;
 }
 
 int RedisModule_Reply_LocalCount(RedisModule_Reply *reply) {
@@ -111,11 +114,11 @@ static inline void json_add_close(RedisModule_Reply *reply, const char *s) {}
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
 #ifdef REDISMODULE_REPLY_DEBUG
-  RedisModule_Reply reply = { ctx, _ReplyMap(ctx) && _ReplySet(ctx), 0, NULL, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL };
   reply.json = array_new(char, 1);
   *reply.json = '\0';
 #else
-  RedisModule_Reply reply = { ctx, _ReplyMap(ctx) && _ReplySet(ctx), 0, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL };
 #endif
   return reply;
 }
@@ -257,7 +260,7 @@ int RedisModule_Reply_Error(RedisModule_Reply *reply, const char *error) {
 }
 
 void RedisModule_Reply_QueryError(RedisModule_Reply *reply, QueryError *error) {
-  RedisModule_Reply_Error(reply, QueryError_GetError(error));
+  RedisModule_Reply_Error(reply, QueryError_GetUserError(error));
 }
 
 int RedisModule_Reply_Map(RedisModule_Reply *reply) {
@@ -405,7 +408,7 @@ int RedisModule_ReplyKV_StringBuffer(RedisModule_Reply *reply, const char *key, 
 int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const RedisModuleString *val) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   json_add(reply, false, "\"%s\"", key);
-  RedisModule_ReplyWithString(reply->ctx, (RedisModuleString*)val);
+  RedisModule_ReplyWithString(reply->ctx, (RedisModuleString *)val);
   _RedisModule_Reply_Next(reply);
 
 #ifdef REDISMODULE_REPLY_DEBUG
@@ -473,45 +476,6 @@ int RedisModule_ReplyKV_Set(RedisModule_Reply *reply, const char *key) {
 
 //---------------------------------------------------------------------------------------------
 
-#ifdef REDISMODULE_REPLY_DEBUG
-
-void print_reply(RedisModule_Reply *reply) {
-  puts("");
-  printf("count: %d\n", reply->count);
-  printf("stack: ");
-  if (reply->stack) {
-    int n = array_len(reply->stack);
-    for (int i = n - 1; i >= 0; --i) {
-      printf("%d ", reply->stack[i].count);
-    }
-    puts("\n");
-  } else {
-    puts("n/a\n");
-  }
-  printf("%s", reply->json);
-  if (reply->stack) {
-    int n = array_len(reply->stack);
-    for (int i = n - 1; i >= 0; --i) {
-      switch (reply->stack[i].type) {
-      case REDISMODULE_REPLY_ARRAY:
-        printf(" ]");
-        break;
-      case REDISMODULE_REPLY_MAP:
-      case REDISMODULE_REPLY_SET:
-        printf(" }");
-        break;
-      }
-      if (i > 0)
-        printf(", ");
-    }
-  }
-  puts("\n");
-}
-
-#endif // REDISMODULE_REPLY_DEBUG
-
-//---------------------------------------------------------------------------------------------
-
 char *escapeSimpleString(const char *str) {
   size_t len = strlen(str);
   // This is a short lived string, so we can afford to allocate twice the size
@@ -534,6 +498,81 @@ char *escapeSimpleString(const char *str) {
   }
   *p = '\0';
   return escaped;
+}
+
+/* Based on the value type, serialize the RSValue into redis client response */
+int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
+  v = RSValue_Dereference(v);
+
+  switch (RSValue_Type(v)) {
+    case RSValueType_String:;
+      uint32_t len;
+      char *str = RSValue_String_Get(v, &len);
+      return RedisModule_Reply_StringBuffer(reply, str, len);
+
+    case RSValueType_RedisString:
+    case RSValueType_OwnRstring:
+      return RedisModule_Reply_String(reply, RSValue_RedisString_Get(v));
+
+    case RSValueType_Number: {
+      if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+        char buf[128];
+        size_t len = RSValue_NumToString(v, buf);
+
+        if (flags & SENDREPLY_FLAG_TYPED) {
+          if (reply->resp3) {
+            return RedisModule_Reply_Double(reply, RSValue_Number_Get(v));
+          } else {
+             // In RESP2, RM_ReplyWithDouble() does not tag the response as
+             // double, it's just a plain string. So we send it as simple string
+             // that is converted to double by MRReply_ToValue().
+            return RedisModule_Reply_Error(reply, buf);
+          }
+        } else {
+          return RedisModule_Reply_StringBuffer(reply, buf, len);
+        }
+      } else {
+        double numval = RSValue_Number_Get(v);
+        long long ll = numval;
+        if (ll == numval) {
+          return RedisModule_Reply_LongLong(reply, ll);
+        } else {
+          return RedisModule_Reply_Double(reply, numval);
+        }
+      }
+    }
+
+    case RSValueType_Null:
+      return RedisModule_Reply_Null(reply);
+
+    case RSValueType_Trio: {
+      return RedisModule_Reply_RSValue(reply, RSValue_Trio_GetMiddle(v), flags);
+    }
+
+    case RSValueType_Array:
+      RedisModule_Reply_Array(reply);
+      for (uint32_t i = 0; i < RSValue_ArrayLen(v); i++) {
+        RedisModule_Reply_RSValue(reply, RSValue_ArrayItem(v, i), flags);
+      }
+      RedisModule_Reply_ArrayEnd(reply);
+      return REDISMODULE_OK;
+
+    case RSValueType_Map:
+      // If Map value is used, assume Map api exists (RedisModule_IsRESP3)
+      RedisModule_Reply_Map(reply);
+      for (uint32_t i = 0; i < RSValue_Map_Len(v); i++) {
+        RSValue *key, *val;
+        RSValue_Map_GetEntry(v, i, &key, &val);
+        RedisModule_Reply_RSValue(reply, key, flags);
+        RedisModule_Reply_RSValue(reply, val, flags);
+      }
+      RedisModule_Reply_MapEnd(reply);
+      break;
+
+    default:
+      RedisModule_Reply_Null(reply);
+  }
+  return REDISMODULE_OK;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

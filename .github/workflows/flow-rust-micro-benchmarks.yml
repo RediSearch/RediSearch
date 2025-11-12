@@ -1,0 +1,64 @@
+name: Run a Rust Micro Benchmark Flow
+
+on:
+  workflow_call:
+
+jobs:
+  benchmarks:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    env:
+      RUST_BACKTRACE: full
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup specific
+        working-directory: .install
+        run: ./install_script.sh sudo
+      - name: Build RediSearch
+        run: make build
+      - name: Download Latest Baseline Artifact from master
+        id: get-artifact
+        if: github.event_name == 'pull_request'
+        uses: dawidd6/action-download-artifact@4c1e823582f43b179e2cbb49c3eade4e41f992e2 # refs @v10
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: master
+          name: rust-benchmark-results-master
+          path: ./bin/redisearch_rs/criterion
+          workflow: event-push-to-integ.yml
+        continue-on-error: true
+      - name: Check if Baseline Exists
+        id: check_baseline
+        run: |
+          if [ -d bin/redisearch_rs/criterion ]; then
+            echo "baseline_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "baseline_exists=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Run benchmark on PR with baseline from master
+        if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'true'
+        run: cargo bench --workspace -- --baseline master
+        working-directory: src/redisearch_rs
+      - name: Run benchmark on PR without baseline
+        if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'false'
+        run: cargo bench --workspace
+        working-directory: src/redisearch_rs
+      - name: Run benchmark on master
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success()
+        run: cargo bench --workspace -- --save-baseline master
+        working-directory: src/redisearch_rs
+
+      - name: Upload rust baseline benchmarks for master
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "rust-benchmark-results-master"
+          path: bin/redisearch_rs/criterion
+      - name: Upload benchmarks for PR comparison
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "rust-benchmark-results-pr-${{ github.event.pull_request.number }}"
+          path: bin/redisearch_rs/criterion

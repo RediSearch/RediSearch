@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/param.h>
@@ -148,7 +150,6 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
   for (int i = 0; i < parent->v->len; i++) {
     if (parent->v->entries[i].idx < a->len) {
       rune c = a->string[parent->v->entries[i].idx];
-      // printf("%c ---> ", c);
       dfaNode *edge = __dfn_getEdge(parent, c);
       if (edge == NULL) {
         sparseVector *nv = SparseAutomaton_Step(a, parent->v, c);
@@ -179,7 +180,6 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
       parent->fallback = dfn;
     } else {
       int dist = nv->entries[nv->len - 1].val;
-      // printf("DEFAULT EDGE! edge %s - dist %d\n", a->string, dist);
       parent->fallback = __newDfaNode(dist, nv);
       __dfn_putCache(cache, parent->fallback);
       dfa_build(parent->fallback, a, cache);
@@ -226,7 +226,7 @@ void DFAFilter_Free(DFAFilter *fc) {
   Vector_Free(fc->distStack);
 }
 
-FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
+FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx, runeTransform rTransform) {
   DFAFilter *fc = ctx;
   dfaNode *dn;
   int minDist;
@@ -245,23 +245,21 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
   *matched = dn->match;
 
   if (*matched) {
-    // printf("MATCH %c, dist %d\n", b, dn->distance);
     int *pdist = matchCtx;
     if (pdist) {
       *pdist = MIN(dn->distance, minDist);
     }
   }
 
-  rune foldedRune = runeFold(b);
+  rune transformedRune = rTransform(b);
 
   // get the next state change
-  dfaNode *next = __dfn_getEdge(dn, foldedRune);
+  dfaNode *next = __dfn_getEdge(dn, transformedRune);
   if (!next) next = dn->fallback;
 
   // we can continue - push the state on the stack
   if (next) {
     if (next->match) {
-      // printf("MATCH NEXT %c, dist %d\n", b, next->distance);
       *matched = 1;
       int *pdist = matchCtx;
       if (pdist) {
@@ -279,6 +277,16 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
   }
 
   return F_STOP;
+}
+
+// This function is used by FT.SUGGET flow
+FilterCode FoldingFilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
+  return FilterFunc(b, ctx, matched, matchCtx, runeFold);
+}
+
+// This function is used by TEXT fuzzy search flow
+FilterCode LoweringFilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
+  return FilterFunc(b, ctx, matched, matchCtx, runeLower);
 }
 
 void StackPop(void *ctx, int numLevels) {

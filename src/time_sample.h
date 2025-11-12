@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __RL_TIME_SAMPLE__
 #define __RL_TIME_SAMPLE__
 
@@ -60,29 +62,5 @@ static double TimeSampler_IterationMS(TimeSample *ts) {
   return ((double)ts->durationNS / 1000000.0) /
          (double)(ts->num ? ts->num : 1.0);
 }
-
-#define TIME_SAMPLE_RUN(blk)                                                   \
-  {                                                                            \
-    TimeSample ts;                                                             \
-    TimeSampler_Start(&ts);                                                    \
-    { blk; };                                                                  \
-    TimeSampler_End(&ts);                                                      \
-    printf("Execution time for " #blk ": %f seconds\n",                        \
-           TimeSampler_DurationSec(&ts));                                      \
-  }
-
-#define TIME_SAMPLE_RUN_LOOP(N, blk)                                           \
-  {                                                                            \
-    TimeSample ts;                                                             \
-    TimeSampler_Start(&ts);                                                    \
-    for (int __ts_loop = 0; __ts_loop < N; __ts_loop++) {                      \
-      blk;                                                                     \
-      TimeSampler_Tick(&ts);                                                   \
-    };                                                                         \
-    TimeSampler_End(&ts);                                                      \
-    printf("Execution time for %d iterations of " #blk                         \
-           ": %f msec/iteration\n",                                         \
-           ts.num, TimeSampler_IterationMS(&ts));                             \
-  }
 
 #endif

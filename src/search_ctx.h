@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __SEARCH_CTX_H
 #define __SEARCH_CTX_H
 
@@ -23,20 +25,27 @@ extern "C" {
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
 
+#define APIVERSION_RETURN_MULTI_CMP_FIRST 3
+
 typedef enum {
   RS_CTX_UNSET,
   RS_CTX_READONLY,
   RS_CTX_READWRITE
 } RSContextFlags;
 
+typedef struct {
+  // current execution start time - real clock
+  struct timespec current;
+  // when the query should timeout - monotonic raw clock, unrelated to real clock
+  struct timespec timeout;
+} SearchTime;
 
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
   IndexSpec *spec;
-  uint64_t specId;  // Unique id of the spec; used when refreshing
-  struct timespec timeout;
+  SearchTime time;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
   unsigned int expanded; // Reply format
   RSContextFlags flags;
@@ -55,12 +64,12 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .redisCtx = ctx,
                           .key_ = NULL,
                           .spec = sp,
-                          .timeout = { 0, 0 },
-                          .flags = RS_CTX_UNSET, };
+                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }},
+                          .flags = RS_CTX_UNSET,};
   return sctx;
 }
 
-void SearchCtx_UpdateTimeout(RedisSearchCtx *sctx, struct timespec timeoutTime);
+void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS);
 
 void SearchCtx_CleanUp(RedisSearchCtx * sctx);
 

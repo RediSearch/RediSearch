@@ -6,9 +6,7 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
-  - oss-standalone-threads-3
   - oss-standalone-threads-6
-  - oss-standalone-threads-12
   - oss-cluster-02-primaries
   - oss-cluster-04-primaries
   - oss-cluster-08-primaries
@@ -33,4 +31,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 180 -c 4 -t 1 --hide-histogram --command 'FT.SEARCH idx10 \"(( @field3: (1) @field6: [-inf 76.761 ] @field7: [76.761 +inf ] @field4: [-inf 35323000 ] @field5: [35323000 +inf ] @field8: [-inf 1864.5 ] @field9:[1864.5 +inf ] )| ( @field3: (2) @field6: [-inf 137.894 ] @field7: [137.894 +inf ] @field4: [-inf 35323000 ] @field5: [35323000 +inf ] @field8: [-inf 1864.5 ] @field9:[1864.5 +inf ] ))\"'"
+  arguments: "--test-time 120 -c 4 -t 1 --hide-histogram --command 'FT.SEARCH idx10 \"(( @field3: (1) @field6: [-inf 76.761 ] @field7: [76.761 +inf ] @field4: [-inf 35323000 ] @field5: [35323000 +inf ] @field8: [-inf 1864.5 ] @field9:[1864.5 +inf ] )| ( @field3: (2) @field6: [-inf 137.894 ] @field7: [137.894 +inf ] @field4: [-inf 35323000 ] @field5: [35323000 +inf ] @field8: [-inf 1864.5 ] @field9:[1864.5 +inf ] ))\"'"
