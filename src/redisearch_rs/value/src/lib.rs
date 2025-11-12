@@ -7,42 +7,54 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::{
+    ffi::c_char,
+    fmt::{self, Debug},
+    ptr::NonNull,
+};
+
+use crate::{
+    collection::{RsValueArray, RsValueMap},
+    shared::SharedRsValue,
+    strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef, RsValueString},
+    trio::RsValueTrio,
+};
+use ffi::RedisModuleString;
+
+/// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
+/// Rust port of the RSValue type.
+#[cfg(feature = "c_ffi_impl")]
+mod rs_value_ffi;
+#[cfg(feature = "c_ffi_impl")]
+pub use rs_value_ffi::*;
+
 #[cfg(feature = "test_utils")]
 mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
-use std::fmt::{self, Debug};
-
-use crate::{
-    collection::{RsValueArray, RsValueMap},
-    shared::SharedRsValue,
-    trio::RsValueTrio,
-};
-
-#[cfg(feature = "c_ffi_impl")]
-/// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
-/// Rust port of the RSValue type.
-mod rs_value_ffi;
-#[cfg(feature = "c_ffi_impl")]
-pub use rs_value_ffi::*;
-
 pub mod collection;
 pub mod shared;
+pub mod strings;
 pub mod trio;
 
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct SDS(usize); // TODO bind
-
 /// Internal storage of [`RsValue`] and [`SharedRsValue`]
-// TODO: optimize memory size
 #[derive(Debug, Clone)]
 pub enum RsValueInternal {
     /// Null value
     Null,
     /// Numeric value
     Number(f64),
+    /// String value backed by a rm_alloc'd string
+    RmAllocString(OwnedRmAllocString),
+    /// String value backed by a constant C string
+    ConstString(ConstString),
+    /// String value backed by an owned Redis string
+    OwnedRedisString(OwnedRedisString),
+    /// String value backed by a borrowd Redis string
+    BorrowedRedisString(RedisStringRef),
+    /// String value
+    String(RsValueString),
     /// Array value
     Array(RsValueArray),
     /// Reference value
@@ -51,11 +63,9 @@ pub enum RsValueInternal {
     Trio(RsValueTrio),
     /// Map value
     Map(RsValueMap),
-    // TODO add string variants
 }
 
 /// A stack-allocated RediSearch dynamic value.
-// TODO: optimize memory layout
 /// cbindgen:prefix-with-name
 #[derive(Default, Clone)]
 pub enum RsValue {
@@ -125,9 +135,96 @@ pub trait Value: Sized {
         Self::from_internal(RsValueInternal::Number(n))
     }
 
+    /// Create a new string value
+    fn string(s: RsValueString) -> Self {
+        Self::from_internal(RsValueInternal::String(s))
+    }
+
     /// Create a new trio value
     fn trio(left: SharedRsValue, middle: SharedRsValue, right: SharedRsValue) -> Self {
         Self::from_internal(RsValueInternal::Trio(RsValueTrio::new(left, middle, right)))
+    }
+
+    /// Create a new string value backed by an rm_alloc'd string.
+    /// Takes ownership of the passed string.
+    ///
+    /// # Safety
+    /// See [`OwnedRmAllocString::take_unchecked`]
+    unsafe fn take_rm_alloc_string(str: NonNull<c_char>, len: u32) -> Self {
+        // Safety: caller must uphold the safety requirements of
+        // [`OwnedRmAllocString::take_unchecked`]
+        Self::from_internal(RsValueInternal::RmAllocString(unsafe {
+            OwnedRmAllocString::take_unchecked(str, len)
+        }))
+    }
+
+    /// Create a new string value backed by an rm_alloc'd string
+    /// that is copied from the passed data. Does not take ownership
+    /// of the passed string.
+    ///
+    /// # Safety
+    /// See [`OwnedRmAllocString::copy_from_string`]
+    unsafe fn copy_rm_alloc_string(str: *const c_char, len: u32) -> Self {
+        debug_assert!(!str.is_null(), "`str` must not be NULL");
+        // Safety: caller must uphold the safety requirements of
+        // [`OwnedRmAllocString::copy_from_string`].
+        Self::from_internal(RsValueInternal::RmAllocString(unsafe {
+            OwnedRmAllocString::copy_from_string(str, len)
+        }))
+    }
+
+    /// Create a new value backed by a string constant.
+    /// Does not take ownership of the string.
+    ///
+    /// # Safety
+    /// See [`ConstString::new`]
+    unsafe fn const_string(str: *const c_char, len: u32) -> Self {
+        debug_assert!(!str.is_null(), "`str` must not be NULL");
+        // Safety: caller must uphold the safety requirements of
+        // [`ConstString::new`].
+        Self::from_internal(RsValueInternal::ConstString(unsafe {
+            ConstString::new(str, len)
+        }))
+    }
+
+    /// Create a new value backed by a reference to a RedisModuleString.
+    /// Does not increment the reference count of the backing string.
+    ///
+    /// # Safety
+    /// See [`RedisStringRef::new_unchecked`]
+    unsafe fn borrowed_redis_string(str: NonNull<RedisModuleString>) -> Self {
+        // Safety: caller must uphold the safety requirements of
+        // [`RedisStringRef::new_unchecked`].
+        Self::from_internal(RsValueInternal::BorrowedRedisString(unsafe {
+            RedisStringRef::new_unchecked(str)
+        }))
+    }
+
+    /// Create a new value backed by a [`RedisModuleString`].
+    /// Increments the reference count of the backing string.
+    ///
+    /// # Safety
+    /// See [`OwnedRedisString::retain`]
+    unsafe fn retain_owned_redis_string(str: NonNull<RedisModuleString>) -> Self {
+        // Safety: caller must uphold the safety requirements of
+        // [`OwnedRedisString::retain`].
+        Self::from_internal(RsValueInternal::OwnedRedisString(unsafe {
+            OwnedRedisString::retain(str)
+        }))
+    }
+
+    /// Create a new value backed by a [`RedisModuleString`].
+    /// Does not increment the reference count of the backing string
+    /// and as such takes ownership.
+    ///
+    /// # Safety
+    /// See [`OwnedRedisString::take`]
+    unsafe fn take_owned_redis_string(str: NonNull<RedisModuleString>) -> Self {
+        // Safety: caller must uphold the safety requirements of
+        // [`OwnedRedisString::take`].
+        Self::from_internal(RsValueInternal::OwnedRedisString(unsafe {
+            OwnedRedisString::take(str)
+        }))
     }
 
     /// Create a new array value
@@ -174,3 +271,6 @@ pub mod opaque {
 
     c_ffi_utils::opaque!(RsValue, OpaqueRsValue);
 }
+
+#[cfg(test)]
+redis_mock::bind_redis_alloc_symbols_to_mock_impl!();

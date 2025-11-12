@@ -2116,6 +2116,8 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "redis_mock",
+ "thiserror",
 ]
 
 [[package]]
@@ -2125,8 +2127,8 @@ dependencies = [
  "build_utils",
  "c_ffi_utils",
  "cbindgen",
+ "ffi",
  "libc",
- "redis-module",
  "value",
 ]
 
