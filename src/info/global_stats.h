@@ -16,8 +16,8 @@
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 
 // Coord/Shard error or warning
-#define COORD_ERR_WRNG true
-#define SHARD_ERR_WRNG !COORD_ERR_WRNG
+#define COORD_ERR_WARN true
+#define SHARD_ERR_WARN !COORD_ERR_WARN
 
 typedef struct {
   size_t numTextFields;

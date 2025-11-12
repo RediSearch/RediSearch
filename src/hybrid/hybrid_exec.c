@@ -59,12 +59,16 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   bool timeoutOccurred = false;
 
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
+    // Under the assumption that this code is only used in coordinator, we set coord to true
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT), suffix);
     timeoutOccurred = true;
   } else if (returnCode == RS_RESULT_ERROR) {
     // Non-fatal error
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
   } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
+    // Under the assumption that this code is only used in coordinator, we set coord to true
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
   }
 
@@ -284,7 +288,7 @@ done:
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
       // Update global stats, since OOM warning is only possible on coordinator (on SA it's handled with common_hybrid_query_reply_empty)
       // We set the coord flag to true
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WRNG);
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
 
       // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
       // because this warning is not related to subqueries or post-processing terminology
@@ -563,9 +567,10 @@ static inline void DefaultCleanup(StrongRef hybrid_ref) {
 }
 
 // We only want to free the hybrid params in case an error happened
-static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_ref, HybridPipelineParams *hybridParams, QueryError *status) {
+static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_ref, HybridPipelineParams *hybridParams, QueryError *status, bool internal) {
     freeHybridParams(hybridParams);
     DefaultCleanup(hybrid_ref);
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !internal);
     return QueryError_ReplyAndClear(ctx, status);
 }
 
@@ -622,7 +627,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
 
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
-    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
+    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
 
   for (int i = 0; i < hybridRequest->nrequests; i++) {
@@ -634,7 +639,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);
-    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
+    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
 
   // Update dialect statistics only after successful execution
@@ -694,6 +699,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
   } else if (QueryError_HasError(&status)) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, !BCHCtx->internal);
     QueryError_ReplyAndClear(outctx, &status);
   }
   RedisModule_FreeThreadSafeContext(outctx);

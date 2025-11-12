@@ -149,7 +149,5 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
     case QUERY_WARNING_CODE_OUT_OF_MEMORY:
       INCR_BY(queries_warnings->oom, toAdd);
       break;
-    default:
-      RS_LOG_ASSERT(false, "Query warning code is not supported in global stats");
   }
 }
