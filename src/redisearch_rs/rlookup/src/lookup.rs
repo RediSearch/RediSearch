@@ -240,8 +240,8 @@ struct KeyList<'a> {
 
 /// A cursor over an [`RLookup`]s key list usable as [`Iterator`]
 ///
-/// The iteration implementation skips the hidden keys, i.e. the keys that have
-/// been overridden.
+/// This types `Iterator` implementation skips all hidden keys, i.e. the keys
+/// with hidden flags, also including keys that been overridden.
 ///
 /// If you need to obtain the hidden keys use [`Cursor::move_next`].
 pub struct Cursor<'list, 'a> {
@@ -251,8 +251,8 @@ pub struct Cursor<'list, 'a> {
 
 /// A cursor over an [`RLookup`]s key list with editing operations.
 ///
-/// The iteration implementation skips the hidden keys, i.e. the keys that have
-/// been overridden.
+/// This types `Iterator` implementation skips all hidden keys, i.e. the keys
+/// with hidden flags, also including keys that been overridden.
 ///
 /// If you need to obtain the hidden keys use [`Cursor::move_next`].
 pub struct CursorMut<'list, 'a> {
@@ -616,8 +616,8 @@ impl<'a> KeyList<'a> {
     /// Returns a [`Cursor`] starting at the first element.
     ///
     /// The [`Cursor`] type can be used as Iterator over this list.
-    /// This iteration skips the hidden keys, i.e. the keys that have
-    /// been overridden.
+    /// The returned Cursors `Iterator` implementation skips all hidden keys, i.e. the keys
+    /// with hidden flags, also including keys that been overridden.
     ///
     /// If you need to obtain the hidden keys use [`Cursor::move_next`].
     #[cfg(debug_assertions)]
@@ -1306,10 +1306,6 @@ impl<'a> RLookup<'a> {
         };
 
         Some(key)
-    }
-
-    pub const fn get_row_len(&self) -> u32 {
-        self.header.keys.rowlen
     }
 }
 
