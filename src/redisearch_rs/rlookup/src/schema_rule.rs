@@ -30,6 +30,9 @@ impl SchemaRuleWrapper {
         NonNull::new(ptr).map(SchemaRuleWrapper)
     }
 
+    /// Access the underlying SchemaRule pointer.
+    ///
+    /// Used for dropping memory in test code as the tests create SchemaRuleWrapper instances in [`Box`]es.
     #[cfg(test)]
     pub const fn inner(&self) -> NonNull<ffi::SchemaRule> {
         self.0
@@ -50,7 +53,7 @@ impl SchemaRuleWrapper {
         if rule.lang_field.is_null() {
             None
         } else {
-            // Safety: A schema rule with a non-null payload_field points to a valid CStr.
+            // Safety: A schema rule with a non-null lang_field points to a valid CStr.
             Some(unsafe { CStr::from_ptr(rule.lang_field) })
         }
     }
@@ -61,7 +64,7 @@ impl SchemaRuleWrapper {
         if rule.score_field.is_null() {
             None
         } else {
-            // Safety: A schema rule with a non-null payload_field points to a valid CStr.
+            // Safety: A schema rule with a non-null score_field points to a valid CStr.
             Some(unsafe { CStr::from_ptr(rule.score_field) })
         }
     }
