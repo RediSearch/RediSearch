@@ -60,7 +60,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
 
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
     // Under the assumption that this code is only used in coordinator, we set coord to true
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT), suffix);
     timeoutOccurred = true;
   } else if (returnCode == RS_RESULT_ERROR) {
@@ -68,7 +68,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
   } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
     // Under the assumption that this code is only used in coordinator, we set coord to true
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
   }
 
