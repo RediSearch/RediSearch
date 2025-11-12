@@ -250,6 +250,20 @@ bool slots_tracker_has_fully_available_overlap(const RedisModuleSlotRangeArray *
  */
 struct OptionSlotTrackerVersion slots_tracker_check_availability(const RedisModuleSlotRangeArray *ranges);
 
+/**
+ * Resets the tracker to its initial state.
+ *
+ * This function is intended for testing purposes only. It resets the tracker
+ * to a clean state with no slots configured and version reset to initial.
+ *
+ * # Safety
+ *
+ * This function must be called from the main thread only.
+ * This function is intended for testing use only and should not be called
+ * in production code.
+ */
+void slots_tracker_reset_for_testing(void);
+
 
 #ifdef __cplusplus
 }

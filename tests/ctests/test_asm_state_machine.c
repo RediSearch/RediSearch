@@ -59,91 +59,175 @@ static void freeSlotRangeArray(RedisModuleSlotRangeArray* array) {
 }
 
 int testInitialization() {
+  slots_tracker_reset_for_testing();
+  atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
   draining_called = 0;
-  RedisModuleSlotRangeArray* local_slots = createSlotRangeArray(100, 199);
-  ASM_StateMachine_Init(local_slots);
-  ASSERT_TRUE(slots_tracker_check_availability(local_slots).is_some);
-  freeSlotRangeArray(local_slots);
+  uint32_t initial_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
+  RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(100, 199);
+  ASM_StateMachine_SetLocalSlots(init_slots);
+  OptionSlotTrackerVersion version = slots_tracker_check_availability(init_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  // The slots tracker starts at version 1, and set local slots increments it by 1
+  ASSERT_EQUAL(version.version, 2);
+  freeSlotRangeArray(init_slots);
   return 0;
 }
 
 int testImportWorkflow() {
+  slots_tracker_reset_for_testing();
   draining_called = 0;
+  atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
 
-  RedisModuleSlotRangeArray* local_slots = createSlotRangeArray(5, 20);
+  RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(5, 20);
   RedisModuleSlotRangeArray* import_slots = createSlotRangeArray(100, 199);
+  uint16_t complete_ranges[][2] = {{5, 20}, {100, 199}};
+  RedisModuleSlotRangeArray* complete_slots = createMultiSlotRangeArray(complete_ranges, 2);
 
-  ASM_StateMachine_Init(local_slots);
-  ASSERT_TRUE(slots_tracker_check_availability(local_slots).is_some);
-  ASSERT_FALSE(slots_tracker_check_availability(import_slots).is_some);
+  ASM_StateMachine_SetLocalSlots(init_slots);
+  OptionSlotTrackerVersion version = slots_tracker_check_availability(init_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, 2);
+  version = slots_tracker_check_availability(import_slots);
+  ASSERT_FALSE(version.is_some);
 
   ASM_StateMachine_StartImport(import_slots);
-  ASSERT_FALSE(slots_tracker_check_availability(import_slots).is_some);
-  ASSERT_TRUE(slots_tracker_check_availability(local_slots).is_some);
+  version = slots_tracker_check_availability(init_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_FALSE(version.version == atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, 0); // Unstable THERE ARE PARTIALLY AVAILABLE SLOTS that u need to filter
+  ASSERT_EQUAL(atomic_load_explicit(&key_space_version, memory_order_relaxed), 3);
+  version = slots_tracker_check_availability(complete_slots);
+  ASSERT_FALSE(version.is_some);
+  version = slots_tracker_check_availability(import_slots);
+  ASSERT_FALSE(version.is_some);
 
   ASM_StateMachine_CompleteImport(import_slots);
-  ASSERT_TRUE(slots_tracker_check_availability(import_slots).is_some);
-  ASSERT_TRUE(slots_tracker_check_availability(local_slots).is_some);
+  version = slots_tracker_check_availability(complete_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, 3);
+
+  version = slots_tracker_check_availability(import_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  version = slots_tracker_check_availability(init_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
 
   freeSlotRangeArray(import_slots);
-  freeSlotRangeArray(local_slots);
+  freeSlotRangeArray(init_slots);
+  freeSlotRangeArray(complete_slots);
   return 0;
 }
 
 int testImportContinuousWorkflow() {
+  slots_tracker_reset_for_testing();
   draining_called = 0;
+  atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
 
-  RedisModuleSlotRangeArray* local_slots = createSlotRangeArray(5, 99);
+  RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(5, 99);
   RedisModuleSlotRangeArray* import_slots = createSlotRangeArray(100, 199);
   RedisModuleSlotRangeArray* complete_slots = createSlotRangeArray(5, 199);
-  ASM_StateMachine_Init(local_slots);
-  ASSERT_TRUE(slots_tracker_check_availability(local_slots).is_some);
-  ASSERT_FALSE(slots_tracker_check_availability(import_slots).is_some);
-  ASSERT_FALSE(slots_tracker_check_availability(complete_slots).is_some);
+  ASM_StateMachine_SetLocalSlots(init_slots);
+  OptionSlotTrackerVersion version = slots_tracker_check_availability(init_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, 2);
+  version = slots_tracker_check_availability(import_slots);
+  ASSERT_FALSE(version.is_some);
 
   ASM_StateMachine_StartImport(import_slots);
-  ASSERT_FALSE(slots_tracker_check_availability(import_slots).is_some);
-  ASSERT_FALSE(slots_tracker_check_availability(complete_slots).is_some);
-  ASSERT_TRUE(slots_tracker_check_availability(local_slots).is_some);
+  version = slots_tracker_check_availability(init_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_FALSE(version.version == atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, 0); // Unstable THERE ARE PARTIALLY AVAILABLE SLOTS that u need to filter
+  ASSERT_EQUAL(atomic_load_explicit(&key_space_version, memory_order_relaxed), 3);
+  version = slots_tracker_check_availability(complete_slots);
+  ASSERT_FALSE(version.is_some);
+  version = slots_tracker_check_availability(import_slots);
+  ASSERT_FALSE(version.is_some);
 
   ASM_StateMachine_CompleteImport(import_slots);
-  ASSERT_TRUE(slots_tracker_check_availability(import_slots).is_some);
-  ASSERT_TRUE(slots_tracker_check_availability(local_slots).is_some);
-  ASSERT_TRUE(slots_tracker_check_availability(complete_slots).is_some);
+  version = slots_tracker_check_availability(complete_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, 3);
+
+  version = slots_tracker_check_availability(import_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  version = slots_tracker_check_availability(init_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
 
   freeSlotRangeArray(import_slots);
-  freeSlotRangeArray(local_slots);
+  freeSlotRangeArray(init_slots);
   freeSlotRangeArray(complete_slots);
   return 0;
 }
 
 int testMigrationTrimmingWorkflow() {
+  slots_tracker_reset_for_testing();
   draining_called = 0;
-  RedisModuleSlotRangeArray* local_slots = createSlotRangeArray(5, 199);
+  RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(5, 199);
   RedisModuleSlotRangeArray* migration_slots = createSlotRangeArray(100, 199);
   RedisModuleSlotRangeArray* disjoint_slots = createSlotRangeArray(5, 99);
 
-  ASM_StateMachine_Init(local_slots);
-  ASSERT_TRUE(slots_tracker_check_availability(local_slots).is_some);
-  ASSERT_TRUE(slots_tracker_check_availability(migration_slots).is_some);
-  ASSERT_TRUE(slots_tracker_check_availability(disjoint_slots).is_some);
-  // Start migration does nothing
+  ASM_StateMachine_SetLocalSlots(init_slots);
+  OptionSlotTrackerVersion version = slots_tracker_check_availability(init_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, 2);
+  version = slots_tracker_check_availability(migration_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  version = slots_tracker_check_availability(disjoint_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
 
+  // Start migration does nothing
   ASM_StateMachine_CompleteMigration(migration_slots);
-  ASSERT_FALSE(slots_tracker_check_availability(migration_slots).is_some);
-  ASSERT_FALSE(slots_tracker_check_availability(local_slots).is_some);
-  ASSERT_TRUE(slots_tracker_check_availability(disjoint_slots).is_some);
+  version = slots_tracker_check_availability(init_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, atomic_load_explicit(&key_space_version, memory_order_relaxed)); // ?????
+  ASSERT_EQUAL(version.version, 2);
+  version = slots_tracker_check_availability(migration_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  version = slots_tracker_check_availability(disjoint_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
 
   ASM_StateMachine_StartTrim(migration_slots, mock_draining_function);
-  ASSERT_TRUE(draining_called);
-  ASSERT_FALSE(slots_tracker_check_availability(migration_slots).is_some);
-  ASSERT_FALSE(slots_tracker_check_availability(local_slots).is_some);
-  ASSERT_TRUE(slots_tracker_check_availability(disjoint_slots).is_some);
-  ASM_StateMachine_CompleteTrim(migration_slots);
+  version = slots_tracker_check_availability(init_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_FALSE(version.version == atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, 2);
+  ASSERT_EQUAL(atomic_load_explicit(&key_space_version, memory_order_relaxed), 3);
+  version = slots_tracker_check_availability(migration_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  version = slots_tracker_check_availability(disjoint_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
 
+  ASM_StateMachine_CompleteTrim(migration_slots);
+  version = slots_tracker_check_availability(init_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_FALSE(version.version == atomic_load_explicit(&key_space_version, memory_order_relaxed));
+  ASSERT_EQUAL(version.version, 2);
+  ASSERT_EQUAL(atomic_load_explicit(&key_space_version, memory_order_relaxed), 3);
+  version = slots_tracker_check_availability(migration_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
+  version = slots_tracker_check_availability(disjoint_slots);
+  ASSERT_TRUE(version.is_some);
+  ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals
 
   freeSlotRangeArray(migration_slots);
-  freeSlotRangeArray(local_slots);
+  freeSlotRangeArray(init_slots);
   freeSlotRangeArray(disjoint_slots);
   return 0;
 }

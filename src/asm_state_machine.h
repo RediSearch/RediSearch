@@ -17,7 +17,7 @@ extern "C" {
 /**
  * Initialize the ASM state machine with the local slots.
  */
-void ASM_StateMachine_Init(const RedisModuleSlotRangeArray *local_slots) {
+void ASM_StateMachine_SetLocalSlots(const RedisModuleSlotRangeArray *local_slots) {
   slots_tracker_set_local_slots(local_slots);
 }
 
@@ -38,7 +38,7 @@ void ASM_StateMachine_CompleteImport(const RedisModuleSlotRangeArray *slots) {
 
 /**
  * When slots have finished migrating, we need to mark them as fully available but not owned.
- * THis means that these slots are fully available in the key space, but we don't own them, as they will start trimming.
+ * This means that these slots are fully available in the key space, but we don't own them, as they will start trimming.
 */
 void ASM_StateMachine_CompleteMigration(const RedisModuleSlotRangeArray *slots) {
   slots_tracker_mark_fully_available_slots(slots);
