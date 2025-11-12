@@ -456,8 +456,14 @@ impl<'a> RLookupKey<'a> {
         unsafe { Pin::new_unchecked(b) }
     }
 
+    #[cfg(not(any(debug_assertions, test)))]
+    #[inline(always)]
+    pub fn is_overridden(&self) -> bool {
+        self.name.is_null()
+    }
+
     #[cfg(any(debug_assertions, test))]
-    fn is_tombstone(&self) -> bool {
+    pub fn is_overridden(&self) -> bool {
         self.name.is_null()
             && self.name_len == usize::MAX
             && self.path.is_null()
@@ -501,7 +507,7 @@ impl<'a> RLookupKey<'a> {
             self.flags
         );
 
-        if !self.is_tombstone() {
+        if !self.is_overridden() {
             use std::ptr;
 
             assert!(
@@ -2007,7 +2013,7 @@ mod tests {
         let mut c = keylist.cursor_front();
 
         // we expect the first item to be the tombstone of the old key
-        assert!(c.current().unwrap().is_tombstone());
+        assert!(c.current().unwrap().is_overridden());
 
         // and the next item to be the new key
         c.move_next();
