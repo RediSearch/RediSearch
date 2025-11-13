@@ -366,6 +366,56 @@ void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
 void RLookup_Cleanup(struct RLookup *lookup);
 
 /**
+ * Add all non-overridden keys from `lookup` to `dest`.
+ *
+ * For each key in `lookup`, check if it already exists *by name*.
+ * - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+ * - If it doesn't a new key will be created.
+ *
+ * Flag handling:
+ *  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+ *  * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+ *  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+ *  * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+ * 2. `dest` must be a [valid], non-null pointer to a [`RLookup`]
+ * 3. All bits set in `flags` must correspond to a value of [`RLookupKeyFlags`]
+ */
+void RLookup_AddKeysFrom(struct RLookup *lookup,
+                         struct RLookup *dest,
+                         uint32_t flags);
+
+/**
+ * Find a [`RLookupKey`] in `lookup`' by its `name`.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+ * 2. The memory pointed to by `name` must contain a valid nul terminator at the end of the string
+ * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+ *    This means in particular:
+ *     1. `name_len` must be same as `strlen(name)`
+ *     2. The entire memory range of this `CStr` must be contained within a single allocation!
+ *     3. `name` must be non-null even for a zero-length cstr.
+ * 4. The memory referenced by the returned `CStr` must not be mutated for
+ *    the duration of lifetime `'a`.
+ * 5. The nul terminator must be within `isize::MAX` from `name` and `field_name`
+ */
+struct RLookupKey *RLookup_FindKey(struct RLookup *lookup, const char *name, size_t name_len);
+
+/**
+ * Create a new RLookup on the stack. We can use this in C code as the size and alignment is known at compile time.
+ */
+struct RLookup RLookup_New_Stack(void);
+
+struct RLookup *RLookup_New_Heap(void);
+
+void RLookup_Free_Heap(struct RLookup *lookup);
+
+/**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
  * Safety:
