@@ -24,6 +24,8 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
+      platform: ubuntu:default
+      architecture: x86_64
       coverage: true
       test-config: QUICK=1
       get-redis: unstable
@@ -38,10 +40,11 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
+      platform: ubuntu:default
+      architecture: x86_64
       get-redis: unstable
       test-config: QUICK=1
       san: address
-      env: ubuntu-latest
 
   micro-benchmarks:
     uses: ./.github/workflows/flow-micro-benchmarks.yml

@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: true  # This will cancel ALL matrix jobs on first failure
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/task-test-with-config.yml
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
       platform: ${{ matrix.platform }}
@@ -57,7 +57,8 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      env: ubuntu-latest
+      platform: ubuntu:default
+      architecture: x86_64
       coverage: true
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
@@ -75,7 +76,8 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      env: ubuntu-latest
+      platform: ubuntu:default
+      architecture: x86_64
       san: address
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master

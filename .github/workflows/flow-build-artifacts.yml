@@ -111,7 +111,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/task-build-artifacts-with-config.yml
+    uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:
       platform: ${{ matrix.platform }}
