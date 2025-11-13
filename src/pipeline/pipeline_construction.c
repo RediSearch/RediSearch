@@ -156,7 +156,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   size_t maxResults = astp->offset + astp->limit;
   if (!maxResults) {
     // For FT.AGGREGATE with WITHCOUNT without explicit LIMIT, we want to return all results
-    if (IsAggregate(&params->common) && IsWithCount(&params->common)) {
+    if (IsAggregate(&params->common) && !IsOptimized(&params->common)) {
       maxResults = UINT32_MAX;
     } else {
       maxResults = DEFAULT_LIMIT;
@@ -214,7 +214,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsAggregate(&params->common) && !IsOptimized(&params->common)) {
+    } else if (IsAggregate(&params->common) && !NoDepleter(&params->common)) {
       // For non-optimized aggregate queries (e.g., with SORTBY, TimeoutPolicy_Fail, or WITHCOUNT)
       // Set resultLimit based on the LIMIT clause if present, otherwise unlimited
       if (astp->isLimited) {
@@ -235,15 +235,17 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   // Create a pager if:
   // 1. For FT.AGGREGATE with WITHCOUNT and explicit LIMIT (astp->isLimited checks for explicit LIMIT)
   // 2. For FT.SEARCH with offset or limit
-  if ((astp->isLimited && IsAggregate(&params->common) && IsWithCount(&params->common))
+  if ((astp->isLimited && (IsAggregate(&params->common) && !IsOptimized(&params->common)))
       || (astp->offset || (astp->limit && !rp))) {
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);
-  } else if ((IsSearch(&params->common) || IsAggregate(&params->common))
-              && IsOptimized(&params->common) && !rp) {
+  } else if (((IsSearch(&params->common) && IsOptimized(&params->common)) ||
+              (IsAggregate(&params->common) && NoDepleter(&params->common))) &&
+             !rp) {
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
   }
+
 
 end:
   array_free(loadKeys);
@@ -641,8 +643,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
   // return the entire matching result set!
   if (!hasArrange &&
         (IsSearch(&params->common)
-        || (IsAggregate(&params->common) && !IsOptimized(&params->common) &&
-            !(params->common.protocol == 3))
+        || (IsAggregate(&params->common) && !NoDepleter(&params->common) && (params->common.protocol == 2))
         || IsHybridSearchSubquery(&params->common))) {
     rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
     if (!rp) {

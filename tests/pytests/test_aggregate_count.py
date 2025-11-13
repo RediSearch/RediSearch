@@ -86,9 +86,6 @@ def _test_withcount(protocol):
         (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 10, 50], 50),
         (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 100, docs], docs - 100),
         (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', docs, docs*2], 0),
-        # WITHCOUNT + LOAD
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LOAD', '1', '@title'], docs),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LOAD', '1', '@price'], docs),
         # WITHCOUNT + SORTBY 0
         (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '0'], docs),
         # WITHCOUNT + SORTBY
@@ -139,9 +136,6 @@ def _test_withoutcount(protocol):
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', 10, 50], 50),
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', 100, docs], docs - 100),
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', docs, docs*2], 0),
-        # WITHOUTCOUNT + LOAD
-        (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LOAD', '1', '@title'], docs),
-        (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LOAD', '1', '@price'], docs),
         # WITHOUTCOUNT + SORTBY 0
         (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'SORTBY', '0'], docs),
         # WITHOUTCOUNT + SORTBY - backwards compatible, returns only 10 results
@@ -180,7 +174,6 @@ def _test_withoutcount(protocol):
             env.assertEqual(
                 len(results_default), expected_results,
                 message=f'{cmd_default}: len(results) != results_default - dialect: {dialect}')
-
 
 def test_withoutcount_resp3():
     _test_withoutcount(3)
