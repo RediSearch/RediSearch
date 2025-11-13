@@ -14,7 +14,7 @@
 #include "rmalloc.h"
 #include "common.h"
 #include "redismock/redismock.h"
-#include "search_result.h"
+#include "search_result_rs.h"
 
 #include <thread>
 #include <chrono>
@@ -95,7 +95,7 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
 
-  SearchResult res = {0};
+  SearchResult res = SearchResult_New();
   int rc;
   int depletingCount = 0;
   // The first call(s) should return RS_RESULT_DEPLETING until the thread is done
@@ -152,7 +152,7 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
 
-  SearchResult res = {0};
+  SearchResult res = SearchResult_New();
   int rc;
   int depletingCount = 0;
 
@@ -240,7 +240,7 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
   QITR_PushRP(&qitr2, &slowUpstream);
   QITR_PushRP(&qitr2, slowDepleter);
 
-  SearchResult res = {0};
+  SearchResult res = SearchResult_New();
 
   // Start both depleters - they should both return DEPLETING initially
   int rc2 = slowDepleter->Next(slowDepleter, &res);
@@ -317,7 +317,7 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
 
-  SearchResult res = {0};
+  SearchResult res = SearchResult_New();
   int rc;
   int depletingCount = 0;
 
