@@ -7,14 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use c_ffi_utils::canary::CanaryGuarded;
 use libc::size_t;
-use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
+use rlookup::{
+    IndexSpecCache, RLookup as RLookupInternal, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
+};
 use std::{
     borrow::Cow,
     ffi::{CStr, c_char},
     ptr::NonNull,
     slice,
 };
+
+type RLookup<'a> = CanaryGuarded<RLookupInternal<'a>>;
 
 /// Get a RLookup key for a given name.
 ///
@@ -486,6 +491,35 @@ pub unsafe extern "C" fn RLookup_CreateKey(
 
     let rlk = lookup._ffi_new_key(name, flags);
     rlk as *mut RLookupKey
+}
+
+/// Create a new RLookup as a value type. We can use this in C code as the size and alignment is known at compile time.
+#[allow(improper_ctypes_definitions)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_New_Value<'a>() -> RLookup<'a> {
+    CanaryGuarded::new(RLookupInternal::new())
+}
+
+/// Create a new RLookup on the heap. The returned pointer must be freed with `RLookup_Free_Heap`.
+///
+/// # Safety
+/// 1. The returned pointer must be freed with `RLookup_Free_Heap` and not used after that.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_New_Heap<'a>() -> *mut RLookup<'a> {
+    Box::into_raw(Box::new(CanaryGuarded::new(RLookupInternal::new())))
+}
+
+/// Free a RLookup created with `RLookup_New_Heap`.
+///
+/// # Safety
+/// 1. `lookup` must be a [valid] pointe to `RLookup` created with `RLookup_New_Heap`
+/// 2. `lookup` **must not** be used again after this function is called.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_Free_Heap<'a>(lookup: Option<NonNull<RLookup<'a>>>) {
+    if let Some(lookup) = lookup {
+        // Safety: pointer is checked for null
+        drop(unsafe { Box::from_raw(lookup.as_ptr()) });
+    }
 }
 
 /// Set the path of a RLookupKey. This is not doable via direct field access from C, as Rust tracks with _path and path field.

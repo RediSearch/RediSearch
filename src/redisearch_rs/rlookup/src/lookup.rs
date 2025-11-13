@@ -24,6 +24,8 @@ use std::{
     slice,
 };
 
+use c_ffi_utils::canary::CanaryProtected;
+
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -203,6 +205,11 @@ pub struct RLookupKeyHeader<'a> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookup<'a> {
+    /// This is a temporary field that should not be accessed. It ensures correct
+    /// initialization in case of FFI usage.
+    #[cfg(debug_assertions)]
+    _canary: u64,
+
     /// RLookup fields exposed to C.
     // Because we must be able to re-interpret pointers to `RLookup` to `RLookupHeader`
     // THIS MUST BE THE FIRST FIELD DONT MOVE IT
@@ -217,6 +224,11 @@ pub struct RLookup<'a> {
 
     #[cfg(debug_assertions)]
     id: RLookupId,
+}
+
+// Safety: RLookup contains `_canary` as its first field under debug_assertions
+unsafe impl<'a> CanaryProtected for RLookup<'a> {
+    const CANARY: u64 = 0xbad1bad1;
 }
 
 #[derive(Debug)]
@@ -1007,6 +1019,8 @@ impl Default for RLookup<'_> {
 impl<'a> RLookup<'a> {
     pub fn new() -> Self {
         Self {
+            #[cfg(debug_assertions)]
+            _canary: Self::CANARY,
             header: RLookupHeader {
                 keys: KeyList::new(),
             },
@@ -1391,19 +1405,6 @@ mod tests {
         assert!(
             ::std::mem::offset_of!(RLookupKey, header.next)
                 == ::std::mem::offset_of!(RLookupKeyHeader, next)
-        );
-    };
-
-    // Compile time check to ensure that `RLookup` can safely be re-interpreted as `RLookupHeader` (has the same
-    // layout at the beginning).
-    const _: () = {
-        // RLookup is larger than RLookupHeader because it has additional Rust fields
-        assert!(std::mem::size_of::<RLookup>() >= std::mem::size_of::<RLookupHeader>());
-        assert!(std::mem::align_of::<RLookup>() == std::mem::align_of::<RLookupHeader>());
-
-        assert!(
-            ::std::mem::offset_of!(RLookup, header.keys)
-                == ::std::mem::offset_of!(RLookupHeader, keys)
         );
     };
 

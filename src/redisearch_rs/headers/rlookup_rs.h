@@ -442,6 +442,28 @@ struct RLookupKey *RLookup_CreateKey(struct RLookup *lookup,
                                      uint32_t flags);
 
 /**
+ * Create a new RLookup as a value type. We can use this in C code as the size and alignment is known at compile time.
+ */
+struct RLookup RLookup_New_Value(void);
+
+/**
+ * Create a new RLookup on the heap. The returned pointer must be freed with `RLookup_Free_Heap`.
+ *
+ * # Safety
+ * 1. The returned pointer must be freed with `RLookup_Free_Heap` and not used after that.
+ */
+struct RLookup *RLookup_New_Heap(void);
+
+/**
+ * Free a RLookup created with `RLookup_New_Heap`.
+ *
+ * # Safety
+ * 1. `lookup` must be a [valid] pointe to `RLookup` created with `RLookup_New_Heap`
+ * 2. `lookup` **must not** be used again after this function is called.
+ */
+void RLookup_Free_Heap(struct RLookup *lookup);
+
+/**
  * Set the path of a RLookupKey. This is not doable via direct field access from C, as Rust tracks with _path and path field.
  *
  * # Safety
