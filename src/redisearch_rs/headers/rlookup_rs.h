@@ -407,6 +407,15 @@ void RLookup_AddKeysFrom(struct RLookup *lookup,
 struct RLookupKey *RLookup_FindKey(struct RLookup *lookup, const char *name, size_t name_len);
 
 /**
+ * Create a new RLookup on the stack. We can use this in C code as the size and alignment is known at compile time.
+ */
+struct RLookup RLookup_New_Stack(void);
+
+struct RLookup *RLookup_New_Heap(void);
+
+void RLookup_Free_Heap(struct RLookup *lookup);
+
+/**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
  * Safety:

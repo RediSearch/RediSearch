@@ -396,3 +396,23 @@ pub unsafe extern "C" fn RLookup_FindKey<'a>(
 
     Some(NonNull::from_ref(rlk))
 }
+
+/// Create a new RLookup on the stack. We can use this in C code as the size and alignment is known at compile time.
+#[allow(improper_ctypes_definitions)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_New_Stack<'a>() -> RLookup<'a> {
+    RLookup::new()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_New_Heap<'a>() -> *mut RLookup<'a> {
+    Box::into_raw(Box::new(RLookup::new()))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_Free_Heap<'a>(lookup: *mut RLookup<'a>) {
+    if !lookup.is_null() {
+        // Safety: pointer is checked for null
+        drop(unsafe { Box::from_raw(lookup) });
+    }
+}
