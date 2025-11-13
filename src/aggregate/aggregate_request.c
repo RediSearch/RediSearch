@@ -1288,7 +1288,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     StopWordList_Ref(sctx->spec->stopwords);
   }
 
-  req->slotRanges = Slots_GetLocalSlots();
+  /* req->slotRanges = Slots_GetLocalSlots(); */
 
   SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
