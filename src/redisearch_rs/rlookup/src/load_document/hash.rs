@@ -233,13 +233,15 @@ where
     F: FnOnce(&RLookupKey<'_>),
     C: FnOnce(&RLookupKey<'_>) -> bool,
 {
-    let new_required = lookup.find_by_name(field_cstr).is_none();
+    let new_required = lookup.find_key_by_name(field_cstr).is_none();
     if new_required {
         let name = Cow::from(field_cstr.to_owned());
         lookup.get_key_write(name, RLookupKeyFlags::empty());
     }
 
-    let cursor = lookup.find_by_name(field_cstr).expect("key must exist now");
+    let cursor = lookup
+        .find_key_by_name(field_cstr)
+        .expect("key must exist now");
 
     let key = cursor.current().expect(
         "the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!",

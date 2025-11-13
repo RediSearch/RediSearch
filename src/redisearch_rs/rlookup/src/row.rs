@@ -148,7 +148,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         val: T,
     ) {
         let name = name.into();
-        let key = if let Some(cursor) = rlookup.find_by_name(&name) {
+        let key = if let Some(cursor) = rlookup.find_key_by_name(&name) {
             cursor.into_current().expect("the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!")
         } else {
             rlookup
@@ -174,5 +174,39 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     pub fn reset_dyn_values(&mut self) {
         self.num_dyn_values = 0;
         self.dyn_values = vec![];
+    }
+
+    /// Write fields from a source row into this row, the fields must exist in both lookups (schemas).
+    ///
+    /// Iterate through the source lookup keys, if it finds a corresponding key in the destination
+    /// lookup by name, then it's value is written to this row as a destination.
+    ///
+    /// If a source key is not found in the destination lookup the function will panic (same as C behavior).
+    ///
+    /// If a source key has no value in the source row, it is skipped.
+    ///
+    /// # Arguments
+    ///
+    /// - `dst_lookup`: The destination lookup containing the schema of this row, must be the associated lookup of `self`.
+    /// - `src_row`: The source row from which to copy values.
+    /// - `src_lookup`: The source lookup containing the schema of the source row, must be the associated lookup of `src_row`.
+    pub fn copy_fields_from(&mut self, dst_lookup: &RLookup, src_row: &Self, src_lookup: &RLookup) {
+        let dst_row = self;
+
+        // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
+        for src_key in src_lookup.cursor() {
+            // Get value from source row
+            if let Some(value) = src_row.get(src_key) {
+                // Find corresponding key in destination lookup
+                let dst_key = dst_lookup
+                    .find_key_by_name(src_key.name())
+                    .expect("we expect all source keys to exist in destination")
+                    .into_current()
+                    .unwrap();
+
+                // Write fields to destination
+                dst_row.write_key(dst_key, value.clone());
+            }
+        }
     }
 }

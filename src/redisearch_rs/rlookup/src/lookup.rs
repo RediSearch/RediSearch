@@ -309,6 +309,10 @@ impl<'a> RLookupKey<'a> {
         }
     }
 
+    pub fn name(&self) -> &CStr {
+        self._name.as_ref()
+    }
+
     pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
         self.flags |= RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc;
 
@@ -763,7 +767,7 @@ impl Drop for KeyList<'_> {
 // ===== impl Cursor =====
 
 impl<'list, 'a> Cursor<'list, 'a> {
-    /// Move the cursor to the next [`RLookupKey`] in the key list.
+    /// Move the cursor to the next [`RLookupKey`].
     ///
     /// Note that contrary to [`Self::next`] this **does not** skip over hidden keys.
     pub fn move_next(&mut self) {
@@ -803,7 +807,7 @@ impl<'list, 'a> Cursor<'list, 'a> {
 impl<'list, 'a> Iterator for Cursor<'list, 'a> {
     type Item = &'list RLookupKey<'a>;
 
-    /// Advances the [`Cursor`] to the next [`RLookupKey`] in the key list and returns it.
+    /// Advances the [`Cursor`] to the next [`RLookupKey`] and returns it.
     ///
     /// This will automatically skip over any keys with the [`RLookupKeyFlag::Hidden`] flag.
     fn next(&mut self) -> Option<Self::Item> {
@@ -927,7 +931,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
 impl<'list, 'a> Iterator for CursorMut<'list, 'a> {
     type Item = Pin<&'list mut RLookupKey<'a>>;
 
-    /// Advances the [`CursorMut`] to the next [`RLookupKey`] in the key list and returns it.
+    /// Advances the [`CursorMut`] to the next [`RLookupKey`] and returns it.
     ///
     /// This will automatically skip over any keys with the [`RLookupKeyFlag::Hidden`] flag.
     fn next(&mut self) -> Option<Self::Item> {
@@ -988,9 +992,10 @@ impl<'a> RLookup<'a> {
         self.index_spec_cache = spcache;
     }
 
-    /// Find a [`RLookupKey`] in this `RLookup`'s key list by its `name`
+    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
     /// and return a [`Cursor`] pointing to the key if found.
-    pub fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
+    // FIXME [MOD-10315] replace with more efficient search
+    pub fn find_key_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
         self.keys.find_by_name(name)
     }
 
