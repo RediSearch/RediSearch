@@ -9,14 +9,15 @@
 
 use libc::size_t;
 use rlookup::{
-    IndexSpecCache, RLookup as RLookupInternal, RLookupKey, RLookupKeyFlags,
-    RLookupWithCanary as RLookup,
+    CanaryGuarded, IndexSpecCache, RLookup as RLookupInternal, RLookupKey, RLookupKeyFlags,
 };
 use std::{
     ffi::{CStr, c_char},
     ptr::NonNull,
     slice,
 };
+
+type RLookup<'a> = CanaryGuarded<RLookupInternal<'a>>;
 
 /// Get a RLookup key for a given name.
 ///
@@ -404,12 +405,12 @@ pub unsafe extern "C" fn RLookup_FindKey<'a>(
 #[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_New_Stack<'a>() -> RLookup<'a> {
-    RLookup::new(RLookupInternal::new())
+    CanaryGuarded::new(RLookupInternal::new())
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_New_Heap<'a>() -> *mut RLookup<'a> {
-    Box::into_raw(Box::new(RLookup::new()))
+    Box::into_raw(Box::new(CanaryGuarded::new(RLookupInternal::new())))
 }
 
 #[unsafe(no_mangle)]

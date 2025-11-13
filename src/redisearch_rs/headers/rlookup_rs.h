@@ -159,6 +159,11 @@ typedef struct RLookupHeader {
  */
 typedef struct RLookup {
   /**
+   * This is a temporary field that should not be accessed. It ensures correct
+   * initialization in case of FFI usage.
+   */
+  uint64_t _canary;
+  /**
    * RLookup fields exposed to C.
    */
   struct RLookupHeader header;
@@ -166,16 +171,6 @@ typedef struct RLookup {
   IndexSpecCache* index_spec_cache;
   uint64_t id;
 } RLookup;
-
-typedef struct Canary_RLookup__3134307025 {
-  uint64_t _canary;
-  struct RLookup inner;
-} Canary_RLookup__3134307025;
-
-/**
- * RLookup with canary for FFI usage
- */
-typedef struct Canary_RLookup__3134307025 RLookupFFI;
 
 #ifdef __cplusplus
 extern "C" {
