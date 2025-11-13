@@ -2737,6 +2737,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     sp->stopwords = DefaultStopWordList();
   }
 
+  Cursors_initSpec(sp);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
@@ -2769,7 +2770,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     StrongRef_Release(spec_ref);
   } else {
     IndexSpec_StartGC(ctx, spec_ref, sp);
-    Cursors_initSpec(sp);
     dictAdd(specDict_g, (void*)sp->name, spec_ref.rm);
     for (int i = 0; i < sp->numFields; i++) {
       FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
