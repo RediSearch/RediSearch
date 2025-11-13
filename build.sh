@@ -42,7 +42,7 @@ RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
-EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher"
+EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi"
 
 #-----------------------------------------------------------------------------
 # Function: parse_arguments

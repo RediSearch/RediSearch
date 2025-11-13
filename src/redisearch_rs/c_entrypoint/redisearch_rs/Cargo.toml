@@ -28,6 +28,7 @@ mock_allocator = []
 buffer = { workspace = true }
 fnv_ffi = { path = "../fnv_ffi" }
 inverted_index_ffi = { path = "../inverted_index_ffi" }
+iterators_ffi = { path = "../iterators_ffi" }
 query_error_ffi = { path = "../query_error_ffi" }
 result_processor_ffi = { path = "../result_processor_ffi" }
 triemap_ffi = { path = "../triemap_ffi" }
