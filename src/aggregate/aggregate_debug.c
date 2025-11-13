@@ -9,14 +9,6 @@
 #include "aggregate_debug.h"
 #include "module.h"
 
-/*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
-   coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely
-   waiting for results or a timeout. If the query timeout is set to 0 (disabled), neither of these
-   conditions is met. To prevent this, if results_count == 0 and the query timeout is disabled, we
-   enforce a forced timeout, ideally large enough to break the infinite loop without impacting the
-   requested flow */
-#define COORDINATOR_FORCED_TIMEOUT 1000
-
 AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status) {
 
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, status);
@@ -114,28 +106,11 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       return REDISMODULE_ERR;
     }
 
-    // Check if timeout should be applied only in the shard query pipeline
-    if (internal_only && isClusterCoord(debug_req)) {
-      if (results_count == 0) {
-        if (!(AREQ_RequestFlags(&debug_req->r) & QEXEC_F_IS_CURSOR)) {
-          QueryError_SetError(
-              status, QUERY_ERROR_CODE_PARSE_ARGS,
-              "INTERNAL_ONLY with TIMEOUT_AFTER_N 0 is not allowed without WITHCURSOR");
-          return REDISMODULE_ERR;
-        } else if (debug_req->r.reqConfig.queryTimeoutMS == 0 && results_count == 0) {
-          RedisModule_Log(RSDummyContext, "debug",
-                          "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
-                          "to avoid infinite loop");
-          debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
-        }
-      }
-    } else {  // INTERNAL_ONLY was not provided, or we are not in a cluster coordinator
-      // Add timeout to the pipeline
-      // Note, this will add a result processor as the downstream of the last result processor
-      // (rpidnext for SA, or RPNext for cluster)
-      // Take this into account when adding more debug types that are modifying the rp pipeline.
-      PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
-    }
+    // Add timeout to the pipeline
+    // Note, this will add a result processor as the downstream of the last result processor
+    // (rpidnext for SA, or RPNext for cluster)
+    // Take this into account when adding more debug types that are modifying the rp pipeline.
+    PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
     return REDISMODULE_OK;
   }
 
