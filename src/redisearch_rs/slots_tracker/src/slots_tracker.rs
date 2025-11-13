@@ -247,18 +247,11 @@ impl SlotsTracker {
     /// - `None`: Required slots are not available
     pub fn check_availability(&self, ranges: &[SlotRange]) -> Option<Version> {
         // Fast path: If sets 2 & 3 are empty and input exactly matches set 1
-        println!("Checking availability");
-        println!("query: {:?}", ranges);
-        println!("local: {:?}", self.local);
-        println!("fully_available: {:?}", self.fully_available);
-        println!("partially_available: {:?}", self.partially_available);
-        println!("");
         if self.fully_available.is_empty()
             && self.partially_available.is_empty()
             && self.local == ranges
         {
             // Internal version is always Stable, return it directly
-            println!("Stable with version LOCAL MATCHES QUERY {:?}", self.version);
             return Some(self.version);
         }
 
@@ -266,17 +259,14 @@ impl SlotsTracker {
         match self.local.union_relation(&self.fully_available, ranges) {
             CoverageRelation::Equals if self.partially_available.is_empty() => {
                 // Exact match and no partial slots - return stable version
-                println!("Stable with version {:?}", self.version);
                 Some(self.version)
             }
             CoverageRelation::Equals | CoverageRelation::Covers => {
                 // Covered but not exact, or has partial slots - return unstable marker
-                println!("Unstable");
                 Some(Version::Unstable)
             }
             CoverageRelation::NoMatch => {
                 // Not all slots are available
-                println!("No match");
                 None
             }
         }

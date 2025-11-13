@@ -92,7 +92,7 @@ def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
 
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
-# @skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2)
 def test_import_slot_range(env: Env):
     n_docs = 2**14
 
