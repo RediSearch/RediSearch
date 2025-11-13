@@ -66,7 +66,7 @@ def read_cursor_completely_resp3(env, index_name, cursor_id, batch_callback=None
     current_cursor = cursor_id
 
     while current_cursor != 0:
-        cursor_response = env.cmd('_FT.CURSOR', 'READ', index_name, current_cursor)
+        cursor_response = env.execute_command('_FT.CURSOR', 'READ', index_name, current_cursor)
         # RESP 3 format: [{'results': [...], ...}, cursor_id]
         results_dict = cursor_response[0]
         current_cursor = cursor_response[1]
@@ -107,7 +107,7 @@ def read_cursor_completely_resp2(env, index_name, cursor_id, batch_callback=None
     current_cursor = cursor_id
 
     while current_cursor != 0:
-        cursor_response = env.cmd('_FT.CURSOR', 'READ', index_name, current_cursor)
+        cursor_response = env.execute_command('_FT.CURSOR', 'READ', index_name, current_cursor)
 
         # RESP 2 format: [[count, result1, result2, ...], next_cursor_id]
         results_array = cursor_response[0]
@@ -128,7 +128,7 @@ def read_cursor_completely_resp2(env, index_name, cursor_id, batch_callback=None
     return sorted(all_results)
 
 
-def read_cursor_completely(env, index_name, cursor_id, batch_callback=None):
+def read_cursor_completely(env, index_name, cursor_id, batch_callback=None, protocol=None):
     """Read all results from a cursor and return them (auto-detect RESP format)
 
     Args:
@@ -141,7 +141,7 @@ def read_cursor_completely(env, index_name, cursor_id, batch_callback=None):
         list: All results from the cursor as dicts with '__key' and optionally 'score' fields
     """
     # Use RESP 3 by default since that's what most tests use
-    if hasattr(env, 'protocol') and env.protocol == 2:
+    if protocol is not None and protocol == 2:
         return read_cursor_completely_resp2(env, index_name, cursor_id, batch_callback)
     else:
         return read_cursor_completely_resp3(env, index_name, cursor_id, batch_callback)
@@ -260,12 +260,14 @@ def test_hybrid_internal_with_count_parameter(env):
             """Callback to validate that each batch respects the COUNT parameter"""
             # The key test: number of results in each batch should be <= COUNT parameter
             env.assertTrue(len(batch_results) <= count_param)
-        if not env.isCluster() or shard_id == 0:
-          for cursor_id in result_dict.values():
-              if cursor_id != 0:  # Only test active cursors
-                  # Use common function with callback to validate COUNT behavior
-                  results = read_cursor_completely(env, 'idx', cursor_id, validate_batch_size)
-                  env.assertTrue(isinstance(results, list))
+        for cursor_id in result_dict.values():
+            if cursor_id != 0:  # Only test active cursors
+                # Use common function with callback to validate COUNT behavior
+                if env.isCluster():
+                    results = read_cursor_completely(shard_conn, 'idx', cursor_id, validate_batch_size, protocol=getattr(env, 'protocol', None))
+                else:
+                    results = read_cursor_completely(env, 'idx', cursor_id, validate_batch_size, protocol=getattr(env, 'protocol', None))
+                env.assertTrue(isinstance(results, list))
 
 
 def test_hybrid_internal_cursor_interaction(env):
@@ -292,7 +294,6 @@ def test_hybrid_internal_cursor_interaction(env):
             hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
                                   'VSIM', '@embedding', query_vec.tobytes(),
                                   'WITHCURSOR', '_SLOTS_INFO', slots_data)
-
         hybrid_result = remove_warnings(hybrid_result)
         # Should return a map with cursor IDs
         env.assertTrue(isinstance(hybrid_result, list))
@@ -302,9 +303,17 @@ def test_hybrid_internal_cursor_interaction(env):
         env.assertIn('VSIM', result_dict)
         env.assertIn('SEARCH', result_dict)
 
-        text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:shoes', 'DIALECT', '2', 'RETURN', '0')
-        vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
-                                      'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
+        # Read from cursors and collect results using common function
+        cursor_results = {}
+        for cursor_type, cursor_id in result_dict.items():
+            if env.isCluster():
+                cursor_results[cursor_type] = read_cursor_completely(shard_conn, 'idx', cursor_id, protocol=getattr(env, 'protocol', None))
+            else:
+                cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id, protocol=getattr(env, 'protocol', None))
+
+            text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:shoes', 'DIALECT', '2', 'RETURN', '0')
+            vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
+                                          'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
 
         # Extract document keys from expected results (RETURN 0 format)
         def extract_doc_keys(search_result):
@@ -320,11 +329,6 @@ def test_hybrid_internal_cursor_interaction(env):
 
         expected_text_docs = extract_doc_keys(text_search_result)
         expected_vector_docs = extract_doc_keys(vector_search_result)
-
-        # Read from cursors and collect results using common function
-        cursor_results = {}
-        for cursor_type, cursor_id in result_dict.items():
-            cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id)
 
         # Compare cursor results with expected FT.SEARCH results
         if 'SEARCH' in cursor_results:
@@ -357,7 +361,7 @@ def test_hybrid_internal_cursor_with_scores():
     # Read from cursors and collect results using common function
     cursor_results = {}
     for cursor_type, cursor_id in hybrid_cursor_dict.items():
-        cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id)
+        cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id, protocol=getattr(env, 'protocol', None))
 
     for cursor_type, cursor_result in cursor_results.items():
         for result in cursor_result:
@@ -400,29 +404,30 @@ def test_hybrid_internal_with_params(env):
         env.assertIn('VSIM', result_dict)
         env.assertIn('SEARCH', result_dict)
 
-        if not env.isCluster() or shard_id == 0:
-            # Get expected results from equivalent parameterized FT.SEARCH commands
-            text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:($term)', 'DIALECT', '2',
-                                        'PARAMS', '2', 'term', 'shoes', 'RETURN', '0')
-            vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
-                                          'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
+        # Get expected results from equivalent parameterized FT.SEARCH commands
+        text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:($term)', 'DIALECT', '2',
+                                    'PARAMS', '2', 'term', 'shoes', 'RETURN', '0')
+        vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
+                                      'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
 
-            # Extract expected document keys
-            def extract_doc_keys(search_result):
-                return sorted(search_result[1:]) if len(search_result) > 1 else []
+        # Extract expected document keys
+        def extract_doc_keys(search_result):
+            return sorted(search_result[1:]) if len(search_result) > 1 else []
 
-            expected_text_docs = extract_doc_keys(text_search_result)
-            expected_vector_docs = extract_doc_keys(vector_search_result)
+        expected_text_docs = extract_doc_keys(text_search_result)
+        expected_vector_docs = extract_doc_keys(vector_search_result)
 
+        # Read cursor results and compare with expected results
+        cursor_results = {}
+        for cursor_type, cursor_id in result_dict.items():
+            if env.isCluster():
+                cursor_results[cursor_type] = read_cursor_completely(shard_conn, 'idx', cursor_id, protocol=getattr(env, 'protocol', None))
+            else:
+                cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id, protocol=getattr(env, 'protocol', None))
 
-            # Read cursor results and compare with expected results
-            cursor_results = {}
-            for cursor_type, cursor_id in result_dict.items():
-                cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id)
-
-            # Verify that parameterized queries work correctly
-            env.assertEqual(cursor_results['SEARCH'], expected_text_docs)
-            env.assertEqual(cursor_results['VSIM'], expected_vector_docs)
+        # Verify that parameterized queries work correctly
+        env.assertEqual(cursor_results['SEARCH'], expected_text_docs)
+        env.assertEqual(cursor_results['VSIM'], expected_vector_docs)
 
 
 def test_hybrid_internal_error_cases(env):
@@ -508,16 +513,18 @@ def test_hybrid_internal_empty_search_results(env):
         env.assertTrue(vector_search_result[0] > 0)  # Should have results
 
         # Read from cursors and verify behavior
-        if not env.isCluster() or shard_id == 0:
-          cursor_results = {}
-          for cursor_type, cursor_id in result_dict.items():
-              cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id)
+        cursor_results = {}
+        for cursor_type, cursor_id in result_dict.items():
+            if env.isCluster():
+                cursor_results[cursor_type] = read_cursor_completely(shard_conn, 'idx', cursor_id, protocol=getattr(env, 'protocol', None))
+            else:
+                cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id, protocol=getattr(env, 'protocol', None))
 
-          # SEARCH cursor should return empty results
-          env.assertEqual(cursor_results['SEARCH'], [])
+        # SEARCH cursor should return empty results
+        env.assertEqual(cursor_results['SEARCH'], [])
 
-          # VSIM cursor should return some results
-          env.assertTrue(len(cursor_results['VSIM']) > 0)
+        # VSIM cursor should return some results
+        env.assertTrue(len(cursor_results['VSIM']) > 0)
 
 @skip(cluster=True)
 def test_hybrid_internal_withcursor_with_load():
@@ -550,8 +557,8 @@ def test_hybrid_internal_withcursor_with_load():
     env.assertTrue(isinstance(vsim_cursor, (int, str)))
     env.assertTrue(isinstance(search_cursor, (int, str)))
 
-    search_cursor_results = read_cursor_completely(env, 'idx', search_cursor)
+    search_cursor_results = read_cursor_completely(env, 'idx', search_cursor, protocol=getattr(env, 'protocol', None))
     env.assertEqual(search_cursor_results, ['doc:2', 'doc:3'])
 
-    vsim_cursor_results = read_cursor_completely(env, 'idx', vsim_cursor)
+    vsim_cursor_results = read_cursor_completely(env, 'idx', vsim_cursor, protocol=getattr(env, 'protocol', None))
     env.assertEqual(vsim_cursor_results, ['doc:1', 'doc:2', 'doc:3', 'doc:4'])
