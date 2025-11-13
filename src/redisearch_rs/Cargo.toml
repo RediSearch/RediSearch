@@ -105,6 +105,7 @@ ureq = "3.0.10"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 pin-project = "1.1.10"
 strum = {version = "0.27.2",features = ["derive"]}
+unsafe-tools = "0.1.1"
 
 [workspace.dependencies.bindgen]
 version = "0.72"
