@@ -1423,6 +1423,7 @@ dependencies = [
  "query_error_ffi",
  "redis-module",
  "result_processor_ffi",
+ "sorting_vector_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
@@ -1774,7 +1775,6 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "icu_casemap",
- "thiserror",
  "value",
 ]
 

@@ -28,6 +28,7 @@
 #include "redis_index.h"
 #include "fast_float/fast_float_strtod.h"
 #include "obfuscation/obfuscation_api.h"
+#include "sorting_vector_rs.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -147,7 +148,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   }
 
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv == NULL) {
-    aCtx->sv = NewSortingVector(sp->numSortableFields);
+    aCtx->sv = RSSortingVector_New(sp->numSortableFields);
   }
 
   int empty = (aCtx->sv == NULL) && !hasTextFields && !hasOtherFields;
@@ -324,7 +325,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   }
 
   if (aCtx->sv) {
-    SortingVector_Free(aCtx->sv);
+    RSSortingVector_Free(aCtx->sv);
     aCtx->sv = NULL;
   }
 
@@ -959,7 +960,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       if (idx < 0) continue;
 
       if (!md->sortVector) {
-        md->sortVector = NewSortingVector(sctx->spec->numSortableFields);
+        md->sortVector = RSSortingVector_New(sctx->spec->numSortableFields);
       }
 
       RS_LOG_ASSERT((fs->options & FieldSpec_Dynamic) == 0, "Dynamic field cannot use PARTIAL");
