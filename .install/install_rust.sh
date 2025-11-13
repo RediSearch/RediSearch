@@ -3,9 +3,19 @@ processor=$(uname -m)
 OS_TYPE=$(uname -s)
 
 
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source $HOME/.cargo/env
+if [[ $GITHUB_ACTIONS == "true" ]]; then
+	export RUSTUP_HOME=/root/.rustup
+	export CARGO_HOME=/root/.cargo
+else
+    export RUSTUP_HOME=$HOME/.rustup
+    export CARGO_HOME=$HOME/.cargo
+fi
 
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source $CARGO_HOME/env
+
+# Print where `rustup` is located for debugging purposes
+echo "Rustup binary location: $(which rustup)"
 # Verify Cargo is in path
 cargo -vV
 # Print where `cargo` is located for debugging purposes
