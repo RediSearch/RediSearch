@@ -17,6 +17,16 @@ def remove_warnings(result):
 
 def setup_hybrid_test_data(env):
     """Setup test data based on the provided scenario"""
+    # Set up cluster slots for standalone mode - assign all slots (0-16383) to this shard
+    if not env.isCluster():
+        env.expect('SEARCH.CLUSTERSET',
+                   'MYID', '0',
+                   'RANGES', '1',
+                   'SHARD', '0',
+                   'SLOTRANGE', '0', '16383',
+                   'ADDR', f'localhost:{env.port}',
+                   'MASTER').ok()
+
     # Create index with text and vector fields
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
                'description', 'TEXT',
@@ -268,7 +278,7 @@ def test_hybrid_internal_cursor_with_scores():
     hybrid_cursor_dict = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
                            'VSIM', '@embedding', '$vec_param', 'KNN', '2', 'K', '10',
                            'WITHCURSOR', 'WITHSCORES',
-                           'PARAMS', '2', 'vec_param', query_vec.tobytes(), '_SLOTS_INFO', generate_slots())
+                           'PARAMS', '2', 'vec_param', query_vec.tobytes(), '_SLOTS_INFO', generate_slots(range(0, 0)))
 
     hybrid_cursor_dict = remove_warnings(hybrid_cursor_dict)
     # Should return a map with cursor IDs
@@ -291,7 +301,6 @@ def test_hybrid_internal_cursor_with_scores():
             env.assertIn('doc', result['key'])
             env.assertIn('score', result)
             env.assertTrue(isinstance(result['score'], (int, float)))
-
 
 
 @skip(cluster=True)
@@ -344,18 +353,18 @@ def test_hybrid_internal_error_cases(env):
     # Test with non-existent index using direct vector specification
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     env.expect('_FT.HYBRID', 'nonexistent', 'SEARCH', '@description:running',
-               'VSIM', '@embedding', query_vec.tobytes(), '_SLOTS_INFO', generate_slots()).error().contains('No such index nonexistent')
+               'VSIM', '@embedding', query_vec.tobytes(), '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('No such index nonexistent')
 
     # Test with invalid vector field using direct vector specification
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-               'VSIM', '@nonexistent', query_vec.tobytes(), '_SLOTS_INFO', generate_slots()).error().contains('Unknown field `nonexistent`')
+               'VSIM', '@nonexistent', query_vec.tobytes(), '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('Unknown field `nonexistent`')
 
     # Test with bad slots data
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                'VSIM', '@embedding', query_vec.tobytes(), '_SLOTS_INFO', 'BAD_SLOTS_DATA').error().contains('Failed to deserialize _SLOTS_INFO data')
     # Edge case: Test syntax error after parsing _SLOTS_INFO (for coverage and memory leaks)
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-               'VSIM', '@embedding', query_vec.tobytes(), '_SLOTS_INFO', generate_slots(), 'INVALID_SYNTAX').error().contains('Unknown argument')
+               'VSIM', '@embedding', query_vec.tobytes(), '_SLOTS_INFO', generate_slots(range(0, 0)), 'INVALID_SYNTAX').error().contains('Unknown argument')
 
 
 def test_hybrid_internal_cursor_limit(env):
@@ -373,7 +382,7 @@ def test_hybrid_internal_cursor_limit(env):
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                'VSIM', '@embedding', query_vec.tobytes(),
-               'WITHCURSOR', '_SLOTS_INFO', generate_slots()).error().contains('INDEX_CURSOR_LIMIT of 1 has been reached for an index')
+               'WITHCURSOR', '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('INDEX_CURSOR_LIMIT of 1 has been reached for an index')
 
 
 def test_hybrid_internal_empty_search_results(env):
