@@ -2973,6 +2973,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       rCtx.lastError = curr_rep;
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(curr_rep, NULL));
       if (should_return_error(errCode)) {
+        QueryErrorsGlobalStats_UpdateError(errCode, 1, COORD_ERR_WARN);
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;
       }
@@ -3670,14 +3671,16 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
 
-    // Update global stats, set coord to true regardless of NumShards to avoid duplicate counting
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
 
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming policy is return, since we didn't ignore the memory guardrail
     RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
+
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
+
     if (NumShards > 1) {
       // Handle OOM policy return in Coord, return empty results
       return coord_search_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_OUT_OF_MEMORY);

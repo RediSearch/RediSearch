@@ -467,6 +467,13 @@ done_2:
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
 
+    if (has_timedout) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+    }
+    if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
+    }
+
     // Prepare profile printer context
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
     ProfilePrinterCtx profileCtx = {
