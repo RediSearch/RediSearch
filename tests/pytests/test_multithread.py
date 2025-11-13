@@ -479,7 +479,8 @@ def test_change_workers_number():
 
     # Before starting the test, set the number of connections per shard to 2 to avoid flakiness
     # due to connections being rapidly opened/closed when changing the number of workers.
-    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '2').ok()
+    if env.isCluster():
+        env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '2').ok()
 
     # Increase number of threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
