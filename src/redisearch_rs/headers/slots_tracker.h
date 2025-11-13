@@ -6,11 +6,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdatomic.h>
 #include "redismodule.h"
-
 #ifdef __cplusplus
+#include <atomic>
 extern "C" {
+#else
+#include <stdatomic.h>
 #endif
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -25,7 +26,11 @@ uint32_t slots_tracker_mark_partially_available_slots_internal(const RedisModule
 
 // Global version counter for the key space state.
 // Aligned with the definition in result_processor.c
+#ifdef __cplusplus
+extern std::atomic<uint32_t> key_space_version;
+#else
 extern atomic_uint key_space_version;
+#endif
 
 /**
  * Sets the local slot ranges this shard is responsible for.
@@ -46,11 +51,19 @@ extern atomic_uint key_space_version;
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
 static void slots_tracker_set_local_slots(const RedisModuleSlotRangeArray *ranges) {
+#ifdef __cplusplus
+  uint32_t version_before = key_space_version.load(std::memory_order_relaxed);
+  uint32_t version_after = slots_tracker_set_local_slots_internal(ranges);
+  if (version_after != version_before) {
+    key_space_version.store(version_after, std::memory_order_relaxed);
+  }
+#else
   uint32_t version_before = atomic_load_explicit(&key_space_version, memory_order_relaxed);
   uint32_t version_after = slots_tracker_set_local_slots_internal(ranges);
   if (version_after != version_before) {
     atomic_store_explicit(&key_space_version, version_after, memory_order_relaxed);
   }
+#endif
 }
 
 /**
@@ -68,8 +81,13 @@ static void slots_tracker_set_local_slots(const RedisModuleSlotRangeArray *range
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
 static void slots_tracker_mark_partially_available_slots(const RedisModuleSlotRangeArray *ranges) {
+#ifdef __cplusplus
+  uint32_t version = slots_tracker_mark_partially_available_slots_internal(ranges);
+  key_space_version.store(version, std::memory_order_relaxed);
+#else
   uint32_t version = slots_tracker_mark_partially_available_slots_internal(ranges);
   atomic_store_explicit(&key_space_version, version, memory_order_relaxed);
+#endif
 }
 
 
