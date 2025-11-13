@@ -8,5 +8,8 @@ publish.workspace = true
 [dependencies]
 fnv.workspace = true
 
+[dev-dependencies]
+hyperloglogplus = "0.4"
+
 [lints]
 workspace = true

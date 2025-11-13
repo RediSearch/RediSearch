@@ -25,6 +25,48 @@ impl AsHashBytes for f64 {
     }
 }
 
+impl AsHashBytes for f32 {
+    fn as_hash_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self as *const f32 as *const u8, 4) }
+    }
+}
+
+impl AsHashBytes for i64 {
+    fn as_hash_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self as *const i64 as *const u8, 8) }
+    }
+}
+
+impl AsHashBytes for i32 {
+    fn as_hash_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self as *const i32 as *const u8, 4) }
+    }
+}
+
+impl AsHashBytes for u64 {
+    fn as_hash_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self as *const u64 as *const u8, 8) }
+    }
+}
+
+impl AsHashBytes for u32 {
+    fn as_hash_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self as *const u32 as *const u8, 4) }
+    }
+}
+
+impl AsHashBytes for str {
+    fn as_hash_bytes(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl AsHashBytes for [u8] {
+    fn as_hash_bytes(&self) -> &[u8] {
+        self
+    }
+}
+
 /// HyperLogLog probabilistic cardinality estimator
 ///
 /// The BITS parameter determines the number of registers (2^BITS).
