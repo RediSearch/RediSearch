@@ -5,6 +5,13 @@ import random
 import re
 
 # TODO ASM: Handle tests with FT AGGREGATE and FT HYBRID beyond FT SEARCH
+def query_shards_ft_search(env, query, shards, expected):
+    results = [shard.execute_command(*query) for shard in shards]
+    for idx, res in enumerate(results, start=1):
+        docs = res[1::2]
+        dups = set(doc for doc in docs if docs.count(doc) > 1)
+        env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate document IDs", depth=1)
+        env.assertEqual(res, expected, message=f"shard {idx} returned unexpected results", depth=1)
 
 @dataclass(frozen=True)
 class SlotRange:
@@ -16,7 +23,6 @@ class SlotRange:
         start, end = map(int, s.split("-"))
         assert 0 <= start <= end < 2**14
         return SlotRange(start, end)
-
 
 @dataclass
 class ClusterNode:
@@ -108,26 +114,20 @@ def test_import_slot_range(env: Env):
     expected = env.cmd(*query)
 
     shards = env.getOSSMasterNodesConnectionList()
-
-    def query_all_shards():
-        results = [shard.execute_command(*query) for shard in shards]
-        for idx, res in enumerate(results, start=1):
-            docs = res[1::2]
-            dups = set(doc for doc in docs if docs.count(doc) > 1)
-            env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate document IDs", depth=1)
-            env.assertEqual(res, expected, message=f"shard {idx} returned unexpected results", depth=1)
-
     # Sanity check - all shards should return the same results
-    query_all_shards()
+    query_shards_ft_search(env, query, shards, expected)
 
     # Test searching while importing slots from shard 2 to shard 1
     with TimeLimit(30):
         task_id = import_middle_slot_range(shard1, shard2)
         while not is_migration_complete(shard1, task_id):
-            query_all_shards()
+            query_shards_ft_search(env, query, shards, expected)
             time.sleep(0.1)
-    # And test again after the import is complete
-    query_all_shards()
+
+    # TODO ASM: When Trimming delay is implemented in core, test with all shards
+    # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
+    # topology is outdated, and the slots that would arrive to each shard would lead to errors.
+    query_shards_ft_search(env, query, [shard1, shard2], expected)
 
 def import_slot_range_sanity_test(env: Env):
     n_docs = 2**14
@@ -144,25 +144,18 @@ def import_slot_range_sanity_test(env: Env):
     expected = env.cmd(*query)
 
     shards = env.getOSSMasterNodesConnectionList()
-
-    def query_all_shards():
-        results = [shard.execute_command(*query) for shard in shards]
-        for idx, res in enumerate(results, start=1):
-            docs = res[1::2]
-            dups = set(doc for doc in docs if docs.count(doc) > 1)
-            env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate document IDs", depth=1)
-            env.assertEqual(res, expected, message=f"shard {idx} returned unexpected results", depth=1)
-
     # Sanity check - all shards should return the same results
-    query_all_shards()
+    query_shards_ft_search(env, query, shards, expected)
 
     # Import slots from shard 2 to shard 1, and wait for it to complete
     task_id = import_middle_slot_range(shard1, shard2)
     wait_for_slot_import(shard1, task_id)
     wait_for_slot_import(shard2, task_id)
 
-    # And test again after the import is complete
-    query_all_shards()
+    # TODO ASM: When Trimming delay is implemented in core, test with all shards
+    # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
+    # topology is outdated, and the slots that would arrive to each shard would lead to errors.
+    query_shards_ft_search(env, query, [shard1, shard2], expected)
 
 @skip(cluster=False, min_shards=2)
 def test_import_slot_range_sanity():
@@ -189,18 +182,9 @@ def add_shard_and_migrate_test(env: Env):
     query = ('FT.SEARCH', 'idx', '@n:[69 1420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
     expected = env.cmd(*query)
 
-    shards = env.getOSSMasterNodesConnectionList()
-
-    def query_all_shards():
-        results = [shard.execute_command(*query) for shard in shards]
-        for idx, res in enumerate(results, start=1):
-            docs = res[1::2]
-            dups = set(doc for doc in docs if docs.count(doc) > 1)
-            env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate document IDs", depth=1)
-            env.assertEqual(res, expected, message=f"shard {idx} returned unexpected results", depth=1)
-
     # Sanity check - all shards should return the same results
-    query_all_shards()
+    shards = env.getOSSMasterNodesConnectionList()
+    query_shards_ft_search(env, query, shards, expected)
 
     # Add a new shard
     env.addShardToClusterIfExists()
@@ -213,9 +197,10 @@ def add_shard_and_migrate_test(env: Env):
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
 
-    # And expect all shards to return the same results, including the new one
-    shards.append(new_shard)
-    query_all_shards()
+    # TODO ASM: When Trimming delay is implemented in core, test with all shards
+    # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
+    # topology is outdated, and the slots that would arrive to each shard would lead to errors.
+    query_shards_ft_search(env, query, [shard1, new_shard], expected)
 
 @skip(cluster=False)
 def test_add_shard_and_migrate():
