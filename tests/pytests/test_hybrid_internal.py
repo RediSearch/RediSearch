@@ -147,6 +147,34 @@ def read_cursor_completely(env, index_name, cursor_id, batch_callback=None):
         return read_cursor_completely_resp3(env, index_name, cursor_id, batch_callback)
 
 
+def get_shard_slot_ranges(env):
+    """Get slot ranges for each shard in cluster mode, or full range for standalone"""
+    if not env.isCluster():
+        # Standalone mode: single shard owns all slots
+        return [(0, generate_slots())]
+
+    # Cluster mode: get actual slot ranges from cluster topology
+    cluster_info = env.cmd('CLUSTER', 'SLOTS')
+
+    shard_ranges = []
+
+    for shard_id, slot_info in enumerate(cluster_info):
+        # Each slot_info is a list like:
+        # [start_slot, end_slot, [ip, port, node_id, []], ...]
+
+        start_slot = slot_info[0]
+        end_slot = slot_info[1]
+        # Node info is at index 2: [ip, port, node_id, []]
+        node_info = slot_info[2]
+        shard_port = node_info[1]
+
+        # Generate the slots data for this range
+        slots_data = generate_slots(range(start_slot, end_slot + 1))
+        shard_ranges.append((shard_id, slots_data))
+
+    return shard_ranges
+
+
 def test_basic_hybrid_internal_withcursor(env):
     """Test basic _FT.HYBRID command with WITHCURSOR functionality
 
@@ -157,48 +185,75 @@ def test_basic_hybrid_internal_withcursor(env):
     """
     setup_hybrid_test_data(env)
 
-    # Execute _FT.HYBRID command with WITHCURSOR using direct vector specification
-    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
-    result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-                     'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', '_SLOTS_INFO', generate_slots())
+    # Get slot ranges for each shard
+    shard_ranges = get_shard_slot_ranges(env)
 
-    # Should return a map with VSIM and SEARCH cursor IDs
-    env.assertTrue(isinstance(result, list))
-    env.assertTrue(len(result) > 0)
+    # Test each shard with its appropriate slot range
+    for shard_id, slots_data in shard_ranges:
+        # Execute _FT.HYBRID command with WITHCURSOR using shard-specific slots
+        query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
 
-    # Convert list to dict for easier access
-    result = remove_warnings(result)
-    result_dict = dict(zip(result[::2], result[1::2]))
+        if env.isCluster():
+            # In cluster mode, send to specific shard
+            shard_conn = env.getConnection(shardId=shard_id + 1)  # 1-based indexing
+            shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+                                              'VSIM', '@embedding', query_vec.tobytes(),
+                                              'WITHCURSOR', '_SLOTS_INFO', slots_data)
+        else:
+            # In standalone mode, send to main connection
+            result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+                           'VSIM', '@embedding', query_vec.tobytes(),
+                           'WITHCURSOR', '_SLOTS_INFO', slots_data)
 
-    # Should have VSIM and SEARCH cursor IDs
-    env.assertIn('VSIM', result_dict)
-    env.assertIn('SEARCH', result_dict)
+        # Should return a map with VSIM and SEARCH cursor IDs
+        env.assertTrue(isinstance(result, list))
+        env.assertTrue(len(result) > 0)
 
-    # Both cursor IDs should be valid integers
-    vsim_cursor = result_dict['VSIM']
-    search_cursor = result_dict['SEARCH']
-    env.assertTrue(isinstance(vsim_cursor, (int, str)))
-    env.assertTrue(isinstance(search_cursor, (int, str)))
+        # Convert list to dict for easier access
+        result = remove_warnings(result)
+        result_dict = dict(zip(result[::2], result[1::2]))
+
+        # Should have VSIM and SEARCH cursor IDs
+        env.assertIn('VSIM', result_dict)
+        env.assertIn('SEARCH', result_dict)
+
+        # Both cursor IDs should be valid integers
+        vsim_cursor = result_dict['VSIM']
+        search_cursor = result_dict['SEARCH']
+        env.assertTrue(isinstance(vsim_cursor, (int, str)))
+        env.assertTrue(isinstance(search_cursor, (int, str)))
 
 
 def test_hybrid_internal_with_count_parameter(env):
     """Test _FT.HYBRID with WITHCURSOR and COUNT parameter"""
     setup_hybrid_test_data(env)
 
+    slot_ranges = get_shard_slot_ranges(env)
+
     # Execute with COUNT parameter set to 2 using direct vector specification
     count_param = 2
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
-    result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-                     'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', 'COUNT', str(count_param), '_SLOTS_INFO', generate_slots())
+    for shard_id, slots_data in slot_ranges:
+        if env.isCluster():
+            # In cluster mode, send to specific shard
+            shard_conn = env.getConnection(shardId=shard_id + 1)  # 1-based indexing
+            shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+                                              'VSIM', '@embedding', query_vec.tobytes(),
+                                              'WITHCURSOR', 'COUNT', str(count_param), '_SLOTS_INFO', slots_data)
+        else:
+            result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+                              'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', 'COUNT', str(count_param), '_SLOTS_INFO', generate_slots())
 
-    # Should return a map with cursor IDs
-    env.assertTrue(isinstance(result, list))
-    result = remove_warnings(result)
-    result_dict = dict(zip(result[::2], result[1::2]))
+        # Should return a map with cursor IDs
+        env.assertTrue(isinstance(result, list))
+        result = remove_warnings(result)
+        result_dict = dict(zip(result[::2], result[1::2]))
 
-    # Should have both cursor types
-    env.assertIn('VSIM', result_dict)
-    env.assertIn('SEARCH', result_dict)
+        # Should have both cursor types
+        env.assertIn('VSIM', result_dict)
+        env.assertIn('SEARCH', result_dict)
 
     # Test reading from cursors with COUNT parameter using callback
     def validate_batch_size(batch_results, _cursor_response):
@@ -213,30 +268,41 @@ def test_hybrid_internal_with_count_parameter(env):
             env.assertTrue(isinstance(results, list))
 
 
-@skip(cluster=True)
 def test_hybrid_internal_cursor_interaction(env):
     """Test reading from both VSIM and SEARCH cursors and compare with equivalent FT.SEARCH commands"""
     setup_hybrid_test_data(env)
 
-    # Execute the hybrid command with cursors using direct vector specification
-    query_vec = create_np_array_typed([1.0, 0.0], 'FLOAT32')
-    hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
-                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', '_SLOTS_INFO', generate_slots())
+    # Get slot ranges for each shard
+    shard_ranges = get_shard_slot_ranges(env)
 
-    hybrid_result = remove_warnings(hybrid_result)
-    # Should return a map with cursor IDs
-    env.assertTrue(isinstance(hybrid_result, list))
-    result_dict = dict(zip(hybrid_result[::2], hybrid_result[1::2]))
+    # Test each shard with its appropriate slot range
+    for shard_id, slots_data in shard_ranges:
+        # Execute the hybrid command with cursors using shard-specific slots
+        query_vec = create_np_array_typed([1.0, 0.0], 'FLOAT32')
 
-    # Should have both cursor types
-    env.assertIn('VSIM', result_dict)
-    env.assertIn('SEARCH', result_dict)
+        if env.isCluster():
+            # In cluster mode, send to specific shard
+            shard_conn = env.getConnection(shardId=shard_id + 1)  # 1-based indexing
+            shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            hybrid_result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
+                                                     'VSIM', '@embedding', query_vec.tobytes(),
+                                                     'WITHCURSOR', '_SLOTS_INFO', slots_data)
+        else:
+            # In standalone mode, send to main connection
+            hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
+                                  'VSIM', '@embedding', query_vec.tobytes(),
+                                  'WITHCURSOR', '_SLOTS_INFO', slots_data)
 
-    # Get expected results from equivalent individual FT.SEARCH commands
-    # For text search - just get document keys
+        hybrid_result = remove_warnings(hybrid_result)
+        # Should return a map with cursor IDs
+        env.assertTrue(isinstance(hybrid_result, list))
+        result_dict = dict(zip(hybrid_result[::2], hybrid_result[1::2]))
+
+        # Should have both cursor types
+        env.assertIn('VSIM', result_dict)
+        env.assertIn('SEARCH', result_dict)
+
     text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:shoes', 'DIALECT', '2', 'RETURN', '0')
-
-    # For vector search - return only keys to avoid binary data issues
     vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
                                   'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
 
@@ -258,7 +324,10 @@ def test_hybrid_internal_cursor_interaction(env):
     # Read from cursors and collect results using common function
     cursor_results = {}
     for cursor_type, cursor_id in result_dict.items():
-        cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id)
+        if env.isCluster():
+            cursor_results[cursor_type] = read_cursor_completely_resp2(env, 'idx', cursor_id)
+        else:
+            cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id)
 
     # Compare cursor results with expected FT.SEARCH results
     if 'SEARCH' in cursor_results:
@@ -303,25 +372,38 @@ def test_hybrid_internal_cursor_with_scores():
             env.assertTrue(isinstance(result['score'], (int, float)))
 
 
-@skip(cluster=True)
 def test_hybrid_internal_with_params(env):
     """Test _FT.HYBRID with WITHCURSOR and PARAMS functionality"""
     setup_hybrid_test_data(env)
 
-    # Test with PARAMS for both text and vector parts
-    query_vec = create_np_array_typed([1.0, 0.0], 'FLOAT32')
+    # Get slot ranges for each shard
+    shard_ranges = get_shard_slot_ranges(env)
 
-    # Execute hybrid command with direct vector specification (keeping text param)
-    hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:($term)',
-                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR',
-                           'PARAMS', '2', 'term', 'shoes', '_SLOTS_INFO', generate_slots())
-    hybrid_result = remove_warnings(hybrid_result)
+    # Test each shard with its appropriate slot range
+    for shard_id, slots_data in shard_ranges:
+        # Test with PARAMS for both text and vector parts
+        query_vec = create_np_array_typed([1.0, 0.0], 'FLOAT32')
 
-    # Should return cursor map
-    env.assertTrue(isinstance(hybrid_result, list))
-    result_dict = dict(zip(hybrid_result[::2], hybrid_result[1::2]))
-    env.assertIn('VSIM', result_dict)
-    env.assertIn('SEARCH', result_dict)
+        # Execute hybrid command with shard-specific slots
+        if env.isCluster():
+            # In cluster mode, send to specific shard
+            shard_conn = env.getConnection(shardId=shard_id + 1)  # 1-based indexing
+            shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            hybrid_result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:($term)',
+                                                     'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR',
+                                                     'PARAMS', '2', 'term', 'shoes', '_SLOTS_INFO', slots_data)
+        else:
+            # In standalone mode, send to main connection
+            hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:($term)',
+                                  'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR',
+                                  'PARAMS', '2', 'term', 'shoes', '_SLOTS_INFO', slots_data)
+        hybrid_result = remove_warnings(hybrid_result)
+
+        # Should return cursor map
+        env.assertTrue(isinstance(hybrid_result, list))
+        result_dict = dict(zip(hybrid_result[::2], hybrid_result[1::2]))
+        env.assertIn('VSIM', result_dict)
+        env.assertIn('SEARCH', result_dict)
 
     # Get expected results from equivalent parameterized FT.SEARCH commands
     text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:($term)', 'DIALECT', '2',
@@ -395,17 +477,29 @@ def test_hybrid_internal_empty_search_results(env):
 
     # Search for a term that doesn't exist in any document
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
-    hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:nonexistent',
-                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', '_SLOTS_INFO', generate_slots())
 
-    hybrid_result = remove_warnings(hybrid_result)
-    # Should return a map with cursor IDs
-    env.assertTrue(isinstance(hybrid_result, list))
-    result_dict = dict(zip(hybrid_result[::2], hybrid_result[1::2]))
+    for shard_id, slots_data in get_shard_slot_ranges(env):
+        if env.isCluster():
+            # In cluster mode, send to specific shard
+            shard_conn = env.getConnection(shardId=shard_id + 1)  # 1-based indexing
+            shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            hybrid_result = shard_conn.execute_command('_FT.HYBRID', 'idx', 'SEARCH', '@description:nonexistent',
+                                                     'VSIM', '@embedding', query_vec.tobytes(),
+                                                     'WITHCURSOR', '_SLOTS_INFO', slots_data)
+        else:
+            # In standalone mode, send to main connection
+            hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:nonexistent',
+                                  'VSIM', '@embedding', query_vec.tobytes(),
+                                  'WITHCURSOR', '_SLOTS_INFO', slots_data)
 
-    # Should have both cursor types
-    env.assertIn('VSIM', result_dict)
-    env.assertIn('SEARCH', result_dict)
+        hybrid_result = remove_warnings(hybrid_result)
+        # Should return a map with cursor IDs
+        env.assertTrue(isinstance(hybrid_result, list))
+        result_dict = dict(zip(hybrid_result[::2], hybrid_result[1::2]))
+
+        # Should have both cursor types
+        env.assertIn('VSIM', result_dict)
+        env.assertIn('SEARCH', result_dict)
 
     # Verify that text search returns no results
     text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:nonexistent', 'DIALECT', '2', 'RETURN', '0')
