@@ -130,6 +130,23 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
+
+  benchmark-search-oss-cluster-04-primaries-threads-6:
+    needs: benchmark-search-oss-standalone
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries-threads-6' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        member_id: [1, 2, 3]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "search*.yml"
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-04-primaries-threads-6
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
   benchmark-search-oss-cluster-08-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
     strategy:

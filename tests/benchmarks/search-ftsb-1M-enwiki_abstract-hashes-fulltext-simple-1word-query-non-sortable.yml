@@ -16,7 +16,6 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
-  - oss-standalone-threads-6
 
 dbconfig:
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes-non-sortable"

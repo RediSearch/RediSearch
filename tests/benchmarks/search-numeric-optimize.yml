@@ -5,7 +5,6 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
-  - oss-standalone-threads-6
   - oss-cluster-03-primaries
 dbconfig:
   - tool: ftsb_redisearch

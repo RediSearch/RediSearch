@@ -6,7 +6,6 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
-  - oss-standalone-threads-6
   - oss-cluster-02-primaries
   - oss-cluster-04-primaries
   - oss-cluster-08-primaries

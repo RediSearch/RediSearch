@@ -112,7 +112,7 @@ spec:
         cpus: "3"
         memory: "30g"
 
-  - name: oss-cluster-04-primaries
+  - name: oss-cluster-04-primaries-threads-6
     type: oss-cluster
     redis_topology:
       primaries: 4
@@ -121,6 +121,25 @@ spec:
     resources:
       requests:
         cpus: "4"
+        memory: "40g"
+    dbconfig:
+      module-configuration-parameters:
+        redisearch:
+          WORKERS: 6
+          MIN_OPERATION_WORKERS: 6
+        module-oss:
+          WORKERS: 6
+          MIN_OPERATION_WORKERS: 6
+
+  - name: oss-cluster-04-primaries
+    type: oss-cluster
+    redis_topology:
+      primaries: 4
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "24"
         memory: "40g"
 
   - name: oss-cluster-05-primaries

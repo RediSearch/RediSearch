@@ -5,7 +5,6 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
-  - oss-standalone-threads-6
 
 dbconfig:
   - init_commands:
