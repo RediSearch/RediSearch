@@ -477,6 +477,11 @@ def test_change_workers_number():
     # without actually creating the threads.
     env = initEnv(moduleArgs='WORKERS 1')
     check_threads(expected_num_threads_alive=0, expected_n_threads=1)
+
+    # Before starting the test, set the number of connections per shard to 2 to avoid flakiness
+    # due to connections being rapidly opened/closed when changing the number of workers.
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '2').ok()
+
     # Increase number of threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
     check_threads(expected_num_threads_alive=0, expected_n_threads=2)
