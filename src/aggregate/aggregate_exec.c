@@ -721,8 +721,21 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_ArrayEnd(reply);
 
     if (IsProfile(req)) {
+      /**
+       *  TODO-TODO-ODO-TODO-ODO-TODO-ODO-TODO-ODO-TODO-ODO-TODO-ODO-TODO-
+       * maybe we should fill that only on demand (pass a flag to the func)
+       * */
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
-      ProfilePrinterCtx profileCtx = {0};
+    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+
+              ProfilePrinterCtx profileCtx = {
+      .req = req,
+      .timedout = req->has_timedout,
+      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
+      .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
+      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
+    };
       profileCtx.req = req;
       profileCtx.queryOOM = QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err);
 
@@ -1383,22 +1396,28 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       return REDISMODULE_OK;
 
         }
-    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-        ProfilePrinterCtx profileCtx = {
-      .req = req,
-      .timedout = req->has_timedout,
-      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
-      .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
-      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
-    };
 
-    RedisModule_Reply_Array(reply);
-    // Profile_PrepareMapForReply(reply);
-    req->profile(reply, &profileCtx);
-      RedisModule_Reply_LongLong(reply, 0);
-RedisModule_Reply_ArrayEnd(reply);
-    // int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
+        // This also works!
+//     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+//     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+//         ProfilePrinterCtx profileCtx = {
+//       .req = req,
+//       .timedout = req->has_timedout,
+//       .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
+//       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
+//       .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
+//     };
+
+//     RedisModule_Reply_Array(reply);
+//     Profile_PrepareMapForReply(reply);
+//     req->profile(reply, &profileCtx);
+//       RedisModule_Reply_LongLong(reply, 1);
+// RedisModule_Reply_ArrayEnd(reply);
+
+// WORKS!!
+sendChunk_ReplyOnly_EmptyResults(reply, req);
+
+    int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
 
   } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);

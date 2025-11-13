@@ -107,7 +107,7 @@ int getNextReply(RPNet *nc) {
   // For profile command, extract the profile data from the reply
   if (nc->cmd.forProfiling) {
     // if the cursor id is 0, this is the last reply from this shard, and it has the profile data
-    // if (CURSOR_EOF == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
+    if (CURSOR_EOF == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
     MRReply *profile_data;
       if (nc->cmd.protocol == 3) {
         // [
@@ -130,7 +130,8 @@ int getNextReply(RPNet *nc) {
         RS_ASSERT(MRReply_Length(root) == 3);
         profile_data = MRReply_TakeArrayElement(root, 2);
       }
-    if (profile_data) array_append(nc->shardsProfile, profile_data);
+      array_append(nc->shardsProfile, profile_data);
+    }
   }
 
   MRReply *rows = NULL, *meta = NULL;

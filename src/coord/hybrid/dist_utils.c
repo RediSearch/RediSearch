@@ -148,7 +148,7 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
       newCmd = MR_NewCommand(4, "_FT.CURSOR", "PROFILE", idx, buf);
       // Internally we delete the cursor
       // TODO: we are not really deleting!
-      newCmd.rootCommand = C_DEL;
+      newCmd.rootCommand = C_PROFILE;
     } else if (timedout && !cmd->forCursor) {
       newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
       // Mark that the last command was a DEL command
@@ -166,19 +166,22 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
     *cmd = newCmd;
 
   } else {
-    // The previous command was a _FT.CURSOR READ command, so we may not need to change anything.
-    RS_LOG_ASSERT(cmd->rootCommand == C_READ, "calling `getCursorCommand` after a DEL command");
-    RS_ASSERT(cmd->num == 4);
-    RS_ASSERT(STR_EQ(cmd->strs[0], cmd->lens[0], "_FT.CURSOR"));
-    RS_ASSERT(STR_EQ(cmd->strs[1], cmd->lens[1], "READ"));
-    RS_ASSERT(atoll(cmd->strs[3]) == cursorId);
+    if (cmd->rootCommand != C_PROFILE) {
 
-    // If we timed out and not in cursor mode, we want to send the shard a DEL
-    // command instead of a READ command (here we know it has more results)
-    if (timedout && !cmd->forCursor) {
-      MRCommand_ReplaceArg(cmd, 1, "DEL", 3);
-      cmd->rootCommand = C_DEL;
+      // The previous command was a _FT.CURSOR READ command, so we may not need to change anything.
+      RS_LOG_ASSERT(cmd->rootCommand == C_READ, "calling `getCursorCommand` after a DEL command");
+      RS_ASSERT(cmd->num == 4);
+      RS_ASSERT(STR_EQ(cmd->strs[0], cmd->lens[0], "_FT.CURSOR"));
+      RS_ASSERT(STR_EQ(cmd->strs[1], cmd->lens[1], "READ"));
+      RS_ASSERT(atoll(cmd->strs[3]) == cursorId);
+      // If we timed out and not in cursor mode, we want to send the shard a DEL
+      // command instead of a READ command (here we know it has more results)
+      if (timedout && !cmd->forCursor && !cmd->forProfiling) {
+        MRCommand_ReplaceArg(cmd, 1, "DEL", 3);
+        cmd->rootCommand = C_DEL;
+      }
     }
+
   }
 
   if (timedout && cmd->forCursor) {
