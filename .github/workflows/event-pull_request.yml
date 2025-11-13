@@ -61,7 +61,7 @@ jobs:
       )
     uses: ./.github/workflows/task-test.yml
     with:
-      platform: ubuntu:latest
+      platform: ubuntu:default
       architecture: x86_64
       coverage: true
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
@@ -80,7 +80,7 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
-      platform: ubuntu:latest
+      platform: ubuntu:default
       architecture: x86_64
       san: address
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
