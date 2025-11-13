@@ -74,6 +74,7 @@ pub const extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
 pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -> QueryErrorCode {
     const TIMED_OUT_ERROR_CSTR: &CStr = QueryErrorCode::TimedOut.to_c_str();
     const OUT_OF_MEMORY_ERROR_CSTR: &CStr = QueryErrorCode::OutOfMemory.to_c_str();
+    const UNAVAILABLE_SLOTS_ERROR_CSTR: &CStr = QueryErrorCode::UnavailableSlots.to_c_str();
 
     // Safety: see safety requirement above.
     let message = unsafe { CStr::from_ptr(message) };
@@ -82,7 +83,9 @@ pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -
         QueryErrorCode::TimedOut
     } else if message == OUT_OF_MEMORY_ERROR_CSTR {
         QueryErrorCode::OutOfMemory
-    } else {
+    } else if message == UNAVAILABLE_SLOTS_ERROR_CSTR {
+        QueryErrorCode::UnavailableSlots
+    }else {
         QueryErrorCode::Generic
     }
 }

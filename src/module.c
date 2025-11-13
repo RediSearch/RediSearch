@@ -2967,6 +2967,10 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       rCtx.errorOccurred = true;
       rCtx.lastError = curr_rep;
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(curr_rep, NULL));
+      //TODO ASM: UpdateTopology and schedule for retry
+      /*if (errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS) {
+        //TODO ASM: UpdateTopology and schedule for retry
+      }*/
       if (should_return_error(errCode)) {
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;

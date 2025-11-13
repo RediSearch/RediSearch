@@ -4,6 +4,8 @@ from redis import Redis
 import random
 import re
 
+# TODO ASM: Handle tests with FT AGGREGATE and FT HYBRID beyond FT SEARCH
+
 @dataclass(frozen=True)
 class SlotRange:
     start: int
@@ -91,7 +93,6 @@ def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
 # @skip(cluster=False, min_shards=2)
-@skip() # Flaky test, until we can guarantee no missing or duplicate results during slot migration
 def test_import_slot_range(env: Env):
     n_docs = 2**14
 
@@ -203,7 +204,6 @@ def add_shard_and_migrate_test(env: Env):
 
     # Add a new shard
     env.addShardToClusterIfExists()
-    time.sleep(5)  # wait a bit for the cluster to stabilize before migrating
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
     task = import_middle_slot_range(new_shard, shard1)
