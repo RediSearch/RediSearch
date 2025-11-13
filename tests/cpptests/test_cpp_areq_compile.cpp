@@ -25,11 +25,13 @@
 class AREQTest : public ::testing::Test {
 protected:
     RedisModuleCtx* ctx = nullptr;
+    RedisModuleSlotRangeArray* local_slots = nullptr;
 
     void SetUp() override {
         ctx = RedisModule_GetThreadSafeContext(NULL);
         slots_tracker_reset_for_testing();
-        ASM_StateMachine_SetLocalSlots(createSlotRangeArray(0, 16383));
+        local_slots = createSlotRangeArray(0, 16383);
+        ASM_StateMachine_SetLocalSlots(local_slots);
         // Just assume all slots are local for testing
     }
 
@@ -37,6 +39,9 @@ protected:
         if (ctx) {
             RedisModule_FreeThreadSafeContext(ctx);
             slots_tracker_reset_for_testing();
+        }
+        if (local_slots) {
+            rm_free(local_slots);
         }
     }
 
@@ -196,8 +201,6 @@ INSTANTIATE_TEST_SUITE_P(
 
 // Test binary slot range parsing with single range
 TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
-    slots_tracker_reset_for_testing();
-    ASM_StateMachine_SetLocalSlots(createSlotRangeArray(0, 16383));
     AREQ* req = AREQ_New();
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 
@@ -239,8 +242,6 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
 
 // Test error handling for insufficient arguments
 TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
-    slots_tracker_reset_for_testing();
-    ASM_StateMachine_SetLocalSlots(createSlotRangeArray(0, 16383));
     AREQ* req = AREQ_New();
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 
@@ -270,8 +271,6 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
 
 // Test complex aggregate query with cursor, scorer, and slot ranges
 TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
-    slots_tracker_reset_for_testing();
-    ASM_StateMachine_SetLocalSlots(createSlotRangeArray(0, 16383));
     AREQ* req = AREQ_New();
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 

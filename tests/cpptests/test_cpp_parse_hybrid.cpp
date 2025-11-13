@@ -38,6 +38,7 @@ class ParseHybridTest : public ::testing::Test {
   HybridRequest *hybridRequest;
   HybridPipelineParams hybridParams;
   ParseHybridCommandCtx result;
+  RedisModuleSlotRangeArray* local_slots;
 
   // Helper function to create a RedisModuleSlotRangeArray for testing
   RedisModuleSlotRangeArray* createSlotRangeArray(uint16_t start, uint16_t end) {
@@ -52,7 +53,8 @@ class ParseHybridTest : public ::testing::Test {
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(NULL);
     slots_tracker_reset_for_testing();
-    ASM_StateMachine_SetLocalSlots(createSlotRangeArray(0, 16383));
+    local_slots = createSlotRangeArray(0, 16383);
+    ASM_StateMachine_SetLocalSlots(local_slots);
     RMCK::flushdb(ctx);
 
     // Initialize pointers to NULL
@@ -97,6 +99,9 @@ class ParseHybridTest : public ::testing::Test {
       ctx = NULL;
     }
     slots_tracker_reset_for_testing();
+    if (local_slots) {
+      rm_free(local_slots);
+    }
   }
 
   // Helper function to find vector node as direct child of PHRASE node (RANGE queries with filters)
@@ -330,7 +335,6 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithFloatConstant) {
   // Verify hasExplicitWindow flag is false (WINDOW was not specified)
   ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
-
 
 TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   // Example of a complex command in a single line
