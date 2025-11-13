@@ -104,8 +104,7 @@ def create_and_populate_index(env: Env, index_name: str, n_docs: int):
 
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
-@skip(cluster=False, min_shards=2)
-def test_import_slot_range(env: Env):
+def import_slot_range_test(env: Env):
     n_docs = 2**14
 
     create_and_populate_index(env, 'idx', n_docs)
@@ -130,6 +129,16 @@ def test_import_slot_range(env: Env):
     # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
     # topology is outdated, and the slots that would arrive to each shard would lead to errors.
     query_shards_ft_search(env, query, [shard1, shard2], expected)
+
+@skip(cluster=False, min_shards=2)
+def test_import_slot_range():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_test(env)
+
+@skip(cluster=False, min_shards=2)
+def test_import_slot_range_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_test(env)
 
 def import_slot_range_sanity_test(env: Env):
     n_docs = 2**14
