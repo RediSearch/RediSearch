@@ -91,9 +91,12 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   array_append(tmparr, n_prefixes);
-  for (uint i = 0; i < array_len(prefixes); i++) {
+  for (uint32_t i = 0; i < array_len(prefixes); i++) {
     array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
   }
+
+  // Slots info will be added here
+  uint32_t slotsInfoPos = array_len(tmparr);
 
   int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
@@ -126,6 +129,9 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   }
 
   *xcmd = MR_NewCommandArgv(array_len(tmparr), tmparr);
+
+  // Prepare command for slot info (Cluster mode)
+  MRCommand_PrepareForSlotInfo(xcmd, slotsInfoPos);
 
   // PARAMS was already validated at AREQ_Compile
   int loc = RMUtil_ArgIndex("PARAMS", argv + 3 + profileArgs, argc - 3 - profileArgs);
@@ -233,7 +239,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, cCtx);
 }
 
-static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
+int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r) {
   // Profile args
   int profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
@@ -257,7 +263,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
   rs_wall_clock_init(&r->initClock);
 
-  int profileArgs = parseProfile(argv, argc, r);
+  int profileArgs = parseProfileArgs(argv, argc, r);
   if (profileArgs == -1) return REDISMODULE_ERR;
   int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;

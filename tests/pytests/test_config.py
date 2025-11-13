@@ -194,7 +194,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
     env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
-    env.assertEqual(res_dict['ON_OOM'][0], 'ignore')
+    env.assertEqual(res_dict['ON_OOM'][0], 'return')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -250,7 +250,7 @@ def testInitConfig():
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'true', 'true')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'false', 'false')
-    _test_config_str('ON_OOM', 'ignore')
+    _test_config_str('ON_OOM', 'return')
 
 @skip(cluster=True)
 def test_command_name(env: Env):

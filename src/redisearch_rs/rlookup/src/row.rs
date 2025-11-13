@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#[cfg(debug_assertions)]
+use crate::rlookup_id::RLookupId;
 use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
 use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
@@ -22,7 +24,7 @@ use value::RSValueTrait;
 /// [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
 ///
 /// The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug)]
 pub struct RLookupRow<'a, T: RSValueTrait> {
     /// Sorting vector attached to document
     sorting_vector: Option<&'a RSSortingVector<T>>,
@@ -33,16 +35,22 @@ pub struct RLookupRow<'a, T: RSValueTrait> {
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
     /// is not the length of [`RLookupRow::dyn_values`]
     num_dyn_values: u32,
+
+    #[cfg(debug_assertions)]
+    rlookup_id: RLookupId,
 }
 
 impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
-    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and no
-    /// [`RLookupRow::sorting_vector`].
-    pub const fn new() -> Self {
+    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and
+    /// a [`RLookupRow::sorting_vector`] of the given length.
+    #[cfg_attr(not(debug_assertions), allow(unused_variables))]
+    pub const fn new(rlookup: &RLookup<'_>) -> Self {
         Self {
             sorting_vector: None,
             dyn_values: vec![],
             num_dyn_values: 0,
+            #[cfg(debug_assertions)]
+            rlookup_id: rlookup.id(),
         }
     }
 
@@ -113,6 +121,9 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not
     /// refer to a read-only (SVSRC) key.
     pub fn write_key(&mut self, key: &RLookupKey, val: T) -> Option<T> {
+        #[cfg(debug_assertions)]
+        assert_eq!(key.rlookup_id(), self.rlookup_id);
+
         let idx = key.dstidx;
         if self.dyn_values.len() <= idx as usize {
             self.set_dyn_capacity((idx + 1) as usize);

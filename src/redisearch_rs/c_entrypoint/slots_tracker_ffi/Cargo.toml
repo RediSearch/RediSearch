@@ -1,0 +1,16 @@
+[package]
+name = "slots_tracker_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[build-dependencies]
+cbindgen.workspace = true
+build_utils = { path = "../../build_utils" }
+
+[dependencies]
+slots_tracker.workspace = true

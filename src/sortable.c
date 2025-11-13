@@ -76,7 +76,7 @@ void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num) {
 
 void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str) {
   RSPUT_SANITY_CHECK
-  vec->values[idx] = RSValue_NewStringWithType(str, strlen(str), RSStringType_RMAlloc);
+  vec->values[idx] = RSValue_NewString(str, strlen(str));
 }
 
 void RSSortingVector_PutRSVal(RSSortingVector* vec, size_t idx, RSValue* val) {
@@ -109,7 +109,7 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb) {
         // strings include an extra character for null terminator. we set it to zero just in case
         char *s = RedisModule_LoadStringBuffer(rdb, &len);
         s[len - 1] = '\0';
-        vec->values[i] = RSValue_NewStringWithType(rm_strdup(s), len - 1, RSStringType_RMAlloc);
+        vec->values[i] = RSValue_NewString(rm_strdup(s), len - 1);
         RedisModule_Free(s);
         break;
       }
