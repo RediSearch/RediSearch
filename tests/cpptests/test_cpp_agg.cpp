@@ -139,7 +139,7 @@ class ReducerOptionsCXX : public ReducerOptions {
 TEST_F(AggTest, testGroupBy) {
   QueryProcessingCtx qitr = {0};
   RPMock ctx;
-  RLookup rk_in = {0};
+  RLookup rk_in = RLookup_New_Value();
   const char *values[] = {"foo", "bar", "baz", "foo"};
   ctx.values = values;
   ctx.numvals = sizeof(values) / sizeof(values[0]);
@@ -162,7 +162,7 @@ TEST_F(AggTest, testGroupBy) {
 
   QITR_PushRP(&qitr, &ctx);
 
-  RLookup rk_out = {0};
+  RLookup rk_out = RLookup_New_Value();
   RLookupKey *v_out = RLookup_GetKey_Write(&rk_out, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *score_out = RLookup_GetKey_Write(&rk_out, "SCORE", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&rk_out, "COUNT", RLOOKUP_F_NOFLAGS);
@@ -206,8 +206,8 @@ class ArrayGenerator : public ResultProcessor {
 TEST_F(AggTest, testGroupSplit) {
   QueryProcessingCtx qitr = {0};
   ArrayGenerator gen;
-  RLookup lk_in = {0};
-  RLookup lk_out = {0};
+  RLookup lk_in = RLookup_New_Value();
+  RLookup lk_out = RLookup_New_Value();
   gen.kvalue = RLookup_GetKey_Write(&lk_in, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *val_out = RLookup_GetKey_Write(&lk_out, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);

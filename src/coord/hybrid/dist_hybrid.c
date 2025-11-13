@@ -366,7 +366,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     }
     // apply the sorting changes after the distribute phase
     setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
-    RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
+    RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {NULL};
 
     arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
     if (!serialized) {

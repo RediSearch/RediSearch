@@ -372,6 +372,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   bool hadArrange = false;
 
   PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
+  dstp->lk = RLookup_New_Value();
   dstp->base.type = PLN_T_DISTRIBUTE;
   dstp->plan = remote;
   dstp->serialized = array_new(char *, 1);

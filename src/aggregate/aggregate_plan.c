@@ -88,6 +88,7 @@ void AGPLN_Init(AGGPlan *plan) {
   plan->firstStep_s.base.type = PLN_T_ROOT;
   plan->firstStep_s.base.dtor = rootStepDtor;
   plan->firstStep_s.base.getLookup = rootStepLookup;
+  plan->firstStep_s.lookup = RLookup_New_Value();
 }
 
 static RLookup *lookupFromNode(const DLLIST_node *nn) {

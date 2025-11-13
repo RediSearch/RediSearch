@@ -241,8 +241,8 @@ TEST_F(ExprTest, testGetFields) {
   RSExpr *root = ExprAST_Parse(hidden, &status);
   HiddenString_Free(hidden, false);
   ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetUserError(&status);
-  RLookup lk;
 
+  RLookup lk = RLookup_New_Value();
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
@@ -309,7 +309,7 @@ static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryErro
 }
 
 TEST_F(ExprTest, testPredicate) {
-  RLookup lk = {0};
+  RLookup lk = RLookup_New_Value();
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
@@ -391,7 +391,7 @@ TEST_F(ExprTest, testNull) {
 
 TEST_F(ExprTest, testPropertyFetch) {
   TEvalCtx ctx("log(@foo) + 2*sqrt(@bar)");
-  RLookup lk;
+  RLookup lk = {0};
   RLookup_Init(&lk, NULL);
   RLookupRow rr = {0};
   RLookupKey *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
@@ -448,7 +448,7 @@ TEST_F(ExprTest, testEvalFuncCase) {
 }
 
 TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
-  RLookup lk = {0};
+  RLookup lk = RLookup_New_Value();
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
@@ -469,7 +469,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
 }
 
 TEST_F(ExprTest, testEvalFuncCaseWithExists) {
-  RLookup lk = {0};
+  RLookup lk = RLookup_New_Value();
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
@@ -568,7 +568,7 @@ TEST_F(ExprTest, testEvalFuncCaseErrorConditions) {
 }
 
 TEST_F(ExprTest, testEvalFuncCaseShortCircuitEvaluation) {
-  RLookup lk = {0};
+  RLookup lk = RLookup_New_Value();
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};

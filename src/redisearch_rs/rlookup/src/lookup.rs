@@ -779,6 +779,8 @@ impl<'a> KeyList<'a> {
 
 impl Drop for KeyList<'_> {
     fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::drop");
         // drop all keys in this list
         // note that we are very defensive here and continually keep the head ptr correct, so
         // that if we happen to panic during drop, we don't leave the list in a bad state.
