@@ -3107,6 +3107,8 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
   }
 
+  Cursors_initSpec(sp);
+
   if (sp->isDuplicate) {
     // spec already exists lets just free this one
     // Remove the new spec from the global prefixes dictionary.
@@ -3116,7 +3118,6 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     StrongRef_Release(spec_ref);
   } else {
     IndexSpec_StartGC(spec_ref, sp);
-    Cursors_initSpec(sp);
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 
     for (int i = 0; i < sp->numFields; i++) {
