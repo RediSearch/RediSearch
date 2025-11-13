@@ -1899,7 +1899,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
     printProfileTime(cpuTime);
   }
 
-  printProfileCounter(counter);
+  printProfileIteratorCounter(counter);
 
   RedisModule_Reply_SimpleString(reply, "Child iterators");
   if (printFull) {
@@ -1926,7 +1926,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
     printProfileTime(cpuTime);
   }
 
-  printProfileCounter(counter);
+  printProfileIteratorCounter(counter);
 
   RedisModule_ReplyKV_Array(reply, "Child iterators");
     for (int i = 0; i < ii->num; i++) {
@@ -1959,7 +1959,7 @@ PRINT_PROFILE_FUNC(printMetricIt) {
     printProfileTime(cpuTime);
   }
 
-  printProfileCounter(counter);
+  printProfileIteratorCounter(counter);
 
   RedisModule_Reply_MapEnd(reply);
 }
@@ -1972,7 +1972,7 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, si
     if (config->printProfileClock) {
       printProfileTime(cpuTime);
     }
-    printProfileCounter(counter);
+    printProfileIteratorCounter(counter);
 
     if (root->type == HYBRID_ITERATOR) {
       HybridIterator *hi = root->ctx;
