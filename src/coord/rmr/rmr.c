@@ -338,7 +338,6 @@ static void uvGetConnectionPoolState(void *p) {
     RedisModule_FreeThreadSafeContext(ctx);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, NULL);
-    IORuntimeCtx_RequestCompleted(ioRuntime);
     pthread_mutex_destroy(&mt_bc->lock);
     dictRelease(mt_bc->replyDict);
     rm_free(mt_bc);
@@ -346,7 +345,8 @@ static void uvGetConnectionPoolState(void *p) {
     pthread_mutex_unlock(&mt_bc->lock);
     RedisModule_FreeThreadSafeContext(ctx);
   }
-
+  // Request is complete for this ioRuntime
+  IORuntimeCtx_RequestCompleted(ioRuntime);
   rm_free(reducedConnPoolStateCtx);
 }
 
