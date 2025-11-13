@@ -59,7 +59,7 @@ jobs:
       architecture: ${{ inputs.architecture }}
 
   common-flow:
-    name: Test ${{ needs.get-config.outputs.container || 'ubuntu-latest' }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    name: Test ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     needs: [get-config]
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{ needs.get-config.outputs.container || null }}
