@@ -113,6 +113,21 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: Fix HOME Directory
+        shell: bash
+        run: |
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
+          h=$(getent passwd $(id -un) | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld $HOME
+          ls -ld $h
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> $GITHUB_ENV
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
         if: inputs.pre-steps-script && inputs.container == 'alpine:3'
