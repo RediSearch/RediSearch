@@ -48,7 +48,7 @@ def _validate_individual_shard_results(env, profile_dict, k, ratio, scenario_des
         index_rp_profile = shard['Result processors profile'][0] #index_rp is always first
 
             # Look for Counter which represents the number of results processed
-        shard_result_count = index_rp_profile['Counter']
+        shard_result_count = index_rp_profile['Results processed']
         env.assertEqual(shard_result_count, effective_k,
         message=f"In scenario {scenario_description}: With k={k}, ratio: {ratio}, Shard {i} expected {effective_k} results, got {shard_result_count}", depth=1)
 

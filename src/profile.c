@@ -42,9 +42,9 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
     printProfileTime(cpuTime);
   }
 
-  printProfileCounter(counter);
+  printProfileIteratorCounter(counter);
 
-  RedisModule_ReplyKV_LongLong(reply, "Size", root->NumEstimated(ir));
+  RedisModule_ReplyKV_LongLong(reply, "Estimated number of matches", root->NumEstimated(ir));
 
   RedisModule_Reply_MapEnd(reply);
 }
@@ -94,8 +94,8 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
   }
-  printProfileCounter(RPProfile_GetCount(rp) - 1);
-  RedisModule_Reply_MapEnd(reply); // end of resursive map
+  printProfileRPCounter(RPProfile_GetCount(rp) - 1);
+  RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }
 

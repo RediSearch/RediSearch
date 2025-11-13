@@ -54,7 +54,7 @@ def testGeoDistanceSimple(env):
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 86 10 km]').equal([0])
   # test profile
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-  res = ['Iterators profile', ['Type', 'GEO', 'Term', '1.23,4.55 - 1.24,4.56', 'Counter', 4, 'Size', 4]]
+  res = ['Iterators profile', ['Type', 'GEO', 'Term', '1.23,4.55 - 1.24,4.56', 'Number of reading operations', 4, 'Estimated number of matches', 4]]
 
   act_res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@location:[1.23 4.56 10 km]', 'nocontent')
   env.assertEqual(act_res[1][4], res)
