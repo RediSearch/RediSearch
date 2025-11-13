@@ -24,6 +24,84 @@ use std::{
     slice,
 };
 
+/// Trait for types that embed a canary directly as their first field
+pub unsafe trait CanaryProtected: Sized {
+    const CANARY: u64;
+
+    /// Get the canary value from the first field
+    fn canary(&self) -> u64 {
+        unsafe { *(self as *const Self as *const u64) }
+    }
+
+    /// Validate the canary
+    fn assert_valid(&self) {
+        assert_eq!(
+            self.canary(),
+            Self::CANARY,
+            "canary mismatch in {}! Expected {:#x} but found {:#x}",
+            core::any::type_name::<Self>(),
+            Self::CANARY,
+            self.canary()
+        );
+    }
+}
+
+/// A Guard that auto-validates canary on every access
+///
+/// The idea is to generate a Guarded type in FFI.
+#[repr(transparent)]
+pub struct CanaryGuarded<T: CanaryProtected>(T);
+
+impl<T: CanaryProtected> CanaryGuarded<T> {
+    pub fn new(inner: T) -> Self {
+        let guard = Self(inner);
+        #[cfg(debug_assertions)]
+        guard.0.assert_valid();
+        guard
+    }
+
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T: CanaryProtected> Deref for CanaryGuarded<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        #[cfg(debug_assertions)]
+        self.0.assert_valid();
+        &self.0
+    }
+}
+
+impl<T: CanaryProtected> DerefMut for CanaryGuarded<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        #[cfg(debug_assertions)]
+        self.0.assert_valid();
+        &mut self.0
+    }
+}
+
+// Implments the [CanaryProtected] trait for a Struct X and adds a init_canary method to X.
+#[macro_export]
+macro_rules! impl_canary_protected_for_with {
+    (
+        $name:ident $(<$($lt:lifetime),*>)?, canary = $canary_val:expr
+    ) => {
+        unsafe impl $(<$($lt),*>)? CanaryProtected for $name $(<$($lt),*>)? {
+            const CANARY: u64 = $canary_val;
+        }
+
+        impl $(<$($lt),*>)? $name $(<$($lt),*>)? {
+            #[allow(dead_code)]
+            fn init_canary(&mut self) {
+                self._canary = <Self as CanaryProtected>::CANARY;
+            }
+        }
+    };
+}
+
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -199,10 +277,13 @@ pub struct RLookupKeyHeader<'a> {
 /// An append-only list of [`RLookupKey`]s.
 ///
 /// This type maintains a mapping from string names to [`RLookupKey`]s.
-/// cbindgen:no-export
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookup<'a> {
+    /// This is a temporary field that should not be accessed. It ensures correct
+    /// initialization in case of FFI usage.
+    _canary: u64,
+
     /// RLookup fields exposed to C.
     // Because we must be able to re-interpret pointers to `RLookup` to `RLookupHeader`
     // THIS MUST BE THE FIRST FIELD DONT MOVE IT
@@ -218,6 +299,8 @@ pub struct RLookup<'a> {
     #[cfg(debug_assertions)]
     id: RLookupId,
 }
+
+impl_canary_protected_for_with!(RLookup<'a>, canary = 0xbad1bad1);
 
 #[derive(Debug)]
 #[repr(C)]
@@ -977,6 +1060,7 @@ impl Default for RLookup<'_> {
 impl<'a> RLookup<'a> {
     pub fn new() -> Self {
         Self {
+            _canary: Self::CANARY,
             header: RLookupHeader {
                 keys: KeyList::new(),
             },

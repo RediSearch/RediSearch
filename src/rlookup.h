@@ -16,6 +16,7 @@
 #include "value.h"
 #include "sortable.h"
 #include "util/arr.h"
+#include "rlookup_rs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,76 +28,6 @@ typedef enum {
   RLOOKUP_C_DBL = 2,
   RLOOKUP_C_BOOL = 3
 } RLookupCoerceType;
-
-/**
- * RLookup Key
- *
- * A lookup key is a structure which contains an array index at which the
- * data may be reliably located. This avoids needless string comparisons by
- * using quick objects rather than "dynamic" string comparison mechanisms.
- *
- * The basic workflow is that users of a given key (i.e. "foo") are expected
- * to first create the key by use of RLookup_GetKey(). This will provide
- * the consumer with an opaque object that is the slot of "foo". Once the
- * key is provided, it may then be use to both read and write the key.
- *
- * Using a pre-defined key also allows the query to maintain a central registry
- * of used names. If a user makes a typo in a query, this registry will easily
- * detect that the name was not used previously.
- *
- * Note that the same name can be registered twice, in which case it will simply
- * increment the reference to the same key.
- *
- * There are two arrays which are accessed to check for the key. Their use is
- * mutually exclusive per-key, though multiple keys may exist which can access
- * either one or the other array. The first array is the "sorting vector" for
- * a given document. The F_SVSRC flag is set on keys which are expected to be
- * found within the sorting vector.
- *
- * The second array is a "dynamic" array within a given result's row data.
- * This is used for data generated on the fly, or for data not stored within
- * the sorting vector.
- */
-typedef struct RLookupKey {
-  /** The index into the array where the value resides */
-  uint16_t dstidx;
-
-  /**
-   * If the source of this value points to a sort vector, then this is the
-   * index within the sort vector that the value is located
-   */
-  uint16_t svidx;
-
-  /**
-   * Can be F_SVSRC which means the target array is a sorting vector)
-   */
-  uint32_t flags;
-
-  /** Path and name of this field
-   *  path AS name */
-  const char *path;
-  const char *name;
-  size_t name_len;
-
-  /** Pointer to next field in the list */
-  struct RLookupKey *next;
-} RLookupKey;
-
-typedef struct RLookup {
-  RLookupKey *head;
-  RLookupKey *tail;
-
-  // Length of the data row. This is not necessarily the number
-  // of lookup keys
-  uint32_t rowlen;
-
-  // Flags/options
-  uint32_t options;
-
-  // If present, then GetKey will consult this list if the value is not found in
-  // the existing list of keys.
-  IndexSpecCache *spcache;
-} RLookup;
 
 // If the key cannot be found, do not mark it as an error, but create it and
 // mark it as F_UNRESOLVED
@@ -207,38 +138,6 @@ typedef enum {
                                RLOOKUP_F_FORCE_LOAD)
 // Flags do not persist to the key, they are just options to GetKey()
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)
-
-/**
- * Get a RLookup key for a given name.
- *
- * 1. On READ mode, a key is returned only if it's already in the lookup table (available from the
- * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
- * if the lookup table accepts unresolved keys.
- */
-RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags);
-RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup, const char *name, size_t name_len,
-                                  uint32_t flags);
-/**
- * Get a RLookup key for a given name.
- *
- * 2. On WRITE mode, a key is created and returned only if it's NOT in the lookup table, unless the
- * override flag is set.
- */
-RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags);
-RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup, const char *name, size_t name_len,
-                                   uint32_t flags);
-/**
- * Get a RLookup key for a given name.
- *
- * 3. On LOAD mode, a key is created and returned only if it's NOT in the lookup table (unless the
- * override flag is set), and it is not already loaded. It will override an existing key if it was
- * created for read out of a sortable field, and the field was normalized. A sortable un-normalized
- * field counts as loaded.
- */
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name,
-                                uint32_t flags);
-RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
-                                  const char *field_name, uint32_t flags);
 
 /**
  * Get the amount of visible fields is the RLookup
@@ -388,18 +287,6 @@ typedef struct {
  */
 int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
 
-/**
- * Initialize the lookup. If cache is provided, then it will be used as an
- * alternate source for lookups whose fields are absent
- */
-void RLookup_Init(RLookup *l, IndexSpecCache *cache);
-
-/**
- * Releases any resources created by this lookup object. Note that if there are
- * lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
- * valid after this call!
- */
-void RLookup_Cleanup(RLookup *l);
 
 /**
  * Frees an individual RLookupKey, cleaning up its allocated strings
@@ -418,20 +305,6 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
  * Search an index field by its name in the lookup table spec cache.
  */
 const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
-
-/**
- * Add non-overridden keys from source lookup into destination lookup (overridden keys are skipped).
- * For each key in src, check if it already exists in dest by name.
- * If doesn't exists, create new key in dest.
- * Handle existing keys based on flags (skip with RLOOKUP_F_NOFLAGS, override with RLOOKUP_F_OVERRIDE).
- *
- * Flag handling:
- * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
- * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
- * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
- * - Targat flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
- */
-void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags);
 
 /**
  * Write field data from source row to destination row with different schemas.

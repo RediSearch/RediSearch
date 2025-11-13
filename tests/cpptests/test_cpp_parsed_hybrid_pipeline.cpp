@@ -322,7 +322,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
     ASSERT_NE(nullptr, lookup);
 
     bool foundKeyField = false;
-    for (RLookupKey *key = lookup->head; key != nullptr; key = key->next) {
+    for (RLookupKey *key = lookup->header.keys.head; key != nullptr; key = key->next) {
       if (key->name && strcmp(key->name, HYBRID_IMPLICIT_KEY_FIELD) == 0) {
         EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, key->path);
         foundKeyField = true;
@@ -375,7 +375,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestMultipleLoads) {
     std::vector<std::string> expectedFields = {"__score", "title", "__key"};
     for (const std::string& expectedField : expectedFields) {
       bool foundField = false;
-      for (RLookupKey *key = lookup->head; key != nullptr; key = key->next) {
+      for (RLookupKey *key = lookup->header.keys.head; key != nullptr; key = key->next) {
         if (key->name && strcmp(key->name, expectedField.c_str()) == 0) {
           foundField = true;
           break;
@@ -531,10 +531,10 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
   ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
 
   // Verify that the tail lookup has been properly initialized and populated
-  ASSERT_GE(tailLookup->rowlen, 3) << "Tail lookup should have at least 3 keys: 'title', 'vector', and 'category'";
+  ASSERT_GE(tailLookup->header.keys.rowlen, 3) << "Tail lookup should have at least 3 keys: 'title', 'vector', and 'category'";
 
   int tailKeyCount = 0;
-  for (RLookupKey *key = tailLookup->head; key; key = key->next) {
+  for (RLookupKey *key = tailLookup->header.keys.head; key; key = key->next) {
     if (key->name) {
       tailKeyCount++;
     }
@@ -548,17 +548,17 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
     ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
 
     // Verify that the upstream lookup has been properly populated
-    ASSERT_GE(upstreamLookup->rowlen, 3) << "Upstream request " << reqIdx << " should have at least 3 keys: 'title', 'vector', and 'category'";
+    ASSERT_GE(upstreamLookup->header.keys.rowlen, 3) << "Upstream request " << reqIdx << " should have at least 3 keys: 'title', 'vector', and 'category'";
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
-    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
+    for (RLookupKey *upstreamKey = upstreamLookup->header.keys.head; upstreamKey; upstreamKey = upstreamKey->next) {
       if (!upstreamKey->name) {
         continue; // Skip overridden keys
       }
 
       // Find corresponding key in tail lookup by name
       RLookupKey *tailKey = NULL;
-      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
+      for (RLookupKey *tk = tailLookup->header.keys.head; tk; tk = tk->next) {
         if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
           tailKey = tk;
           break;
@@ -598,10 +598,10 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
   ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
 
   // Verify that the tail lookup has been properly initialized and populated
-  ASSERT_GE(tailLookup->rowlen, 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
+  ASSERT_GE(tailLookup->header.keys.rowlen, 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
 
   int tailKeyCount = 0;
-  for (RLookupKey *key = tailLookup->head; key; key = key->next) {
+  for (RLookupKey *key = tailLookup->header.keys.head; key; key = key->next) {
     if (key->name) {
       tailKeyCount++;
     }
@@ -610,7 +610,7 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
 
   // Verify that implicit loading creates the "__key" field in the tail pipeline
   RLookupKey *tailKeyField = NULL;
-  for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
+  for (RLookupKey *tk = tailLookup->header.keys.head; tk; tk = tk->next) {
     const char *keyName = HYBRID_IMPLICIT_KEY_FIELD;
     if (tk->name && strcmp(tk->name, keyName) == 0) {
       tailKeyField = tk;
@@ -627,11 +627,11 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
     ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
 
     // Verify that the upstream lookup has been properly populated
-    ASSERT_GE(upstreamLookup->rowlen, 2) << "Upstream request " << reqIdx << " should have at least 2 keys: '__key' and '__score'";
+    ASSERT_GE(upstreamLookup->header.keys.rowlen, 2) << "Upstream request " << reqIdx << " should have at least 2 keys: '__key' and '__score'";
 
     // Verify that the upstream subquery also has the implicit "__key" field
     RLookupKey *upstreamKeyField = NULL;
-    for (RLookupKey *uk = upstreamLookup->head; uk; uk = uk->next) {
+    for (RLookupKey *uk = upstreamLookup->header.keys.head; uk; uk = uk->next) {
       if (uk->name && strcmp(uk->name, HYBRID_IMPLICIT_KEY_FIELD) == 0) {
         upstreamKeyField = uk;
         break;
@@ -641,14 +641,14 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
     EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, upstreamKeyField->path) << "Implicit key field should have path '__key' in request " << reqIdx;
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
-    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
+    for (RLookupKey *upstreamKey = upstreamLookup->header.keys.head; upstreamKey; upstreamKey = upstreamKey->next) {
       if (!upstreamKey->name) {
         continue; // Skip overridden keys
       }
 
       // Find corresponding key in tail lookup by name
       RLookupKey *tailKey = NULL;
-      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
+      for (RLookupKey *tk = tailLookup->header.keys.head; tk; tk = tk->next) {
         if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
           tailKey = tk;
           break;

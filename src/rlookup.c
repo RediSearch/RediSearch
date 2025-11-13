@@ -14,70 +14,34 @@
 #include "doc_types.h"
 #include "value.h"
 #include "util/arr.h"
+#include "rlookup_rs.h"
 
 // Allocate a new RLookupKey and add it to the RLookup table.
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
 
-  if (!lookup->head) {
-    lookup->head = lookup->tail = ret;
+  if (!lookup->header.keys.head) {
+    lookup->header.keys.head = lookup->header.keys.tail = ret;
   } else {
-    lookup->tail->next = ret;
-    lookup->tail = ret;
+    lookup->header.keys.tail->next = ret;
+    lookup->header.keys.tail = ret;
   }
 
   // Set the name of the key.
   ret->name = (flags & RLOOKUP_F_NAMEALLOC) ? rm_strndup(name, name_len) : name;
   ret->name_len = name_len;
   ret->path = ret->name;
-  ret->dstidx = lookup->rowlen;
+  ret->dstidx = lookup->header.keys.rowlen;
   ret->flags = flags & ~RLOOKUP_TRANSIENT_FLAGS;
 
   // Increase the RLookup table row length. (all rows have the same length).
-  ++(lookup->rowlen);
+  ++(lookup->header.keys.rowlen);
 
   return ret;
 }
 
-// Allocate a new RLookupKey and add it to the RLookup table.
-static RLookupKey *overrideKey(RLookup *lk, RLookupKey *old, uint32_t flags) {
-  RLookupKey *new = rm_calloc(1, sizeof(*new));
-
-  /* Copy the old key to the new one */
-  new->name = old->name; // taking ownership of the name
-  new->name_len = old->name_len;
-  new->path = new->name; // keeping the initial default of path = name. Path resolution will happen later.
-  new->dstidx = old->dstidx;
-
-  /* Set the new flags */
-  new->flags = flags & ~RLOOKUP_TRANSIENT_FLAGS;
-  // If the old key was allocated, we take ownership of the name.
-  new->flags |= old->flags & RLOOKUP_F_NAMEALLOC;
-
-  /* Make the old key inaccessible for new lookups */
-  if (old->path == old->name) {
-    // If the old key allocated the name and not the path, we take ownership of the allocation
-    old->flags &= ~RLOOKUP_F_NAMEALLOC;
-  }
-  old->name = NULL;
-  // 0 is a valid length if the user provided an empty string as a name.
-  // This is safe as whenever we compare key names, we first check that the length are equal.
-  old->name_len = -1;
-  old->flags |= RLOOKUP_F_HIDDEN; // Mark the old key as hidden so it won't be attempted to be returned
-
-  /* Add the new key to the lookup table */
-  new->next = old->next;
-  old->next = new;
-  // If the old key was the tail, set the new key as the tail
-  if (lk->tail == old) {
-    lk->tail = new;
-  }
-
-  return new;
-}
-
 const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
-  const IndexSpecCache *cc = lookup->spcache;
+  const IndexSpecCache *cc = lookup->index_spec_cache;
   if (!cc) {
     return NULL;
   }
@@ -128,147 +92,13 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name
   return key;
 }
 
-static RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t name_len) {
-  for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    // match `name` to the name of the key
-    if (kk->name_len == name_len && !strncmp(kk->name, name, name_len)) {
-      return kk;
-    }
-  }
-  return NULL;
-}
-
-static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size_t name_len, const char *field_name, RLookupMode mode, uint32_t flags) {
-  // remove all flags that are not relevant to getting a key
-  flags &= RLOOKUP_GET_KEY_FLAGS;
-  // First, look for the key in the lookup table for an existing key with the same name
-  RLookupKey *key = RLookup_FindKey(lookup, name, name_len);
-
-  switch (mode) {
-  // 1. if the key is already loaded, or it has created by earlier RP for writing, return NULL (unless override was requested)
-  // 2. create a new key with the name of the field, and mark it as doc-source.
-  // 3. if the key is in the schema, mark it as schema-source and apply all the relevant flags according to the field spec.
-  // 4. if the key is "loaded" at this point (in schema, sortable and un-normalized), create the key but return NULL
-  //    (no need to load it from the document).
-  case RLOOKUP_M_LOAD:
-    // NOTICE: you should not call GetKey for loading if it's illegal to load the key at the given state.
-    // The responsibility of checking this is on the caller.
-    if (!key) {
-      key = createNewKey(lookup, name, name_len, flags);
-    } else if (((key->flags & RLOOKUP_F_VAL_AVAILABLE) && !(key->flags & RLOOKUP_F_ISLOADED)) &&
-                                                          !(flags & (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)) ||
-                (key->flags & RLOOKUP_F_ISLOADED &&       !(flags &  RLOOKUP_F_OVERRIDE)) ||
-                (key->flags & RLOOKUP_F_QUERYSRC &&       !(flags &  RLOOKUP_F_OVERRIDE))) {
-      // We found a key with the same name. We return NULL if:
-      // 1. The key has the origin data available (from the sorting vector, UNF) and the caller didn't
-      //    request to override or forced loading.
-      // 2. The key is already loaded (from the document) and the caller didn't request to override.
-      // 3. The key was created by the query (upstream) and the caller didn't request to override.
-
-      // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
-      key->flags |= (flags & RLOOKUP_F_EXPLICITRETURN);
-      return NULL;
-    } else {
-      // overrides the key, and sets the new key according to the flags.
-      key = overrideKey(lookup, key, flags);
-    }
-
-    // At this point we know for sure that it is not marked as loaded.
-    const FieldSpec *fs = findFieldInSpecCache(lookup, field_name);
-    if (fs) {
-      setKeyByFieldSpec(key, fs);
-      if (key->flags & RLOOKUP_F_VAL_AVAILABLE && !(flags & RLOOKUP_F_FORCE_LOAD)) {
-        // If the key is marked as "value available", it means that it is sortable and un-normalized.
-        // so we can use the sorting vector as the source, and we don't need to load it from the document.
-        return NULL;
-      }
-    } else {
-      // Field not found in the schema.
-      // We assume `field_name` is the path to load from in the document.
-      if (!(key->flags & RLOOKUP_F_NAMEALLOC)) {
-        key->path = field_name;
-      } else if (name != field_name) {
-        key->path = rm_strdup(field_name);
-      } // else
-        // If the caller requested to allocate the name, and the name is the same as the path,
-        // it was already set to the same allocation for the name, so we don't need to do anything.
-    }
-    // Mark the key as loaded from the document (for the rest of the pipeline usage).
-    key->flags |= RLOOKUP_F_DOCSRC | RLOOKUP_F_ISLOADED;
-    return key;
-
-  // A. we found the key at the lookup table:
-  //    1. if we are in exclusive mode, return NULL
-  //    2. if we are in create mode, overwrite the key (remove schema related data, mark with new flags)
-  // B. we didn't find the key at the lookup table:
-  //    create a new key with the name and flags
-  case RLOOKUP_M_WRITE:
-    if (!key) {
-      key = createNewKey(lookup, name, name_len, flags);
-    } else if (!(flags & RLOOKUP_F_OVERRIDE)) {
-      return NULL;
-    } else {
-      // overrides the key, and sets the new key according to the flags.
-      key = overrideKey(lookup, key, flags);
-    }
-
-    key->flags |= RLOOKUP_F_QUERYSRC;
-    return key;
-
-  // Return the key if it exists in the lookup table, or if it exists in the schema as SORTABLE.
-  case RLOOKUP_M_READ:
-    if (!key) {
-      // If we didn't find the key at the lookup table, check if it exists in
-      // the schema as SORTABLE, and create only if so.
-      key = genKeyFromSpec(lookup, name, name_len, flags);
-    }
-
-    // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
-    if (!key && (lookup->options & RLOOKUP_OPT_UNRESOLVED_OK)) {
-      key = createNewKey(lookup, name, name_len, flags);
-      key->flags |= RLOOKUP_F_UNRESOLVED;
-    }
-    return key;
-  }
-
-  return NULL;
-}
-
-RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_READ, flags);
-}
-
-RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup, const char *name, size_t name_len,
-                                  uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_READ, flags);
-}
-
-RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_WRITE, flags);
-}
-
-RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup, const char *name, size_t name_len,
-                                   uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_WRITE, flags);
-}
-
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name,
-                                uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, strlen(name), field_name, RLOOKUP_M_LOAD, flags);
-}
-
-RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
-                                  const char *field_name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, name_len, field_name, RLOOKUP_M_LOAD, flags);
-}
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFieldIndex,
                          int requiredFlags, int excludeFlags, SchemaRule *rule) {
   int i = 0;
   size_t nfields = 0;
-  for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
+  for (const RLookupKey *kk = lookup->header.keys.head; kk; kk = kk->next, ++i) {
     if (kk->name == NULL) {
       // Overridden key. Skip without incrementing the index
       --i;
@@ -295,13 +125,8 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
     skipFieldIndex[i] = 1;
     ++nfields;
   }
-  RS_LOG_ASSERT(i == lookup->rowlen, "'i' should be equal to lookup len");
+  RS_LOG_ASSERT(i == lookup->header.keys.rowlen, "'i' should be equal to lookup len");
   return nfields;
-}
-
-void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
-  memset(lk, 0, sizeof(*lk));
-  lk->spcache = spcache;
 }
 
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
@@ -353,7 +178,7 @@ void RLookupRow_Reset(RLookupRow *r) {
 }
 
 void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
-  for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+  for (const RLookupKey *kk = lk->header.keys.head; kk; kk = kk->next) {
     RSValue *vv = RLookup_GetItem(kk, src);
     if (vv) {
       RLookup_WriteKey(kk, dst, vv);
@@ -374,19 +199,6 @@ static void RLookupKey_Cleanup(RLookupKey *k) {
 void RLookupKey_Free(RLookupKey *k) {
   RLookupKey_Cleanup(k);
   rm_free(k);
-}
-
-void RLookup_Cleanup(RLookup *lk) {
-  RLookupKey *next, *cur = lk->head;
-  while (cur) {
-    next = cur->next;
-    RLookupKey_Free(cur);
-    cur = next;
-  }
-  IndexSpecCache_Decref(lk->spcache);
-
-  lk->head = lk->tail = NULL;
-  memset(lk, 0xff, sizeof(*lk));
 }
 
 RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
@@ -753,7 +565,7 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
       }
     }
   } else { // If we called load to perform IF operation with FT.ADD command
-    for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
+    for (const RLookupKey *kk = it->header.keys.head; kk; kk = kk->next) {
       /* key is not part of document schema. no need/impossible to 'load' it */
       if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
         continue;
@@ -982,32 +794,13 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   return rv;
 }
 
-void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
-  RS_ASSERT(dest && src);
-  RS_ASSERT(dest != src);  // Prevent self-addition
-
-  // Iterate through all keys in source lookup
-  for (const RLookupKey *src_key = src->head; src_key; src_key = src_key->next) {
-    if (!src_key->name) {
-      // Skip overridden keys (they have name == NULL)
-      continue;
-    }
-
-    // Combine caller's control flags with source key's persistent properties
-    // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
-    // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
-    uint32_t combined_flags = flags | (src_key->flags & ~RLOOKUP_TRANSIENT_FLAGS);
-    RLookupKey *dest_key = RLookup_GetKey_Write(dest, src_key->name, combined_flags);
-  }
-}
-
 void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
                                RLookupRow *destRow, RLookup *destLookup) {
   RS_ASSERT(srcRow && srcLookup);
   RS_ASSERT(destRow && destLookup);
 
   // Iterate through all source keys
-  for (const RLookupKey *src_key = srcLookup->head; src_key; src_key = src_key->next) {
+  for (const RLookupKey *src_key = srcLookup->header.keys.head; src_key; src_key = src_key->next) {
     if (!src_key->name) {
       // Skip overridden keys
       continue;

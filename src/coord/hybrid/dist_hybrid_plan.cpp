@@ -122,7 +122,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     }
 
     std::vector<const RLookupKey *> unresolvedKeys;
-    for (RLookupKey *kk = tailLookup->head; kk; kk = kk->next) {
+    for (RLookupKey *kk = tailLookup->header.keys.head; kk; kk = kk->next) {
       if (kk->flags & RLOOKUP_F_UNRESOLVED) {
         unresolvedKeys.push_back(kk);
       }

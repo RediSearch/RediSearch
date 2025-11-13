@@ -19,7 +19,7 @@ mod row;
 pub use bindings::IndexSpecCache;
 pub use load_document::load_document;
 pub use lookup::{
-    Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption,
-    RLookupOptions,
+    CanaryGuarded, Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
+    RLookupOption, RLookupOptions,
 };
 pub use row::RLookupRow;
