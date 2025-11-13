@@ -96,17 +96,19 @@ def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
         while not is_migration_complete(conn, task_id):
             time.sleep(0.1)
 
+def create_and_populate_index(env: Env, index_name: str, n_docs: int):
+    env.expect('FT.CREATE', index_name, 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(n_docs):
+            con.execute_command('HSET', f'doc:{i}', 'n', i)
+
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
 @skip(cluster=False, min_shards=2)
 def test_import_slot_range(env: Env):
     n_docs = 2**14
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
-
-    with env.getClusterConnectionIfNeeded() as con:
-        for i in range(n_docs):
-            con.execute_command('HSET', f'doc:{i}', 'n', i)
+    create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
 
@@ -131,12 +133,7 @@ def test_import_slot_range(env: Env):
 
 def import_slot_range_sanity_test(env: Env):
     n_docs = 2**14
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
-
-    with env.getClusterConnectionIfNeeded() as con:
-        for i in range(n_docs):
-            con.execute_command('HSET', f'doc:{i}', 'n', i)
+    create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
 
@@ -168,14 +165,9 @@ def test_import_slot_range_sanity_BG():
     import_slot_range_sanity_test(env)
 
 def add_shard_and_migrate_test(env: Env):
-    n_docs = 2**14
     initial_shards_count = env.shardsCount
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
-
-    with env.getClusterConnectionIfNeeded() as con:
-        for i in range(n_docs):
-            con.execute_command('HSET', f'doc:{i}', 'n', i)
+    n_docs = 2**14
+    create_and_populate_index(env, 'idx', n_docs)
 
     shard1 = env.getConnection(1)
 
