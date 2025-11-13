@@ -488,7 +488,7 @@ numericConfigs = [
     ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True, False),
     ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, LLONG_MAX, False, False),
     ('search-max-search-results', 'MAXSEARCHRESULTS', DEFAULT_MAX_SEARCH_REQUEST_RESULTS, 0, MAX_SEARCH_REQUEST_RESULTS, False, False),
-    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 1, 16, False, False),
+    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 0, 16, False, False),
     ('search-min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False, False),
     ('search-min-prefix', 'MINPREFIX', 2, 1, LLONG_MAX, False, False),
     ('search-min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False, False),
