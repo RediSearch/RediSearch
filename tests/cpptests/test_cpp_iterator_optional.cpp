@@ -655,7 +655,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithReaderWildcardChild) {
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
   // Create an iterator that reads only entries with field mask 2
-  QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
+  QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.mask_tag = FieldMaskOrIndex_Mask, .mask = 2}, nullptr, 1.0);
   InvIndIterator* invIdxIt = (InvIndIterator *)wildcardChild;
   invIdxIt->isWildcard = true;
 

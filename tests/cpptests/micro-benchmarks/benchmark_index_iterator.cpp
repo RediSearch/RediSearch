@@ -125,10 +125,10 @@ public:
     void createIterator(IndexFlags flags) {
         // Create an iterator based on the flags
         if (flags == Index_StoreNumeric) {
-            FieldFilterContext fieldCtx = {.field = {false, 0}, .predicate = FIELD_EXPIRATION_DEFAULT};
+            FieldFilterContext fieldCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = 0}, .predicate = FIELD_EXPIRATION_DEFAULT};
             iterator = NewInvIndIterator_NumericQuery(index, &q_mock->sctx, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
         } else {
-            iterator = NewInvIndIterator_TermQuery(index, &q_mock->sctx, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
+            iterator = NewInvIndIterator_TermQuery(index, &q_mock->sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, nullptr, 1.0);
         }
     }
 

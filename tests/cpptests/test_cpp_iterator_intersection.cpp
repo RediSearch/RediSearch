@@ -185,7 +185,7 @@ public:
     QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * terms.size());
     for (size_t i = 0; i < terms.size(); i++) {
       ASSERT_NE(invertedIndexes.find(terms[i]), invertedIndexes.end()) << "Term " << terms[i] << " not found in inverted indexes";
-      children[i] = NewInvIndIterator_TermQuery(invertedIndexes[terms[i]], NULL, {true, RS_FIELDMASK_ALL}, NULL, 1.0);
+      children[i] = NewInvIndIterator_TermQuery(invertedIndexes[terms[i]], NULL, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, NULL, 1.0);
     }
     ii_base = NewIntersectionIterator(children, terms.size(), max_slop, in_order, 1.0);
   }
@@ -433,7 +433,7 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
   // Create an iterator that reads only entries with field mask 2
-  QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
+  QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.mask_tag = FieldMaskOrIndex_Mask, .mask = 2}, nullptr, 1.0);
   InvIndIterator* invIdxIt = (InvIndIterator *)iterator;
   invIdxIt->isWildcard = true;
   children[3] = iterator;

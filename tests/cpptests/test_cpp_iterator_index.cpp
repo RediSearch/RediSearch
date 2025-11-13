@@ -58,11 +58,11 @@ protected:
         switch (indexIteratorType) {
             case TYPE_TERM:
                 SetTermsInvIndex();
-                it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
+                it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, nullptr, 1.0);
                 break;
             case TYPE_NUMERIC: {
                 SetNumericInvIndex();
-                FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+                FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
                 FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
                 numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
                 it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, nullptr, -INFINITY, INFINITY);
@@ -230,7 +230,7 @@ public:
     }
     void CreateIterator(double min, double max) {
         ASSERT_TRUE(idx != nullptr);
-        FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+        FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
         FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
         flt = NewNumericFilter(min, max, 1, 1, 1, nullptr);
         iterator = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, flt, nullptr, min, max);
@@ -295,7 +295,7 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
         InvertedIndex_WriteEntryGeneric(idx, &res);
     }
     // Create an iterator that reads only entries with field mask 2
-    QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
+    QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.mask_tag = FieldMaskOrIndex_Mask, .mask = 2}, nullptr, 1.0);
 
     // Attempt to skip to the first entry, expecting EOF since no entries match the filter
     ASSERT_EQ(iterator->SkipTo(iterator, 1), ITERATOR_EOF);
@@ -355,11 +355,11 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
 
           // Create the iterator based on the flags
           if (flags & Index_StoreNumeric) {
-              FieldFilterContext fieldCtx = {.field = {false, fieldIndex}, .predicate = FIELD_EXPIRATION_DEFAULT};
+              FieldFilterContext fieldCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex}, .predicate = FIELD_EXPIRATION_DEFAULT};
               numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
               it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, nullptr, -INFINITY, INFINITY);
           } else {
-              it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {true, fieldMask}, nullptr, 1.0);
+              it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask}, nullptr, 1.0);
           }
       }
 
@@ -640,7 +640,7 @@ private:
         numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, fs);
 
         // Create the iterator with proper sctx so NumericCheckAbort can work
-        FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = fs->index}};
+        FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index};
         FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
         iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, fs, -INFINITY, INFINITY);
 
@@ -689,7 +689,7 @@ private:
         // Query version with proper context and term data
         RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
         queryTerm = NewQueryTerm(&tok, 1);
-        FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+        FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
         iterator = NewInvIndIterator_TermQuery(termIdx, sctx, fieldMaskOrIndex, queryTerm, 1.0);
     }
 
@@ -731,7 +731,7 @@ private:
         // Query version with proper context and term data
         RSToken tagTok = {.str = const_cast<char*>("test_tag"), .len = 8, .flags = 0};
         tagQueryTerm = NewQueryTerm(&tagTok, 1);
-        FieldMaskOrIndex tagFieldMaskOrIndex = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+        FieldMaskOrIndex tagFieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
         iterator = NewInvIndIterator_TagQuery(tagInvIdx, tagIdx, sctx, tagFieldMaskOrIndex, tagQueryTerm, 1.0);
     }
 
@@ -951,4 +951,3 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
         ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
     }
 }
-

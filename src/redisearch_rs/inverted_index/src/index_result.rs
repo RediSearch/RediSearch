@@ -12,7 +12,8 @@ use std::{alloc::Layout, ffi::c_char, fmt::Debug, marker::PhantomData, ptr};
 use enumflags2::{BitFlags, bitflags};
 pub use ffi::RSQueryTerm;
 use ffi::{
-    FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, RSYieldableMetric, t_docId, t_fieldMask,
+    FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, RSYieldableMetric, t_docId, t_fieldIndex,
+    t_fieldMask,
 };
 use low_memory_thin_vec::LowMemoryThinVec;
 
@@ -682,6 +683,17 @@ impl RSResultData<'_> {
             Self::HybridMetric(agg) => RSResultData::HybridMetric(agg.to_owned()),
         }
     }
+}
+
+#[repr(u8)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+/// cbindgen:prefix-with-name=true
+/// Type representing either a field mask or field index.
+pub enum FieldMaskOrIndex {
+    /// For textual fields, allows to host multiple field indices at once.
+    Index(t_fieldIndex) = 0,
+    /// For the other fields, allows a single field to be referenced.
+    Mask(t_fieldMask) = 1,
 }
 
 /// The result of an inverted index

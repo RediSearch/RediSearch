@@ -197,7 +197,7 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, Do
     goto err;
   }
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value.mask = fieldMask};
+  FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
   QueryIterator *it = NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
   RedisModule_FreeString(ctx->redisCtx, termKey);
   return it;
