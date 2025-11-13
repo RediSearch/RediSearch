@@ -155,7 +155,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
+            if ./install_script.sh ${{ steps.env.outputs.mode }}; then
               echo "Setup succeeded"
               exit 0
             fi
@@ -171,7 +171,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
+            if ./install_aws.sh ${{ steps.env.outputs.mode }}; then
               echo "Install aws cli succeeded"
               exit 0
             fi
@@ -186,7 +186,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
+            if .install/test_deps/common_installations.sh ${{ steps.env.outputs.mode }}; then
               echo "Setup test dependencies succeeded"
               exit 0
             fi
@@ -236,7 +236,7 @@ jobs:
             git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
-        run: ${{ steps.mode.outputs.mode }} make install
+        run: ${{ steps.env.outputs.mode }} make install
 
       # Build & Pack
       - name: Build and Pack RediSearch OSS
