@@ -2274,7 +2274,6 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   sp->uniqueId = spec_unique_ids++;
 
-  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
   RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
   CursorList_AddSpec(&RSCursors, sp->name);
   CursorList_AddSpec(&RSCursorsCoord, sp->name);
@@ -2283,7 +2282,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
     if (sp->smap == NULL)
-      goto cleanup;
+    goto cleanup;
   }
 
   sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
@@ -2313,6 +2312,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     IndexSpec_FreeInternals(sp);
     sp = oldSpec;
   } else {
+    IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
     dictAdd(specDict_g, sp->name, sp);
     for (int i = 0; i < sp->numFields; i++) {
       FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
