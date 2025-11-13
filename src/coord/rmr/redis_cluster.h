@@ -10,10 +10,12 @@
 #pragma once
 
 #include "cluster.h"
+#include "redismodule.h"
 
 // forward declaration
+#define REFRESH_PERIOD 1000 // 1 second
 struct RedisModuleCtx;
 
 void UpdateTopology(struct RedisModuleCtx *ctx);
-int InitRedisTopologyUpdater(struct RedisModuleCtx *ctx);
+int InitRedisTopologyUpdater(struct RedisModuleCtx *ctx, mstime_t refresh_period);
 int StopRedisTopologyUpdater(RedisModuleCtx *ctx);

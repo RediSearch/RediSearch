@@ -17,6 +17,8 @@
 #include "dictionary.h"
 #include "slot_ranges.h"
 #include "asm_state_machine.h"
+//TODO ASM: Review this, maybe is worth duplicating the logic or moving to utils?
+#include "src/coord/rmr/redis_cluster.h"
 
 #define JSON_LEN 5 // length of string "json."
 
@@ -352,19 +354,28 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
       ASM_StateMachine_CompleteImport(slots);
-      // TODO ASM: Try to update the cluster topology
+
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
+      if (!IsEnterprise() && subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED) {
+        StopRedisTopologyUpdater(ctx);
+        // eventloop will process this timer immediately and then get back to the REFRESH_PERIOD
+        InitRedisTopologyUpdater(ctx, 0);
+      }
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED:
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED:
       ASM_StateMachine_CompleteMigration(slots);
-      // TODO ASM: Try to update the cluster topology
+      if (!IsEnterprise()) {
+        StopRedisTopologyUpdater(ctx);
+        // eventloop will process this timer immediately and then get back to the REFRESH_PERIOD
+        InitRedisTopologyUpdater(ctx, 0);
+      }
       break;
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
