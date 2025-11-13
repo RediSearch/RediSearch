@@ -277,6 +277,9 @@ def test_hybrid_internal_cursor_interaction(env):
     # Get slot ranges for each shard
     shard_ranges = get_shard_slot_ranges(env)
 
+    cursor_results_accum_text = []
+    cursor_results_accum_vector = []
+
     # Test each shard with its appropriate slot range
     for shard_id, slots_data in shard_ranges:
         # Execute the hybrid command with cursors using shard-specific slots
@@ -310,32 +313,33 @@ def test_hybrid_internal_cursor_interaction(env):
                 cursor_results[cursor_type] = read_cursor_completely(shard_conn, 'idx', cursor_id, protocol=getattr(env, 'protocol', None))
             else:
                 cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id, protocol=getattr(env, 'protocol', None))
-
-            text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:shoes', 'DIALECT', '2', 'RETURN', '0')
-            vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
-                                          'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
-
-        # Extract document keys from expected results (RETURN 0 format)
-        def extract_doc_keys(search_result):
-            """Extract document keys from FT.SEARCH result format with RETURN 0"""
-            if len(search_result) < 2:
-                return []
-
-            doc_keys = []
-            # Skip the count (first element), remaining elements are just document keys
-            for i in range(1, len(search_result)):
-                doc_keys.append(search_result[i])
-            return sorted(doc_keys)
-
-        expected_text_docs = extract_doc_keys(text_search_result)
-        expected_vector_docs = extract_doc_keys(vector_search_result)
-
-        # Compare cursor results with expected FT.SEARCH results
         if 'SEARCH' in cursor_results:
-            env.assertEqual(cursor_results['SEARCH'], expected_text_docs)
-
+            cursor_results_accum_text.append(cursor_results['SEARCH'])
         if 'VSIM' in cursor_results:
-            env.assertEqual(cursor_results['VSIM'], expected_vector_docs)
+            cursor_results_accum_vector.append(cursor_results['VSIM'])
+
+    text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:shoes', 'DIALECT', '2', 'RETURN', '0')
+    vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
+                                  'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
+
+    # Extract document keys from expected results (RETURN 0 format)
+    def extract_doc_keys(search_result):
+        """Extract document keys from FT.SEARCH result format with RETURN 0"""
+        if len(search_result) < 2:
+            return []
+
+        doc_keys = []
+        # Skip the count (first element), remaining elements are just document keys
+        for i in range(1, len(search_result)):
+            doc_keys.append(search_result[i])
+        return sorted(doc_keys)
+
+    expected_text_docs = extract_doc_keys(text_search_result)
+    expected_vector_docs = extract_doc_keys(vector_search_result)
+    sorted_cursor_results_accum_text = sorted([doc for sublist in cursor_results_accum_text for doc in sublist])
+    sorted_cursor_results_accum_vector = sorted([doc for sublist in cursor_results_accum_vector for doc in sublist])
+    env.assertEqual(sorted_cursor_results_accum_text, expected_text_docs)
+    env.assertEqual(sorted_cursor_results_accum_vector, expected_vector_docs)
 
 
 def test_hybrid_internal_cursor_with_scores():
@@ -378,6 +382,9 @@ def test_hybrid_internal_with_params(env):
     # Get slot ranges for each shard
     shard_ranges = get_shard_slot_ranges(env)
 
+    cursor_results_accum_text = []
+    cursor_results_accum_vector = []
+
     # Test each shard with its appropriate slot range
     for shard_id, slots_data in shard_ranges:
         # Test with PARAMS for both text and vector parts
@@ -404,19 +411,6 @@ def test_hybrid_internal_with_params(env):
         env.assertIn('VSIM', result_dict)
         env.assertIn('SEARCH', result_dict)
 
-        # Get expected results from equivalent parameterized FT.SEARCH commands
-        text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:($term)', 'DIALECT', '2',
-                                    'PARAMS', '2', 'term', 'shoes', 'RETURN', '0')
-        vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
-                                      'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
-
-        # Extract expected document keys
-        def extract_doc_keys(search_result):
-            return sorted(search_result[1:]) if len(search_result) > 1 else []
-
-        expected_text_docs = extract_doc_keys(text_search_result)
-        expected_vector_docs = extract_doc_keys(vector_search_result)
-
         # Read cursor results and compare with expected results
         cursor_results = {}
         for cursor_type, cursor_id in result_dict.items():
@@ -426,8 +420,25 @@ def test_hybrid_internal_with_params(env):
                 cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id, protocol=getattr(env, 'protocol', None))
 
         # Verify that parameterized queries work correctly
-        env.assertEqual(cursor_results['SEARCH'], expected_text_docs)
-        env.assertEqual(cursor_results['VSIM'], expected_vector_docs)
+        cursor_results_accum_text.append(cursor_results['SEARCH'])
+        cursor_results_accum_vector.append(cursor_results['VSIM'])
+
+    # Get expected results from equivalent parameterized FT.SEARCH commands
+    text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:($term)', 'DIALECT', '2',
+                                'PARAMS', '2', 'term', 'shoes', 'RETURN', '0')
+    vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
+                                  'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
+
+    # Extract expected document keys
+    def extract_doc_keys(search_result):
+        return sorted(search_result[1:]) if len(search_result) > 1 else []
+
+    expected_text_docs = extract_doc_keys(text_search_result)
+    expected_vector_docs = extract_doc_keys(vector_search_result)
+    sorted_cursor_results_accum_text = sorted([doc for sublist in cursor_results_accum_text for doc in sublist])
+    sorted_cursor_results_accum_vector = sorted([doc for sublist in cursor_results_accum_vector for doc in sublist])
+    env.assertEqual(sorted_cursor_results_accum_text, expected_text_docs)
+    env.assertEqual(sorted_cursor_results_accum_vector, expected_vector_docs)
 
 
 def test_hybrid_internal_error_cases(env):
