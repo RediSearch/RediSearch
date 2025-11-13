@@ -29,7 +29,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let headers = [
         "iterator_api.h",
         "empty_iterator.h",
-        "idlist_iterator.h",
         "inverted_index_iterator.h",
         "wildcard_iterator.h",
     ]

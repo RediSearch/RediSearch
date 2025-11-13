@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "src/iterators/iterator_api.h"
-#include "src/iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 
 class BM_IdListIterator : public benchmark::Fixture {
 public:
@@ -43,7 +43,7 @@ public:
     t_docId* ids_array = (t_docId*)rm_malloc(docIds.size() * sizeof(t_docId));
     std::copy(docIds.begin(), docIds.end(), ids_array);
 
-    iterator_base = NewIdListIterator(ids_array, docIds.size(), 1.0);
+    iterator_base = NewSortedIdListIterator(ids_array, docIds.size(), 1.0);
   }
 
   void TearDown(::benchmark::State &state) {

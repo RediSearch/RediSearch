@@ -45,66 +45,26 @@ impl Bencher {
 
     fn read_dense(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - Metric - Read Dense");
-        self.c_read_dense(&mut group);
         self.rust_read_dense(&mut group);
         group.finish();
     }
 
     fn read_sparse(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - Metric - Read Sparse");
-        self.c_read_sparse(&mut group);
         self.rust_read_sparse(&mut group);
         group.finish();
     }
 
     fn skip_to_dense(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - Metric - SkipTo Dense");
-        self.c_skip_to_dense(&mut group);
         self.rust_skip_to_dense(&mut group);
         group.finish();
     }
 
     fn skip_to_sparse(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - Metric - SkipTo Sparse");
-        self.c_skip_to_sparse(&mut group);
         self.rust_skip_to_sparse(&mut group);
         group.finish();
-    }
-
-    fn c_read_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    let data = (1..1_000_000).collect::<Vec<_>>();
-                    let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
-                    ffi::QueryIterator::new_metric(data, metric_data)
-                },
-                |it| {
-                    while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-    fn c_read_sparse<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    ffi::QueryIterator::new_id_list(data)
-                },
-                |it| {
-                    while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
     }
 
     fn rust_read_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
@@ -136,45 +96,6 @@ impl Bencher {
                     while let Ok(Some(current)) = it.read() {
                         criterion::black_box(current);
                     }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-
-    fn c_skip_to_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            let step = 100;
-            b.iter_batched_ref(
-                || {
-                    let data = (1..1_000_000).collect();
-                    ffi::QueryIterator::new_id_list(data)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
-                    {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-    fn c_skip_to_sparse<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            let step = 100;
-            b.iter_batched_ref(
-                || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    ffi::QueryIterator::new_id_list(data)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
-                    {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
                 },
                 criterion::BatchSize::SmallInput,
             );
