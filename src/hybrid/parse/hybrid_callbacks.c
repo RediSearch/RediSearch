@@ -448,24 +448,24 @@ void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) 
 
 // SLOTS_STR callback - implements EXACT original logic from handleCommonArgs
 void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data) {
-    HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ArgsCursor *ac = (ArgsCursor*)value;
-    QueryError *status = ctx->status;
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  ArgsCursor *ac = (ArgsCursor*)value;
+  QueryError *status = ctx->status;
 
-    // Parse binary slots information
-    size_t serialization_len;
-    const char *serialization = AC_GetStringNC(ac, &serialization_len);
-    RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
-    if (!slot_array) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
-        return;
-    }
-    OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
-    if (!version.is_some) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
-        return;
-    }
+  // Parse binary slots information
+  size_t serialization_len;
+  const char *serialization = AC_GetStringNC(ac, &serialization_len);
+  RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
+  if (!slot_array) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
+    return;
+  }
+  OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
+  if (!version.is_some) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
+    return;
+  }
 
-    *ctx->querySlots = slot_array;
-    *ctx->slotsVersion = version.version;
+  *ctx->querySlots = slot_array;
+  *ctx->slotsVersion = version.version;
 }

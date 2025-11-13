@@ -380,7 +380,6 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
     *papCtx->slotsVersion = version.version;
     *papCtx->querySlots = slot_array;
-    *papCtx->slotsVersion = 0;
   } else {
     return ARG_UNKNOWN;
   }
@@ -1077,11 +1076,6 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     goto error;
   }
 
-  OptionSlotTrackerVersion version = slots_tracker_check_availability(req->querySlots);
-  if (!version.is_some) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Query requires unavailable slots");
-    goto error;
-  }
   return REDISMODULE_OK;
 
 error:
@@ -1450,11 +1444,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     req->querySlots = NULL; // Ownership of the slot ranges is now with the params.
-    OptionSlotTrackerVersion version = slots_tracker_check_availability(params.querySlots);
-    if (!version.is_some) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Query requires unavailable slots");
-      return REDISMODULE_ERR;
-    }
     Pipeline_BuildQueryPart(&req->pipeline, &params);
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;
