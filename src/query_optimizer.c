@@ -337,7 +337,7 @@ void QOptimizer_UpdateTotalResults(AREQ *req) {
     // FT.AGGREGATE + WITHCOUNT with explicit LIMIT > 0, cap totalResults to the
     // LIMIT value (similar to optimized FT.SEARCH)
     // For LIMIT 0 0, we want to return the full count (not cap to 0)
-    if (IsAggregate(req) && !IsOptimized(req)) {
+    if (IsAggregate(req) && !IsWithoutCount(req)) {
       if (!(arng && arng->isLimited && arng->limit > 0)) {
         return;
       }

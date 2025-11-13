@@ -552,10 +552,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
 
-  // FT.AGGREGATE don't use depleter by default
-  if (IsAggregate(req)) {
-    AREQ_AddRequestFlags(req, QEXEC_F_NO_DEPLETER);
-  }
 
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
@@ -599,12 +595,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
-      AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
-      AREQ_RemoveRequestFlags(req, QEXEC_F_NO_DEPLETER);
+      AREQ_RemoveRequestFlags(req, QEXEC_WITHOUTCOUNT);
+      AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
-      AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
-      AREQ_AddRequestFlags(req, QEXEC_F_NO_DEPLETER);
+      AREQ_AddRequestFlags(req, QEXEC_WITHOUTCOUNT);
+      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       optimization_specified = true;
     } else {
       ParseAggPlanContext papCtx = {
@@ -640,11 +636,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4
           && !IsAggregate(req)) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
-    AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+    AREQ_AddRequestFlags(req, QEXEC_WITHOUTCOUNT);
   }
 
   if (!optimization_specified && IsAggregate(req)) {
-    AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+    AREQ_AddRequestFlags(req, QEXEC_WITHOUTCOUNT);
   }
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
@@ -1088,17 +1084,17 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   // FT.AGGREGATE backwards compatibility:
   // Disable optimization if SORTBY is specified or timeout policy is strict
   if (IsAggregate(req)) {
-    bool withCount = !NoDepleter(req);
+    bool withCount = HasDepleter(req);
     bool hasSortBy = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
     bool hasLimit = (arng != NULL && arng->isLimited);
     if (hasSortBy || req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-      AREQ_RemoveRequestFlags(req, QEXEC_F_NO_DEPLETER);
+      AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
     // Only enable optimization for LIMIT without SORTBY if optimization was not
     // explicitly disabled by WITHCOUNT
     if (hasLimit && !hasSortBy && !withCount) {
-      AREQ_AddRequestFlags(req, QEXEC_F_NO_DEPLETER);
+      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
   }
 
@@ -1358,7 +1354,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // set queryAST configuration parameters
   iteratorsConfig_init(&ast->config);
 
-  if ((!IsAggregate(req) && IsOptimized(req)) || (IsAggregate(req) && NoDepleter(req))
+  if ((!IsAggregate(req) && IsWithoutCount(req)) || (IsAggregate(req) && !HasDepleter(req))
       ) {
     // parse inputs for optimizations
     QOptimizer_Parse(req);
