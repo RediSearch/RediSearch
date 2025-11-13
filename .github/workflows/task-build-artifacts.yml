@@ -58,9 +58,26 @@ jobs:
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
     steps:
       # Setup
-      - name: Setup Dependencies
-        if: needs.get-config.outputs.setup_script
-        shell: ${{ needs.get-config.outputs.container == 'alpine:3' && 'sh -l -eo pipefail {0}' || 'bash -l -eo pipefail {0}' }}
+      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
+      - name: Setup Dependencies (Alpine)
+        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
+        shell: sh -l -eo pipefail {0}
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if ${{ needs.get-config.outputs.setup_script }}; then
+              echo "Setup Dependencies succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Setup Dependencies failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Setup Dependencies failed after 5 attempts"
+          exit 1
+      - name: Setup Dependencies (Non-Alpine)
+        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3'
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
