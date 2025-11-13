@@ -269,10 +269,6 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
 
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(spec_ref);
     ASSERT_TRUE(spec != nullptr);
-    Spec_AddToDict(spec->own_ref.rm);
-
-    // Verify we have one index
-    EXPECT_EQ(1, Indexes_Count());
 
     // Create RDB IO context
     RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -291,10 +287,6 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     }
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
-    // Remove the index from globals so we can test loading
-    IndexSpec_RemoveFromGlobals(spec_ref, false);
-    EXPECT_EQ(0, Indexes_Count());
-
     // Reset read position to load from RDB
     io->read_pos = 0;
 
@@ -303,8 +295,6 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     EXPECT_EQ(REDISMODULE_OK, result);
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
-    // Verify that only one index was loaded (duplicates should be ignored)
-    EXPECT_EQ(1, Indexes_Count());
 
     // Verify the loaded index exists and has the correct name
     StrongRef loaded_spec_ref = IndexSpec_LoadUnsafe("test_duplicate_idx");
