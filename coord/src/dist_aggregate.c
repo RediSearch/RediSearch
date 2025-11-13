@@ -265,9 +265,9 @@ static int getNextReply(RPNet *nc) {
   }
 
   MRReply *rows = MRReply_ArrayElement(root, 0);
-  if (   rows == NULL
-      || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
-      || MRReply_Length(rows) == 0) {
+  if (rows == NULL || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
+      || (MRReply_Type(rows) == MR_REPLY_ARRAY && MRReply_Length(rows) <= 1)
+      || (MRReply_Type(rows) == MR_REPLY_MAP   && MRReply_Length(rows) == 0)) {
     MRReply_Free(root);
     root = NULL;
     rows = NULL;
