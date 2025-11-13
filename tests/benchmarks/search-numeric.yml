@@ -21,7 +21,7 @@ dbconfig:
     - workers: 64
     - reporting-period: 1s
     - requests: 100000
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-nyc_taxis-hashes/1M-nyc_taxis-hashes.redisearch.commands.ALL.csv"
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-nyc_taxis-hashes/100K-nyc_taxis-hashes.redisearch.commands.ALL.csv"
   - init_commands:
       - '"FT.CREATE" "nyc" "SCHEMA" "total_amount" "NUMERIC" "SORTABLE" "improvement_surcharge" "NUMERIC" "SORTABLE" "fare_amount" "NUMERIC" "SORTABLE" "trip_distance" "NUMERIC" "SORTABLE"'
   - dataset_load_timeout_secs: 180

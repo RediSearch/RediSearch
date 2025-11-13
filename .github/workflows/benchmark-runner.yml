@@ -100,7 +100,6 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-02-primaries:
-    needs: benchmark-search-oss-standalone
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
     strategy:
       fail-fast: false
@@ -132,12 +131,11 @@ jobs:
 
 
   benchmark-search-oss-cluster-04-primaries-threads-6:
-    needs: benchmark-search-oss-standalone
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries-threads-6' }}
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3]
+        member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
@@ -251,9 +249,12 @@ jobs:
   notify-failure:
     needs:
       - benchmark-search-oss-standalone
+      - benchmark-search-oss-standalone-threads-6
       - benchmark-vecsim-oss-standalone
+      - benchmark-vecsim-oss-standalone-threads-6
       - benchmark-search-oss-cluster-02-primaries
       - benchmark-search-oss-cluster-04-primaries
+      - benchmark-search-oss-cluster-04-primaries-threads-6
       - benchmark-search-oss-cluster-08-primaries
       - benchmark-search-oss-cluster-16-primaries
       - benchmark-search-oss-cluster-20-primaries
