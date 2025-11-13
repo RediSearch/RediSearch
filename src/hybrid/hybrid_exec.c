@@ -567,10 +567,11 @@ static inline void DefaultCleanup(StrongRef hybrid_ref) {
 }
 
 // We only want to free the hybrid params in case an error happened
-static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_ref, HybridPipelineParams *hybridParams, QueryError *status, bool internal) {
+static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_ref, HybridPipelineParams *hybridParams, QueryError *status) {
     freeHybridParams(hybridParams);
     DefaultCleanup(hybrid_ref);
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !internal);
+    // Assuming this function is only called by SA shard or internal commands
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, SHARD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, status);
 }
 
@@ -627,7 +628,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
 
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
-    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
+    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
 
   for (int i = 0; i < hybridRequest->nrequests; i++) {
@@ -639,7 +640,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);
-    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
+    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
 
   // Update dialect statistics only after successful execution
