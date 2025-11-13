@@ -130,7 +130,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     MRReply *results = NULL;
     if (map && MRReply_Type(map) == MR_REPLY_MAP) {
       results = MRReply_MapElement(map, "results");
-      if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
+      if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) >= 0) {
         MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
         // User code now owns the reply, so we can't free it here ourselves!
         rep = NULL;
@@ -140,7 +140,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   else // RESP2
   {
     MRReply *results = MRReply_ArrayElement(rep, 0);
-    if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 1) {
+    if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) >= 1) {
       MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
       // User code now owns the reply, so we can't free it here ourselves!
       rep = NULL;
@@ -271,7 +271,7 @@ static int getNextReply(RPNet *nc) {
     MRReply_Free(root);
     root = NULL;
     rows = NULL;
-    RedisModule_Log(RSDummyContext, "warning", "An empty reply was received from a shard");
+    RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
   }
 
   // invariant: either rows == NULL or least one row exists
