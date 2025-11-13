@@ -2622,13 +2622,12 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   sp->uniqueId = spec_unique_ids++;
 
-  IndexSpec_StartGC(ctx, spec_ref, sp);
   Cursors_initSpec(sp);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
     if (sp->smap == NULL)
-      goto cleanup;
+    goto cleanup;
   }
 
   sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
@@ -2662,6 +2661,8 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     StrongRef_Release(spec_ref);
     spec_ref = (StrongRef){oldSpec};
   } else {
+    IndexSpec_StartGC(ctx, spec_ref, sp);
+
     dictAdd(specDict_g, sp->name, spec_ref.rm);
 
     for (int i = 0; i < sp->numFields; i++) {
