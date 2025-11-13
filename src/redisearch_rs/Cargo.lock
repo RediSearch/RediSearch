@@ -195,6 +195,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
+name = "c_ffi_utils"
+version = "0.0.1"
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1274,6 +1278,7 @@ dependencies = [
 name = "query_error"
 version = "0.0.1"
 dependencies = [
+ "c_ffi_utils",
  "strum",
 ]
 
@@ -1282,6 +1287,7 @@ name = "query_error_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_ffi_utils",
  "cbindgen",
  "query_error",
 ]
@@ -2108,6 +2114,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "value"
 version = "0.0.1"
 dependencies = [
+ "c_ffi_utils",
  "ffi",
 ]
 
@@ -2116,6 +2123,7 @@ name = "value_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_ffi_utils",
  "cbindgen",
  "libc",
  "redis-module",
