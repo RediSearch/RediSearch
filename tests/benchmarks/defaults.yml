@@ -35,7 +35,7 @@ exporter:
     mode: higher-better
     baseline-branch: master
 clusterconfig:
-  init_commands:
+  - init_commands:
     - 'search.CLUSTERREFRESH'
 spec:
   setups:

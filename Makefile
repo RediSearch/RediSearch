@@ -348,7 +348,6 @@ pack: build
 
 upload-artifacts:
 	@echo "Uploading artifacts..."
-	
 	@$(ROOT)/sbin/upload-artifacts
 
 benchmark: build
