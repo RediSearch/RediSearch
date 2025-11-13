@@ -76,3 +76,13 @@ RedisModuleSlotRangeArray *SlotRangesArray_Deserialize(const char *buf, size_t b
 
   return slot_range_array;
 }
+
+bool SlotRangeArray_ContainsSlot(const RedisModuleSlotRangeArray *slotRanges, uint16_t slot) {
+  const RedisModuleSlotRange *ranges = slotRanges->ranges;
+  for (int i = 0; i < slotRanges->num_ranges; i++) {
+    if (ranges[i].start <= slot && slot <= ranges[i].end) {
+      return true;
+    }
+  }
+  return false;
+}

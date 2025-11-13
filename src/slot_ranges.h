@@ -19,15 +19,11 @@ extern "C" {
 
 #define SLOTS_STR "_SLOTS_INFO"
 
-inline bool SlotRangeArray_ContainsSlot(const RedisModuleSlotRangeArray *slotRanges, uint16_t slot) {
-  const RedisModuleSlotRange *ranges = slotRanges->ranges;
-  for (int i = 0; i < slotRanges->num_ranges; i++) {
-    if (ranges[i].start <= slot && slot <= ranges[i].end) {
-      return true;
-    }
-  }
-  return false;
-}
+/// @brief Check if a slot is contained in a slot range array
+/// @param slotRanges The slot range array to check
+/// @param slot The slot to check
+/// @return True if the slot is contained in the array, false otherwise
+bool SlotRangeArray_ContainsSlot(const RedisModuleSlotRangeArray *slotRanges, uint16_t slot);
 
 /// @brief Get the memory size of a slot range array with the given number of ranges
 /// @param num_ranges The number of ranges in the array
