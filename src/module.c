@@ -839,7 +839,7 @@ static void GetRedisVersion() {
   char *enterpriseStr = strstr(replyStr, "rlec_version:");
   if (enterpriseStr) {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
-               &rlecVersion.minorVersion, &rlecVersion.buildVersion, &rlecVersion.patchVersion);
+               &rlecVersion.minorVersion, &rlecVersion.patchVersion, &rlecVersion.buildVersion);
     if (n != 4) {
       RedisModule_Log(NULL, "warning", "Could not extract enterprise version");
     }
