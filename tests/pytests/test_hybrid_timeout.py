@@ -179,6 +179,10 @@ class TestRealTimeouts(object):
     """Tests for real timeout conditions with large datasets"""
 
     def __init__(self):
+        # right now the real timeout is flaky
+        # we need to have a deeper look if this test provides value
+        # we already have tests that check hybrid timeout using FT.DEBUG
+        raise SkipTest()
         self.dim = 128
         self.num_docs = 100000
         self.timeout_ms = 1  # Very short timeout to ensure timeout occurs
