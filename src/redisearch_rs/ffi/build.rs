@@ -72,6 +72,7 @@ fn main() {
         root.join("src").join("query.h"),
         root.join("src").join("util").join("arr").join("arr.h"),
         root.join("src").join("search_disk_api.h"),
+        root.join("src").join("ttl_table").join("ttl_table.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();
