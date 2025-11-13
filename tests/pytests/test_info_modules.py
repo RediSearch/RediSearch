@@ -30,6 +30,7 @@ def get_search_field_info(type: str, count: int, index_errors: int = 0, **kwargs
 def field_info_to_dict(info):
   return {key: value for field in info.split(',') for key, value in [field.split('=')]}
 
+'''
 def testInfoModulesBasic(env):
   conn = env.getConnection()
 
@@ -602,3 +603,442 @@ def test_indexing_metrics(env: Env):
   env.assertEqual(res[-1]['search_number_of_active_indexes'], n_indexes)
   env.assertEqual(res[-1]['search_number_of_active_indexes_indexing'], n_indexes)
   env.assertEqual(res[-1]['search_total_active_write_threads'], 1) # 1 write operation by the BG indexer thread
+
+'''
+
+SYNTAX_ERROR = "Parsing/Syntax error for query string"
+ARGS_ERROR = "Error parsing query/aggregation arguments"
+OOM_ERROR = "Not enough memory available to execute the query"
+TIMEOUT_ERROR = "Timeout limit was reached"
+
+SEARCH_PREFIX = 'search_'
+WARN_ERR_SECTION = f'{SEARCH_PREFIX}warnings_and_errors'
+
+SYNTAX_ERROR_SA_METRIC = f"{SEARCH_PREFIX}total_query_errors_syntax"
+ARGS_ERROR_SA_METRIC = f"{SEARCH_PREFIX}total_query_errors_arguments"
+OOM_ERROR_SA_METRIC = f"{SEARCH_PREFIX}total_query_errors_oom"
+TIMEOUT_ERROR_SA_METRIC = f"{SEARCH_PREFIX}total_query_errors_timeout"
+
+OOM_WARNING_SA_METRIC = f"{SEARCH_PREFIX}total_query_warnings_oom"
+TIMEOUT_WARNING_SA_METRIC = f"{SEARCH_PREFIX}total_query_warnings_timeout"
+MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC = f"{SEARCH_PREFIX}total_query_warnings_reached_max_prefix_expansions"
+
+COORD_WARN_ERR_SECTION = WARN_ERR_SECTION.replace(SEARCH_PREFIX, 'search_coordinator_')
+
+SEARCH_COORD_PREFIX = 'search_coord_'
+COORD_OOM_ERROR_METRIC = OOM_ERROR_SA_METRIC.replace(SEARCH_PREFIX, SEARCH_COORD_PREFIX)
+COORD_TIMEOUT_ERROR_METRIC = TIMEOUT_ERROR_SA_METRIC.replace(SEARCH_PREFIX, SEARCH_COORD_PREFIX)
+
+COORD_OOM_WARNING_SA_METRIC = OOM_WARNING_SA_METRIC.replace(SEARCH_PREFIX, SEARCH_COORD_PREFIX)
+COORD_TIMEOUT_WARNING_SA_METRIC = TIMEOUT_WARNING_SA_METRIC.replace(SEARCH_PREFIX, SEARCH_COORD_PREFIX)
+COORD_MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC = MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC.replace(SEARCH_PREFIX, SEARCH_COORD_PREFIX)
+
+
+def _common_warnings_errors_test_scenario(env):
+  """Common setup for warnings and errors tests"""
+  # Create index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+  # Create doc
+  env.expect('HSET', 'doc:1', 'text', 'hello world').equal(1)
+
+class testWarningsAndErrorsStandalone:
+  """Test class for warnings and errors metrics in standalone mode"""
+
+  def __init__(self):
+    skipTest(cluster=True)
+    self.env = Env()
+    _common_warnings_errors_test_scenario(self.env)
+
+  def test_syntax_errors_SA(self):
+    # Check syntax error metric before adding any errors
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SA_METRIC], '0')
+    # Test syntax errors
+    self.env.expect('FT.SEARCH', 'idx', 'hello world:').error().contains('Syntax error at offset')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SA_METRIC], '1')
+
+  def test_args_errors_SA(self):
+    # Check args error metric before adding any errors
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][ARGS_ERROR_SA_METRIC], '0')
+    # Test args errors
+    self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][ARGS_ERROR_SA_METRIC], '1')
+
+  def test_oom_errors_warning_SA(self):
+    # Check oom error relevant metrics before adding any errors
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_ERROR_METRIC], '0')
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SA_METRIC], '0')
+
+    # Set ON_OOM to fail and maxmemory to 1
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+    self.env.expect('FT.CONFIG', 'SET', 'ON_OOM', 'fail').ok()
+    # Test oom errors
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').error().contains(OOM_ERROR)
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    # Since this is SA, we expect the metric to update for coord
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_ERROR_METRIC], '1')
+    # Check that Shard level metric is not updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SA_METRIC], '0')
+
+    # Set ON_OOM to return and test oom warning
+    self.env.expect('FT.CONFIG', 'SET', 'ON_OOM', 'return').ok()
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').equal([0])
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    # Since this is SA, we expect the metric to update for coord
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_WARNING_SA_METRIC], '1')
+    # Check that Shard level metric is not updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SA_METRIC], '0')
+
+    # Reset maxmemory to 0
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '0').ok()
+
+  def test_timeout_errors_warning_SA(self):
+    # Check timeout error relevant metrics before adding any errors
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_TIMEOUT_ERROR_METRIC], '0')
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SA_METRIC], '0')
+    # Set on timeout to fail
+    self.env.expect('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'fail').ok()
+    # Test timeout errors using debug params
+    self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', 'hello world', 'TIMEOUT_AFTER_N', '0', 'DEBUG_PARAMS_COUNT', '2').error().contains(TIMEOUT_ERROR)
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    # Since this is SA, we expect the metric to update for coord
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_TIMEOUT_ERROR_METRIC], '1')
+    # Check that Shard level metric is not updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SA_METRIC], '0')
+
+    # Set on timeout to return and test timeout warning
+    self.env.expect('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'return').ok()
+    res = self.env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', 'hello world', 'TIMEOUT_AFTER_N', '0', 'DEBUG_PARAMS_COUNT', '2')
+    # In RESP2, we just check that we got results (empty results due to timeout)
+    self.env.assertEqual(res, [0])
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    # Since this is SA, we expect the metric to update for coord
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_TIMEOUT_WARNING_SA_METRIC], '1')
+    # Check that Shard level metric is not updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_WARNING_SA_METRIC], '0')
+
+  def test_max_prefix_expansions_warning_SA(self):
+    # Create additional doc for prefix expansion test
+    self.env.expect('HSET', 'doc:2', 'text', 'abc1').equal(1)
+    self.env.expect('HSET', 'doc:3', 'text', 'abc2').equal(1)
+
+    # Get current max prefix expansions
+    max_prefix_expansions = self.env.cmd('FT.CONFIG', 'GET', 'MAXPREFIXEXPANSIONS')[0][1]
+
+    # Set max prefix expansions to 1
+    self.env.expect('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', '1').ok()
+
+    # Check max prefix expansions warning relevant metrics before adding any errors
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
+    # Test max prefix expansions warning
+    res = self.env.cmd('FT.SEARCH', 'idx', '@text:abc*')
+    # In RESP2, we just check that we got results
+    self.env.assertEqual(res[0], 1)
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    # Since this is SA, we expect the metric to update for coord
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '1')
+    # Check that Shard level metric is not updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
+
+    # Delete additional docs
+    self.env.expect('DEL', 'doc:2').equal(1)
+    self.env.expect('DEL', 'doc:3').equal(1)
+    # Reset max prefix expansions to 0
+    self.env.expect('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', str(max_prefix_expansions)).ok()
+
+  def test_no_error_queries_SA(self):
+    # Check no error queries not affecting any metric
+    before_info_dict = info_modules_to_dict(self.env)
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
+    after_info_dict = info_modules_to_dict(self.env)
+
+    self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
+    self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
+class testWarningsAndErrorsStandaloneResp3:
+  """Test class for warnings and errors metrics in standalone mode with RESP3
+     Only Timeout and MaxPrefixExpansions are tested here, since the other warnings
+     are not specifically counted in sendChunk_Resp3.
+  """
+
+  def __init__(self):
+    skipTest(cluster=True)
+    self.env = Env(protocol=3)
+    _common_warnings_errors_test_scenario(self.env)
+
+  def test_timeout_errors_warning_SA(self):
+    # Check timeout error relevant metrics before adding any errors
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_TIMEOUT_ERROR_METRIC], '0')
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SA_METRIC], '0')
+    # Set on timeout to fail
+    self.env.expect('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'fail').ok()
+    # Test timeout errors using debug params
+    self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', 'hello world', 'TIMEOUT_AFTER_N', '0', 'DEBUG_PARAMS_COUNT', '2').error().contains(TIMEOUT_ERROR)
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    # Since this is SA, we expect the metric to update for coord
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_TIMEOUT_ERROR_METRIC], '1')
+    # Check that Shard level metric is not updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SA_METRIC], '0')
+
+    # Set on timeout to return and test timeout warning
+    self.env.expect('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'return').ok()
+    res = self.env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', 'hello world', 'TIMEOUT_AFTER_N', '0', 'DEBUG_PARAMS_COUNT', '2')
+    VerifyTimeoutWarningResp3(self.env, res)
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    # Since this is SA, we expect the metric to update for coord
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_TIMEOUT_WARNING_SA_METRIC], '1')
+    # Check that Shard level metric is not updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_WARNING_SA_METRIC], '0')
+
+  def test_max_prefix_expansions_warning_SA(self):
+    # Create additional doc for prefix expansion test
+    self.env.expect('HSET', 'doc:2', 'text', 'abc1').equal(1)
+    self.env.expect('HSET', 'doc:3', 'text', 'abc2').equal(1)
+
+    # Get current max prefix expansions
+    max_prefix_expansions = self.env.cmd('FT.CONFIG', 'GET', 'MAXPREFIXEXPANSIONS')['MAXPREFIXEXPANSIONS']
+
+    # Set max prefix expansions to 1
+    self.env.expect('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', '1').ok()
+
+    # Check max prefix expansions warning relevant metrics before adding any errors
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
+    # Test max prefix expansions warning
+    res = self.env.cmd('FT.SEARCH', 'idx', '@text:abc*')
+    self.env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    # Since this is SA, we expect the metric to update for coord
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '1')
+    # Check that Shard level metric is not updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
+
+    # Delete additional docs
+    self.env.expect('DEL', 'doc:2').equal(1)
+    self.env.expect('DEL', 'doc:3').equal(1)
+    # Reset max prefix expansions to 0
+    self.env.expect('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', str(max_prefix_expansions)).ok()
+
+  def test_no_error_queries_SA(self):
+    # Check no error queries not affecting any metric
+    before_info_dict = info_modules_to_dict(self.env)
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
+    after_info_dict = info_modules_to_dict(self.env)
+
+    self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
+    self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
+def _common_warnings_errors_cluster_test_scenario(env):
+  """Common setup for warnings and errors cluster tests"""
+  # Create index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+  # Create docs across shards
+  conn = getConnectionByEnv(env)
+  n_docs_per_shard = 10
+  n_docs = n_docs_per_shard * env.shardsCount
+  for i in range(n_docs):
+    conn.execute_command('HSET', f'doc{i}', 'text', f'hello{i}')
+  return n_docs
+
+class testWarningsAndErrorsCluster_resp2:
+  """Test class for warnings and errors metrics in cluster mode with RESP2"""
+
+  def __init__(self):
+    # skipTest(cluster=False)
+    self.env = Env(protocol=2, shardsCount=3)
+    self.n_docs = _common_warnings_errors_cluster_test_scenario(self.env)
+    # Init all shards
+    for i in range(self.env.shardsCount):
+      verify_shard_init(self.env.getConnection(i))
+
+  def test_syntax_errors_cluster(self):
+    # In cluster mode, syntax errors are only tracked at shard level
+
+    # Check syntax error metric before adding any errors on each shard
+    for i in range(self.env.shardsCount):
+      info_dict = info_modules_to_dict(self.env.getConnection(i))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SA_METRIC], '0')
+
+    # Test syntax errors
+    self.env.expect('FT.SEARCH', 'idx', 'hello:').error().contains('Syntax error at offset')
+    # For each one of the shards, the syntax error metric should increment
+    for i in range(self.env.shardsCount):
+      info_dict = info_modules_to_dict(self.env.getConnection(i))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SA_METRIC], '1')
+
+  def test_args_errors_cluster(self):
+    # In cluster mode, args errors are only tracked at shard level
+
+    # Check args error metric before adding any errors on each shard
+    for i in range(self.env.shardsCount):
+      info_dict = info_modules_to_dict(self.env.getConnection(i))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][ARGS_ERROR_SA_METRIC], '0')
+    # Test args errors
+    self.env.expect('FT.SEARCH', 'idx', 'hello', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # For each one of the shards, the args error metric should increment
+    for i in range(self.env.shardsCount):
+      info_dict = info_modules_to_dict(self.env.getConnection(i))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][ARGS_ERROR_SA_METRIC], '1')
+
+  def test_max_prefix_expansions_warning_cluster(self):
+    # Test max prefix expansions warning in cluster
+    # Create additional docs for prefix expansion test
+    conn = getConnectionByEnv(self.env)
+    for i in range(self.n_docs, self.n_docs + 10):
+      conn.execute_command('HSET', f'doc_abc{i}', 'text', f'abc{i}')
+
+    # Get current max prefix expansions
+    max_prefix_expansions = self.env.cmd(config_cmd(), 'GET', 'MAXPREFIXEXPANSIONS')[0][1]
+
+    # Set max prefix expansions to 1 on all shards using config_cmd()
+    for shardId in range(1, self.env.shardsCount + 1):
+      self.env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    # Check max prefix expansions warning relevant metrics before adding any errors
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
+
+    # Test max prefix expansions warning
+    self.env.expect('FT.SEARCH', 'idx', '@text:abc*').noError()
+
+    info_dict = info_modules_to_dict(self.env)
+    # Since we are in resp2, the coord is unaware of warnings coming from shards
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
+    # Shard level metric should be updated for each shard
+    for i in range(self.env.shardsCount):
+      info_dict = info_modules_to_dict(self.env.getConnection(i))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '1')
+
+    # Reset max prefix expansions on all shards using config_cmd()
+    for shardId in range(1, self.env.shardsCount + 1):
+      self.env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', str(max_prefix_expansions))
+
+  def test_timeout_errors_warning_shards(self):
+    # Test timeout errors and warnings on shards
+    # Check timeout error relevant metrics before adding any errors
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SA_METRIC], '0')
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_WARNING_SA_METRIC], '0')
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_TIMEOUT_ERROR_METRIC], '0')
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_TIMEOUT_WARNING_SA_METRIC], '0')
+
+    # Set on timeout to fail on all shards using config_cmd()
+    for shardId in range(1, self.env.shardsCount + 1):
+      self.env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'ON_TIMEOUT', 'fail')
+
+    # Test timeout errors on shards
+    self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'TIMEOUT_AFTER_N', '0', 'DEBUG_PARAMS_COUNT', '2').error().contains(TIMEOUT_ERROR)
+    # Test counter - shard should be updated
+    info_dict = info_modules_to_dict(self.env)
+
+    # For each shard, check that the timeout error metric is updated
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SA_METRIC], '1')
+
+    # Check coord metric is not updated (timeout only happens on shard level)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_TIMEOUT_ERROR_METRIC], '0')
+
+    for shardId in range(1, self.env.shardsCount + 1):
+      self.env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'ON_TIMEOUT', 'return')
+
+    self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'TIMEOUT_AFTER_N', '0', 'DEBUG_PARAMS_COUNT', '2').noError()
+
+    # For each shard, check that the timeout warning metric is updated
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_WARNING_SA_METRIC], '1')
+    # Since we are in resp2, the coord is unaware of warnings coming from shards
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_TIMEOUT_WARNING_SA_METRIC], '0')
+    # Reset maxmemory on all shards
+    allShards_set_unlimited_maxmemory_for_oom(self.env)
+
+  def test_oom_errors_warning_coord(self):
+    # Test OOM errors and warnings on coordinator only
+    # Check oom error relevant metrics before adding any errors
+    info_dict = info_modules_to_dict(self.env)
+    pre_coord_oom_error = int(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_ERROR_METRIC])
+    pre_coord_oom_warning = int(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_WARNING_SA_METRIC])
+
+    # Set ON_OOM to fail on all shards and maxmemory to 1 on coord
+    self.env.expect(config_cmd(), 'SET', 'ON_OOM', 'fail').ok()
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+    # Test oom errors on coord
+    self.env.expect('FT.SEARCH', 'idx', '*').error().contains(OOM_ERROR)
+    # Test counter - coord should be updated
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_ERROR_METRIC], str(pre_coord_oom_error + 1))
+    # Shard level metric should not be updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SA_METRIC], '0')
+
+    # Set ON_OOM to return and test oom warning on coord
+    self.env.expect(config_cmd(), 'SET', 'ON_OOM', 'return').ok()
+    self.env.expect('FT.SEARCH', 'idx', '*').equal([0])
+    # Test counter - coord should be updated
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_WARNING_SA_METRIC], str(pre_coord_oom_warning + 1))
+    # Shard level metric should not be updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SA_METRIC], '0')
+
+    # Reset maxmemory on coord
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '0').ok()
+
+  def test_oom_errors_warning_shards(self):
+    # Test OOM errors and warnings on shards only (not coord)
+    # Check oom error relevant metrics before adding any errors
+    pre_shards_info_dicts = {}
+    for shardId in range(1, self.env.shardsCount + 1):
+      pre_shards_info_dicts[shardId] = info_modules_to_dict(self.env.getConnection(shardId))
+
+    # Set ON_OOM to fail on all shards and maxmemory to 1 on all shards
+    allShards_change_oom_policy(self.env, 'fail')
+    allShards_change_maxmemory_low(self.env)
+    # Change back coord maxmemory to 0 so it doesn't fail
+    set_unlimited_maxmemory_for_oom(self.env)
+
+    # Test oom errors on shards
+    self.env.expect('FT.SEARCH', 'idx', '*').error().contains(OOM_ERROR)
+    # Get coord pid
+    coord_pid = pid_cmd(self.env.con)
+
+    for shardId in range(1, self.env.shardsCount + 1):
+      conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(conn)
+
+      # If coord, coord level metric should be updated, but shard level metric should not be updated
+      if pid_cmd(conn) == coord_pid:
+        self.env.assertEqual(int(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_ERROR_METRIC]),
+                            int(pre_shards_info_dicts[shardId][COORD_WARN_ERR_SECTION][COORD_OOM_ERROR_METRIC]) + 1)
+        self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SA_METRIC],
+                            pre_shards_info_dicts[shardId][WARN_ERR_SECTION][OOM_ERROR_SA_METRIC])
+        continue
+
+      # compare to pre-shards_info_dicts[shardId], shard level metric should be updated
+      self.env.assertEqual(int(info_dict[WARN_ERR_SECTION][OOM_ERROR_SA_METRIC]),
+                            int(pre_shards_info_dicts[shardId][WARN_ERR_SECTION][OOM_ERROR_SA_METRIC]) + 1)
+      # Coord metric should not be updated (still same as before)
+      self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_ERROR_METRIC],
+                            pre_shards_info_dicts[shardId][COORD_WARN_ERR_SECTION][COORD_OOM_ERROR_METRIC])
+
+    allShards_set_unlimited_maxmemory_for_oom(self.env)

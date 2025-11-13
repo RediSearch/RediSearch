@@ -13,9 +13,6 @@ def run_cmd_expect_oom(env, query_args):
 def run_cmd(env, query_args):
     return (env.cmd(*query_args))
 
-def pid_cmd(conn):
-    return conn.execute_command('info', 'server')['process_id']
-
 def get_all_shards_pid(env):
     for shardId in range(1, env.shardsCount + 1):
         conn = env.getConnection(shardId)

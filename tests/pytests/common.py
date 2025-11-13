@@ -1105,3 +1105,7 @@ def allShards_change_maxmemory_low(env):
     for shardId in range(1, env.shardsCount + 1):
         res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 1)
         env.assertEqual(res, 'OK')
+
+# Get pid of a connection
+def pid_cmd(conn):
+    return conn.execute_command('info', 'server')['process_id']
