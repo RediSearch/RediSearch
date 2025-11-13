@@ -96,28 +96,30 @@ jobs:
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
 
-      - name: Prepare environment
-        id: env
+      - name: Get Installation Mode
+        id: mode
         run: |
           CONTAINER="${{ needs.get-config.outputs.container }}"
-          # Determine installation mode based on container
           [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
-          # Check if node20 is supported
+      - name: Check if node20 is Supported
+        id: node20
+        run: |
+          CONTAINER="${{ needs.get-config.outputs.container }}"
           for platform in amazonlinux:2 alpine:3; do
             if [[ "$CONTAINER" == "$platform" ]]; then
-              echo "node20_supported=false" >> $GITHUB_OUTPUT
+              echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
             fi
           done
-          echo "node20_supported=true" >> $GITHUB_OUTPUT
+          echo "supported=true" >> $GITHUB_OUTPUT
       - name: checkout (node20)
-        if: steps.env.outputs.node20_supported == 'true'
+        if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
           submodules: recursive
           ref: ${{ env.REF }}
       - name: checkout (node20 not supported)
-        if: steps.env.outputs.node20_supported == 'false'
+        if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
           CONTAINER="${{ needs.get-config.outputs.container }}"
@@ -155,7 +157,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if ./install_script.sh ${{ steps.env.outputs.mode }}; then
+            if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
               echo "Setup succeeded"
               exit 0
             fi
@@ -171,7 +173,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if ./install_aws.sh ${{ steps.env.outputs.mode }}; then
+            if ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
               echo "Install aws cli succeeded"
               exit 0
             fi
@@ -186,7 +188,7 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if .install/test_deps/common_installations.sh ${{ steps.env.outputs.mode }}; then
+            if .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
               echo "Setup test dependencies succeeded"
               exit 0
             fi
@@ -236,7 +238,7 @@ jobs:
             git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
-        run: ${{ steps.env.outputs.mode }} make install
+        run: ${{ steps.mode.outputs.mode }} make install
 
       # Build & Pack
       - name: Build and Pack RediSearch OSS
