@@ -25,6 +25,7 @@
 #include "info/global_stats.h"
 #include "src/ext/default.h"
 #include "src/redisearch_rs/headers/query_error.h"
+#include "asm_state_machine.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -38,8 +39,20 @@ class ParseHybridTest : public ::testing::Test {
   HybridPipelineParams hybridParams;
   ParseHybridCommandCtx result;
 
+  // Helper function to create a RedisModuleSlotRangeArray for testing
+  RedisModuleSlotRangeArray* createSlotRangeArray(uint16_t start, uint16_t end) {
+    size_t array_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange);
+    RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)rm_malloc(array_size);
+    array->num_ranges = 1;
+    array->ranges[0].start = start;
+    array->ranges[0].end = end;
+    return array;
+  }
+
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(NULL);
+    slots_tracker_reset_for_testing();
+    ASM_StateMachine_SetLocalSlots(createSlotRangeArray(0, 16383));
     RMCK::flushdb(ctx);
 
     // Initialize pointers to NULL
@@ -83,6 +96,7 @@ class ParseHybridTest : public ::testing::Test {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = NULL;
     }
+    slots_tracker_reset_for_testing();
   }
 
   // Helper function to find vector node as direct child of PHRASE node (RANGE queries with filters)

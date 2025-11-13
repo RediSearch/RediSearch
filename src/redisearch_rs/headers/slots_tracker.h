@@ -9,6 +9,10 @@
 #include <stdatomic.h>
 #include "redismodule.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // static definitions in header                                                                             //
 // We want to avoid atomic read access through FFI boundary, so we maintain atomic version counter here.    //
@@ -48,7 +52,6 @@ static void slots_tracker_set_local_slots(const RedisModuleSlotRangeArray *range
     atomic_store_explicit(&key_space_version, version_after, memory_order_relaxed);
   }
 }
-
 
 /**
  * Marks the given slot ranges as partially available.
@@ -220,3 +223,7 @@ struct OptionSlotTrackerVersion slots_tracker_check_availability(const RedisModu
  * in production code.
  */
 void slots_tracker_reset_for_testing(void);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus
