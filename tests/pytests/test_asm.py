@@ -5,7 +5,7 @@ import random
 import re
 
 # TODO ASM: Handle tests with FT AGGREGATE and FT HYBRID beyond FT SEARCH
-def query_shards_ft_search(env, query, shards, expected):
+def query_shards(env, query, shards, expected):
     results = [shard.execute_command(*query) for shard in shards]
     for idx, res in enumerate(results, start=1):
         docs = res[1::2]
@@ -104,54 +104,70 @@ def create_and_populate_index(env: Env, index_name: str, n_docs: int):
 
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
-def import_slot_range_test(env: Env):
+def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
     n_docs = 2**14
 
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
 
-    query = ('FT.SEARCH', 'idx', '@n:[69 1420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
+    if query_type == 'FT.SEARCH':
+      query = ('FT.SEARCH', 'idx', '@n:[69 1420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
+    elif query_type == 'FT.AGGREGATE':
+      query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n')
     expected = env.cmd(*query)
 
     shards = env.getOSSMasterNodesConnectionList()
     # Sanity check - all shards should return the same results
-    query_shards_ft_search(env, query, shards, expected)
+    query_shards(env, query, shards, expected)
 
     # Test searching while importing slots from shard 2 to shard 1
     with TimeLimit(30):
         task_id = import_middle_slot_range(shard1, shard2)
         while not is_migration_complete(shard1, task_id):
-            query_shards_ft_search(env, query, shards, expected)
+            query_shards(env, query, shards, expected)
             time.sleep(0.1)
 
     # TODO ASM: When Trimming delay is implemented in core, test with all shards
     # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
     # topology is outdated, and the slots that would arrive to each shard would lead to errors.
-    query_shards_ft_search(env, query, [shard1, shard2], expected)
+    query_shards(env, query, [shard1, shard2], expected)
 
 @skip(cluster=False, min_shards=2)
-def test_import_slot_range():
+def test_ft_search_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
-    import_slot_range_test(env)
+    import_slot_range_test(env, 'FT.SEARCH')
 
 @skip(cluster=False, min_shards=2)
-def test_import_slot_range_BG():
+def test_ft_search_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
-    import_slot_range_test(env)
+    import_slot_range_test(env, 'FT.SEARCH')
 
-def import_slot_range_sanity_test(env: Env):
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_import_slot_range():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_test(env, 'FT.AGGREGATE')
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_import_slot_range_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_test(env, 'FT.AGGREGATE')
+
+
+def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
     n_docs = 2**14
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
-
-    query = ('FT.SEARCH', 'idx', '@n:[69 1420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
+    if query_type == 'FT.SEARCH':
+      query = ('FT.SEARCH', 'idx', '@n:[69 1420]', 'SORTBY', 'n', 'LIMIT', 0, n_docs, 'RETURN', 1, 'n')
+    elif query_type == 'FT.AGGREGATE':
+      query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n')
     expected = env.cmd(*query)
 
     shards = env.getOSSMasterNodesConnectionList()
     # Sanity check - all shards should return the same results
-    query_shards_ft_search(env, query, shards, expected)
+    query_shards(env, query, shards, expected)
 
     # Import slots from shard 2 to shard 1, and wait for it to complete
     task_id = import_middle_slot_range(shard1, shard2)
@@ -161,17 +177,27 @@ def import_slot_range_sanity_test(env: Env):
     # TODO ASM: When Trimming delay is implemented in core, test with all shards
     # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
     # topology is outdated, and the slots that would arrive to each shard would lead to errors.
-    query_shards_ft_search(env, query, [shard1, shard2], expected)
+    query_shards(env, query, [shard1, shard2], expected)
 
 @skip(cluster=False, min_shards=2)
-def test_import_slot_range_sanity():
+def test_ft_search_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
-    import_slot_range_sanity_test(env)
+    import_slot_range_sanity_test(env, 'FT.SEARCH')
 
 @skip(cluster=False, min_shards=2)
-def test_import_slot_range_sanity_BG():
+def test_ft_search_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
-    import_slot_range_sanity_test(env)
+    import_slot_range_sanity_test(env, 'FT.SEARCH')
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_import_slot_range_sanity():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_sanity_test(env, 'FT.AGGREGATE')
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_import_slot_range_sanity_BG():
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_sanity_test(env, 'FT.AGGREGATE')
 
 def add_shard_and_migrate_test(env: Env):
     initial_shards_count = env.shardsCount
@@ -185,7 +211,7 @@ def add_shard_and_migrate_test(env: Env):
 
     # Sanity check - all shards should return the same results
     shards = env.getOSSMasterNodesConnectionList()
-    query_shards_ft_search(env, query, shards, expected)
+    query_shards(env, query, shards, expected)
 
     # Add a new shard
     env.addShardToClusterIfExists()
@@ -201,7 +227,7 @@ def add_shard_and_migrate_test(env: Env):
     # TODO ASM: When Trimming delay is implemented in core, test with all shards
     # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
     # topology is outdated, and the slots that would arrive to each shard would lead to errors.
-    query_shards_ft_search(env, query, [shard1, new_shard], expected)
+    query_shards(env, query, [shard1, new_shard], expected)
 
 @skip(cluster=False)
 def test_add_shard_and_migrate():
