@@ -4,6 +4,7 @@ members = [
     "build_utils",
     "c_entrypoint/*",
     "ffi",
+    "hll",
     "inverted_index",
     "inverted_index_bencher",
     "fnv",
