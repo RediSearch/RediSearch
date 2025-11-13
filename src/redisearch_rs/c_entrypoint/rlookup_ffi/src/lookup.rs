@@ -8,7 +8,10 @@
 */
 
 use libc::size_t;
-use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags};
+use rlookup::{
+    IndexSpecCache, RLookup as RLookupInternal, RLookupKey, RLookupKeyFlags,
+    RLookupWithCanary as RLookup,
+};
 use std::{
     ffi::{CStr, c_char},
     ptr::NonNull,
@@ -401,7 +404,7 @@ pub unsafe extern "C" fn RLookup_FindKey<'a>(
 #[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_New_Stack<'a>() -> RLookup<'a> {
-    RLookup::new()
+    RLookup::new(RLookupInternal::new())
 }
 
 #[unsafe(no_mangle)]

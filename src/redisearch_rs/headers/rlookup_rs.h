@@ -167,6 +167,16 @@ typedef struct RLookup {
   uint64_t id;
 } RLookup;
 
+typedef struct Canary_RLookup__3134307025 {
+  uint64_t _canary;
+  struct RLookup inner;
+} Canary_RLookup__3134307025;
+
+/**
+ * RLookup with canary for FFI usage
+ */
+typedef struct Canary_RLookup__3134307025 RLookupFFI;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus

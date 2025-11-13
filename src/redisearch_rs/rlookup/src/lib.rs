@@ -20,6 +20,6 @@ pub use bindings::IndexSpecCache;
 pub use load_document::load_document;
 pub use lookup::{
     Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption,
-    RLookupOptions,
+    RLookupOptions, RLookupWithCanary,
 };
 pub use row::RLookupRow;

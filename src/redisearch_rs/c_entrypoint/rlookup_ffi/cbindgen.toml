@@ -16,11 +16,11 @@ parse_deps = true
 include = ["rlookup"]
 
 [export]
-include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey", "RLookup"]
+include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey", "RLookupWithCanary"]
 exclude = ["Option_IndexSpecCache", "Option_Cow_CStr", "RLookupId"]
 
 [export.rename]
 RLookupId = "uint64_t"
 Option_IndexSpecCache = "IndexSpecCache*"
-#"RLookupHeader" = "RLookup"
 "RLookupKeyHeader" = "RLookupKey"
+"RLookupWithCanary" = "RLookupFFI"
