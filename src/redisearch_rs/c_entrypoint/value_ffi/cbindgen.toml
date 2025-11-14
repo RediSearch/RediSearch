@@ -4,7 +4,20 @@ cpp_compat = true
 pragma_once = true
 
 includes = ["redismodule.h"]
+after_includes = """
+// Required to ensure that the alignment declared by cbindgen is respected on
+// the C/C++ side.
+#define ALIGNED(n) __attribute__((aligned(n)))
+"""
+
+
+[layout]
+aligned_n = "ALIGNED"
+
 
 [parse]
 parse_deps = true
-include = ["value"]
+include = ["value", "c_ffi_utils"]
+
+[export.rename]
+"OpaqueRsValue" = "RsValue"

@@ -280,31 +280,6 @@ TEST_F(IndexIteratorTestEdges, EOFAfterFiltering) {
     ASSERT_EQ(iterator->SkipTo(iterator, 1), ITERATOR_EOF);
 }
 
-class IndexIteratorTestWithSeeker : public ::testing::Test {};
-TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
-    size_t memsize;
-    InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
-    ASSERT_TRUE(idx != nullptr);
-    for (t_docId i = 1; i < 1000; ++i) {
-        auto res = (RSIndexResult) {
-            .docId = i,
-            .fieldMask = 1,
-            .freq = 1,
-            .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
-        };
-        InvertedIndex_WriteEntryGeneric(idx, &res);
-    }
-    // Create an iterator that reads only entries with field mask 2
-    QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
-
-    // Attempt to skip to the first entry, expecting EOF since no entries match the filter
-    ASSERT_EQ(iterator->SkipTo(iterator, 1), ITERATOR_EOF);
-
-    // Cleanup
-    iterator->Free(iterator);
-    InvertedIndex_Free(idx);
-}
-
 class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> {
   protected:
       static constexpr size_t n_docs = 1000;
@@ -951,4 +926,3 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
         ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
     }
 }
-

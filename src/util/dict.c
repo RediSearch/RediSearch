@@ -128,15 +128,8 @@ void* redisStringsKeyDup(void *privdata, const void *key){
 }
 
 static void stringsListValDestructor(void *privdata, void *val) {
-  if (!val) return;
-
-  char **list = val;
-  // Free each string in the list
-  for (int i = 0; list[i] != NULL; i++) {
-    rm_free(list[i]);
-  }
-  // Free the list itself
-  rm_free(list);
+  arrayof(char *) list = val;
+  array_free_ex(list, rm_free(*(char **)ptr));
 }
 
 dictType dictTypeHeapStringsListVal = {
@@ -481,6 +474,9 @@ int RS_dictReplace(dict *d, void *key, void *val)
 dictEntry *RS_dictAddOrFind(dict *d, void *key) {
     dictEntry *entry, *existing;
     entry = RS_dictAddRaw(d,key,&existing);
+    // If we have a new entry, initialize the value union to zero,
+    // otherwise we don't have a way to know it's a new entry or existing one.
+    if (entry) memset(&entry->v, 0, sizeof(entry->v));
     return entry ? entry : existing;
 }
 
