@@ -145,6 +145,11 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         self.values.is_empty()
     }
 
+    /// Resets the size of the sorting vector
+    pub fn reset(&mut self, new_size: usize) {
+        self.values = vec![T::create_null(); new_size].into_boxed_slice();
+    }
+
     /// approximate the memory size of the sorting vector.
     ///
     /// The implementation by-passes references in the middle of the chain, so it only counts the size of the final value,
