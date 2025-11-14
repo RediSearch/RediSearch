@@ -85,7 +85,7 @@ pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -
         QueryErrorCode::OutOfMemory
     } else if message == UNAVAILABLE_SLOTS_ERROR_CSTR {
         QueryErrorCode::UnavailableSlots
-    }else {
+    } else {
         QueryErrorCode::Generic
     }
 }
