@@ -3783,7 +3783,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (clusterConfig.type == ClusterType_RedisOSS) {
     if (isClusterEnabled) {
       // Init the topology updater cron loop.
-      InitRedisTopologyUpdater(ctx);
+      InitRedisTopologyUpdater(ctx, REFRESH_PERIOD);
     } else {
       // We are not in cluster mode. No need to init the topology updater cron loop.
       // Set the number of shards to 1 to indicate the topology is "set"
