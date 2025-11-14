@@ -296,7 +296,7 @@ def translate_vector_query(vector_query, vector_blob, index_name, cmd_suffix):
         'FT.SEARCH', index_name, vector_query,
         'PARAMS', '2', 'BLOB', vector_blob,
         'RETURN', '1', 'vector_distance', 'SORTBY', 'vector_distance',
-        'DIALECT', '2',
+        'DIALECT', '2', 'LIMIT', '0', '20'
     ]
     if cmd_suffix:
         command_parts.extend(cmd_suffix.split(' '))
