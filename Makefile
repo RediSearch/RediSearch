@@ -350,9 +350,26 @@ upload-artifacts:
 	@echo "Uploading artifacts..."
 	@$(ROOT)/sbin/upload-artifacts
 
-benchmark:
+benchmark: build
 	@echo "Running benchmarks..."
-	@cd tests/benchmarks && redisbench-admin run-local
+	@find_module() { \
+		if [ "$(COORD)" = "rlec" ]; then \
+			MODULE_PATH=$$(find $(ROOT)/bin -name "module-enterprise.so" | head -1); \
+			if [ -z "$$MODULE_PATH" ]; then \
+				echo "Error: No enterprise module found. Please build first with 'make build COORD=rlec'"; \
+				exit 1; \
+			fi; \
+		else \
+			MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" | head -1); \
+			if [ -z "$$MODULE_PATH" ]; then \
+				echo "Error: No community module found. Please build first with 'make build COORD=oss'"; \
+				exit 1; \
+			fi; \
+		fi; \
+		echo "Using module: $$MODULE_PATH"; \
+		cd tests/benchmarks && redisbench-admin run-local --module_path "$$MODULE_PATH" --required-module search; \
+	}; \
+	find_module
 
 micro-benchmarks: $(BUILD_SCRIPT)
 	@echo "Running micro-benchmarks..."
