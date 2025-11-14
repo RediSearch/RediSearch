@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -62,6 +63,7 @@ typedef struct {
   job *job;
   bool is_admin;
   bool has_priority_ticket;
+  bool is_high_priority;
 } priorityJobCtx;
 
 typedef struct {
@@ -82,21 +84,22 @@ typedef struct {
 typedef struct {
   job *front; /* pointer to front of queue */
   job *rear;  /* pointer to rear  of queue */
-  int len;    /* number of jobs in queue   */
+  size_t len;    /* number of jobs in queue   */
 } jobqueue;
+
 typedef struct priority_queue {
   jobqueue high_priority_jobqueue;  /* job queue for high priority tasks */
   jobqueue low_priority_jobqueue;   /* job queue for low priority tasks */
   jobqueue admin_priority_jobqueue; /* job queue for administration tasks */
   pthread_mutex_t lock;             /* used for queue r/w access */
   unsigned char alternating_pulls;  /* number of pulls by non-bias threads from queue */
-  unsigned char n_high_priority_bias; /* minimal number of high priority jobs to run in
-                                       * parallel (if there are enough threads) */
-  atomic_uchar high_priority_tickets; /* number of currently available priority
-                                       * tickets to reach the high priority bias */
+  uint32_t n_high_priority_bias; /* minimal number of high priority jobs to run in parallel (if there are enough threads) */
+  atomic_uint high_priority_tickets; /* number of currently available priority tickets to reach the high priority bias */
+
   pthread_cond_t has_jobs; /* Conditional variable to wake up threads waiting
                               for new jobs */
-  volatile atomic_size_t num_jobs_in_progress; /* threads currently working */
+  volatile atomic_size_t total_num_jobs_in_progress; /* threads currently working */
+  volatile atomic_size_t num_jobs_in_progress_high_priority; /* threads currently working on high priority jobs */
   volatile JobqueueState state; /* Indicates whether the threads should pull
                                    jobs from the jobq or sleep */
 } priorityJobqueue;
@@ -469,6 +472,43 @@ void redisearch_thpool_drain(redisearch_thpool_t *thpool_p, long timeout,
   }
 }
 
+static size_t priority_queue_high_priority_queue_len(priorityJobqueue *priority_queue_p) {
+  pthread_mutex_lock(&priority_queue_p->lock);
+  size_t ret = priority_queue_p->high_priority_jobqueue.len;
+  pthread_mutex_unlock(&priority_queue_p->lock);
+  return ret;
+}
+
+void redisearch_thpool_drain_high_priority(redisearch_thpool_t *thpool_p,
+                                           long timeout, yieldFunc yieldCB,
+                                           void *yield_ctx) {
+  priorityJobqueue *priority_queue_p = &thpool_p->jobqueues;
+  // Set high priority bias threshold to cover all threads.
+  // This ensures all threads will prioritize high-priority jobs
+  // Since this is called in main thread, we assume no more high priority jobs are added.
+  if (thpool_p->n_threads >= priority_queue_p->n_high_priority_bias) {
+    atomic_store_explicit(&priority_queue_p->high_priority_tickets, thpool_p->n_threads, memory_order_release);
+  }
+  // Wait in two phases, which could save us locking and unlocking just to check the queue length, once the queue length is 0.
+  // Wait until no more high-priority jobs are running or pending
+  long usec_timeout = 1000 * timeout;
+  while (priority_queue_high_priority_queue_len(priority_queue_p) > 0) {
+    usleep(usec_timeout);
+    if (yieldCB)
+      yieldCB(yield_ctx);
+  }
+
+  // Here we know that the queue length is empty. However, jobs are still in progress, which may be high priority.
+  // But we can wait for the high priority tickets to be up to n_threads meaning no more high priority jobs are running.
+  while (atomic_load_explicit(&priority_queue_p->num_jobs_in_progress_high_priority, memory_order_acquire) > 0) {
+    usleep(usec_timeout);
+    if (yieldCB)
+      yieldCB(yield_ctx);
+  }
+
+  atomic_store_explicit(&priority_queue_p->high_priority_tickets, priority_queue_p->n_high_priority_bias, memory_order_release);
+}
+
 void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
   RedisModule_Assert(thpool_p);
   /** Threads might be in terminate when empty state, we must lock before we
@@ -551,8 +591,12 @@ void redisearch_thpool_destroy(redisearch_thpool_t *thpool_p) {
 
 /* ============ STATS ============ */
 
-size_t redisearch_thpool_num_jobs_in_progress(redisearch_thpool_t *thpool_p) {
-  return thpool_p->jobqueues.num_jobs_in_progress;
+size_t redisearch_thpool_total_num_jobs_in_progress(redisearch_thpool_t *thpool_p) {
+  return thpool_p->jobqueues.total_num_jobs_in_progress;
+}
+
+size_t redisearch_thpool_num_high_priority_jobs_in_progress(redisearch_thpool_t *thpool_p) {
+  return thpool_p->jobqueues.num_jobs_in_progress_high_priority;
 }
 
 size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *thpool_p) {
@@ -591,7 +635,7 @@ static void redisearch_thpool_unlock(redisearch_thpool_t *thpool_p) {
 void redisearch_thpool_pause_threads(redisearch_thpool_t *thpool_p) {
   redisearch_thpool_pause_threads_no_wait(thpool_p);
 
-  while (redisearch_thpool_num_jobs_in_progress(thpool_p)) {
+  while (redisearch_thpool_total_num_jobs_in_progress(thpool_p)) {
     usleep(1);
   }
 }
@@ -687,10 +731,13 @@ static void *thread_do(redisearch_thpool_t *thpool_p) {
 
       /* These variables are atomic, so we can do this without a lock. */
       if (job_ctx.has_priority_ticket) {
-        thpool_p->jobqueues.high_priority_tickets++;
+        atomic_fetch_add_explicit(&thpool_p->jobqueues.high_priority_tickets, 1, memory_order_release);
       }
       thpool_p->total_jobs_done += !job_ctx.is_admin;
-      thpool_p->jobqueues.num_jobs_in_progress--;
+      thpool_p->jobqueues.total_num_jobs_in_progress--;
+      if (job_ctx.is_high_priority) {
+        thpool_p->jobqueues.num_jobs_in_progress_high_priority--;
+      }
     }
 
     if (thread_ctx.thread_state != THREAD_RUNNING) {
@@ -846,7 +893,8 @@ static int priority_queue_init(priorityJobqueue *priority_queue_p,
   priority_queue_p->n_high_priority_bias = high_priority_bias_threshold;
   priority_queue_p->high_priority_tickets = high_priority_bias_threshold;
   priority_queue_p->state = JOBQ_RUNNING;
-  priority_queue_p->num_jobs_in_progress = 0;
+  priority_queue_p->total_num_jobs_in_progress = 0;
+  priority_queue_p->num_jobs_in_progress_high_priority = 0;
   pthread_cond_init(&(priority_queue_p->has_jobs), NULL);
 
   return 0;
@@ -903,7 +951,7 @@ static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
   return job_ctx;
 }
 static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobqueue *priority_queue_p) {
-  bool is_admin = true, has_priority_ticket = false;
+  bool is_admin = true, has_priority_ticket = false, is_high_priority = false;
   job *job_p = NULL;
   /* Pull from the admin queue first */
   job_p = jobqueue_pull(&priority_queue_p->admin_priority_jobqueue);
@@ -917,7 +965,8 @@ static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobq
       job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
       if (job_p) {
         has_priority_ticket = true;
-        priority_queue_p->high_priority_tickets--;
+        is_high_priority = true;
+        atomic_fetch_sub_explicit(&priority_queue_p->high_priority_tickets, 1, memory_order_release);
       } else {
         /* If the higher priority queue is empty, pull from the low priority
         queue (without taking a ticket). */
@@ -931,6 +980,7 @@ static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobq
         queue. */
         if (!job_p) {
           job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
+          is_high_priority = true;
         }
       } else {
         job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
@@ -938,6 +988,8 @@ static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobq
         queue. */
         if (!job_p) {
           job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
+        } else {
+          is_high_priority = true;
         }
       }
       if (job_p) priority_queue_p->alternating_pulls++;
@@ -947,11 +999,17 @@ static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobq
   /** Increasing the counter should be guarded in the same code block as pulling
    * from the queue since we may want to check the jobq length and
    * num_jobs_in_progress together. */
-  if (job_p) priority_queue_p->num_jobs_in_progress++;
+  if (job_p) {
+    priority_queue_p->total_num_jobs_in_progress++;
+    if (is_high_priority) {
+      priority_queue_p->num_jobs_in_progress_high_priority++;
+    }
+  }
   priorityJobCtx job_ctx = {
       .job = job_p,
       .is_admin = is_admin,
       .has_priority_ticket = has_priority_ticket,
+      .is_high_priority = is_high_priority,
   };
   return job_ctx;
 }
@@ -989,7 +1047,7 @@ static size_t priority_queue_num_incomplete_jobs(priorityJobqueue *priority_queu
   size_t ret = 0;
   pthread_mutex_lock(&priority_queue_p->lock);
   ret = priority_queue_len_unsafe(priority_queue_p) +
-        priority_queue_p->num_jobs_in_progress;
+        priority_queue_p->total_num_jobs_in_progress;
   pthread_mutex_unlock(&priority_queue_p->lock);
   return ret;
 }

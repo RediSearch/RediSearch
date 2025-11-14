@@ -123,7 +123,7 @@ void workersThreadPool_SetNumWorkers() {
 size_t workersThreadPool_WorkingThreadCount(void) {
   RS_ASSERT(_workers_thpool != NULL);
 
-  return redisearch_thpool_num_jobs_in_progress(_workers_thpool);
+  return redisearch_thpool_total_num_jobs_in_progress(_workers_thpool);
 }
 
 // return n_threads value.
@@ -223,5 +223,17 @@ void workersThreadPool_wait() {
   }
   SharedExclusiveLock_LendGIL();
   redisearch_thpool_wait(_workers_thpool);
+  SharedExclusiveLock_TakeBackGIL();
+}
+
+// Drain only high-priority jobs from the workers' threadpool
+void workersThreadPool_DrainHighPriority(RedisModuleCtx *ctx) {
+  if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
+    return;
+  }
+  SharedExclusiveLock_LendGIL();
+
+  redisearch_thpool_drain_high_priority(_workers_thpool, 100, yieldCallback, ctx);
+  yield_counter = 0;  // reset
   SharedExclusiveLock_TakeBackGIL();
 }
