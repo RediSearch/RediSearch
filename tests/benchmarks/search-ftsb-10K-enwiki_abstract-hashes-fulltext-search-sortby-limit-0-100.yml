@@ -1,4 +1,4 @@
-name: "ftsb-10K-enwiki_abstract-hashes-fulltext-sortby"
+name: "search-ftsb-10K-enwiki_abstract-hashes-fulltext-search-sortby-limit-0-100"
 description: "
              - name: enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md),
                      from English-language Wikipedia:Database page abstracts.
@@ -40,4 +40,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH enwiki_abstract * SORTBY abstract ASC LIMIT 5000 5000 NOCONTENT'"
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH enwiki_abstract * SORTBY abstract ASC LIMIT 0 100'"

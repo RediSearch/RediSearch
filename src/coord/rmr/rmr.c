@@ -327,31 +327,41 @@ static void uvGetConnectionPoolState(void *p) {
   IORuntimeCtx *ioRuntime = reducedConnPoolStateCtx->ioRuntime;
   struct MultiThreadedRedisBlockedCtx *mt_bc = reducedConnPoolStateCtx->mt_ctx;
   RedisModuleBlockedClient *bc = mt_bc->bc;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+
   pthread_mutex_lock(&mt_bc->lock);
   MRConnManager_FillStateDict(&ioRuntime->conn_mgr, mt_bc->replyDict);
-  mt_bc->pending_threads--;
-  if (mt_bc->pending_threads == 0) {
-    // We are the last ones to reply, so we can now send the response
-    MRConnManager_ReplyState(mt_bc->replyDict, ctx);
-    pthread_mutex_unlock(&mt_bc->lock);
-    RedisModule_FreeThreadSafeContext(ctx);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, NULL);
-    IORuntimeCtx_RequestCompleted(ioRuntime);
-    pthread_mutex_destroy(&mt_bc->lock);
-    dictRelease(mt_bc->replyDict);
-    rm_free(mt_bc);
-  } else {
-    pthread_mutex_unlock(&mt_bc->lock);
-    RedisModule_FreeThreadSafeContext(ctx);
-  }
+  size_t pending_threads = --mt_bc->pending_threads;
+  pthread_mutex_unlock(&mt_bc->lock);
 
+  if (pending_threads == 0) {
+    // We are the last ones to reply, so we can now send the response (from the unblock callback)
+    RedisModule_UnblockClient(bc, mt_bc);
+  }
+  // Request is complete for this ioRuntime
+  IORuntimeCtx_RequestCompleted(ioRuntime);
   rm_free(reducedConnPoolStateCtx);
 }
 
+static int connectionPoolStateReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+  void *p = RedisModule_GetBlockedClientPrivateData(ctx);
+  struct MultiThreadedRedisBlockedCtx *mt_bc = (struct MultiThreadedRedisBlockedCtx *)p;
+  MRConnManager_ReplyState(mt_bc->replyDict, ctx);
+  RedisModule_BlockedClientMeasureTimeEnd(mt_bc->bc);
+  return REDISMODULE_OK;
+}
+
+static void freeConnectionPoolStateCtx(RedisModuleCtx *ctx, void *p) {
+  UNUSED(ctx);
+  struct MultiThreadedRedisBlockedCtx *mt_bc = (struct MultiThreadedRedisBlockedCtx *)p;
+  pthread_mutex_destroy(&mt_bc->lock);
+  dictRelease(mt_bc->replyDict);
+  rm_free(mt_bc);
+}
+
 void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, connectionPoolStateReply, NULL, freeConnectionPoolStateCtx, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
   struct MultiThreadedRedisBlockedCtx *mt_bc = rm_new(struct MultiThreadedRedisBlockedCtx);
   mt_bc->num_io_threads = cluster_g->num_io_threads;

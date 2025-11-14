@@ -7,6 +7,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "redismodule.h"
+// Required to ensure that the alignment declared by cbindgen is respected on
+// the C/C++ side.
+#define ALIGNED(n) __attribute__((aligned(n)))
+
 
 /**
  * Enumeration of the types an
@@ -22,9 +26,23 @@ typedef enum RsValueType {
 } RsValueType;
 
 /**
- * Tuple struct holding 3 [`SharedRsValue`] items.
+ * Internal storage of [`RsValue`] and [`SharedRsValue`]
  */
-typedef struct RsValueTrioData RsValueTrioData;
+typedef struct RsValueInternal RsValueInternal;
+
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_24[24];
+
+/**
+ * Opaque projection of [`RsValue`], allowing the
+ * non-FFI-safe [`RsValue`] to be passed to C
+ * and even allow C land to place it on the stack.
+ */
+typedef struct ALIGNED(8) RsValue {
+  Size_24 _0;
+} RsValue;
 
 /**
  * A heap-allocated and refcounted RedisSearch dynamic value.
@@ -35,7 +53,7 @@ typedef struct RsValueTrioData RsValueTrioData;
  * - If this pointer is non-NULL, it was obtained from `Arc::into_raw`.
  * - If it is NULL, it represents an undefined value.
  * - A non-null pointer represents one clone of said `Arc`, and as such, as
- *   long as the [`SharedRsValue] lives and holds a non-null pointer, the Arc
+ *   long as the [`SharedRsValue`] lives and holds a non-null pointer, the Arc
  *   is still valid.
  */
 typedef struct SharedRsValue {
@@ -44,14 +62,6 @@ typedef struct SharedRsValue {
    */
   const struct RsValueInternal *ptr;
 } SharedRsValue;
-
-/**
- * A container for the [`RsValueInternal::Trio`](crate::RsValueInternal::Trio)
- * variant.
- */
-typedef struct RsValueTrio {
-  struct RsValueTrioData *_0;
-} RsValueTrio;
 
 /**
  * A single entry of a [`RsValueMap`].
@@ -81,73 +91,6 @@ typedef struct RsValueMap {
    */
   uint32_t cap;
 } RsValueMap;
-
-/**
- * Internal storage of [`RsValue`] and [`SharedRsValue`]
- */
-typedef enum RsValueInternal_Tag {
-  /**
-   * Null value
-   */
-  Null,
-  /**
-   * Numeric value
-   */
-  Number,
-  /**
-   * Reference value
-   */
-  Ref,
-  /**
-   * Trio value
-   */
-  Trio,
-  /**
-   * Map value
-   */
-  Map,
-} RsValueInternal_Tag;
-
-typedef struct RsValueInternal {
-  RsValueInternal_Tag tag;
-  union {
-    struct {
-      double number;
-    };
-    struct {
-      struct SharedRsValue ref;
-    };
-    struct {
-      struct RsValueTrio trio;
-    };
-    struct {
-      struct RsValueMap map;
-    };
-  };
-} RsValueInternal;
-
-/**
- * A stack-allocated RediSearch dynamic value.
- */
-typedef enum RsValue_Tag {
-  /**
-   * Undefined, not holding a value.
-   */
-  RsValue_Undef,
-  /**
-   * Defined and holding a value.
-   */
-  RsValue_Def,
-} RsValue_Tag;
-
-typedef struct RsValue {
-  RsValue_Tag tag;
-  union {
-    struct {
-      struct RsValueInternal def;
-    };
-  };
-} RsValue;
 
 #ifdef __cplusplus
 extern "C" {
@@ -192,6 +135,12 @@ const struct RsValue *RsValue_NullStatic(void);
 
 /**
  * Get the type of an `RsValue`.
+ *
+ * # Safety
+ * The passed value must originate from one of the `RsValue` constructors,
+ * i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
+ * or [`RsValue_NullStatic`].
+ *
  * @param v The value to inspect
  * @return The `RsValueType` of the value
  */

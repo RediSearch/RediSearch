@@ -8,7 +8,6 @@ metadata:
 setups:
   - oss-standalone
 
-
 dbconfig:
   - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/internal.tasks/withsuffix-github/dump.rdb"
   - dataset_load_timeout_secs: 180

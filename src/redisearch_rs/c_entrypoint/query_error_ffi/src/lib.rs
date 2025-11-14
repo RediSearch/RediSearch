@@ -7,13 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod opaque;
-
-use query_error::QueryError;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 
-pub use crate::opaque::{OpaqueQueryError, QueryErrorExt};
+use c_ffi_utils::opaque::IntoOpaque;
+use query_error::{QueryError, opaque::OpaqueQueryError};
+
 pub use query_error::QueryErrorCode;
 
 /// Returns the default [`QueryError`].
