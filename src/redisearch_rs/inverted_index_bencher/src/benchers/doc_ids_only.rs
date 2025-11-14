@@ -75,15 +75,9 @@ impl Bencher {
         c.bench_function("Decode DocIdsOnly", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || {
-                        (
-                            Cursor::new(test.encoded.as_ref()),
-                            DocIdsOnly,
-                            RSIndexResult::term(),
-                        )
-                    },
-                    |(cursor, decoder, result)| {
-                        let res = decoder.decode(cursor, 100, result);
+                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    |(cursor, result)| {
+                        let res = DocIdsOnly::decode(cursor, 100, result);
 
                         let _ = black_box(res);
                     },

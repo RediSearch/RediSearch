@@ -114,12 +114,10 @@ impl Bencher {
                     || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
                     |(cursor, result)| {
                         if self.wide {
-                            let decoder = FieldsOnlyWide;
-                            let res = decoder.decode(cursor, 100, result);
+                            let res = FieldsOnlyWide::decode(cursor, 100, result);
                             let _ = black_box(res);
                         } else {
-                            let decoder = FieldsOnly;
-                            let res = decoder.decode(cursor, 100, result);
+                            let res = FieldsOnly::decode(cursor, 100, result);
                             let _ = black_box(res);
                         }
                     },

@@ -194,7 +194,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
     env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
-    env.assertEqual(res_dict['ON_OOM'][0], 'ignore')
+    env.assertEqual(res_dict['ON_OOM'][0], 'return')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -250,7 +250,7 @@ def testInitConfig():
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'true', 'true')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'false', 'false')
-    _test_config_str('ON_OOM', 'ignore')
+    _test_config_str('ON_OOM', 'return')
 
 @skip(cluster=True)
 def test_command_name(env: Env):
@@ -488,7 +488,7 @@ numericConfigs = [
     ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True, False),
     ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, LLONG_MAX, False, False),
     ('search-max-search-results', 'MAXSEARCHRESULTS', DEFAULT_MAX_SEARCH_REQUEST_RESULTS, 0, MAX_SEARCH_REQUEST_RESULTS, False, False),
-    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 1, 16, False, False),
+    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 0, 16, False, False),
     ('search-min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False, False),
     ('search-min-prefix', 'MINPREFIX', 2, 1, LLONG_MAX, False, False),
     ('search-min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False, False),

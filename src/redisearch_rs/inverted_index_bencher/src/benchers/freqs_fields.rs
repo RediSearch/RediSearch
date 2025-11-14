@@ -126,12 +126,10 @@ impl Bencher {
                     || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
                     |(cursor, result)| {
                         if self.wide {
-                            let decoder = FreqsFieldsWide;
-                            let res = decoder.decode(cursor, 100, result);
+                            let res = FreqsFieldsWide::decode(cursor, 100, result);
                             let _ = black_box(res);
                         } else {
-                            let decoder = FreqsFields;
-                            let res = decoder.decode(cursor, 100, result);
+                            let res = FreqsFields::decode(cursor, 100, result);
                             let _ = black_box(res);
                         }
                     },

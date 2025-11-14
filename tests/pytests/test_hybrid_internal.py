@@ -1,6 +1,19 @@
 from common import *
 from includes import *
 
+def remove_warnings(result):
+    """Remove any warnings from the result and return the rest"""
+
+    if isinstance(result, list):
+        warnings_index = result.index('warnings') if 'warnings' in result else -1
+        if warnings_index != -1:
+            return result[:warnings_index]
+        return result
+    if isinstance(result, dict):
+        if 'warnings' in result:
+            del result['warnings']
+        return result
+    return result
 
 def setup_hybrid_test_data(env):
     """Setup test data based on the provided scenario"""
@@ -144,6 +157,7 @@ def test_basic_hybrid_internal_withcursor(env):
     env.assertTrue(len(result) > 0)
 
     # Convert list to dict for easier access
+    result = remove_warnings(result)
     result_dict = dict(zip(result[::2], result[1::2]))
 
     # Should have VSIM and SEARCH cursor IDs
@@ -169,6 +183,7 @@ def test_hybrid_internal_with_count_parameter(env):
 
     # Should return a map with cursor IDs
     env.assertTrue(isinstance(result, list))
+    result = remove_warnings(result)
     result_dict = dict(zip(result[::2], result[1::2]))
 
     # Should have both cursor types
@@ -198,6 +213,7 @@ def test_hybrid_internal_cursor_interaction(env):
     hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
                            'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', '_SLOTS_INFO', generate_slots())
 
+    hybrid_result = remove_warnings(hybrid_result)
     # Should return a map with cursor IDs
     env.assertTrue(isinstance(hybrid_result, list))
     result_dict = dict(zip(hybrid_result[::2], hybrid_result[1::2]))
@@ -254,6 +270,7 @@ def test_hybrid_internal_cursor_with_scores():
                            'WITHCURSOR', 'WITHSCORES',
                            'PARAMS', '2', 'vec_param', query_vec.tobytes(), '_SLOTS_INFO', generate_slots())
 
+    hybrid_cursor_dict = remove_warnings(hybrid_cursor_dict)
     # Should return a map with cursor IDs
     env.assertTrue(isinstance(hybrid_cursor_dict, dict))
 
@@ -289,6 +306,7 @@ def test_hybrid_internal_with_params(env):
     hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:($term)',
                            'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR',
                            'PARAMS', '2', 'term', 'shoes', '_SLOTS_INFO', generate_slots())
+    hybrid_result = remove_warnings(hybrid_result)
 
     # Should return cursor map
     env.assertTrue(isinstance(hybrid_result, list))
@@ -371,6 +389,7 @@ def test_hybrid_internal_empty_search_results(env):
     hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:nonexistent',
                            'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', '_SLOTS_INFO', generate_slots())
 
+    hybrid_result = remove_warnings(hybrid_result)
     # Should return a map with cursor IDs
     env.assertTrue(isinstance(hybrid_result, list))
     result_dict = dict(zip(hybrid_result[::2], hybrid_result[1::2]))

@@ -84,15 +84,9 @@ impl Bencher {
         c.bench_function("Decode FreqsOnly", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || {
-                        (
-                            Cursor::new(test.encoded.as_ref()),
-                            FreqsOnly,
-                            RSIndexResult::term(),
-                        )
-                    },
-                    |(cursor, decoder, result)| {
-                        let res = decoder.decode(cursor, 100, result);
+                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    |(cursor, result)| {
+                        let res = FreqsOnly::decode(cursor, 100, result);
                         let _ = black_box(res);
                     },
                     BatchSize::SmallInput,

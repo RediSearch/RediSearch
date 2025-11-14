@@ -58,10 +58,8 @@ fn test_encode_fields_only() {
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
 
-        let decoder = FieldsOnly::default();
-        let record_decoded = decoder
-            .decode_new(&mut buf, prev_doc_id)
-            .expect("to decode freqs only record");
+        let record_decoded =
+            FieldsOnly::decode_new(&mut buf, prev_doc_id).expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
     }
@@ -123,9 +121,8 @@ fn test_encode_fields_only_wide() {
         let prev_doc_id = doc_id - (delta as u64);
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
-        let record_decoded = FieldsOnlyWide
-            .decode_new(&mut buf, prev_doc_id)
-            .expect("to decode freqs only record");
+        let record_decoded =
+            FieldsOnlyWide::decode_new(&mut buf, prev_doc_id).expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
     }
@@ -151,7 +148,7 @@ fn test_decode_fields_only_input_too_small() {
     let buf = vec![0, 0];
     let mut buf = Cursor::new(buf.as_ref());
 
-    let res = FieldsOnly.decode_new(&mut buf, 100);
+    let res = FieldsOnly::decode_new(&mut buf, 100);
 
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
@@ -164,7 +161,7 @@ fn test_decode_fields_only_empty_input() {
     let buf = vec![];
     let mut buf = Cursor::new(buf.as_ref());
 
-    let res = FieldsOnly.decode_new(&mut buf, 100);
+    let res = FieldsOnly::decode_new(&mut buf, 100);
 
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();

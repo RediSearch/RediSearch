@@ -134,9 +134,9 @@ impl Bencher {
                     || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
                     |(cursor, result)| {
                         let res = if self.wide {
-                            FullWide.decode(cursor, 100, result)
+                            FullWide::decode(cursor, 100, result)
                         } else {
-                            Full.decode(cursor, 100, result)
+                            Full::decode(cursor, 100, result)
                         };
 
                         let _ = black_box(res);

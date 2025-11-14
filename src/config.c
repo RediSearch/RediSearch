@@ -1808,7 +1808,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-min-operation-workers", MIN_OPERATION_WORKERS,
-      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
       MAX_WORKER_THREADS, get_min_operation_workers,
       set_min_operation_workers, NULL,
       (void *)&(RSGlobalConfig.minOperationWorkers)
@@ -1986,7 +1986,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-on-oom", OomPolicy_Ignore,
+      ctx, "search-on-oom", OomPolicy_Return,
       REDISMODULE_CONFIG_UNPREFIXED,
       on_oom_vals, on_oom_enums, 3,
       get_on_oom, set_on_oom, NULL,

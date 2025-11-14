@@ -172,7 +172,7 @@ inline RSValue *RSValue_NewString(char *str, uint32_t len) {
 /* Same as RSValue_NewString but for const strings */
 RSValue *RSValue_NewConstString(const char *str, uint32_t len) {
   RSValue *v = RSValue_NewWithType(RSValueType_String);
-  v->_strval.str = str;
+  v->_strval.str = (char *) str;
   v->_strval.len = len;
   v->_strval.stype = RSStringType_Const;
   return v;
