@@ -72,8 +72,8 @@
 #include "hybrid/hybrid_exec.h"
 #include "util/redis_mem_info.h"
 #include "notifications.h"
-#include "util/shared_exclusive_lock.h"
 #include "aggregate/reply_empty.h"
+#include "util/shared_exclusive_lock.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \

@@ -342,3 +342,24 @@ pub unsafe extern "C" fn slots_tracker_check_availability(
 
     with_tracker(|tracker| tracker.check_availability(ranges).into())
 }
+
+// ============================================================================
+// Testing Functions
+// ============================================================================
+
+/// Resets the tracker to its initial state.
+///
+/// This function is intended for testing purposes only. It resets the tracker
+/// to a clean state with no slots configured and version reset to initial.
+///
+/// # Safety
+///
+/// This function must be called from the main thread only.
+/// This function is intended for testing use only and should not be called
+/// in production code.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn slots_tracker_reset_for_testing() {
+    with_tracker_mut(|tracker| {
+        *tracker = SlotsTracker::new();
+    });
+}
