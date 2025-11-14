@@ -611,14 +611,14 @@ static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char*
   char* clusterTls = NULL;
   char* tlsPort = NULL;
 
-  // If `tls-cluster` is not set to `yes`, we do not connect to the other nodes
-  // with TLS on OSS-cluster. On Enterprise, we always want to connect with TLS
+  // If `tls-cluster` is not set to `yes`, and `tls-port` is not set or zero,
+  // we do not connect to the other nodes with TLS. We always want to connect with TLS
   // when the tls-port is set to a non-zero value, since this is the port we
-  // get from the proxy.
+  // get from the proxy on Enterprise, and the preferred port on OSS (see RedisCluster_GetTopology).
   clusterTls = getRedisConfigValue(ctx, "tls-cluster");
   if (!clusterTls || strcmp(clusterTls, "yes")) {
     tlsPort = getRedisConfigValue(ctx, "tls-port");
-    if (!IsEnterprise() || !tlsPort || !strcmp(tlsPort, "0")) {
+    if (!tlsPort || !strcmp(tlsPort, "0")) {
       ret = 0;
       goto done;
     }
