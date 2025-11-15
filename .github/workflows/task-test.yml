@@ -29,34 +29,87 @@ on:
         default: true
       pre-steps-script:
         type: string
-        description: 'Script to run before any other steps (extremely basic dependency needs only)'
+        description: "Script to run before any other steps (extremely basic dependency needs only)"
       rejson:
         type: boolean
         default: true
-        description: 'Enable tests with RedisJSON'
+        description: "Enable tests with RedisJSON"
       rejson-branch:
         type: string
         default: master
-        description: 'Branch to use when building RedisJSON for tests'
+        description: "Branch to use when building RedisJSON for tests"
       test-timeout:
         type: number
         default: 50
 
 env:
-  REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
+  REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
-  COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
+  COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
   BUILD_INTEL_SVS_OPT: "yes"
 
 jobs:
+  build-image:
+    if: inputs.container == 'rockylinux:9'
+    name: Build container for ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    runs-on: ${{ inputs.env }}
+    permissions:
+      contents: read
+      packages: write # required for GHCR push
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set image name
+        id: meta
+        run: |
+          # Base image name
+          IMAGE_NAME="ghcr.io/redisearch/redisearch-ci"
+
+          # Append container and sanitizer to make it unique
+          CONTAINER=${{ inputs.container || 'default' }}
+          SAN=${{ inputs.san || 'none' }}
+
+          # Normalize container string (replace : / with -)
+          CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's/[:\/]/-/g')
+
+          # Construct full tag
+          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}"
+
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "Using image tag: $IMAGE_TAG"
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and push (cached)
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          context: .
+          build-args: |
+            BASE_IMAGE=${{ inputs.container || 'ubuntu:24.04' }}
+          file: Dockerfile
+          tags: ${{ steps.meta.outputs.image }}
+          cache-to: type=registry,ref=${{ steps.meta.outputs.image }}-cache,mode=max
+          cache-from: type=registry,ref=${{ steps.meta.outputs.image }}-cache
   common-flow:
     name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
-    container: ${{ inputs.container || null }}
+    needs: build-image
+    container:
+      image: ${{ inputs.container == 'rockylinux:9' && needs.build-image.outputs.image || inputs.container }}
     # Nothing to do if both are `false`, skip
-    if: ${{ inputs.standalone || inputs.coordinator }}
+    if: ${{ !cancelled() && (inputs.standalone || inputs.coordinator) }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -193,6 +246,7 @@ jobs:
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup
+        if: needs.build-image.result == 'skipped'
         working-directory: .install
         run: |
           SUCCESS=0
