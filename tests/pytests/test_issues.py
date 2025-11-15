@@ -890,7 +890,8 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     new_shard_conn = env.getConnection(shardId=initial_shards_count+1)
     verify_shard_init(new_shard_conn)
     # Expect that the cluster will be aware of the new shard, but for redisearch coordinator, the new shard isn't
-    # considered part of the partition yet as it does not contain any slots.    env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
+    # considered part of the partition yet as it does not contain any slots.
+    env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
     env.assertEqual(new_shard_conn.execute_command("search.clusterinfo")[:2], ['num_partitions', int(initial_shards_count)])
 
     # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
