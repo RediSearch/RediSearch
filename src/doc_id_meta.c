@@ -69,7 +69,7 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
   docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, "docId", 1, &docIdKeyMetaClassIdConfig);
 }
 
-int DocIdMeta_Set(RedisModuleKey *key, size_t idx, uint64_t docId) {
+int DocIdMeta_SetDocIdForIndex(RedisModuleKey *key, size_t idx, uint64_t docId) {
   RS_ASSERT(docId != DOCID_META_INVALID);
   uint64_t meta = 0;
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) == REDISMODULE_OK) {
@@ -98,7 +98,7 @@ int DocIdMeta_Set(RedisModuleKey *key, size_t idx, uint64_t docId) {
   return RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, (uint64_t)docIdMeta);
 }
 
-int DocIdMeta_Get(RedisModuleKey *key, size_t idx, uint64_t *docId) {
+int DocIdMeta_GetDocIdForIndex(RedisModuleKey *key, size_t idx, uint64_t *docId) {
   uint64_t meta = 0;
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -114,5 +114,21 @@ int DocIdMeta_Get(RedisModuleKey *key, size_t idx, uint64_t *docId) {
     return REDISMODULE_ERR;
   }
   *docId = docIdMeta->docId[idx];
+  return REDISMODULE_OK;
+}
+
+int DocIdMeta_DeleteDocIdForIndex(RedisModuleKey *key, size_t idx) {
+  uint64_t meta = 0;
+  if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  if (meta == 0) {
+    return REDISMODULE_ERR;
+  }
+  struct DocIdMeta *docIdMeta = (struct DocIdMeta *)meta;
+  if (idx >= docIdMeta->size) {
+    return REDISMODULE_ERR;
+  }
+  docIdMeta->docId[idx] = DOCID_META_INVALID;
   return REDISMODULE_OK;
 }

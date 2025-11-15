@@ -38,6 +38,11 @@
 
 static std::mutex RMCK_GlobalLock;
 
+// KeyMeta mock storage
+static std::map<RedisModuleKey*, std::map<RedisModuleKeyMetaClassId, uint64_t>> keyMetaStorage;
+static RedisModuleKeyMetaClassId nextClassId = 1;
+static std::map<RedisModuleKeyMetaClassId, RedisModuleKeyMetaClassConfig> classConfigs;
+
 std::string HashValue::Key::makeKey() const {
   if (flags & REDISMODULE_HASH_CFIELDS) {
     return std::string(cstr);
@@ -1391,6 +1396,65 @@ static int RMCK_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, Redi
   return cur->it != cur->end;
 }
 
+// KeyMeta mock implementations
+static RedisModuleKeyMetaClassId RMCK_CreateKeyMetaClass(RedisModuleCtx *ctx,
+                                                         const char *name,
+                                                         int encver,
+                                                         RedisModuleKeyMetaClassConfig *config) {
+  RedisModuleKeyMetaClassId classId = nextClassId++;
+  classConfigs[classId] = *config;
+  return classId;
+}
+
+static int RMCK_GetKeyMeta(RedisModuleKeyMetaClassId class_id,
+                          RedisModuleKey *key,
+                          uint64_t *meta) {
+  auto keyIt = keyMetaStorage.find(key);
+  if (keyIt == keyMetaStorage.end()) {
+    *meta = 0;
+    return REDISMODULE_OK;
+  }
+
+  auto metaIt = keyIt->second.find(class_id);
+  if (metaIt == keyIt->second.end()) {
+    *meta = 0;
+    return REDISMODULE_OK;
+  }
+
+  *meta = metaIt->second;
+  return REDISMODULE_OK;
+}
+
+static int RMCK_SetKeyMeta(RedisModuleKeyMetaClassId class_id,
+                          RedisModuleKey *key,
+                          uint64_t meta) {
+  keyMetaStorage[key][class_id] = meta;
+  return REDISMODULE_OK;
+}
+
+static void RMCK_ClearKeyMeta() {
+  // Clean up any allocated metadata using the free callback
+  for (auto& keyPair : keyMetaStorage) {
+    for (auto& metaPair : keyPair.second) {
+      if (metaPair.second != 0) {
+        auto configIt = classConfigs.find(metaPair.first);
+        if (configIt != classConfigs.end() && configIt->second.free) {
+          configIt->second.free("testkey", metaPair.second);
+        }
+      }
+    }
+  }
+
+  keyMetaStorage.clear();
+  classConfigs.clear();
+  nextClassId = 1;
+}
+
+// External interface for clearing KeyMeta storage
+void RMCK_ClearKeyMetaStorage() {
+  RMCK_ClearKeyMeta();
+}
+
 static void registerApis() {
   REGISTER_API(GetApi);
   REGISTER_API(Alloc);
@@ -1500,6 +1564,12 @@ static void registerApis() {
   REGISTER_API(ClusterPropagateForSlotMigration);
   REGISTER_API(ClusterGetLocalSlotRanges);
   REGISTER_API(ClusterFreeSlotRanges);
+
+  // KeyMeta
+  REGISTER_API(CreateKeyMetaClass);
+  REGISTER_API(GetKeyMeta);
+  REGISTER_API(SetKeyMeta);
+  REGISTER_API(ClearKeyMeta);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

@@ -10,6 +10,10 @@
 
 #include "redismodule.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Initialize the DocIdMeta module
 void DocIdMeta_Init(RedisModuleCtx *ctx);
 
@@ -22,7 +26,7 @@ void DocIdMeta_Init(RedisModuleCtx *ctx);
  * @param docId The docId to set
  * @return REDISMODULE_OK if the docId was set, REDISMODULE_ERR otherwise
 */
-int DocIdMeta_Set(RedisModuleKey *key, size_t idx, uint64_t docId);
+int DocIdMeta_SetDocIdForIndex(RedisModuleKey *key, size_t idx, uint64_t docId);
 
 /*
 * Get the docId for the given key and index.
@@ -31,4 +35,17 @@ int DocIdMeta_Set(RedisModuleKey *key, size_t idx, uint64_t docId);
 * @param docId The docId to get
 * @return REDISMODULE_OK if the docId was found, REDISMODULE_ERR otherwise
 */
-int DocIdMeta_Get(RedisModuleKey *key, size_t idx, uint64_t *docId);
+int DocIdMeta_GetDocIdForIndex(RedisModuleKey *key, size_t idx, uint64_t *docId);
+
+
+/*
+* Delete the docId for the given key and index.
+* @param key The key to get the docId for
+* @param idx The index (as position in the index global array) to get the docId for
+* @return REDISMODULE_OK if the docId was found and deleted, REDISMODULE_ERR otherwise
+*/
+int DocIdMeta_DeleteDocIdForIndex(RedisModuleKey *key, size_t idx);
+
+#ifdef __cplusplus
+}
+#endif
