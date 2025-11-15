@@ -233,18 +233,28 @@ struct KeyList<'a> {
     head: Option<NonNull<RLookupKey<'a>>>,
     tail: Option<NonNull<RLookupKey<'a>>>,
     // Length of the data row. This is not necessarily the number
-    // of lookup keys. Hidden keys created through [`CursorMut::override_current`] increase
+    // of lookup keys. Overridden keys created through [`CursorMut::override_current`] increase
     // the number of actually allocated keys without increasing the conceptual rowlen.
     rowlen: u32,
 }
 
-/// A cursor over an [`RLookup`]s key list.
+/// A cursor over an [`RLookup`]'s key list usable as [`Iterator`]
+///
+/// This types `Iterator` implementation skips all hidden keys, i.e. the keys
+/// with hidden flags, also including keys that been overridden.
+///
+/// If you need to obtain the hidden keys use [`Cursor::move_next`].
 pub struct Cursor<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
 /// A cursor over an [`RLookup`]s key list with editing operations.
+///
+/// This types `Iterator` implementation skips all hidden keys, i.e. the keys
+/// with hidden flags, also including keys that been overridden.
+///
+/// If you need to obtain the hidden keys use [`Cursor::move_next`].
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
@@ -446,8 +456,14 @@ impl<'a> RLookupKey<'a> {
         unsafe { Pin::new_unchecked(b) }
     }
 
+    #[cfg(not(any(debug_assertions, test)))]
+    #[inline(always)]
+    pub fn is_overridden(&self) -> bool {
+        self.name.is_null()
+    }
+
     #[cfg(any(debug_assertions, test))]
-    fn is_tombstone(&self) -> bool {
+    pub fn is_overridden(&self) -> bool {
         self.name.is_null()
             && self.name_len == usize::MAX
             && self.path.is_null()
@@ -478,6 +494,11 @@ impl<'a> RLookupKey<'a> {
         mem::replace(me.header.next.get_mut(), next)
     }
 
+    /// Access the name of the RLookupKey as &CStr reference
+    pub fn name_as_cstr(&self) -> &CStr {
+        self._name.as_ref()
+    }
+
     #[cfg(any(debug_assertions, test))]
     fn assert_valid(&self, tail: &Self, ctx: &str) {
         assert!(
@@ -486,7 +507,7 @@ impl<'a> RLookupKey<'a> {
             self.flags
         );
 
-        if !self.is_tombstone() {
+        if !self.is_overridden() {
             use std::ptr;
 
             assert!(
@@ -591,6 +612,10 @@ impl<'a> KeyList<'a> {
     /// Returns a [`Cursor`] starting at the first element.
     ///
     /// The [`Cursor`] type can be used as Iterator over this list.
+    /// The returned Cursor's `Iterator` implementation skips hidden keys, i.e. the keys that have
+    /// been overridden.
+    ///
+    /// If you need to obtain the hidden keys use [`Cursor::move_next`].
     #[cfg(debug_assertions)]
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
         self.assert_valid("KeyList::cursor_front");
@@ -1267,6 +1292,11 @@ impl<'a> RLookup<'a> {
         };
 
         Some(key)
+    }
+
+    /// The row len is u
+    pub(crate) const fn get_row_len(&self) -> u32 {
+        self.header.keys.rowlen
     }
 }
 
@@ -1988,7 +2018,7 @@ mod tests {
         let mut c = keylist.cursor_front();
 
         // we expect the first item to be the tombstone of the old key
-        assert!(c.current().unwrap().is_tombstone());
+        assert!(c.current().unwrap().is_overridden());
 
         // and the next item to be the new key
         c.move_next();
