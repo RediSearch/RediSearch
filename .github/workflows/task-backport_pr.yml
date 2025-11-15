@@ -55,7 +55,8 @@ jobs:
       - name: Trigger CI
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          REVIEWER: ${{ github.event.pull_request.user.login || github.event.issue.user.login || github.actor }}
         run: |
           for pr in ${{ steps.backport.outputs.created_pull_numbers }}; do
-            gh pr edit $pr --add-reviewers "${{ github.event.pull_request.user.login || github.event.issue.user.login || github.actor }}"
+            gh pr edit $pr --add-reviewer "$REVIEWER"
           done

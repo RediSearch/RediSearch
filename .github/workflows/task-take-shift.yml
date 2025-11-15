@@ -13,5 +13,7 @@ jobs:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     env:
       GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
+      ASSIGNEE: ${{ inputs.assignee || github.actor }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
-      - run: gh variable set ISSUES_SHIFT_ASSIGNEE -R ${{ github.repository }} -b ${{ inputs.assignee || github.actor }}
+      - run: gh variable set ISSUES_SHIFT_ASSIGNEE -R "$GITHUB_REPOSITORY" -b "$ASSIGNEE"

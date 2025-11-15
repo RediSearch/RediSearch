@@ -135,6 +135,9 @@ jobs:
         with:
           submodules: recursive
       - name: Full checkout (node20 not supported)
+        env:
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REPO: ${{ github.repository }}
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
@@ -143,18 +146,18 @@ jobs:
             amazonlinux:2 | alpine:3)
 
               # Configure the safe directory
-              git config --global --add safe.directory /__w/${{ github.repository }}
+              git config --global --add safe.directory "/__w/$GITHUB_REPO"
 
               # Checkout
-              REPO_URL="https://github.com/${{ github.repository }}.git"
+              REPO_URL="https://github.com/$GITHUB_REPO.git"
 
               # Initialize a Git repository
               git init
               git remote add origin "$REPO_URL"
 
               # Fetch and checkout ref
-              git fetch origin "${{ github.ref }}" || {
-                echo "Failed to fetch ref: '${{ github.ref }}'";
+              git fetch origin "$GITHUB_REF" || {
+                echo "Failed to fetch ref: '$GITHUB_REF'";
                 exit 1;
               }
               git checkout FETCH_HEAD  # Check out the fetched ref
@@ -168,6 +171,8 @@ jobs:
               ;;
           esac
       - name: Print CPU information
+        env:
+          RUNNER_ARCH: ${{ runner.arch }}
         run: |
           echo "=== CPU Information ==="
           if command -v lscpu >/dev/null 2>&1; then
@@ -185,7 +190,7 @@ jobs:
             cat /proc/cpuinfo 2>/dev/null || echo "CPU info not available"
           fi
           echo "Runner OS: $RUNNER_OS"
-          echo "Runner Architecture: ${{ runner.arch }}"
+          echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup
         working-directory: .install
