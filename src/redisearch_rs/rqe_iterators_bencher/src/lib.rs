@@ -52,7 +52,6 @@ fn free_rs_values(metrics: *mut RSYieldableMetric) {
 }
 
 #[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
