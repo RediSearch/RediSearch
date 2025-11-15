@@ -64,7 +64,7 @@ QueryIterator *NewInvIndIterator_TermFull(const InvertedIndex *idx);
 
 // Returns an iterator for a numeric index, suitable for queries
 QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
-                                              const NumericFilter *flt, const FieldSpec *fieldSpec, double rangeMin, double rangeMax);
+                                              const NumericFilter *flt, const NumericRangeTree *rt, double rangeMin, double rangeMax);
 
 // Returns an iterator for a term index, suitable for queries
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,

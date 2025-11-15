@@ -443,6 +443,7 @@ static QueryIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, Numeri
                                               const NumericFilter *f, const FieldFilterContext* filterCtx) {
 
   const FieldSpec *fs = f->fieldSpec;
+  const NumericRangeTree *rt = NULL;
   // for numeric, if this range is at either end of the filter, we need
   // to check each record.
   // for geo, we always keep the filter to check the distance
@@ -452,7 +453,13 @@ static QueryIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, Numeri
     f = NULL;
   }
 
-  return NewInvIndIterator_NumericQuery(nr->entries, sctx, filterCtx, f, fs, nr->minVal, nr->maxVal);
+  if (fs) {
+      RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, fs, INDEXFLD_T_NUMERIC);
+      rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
+      RS_ASSERT(rt);
+  }
+
+  return NewInvIndIterator_NumericQuery(nr->entries, sctx, filterCtx, f, rt, nr->minVal, nr->maxVal);
 }
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
