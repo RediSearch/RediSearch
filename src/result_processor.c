@@ -1450,7 +1450,11 @@ static void RPDepleter_Deplete(void *arg) {
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
   }
+
+  // Clean up the last allocated SearchResult that wasn't used
+  SearchResult_Destroy(r);
   rm_free(r);
+
   // Save the last return code from the upstream.
   self->last_rc = rc;
 
@@ -1578,6 +1582,37 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
 }
 
 /**
+ * Synchronous Next function for RPDepleter.
+ * On first call: depletes all results synchronously in the current thread.
+ * Subsequent calls: yields results one by one from the internal array.
+ *
+ * This is used for single-pipeline scenarios where we want to avoid
+ * the overhead of threading and ensure totalResults is populated
+ * before returning.
+ */
+static int RPDepleter_Next_Sync(ResultProcessor *base, SearchResult *r) {
+  RPDepleter *self = (RPDepleter *)base;
+
+  // First call: deplete synchronously
+  if (self->first_call) {
+    self->first_call = false;
+
+    // Call the depletion function directly (no thread pool)
+    RPDepleter_Deplete(self);
+
+    // Switch to yield mode
+    self->base.Next = RPDepleter_Next_Yield;
+
+    // Now yield the first result
+    return RPDepleter_Next_Yield(base, r);
+  }
+
+  // Should never reach here since we switch to yield mode on first call
+  RS_LOG_ASSERT(0, "Unreachable code");
+  return RS_RESULT_ERROR;
+}
+
+/**
  * Constructs a new RPDepleter processor. Consumes the StrongRef given.
  */
 ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx) {
@@ -1590,6 +1625,27 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
   ret->sync_ref = sync_ref;
   ret->depletingThreadCtx = depletingThreadCtx;
   ret->nextThreadCtx = nextThreadCtx;
+  // Make sure the sync reference is valid
+  RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
+  return &ret->base;
+}
+
+/**
+ * Constructs a new RPDepleter processor that runs synchronously (no background thread).
+ * This is useful for single-pipeline scenarios where you want to avoid threading overhead
+ * and ensure totalResults is fully populated before yielding results.
+ * Consumes the StrongRef given.
+ */
+ResultProcessor *RPDepleter_NewSync(StrongRef sync_ref, RedisSearchCtx *sctx) {
+  RPDepleter *ret = rm_calloc(1, sizeof(*ret));
+  ret->results = array_new(SearchResult*, 0);
+  ret->base.Next = RPDepleter_Next_Sync;  // Use synchronous version
+  ret->base.Free = RPDepleter_Free;
+  ret->base.type = RP_DEPLETER;
+  ret->first_call = true;
+  ret->sync_ref = sync_ref;
+  ret->depletingThreadCtx = sctx;
+  ret->nextThreadCtx = sctx;
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
   return &ret->base;

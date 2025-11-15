@@ -155,7 +155,12 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
 
   size_t maxResults = astp->offset + astp->limit;
   if (!maxResults) {
-    maxResults = DEFAULT_LIMIT;
+    // For FT.AGGREGATE with WITHCOUNT without explicit LIMIT, we want to return all results
+    if (IsAggregate(&params->common) && !IsWithoutCount(&params->common)) {
+      maxResults = UINT32_MAX;
+    } else {
+      maxResults = DEFAULT_LIMIT;
+    }
   }
 
   // TODO: unify if when req holds only maxResults according to the query type.
@@ -203,22 +208,49 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
     } else if (IsHybrid(&params->common) ||
-               IsSearch(&params->common) && !IsOptimized(&params->common) ||
+               (IsSearch(&params->common) && !IsWithoutCount(&params->common)) ||
                HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
-      // In optimize mode, add sorter for queries with a scorer.
+      // In optimize mode (FT.SEARCH without WITHCOUNT), add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
+      up = pushRP(&pipeline->qctx, rp, up);
+    } else if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
+      // For aggregate queries with a depleter (e.g., with SORTBY, TimeoutPolicy_Fail, or WITHCOUNT)
+      // Set resultLimit based on the LIMIT clause if present, otherwise unlimited
+      if (astp->isLimited) {
+        // Respect the LIMIT: offset + limit
+        if (astp->limit > UINT64_MAX - astp->offset) {
+          pipeline->qctx.resultLimit = UINT32_MAX;
+        } else {
+          uint64_t sum = astp->offset + astp->limit;
+          pipeline->qctx.resultLimit = (sum > UINT32_MAX) ? UINT32_MAX : (uint32_t)sum;
+        }
+      } else {
+        // No LIMIT specified, consume everything
+        pipeline->qctx.resultLimit = UINT32_MAX;
+      }
+      // In non-optimized aggregate queries, we need to add a synchronous depleter
+      // Use RPDepleter_NewSync to run synchronously (no background thread)
+      rp = RPDepleter_NewSync(DepleterSync_New(1, false), params->common.sctx);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
 
-  if (astp->offset || (astp->limit && !rp)) {
+
+  // Create a pager if:
+  // 1. For FT.AGGREGATE with WITHCOUNT and explicit LIMIT (astp->isLimited checks for explicit LIMIT)
+  // 2. For FT.SEARCH with offset or limit
+  if ((astp->isLimited && (IsAggregate(&params->common) && !IsWithoutCount(&params->common)))
+      || (astp->offset || (astp->limit && !rp))) {
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);
-  } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
+  } else if (((IsSearch(&params->common) && IsWithoutCount(&params->common)) ||
+              (IsAggregate(&params->common) && !HasDepleter(&params->common))) &&
+             !rp) {
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
   }
+
 
 end:
   array_free(loadKeys);
@@ -383,7 +415,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
   // Check if scoring is needed based on optimization settings or sorting requirements
   bool scoringNeeded = false;
   if (isSearchReturningRows) {
-    if (reqflags & QEXEC_OPTIMIZE) {
+    if (reqflags & QEXEC_WITHOUTCOUNT) {
       // When optimized, check if optimizer has a scorer
       scoringNeeded = (params->common.optimizer->scorerType != SCORER_TYPE_NONE);
     } else {
@@ -614,7 +646,10 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
-  if (!hasArrange && (IsSearch(&params->common) || IsHybridSearchSubquery(&params->common))) {
+  if (!hasArrange &&
+        (IsSearch(&params->common)
+        || (IsAggregate(&params->common) && HasDepleter(&params->common) && (params->common.protocol == 2))
+        || IsHybridSearchSubquery(&params->common))) {
     rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
     if (!rp) {
       goto error;

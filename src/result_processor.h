@@ -281,6 +281,16 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
 ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
 
 /**
+* Constructs a new RPDepleter processor that runs synchronously in the current
+* thread.
+* Unlike RPDepleter_New, this does not spawn a background thread and depletes
+* all results on the first call to Next().
+* @param sync_ref Reference to shared synchronization object
+* @param sctx Search context
+*/
+ResultProcessor *RPDepleter_NewSync(StrongRef sync_ref, RedisSearchCtx *sctx);
+
+/**
 * Starts the depletion for all the depleters in the array, waits until all finished depleting, and returns.
 * @param depleters Array of depleter processors
 * @param count Number of depleter processors in the array

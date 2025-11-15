@@ -91,8 +91,8 @@ typedef enum {
   /* FT.AGGREGATE load all fields */
   QEXEC_AGG_LOAD_ALL = 0x20000,
 
-  /* Optimize query */
-  QEXEC_OPTIMIZE = 0x40000,
+  /* WITHOUTCOUNT was specified or used as default */
+  QEXEC_WITHOUTCOUNT = 0x40000,
 
   // Compound values are expanded (RESP3 w/JSON)
   QEXEC_FORMAT_EXPAND = 0x80000,
@@ -118,6 +118,12 @@ typedef enum {
   // The query has an explicit SORT BY 0 step - no sorting at all
   // Currently only used in when QEXEC_F_IS_HYBRID_TAIL is set - i.e this is the tail part
   QEXEC_F_NO_SORT = 0x4000000,
+
+  // The query has an explicit SORTBY x - sort by a field
+  QEXEC_F_SORTBY = 0x8000000,
+
+  // The query should use a depleter in the pipeline (for FT.AGGREGATE)
+  QEXEC_F_HAS_DEPLETER = 0x10000000,
 
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
@@ -147,12 +153,14 @@ typedef struct {
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
+#define IsAggregate(r) ((r)->reqflags & QEXEC_F_IS_AGGREGATE)
 #define IsHybridTail(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_TAIL)
 #define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
 #define IsHybridVectorSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY)
 #define IsHybrid(r) (IsHybridTail(r) || IsHybridSearchSubquery(r) || IsHybridVectorSubquery(r))
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
-#define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
+#define IsWithoutCount(r) ((r)->reqflags & QEXEC_WITHOUTCOUNT)
+#define HasDepleter(r) ((r)->reqflags & QEXEC_F_HAS_DEPLETER)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer && (r)->optimizer->scorerType != SCORER_TYPE_NONE)

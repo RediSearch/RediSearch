@@ -416,7 +416,8 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       resultsLen = calc_results_len(req, limit);
     }
 
-    if (IsOptimized(req)) {
+    if ((!IsAggregate(req) && IsWithoutCount(req)) ||
+        (IsAggregate(req) && !IsWithoutCount(req))) {
       QOptimizer_UpdateTotalResults(req);
     }
 
@@ -537,7 +538,8 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       Profile_PrepareMapForReply(reply);
     }
 
-    if (IsOptimized(req)) {
+    if ((!IsAggregate(req) && IsWithoutCount(req)) ||
+        (IsAggregate(req) && !IsWithoutCount(req))) {
       QOptimizer_UpdateTotalResults(req);
     }
 
@@ -881,7 +883,8 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
 
   // check possible optimization after creation of QueryIterator tree
-  if (IsOptimized(req)) {
+  if ((!IsAggregate(req) && IsWithoutCount(req)) ||
+      (IsAggregate(req) && !HasDepleter(req))) {
     QOptimizer_Iterators(req, req->optimizer);
   }
 

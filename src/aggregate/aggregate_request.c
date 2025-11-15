@@ -294,10 +294,11 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     const char *firstArg;
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
-    if (isSortby0 && *papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) {
+    if (isSortby0 && ((*papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) || (*papCtx->reqflags & QEXEC_F_IS_AGGREGATE))) {
       AC_Advance(ac);  // Advance without adding SortBy step to the plan
       *papCtx->reqflags |= QEXEC_F_NO_SORT;
     } else {
+      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SORTBY);
       PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
       if (parseSortby(arng, ac, status, papCtx) != REDISMODULE_OK) {
         return ARG_ERROR;
@@ -550,6 +551,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
+
+
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
     int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
@@ -592,10 +595,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
-      AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+      AREQ_RemoveRequestFlags(req, QEXEC_WITHOUTCOUNT);
+      AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
-      AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+      AREQ_AddRequestFlags(req, QEXEC_WITHOUTCOUNT);
+      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       optimization_specified = true;
     } else {
       ParseAggPlanContext papCtx = {
@@ -628,9 +633,14 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       return REDISMODULE_ERR;
   }
 
-  if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
+  if (!optimization_specified && req->reqConfig.dialectVersion >= 4
+          && !IsAggregate(req)) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
-    AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+    AREQ_AddRequestFlags(req, QEXEC_WITHOUTCOUNT);
+  }
+
+  if (!optimization_specified && IsAggregate(req)) {
+    AREQ_AddRequestFlags(req, QEXEC_WITHOUTCOUNT);
   }
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
@@ -1071,6 +1081,23 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     goto error;
   }
 
+  // FT.AGGREGATE backwards compatibility:
+  // Disable optimization if SORTBY is specified or timeout policy is strict
+  if (IsAggregate(req)) {
+    bool withCount = HasDepleter(req);
+    bool hasSortBy = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
+    bool hasLimit = (arng != NULL && arng->isLimited);
+    if (hasSortBy || req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+    }
+    // Only enable optimization for LIMIT without SORTBY if optimization was not
+    // explicitly disabled by WITHCOUNT
+    if (hasLimit && !hasSortBy && !withCount) {
+      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+    }
+  }
+
   return REDISMODULE_OK;
 
 error:
@@ -1327,7 +1354,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // set queryAST configuration parameters
   iteratorsConfig_init(&ast->config);
 
-  if (IsOptimized(req)) {
+  if ((!IsAggregate(req) && IsWithoutCount(req)) || (IsAggregate(req) && !HasDepleter(req))
+      ) {
     // parse inputs for optimizations
     QOptimizer_Parse(req);
     // check possible optimization after creation of QueryNode tree
@@ -1432,6 +1460,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
         .reqflags = req->reqflags,
         .optimizer = req->optimizer,
         .scoreAlias = req->searchopts.scoreAlias,
+        .protocol = req->protocol,
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,
@@ -1453,6 +1482,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .optimizer = req->optimizer,
       // Right now score alias is not supposed to be used in the aggregation pipeline
       .scoreAlias = NULL,
+      .protocol = req->protocol,
     },
     .outFields = &req->outFields,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
