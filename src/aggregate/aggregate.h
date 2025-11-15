@@ -261,6 +261,10 @@ typedef struct AREQ {
 
   // The offset of the prefixes in the command
   size_t prefixesOffset;
+
+  // Indicates whether the query has timed out.
+  // Useful for query with cursor and RETURN policy
+  bool has_timedout;
 } AREQ;
 
 /**

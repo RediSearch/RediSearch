@@ -74,7 +74,7 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 }
 
 
-static int getNextReply(RPNet *nc) {
+int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
     // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
     // TODO: could be replaced with a query specific configuration
@@ -108,7 +108,7 @@ static int getNextReply(RPNet *nc) {
   if (nc->cmd.forProfiling) {
     // if the cursor id is 0, this is the last reply from this shard, and it has the profile data
     if (CURSOR_EOF == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
-      MRReply *profile_data;
+    MRReply *profile_data;
       if (nc->cmd.protocol == 3) {
         // [
         //   {

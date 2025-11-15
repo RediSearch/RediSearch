@@ -48,7 +48,7 @@ void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
 int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r);
-
+int getNextReply(RPNet *nc);
 
 #ifdef __cplusplus
 }
