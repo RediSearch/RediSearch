@@ -44,6 +44,8 @@ jobs:
       )
     uses: ./.github/workflows/task-test.yml
     with:
+      platform: ubuntu:default
+      architecture: x86_64
       test-config: QUICK=1
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
@@ -59,6 +61,8 @@ jobs:
       )
     uses: ./.github/workflows/task-test.yml
     with:
+      platform: ubuntu:default
+      architecture: x86_64
       coverage: true
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
@@ -76,6 +80,8 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
+      platform: ubuntu:default
+      architecture: x86_64
       san: address
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
@@ -91,7 +97,7 @@ jobs:
       - coverage
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    if: ${{!cancelled()}}
+    if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
