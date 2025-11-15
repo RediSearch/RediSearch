@@ -45,12 +45,6 @@ protected:
   RedisModuleKey *testKey;
 };
 
-TEST_F(DocIdMetaTest, TestInitialization) {
-  // Test that DocIdMeta_Init doesn't crash and sets up the module correctly
-  EXPECT_NE(ctx, nullptr);
-  EXPECT_NE(testKey, nullptr);
-}
-
 TEST_F(DocIdMetaTest, TestSetAndGetDocId) {
   uint64_t docId = 12345;
   size_t idx = 0;
@@ -168,26 +162,9 @@ TEST_F(DocIdMetaTest, TestDeleteOutOfBounds) {
   EXPECT_EQ(result, REDISMODULE_ERR);
 }
 
-TEST_F(DocIdMetaTest, TestCallbacksRegistered) {
-  // Test that the DocIdMeta_Init function works without crashing
-  // The actual callback registration is handled internally by redismock
-  // We can verify that the module initialized successfully by testing basic functionality
-  uint64_t docId = 12345;
-  size_t idx = 0;
-
-  // If init worked, we should be able to set and get a docId
-  int result = DocIdMeta_SetDocIdForIndex(testKey, idx, docId);
-  EXPECT_EQ(result, REDISMODULE_OK);
-
-  uint64_t retrievedDocId;
-  result = DocIdMeta_GetDocIdForIndex(testKey, idx, &retrievedDocId);
-  EXPECT_EQ(result, REDISMODULE_OK);
-  EXPECT_EQ(retrievedDocId, docId);
-}
-
 TEST_F(DocIdMetaTest, TestMultipleKeys) {
   // Test that different keys maintain separate docId arrays
-  RedisModuleKey *key1 = testKey;
+  RedisModuleKey *key1 = RedisModule_OpenKey(ctx, RedisModule_CreateString(ctx, "testkey1", 8), REDISMODULE_WRITE);
   RedisModuleKey *key2 = RedisModule_OpenKey(ctx, RedisModule_CreateString(ctx, "testkey2", 8), REDISMODULE_WRITE);
 
   uint64_t docId1 = 111;
@@ -205,6 +182,7 @@ TEST_F(DocIdMetaTest, TestMultipleKeys) {
   EXPECT_EQ(DocIdMeta_GetDocIdForIndex(key2, 0, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId2);
 
+  RedisModule_CloseKey(key1);
   RedisModule_CloseKey(key2);
 }
 
