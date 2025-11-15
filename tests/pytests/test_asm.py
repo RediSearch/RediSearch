@@ -213,6 +213,9 @@ def add_shard_and_migrate_test(env: Env):
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
 
+    # Make sure all cluster nodes are aware of the new shard (it was ignored until now, as it had no slots)
+    env.broadcast('SEARCH.CLUSTERREFRESH')
+
     # And expect all shards to return the same results, including the new one
     shards.append(new_shard)
     query_all_shards()

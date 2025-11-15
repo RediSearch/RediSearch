@@ -580,6 +580,7 @@ def test_clusterinfo():
     verify_shard_init(env)
 
     generic_shard = {
+      'slots': ANY,
       'host': '127.0.0.1',
       'id': ANY,
       'port': ANY,
