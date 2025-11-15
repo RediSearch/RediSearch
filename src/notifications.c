@@ -16,6 +16,7 @@
 #include "util/workers.h"
 #include "dictionary.h"
 #include "slot_ranges.h"
+#include "search_disk.h"
 
 #define JSON_LEN 5 // length of string "json."
 
@@ -583,6 +584,9 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
     Indexes_EndRDBLoadingEvent(ctx);
+    if (isFlex) {
+      SearchDisk_ReOpen(ctx);
+    }
     workersThreadPool_OnEventEnd(true);
     Indexes_EndLoading();
     RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
