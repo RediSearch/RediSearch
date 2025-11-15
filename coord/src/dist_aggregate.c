@@ -130,7 +130,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     MRReply *results = NULL;
     if (map && MRReply_Type(map) == MR_REPLY_MAP) {
       results = MRReply_MapElement(map, "results");
-      if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) >= 0) {
+      if (results && MRReply_Type(results) == MR_REPLY_ARRAY) {
         MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
         // User code now owns the reply, so we can't free it here ourselves!
         rep = NULL;
@@ -266,34 +266,13 @@ static int getNextReply(RPNet *nc) {
 
   MRReply *rows = MRReply_ArrayElement(root, 0);
   // Perform sanity check to avoid processing empty replies
-  // Assume the reply is empty, unless all checks pass
-  bool is_empty = true;
-  do {
-    if (!rows) {
-      break;
-    }
-    if (nc->cmd.protocol == 3) { // RESP3
-      if (MRReply_Type(rows) != MR_REPLY_MAP) {
-        break;
-      }
-      MRReply *results = MRReply_MapElement(rows, "results");
-      if (!results || MRReply_Type(results) != MR_REPLY_ARRAY) {
-        break;
-      }
-      if (MRReply_Length(results) == 0) {
-        break;
-      }
-    } else { // RESP2
-      if (MRReply_Type(rows) != MR_REPLY_ARRAY) {
-        break;
-      }
-      if (MRReply_Length(rows) <= 1) {
-        break;
-      }
-    }
-    // All checks passed - the reply is not empty
-    is_empty = false;
-  } while (false);
+  bool is_empty;
+  if (nc->cmd.protocol == 3) { // RESP3
+    MRReply *results = MRReply_MapElement(rows, "results");
+    is_empty = MRReply_Length(results) == 0;
+  } else { // RESP2
+    is_empty = MRReply_Length(rows) == 1;
+  }
 
   if (is_empty) {
     MRReply_Free(root);
