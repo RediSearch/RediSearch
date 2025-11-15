@@ -167,6 +167,8 @@ typedef struct RLookup {
   struct KeyList keys;
 } RLookup;
 
+typedef struct RLookupRow RLookupRow;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -368,44 +370,71 @@ void RLookup_Cleanup(struct RLookup *lookup);
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
- * Safety:
- * 1. `key` must be a valid pointer to an [`RLookupKey`].
- * 2. `row` must be a valid pointer to an [`RLookupRow`].
- * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 3. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_WriteKey(const struct RLookupKey *key,
-                      struct RLookupRow *row,
+                      RLookupRow *row,
                       RSValue *value);
 
 /**
  * Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.
  *
- * Safety:
- * 1. `key` must be a valid pointer to an [`RLookupKey`].
- * 2. `row` must be a valid pointer to an [`RLookupRow`].
- * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 3. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_WriteOwnKey(const struct RLookupKey *key,
-                         struct RLookupRow *row,
+                         RLookupRow *row,
                          RSValue *value);
 
 /**
  * Wipes a RLookupRow by decrementing all values and resetting the row.
  *
- * Safety:
- * 1. The pointer must be a valid pointer to an [`RLookupRow`].
+ * # Safety
+ *
+ * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Wipe(struct RLookupRow *row);
+void RLookupRow_Wipe(RLookupRow *row);
 
 /**
  * Resets a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory of the dynamic values.
  *
  * This does not affect the sorting vector.
  *
- * Safety:
- * 1. The pointer must be a valid pointer to an [`RLookupRow`].
+ * # Safety
+ *
+ * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Reset(struct RLookupRow *row);
+void RLookupRow_Reset(RLookupRow *row);
+
+/**
+ * Move data from the source row to the destination row. The source row is cleared.
+ * The destination row should be pre-cleared (though its cache may still exist).
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. `src` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 3. `dst` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 4. `src` and `dst` must not be the same lookup row.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_Move(const struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
 
 #ifdef __cplusplus
 }  // extern "C"
