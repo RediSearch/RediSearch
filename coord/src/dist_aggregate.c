@@ -265,9 +265,37 @@ static int getNextReply(RPNet *nc) {
   }
 
   MRReply *rows = MRReply_ArrayElement(root, 0);
-  if (rows == NULL || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
-      || (MRReply_Type(rows) == MR_REPLY_ARRAY && MRReply_Length(rows) <= 1)
-      || (MRReply_Type(rows) == MR_REPLY_MAP   && MRReply_Length(rows) == 0)) {
+  // Perform sanity check to avoid processing empty replies
+  // Assume the reply is empty, unless all checks pass
+  bool is_empty = true;
+  do {
+    if (!rows) {
+      break;
+    }
+    if (nc->cmd.protocol == 3) { // RESP3
+      if (MRReply_Type(rows) != MR_REPLY_MAP) {
+        break;
+      }
+      MRReply *results = MRReply_MapElement(rows, "results");
+      if (!results || MRReply_Type(results) != MR_REPLY_ARRAY) {
+        break;
+      }
+      if (MRReply_Length(results) == 0) {
+        break;
+      }
+    } else { // RESP2
+      if (MRReply_Type(rows) != MR_REPLY_ARRAY) {
+        break;
+      }
+      if (MRReply_Length(rows) <= 1) {
+        break;
+      }
+    }
+    // All checks passed - the reply is not empty
+    is_empty = false;
+  } while (false);
+
+  if (is_empty) {
     MRReply_Free(root);
     root = NULL;
     rows = NULL;
