@@ -283,12 +283,17 @@ jobs:
             echo "Setup failed after 5 attempts"
             exit 1
           fi
+      - name: Setup Rust test dependencies
+        if: needs.build-image.result != 'success'  # Only run if NOT using custom container
+        run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
+
       - name: Setup Python test dependencies
+        run: .install/test_deps/install_python_deps.sh ${{ steps.mode.outputs.mode }}
         run: |
           SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
+            if .install/test_deps/install_python_deps.sh ${{ steps.mode.outputs.mode }}; then
               echo "Setup tests dependencies succeeded"
               SUCCESS=1
               break
