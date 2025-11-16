@@ -91,8 +91,8 @@ typedef enum {
   /* FT.AGGREGATE load all fields */
   QEXEC_AGG_LOAD_ALL = 0x20000,
 
-  /* WITHOUTCOUNT was specified or used as default */
-  QEXEC_WITHOUTCOUNT = 0x40000,
+  /* Optimize query */
+  QEXEC_OPTIMIZE = 0x40000,
 
   // Compound values are expanded (RESP3 w/JSON)
   QEXEC_FORMAT_EXPAND = 0x80000,
@@ -159,7 +159,7 @@ typedef struct {
 #define IsHybridVectorSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY)
 #define IsHybrid(r) (IsHybridTail(r) || IsHybridSearchSubquery(r) || IsHybridVectorSubquery(r))
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
-#define IsWithoutCount(r) ((r)->reqflags & QEXEC_WITHOUTCOUNT)
+#define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define HasDepleter(r) ((r)->reqflags & QEXEC_F_HAS_DEPLETER)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)

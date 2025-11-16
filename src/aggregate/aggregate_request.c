@@ -551,8 +551,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
-
-
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
     int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
@@ -595,12 +593,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
-      AREQ_RemoveRequestFlags(req, QEXEC_WITHOUTCOUNT);
-      AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+      AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
-      AREQ_AddRequestFlags(req, QEXEC_WITHOUTCOUNT);
-      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+      AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
       optimization_specified = true;
     } else {
       ParseAggPlanContext papCtx = {
@@ -633,14 +629,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       return REDISMODULE_ERR;
   }
 
-  if (!optimization_specified && req->reqConfig.dialectVersion >= 4
-          && !IsAggregate(req)) {
+  if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
-    AREQ_AddRequestFlags(req, QEXEC_WITHOUTCOUNT);
-  }
-
-  if (!optimization_specified && IsAggregate(req)) {
-    AREQ_AddRequestFlags(req, QEXEC_WITHOUTCOUNT);
+    AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
@@ -1081,20 +1072,15 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     goto error;
   }
 
-  // FT.AGGREGATE backwards compatibility:
-  // Disable optimization if SORTBY is specified or timeout policy is strict
+  // Define if we need a depleter in the pipeline
   if (IsAggregate(req)) {
-    bool withCount = HasDepleter(req);
+    bool addDepleter = false;
     bool hasSortBy = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
-    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-    bool hasLimit = (arng != NULL && arng->isLimited);
-    if (hasSortBy || req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-      AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
-    }
-    // Only enable optimization for LIMIT without SORTBY if optimization was not
-    // explicitly disabled by WITHCOUNT
-    if (hasLimit && !hasSortBy && !withCount) {
-      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+    if (req->protocol == 2) {
+      if (!IsOptimized(req) && !hasSortBy) {
+        // FT.AGGREGATE idx '*' WITHCOUNT [LIMIT]
+        AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+      }
     }
   }
 
@@ -1354,8 +1340,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // set queryAST configuration parameters
   iteratorsConfig_init(&ast->config);
 
-  if ((!IsAggregate(req) && IsWithoutCount(req)) || (IsAggregate(req) && !HasDepleter(req))
-      ) {
+  if (IsOptimized(req)) {
     // parse inputs for optimizations
     QOptimizer_Parse(req);
     // check possible optimization after creation of QueryNode tree
@@ -1460,7 +1445,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
         .reqflags = req->reqflags,
         .optimizer = req->optimizer,
         .scoreAlias = req->searchopts.scoreAlias,
-        .protocol = req->protocol,
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,
@@ -1482,7 +1466,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .optimizer = req->optimizer,
       // Right now score alias is not supposed to be used in the aggregation pipeline
       .scoreAlias = NULL,
-      .protocol = req->protocol,
     },
     .outFields = &req->outFields,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,

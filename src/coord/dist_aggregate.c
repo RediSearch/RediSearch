@@ -85,11 +85,15 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // Numeric responses are encoded as simple strings.
   array_append(tmparr, "_NUM_SSTRING");
 
-  // Preserve WITHCOUNT flag from the original command
-  // It's not necessary to pass WITHOUTCOUNT because it's the default.
-  int argOffset  = RMUtil_ArgIndex("WITHCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  int argOffset = 0;
+  // Preserve WITHCOUNT/WITHOUTCOUNT flag from the original command
+  argOffset  = RMUtil_ArgIndex("WITHCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1) {
     array_append(tmparr, "WITHCOUNT");
+  }
+  argOffset  = RMUtil_ArgIndex("WITHOUTCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1) {
+    array_append(tmparr, "WITHOUTCOUNT");
   }
 
   // Add the index prefixes to the command, for validation in the shard
@@ -267,6 +271,8 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
   rs_wall_clock_init(&r->initClock);
 
+  r->protocol = is_resp3(ctx) ? 3 : 2;
+
   int profileArgs = parseProfileArgs(argv, argc, r);
   if (profileArgs == -1) return REDISMODULE_ERR;
   int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, status);
@@ -296,9 +302,6 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   rc = AGGPLN_Distribute(AREQ_AGGPlan(r), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
-
-  // Set protocol so it's available during pipeline construction
-  r->protocol = is_resp3(ctx) ? 3 : 2;
 
   AREQDIST_UpstreamInfo us = {NULL};
   rc = AREQ_BuildDistributedPipeline(r, &us, status);

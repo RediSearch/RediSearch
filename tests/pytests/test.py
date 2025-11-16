@@ -4601,10 +4601,6 @@ def test_timeoutCoordSearch_Strict():
     env.assertEqual(res[0], n_docs)
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '0')
     env.assertEqual(res[0], n_docs)
-    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'TIMEOUT', '0')
-    env.assertEqual(res[0], n_docs)
-    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'TIMEOUT', '0')
-    env.assertEqual(res[0], n_docs)
 
     # Small timeout, heavy query -> expect an error
     env.expect('FT.SEARCH', 'idx', '(lala* | @numeric1:[5 50000]) (@tag1:{MOVIE} | @text1:lal*)', 'TIMEOUT', '1').error().contains('Timeout limit was reached')

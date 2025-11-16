@@ -30,9 +30,6 @@ typedef struct CommonPipelineParams {
 
   /** Name to use as the score alias, used by both scorer and sorter. */
   const char* scoreAlias;
-
-  /** RESP protocol version (2 or 3). */
-  int protocol;
 } CommonPipelineParams;
 
 /**

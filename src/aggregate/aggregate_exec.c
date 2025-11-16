@@ -416,8 +416,9 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       resultsLen = calc_results_len(req, limit);
     }
 
-    if ((!IsAggregate(req) && IsWithoutCount(req)) ||
-        (IsAggregate(req) && !IsWithoutCount(req))) {
+    if (IsOptimized(req) ||
+        // FT.AGGREGATE + WITHCOUNT + [SORTBY] + [LIMIT]
+        (IsAggregate(req) && !IsOptimized(req) )) {
       QOptimizer_UpdateTotalResults(req);
     }
 
@@ -538,11 +539,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       Profile_PrepareMapForReply(reply);
     }
 
-    if ((!IsAggregate(req) && IsWithoutCount(req)) ||
-        (IsAggregate(req) && !IsWithoutCount(req))) {
-      QOptimizer_UpdateTotalResults(req);
-    }
-
     // <attributes>
     RedisModule_ReplyKV_Array(reply, "attributes");
     RedisModule_Reply_ArrayEnd(reply);
@@ -583,6 +579,12 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
 done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
+
+    if (IsOptimized(req) ||
+        // FT.AGGREGATE + WITHCOUNT + [SORTBY] + [LIMIT]
+        (IsAggregate(req) && !IsOptimized(req))) {
+      QOptimizer_UpdateTotalResults(req);
+    }
 
     // <total_results>
     RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
@@ -883,8 +885,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
 
   // check possible optimization after creation of QueryIterator tree
-  if ((!IsAggregate(req) && IsWithoutCount(req)) ||
-      (IsAggregate(req) && !HasDepleter(req))) {
+  if (IsOptimized(req)) {
     QOptimizer_Iterators(req, req->optimizer);
   }
 
@@ -941,12 +942,12 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   AREQ_AddRequestFlags(*r, QEXEC_FORMAT_DEFAULT);
 
+  (*r)->protocol = is_resp3(ctx) ? 3 : 2;
+
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;
   }
-
-  (*r)->protocol = is_resp3(ctx) ? 3 : 2;
 
   // Prepare the query.. this is where the context is applied.
   if (AREQ_RequestFlags(*r) & QEXEC_F_IS_CURSOR) {
