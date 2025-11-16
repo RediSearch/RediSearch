@@ -4,9 +4,15 @@ set -ex
 processor=$(uname -m)
 OS_TYPE=$(uname -s)
 
-curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/install.sh | sh
+if [[ $GITHUB_ACTIONS == "true" ]]; then
+	export UV_INSTALL_DIR=/root/.local/bin
+else
+	export UV_INSTALL_DIR=$HOME/.local/bin
+fi
+
+curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/root/.local/bin" sh
 # Add the newly installed `uv` to the PATH
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$UV_INSTALL_DIR:$PATH"
 
 # Verify uv is in path
 uv -vV

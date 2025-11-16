@@ -9,6 +9,7 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 ENV HOME=/root
+ENV GITHUB_ACTIONS=true
 WORKDIR /project
 
 # Ensure bash is present. Not all images come with it.
@@ -28,3 +29,4 @@ RUN bash -l -eo pipefail .install/test_deps/install_rust_deps.sh
 ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 
 WORKDIR /project
+RUN which uv
