@@ -91,8 +91,10 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.total_queries_processed = READ(RSGlobalStats.totalStats.queries.total_queries_processed);
   stats.total_query_commands = READ(RSGlobalStats.totalStats.queries.total_query_commands);
   stats.total_query_execution_time = rs_wall_clock_convert_ns_to_ms(READ(RSGlobalStats.totalStats.queries.total_query_execution_time));
-  stats.errors.syntax = READ(RSGlobalStats.totalStats.queries.errors.syntax);
-  stats.errors.arguments = READ(RSGlobalStats.totalStats.queries.errors.arguments);
+  stats.shard_errors.syntax = READ(RSGlobalStats.totalStats.queries.shard_errors.syntax);
+  stats.shard_errors.arguments = READ(RSGlobalStats.totalStats.queries.shard_errors.arguments);
+  stats.coord_errors.syntax = READ(RSGlobalStats.totalStats.queries.coord_errors.syntax);
+  stats.coord_errors.arguments = READ(RSGlobalStats.totalStats.queries.coord_errors.arguments);
   return stats;
 }
 
@@ -111,7 +113,7 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
 // Currently supports : syntax, parse_args
 // `toAdd` can be negative to decrease the counter.
 void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coord) {
-  QueryErrorsGlobalStats *queries_errors = coord ? &RSGlobalStats.totalStats.queries.coord_errors : &RSGlobalStats.totalStats.queries.errors;
+  QueryErrorsGlobalStats *queries_errors = coord ? &RSGlobalStats.totalStats.queries.coord_errors : &RSGlobalStats.totalStats.queries.shard_errors;
   switch (code) {
     case QUERY_ERROR_CODE_SYNTAX:
       INCR_BY(queries_errors->syntax, toAdd);

@@ -54,7 +54,7 @@ typedef struct {
   size_t total_query_commands;          // Number of successful query commands, including `FT.CURSOR READ`
   rs_wall_clock_ns_t total_query_execution_time;   // Total time spent on queries, aggregated in ns and reported in ms
 
-  QueryErrorsGlobalStats errors;        // Shard query errors statistics
+  QueryErrorsGlobalStats shard_errors;        // Shard query errors statistics
   QueryErrorsGlobalStats coord_errors;  // Coordinator query errors statistics
 } QueriesGlobalStats;
 

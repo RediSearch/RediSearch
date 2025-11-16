@@ -1098,11 +1098,14 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 
 error:
+  // Update global query errors statistics before freeing the request.
+  bool internal = r ? IsInternal(r) : (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_');
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, !internal);
+
   if (r) {
     AREQ_Free(r);
   }
 
-  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1);
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
