@@ -10,7 +10,7 @@ else
 	export UV_INSTALL_DIR=$HOME/.local/bin
 fi
 
-curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/root/.local/bin" sh
+curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$UV_INSTALL_DIR" sh
 # Add the newly installed `uv` to the PATH
 export PATH="$UV_INSTALL_DIR:$PATH"
 
