@@ -52,7 +52,10 @@ env:
 
 jobs:
   build-image:
-    if: ${{ inputs.container }}
+  if: ${{ inputs.container }}
+  concurrency:
+    group: docker-build-${{ inputs.container }}-${{ inputs.san || 'none' }}
+    cancel-in-progress: true  # New workflow cancels old build
     name: Build container for ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
     permissions:
@@ -107,8 +110,7 @@ jobs:
     runs-on: ${{ inputs.env }}
     needs: build-image
     container:
-      image: ${{ inputs.container && needs.build-image.outputs.image || null }}
-    # Nothing to do if both are `false`, skip
+      image: ${{ needs.build-image.result == 'success' && needs.build-image.outputs.image || inputs.container || null }}    # Nothing to do if both are `false`, skip
     if: ${{ !cancelled() && (inputs.standalone || inputs.coordinator) }}
     defaults:
       run:
