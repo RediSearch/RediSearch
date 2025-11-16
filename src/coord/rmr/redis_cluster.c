@@ -51,9 +51,15 @@ static bool parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
         host = rm_strndup(val_str, val_len);
       }
     } else if (STR_EQ(key_str, key_len, "tls-port")) {
-      port = (int)RedisModule_CallReplyInteger(val); // Prefer tls-port if available
+      int val = (int)RedisModule_CallReplyInteger(val);
+      if (val > 0) {
+        port = val; // Prefer tls-port if available (but only if valid)
+      }
     } else if (STR_EQ(key_str, key_len, "port") && port == 0) {
-      port = (int)RedisModule_CallReplyInteger(val); // Only set if tls-port wasn't set
+      int val = (int)RedisModule_CallReplyInteger(val);
+      if (val > 0) {
+        port = val; // Only set if tls-port wasn't set and port is valid
+      }
     }
   }
   // Verify we have the required fields
