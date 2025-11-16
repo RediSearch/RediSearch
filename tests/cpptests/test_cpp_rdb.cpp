@@ -287,6 +287,10 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     }
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
+    // Remove the original spec from globals before loading from RDB
+    IndexSpec_RemoveFromGlobals(spec_ref, false);
+    ASSERT_TRUE(IndexSpec_LoadUnsafe("test_duplicate_idx").rm == NULL);
+
     // Reset read position to load from RDB
     io->read_pos = 0;
 
