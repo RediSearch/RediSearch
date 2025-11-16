@@ -470,7 +470,7 @@ requires-dist = [
     { name = "orderly-set", specifier = "<=5.3.0" },
     { name = "packaging", specifier = "<=24.2" },
     { name = "redis", specifier = ">=5.2.1" },
-    { name = "rltest", specifier = ">=0.7.17,<0.8.0" },
+    { name = "rltest", specifier = ">=0.7.18,<0.8.0" },
     { name = "scipy", specifier = "<=1.15.2" },
 ]
 
