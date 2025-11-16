@@ -53,9 +53,6 @@ env:
 jobs:
   build-image:
     if: ${{ inputs.container }}
-    concurrency:
-      group: docker-build-${{ inputs.container }}-${{ inputs.san || 'none' }}-${{ github.run_id }}
-      cancel-in-progress: false
     name: Build container for ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
     permissions:
@@ -80,8 +77,8 @@ jobs:
           # Normalize container string (replace : / with -)
           CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's/[:\/]/-/g')
 
-          # Unique image tag per workflow run
-          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${RUN_ID}"
+          # Unique image tag per workflow run and architecture
+          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ inputs.env }}-${RUN_ID}"
 
           # Shared cache ref (without run_id)
           CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-cache"
