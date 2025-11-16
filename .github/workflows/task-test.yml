@@ -288,7 +288,6 @@ jobs:
         run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
 
       - name: Setup Python test dependencies
-        run: .install/test_deps/install_python_deps.sh ${{ steps.mode.outputs.mode }}
         run: |
           SUCCESS=0
           for i in {1..5}; do
