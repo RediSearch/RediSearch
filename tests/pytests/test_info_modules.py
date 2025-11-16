@@ -640,8 +640,12 @@ def _common_warnings_errors_test_scenario(env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
   # Create doc
   env.expect('HSET', 'doc:1', 'text', 'hello world').equal(1)
+  # Create vector index for hybrid
+  env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  # Create doc for hybrid
+  env.expect('HSET', 'vec:1', 'vector', '0,0').equal(1)
 
-class testWarningsAndErrorsStandalone:
+class testWarningsAndErrorsStandalone_Resp2:
   """Test class for warnings and errors metrics in standalone mode"""
 
   def __init__(self):
@@ -658,6 +662,16 @@ class testWarningsAndErrorsStandalone:
     # Test counter
     info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SA_METRIC], '1')
+    # Test syntax errors in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world:').error().contains('Syntax error at offset')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SA_METRIC], '2')
+    # Test syntax errors in hybrid
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', '@vector', '0').error().contains('Syntax error at offset')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SA_METRIC], '3')
 
   def test_args_errors_SA(self):
     # Check args error metric before adding any errors
@@ -668,6 +682,16 @@ class testWarningsAndErrorsStandalone:
     # Test counter
     info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(info_dict[WARN_ERR_SECTION][ARGS_ERROR_SA_METRIC], '1')
+    # Test args errors in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][ARGS_ERROR_SA_METRIC], '2')
+    # Test args errors in hybrid
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][ARGS_ERROR_SA_METRIC], '3')
 
   def test_oom_errors_warning_SA(self):
     # Check oom error relevant metrics before adding any errors
@@ -678,6 +702,7 @@ class testWarningsAndErrorsStandalone:
     # Set ON_OOM to fail and maxmemory to 1
     self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
     self.env.expect('FT.CONFIG', 'SET', 'ON_OOM', 'fail').ok()
+
     # Test oom errors
     self.env.expect('FT.SEARCH', 'idx', 'hello world').error().contains(OOM_ERROR)
     # Test counter
@@ -685,6 +710,20 @@ class testWarningsAndErrorsStandalone:
     # Since this is SA, we expect the metric to update for coord
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_ERROR_METRIC], '1')
     # Check that Shard level metric is not updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SA_METRIC], '0')
+
+    # Test oom errors in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').error().contains(OOM_ERROR)
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_ERROR_METRIC], '2')
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SA_METRIC], '0')
+
+    # Test oom errors in hybrid
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0').error().contains(OOM_ERROR)
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_ERROR_METRIC], '3')
     self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SA_METRIC], '0')
 
     # Set ON_OOM to return and test oom warning
@@ -695,6 +734,20 @@ class testWarningsAndErrorsStandalone:
     # Since this is SA, we expect the metric to update for coord
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_WARNING_SA_METRIC], '1')
     # Check that Shard level metric is not updated
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SA_METRIC], '0')
+
+    # Test oom warning in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').equal([0])
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_WARNING_SA_METRIC], '2')
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SA_METRIC], '0')
+
+    # Test oom warning in hybrid
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0').equal([0])
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_OOM_WARNING_SA_METRIC], '3')
     self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SA_METRIC], '0')
 
     # Reset maxmemory to 0
@@ -744,15 +797,27 @@ class testWarningsAndErrorsStandalone:
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
     self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
     # Test max prefix expansions warning
-    res = self.env.cmd('FT.SEARCH', 'idx', '@text:abc*')
-    # In RESP2, we just check that we got results
-    self.env.assertEqual(res[0], 1)
+    self.env.expect('FT.SEARCH', 'idx', '@text:abc*').noError()
     # Test counter
     info_dict = info_modules_to_dict(self.env)
     # Since this is SA, we expect the metric to update for coord
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '1')
     # Check that Shard level metric is not updated
     self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '0')
+
+    # Test max prefix expansions warning in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', '@text:abc*').noError()
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    # Since this is SA, we expect the metric to update for coord
+    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '2')
+
+    # # Test max prefix expansions warning in hybrid
+    # self.env.expect('FT.HYBRID', 'idx', 'SEARCH', '@text:abc*', 'VSIM', '@vector', '0').noError()
+    # # Test counter
+    # info_dict = info_modules_to_dict(self.env)
+    # # Since this is SA, we expect the metric to update for coord
+    # self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][COORD_MAX_PREFIX_EXPANSIONS_WARNING_SA_METRIC], '3')
 
     # Delete additional docs
     self.env.expect('DEL', 'doc:2').equal(1)
@@ -768,6 +833,20 @@ class testWarningsAndErrorsStandalone:
 
     self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
     self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
+    # Test no error queries in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
+    after_info_dict = info_modules_to_dict(self.env)
+
+    self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
+    self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
+    # Test no error queries in hybrid
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0').noError()
+    after_info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
+    self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
 
 class testWarningsAndErrorsStandaloneResp3:
   """Test class for warnings and errors metrics in standalone mode with RESP3
@@ -847,6 +926,18 @@ class testWarningsAndErrorsStandaloneResp3:
     self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
     self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
 
+    # Test no error queries in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
+    after_info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
+    self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
+    # Test no error queries in hybrid
+    self.env.expect('FT.HYBRID', 'idx', 'SEARCH', 'hello world', 'VSIM', '@vector', '0').noError()
+    after_info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
+    self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
 def _common_warnings_errors_cluster_test_scenario(env):
   """Common setup for warnings and errors cluster tests"""
   # Create index
@@ -863,7 +954,7 @@ class testWarningsAndErrorsCluster_resp2:
   """Test class for warnings and errors metrics in cluster mode with RESP2"""
 
   def __init__(self):
-    # skipTest(cluster=False)
+    skipTest(cluster=False)
     self.env = Env(protocol=2, shardsCount=3)
     self.n_docs = _common_warnings_errors_cluster_test_scenario(self.env)
     # Init all shards
