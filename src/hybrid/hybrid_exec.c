@@ -321,6 +321,7 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
     RedisModule_Reply_SimpleString(reply, "warnings");
     if (QueryError_HasQueryOOMWarning(err)) {
         RedisModule_Reply_Array(reply);
+        // We use the cluster warning since shard level warning sent via cursor info reply
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
         RedisModule_Reply_ArrayEnd(reply);
     } else {
@@ -413,7 +414,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       return REDISMODULE_ERR;
     }
     // helper array to collect depleters so in async we can deplete them all at once before returning the cursors
-    arrayof(ResultProcessor*) depleters = NULL; 
+    arrayof(ResultProcessor*) depleters = NULL;
     if (backgroundDepletion) {
       depleters = array_new(ResultProcessor *, req->nrequests);
     }

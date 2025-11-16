@@ -2698,8 +2698,14 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_Reply_SimpleString(reply, "warning"); // >warning
     if (rCtx->warning) {
-      MR_ReplyWithMRReply(reply, rCtx->warning);
+      // If it's OOM, we need to change the warning to the coordinator warning
+      if (MRReply_StringEquals(rCtx->warning, QUERY_WOOM_SHARD, false)) {
+        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      } else {
+        MR_ReplyWithMRReply(reply, rCtx->warning);
+      }
     } else if (req->queryOOM) {
+      // We use the cluster warning since shard level warning sent via empty reply bailout
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     } else {
       RedisModule_Reply_EmptyArray(reply);

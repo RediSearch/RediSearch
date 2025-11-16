@@ -173,6 +173,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
       }
       if (queryOOM) {
+        // We use the cluster warning since shard level warning sent via empty reply bailout
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_CLUSTER);
       }
       if (timedout) {

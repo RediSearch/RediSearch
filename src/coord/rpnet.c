@@ -269,7 +269,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
               timed_out = true;
             } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
               QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
-            } else if (!strcmp(warning_str, QUERY_WOOM_CLUSTER)) {
+            } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
               QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
             }
             if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
