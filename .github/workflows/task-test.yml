@@ -117,7 +117,7 @@ jobs:
         shell: bash -l -eo pipefail {0}
     steps:
       - name: Fix HOME Directory
-        if: ${{ inputs.container }}
+        if: ${{ needs.build-image.result == 'success' && inputs.container }}
         shell: bash
         run: |
           # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
