@@ -24,6 +24,7 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "rpnet.h"
+#include "rmr/chan.h"
 #include "coord/hybrid/dist_utils.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
@@ -228,14 +229,29 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
   ProfilePrinterCtx *cCtx = ctx;
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(cCtx->req)->rootProc;
-  // if we got here on
-  // get all results from the channel
-  while (getNextReply(rpnet)) {}
+
+  // Therefore, we loop to drain all remaining replies from the channel.
+  // Pending might be zero, but there might still be replies in the channel to read.
+  // We may have pulled all the replies from the channel and arrived here due to a timeout,
+  // and now we're waiting for the profile results.
+  while (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    getNextReply(rpnet);
+  }
+
+  size_t num_shards = GetNumShards_UnSafe();  // can we make this safe
+  size_t profile_count = array_len(rpnet->shardsProfile);
+
   PrintShardProfile_ctx sCtx = {
-    .count = array_len(rpnet->shardsProfile),
+    .count = profile_count,
     .replies = rpnet->shardsProfile,
     .isSearch = false,
   };
+
+  if (profile_count != num_shards) {
+    RedisModule_Log(RSDummyContext, "warning", "Profile data received from %zu out of %zu shards",
+                    profile_count, num_shards);
+  }
+
   Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, cCtx);
 }
 

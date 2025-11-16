@@ -609,19 +609,19 @@ done_3:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
-
-    // Prepare profile printer context
-    ProfilePrinterCtx profileCtx = {
-      .req = req,
-      .timedout = has_timedout,
-      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
-      .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
-      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
-    };
+    req->has_timedout = has_timedout;
 
     if (IsProfile(req)) {
       RedisModule_Reply_MapEnd(reply); // >Results
       if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) || cursor_done) {
+        // Prepare profile printer context
+        ProfilePrinterCtx profileCtx = {
+          .req = req,
+          .timedout = has_timedout,
+          .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
+          .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
+          .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
+        };
         req->profile(reply, &profileCtx);
       }
     }
@@ -675,6 +675,20 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   }
 }
 
+static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  ProfilePrinterCtx profileCtx = {
+      .req = req,
+      .timedout = req->has_timedout,
+      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
+      .bgScanOOM = sctx && sctx->spec && sctx->spec->scan_failed_OOM,
+      .queryOOM = QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)
+  };
+
+  return profileCtx;
+}
 
 // Simple version of sendChunk that returns empty results for aggregate queries.
 // Handles both RESP2 and RESP3 protocols with cursor support.
@@ -721,25 +735,8 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_ArrayEnd(reply);
 
     if (IsProfile(req)) {
-      /**
-       *  TODO-TODO-ODO-TODO-ODO-TODO-ODO-TODO-ODO-TODO-ODO-TODO-ODO-TODO-
-       * maybe we should fill that only on demand (pass a flag to the func)
-       * */
-    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-
-              ProfilePrinterCtx profileCtx = {
-      .req = req,
-      .timedout = req->has_timedout,
-      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
-      .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
-      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
-    };
-      profileCtx.req = req;
-      profileCtx.queryOOM = QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err);
-
-      RedisModule_Reply_MapEnd(reply); // >Results
+      ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
+      RedisModule_Reply_MapEnd(reply);  // >Results
       req->profile(reply, &profileCtx);
     }
 
@@ -768,9 +765,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
     RedisModule_Reply_ArrayEnd(reply);
 
-    ProfilePrinterCtx profileCtx = {0};
-    profileCtx.req = req;
-    profileCtx.queryOOM = QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err);
+    ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
       // Cursor done
@@ -1397,26 +1392,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
         }
 
-        // This also works!
-//     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-//     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-//         ProfilePrinterCtx profileCtx = {
-//       .req = req,
-//       .timedout = req->has_timedout,
-//       .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
-//       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
-//       .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
-//     };
-
-//     RedisModule_Reply_Array(reply);
-//     Profile_PrepareMapForReply(reply);
-//     req->profile(reply, &profileCtx);
-//       RedisModule_Reply_LongLong(reply, 1);
-// RedisModule_Reply_ArrayEnd(reply);
-
-// WORKS!!
-sendChunk_ReplyOnly_EmptyResults(reply, req);
-
+    sendChunk_ReplyOnly_EmptyResults(reply, req);
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
 
   } else if (strcasecmp(cmd, "DEL") == 0) {
