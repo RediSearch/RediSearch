@@ -248,6 +248,18 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   // highest number of failures out of all specs
   RedisModule_InfoAddFieldULongLong(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
   RedisModule_InfoAddFieldULongLong(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
+  // Queries errors and warnings
+  QueriesGlobalStats stats = TotalGlobalStats_GetQueryStats();
+
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_syntax", stats.errors.syntax);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_errors_arguments", stats.errors.arguments);
+  // Coordinator errors and warnings
+  RedisModule_InfoAddSection(ctx, "coordinator_warnings_and_errors");
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout", stats.coord_errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_oom", stats.coord_errors.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout", stats.coord_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_oom", stats.coord_warnings.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_reached_max_prefix_expansions", stats.coord_warnings.max_prefix_expansions);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
