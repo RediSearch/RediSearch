@@ -2627,7 +2627,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
     if (sp->smap == NULL)
-    goto cleanup;
+      goto cleanup;
   }
 
   sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
