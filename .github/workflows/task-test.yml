@@ -81,7 +81,7 @@ jobs:
           IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ inputs.env }}-${RUN_ID}"
 
           # Shared cache ref (without run_id)
-          CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-cache"
+          CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ inputs.env }}-cache"
 
           echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "cache=$CACHE_REF" >> $GITHUB_OUTPUT
