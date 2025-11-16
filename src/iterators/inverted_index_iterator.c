@@ -409,7 +409,7 @@ static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, RSIndexResult 
   return InitInvIndIterator(it, idx, res, filterCtx, skipMulti, sctx, decoderCtx, checkAbortFn);
 }
 
-static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, RSIndexResult *res, const FieldSpec* fieldSpec, const FieldFilterContext *filterCtx,
+static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, RSIndexResult *res, const NumericRangeTree *rt, const FieldFilterContext *filterCtx,
                 bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
   RS_ASSERT(idx);
   NumericInvIndIterator *it = rm_calloc(1, sizeof(*it));
@@ -417,10 +417,7 @@ static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, R
   // Initialize the iterator first
   InitInvIndIterator(&it->base, idx, res, filterCtx, skipMulti, sctx, decoderCtx, NumericCheckAbort);
 
-  if (fieldSpec) {
-    RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, fieldSpec, INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
-    RS_ASSERT(rt);
+  if (rt) {
     it->revisionId = rt->revisionId;
     it->rt = rt;
   }
@@ -464,14 +461,14 @@ QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagInde
 }
 
 QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
-                                              const NumericFilter *flt, const FieldSpec *fieldSpec, double rangeMin, double rangeMax) {
+                                              const NumericFilter *flt, const NumericRangeTree *rt, double rangeMin, double rangeMax) {
   IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
 
   if (flt) {
     decoderCtx = (IndexDecoderCtx){.numeric_tag = IndexDecoderCtx_Numeric, .numeric = flt};
   }
 
-  QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), fieldSpec, fieldCtx, true, sctx, &decoderCtx);
+  QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), rt, fieldCtx, true, sctx, &decoderCtx);
   InvIndIterator *it = (InvIndIterator *)ret;
   it->profileCtx.numeric.rangeMin = rangeMin;
   it->profileCtx.numeric.rangeMax = rangeMax;
