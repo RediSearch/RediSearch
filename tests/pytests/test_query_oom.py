@@ -5,7 +5,8 @@ import numpy as np
 from redis.exceptions import ResponseError
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
-OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
+COORD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
+SHARD_OOM_WARNING = "Shard failed to execute the query due to insufficient memory"
 
 def run_cmd_expect_oom(env, query_args):
     env.expect(*query_args).error().contains(OOM_QUERY_ERROR)
@@ -72,6 +73,26 @@ class testOomStandaloneBehavior:
         self.env.assertEqual(res, [0])
         res = self.env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
         self.env.assertEqual(res, [0])
+
+@skip(cluster=True)
+def test_oom_verbosity_standalone():
+    env = Env(protocol=3)
+    _common_test_scenario(env)
+
+    # Check commands return SHARD_OOM_WARNING when returning empty results
+    change_oom_policy(env, 'return')
+    res = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(res['warning'][0], SHARD_OOM_WARNING)
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
+    env.assertEqual(res['warning'][0], SHARD_OOM_WARNING)
+    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', '1')
+    env.assertEqual(res['warnings'][0], SHARD_OOM_WARNING)
+    # Check profile returns SHARD_OOM_WARNING
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
+    env.assertEqual(res['Results']['warning'][0], SHARD_OOM_WARNING)
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+    env.assertEqual(res['Results']['warning'][0], SHARD_OOM_WARNING)
+
 
 class testOomClusterBehavior:
     def __init__(self):
@@ -296,9 +317,9 @@ class testOomHybridClusterBehavior:
         res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
         self.env.assertEqual(res[1] , n_keys)
         # Testing warnings verbosity
-        self.env.assertEqual(res[5][0], OOM_WARNING)
+        self.env.assertEqual(res[5][0], COORD_OOM_WARNING)
 
-@skip(cluster=False)
+# @skip(cluster=False)
 def test_oom_verbosity_cluster_return():
     env  = Env(shardsCount=3, protocol=3)
 
@@ -322,23 +343,23 @@ def test_oom_verbosity_cluster_return():
 
     # FT.SEARCH
     res = env.cmd('FT.SEARCH', 'idx', '*')
-    env.assertEqual(res['warning'][0], OOM_WARNING)
+    env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
 
     # TODO - Check warnings in FT.AGGREGATE when empty results are handled correctly
 
     # Search Profile
     res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
-    env.assertEqual(res['Results']['warning'][0], OOM_WARNING)
+    env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
     shards_warning_lst = [shard_profile['Warning'] for shard_profile in res['Profile']['Shards']]
     # Since we don't know the order of responses, we need to count 2 errors
-    env.assertEqual(shards_warning_lst.count(OOM_WARNING), 2)
+    env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)
 
     # Aggregate Profile
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
     # TODO - Check 'Results' and 'Coordinator' warning when empty results are handled correctly
     shards_warning_lst = [shard_profile['Warning'] for shard_profile in res['Profile']['Shards']]
     # Since we don't know the order of responses, we need to count 2 errors
-    env.assertEqual(shards_warning_lst.count(OOM_WARNING), 2)
+    env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)
 
     # RESP2
     env.cmd('HELLO', 2)
@@ -348,4 +369,4 @@ def test_oom_verbosity_cluster_return():
     # TODO - Check coordinator warning when empty results are handled correctly
     shards_warning_lst = [shard_res[9] for shard_res in res[1][1]]
     # Since we don't know the order of responses, we need to count 2 errors
-    env.assertEqual(shards_warning_lst.count(OOM_WARNING), 2)
+    env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)

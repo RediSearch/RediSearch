@@ -33,6 +33,7 @@
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
 #define QUERY_WOOM_CLUSTER "One or more shards failed to execute the query due to insufficient memory"
+#define QUERY_WOOM_SHARD "Shard failed to execute the query due to insufficient memory"
 
 
 enum QueryErrorCode
