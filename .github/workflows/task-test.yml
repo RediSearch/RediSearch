@@ -54,8 +54,8 @@ jobs:
   build-image:
     if: ${{ inputs.container }}
     concurrency:
-      group: docker-build-${{ inputs.container }}-${{ inputs.san || 'none' }}
-      cancel-in-progress: false  # queue build
+      group: docker-build-${{ inputs.container }}-${{ inputs.san || 'none' }}-${{ github.run_id }}
+      cancel-in-progress: false
     name: Build container for ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
     permissions:
