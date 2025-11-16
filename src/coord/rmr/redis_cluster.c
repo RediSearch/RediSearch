@@ -51,14 +51,14 @@ static bool parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
         host = rm_strndup(val_str, val_len);
       }
     } else if (STR_EQ(key_str, key_len, "tls-port")) {
-      int val = (int)RedisModule_CallReplyInteger(val);
-      if (val > 0) {
-        port = val; // Prefer tls-port if available (but only if valid)
+      int port_val = (int)RedisModule_CallReplyInteger(val);
+      if (port_val > 0) {
+        port = port_val; // Prefer tls-port if available (but only if valid)
       }
     } else if (STR_EQ(key_str, key_len, "port") && port == 0) {
-      int val = (int)RedisModule_CallReplyInteger(val);
-      if (val > 0) {
-        port = val; // Only set if tls-port wasn't set and port is valid
+      int port_val = (int)RedisModule_CallReplyInteger(val);
+      if (port_val > 0) {
+        port = port_val; // Only set if tls-port wasn't set and port is valid
       }
     }
   }
