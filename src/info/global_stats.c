@@ -91,6 +91,8 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.total_queries_processed = READ(RSGlobalStats.totalStats.queries.total_queries_processed);
   stats.total_query_commands = READ(RSGlobalStats.totalStats.queries.total_query_commands);
   stats.total_query_execution_time = rs_wall_clock_convert_ns_to_ms(READ(RSGlobalStats.totalStats.queries.total_query_execution_time));
+  stats.errors.syntax = READ(RSGlobalStats.totalStats.queries.errors.syntax);
+  stats.errors.arguments = READ(RSGlobalStats.totalStats.queries.errors.arguments);
   return stats;
 }
 

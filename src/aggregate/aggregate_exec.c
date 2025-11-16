@@ -1101,6 +1101,8 @@ error:
   if (r) {
     AREQ_Free(r);
   }
+
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1);
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
