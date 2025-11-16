@@ -263,7 +263,7 @@ jobs:
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup
-        if: needs.build-image.result == 'skipped'
+        if: needs.build-image.result != 'success' 
         working-directory: .install
         run: |
           SUCCESS=0
