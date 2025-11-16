@@ -2967,7 +2967,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
-  
+
 
   // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
   IndexFlags flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
@@ -3067,7 +3067,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
   }
 
-  IndexSpec_StartGC(ctx, spec_ref, sp);
   Cursors_initSpec(sp);
 
   if (sp->isDuplicate) {
@@ -3078,6 +3077,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     addPendingIndexDrop();
     StrongRef_Release(spec_ref);
   } else {
+    IndexSpec_StartGC(spec_ref, sp);
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 
     for (int i = 0; i < sp->numFields; i++) {
@@ -3118,7 +3118,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     initializeFieldSpec(fs, i);
-    FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);    
+    FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
     }
