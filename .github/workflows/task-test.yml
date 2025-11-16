@@ -55,7 +55,7 @@ jobs:
     if: ${{ inputs.container }}
     concurrency:
       group: docker-build-${{ inputs.container }}-${{ inputs.san || 'none' }}
-      cancel-in-progress: true  # New workflow cancels old build
+      cancel-in-progress: false  # queue build
     name: Build container for ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
     permissions:
@@ -75,15 +75,21 @@ jobs:
           # Append container and sanitizer to make it unique
           CONTAINER=${{ inputs.container || 'default' }}
           SAN=${{ inputs.san || 'none' }}
+          RUN_ID=${{ github.run_id }}
 
           # Normalize container string (replace : / with -)
           CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's/[:\/]/-/g')
 
-          # Construct full tag
-          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}"
+          # Unique image tag per workflow run
+          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${RUN_ID}"
+
+          # Shared cache ref (without run_id)
+          CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-cache"
 
           echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "cache=$CACHE_REF" >> $GITHUB_OUTPUT
           echo "Using image tag: $IMAGE_TAG"
+          echo "Using cache ref: $CACHE_REF"
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -103,8 +109,8 @@ jobs:
             BASE_IMAGE=${{ inputs.container || 'ubuntu:24.04' }}
           file: Dockerfile
           tags: ${{ steps.meta.outputs.image }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.image }}-cache,mode=max
-          cache-from: type=registry,ref=${{ steps.meta.outputs.image }}-cache
+          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max
+          cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
   common-flow:
     name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
