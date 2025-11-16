@@ -153,7 +153,6 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
     if (timedout && cmd->forProfiling) {
       newCmd = MR_NewCommand(4, "_FT.CURSOR", "PROFILE", idx, buf);
       // Internally we delete the cursor
-      // TODO: we are not really deleting!
       newCmd.rootCommand = C_PROFILE;
     } else if (timedout && !cmd->forCursor) {
       newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
@@ -180,24 +179,19 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
     RS_ASSERT(atoll(cmd->strs[3]) == cursorId);
 
     if (timedout) {
+      // We are going to modify the command, so we need to free the cached sds
+      if (cmd->cmd) {
+        sdsfree(cmd->cmd);
+        cmd->cmd = NULL;
+      }
       // If we timed out and it's a profile command, we want to get the profile data
       if (cmd->forProfiling) {
         RS_LOG_ASSERT(!cmd->forCursor, "profile is not supported on a cursor command");
-
-        if (cmd->cmd) {
-          sdsfree(cmd->cmd);
-          cmd->cmd = NULL;
-        }
-
         MRCommand_ReplaceArg(cmd, 1, "PROFILE", strlen("PROFILE"));
         cmd->rootCommand = C_PROFILE;
       } else if (!cmd->forCursor) {
         // If we timed out and not in cursor mode, we want to send the shard a DEL
         // command instead of a READ command (here we know it has more results)
-        if (cmd->cmd) {
-          sdsfree(cmd->cmd);
-          cmd->cmd = NULL;
-        }
         MRCommand_ReplaceArg(cmd, 1, "DEL", 3);
         cmd->rootCommand = C_DEL;
       }
