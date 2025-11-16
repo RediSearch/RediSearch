@@ -32,7 +32,7 @@ static bool parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
   RS_ASSERT(len % 2 == 0);
   char *id = NULL;
   char *host = NULL;
-  n->endpoint.port = -1; // Use -1 to indicate "not set"
+  int port = 0; // Use 0 to indicate "not set"
 
   for (size_t i = 0; i < len / 2; i++) {
     size_t key_len, val_len;
@@ -51,15 +51,16 @@ static bool parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
         host = rm_strndup(val_str, val_len);
       }
     } else if (STR_EQ(key_str, key_len, "tls-port")) {
-      n->endpoint.port = (int)RedisModule_CallReplyInteger(val); // Prefer tls-port if available
-    } else if (STR_EQ(key_str, key_len, "port") && n->endpoint.port == -1) {
-      n->endpoint.port = (int)RedisModule_CallReplyInteger(val); // Only set if tls-port wasn't set
+      port = (int)RedisModule_CallReplyInteger(val); // Prefer tls-port if available
+    } else if (STR_EQ(key_str, key_len, "port") && port == 0) {
+      port = (int)RedisModule_CallReplyInteger(val); // Only set if tls-port wasn't set
     }
   }
   // Verify we have the required fields
-  if (id && host && (n->endpoint.port != -1)) {
+  if (id && host && port > 0) {
     n->id = id;
     n->endpoint.host = host;
+    n->endpoint.port = port;
     return true;
   }
 
