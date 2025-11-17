@@ -93,7 +93,7 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
     // can not find inverted index key, score is 0.
     goto end;
   }
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value.mask = fieldMask};
+  FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
   QueryIterator *iter = NewInvIndIterator_TermQuery(invidx, scCtx->sctx, fieldMaskOrIndex, NULL, 1);
   if (iter->Read(iter) == ITERATOR_OK) {
     // we have at least one result, the suggestion is relevant.
