@@ -108,7 +108,7 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
 
 // Updates the global query errors statistics.
 // `coord` indicates whether the error occurred on the coordinator or on a shard.
-// Standalone shards are considered as coordinator.
+// Standalone shards are considered as shards.
 // Will ignore not supported error codes.
 // Currently supports : syntax, parse_args
 // `toAdd` can be negative to decrease the counter.

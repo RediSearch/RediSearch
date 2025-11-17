@@ -643,49 +643,49 @@ class testWarningsAndErrorsStandalone:
     self.prev_info_dict = info_modules_to_dict(self.env)
 
   def test_syntax_errors_SA(self):
-    # Standalone shards are considered as coordinator in the info metrics
+    # Standalone shards are considered as shards in the info metrics
 
     # Test syntax errors
     self.env.expect('FT.SEARCH', 'idx', 'hello world:').error().contains('Syntax error at offset')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
-    prev_syntax_error_count = int(self.prev_info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC])
-    syntax_error_count = int(info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC])
+    prev_syntax_error_count = int(self.prev_info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC])
+    syntax_error_count = int(info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC])
     self.env.assertEqual(syntax_error_count, prev_syntax_error_count + 1)
     # Test syntax errors in aggregate
     self.env.expect('FT.AGGREGATE', 'idx', 'hello world:').error().contains('Syntax error at offset')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
-    syntax_error_count = int(info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC])
+    syntax_error_count = int(info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC])
     self.env.assertEqual(syntax_error_count, prev_syntax_error_count + 2)
     # Test syntax errors in hybrid
     self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', '@vector', '0').error().contains('Syntax error at offset')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
-    syntax_error_count = int(info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC])
+    syntax_error_count = int(info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC])
     self.env.assertEqual(syntax_error_count, prev_syntax_error_count + 3)
 
   def test_args_errors_SA(self):
-    # Standalone shards are considered as coordinator in the info metrics
+    # Standalone shards are considered as shards in the info metrics
 
     # Test args errors
     self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
-    prev_args_error_count = int(self.prev_info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
-    args_error_count = int(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
+    prev_args_error_count = int(self.prev_info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC])
+    args_error_count = int(info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC])
     self.env.assertEqual(args_error_count, prev_args_error_count + 1)
     # Test args errors in aggregate
     self.env.expect('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
-    args_error_count = int(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
+    args_error_count = int(info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC])
     self.env.assertEqual(args_error_count, prev_args_error_count + 2)
     # Test args errors in hybrid
     self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
-    args_error_count = int(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
+    args_error_count = int(info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC])
     self.env.assertEqual(args_error_count, prev_args_error_count + 3)
 
   def test_no_error_queries_SA(self):
