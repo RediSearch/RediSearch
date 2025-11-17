@@ -199,10 +199,10 @@ def test_profile(env):
           {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': 2}
         ],
         'Result processors profile': [
-          {'Type': 'Index',  'Time': ANY, 'Number of reading operations': 2},
-          {'Type': 'Scorer', 'Time': ANY, 'Number of reading operations': 2},
-          {'Type': 'Sorter', 'Time': ANY, 'Number of reading operations': 2},
-          {'Type': 'Loader', 'Time': ANY, 'Number of reading operations': 2}
+          {'Type': 'Index',  'Time': ANY, 'Results processed': 2},
+          {'Type': 'Scorer', 'Time': ANY, 'Results processed': 2},
+          {'Type': 'Sorter', 'Time': ANY, 'Results processed': 2},
+          {'Type': 'Loader', 'Time': ANY, 'Results processed': 2}
         ]
       }
     }
