@@ -698,7 +698,6 @@ TEST_F(NotIteratorReducerTest, TestNotWithReaderWildcardChild) {
   size_t memsize;
   InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
   ASSERT_TRUE(idx != nullptr);
-  ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,
@@ -709,7 +708,7 @@ TEST_F(NotIteratorReducerTest, TestNotWithReaderWildcardChild) {
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
   // Create an iterator that reads only entries with field mask 2
-  QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
+  QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.mask_tag = FieldMaskOrIndex_Mask, .mask = 2}, nullptr, 1.0);
   InvIndIterator* invIdxIt = (InvIndIterator *)wildcardChild;
   invIdxIt->isWildcard = true;
   MockQueryEvalCtx mockQctx(maxDocId, maxDocId);

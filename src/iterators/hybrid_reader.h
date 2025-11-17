@@ -10,8 +10,6 @@
 
 #include "iterator_api.h"
 #include "vector_index.h"
-#include "redisearch.h"
-#include "spec.h"
 #include "util/minmax_heap.h"
 #include "util/timeout.h"
 
@@ -46,6 +44,8 @@ typedef struct {
   VecSimQueryReply *reply;
   VecSimQueryReply_Iterator *iter;
   RLookupKey *ownKey;              // To be used if the iterator has to yield the vector scores
+  struct RLookupKeyHandle *keyHandle; // Back-reference to the handle that points to this iterator's ownKey
+  
   char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
   mm_heap_t *topResults;           // Sorted by score (min-max heap).
   size_t numIterations;

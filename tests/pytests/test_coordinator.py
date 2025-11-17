@@ -60,22 +60,24 @@ def testCommandStatsOnRedis(env):
     check_info_commandstats(env, 'FT.INFO')
 
 @skip(cluster=False)
-def testPendingCommands(env:Env):
+def testPendingCommands():
+    num_io_threads = 2 # Multiple IO threads for an edge case in `SHARD_CONNECTION_STATES`
+    env = Env(moduleArgs=f'SEARCH_IO_THREADS {num_io_threads}')
     verify_shard_init(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     max_pending_commands = 50
 
     # Run each command `max_pending_commands` times, to verify they are not pending
     # after they are executed, and that the coordinator is still responsive.
-    for _ in range(max_pending_commands):
+    for _ in range(max_pending_commands * num_io_threads):
         env.cmd(config_cmd(), 'SET', 'CONN_PER_SHARD', '0')
     env.expect('FT.SEARCH', 'idx', 'hello').equal([0])
 
-    for _ in range(max_pending_commands):
+    for _ in range(max_pending_commands * num_io_threads):
         env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES')
     env.expect('FT.SEARCH', 'idx', 'hello').equal([0])
 
-    for _ in range(max_pending_commands):
+    for _ in range(max_pending_commands * num_io_threads):
         env.cmd('SEARCH.CLUSTERINFO')
     env.expect('FT.SEARCH', 'idx', 'hello').equal([0])
 

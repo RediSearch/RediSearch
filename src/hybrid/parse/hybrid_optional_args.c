@@ -38,7 +38,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     // Create argument parser
     ArgParser *parser = ArgParser_New(ac, "HybridOptionalArgs");
     if (!parser) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create argument parser");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create argument parser");
         return REDISMODULE_ERR;
     }
 
@@ -61,6 +61,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     // NOSORT - disables result sorting
     ArgParser_AddBitflagV(parser, "NOSORT", "Disables result sorting",
         ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_NO_SORT,
+        ARG_OPT_CALLBACK, handleNoSort, ctx,
         ARG_OPT_OPTIONAL, ARG_OPT_END);
 
     // WITHCURSOR [COUNT count] [MAXIDLE maxidle] - enables cursor-based pagination
@@ -128,6 +129,14 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                              ARG_OPT_OPTIONAL,
                              ARG_OPT_CALLBACK, handleIndexPrefixes, ctx,
                              ARG_OPT_END);
+
+        // Mandatory SLOTS_STR argument for internal requests
+        ArgParser_AddSubArgsV(parser, SLOTS_STR, "Requested slots from coordinator",
+                            &subArgs, 1, 1,
+                            ARG_OPT_REQUIRED,
+                            ARG_OPT_CALLBACK, handleSlotsInfo, ctx,
+                            ARG_OPT_END);
+
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",
@@ -191,7 +200,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
         return REDISMODULE_ERR; // ARG_ERROR
     }
     if (!parseResult.success) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
         ArgParser_Free(parser);
         return REDISMODULE_ERR; // ARG_ERROR
     }
@@ -199,7 +208,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     ArgParser_Free(parser);
 
     if ((*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
         return REDISMODULE_ERR;
     }
 

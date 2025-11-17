@@ -28,8 +28,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
 
-      // areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
-      AREQ_AddRequestFlags(areq,QEXEC_F_BUILDPIPELINE_NO_ROOT);
+      AREQ_AddRequestFlags(areq, QEXEC_F_BUILDPIPELINE_NO_ROOT);
 
       int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
       if (rc != REDISMODULE_OK) {
@@ -62,11 +61,17 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
 static void serializeUnresolvedKeys(arrayof(char*) *target, std::vector<const RLookupKey *> &keys) {
   if (!keys.empty()) {
     array_append(*target, rm_strndup("LOAD", 4));
-    char *ldsze;
-    rm_asprintf(&ldsze, "%lu", (unsigned long)keys.size());
-    array_append(*target, ldsze);
+    char *buffer;
+    rm_asprintf(&buffer, "%lu", (unsigned long)keys.size());
+    array_append(*target, buffer);
     for (auto kk : keys) {
-      array_append(*target, rm_strndup(kk->name, kk->name_len));
+      // json paths should be serialized as is to avoid weird names
+      if (kk->name[0] == '$') {
+        buffer = rm_strndup(kk->name, kk->name_len);
+      } else {
+        rm_asprintf(&buffer, "@%.*s", (int)kk->name_len, kk->name);
+      }
+      array_append(*target, buffer);
     }
   }
 }
@@ -89,17 +94,32 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     RLookup_Init(tailLookup, IndexSpec_GetSpecCache(hreq->sctx->spec));
 
     int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
-    if (rc != REDISMODULE_OK) return NULL;
+    if (rc != REDISMODULE_OK) {
+      // The error is set at either the tail or the subqueries error array
+      // need to copy it to the status so it will be visible to the user
+      HybridRequest_GetError(hreq, status);
+      HybridRequest_ClearErrors(hreq);
+      return NULL;
+    }
 
-    HybridLookupContext *lookupCtx = InitializeHybridLookupContext(hreq->requests, tailLookup);
+    // Add keys from all source lookups to create unified schema before opening the score key
+    HybridRequest_SynchronizeLookupKeys(hreq);
+
     // Open the key outside the RLOOKUP_OPT_UNRESOLVED_OK scope so it won't be marked as unresolved
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, hybridParams->aggregationParams.common.scoreAlias, status);
-    if (QueryError_HasError(status)) return NULL;
+    if (QueryError_HasError(status)) {
+      return NULL;
+    }
 
     tailLookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
-    rc = HybridRequest_BuildMergePipeline(hreq, lookupCtx, scoreKey, hybridParams);
+    rc = HybridRequest_BuildMergePipeline(hreq, scoreKey, hybridParams);
     tailLookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
-    if (rc != REDISMODULE_OK) return NULL;
+    if (rc != REDISMODULE_OK) {
+      // The error is set at the tail, copy it into status
+      QueryError_CloneFrom(&hreq->tailPipelineError, status);
+      QueryError_ClearError(&hreq->tailPipelineError);
+      return NULL;
+    }
 
     std::vector<const RLookupKey *> unresolvedKeys;
     for (RLookupKey *kk = tailLookup->head; kk; kk = kk->next) {

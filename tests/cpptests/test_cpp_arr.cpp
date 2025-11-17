@@ -22,12 +22,13 @@ TEST_F(ArrTest, testStruct) {
   Foo *arr = (Foo *)array_new(Foo, 8);
 
   for (size_t i = 0; i < 10; i++) {
-    array_append(arr, (Foo){i});
+    array_append(arr, ((Foo){i, i * 2.0}));
     ASSERT_EQ(i + 1, array_len(arr));
   }
-
+  ASSERT_EQ(6, array_remain_cap(arr));
   for (size_t i = 0; i < 10; i++) {
     ASSERT_EQ(i, arr[i].x);
+    ASSERT_EQ(i * 2.0, arr[i].y);
   }
   // array_foreach(arr, elem, printf("%d\n", elem.x));
   array_free(arr);
@@ -40,6 +41,7 @@ TEST_F(ArrTest, testScalar) {
     ASSERT_EQ(i + 1, array_len(ia));
     ASSERT_EQ(i, array_tail(ia));
   }
+  ASSERT_EQ(28, array_remain_cap(ia)); // 128 - 100(array_len) = 28
 
   for (size_t i = 0; i < array_len(ia); i++) {
     ASSERT_EQ(i, ia[i]);
@@ -58,6 +60,7 @@ TEST_F(ArrTest, testStrings) {
     ASSERT_EQ(i + 1, array_len(a));
     ASSERT_STREQ(strs[i], array_tail(a));
   }
+  ASSERT_EQ(1, array_remain_cap(a)); // 4 - 3(array_len) = 1
   for (size_t j = 0; j < i; j++) {
     ASSERT_STREQ(strs[j], a[j]);
 
@@ -67,18 +70,21 @@ TEST_F(ArrTest, testStrings) {
 }
 
 TEST_F(ArrTest, testTrimm) {
-  const char *strs[] = {"foo", "bar", "baz", NULL};
+  const char *strs[] = {"foo", "bar", "baz", "far", "faz", "boo", NULL};
   const char **a = array_new(const char *, 16);
   size_t i = 0;
   for (i = 0; strs[i] != NULL; i++) {
     array_append(a, strs[i]);
     ASSERT_EQ(i + 1, array_len(a));
+    ASSERT_EQ(array_remain_cap(a), 16-i-1);
     ASSERT_STREQ(strs[i], array_tail(a));
   }
-  a = array_trimm_cap(a, 2);
-  ASSERT_EQ(array_len(a), 2);
   array_trimm_len(a, 1);
-  ASSERT_EQ(array_len(a), 1);
+  ASSERT_EQ(array_len(a), 5);
+  ASSERT_EQ(array_remain_cap(a), 11);
+  array_trimm_len(a, 3);
+  ASSERT_EQ(array_len(a), 2);
+  ASSERT_EQ(array_remain_cap(a), 14);
   array_free(a);
 }
 
@@ -126,10 +132,12 @@ TEST_F(ArrTest, testDelete) {
   for (size_t ii = 0; ii < 10; ++ii) {
     array_append(a, ii);
   }
+  uint16_t array_remain_cap_before = array_remain_cap(a);
   ASSERT_EQ(10, array_len(a));
   // Remove last element
   for (ssize_t ii = 9; ii >= 0; --ii) {
     ASSERT_LT(ii, array_len(a)) << ii;
+    ASSERT_EQ(array_remain_cap_before++, array_remain_cap(a)) << ii;
     a = array_del(a, ii);
   }
   ASSERT_EQ(0, array_len(a));
@@ -147,6 +155,175 @@ TEST_F(ArrTest, testDelete) {
 
   a = array_del(a, 0);
   ASSERT_EQ(1, array_len(a));
-  ASSERT_EQ(2, a[1]);
+  ASSERT_EQ(2, a[0]);
   array_free(a);
+}
+
+// Test the new array_clear_func function
+TEST_F(ArrTest, testArrayClearFunc) {
+  // Test with NULL array
+  int *arr = NULL;
+  arr = (int *)array_clear_func(arr, sizeof(int));
+  ASSERT_NE(nullptr, arr);
+  ASSERT_EQ(0, array_len(arr));
+  array_free(arr);
+
+  // Test with existing array
+  arr = array_new(int, 5);
+  for (int i = 0; i < 10; i++) {
+    array_append(arr, i);
+  }
+  ASSERT_EQ(10, array_len(arr));
+
+  arr = (int *)array_clear_func(arr, sizeof(int));
+  ASSERT_EQ(0, array_len(arr));
+
+  // Verify we can still append after clearing
+  array_append(arr, 42);
+  ASSERT_EQ(1, array_len(arr));
+  ASSERT_EQ(42, arr[0]);
+  array_free(arr);
+
+  // Test with struct array
+  Foo *foo_arr = array_new(Foo, 3);
+  for (size_t i = 0; i < 5; i++) {
+    array_append(foo_arr, ((Foo){i, i * 2.0}));
+  }
+  ASSERT_EQ(5, array_len(foo_arr));
+
+  foo_arr = (Foo *)array_clear_func(foo_arr, sizeof(Foo));
+  ASSERT_EQ(0, array_len(foo_arr));
+
+  // Verify we can still append after clearing
+  array_append(foo_arr, ((Foo){99, 99.5}));
+  ASSERT_EQ(1, array_len(foo_arr));
+  ASSERT_EQ(99, foo_arr[0].x);
+  ASSERT_EQ(99.5, foo_arr[0].y);
+  array_free(foo_arr);
+}
+
+// Test the new array_ensure_append_n_func function
+TEST_F(ArrTest, testArrayEnsureAppendNFunc) {
+  // Test with NULL destination array
+  int *dest = NULL;
+  int src[] = {1, 2, 3, 4, 5};
+
+  dest = (int *)array_ensure_append_n_func(dest, src, 5, sizeof(int));
+  ASSERT_NE(nullptr, dest);
+  ASSERT_EQ(5, array_len(dest));
+  ASSERT_EQ(0, array_remain_cap(dest));
+  for (int i = 0; i < 5; i++) {
+    ASSERT_EQ(src[i], dest[i]);
+  }
+  array_free(dest);
+
+  // Test with existing destination array
+  dest = array_new(int, 3);
+  array_append(dest, 10);
+  array_append(dest, 20);
+  ASSERT_EQ(2, array_len(dest));
+  ASSERT_EQ(1, array_remain_cap(dest));
+
+  dest = (int *)array_ensure_append_n_func(dest, src, 3, sizeof(int));
+  ASSERT_EQ(5, array_len(dest));
+  ASSERT_EQ(1, array_remain_cap(dest)); // 2*3 - 5 = 1
+  ASSERT_EQ(10, dest[0]);
+  ASSERT_EQ(20, dest[1]);
+  ASSERT_EQ(1, dest[2]);
+  ASSERT_EQ(2, dest[3]);
+  ASSERT_EQ(3, dest[4]);
+  array_free(dest);
+
+  // Test with NULL source (should just grow the array)
+  dest = array_new(int, 2);
+  array_append(dest, 100);
+  ASSERT_EQ(1, array_len(dest));
+  ASSERT_EQ(1, array_remain_cap(dest));
+
+  dest = (int *)array_ensure_append_n_func(dest, NULL, 3, sizeof(int));
+  ASSERT_EQ(4, array_len(dest));
+  ASSERT_EQ(0, array_remain_cap(dest));
+  ASSERT_EQ(100, dest[0]);
+  // Note: dest[1], dest[2], dest[3] contain uninitialized data when src is NULL
+  array_free(dest);
+
+  // Test with struct array
+  Foo *foo_dest = NULL;
+  Foo foo_src[] = {{1, 1.1}, {2, 2.2}, {3, 3.3}};
+
+  foo_dest = (Foo *)array_ensure_append_n_func(foo_dest, foo_src, 3, sizeof(Foo));
+  ASSERT_NE(nullptr, foo_dest);
+  ASSERT_EQ(3, array_len(foo_dest));
+  ASSERT_EQ(0, array_remain_cap(foo_dest));
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ(foo_src[i].x, foo_dest[i].x);
+    ASSERT_EQ(foo_src[i].y, foo_dest[i].y);
+  }
+  array_free(foo_dest);
+
+  // Test appending zero elements
+  dest = array_new(int, 2);
+  array_append(dest, 42);
+  ASSERT_EQ(1, array_len(dest));
+  ASSERT_EQ(1, array_remain_cap(dest));
+
+  dest = (int *)array_ensure_append_n_func(dest, src, 0, sizeof(int));
+  ASSERT_EQ(1, array_len(dest));
+  ASSERT_EQ(1, array_remain_cap(dest));
+  ASSERT_EQ(42, dest[0]);
+  array_free(dest);
+}
+
+// Test edge cases and combinations of new functions
+TEST_F(ArrTest, testArrayFunctionsCombined) {
+  // Test clear followed by append_n
+  int *arr = array_new(int, 5);
+  for (int i = 0; i < 8; i++) {
+    array_append(arr, i * 10);
+  }
+  ASSERT_EQ(8, array_len(arr));
+  ASSERT_EQ(2, array_remain_cap(arr)); // 2*5 - 8 = 2
+
+  arr = (int *)array_clear_func(arr, sizeof(int));
+  ASSERT_EQ(0, array_len(arr));
+  ASSERT_EQ(10, array_remain_cap(arr));
+
+  int new_data[] = {100, 200, 300};
+  arr = (int *)array_ensure_append_n_func(arr, new_data, 3, sizeof(int));
+  ASSERT_EQ(3, array_len(arr));
+  ASSERT_EQ(7, array_remain_cap(arr));
+  ASSERT_EQ(100, arr[0]);
+  ASSERT_EQ(200, arr[1]);
+  ASSERT_EQ(300, arr[2]);
+  array_free(arr);
+
+  // Test multiple append_n operations
+  arr = NULL;
+  int batch1[] = {1, 2};
+  int batch2[] = {3, 4, 5};
+  int batch3[] = {6};
+
+  arr = (int *)array_ensure_append_n_func(arr, batch1, 2, sizeof(int));
+  ASSERT_EQ(2, array_len(arr));
+  ASSERT_EQ(0, array_remain_cap(arr));
+  arr = (int *)array_ensure_append_n_func(arr, batch2, 3, sizeof(int));
+  ASSERT_EQ(5, array_len(arr));
+  ASSERT_EQ(0, array_remain_cap(arr));
+  arr = (int *)array_ensure_append_n_func(arr, batch3, 1, sizeof(int));
+  ASSERT_EQ(6, array_len(arr));
+  ASSERT_EQ(4, array_remain_cap(arr));
+  for (int i = 0; i < 6; i++) {
+    ASSERT_EQ(i + 1, arr[i]);
+  }
+  array_free(arr);
+}
+
+TEST_F(ArrTest, testArrayLenFunc) {
+  int *arr = array_new(int, 5);
+  ASSERT_EQ(0, array_len_func(arr));
+  for (int i = 0; i < 8; i++) {
+    array_append(arr, i * 10);
+    ASSERT_EQ(i + 1, array_len_func(arr));
+  }
+  array_free(arr);
 }

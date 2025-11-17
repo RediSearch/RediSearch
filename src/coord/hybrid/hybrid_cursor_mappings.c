@@ -11,11 +11,11 @@
 #include "redismodule.h"
 #include "../../rmalloc.h"
 #include "../../../deps/rmutil/rm_assert.h"
+#include "query_error.h"
 #include <string.h>
 
-
-#define INTERNAL_HYBRID_RESP3_LENGTH 4
-#define INTERNAL_HYBRID_RESP2_LENGTH 4
+#define INTERNAL_HYBRID_RESP3_LENGTH 6
+#define INTERNAL_HYBRID_RESP2_LENGTH 6
 
 typedef struct {
     StrongRef searchMappings;
@@ -27,15 +27,17 @@ typedef struct {
     int numShards;                    // Total number of expected shards
 } processCursorMappingCallbackContext;
 
-static void processHybridError(processCursorMappingCallbackContext *ctx, const char *errorMessage) {
+static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply *rep) {
+    const char *errorMessage = MRReply_String(rep, NULL);
+    QueryErrorCode errCode = QueryError_GetCodeFromMessage(errorMessage);
     QueryError error = QueryError_Default();
-    QueryError_SetError(&error, QUERY_EGENERIC, errorMessage);
+    QueryError_SetError(&error, errCode, errorMessage);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
 
 static void processHybridUnknownReplyType(processCursorMappingCallbackContext *ctx, int replyType) {
     QueryError error = QueryError_Default();
-    QueryError_SetWithoutUserDataFmt(&error, QUERY_EUNSUPPTYPE, "Unsupported reply type: %d", replyType);
+    QueryError_SetWithoutUserDataFmt(&error, QUERY_ERROR_CODE_UNSUPP_TYPE, "Unsupported reply type: %d", replyType);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
 
@@ -48,17 +50,44 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
         MRReply *key_reply = MRReply_ArrayElement(rep, i);
         MRReply *value_reply = MRReply_ArrayElement(rep, i + 1);
         const char *key = MRReply_String(key_reply, NULL);
+        bool earlyBailout = false;
+
+        // Handle warnings
+        if (strcmp(key, "warnings") == 0) {
+            for (size_t j = 0; j < MRReply_Length(value_reply); j++) {
+                MRReply *warningReply = MRReply_ArrayElement(value_reply, j);
+                processHybridError(ctx, warningReply);
+            }
+            continue;
+        }
+
+        // Handle cursor IDs
         long long value;
         MRReply_ToInteger(value_reply, &value);
 
         CursorMappings *vsimOrSearch = NULL;
         if (strcmp(key, "SEARCH") == 0) {
+
+            // Check for early bailout (Cursor ID 0 means no cursor was opened)
+            if (value == 0) {
+                earlyBailout = true;
+                // Pop the related VSIM mapping if exists
+                CursorMappings *vsim = StrongRef_Get(ctx->vsimMappings);
+                CursorMappings *search = StrongRef_Get(ctx->searchMappings);
+                while (array_len(vsim->mappings) > array_len(search->mappings)) {
+                    array_pop(vsim->mappings);
+                }
+                continue;
+            }
+
             vsimOrSearch = StrongRef_Get(ctx->searchMappings);
             mapping.cursorId = value;
         } else if (strcmp(key, "VSIM") == 0) {
+            if (earlyBailout) continue;
             vsimOrSearch = StrongRef_Get(ctx->vsimMappings);
             mapping.cursorId = value;
         }
+
         RS_ASSERT(vsimOrSearch);
         vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
     }
@@ -78,10 +107,27 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
         mapping.targetShard = cmd->targetShard;
         long long cid;
         MRReply_ToInteger(cursorId, &cid);
+        // Check for early bailout (Cursor ID 0 means no cursor was opened)
+        if (cid == 0) {
+            // Pop all mappings from previous subqueries
+            for (int j = 0; j < i; j++) {
+                CursorMappings *vsimOrSearch = StrongRef_Get(*mappings[j]);
+                array_pop(vsimOrSearch->mappings);
+            }
+            break;
+        }
         mapping.cursorId = cid;
         CursorMappings *vsimOrSearch = StrongRef_Get(*mappings[i]);
         RS_ASSERT(vsimOrSearch);
         vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
+    }
+    // Handle warnings
+    MRReply *warnings = MRReply_MapElement(rep, "warnings");
+    if (MRReply_Length(warnings) > 0) {
+        for (size_t i = 0; i < MRReply_Length(warnings); i++) {
+            MRReply *warningReply = MRReply_ArrayElement(warnings, i);
+            processHybridError(ctx, warningReply);
+        }
     }
 }
 
@@ -98,8 +144,7 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     // add under a lock, allows the coordinator to know when all responses have arrived
     cb_ctx->responseCount++;
     if (replyType == MR_REPLY_ERROR) {
-        const char* errorMessage = MRReply_String(rep, NULL);
-        processHybridError(cb_ctx, errorMessage);
+        processHybridError(cb_ctx, rep);
     } else if (replyType == MR_REPLY_MAP) {
         RS_ASSERT(MRReply_Length(rep) == INTERNAL_HYBRID_RESP3_LENGTH);
         processHybridResp3(cb_ctx, rep, cmd);
@@ -129,7 +174,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -158,11 +203,10 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to communicate with shards");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
         cleanupCtx(ctx);
         return false;
     }
-
     // Wait for all callbacks to complete
     pthread_mutex_lock(ctx->mutex);
     // initialize count with response counts in case some shards already sent a response
@@ -172,8 +216,16 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     pthread_mutex_unlock(ctx->mutex);
     bool success = true;
     if (array_len(ctx->errors)) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to process shard responses, first error: %s, total error count: %zu", QueryError_GetUserError(&ctx->errors[0]), array_len(ctx->errors));
-        success = false;
+        for (size_t i = 0; i < array_len(ctx->errors); i++) {
+            if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
+                QueryError_SetQueryOOMWarning(status);
+            } else {
+                QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to process shard responses, first error: %s, total error count: %zu",
+                    QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));
+                success = false;
+                break;
+            }
+        }
     }
 
     // Cleanup

@@ -40,21 +40,21 @@ static HybridDebugParams parseHybridDebugParamsCount(RedisModuleString **argv, i
 
   // Verify DEBUG_PARAMS_COUNT exists in its expected position (second to last argument)
   if (argc < 2) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "DEBUG_PARAMS_COUNT arg is missing");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing");
     return debug_params;
   }
 
   size_t n;
   const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &n);
   if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
     return debug_params;
   }
 
   unsigned long long debug_params_count;
   // The count of debug params is the last argument in argv
   if (RedisModule_StringToULongLong(argv[argc - 1], &debug_params_count) != REDISMODULE_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid DEBUG_PARAMS_COUNT count");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid DEBUG_PARAMS_COUNT count");
     return debug_params;
   }
 
@@ -103,12 +103,12 @@ static int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *st
   if (rv != AC_OK) {
     if (rv == AC_ERR_ENOENT) {
       // Argument not recognized
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unrecognized argument", ": %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unrecognized argument", ": %s",
                              AC_GetStringNC(&ac, NULL));
     } else if (errSpec) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Error parsing arguments for", " %s: %s", errSpec->name, AC_Strerror(rv));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Error parsing arguments for", " %s: %s", errSpec->name, AC_Strerror(rv));
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Error parsing arguments", ": %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Error parsing arguments", ": %s",
                              AC_Strerror(rv));
     }
     return REDISMODULE_ERR;
@@ -117,7 +117,7 @@ static int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *st
   // Parse component-specific timeouts
   if (AC_IsInitialized(&searchTimeoutArgs)) {
     if (AC_GetUnsignedLongLong(&searchTimeoutArgs, &params->search_timeout_count, AC_F_GE0) != AC_OK) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid TIMEOUT_AFTER_N_SEARCH count");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid TIMEOUT_AFTER_N_SEARCH count");
       return REDISMODULE_ERR;
     }
     params->search_timeout_set = 1;
@@ -125,7 +125,7 @@ static int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *st
 
   if (AC_IsInitialized(&vsimTimeoutArgs)) {
     if (AC_GetUnsignedLongLong(&vsimTimeoutArgs, &params->vsim_timeout_count, AC_F_GE0) != AC_OK) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid TIMEOUT_AFTER_N_VSIM count");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid TIMEOUT_AFTER_N_VSIM count");
       return REDISMODULE_ERR;
     }
     params->vsim_timeout_set = 1;
@@ -133,7 +133,7 @@ static int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *st
 
   if (AC_IsInitialized(&tailTimeoutArgs)) {
     if (AC_GetUnsignedLongLong(&tailTimeoutArgs, &params->tail_timeout_count, AC_F_GE0) != AC_OK) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid TIMEOUT_AFTER_N_TAIL count");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid TIMEOUT_AFTER_N_TAIL count");
       return REDISMODULE_ERR;
     }
     params->tail_timeout_set = 1;
@@ -141,7 +141,7 @@ static int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *st
 
   // Validate that at least one component timeout parameter was provided
   if (!params->search_timeout_set && !params->vsim_timeout_set && !params->tail_timeout_set) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "At least one component timeout parameter (TIMEOUT_AFTER_N_SEARCH, TIMEOUT_AFTER_N_VSIM, or TIMEOUT_AFTER_N_TAIL) must be specified");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "At least one component timeout parameter (TIMEOUT_AFTER_N_SEARCH, TIMEOUT_AFTER_N_VSIM, or TIMEOUT_AFTER_N_TAIL) must be specified");
     return REDISMODULE_ERR;
   }
 
@@ -177,7 +177,7 @@ static int applyHybridTimeout(HybridRequest *hreq, const HybridDebugParams *para
 static int applyHybridDebugToBuiltPipelines(HybridRequest_Debug *debug_req, QueryError *status) {
   // Apply component-specific timeouts
   if (applyHybridTimeout(debug_req->hreq, &debug_req->debug_params) != REDISMODULE_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to apply timeout to built hybrid pipelines");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to apply timeout to built hybrid pipelines");
     return REDISMODULE_ERR;
   }
 
@@ -226,12 +226,12 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
 
   // Set request flags from hybridParams
   hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
-  if (HybridRequest_BuildPipeline(hreq, &hybridParams) != REDISMODULE_OK) {
+  if (HybridRequest_BuildPipeline(hreq, &hybridParams, false) != REDISMODULE_OK) {
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
     }
     HybridRequest_Free(hreq);
-    QueryError_SetError(status, QUERY_EGENERIC, "Failed to build hybrid pipeline");
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to build hybrid pipeline");
     return NULL;
   }
 
@@ -265,7 +265,7 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
+    QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 

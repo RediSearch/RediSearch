@@ -53,8 +53,6 @@ def setup_basic_index(env):
     for doc_id, doc_data in test_data.items():
         conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_apply_filter_linear():
     env = Env()
     setup_basic_index(env)
@@ -65,8 +63,6 @@ def test_hybrid_apply_filter_linear():
     env.assertTrue(set(results.keys()) == {"doc:1"})
     env.assertEqual(count, 1)
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_apply_filter_rrf():
     env = Env()
     setup_basic_index(env)
@@ -85,8 +81,6 @@ def test_hybrid_apply_filter_rrf():
     env.assertTrue(set(results.keys()) == {"doc:4"})
     env.assertEqual(count, 1)
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_apply_filter_rrf_no_results():
     env = Env()
     setup_basic_index(env)
@@ -104,3 +98,13 @@ def test_hybrid_apply_filter_rrf_no_results():
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(len(results.keys()), 0)
     env.assertEqual(count, 0)
+
+
+def test_hybrid_bad_apply():
+    env = Env()
+    setup_basic_index(env)
+    query_vector = test_data['doc:4']['embedding']
+    search_query = "blue | shoes"
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', query_vector,\
+        'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'WINDOW', '10',
+         'APPLY', 'whoami').error().contains("Unknown symbol 'whoami'")

@@ -21,23 +21,25 @@
 extern "C" {
 #endif
 
-int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
-    StrongRef sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
+    StrongRef sync_ref = {0};
+    int rc = REDISMODULE_OK;
+    if (depleteInBackground) {
+      sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
+    }
 
     // Build individual pipelines for each search request
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
-
         areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
 
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
-        int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+        rc = AREQ_BuildPipeline(areq, &req->errors[i]);
         if (rc != REDISMODULE_OK) {
-            StrongRef_Release(sync_ref);
-            return REDISMODULE_ERR;
+            break;
         }
 
         // Obtain the query processing context for the current AREQ
@@ -48,17 +50,20 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         } else if (IsHybridSearchSubquery(areq)) {
           qctx->resultLimit = areq->maxSearchResults;
         }
-        // Create a depleter processor to extract results from this pipeline
-        // The depleter will feed results to the hybrid merger
-        RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
-        RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-        ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
-        QITR_PushRP(qctx, depleter);
+        if (depleteInBackground) {
+          // Create a depleter processor to extract results from this pipeline
+          // The depleter will feed results to the hybrid merger
+          RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
+          RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
+          ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
+          QITR_PushRP(qctx, depleter);
+        }
     }
-
-    // Release the sync reference as depleters now hold their own references
-    StrongRef_Release(sync_ref);
-    return REDISMODULE_OK;
+    if (depleteInBackground) {
+      // Release the sync reference as depleters now hold their own references
+      StrongRef_Release(sync_ref);
+    }
+    return rc;
 }
 
 const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias, QueryError *status) {
@@ -66,7 +71,7 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
     if (scoreAlias) {
       scoreKey = RLookup_GetKey_Write(tailLookup, scoreAlias, RLOOKUP_F_NOFLAGS);
       if (!scoreKey) {
-        QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", ", score alias: %s", scoreAlias);
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_DUP_FIELD, "Could not create score alias, name already exists in query", ", score alias: %s", scoreAlias);
         return NULL;
       }
     } else {
@@ -75,29 +80,33 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
     return scoreKey;
 }
 
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridLookupContext *lookupCtx, const RLookupKey *scoreKey, HybridPipelineParams *params) {
-    // Array to collect depleter processors from each individual request pipeline
-    arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
+void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
+  RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+  // Add keys from all source lookups to create unified schema
+  for (size_t i = 0; i < req->nrequests; i++) {
+    RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(req->requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
+    RS_ASSERT(srcLookup);
+    RLookup_AddKeysFrom(srcLookup, tailLookup, RLOOKUP_F_NOFLAGS);
+  }
+}
+
+int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params) {
+    // Array to collect upstream from each individual request pipeline
+    arrayof(ResultProcessor*) upstreams = array_new(ResultProcessor *, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
-        AREQ *areq = req->requests[i];
-        if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
-            array_free(depleters);
-            return REDISMODULE_ERR;
-        }
-        array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
+      AREQ *areq = req->requests[i];
+      array_ensure_append_1(upstreams, areq->pipeline.qctx.endProc);
     }
 
-    RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-
     // the doc key is only relevant in coordinator mode, in standalone we can simply use the dmd
-    // InitializeHybridLookupContext copied all the rlookup keys from the upstreams to the tail lookup
+    // HybridRequest_SynchronizeLookupKeys copied all the rlookup keys from the upstreams to the tail lookup
     // we open the docKey as hidden in case the user didn't request it, if it already exists it will stay as it was
     // if it didn't then it will be marked as unresolved
+    RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
-    // The search context is the one belonging to the tail
-    // See nextThread variable in HybridRequest_BuildDepletionPipeline
+    HybridLookupContext *lookupCtx = HybridLookupContext_New(req->requests, tailLookup);
     ResultProcessor *merger = RPHybridMerger_New(params->aggregationParams.common.sctx, 
-                                                 params->scoringCtx, depleters, req->nrequests, 
+                                                 params->scoringCtx, upstreams, req->nrequests, 
                                                  docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
@@ -108,18 +117,17 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridLookupContext *lo
     return rc;
 }
 
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params) {
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground) {
     // Build the depletion pipeline for extracting results from individual search requests
-    if (HybridRequest_BuildDepletionPipeline(req, params) != REDISMODULE_OK) {
+    if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     // Init lookup since we dont call buildQueryPart
     RLookup_Init(tailLookup, IndexSpec_GetSpecCache(req->sctx->spec));
 
-    // a lookup construct to help us translate an upstream rlookup to the tail lookup
-    // Assumes all upstreams have non-null lookups
-    HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, tailLookup);
+    // Add keys from all source lookups to create unified schema before opening the score key
+    HybridRequest_SynchronizeLookupKeys(req);
 
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, params->aggregationParams.common.scoreAlias, &req->tailPipelineError);
     if (QueryError_HasError(&req->tailPipelineError)) {
@@ -127,7 +135,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     }
 
     // Build the merge pipeline for combining and processing results from the depletion pipeline
-    return HybridRequest_BuildMergePipeline(req, lookupCtx, scoreKey, params);
+    return HybridRequest_BuildMergePipeline(req, scoreKey, params);
 }
 
 /**
@@ -205,23 +213,15 @@ void HybridRequest_Free(HybridRequest *req) {
       if (areq && areq->sctx && areq->sctx->redisCtx) {
         RedisModuleCtx *thctx = areq->sctx->redisCtx;
         RedisSearchCtx *sctx = areq->sctx;
-        extern size_t NumShards;  // Declared in module.c
 
-        if (NumShards > 1) {
-          // Cluster mode: contexts are not detached, just free the search context
-          // The Redis context belongs to the command handler and will be freed by the framework
-          SearchCtx_Free(sctx);
+        if (RunInThread()) {
+          // Background thread: schedule async cleanup
+          ScheduleContextCleanup(thctx, sctx);
         } else {
-          // Standalone mode: handle detached contexts
-          if (RunInThread()) {
-            // Background thread: schedule async cleanup
-            ScheduleContextCleanup(thctx, sctx);
-          } else {
-            // Main thread: safe to free directly
-            SearchCtx_Free(sctx);
-            if (thctx) {
-              RedisModule_FreeThreadSafeContext(thctx);
-            }
+          // Main thread: safe to free directly
+          SearchCtx_Free(sctx);
+          if (thctx) {
+            RedisModule_FreeThreadSafeContext(thctx);
           }
         }
 
@@ -302,19 +302,12 @@ void HybridRequest_ClearErrors(HybridRequest *req) {
 }
 
 /**
- * Create a search context, detached only when necessary.
- * In cluster mode, we're already on a background thread, so no need for detached context.
+ * Create a search context with a thread-safe redis module context.
  */
-static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const char *indexname, size_t NumShards) {
-  if (NumShards > 1) {
-    // Cluster mode: we're already on DIST_THREADPOOL, use the existing context directly
-    return NewSearchCtxC(ctx, indexname, true);
-  } else {
-    // Standalone mode: create detached context for thread safety
-    RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
-    RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
-    return NewSearchCtxC(detachedCtx, indexname, true);
-  }
+static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const char *indexname) {
+  RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
+  return NewSearchCtxC(detachedCtx, indexname, true);
 }
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
@@ -322,8 +315,8 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
-  vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName, NumShards);
+  search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);
+  vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);
@@ -344,21 +337,21 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
   RS_ASSERT (isHybridVectorSubquery ^ isHybridSearchSubquery);
   QueryErrorCode currentCode = QueryError_GetCode(status);
 
-  if (currentCode == QUERY_EVECTOR_NOT_ALLOWED) {
+  if (currentCode == QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED) {
     // Enhance generic vector error with hybrid context
     QueryError_ClearError(status);
     if (isHybridVectorSubquery) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED,
                                        "Vector expressions are not allowed in FT.HYBRID VSIM FILTER");
     } else if (isHybridSearchSubquery) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED,
                                        "Vector expressions are not allowed in FT.HYBRID SEARCH");
     } // won't reach here
-  } else if (currentCode == QUERY_EWEIGHT_NOT_ALLOWED) {
+  } else if (currentCode == QUERY_ERROR_CODE_WEIGHT_NOT_ALLOWED) {
     // Enhance generic weight error with hybrid context
     if (isHybridVectorSubquery) {
       QueryError_ClearError(status);
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EWEIGHT_NOT_ALLOWED,
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_WEIGHT_NOT_ALLOWED,
                                        "Weight attributes are not allowed in FT.HYBRID VSIM FILTER");
     }
   }

@@ -11,6 +11,7 @@
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
 #include "wildcard_iterator.h"
+#include "query.h"
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_Get(IndexResult_AggregateRef(p), 0)))
 
@@ -299,7 +300,7 @@ static IteratorStatus HR_ReadHybridUnsortedSingle(HybridIterator *hr) {
   }
   hr->base.current = mmh_pop_min(hr->topResults);
 
-  const t_fieldIndex fieldIndex = hr->filterCtx.field.value.index;
+  const t_fieldIndex fieldIndex = hr->filterCtx.field.index;
   if (hr->sctx && fieldIndex != RS_INVALID_FIELD_INDEX
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId, fieldIndex, hr->filterCtx.predicate, &hr->sctx->time.current)) {
     return ITERATOR_NOTFOUND;
@@ -336,7 +337,7 @@ static IteratorStatus HR_ReadKnnUnsortedSingle(HybridIterator *hr) {
     return ITERATOR_EOF;
   }
 
-  const t_fieldIndex fieldIndex = hr->filterCtx.field.value.index;
+  const t_fieldIndex fieldIndex = hr->filterCtx.field.index;
   if (hr->sctx && fieldIndex != RS_INVALID_FIELD_INDEX
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId, fieldIndex, hr->filterCtx.predicate, &hr->sctx->time.current)) {
     return ITERATOR_NOTFOUND;
@@ -401,6 +402,12 @@ void HybridIterator_Free(QueryIterator *self) {
   if (it == NULL) {
     return;
   }
+
+  // Invalidate the handle if it exists
+  if (it->keyHandle) {
+    it->keyHandle->is_valid = false;
+  }
+
   if (it->topResults) {   // Iterator is in one of the hybrid modes.
     mmh_free(it->topResults);
   }
@@ -422,7 +429,7 @@ static QueryIterator* HybridIteratorReducer(HybridIteratorParams *hParams) {
     ret = hParams->childIt;
   } else if (hParams->childIt && IsWildcardIterator(hParams->childIt)) {
     hParams->childIt->Free(hParams->childIt);
-    hParams->qParams.searchMode = VECSIM_STANDARD_KNN;
+    hParams->qParams.searchMode = STANDARD_KNN;
     hParams->childIt = NULL;
   }
   return ret;
@@ -452,6 +459,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   // This will be changed later to a valid RLookupKey if there is no syntax error in the query,
   // by the creation of the metrics loader results processor.
   hi->ownKey = NULL;
+  hi->keyHandle = NULL; // Will be set later if this iterator is used for metrics
   hi->child = hParams.childIt;
   hi->resultsPrepared = false;
   hi->index = hParams.index;

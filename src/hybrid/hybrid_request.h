@@ -78,9 +78,10 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, RedisModul
  *
  * @param req The HybridRequest containing multiple AREQ search requests
  * @param params Pipeline parameters including synchronization settings
+ * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params);
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground);
 
 /**
  * Open the score key in the tail lookup for writing the final score.
@@ -95,6 +96,14 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
 const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias, QueryError *status);
 
 /**
+ * Align the lookup keys of all source lookups with the tail lookup.
+ * This function adds all keys from source lookups to the tail lookup to create a unified schema.
+ *
+ * @param req The HybridRequest containing multiple AREQ search requests
+ */
+void HybridRequest_SynchronizeLookupKeys(HybridRequest *req);
+
+/**
  * Build the merge pipeline for hybrid search processing.
  * This function constructs the second part of the hybrid search pipeline that:
  * 1. Sets up a hybrid merger to combine and score results from all depleter processors
@@ -107,12 +116,11 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
  * Depleter3 /
  *
  * @param req The HybridRequest containing the tail pipeline for merging
- * @param lookupCtx The lookup context for field merging
  * @param scoreKey The score key to use for writing the final score, could be null - won't write score in this case to the rlookup
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridLookupContext *lookupCtx, const RLookupKey *scoreKey, HybridPipelineParams *params);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params);
 
 /**
  * Build the complete hybrid search pipeline.
@@ -120,17 +128,16 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridLookupContext *lo
  *
  * @param req The HybridRequest to build the pipeline for
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
+ * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params);
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground);
 
 void HybridRequest_Free(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 void HybridRequest_ClearErrors(HybridRequest *req);
-
-int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
 

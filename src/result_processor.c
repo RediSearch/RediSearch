@@ -45,8 +45,11 @@ static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status
 typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
-  size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
   RedisSearchCtx *sctx;
+  uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
+  uint32_t slotsVersion;                        // version of the slot ranges used for filtering
+  const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
+  const SharedSlotRangeArray *slotRanges;       // Owned slot ranges info, may be used for filtering. TODO ASM: remove
 } RPQueryIterator;
 
 
@@ -86,6 +89,10 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   }
   return true;
 }
+
+// TODO ASM: use this to decide if we need to filter by slots
+extern atomic_uint key_space_version;
+atomic_uint key_space_version = 0;
 
 /* Next implementation */
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
@@ -144,6 +151,14 @@ validate_current:
         continue;
       }
     }
+    if (should_filter_slots) {
+      RS_ASSERT(self->slotRanges != NULL);
+      int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
+      if (!Slots_CanAccessKeysInSlot(self->slotRanges, slot)) {
+        DMD_Return(dmd);
+        continue;
+      }
+    }
 
     // Increment the total results barring deleted results
     base->parent->totalResults++;
@@ -162,13 +177,18 @@ validate_current:
 static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
   self->iterator->Free(self->iterator);
+  rm_free((void *)self->querySlots);
+  Slots_FreeLocalSlots(self->slotRanges);
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root, RedisSearchCtx *sctx) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root, const SharedSlotRangeArray *slotRanges, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx) {
   RS_ASSERT(root != NULL);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
+  ret->slotRanges = slotRanges;
+  ret->querySlots = querySlots;
+  ret->slotsVersion = slotsVersion;
   ret->base.Next = rpQueryItNext;
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
@@ -178,7 +198,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, RedisSearchCtx *sctx) 
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
   /* On coordinator, the root result processor will be a network result processor and we should ignore it */
-  if (it->rootProc->type == RP_INDEX) {
+  if (it->rootProc && it->rootProc->type == RP_INDEX) {
     return ((RPQueryIterator *)it->rootProc)->iterator;
   }
   return NULL;
@@ -1948,8 +1968,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
    // Free lookup context if it exists
    if (self->lookupCtx) {
-     array_free(self->lookupCtx->sourceLookups);
-     rm_free(self->lookupCtx);
+     HybridLookupContext_Free(self->lookupCtx);
    }
 
    // Free the processor itself
@@ -2230,7 +2249,7 @@ bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, boo
 
   if (!RPPauseAfterCount) {
     // Set query error
-    QueryError_SetError(status, QUERY_EGENERIC, "Failed to create pause RP or another debug RP is already set");
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to create pause RP or another debug RP is already set");
     return false;
   }
 
@@ -2243,7 +2262,7 @@ bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, boo
   // Free if failed
   if (!success) {
     RPPauseAfterCount->Free(RPPauseAfterCount);
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "%s RP type not found in stream or tried to insert after last RP", RPTypeToString(rp_type));
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "%s RP type not found in stream or tried to insert after last RP", RPTypeToString(rp_type));
   }
   return success;
 

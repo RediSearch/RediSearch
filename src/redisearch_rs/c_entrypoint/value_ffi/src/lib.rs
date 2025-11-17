@@ -15,7 +15,8 @@ use std::{
     ptr::NonNull,
 };
 
-use value::{RsValue, map::RsValueMap, shared::SharedRsValue};
+use c_ffi_utils::opaque::IntoOpaque;
+use value::{RsValue, Value, opaque::OpaqueRsValue};
 
 use crate::value_type::{AsRsValueType, RsValueType};
 
@@ -26,8 +27,8 @@ pub mod value_type;
 /// Creates a stack-allocated, undefined `RsValue`.
 /// @returns a stack-allocated `RsValue` of type `RsValueType_Undef`
 #[unsafe(no_mangle)]
-pub extern "C" fn RsValue_Undefined() -> RsValue {
-    RsValue::undefined()
+pub extern "C" fn RsValue_Undefined() -> OpaqueRsValue {
+    RsValue::undefined().into_opaque()
 }
 
 /// Creates a stack-allocated `RsValue` containing a number.
@@ -35,8 +36,8 @@ pub extern "C" fn RsValue_Undefined() -> RsValue {
 /// @param n The numeric value to wrap
 /// @return A stack-allocated `RsValue` of type `RsValueType_Number`
 #[unsafe(no_mangle)]
-pub extern "C" fn RsValue_Number(n: c_double) -> RsValue {
-    RsValue::number(n)
+pub extern "C" fn RsValue_Number(n: c_double) -> OpaqueRsValue {
+    RsValue::number(n).into_opaque()
 }
 
 /// Creates a stack-allocated `RsValue` containing a malloc'd string.
@@ -51,7 +52,7 @@ pub extern "C" fn RsValue_Number(n: c_double) -> RsValue {
 /// @param len The length of the string
 /// @return A stack-allocated `RsValue` of type `RsValueType_String` with `RSString_Malloc` subtype
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_String(str: Option<NonNull<c_char>>, len: u32) -> RsValue {
+pub unsafe extern "C" fn RsValue_String(str: Option<NonNull<c_char>>, len: u32) -> OpaqueRsValue {
     todo!()
 }
 
@@ -60,15 +61,25 @@ pub unsafe extern "C" fn RsValue_String(str: Option<NonNull<c_char>>, len: u32) 
 /// DO NOT free or modify this value.
 /// @return A pointer to a static `RsValue` of type `RsValueType_Null`
 #[unsafe(no_mangle)]
-pub extern "C" fn RsValue_NullStatic() -> &'static RsValue {
-    static RSVALUE_NULL: RsValue = RsValue::null();
-    &RSVALUE_NULL
+pub extern "C" fn RsValue_NullStatic() -> *const OpaqueRsValue {
+    static RSVALUE_NULL: RsValue = RsValue::null_const();
+    RSVALUE_NULL.as_opaque_ptr()
 }
 
 /// Get the type of an `RsValue`.
+///
+/// # Safety
+/// The passed value must originate from one of the `RsValue` constructors,
+/// i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
+/// or [`RsValue_NullStatic`].
+///
 /// @param v The value to inspect
 /// @return The `RsValueType` of the value
 #[unsafe(no_mangle)]
-pub extern "C" fn RsValue_Type(v: &RsValue) -> RsValueType {
-    v.as_value_type()
+pub unsafe extern "C" fn RsValue_Type(v: &OpaqueRsValue) -> RsValueType {
+    // Safety:
+    // The caller must guarantee that `v` originates from one of the RsValue constructors,
+    // all of which produce an `OpaqueRsValue` by calling `RsValue::into_opaque()`.
+    let v = unsafe { RsValue::from_opaque_ptr(v as *const _) };
+    v.unwrap().as_value_type()
 }

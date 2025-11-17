@@ -108,8 +108,8 @@ reducerDistributionFunc getDistributionFunc(const char *key);
 static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
                                 PLN_DistributeStep *dstp, QueryError *status) {
   PLN_GroupStep *gr = (PLN_GroupStep *)step;
-  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
-  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
+  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->strictPrefix);
+  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->strictPrefix);
 
   size_t nreducers = array_len(gr->reducers);
   grLocal->reducers = array_new(PLN_Reducer, nreducers);
@@ -200,7 +200,7 @@ static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
 
 #define CHECK_ARG_COUNT(N)                                                               \
   if (src->args.argc != N) {                                                             \
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid arguments for reducer %s", \
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid arguments for reducer %s", \
                            src->name);                                                   \
     return REDISMODULE_ERR;                                                              \
   }
@@ -208,7 +208,7 @@ static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
 /* Distribute COUNT into remote count and local SUM */
 static int distributeCount(ReducerDistCtx *rdctx, QueryError *status) {
   if (rdctx->srcReducer->args.argc != 0) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Count accepts 0 values only");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Count accepts 0 values only");
     return REDISMODULE_ERR;
   }
   const char *countAlias;
@@ -519,9 +519,20 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
       }
       case PLN_T_LOAD: {
         PLN_LoadStep *lstp = (PLN_LoadStep *)cur;
-        for (size_t ii = 0; ii < AC_NumArgs(&lstp->args); ++ii) {
-          const char *s = stripAtPrefix(AC_StringArg(&lstp->args, ii));
-          RLookup_GetKey_Write(lookup, s, RLOOKUP_F_NOFLAGS);
+        // Use the original ArgsCursor directly
+        ArgsCursor ac = lstp->args;
+
+        // Process all arguments in the ArgsCursor
+        while (!AC_IsAtEnd(&ac)) {
+          const char *name = AC_GetStringNC(&ac, NULL);
+
+          // Check for AS alias
+          if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+            RS_ASSERT(!AC_IsAtEnd(&ac));
+            name = AC_GetStringNC(&ac, NULL); // structure is validated earlier, can safely assume it's not at the end
+          }
+          name = stripAtPrefix(name);
+          RLookup_GetKey_Write(lookup, name, RLOOKUP_F_NOFLAGS);
         }
         break;
       }

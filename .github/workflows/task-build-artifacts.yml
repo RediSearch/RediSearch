@@ -48,16 +48,43 @@ jobs:
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
       # Build command
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
+      GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
         if: inputs.pre-steps-script && inputs.container == 'alpine:3'
         shell: sh -l -eo pipefail {0}
-        run: ${{ inputs.pre-steps-script }}
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if ${{ inputs.pre-steps-script }}; then
+              echo "Pre-steps Dependencies succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Pre-steps Dependencies failed after 5 attempts"
+          exit 1
       - name: Pre-steps Dependencies (Non-Alpine)
         if: inputs.pre-steps-script && inputs.container != 'alpine:3'
-        run: ${{ inputs.pre-steps-script }}
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if ${{ inputs.pre-steps-script }}; then
+              echo "Pre-steps Dependencies succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Pre-steps Dependencies failed after 5 attempts"
+          exit 1
       - name: Enable dynamic linking to C runtime in Alpine
         if: inputs.container == 'alpine:3'
         run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
@@ -91,18 +118,18 @@ jobs:
             amazonlinux:2 | alpine:3)
 
               # Configure the safe directory
-              git config --global --add safe.directory /__w/${{ github.repository }}
+              git config --global --add safe.directory "/__w/$GITHUB_REPOSITORY"
 
               # Checkout
-              REPO_URL="https://github.com/${{ github.repository }}.git"
+              REPO_URL="https://github.com/$GITHUB_REPOSITORY.git"
 
               # Initialize a Git repository
               git init
               git remote add origin "$REPO_URL"
 
               # Fetch and checkout ref
-              git fetch origin "${{ env.REF }}" || {
-                echo "Failed to fetch ref: '${{ env.REF }}'";
+              git fetch origin "$REF" || {
+                echo "Failed to fetch ref: '$REF'";
                 exit 1;
               }
               git checkout FETCH_HEAD  # Check out the fetched ref
@@ -117,14 +144,66 @@ jobs:
           esac
       - name: Setup
         working-directory: .install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
+              echo "Setup succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Setup failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Setup failed after 5 attempts"
+          exit 1
       - name: Install aws cli
         working-directory: .install
-        run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
+              echo "Install aws cli succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Install aws cli failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Install aws cli failed after 5 attempts"
+          exit 1
       - name: Setup test dependencies
-        run: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
+              echo "Setup test dependencies succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Setup test dependencies failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Setup test dependencies failed after 5 attempts"
+          exit 1
       - name: install build artifacts req
-        run: pip install -q -r .install/build_package_requirments.txt
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i of 5"
+            if uv pip install -q -r .install/build_package_requirments.txt; then
+              echo "Install build artifacts req succeeded"
+              exit 0
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Install build artifacts req failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          echo "Install build artifacts req failed after 5 attempts"
+          exit 1
 
       # Get Redis
       - name: Get Redis (node20)

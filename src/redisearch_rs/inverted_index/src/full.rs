@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{DecodedBy, Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData};
+use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData, TermDecoder};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -25,7 +25,7 @@ use crate::{DecodedBy, Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResult
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct Full;
 
 /// Return a slice of the offsets vector from a term record.
@@ -34,7 +34,7 @@ pub struct Full;
 ///
 /// record must have `result_type` set to `RSResultType::Term`.
 #[inline(always)]
-pub fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
+pub const fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
     // SAFETY: caller ensured the proper result_type.
     let term = record.as_term().unwrap();
 
@@ -66,14 +66,6 @@ impl Encoder for Full {
         bytes_written += writer.write(offsets)?;
 
         Ok(bytes_written)
-    }
-}
-
-impl DecodedBy for Full {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
     }
 }
 
@@ -125,8 +117,8 @@ pub fn decode_term_record_offsets<'index>(
 }
 
 impl Decoder for Full {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -150,7 +142,6 @@ impl Decoder for Full {
     }
 
     fn seek<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
@@ -199,7 +190,7 @@ impl Decoder for Full {
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct FullWide;
 
 impl Encoder for FullWide {
@@ -225,17 +216,9 @@ impl Encoder for FullWide {
     }
 }
 
-impl DecodedBy for FullWide {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FullWide {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -252,7 +235,6 @@ impl Decoder for FullWide {
     }
 
     fn seek<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
@@ -282,3 +264,6 @@ impl Decoder for FullWide {
         Ok(true)
     }
 }
+
+impl TermDecoder for Full {}
+impl TermDecoder for FullWide {}

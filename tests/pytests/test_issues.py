@@ -169,9 +169,9 @@ def test_issue1880(env):
   conn.execute_command('HSET', 'doc1', 't', 'hello world')
   conn.execute_command('HSET', 'doc2', 't', 'hello')
 
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 2]]]
+  excepted_res = ['Type', 'INTERSECT', 'Number of reading operations', 1, 'Child iterators', [
+                    ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 1, 'Estimated number of matches', 1],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 2]]]
   res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
   res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
   # both queries return `world` iterator before `hello`
@@ -179,7 +179,7 @@ def test_issue1880(env):
   env.assertEqual(res2[1][1][0][3], excepted_res)
 
   # test with a term which does not exist
-  excepted_res = ['Type', 'EMPTY', 'Counter', 0]
+  excepted_res = ['Type', 'EMPTY', 'Number of reading operations', 0]
 
   res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
   env.assertEqual(res3[1][1][0][3], excepted_res)
@@ -412,28 +412,28 @@ def test_SkipFieldWithNoMatch(env):
   conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   # bar exists in `t2` only
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'EMPTY', 'Counter', 0])
+  env.assertEqual(res[1][1][0][3], ['Type', 'EMPTY', 'Number of reading operations', 0])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1] )
 
   # Check with NOFIELDS flag
   env.cmd('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   waitForIndex(env, 'idx_nomask')
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
 @skip(cluster=True)
 def test_update_num_terms(env):
@@ -889,9 +889,10 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     env.addShardToClusterIfExists()
     new_shard_conn = env.getConnection(shardId=initial_shards_count+1)
     verify_shard_init(new_shard_conn)
-    # Expect that the cluster will be aware of the new shard.
+    # Expect that the cluster will be aware of the new shard, but for redisearch coordinator, the new shard isn't
+    # considered part of the partition yet as it does not contain any slots.
     env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
-    env.assertEqual(new_shard_conn.execute_command("search.clusterinfo")[:2], ['num_partitions', int(initial_shards_count) + 1])
+    env.assertEqual(new_shard_conn.execute_command("search.clusterinfo")[:2], ['num_partitions', int(initial_shards_count)])
 
     # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
     new_shard_id = new_shard_conn.execute_command('CLUSTER MYID')
@@ -904,25 +905,21 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
     with TimeLimit(40, "fail to acknowledge topology"):
-        while True:
-            cluster_info = new_shard_conn.execute_command("search.clusterinfo")
-            shards_idx = cluster_info.index('shards') + 1
-            if any([range[0] == [0, 0] for range in cluster_info[shards_idx:]]):
-                break
+        shards = env.getOSSMasterNodesConnectionList()
+        while not all([sh.execute_command('CLUSTER', 'INFO').startswith('cluster_state:ok') for sh in shards]):
             time.sleep(0.5)
     # search.clusterinfo response format is the following:
-    # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'shards',
-    # [[0, 0], ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
-    # [[1, 5461], ['60cdcb85a8f73f87ac6cc831ee799b75752aace3', '127.0.0.1', 6379, 'master']],
-    # [[5462, 10923], ['6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', '127.0.0.1', 6381, 'master']],
-    # [[10924, 16383], ['4e51033405651441a4be6ddfb46cd85d0c54af6f', '127.0.0.1', 6383, 'master']]]
-    unique_shards = set(shard[1][0] for shard in cluster_info[shards_idx:])
+    # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'shards', [
+    #  ['slots', [1, 5461],       'id', '60cdcb85a8f73f87ac6cc831ee799b75752aace3', 'host', '127.0.0.1', 'port', 6379],
+    #  ['slots', [5462, 10923],   'id', '6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', 'host', '127.0.0.1', 'port', 6381],
+    #  ['slots', [10924, 16383],  'id', '4e51033405651441a4be6ddfb46cd85d0c54af6f', 'host', '127.0.0.1', 'port', 6383],
+    #  ['slots', [0, 0],          'id', '1f834c5c207bbe8d6dab0c6f050ff06292eb333c', 'host', '127.0.0.1', 'port', 6385],
+    # ]]
+    env.assertOk(new_shard_conn.execute_command("search.CLUSTERREFRESH"))
+    cluster_info = new_shard_conn.execute_command("search.clusterinfo")
+    shards_idx = cluster_info.index('shards') + 1
+    unique_shards = set(shard[3] for shard in cluster_info[shards_idx])
     env.assertEqual(len(unique_shards), initial_shards_count+1, message=f"cluster info is {cluster_info}")
-
-    # Verify that slot 0 moved to the new shard,
-    shards_with_slot_0 = [shard for shard in cluster_info[shards_idx:] if shard[0][0] == 0]
-    env.assertEqual(len(shards_with_slot_0), 1, message=f"cluster info is {cluster_info}")
-    env.assertEqual(shards_with_slot_0[0][1][0], new_shard_id, message=f"cluster info is {cluster_info}")
 
 @skip(cluster=True)
 def test_mod5910(env):
@@ -1601,3 +1598,8 @@ def test_mod_8157_RESP2():
 @skip(cluster=False, min_shards=2)
 def test_mod_8157_RESP3():
   _mod_8157(Env(protocol=3))
+
+@skip(cluster=True)
+def test_mod_11975(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.SEARCH', 'idx', '@t:("*")', 'DIALECT', '2').equal([0])

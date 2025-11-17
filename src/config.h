@@ -366,7 +366,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
-    .requestConfigParams.oomPolicy = OomPolicy_Ignore,                         \
+    .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
   }
 
 #define REDIS_ARRAY_LIMIT 7

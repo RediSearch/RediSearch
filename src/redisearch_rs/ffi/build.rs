@@ -58,6 +58,7 @@ fn main() {
             .join("redismodule.h"),
         root.join("src").join("buffer/buffer.h"),
         root.join("src").join("search_result.h"),
+        root.join("src").join("config.h"),
         root.join("src").join("result_processor.h"),
         root.join("src").join("sortable.h"),
         root.join("src").join("value.h"),
@@ -66,6 +67,7 @@ fn main() {
         root.join("src").join("doc_table.h"),
         root.join("src").join("score_explain.h"),
         root.join("src").join("rlookup.h"),
+        root.join("src").join("util").join("arr").join("arr.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();

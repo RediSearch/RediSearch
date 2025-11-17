@@ -183,10 +183,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
 
 [[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
 name = "bytes"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
+
+[[package]]
+name = "c_ffi_utils"
+version = "0.0.1"
 
 [[package]]
 name = "cast"
@@ -550,9 +560,20 @@ dependencies = [
 
 [[package]]
 name = "fnv"
+version = "0.0.1"
+
+[[package]]
+name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
+
+[[package]]
+name = "fnv_ffi"
+version = "0.0.1"
+dependencies = [
+ "fnv 0.0.1",
+]
 
 [[package]]
 name = "fs-err"
@@ -639,7 +660,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4a85d31aea989eead29a3aaf9e1115a180df8282431156e533de47660892565"
 dependencies = [
  "bytes",
- "fnv",
+ "fnv 1.0.7",
  "itoa",
 ]
 
@@ -768,6 +789,8 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "qint",
+ "serde",
+ "smallvec",
  "varint",
 ]
 
@@ -775,17 +798,13 @@ dependencies = [
 name = "inverted_index_bencher"
 version = "0.0.1"
 dependencies = [
- "bindgen 0.72.0",
  "buffer",
- "build_utils",
  "criterion",
  "ffi",
  "inverted_index",
  "itertools 0.14.0",
  "redis-module",
  "redis_mock",
- "types_ffi",
- "varint_ffi",
 ]
 
 [[package]]
@@ -796,6 +815,8 @@ dependencies = [
  "cbindgen",
  "ffi",
  "inverted_index",
+ "rmp-serde",
+ "serde",
 ]
 
 [[package]]
@@ -1254,6 +1275,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "query_error"
+version = "0.0.1"
+dependencies = [
+ "c_ffi_utils",
+ "strum",
+]
+
+[[package]]
+name = "query_error_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "c_ffi_utils",
+ "cbindgen",
+ "query_error",
+]
+
+[[package]]
 name = "quote"
 version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1335,7 +1374,7 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "99.99.99"
-source = "git+https://github.com/hdoordt/redismodule-rs.git?branch=patches-redisearch#97bc3c2cf26939f4a8a92d21ddc497d5e547bafe"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
 dependencies = [
  "backtrace",
  "bindgen 0.66.1",
@@ -1357,7 +1396,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "99.99.99"
-source = "git+https://github.com/hdoordt/redismodule-rs.git?branch=patches-redisearch#97bc3c2cf26939f4a8a92d21ddc497d5e547bafe"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -1368,12 +1407,20 @@ dependencies = [
 [[package]]
 name = "redis_mock"
 version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+ "value",
+]
 
 [[package]]
 name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
+ "fnv_ffi",
+ "inverted_index_ffi",
+ "query_error_ffi",
  "redis-module",
  "result_processor_ffi",
  "triemap_ffi",
@@ -1452,8 +1499,11 @@ dependencies = [
  "libc",
  "pin-project",
  "proptest",
+ "redis-module",
+ "redis_mock",
  "sorting_vector",
  "strum",
+ "thiserror",
  "value",
 ]
 
@@ -1470,13 +1520,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmp"
+version = "0.8.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "228ed7c16fa39782c3b3468e974aec2795e9089153cd08ee2e9aefb3613334c4"
+dependencies = [
+ "byteorder",
+ "num-traits 0.2.19",
+ "paste",
+]
+
+[[package]]
+name = "rmp-serde"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52e599a477cf9840e92f2cde9a7189e67b42c57532749bf90aea6ec10facd4db"
+dependencies = [
+ "byteorder",
+ "rmp",
+ "serde",
+]
+
+[[package]]
 name = "rqe_iterators"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "inverted_index",
  "pretty_assertions",
  "proptest",
+ "redis_mock",
+ "rqe_iterators",
+ "thiserror",
+ "types_ffi",
+ "value",
+ "value_ffi",
 ]
 
 [[package]]
@@ -1489,10 +1568,14 @@ dependencies = [
  "criterion",
  "ffi",
  "inverted_index",
+ "inverted_index_ffi",
  "itertools 0.14.0",
  "redis_mock",
  "rqe_iterators",
+ "triemap_ffi",
  "types_ffi",
+ "value_ffi",
+ "varint_ffi",
 ]
 
 [[package]]
@@ -1602,18 +1685,28 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.219"
+version = "1.0.226"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
+checksum = "0dca6411025b24b60bfa7ec1fe1f8e710ac09782dca409ee8237ba74b51295fd"
+dependencies = [
+ "serde_core",
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.226"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba2ba63999edb9dac981fb34b3e5c0d111a69b0924e253ed29d83f7c99e966a4"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.219"
+version = "1.0.226"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b0276cf7f2c73365f7157c8123c21cd9a50fbbd844757af28ca1f5925fc2a00"
+checksum = "8db53ae22f34573731bafa1db20f04027b2d25e02d8205921b569171699cdb33"
 dependencies = [
  "proc-macro2",
  "quote 1.0.40",
@@ -1652,6 +1745,28 @@ name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
+name = "slots_tracker"
+version = "0.0.1"
+
+[[package]]
+name = "slots_tracker_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "slots_tracker",
+]
+
+[[package]]
+name = "smallvec"
+version = "1.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "sorting_vector"
@@ -1999,6 +2114,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "value"
 version = "0.0.1"
 dependencies = [
+ "c_ffi_utils",
  "ffi",
 ]
 
@@ -2007,6 +2123,7 @@ name = "value_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_ffi_utils",
  "cbindgen",
  "libc",
  "redis-module",

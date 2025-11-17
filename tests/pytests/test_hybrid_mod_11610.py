@@ -126,8 +126,6 @@ def setup_bikes_index(env):
                            'description_embeddings', doc_data['embedding'])
 
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_mod_11610():
     """Test FT.SEARCH and FT.HYBRID with increasing parameters to get more than 10 results"""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -192,8 +190,6 @@ def test_hybrid_mod_11610():
     env.assertEqual(len(hybrid_dict['results']), 20)
 
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_limit_with_filter():
     """Test FT.HYBRID with LIMIT and FILTER to ensure filtering is applied before limiting"""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -210,7 +206,7 @@ def test_hybrid_limit_with_filter():
                              'VSIM', '@description_embeddings', '$BLOB',
                              'KNN', '2', 'K', '50',
                              'COMBINE', 'RRF', '2', 'WINDOW', '100',
-                             'LOAD', '2', '__key', 'category',
+                             'LOAD', '2', '@__key', '@category',
                              'FILTER', '@category=="road"',
                              'LIMIT', '0', '5',
                              'PARAMS', '2', 'BLOB', query_vector)
@@ -233,7 +229,7 @@ def test_hybrid_limit_with_filter():
                              'VSIM', '@description_embeddings', '$BLOB',
                              'KNN', '2', 'K', '50',
                              'COMBINE', 'RRF', '2', 'WINDOW', '100',
-                             'LOAD', '2', '__key', 'category',
+                             'LOAD', '2', '@__key', '@category',
                              'FILTER', '@category=="mountain"',
                              'LIMIT', '0', '10',
                              'PARAMS', '2', 'BLOB', query_vector)
@@ -255,7 +251,7 @@ def test_hybrid_limit_with_filter():
                              'VSIM', '@description_embeddings', '$BLOB',
                              'KNN', '2', 'K', '50',
                              'COMBINE', 'RRF', '2', 'WINDOW', '100',
-                             'LOAD', '2', '__key', 'category',
+                             'LOAD', '2', '@__key', '@category',
                              'FILTER', '@category=="accessory"',
                              'LIMIT', '0', '3',
                              'PARAMS', '2', 'BLOB', query_vector)

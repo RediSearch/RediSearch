@@ -9,21 +9,19 @@
 #ifndef SRC_DICTIONARY_H_
 #define SRC_DICTIONARY_H_
 
-#define DICT_KEY_PREFIX "dict:"
-#define DICT_KEY_FMT DICT_KEY_PREFIX "%s"
-
 #include "trie/trie_type.h"
 
 Trie* SpellCheck_OpenDict(RedisModuleCtx* ctx, const char* dictName, int mode);
 
-int Dictionary_Add(RedisModuleCtx* ctx, const char* dictName, RedisModuleString** values, int len,
-                   char** err);
+int Dictionary_Add(RedisModuleCtx* ctx, const char* dictName, RedisModuleString** values, int len);
 
 int Dictionary_Del(RedisModuleCtx* ctx, const char* dictName,
                    RedisModuleString** values, int len);
 
 void Dictionary_Clear();
 void Dictionary_Free();
+size_t Dictionary_Size();
+void Dictionary_Propagate(RedisModuleCtx* ctx);
 
 void Dictionary_Dump(RedisModuleCtx* ctx, const char* dictName);
 

@@ -16,9 +16,9 @@ bench = false
 name = "encoding_decoding"
 harness = false
 
-[build-dependencies]
-bindgen.workspace = true
-build_utils = { path = "../build_utils" }
+[[bench]]
+name = "garbage_collection"
+harness = false
 
 [dependencies]
 buffer.workspace = true
@@ -27,8 +27,6 @@ ffi.workspace = true
 inverted_index.workspace = true
 itertools.workspace = true
 redis_mock.workspace = true
-varint_ffi = { path = "../c_entrypoint/varint_ffi" }
-types_ffi = { path = "../c_entrypoint/types_ffi" }
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,

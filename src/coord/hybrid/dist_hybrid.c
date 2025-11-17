@@ -116,11 +116,24 @@ static void HybridRequest_appendVsim(RedisModuleString **argv, int argc, MRComma
 
   int actualFilterOffset = RMUtil_ArgIndex("FILTER", argv + vsimOffset, argc - vsimOffset);
   actualFilterOffset = actualFilterOffset != -1 ? actualFilterOffset + vsimOffset : -1;
+  int expectedYieldScoreOffset = expectedFilterOffset;
 
   if (actualFilterOffset == expectedFilterOffset && actualFilterOffset < argc - 1) {
     // This is a VSIM FILTER - append it to the command
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset]);     // FILTER keyword
     MRCommand_AppendRstr(xcmd, argv[actualFilterOffset + 1]); // filter expression
+    expectedYieldScoreOffset += 2; // Update expected offset after processing FILTER
+  }
+
+  // Add YIELD_SCORE_AS if present
+  // Format: VSIM <field> <vector> [KNN/RANGE <count> <args...>] [FILTER <expression>] YIELD_SCORE_AS <alias>
+  int yieldScoreOffset = RMUtil_ArgIndex("YIELD_SCORE_AS", argv + vsimOffset, argc - vsimOffset);
+  yieldScoreOffset = yieldScoreOffset != -1 ? yieldScoreOffset + vsimOffset : -1;
+
+  if (yieldScoreOffset == expectedYieldScoreOffset && yieldScoreOffset < argc - 1) {
+    // This is a VSIM YIELD_SCORE_AS - append it to the command
+    MRCommand_AppendRstr(xcmd, argv[yieldScoreOffset]);     // YIELD_SCORE_AS keyword
+    MRCommand_AppendRstr(xcmd, argv[yieldScoreOffset + 1]); // score alias
   }
 }
 
@@ -221,6 +234,9 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Numeric responses are encoded as simple strings.
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
+  // Prepare command for slot info (Cluster mode)
+  MRCommand_PrepareForSlotInfo(xcmd, xcmd->num);
+
   if (sp && sp->rule && sp->rule->prefixes && array_len(sp->rule->prefixes) > 0) {
     MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
     arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
@@ -229,7 +245,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
     rm_free(n_prefixes);
 
-    for (uint i = 0; i < array_len(prefixes); i++) {
+    for (uint32_t i = 0; i < array_len(prefixes); i++) {
       size_t len;
       const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
       MRCommand_Append(xcmd, prefix, len);
@@ -397,16 +413,24 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     StrongRef searchMappingsRef = StrongRef_New(search, FreeCursorMappings);
     StrongRef vsimMappingsRef = StrongRef_New(vsim, FreeCursorMappings);
 
-
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
     int numShards = GetNumShards_UnSafe();
 
-    if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, status)) {
+    const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
+    if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
         return REDISMODULE_ERR;
+    }
+
+    RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));
+    if (array_len(search->mappings) == 0) {
+      // No mappings available - set next function to EOF.
+      // Error handling relies on QueryError status and return codes, not on mapping availability.
+      searchRPNet->base.Next = rpnetNext_EOF;
+      vsimRPNet->base.Next = rpnetNext_EOF;
     }
 
     // Store mappings in RPNet structures
@@ -465,34 +489,34 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
     RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
     if (!sctx) {
-        QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
+        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
         // return QueryError_ReplyAndClear(ctx, &status);
-        goto err;
+        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+        return;
     }
 
     // Check if the index still exists, and promote the ref accordingly
     StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpec *sp = StrongRef_Get(strong_ref);
     if (!sp) {
-        QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
-        goto err;
+        QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        return;
     }
 
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
-        goto err;
+      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+      return;
     }
 
 
     if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
-        goto err;
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+        return;
     }
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpecRef_Release(strong_ref);
     RedisModule_EndReply(reply);
-    return;
-
-err:
-    DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
 }

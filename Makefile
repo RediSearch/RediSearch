@@ -7,6 +7,7 @@
 #-----------------------------------------------------------------------------
 
 .NOTPARALLEL:
+.EXPORT_ALL_VARIABLES:
 
 MAKEFLAGS += --no-print-directory
 
@@ -38,6 +39,10 @@ BUILD_ARGS += COORD=$(COORD)
 # Build flags
 ifeq ($(DEBUG),1)
 	BUILD_ARGS += DEBUG
+endif
+
+ifneq ($(ENABLE_ASSERT),)
+	BUILD_ARGS += ENABLE_ASSERT=$(ENABLE_ASSERT)
 endif
 
 ifeq ($(PROFILE),1)
@@ -294,6 +299,7 @@ endef
 lint:
 	@echo "Running linters..."
 	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) -- -D warnings
+	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace --release $(call get_rust_exclude_crates) -- -D warnings
 	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates)
 
 fmt:
@@ -344,9 +350,26 @@ upload-artifacts:
 	@echo "Uploading artifacts..."
 	@$(ROOT)/sbin/upload-artifacts
 
-benchmark:
+benchmark: build
 	@echo "Running benchmarks..."
-	@cd tests/benchmarks && redisbench-admin run-local
+	@find_module() { \
+		if [ "$(COORD)" = "rlec" ]; then \
+			MODULE_PATH=$$(find $(ROOT)/bin -name "module-enterprise.so" | head -1); \
+			if [ -z "$$MODULE_PATH" ]; then \
+				echo "Error: No enterprise module found. Please build first with 'make build COORD=rlec'"; \
+				exit 1; \
+			fi; \
+		else \
+			MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" | head -1); \
+			if [ -z "$$MODULE_PATH" ]; then \
+				echo "Error: No community module found. Please build first with 'make build COORD=oss'"; \
+				exit 1; \
+			fi; \
+		fi; \
+		echo "Using module: $$MODULE_PATH"; \
+		cd tests/benchmarks && redisbench-admin run-local --module_path "$$MODULE_PATH" --required-module search; \
+	}; \
+	find_module
 
 micro-benchmarks: $(BUILD_SCRIPT)
 	@echo "Running micro-benchmarks..."

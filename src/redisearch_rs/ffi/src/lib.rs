@@ -23,6 +23,7 @@
     clippy::missing_safety_doc,
     clippy::len_without_is_empty,
     clippy::approx_constant,
+    clippy::missing_const_for_fn,
     rustdoc::invalid_html_tags,
     rustdoc::broken_intra_doc_links
 )]
@@ -30,6 +31,9 @@
 use std::{cell::UnsafeCell, pin::Pin, ptr};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+/// Access to the RediSearch Module context
+pub mod context;
 
 #[repr(C)]
 #[derive(Debug)]

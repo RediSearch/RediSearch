@@ -16,19 +16,26 @@ use inverted_index::RSIndexResult;
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
 /// An iterator that yields results according to an IDs list given on construction.
-pub struct IdList {
+pub struct IdList<'index> {
     /// The list of document IDs to iterate over. Must be sorted, unique, and non-empty.
     ids: Vec<t_docId>,
     /// The current position of the iterator (a.k.a the next document ID to return by `read`).
     /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
     offset: usize,
     /// A reusable result object to avoid allocations on each `read` call.
-    result: RSIndexResult<'static>,
+    result: RSIndexResult<'index>,
 }
 
-impl IdList {
+impl<'index> IdList<'index> {
+    #[inline(always)]
     /// Creates a new ID list iterator. The list of document IDs must be sorted, unique, and non-empty.
     pub fn new(ids: Vec<t_docId>) -> Self {
+        Self::with_result(ids, RSIndexResult::virt())
+    }
+
+    /// Same as [`IdList::new`] but with a custom [`RSIndexResult`],
+    /// useful when wrapping this iterator and requiring a non-virtual result.
+    pub fn with_result(ids: Vec<t_docId>, result: RSIndexResult<'index>) -> Self {
         debug_assert!(!ids.is_empty());
         debug_assert!(
             ids.is_sorted_by(|a, b| a < b),
@@ -37,32 +44,40 @@ impl IdList {
         IdList {
             ids,
             offset: 0,
-            result: RSIndexResult::virt(),
+            result,
         }
     }
 }
 
-impl IdList {
+impl<'index> IdList<'index> {
     #[inline(always)]
     fn get_current(&self) -> Option<t_docId> {
         self.ids.get(self.offset).copied()
     }
-}
 
-impl RQEIterator for IdList {
-    fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
+    // this function is needed by the metric iterator to get the offset,
+    // because the metric iterator borrows the iterator as mutable for read(), and the offset is changed by read().
+    // This is because the IndexResult is reused.
+    pub(super) fn read_and_get_offset(
+        &mut self,
+    ) -> Result<Option<(&mut RSIndexResult<'index>, usize)>, RQEIteratorError> {
         let Some(doc_id) = self.get_current() else {
             return Ok(None);
         };
         self.offset += 1;
+
         self.result.doc_id = doc_id;
-        Ok(Some(&self.result))
+
+        Ok(Some((&mut self.result, self.offset)))
     }
 
-    fn skip_to(
+    // this function is needed by the metric iterator to get the offset,
+    // because the metric iterator borrows the iterator as mutable for skip_to(), and the offset is changed by skip_to().
+    // This is because the IndexResult is reused.
+    pub(super) fn skip_to_and_get_offset(
         &mut self,
         doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
+    ) -> Result<Option<(SkipToOutcome<'_, 'index>, usize)>, RQEIteratorError> {
         // Safe to unwrap as we are not at eof + the list must not be empty
         if self.at_eof() || self.ids.last().unwrap() < &doc_id {
             self.offset = self.ids.len(); // Move to EOF
@@ -83,15 +98,33 @@ impl RQEIterator for IdList {
                 let pos = self.offset + pos; // Convert relative to absolute index
                 self.offset = pos + 1;
                 self.result.doc_id = self.ids[pos];
-                Ok(Some(SkipToOutcome::Found(&self.result)))
+                Ok(Some((SkipToOutcome::Found(&mut self.result), self.offset)))
             }
             Err(pos) => {
                 let pos = self.offset + pos; // Convert relative to absolute index
                 self.offset = pos + 1;
                 self.result.doc_id = self.ids[pos];
-                Ok(Some(SkipToOutcome::NotFound(&self.result)))
+                Ok(Some((
+                    SkipToOutcome::NotFound(&mut self.result),
+                    self.offset,
+                )))
             }
         }
+    }
+}
+
+impl<'index> RQEIterator<'index> for IdList<'index> {
+    #[inline(always)]
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        Ok(self.read_and_get_offset()?.map(|t| t.0))
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        Ok(self.skip_to_and_get_offset(doc_id)?.map(|t| t.0))
     }
 
     fn rewind(&mut self) {

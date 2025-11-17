@@ -13,7 +13,7 @@ use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
 
 use crate::{
-    DecodedBy, Decoder, Encoder, RSIndexResult, RSResultData,
+    Decoder, Encoder, RSIndexResult, RSResultData, TermDecoder,
     full::{decode_term_record_offsets, offsets},
 };
 
@@ -23,7 +23,7 @@ use crate::{
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct OffsetsOnly;
 
 impl Encoder for OffsetsOnly {
@@ -48,17 +48,9 @@ impl Encoder for OffsetsOnly {
     }
 }
 
-impl DecodedBy for OffsetsOnly {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for OffsetsOnly {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -74,7 +66,6 @@ impl Decoder for OffsetsOnly {
     }
 
     fn seek<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
@@ -103,3 +94,5 @@ impl Decoder for OffsetsOnly {
         Ok(true)
     }
 }
+
+impl TermDecoder for OffsetsOnly {}

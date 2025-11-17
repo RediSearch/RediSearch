@@ -35,8 +35,6 @@ def exec_and_validate_query(env, hybrid_cmd):
     env.assertEqual(count, 2)
 
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_dialects():
     env = Env()
     setup_basic_index(env)
@@ -111,8 +109,6 @@ def test_hybrid_dialects():
     dialect_stats = info[info.index('dialect_stats') + 1]
     env.assertEqual(dialect_stats, ['dialect_1', 0, 'dialect_2', 1, 'dialect_3', 1, 'dialect_4', 1])
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_dialect_stats_tracking():
     """Test that FT.HYBRID updates dialect statistics correctly - only on success, not on errors"""
     env = Env()
@@ -141,7 +137,7 @@ def test_hybrid_dialect_stats_tracking():
         'FT.HYBRID', 'idx',
         'SEARCH', '@nonexistent_field:(apples)',  # Field doesn't exist
         'VSIM', '@vector', query_vector
-    ).error()
+    ).error().contains('Unknown field at offset 0 near nonexistent_field')
 
     # Check that dialect stats were NOT updated after execution error
     info = env.cmd('FT.INFO', 'idx')
@@ -172,8 +168,6 @@ def test_hybrid_dialect_stats_tracking():
     expected_stats = ['dialect_1', 0, 'dialect_2', 1, 'dialect_3', 1, 'dialect_4', 0]
     env.assertEqual(dialect_stats, expected_stats)
 
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_dialect_errors():
     """Test DIALECT parameter error handling in hybrid queries"""
     env = Env()

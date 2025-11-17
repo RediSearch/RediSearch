@@ -1,13 +1,5 @@
 from common import *
-
-# Global counter for unique vector generation
-_vector_seed_counter = 0
-
-def get_unique_vector(dim, data_type='FLOAT32'):
-    """Generate a unique random vector by incrementing seed counter"""
-    global _vector_seed_counter
-    _vector_seed_counter += 1
-    return create_random_np_array_typed(dim, data_type, seed=_vector_seed_counter)
+from vecsim_utils import set_up_database_with_vectors
 
 def calculate_effective_k(original_k, ratio, num_shards):
     """Calculate effective K using the PRD formula: max(top_k/#shards, ceil(top_k × ratio))"""
@@ -45,25 +37,9 @@ def _validate_individual_shard_results(env, profile_dict, k, ratio, scenario_des
         index_rp_profile = shard['Result processors profile'][0] #index_rp is always first
 
             # Look for Counter which represents the number of results processed
-        shard_result_count = index_rp_profile['Counter']
+        shard_result_count = index_rp_profile['Results processed']
         env.assertEqual(shard_result_count, effective_k,
         message=f"In scenario {scenario_description}: With k={k}, ratio: {ratio}, Shard {i} expected {effective_k} results, got {shard_result_count}", depth=1)
-
-def set_up_database_with_vectors(env, dim, num_docs, index_name='idx', datatype='FLOAT32', additional_schema_args=None):
-    if additional_schema_args is None:
-        additional_schema_args = []
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA',
-               'v', 'VECTOR', 'FLAT', '6', 'TYPE', datatype, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-               *additional_schema_args).ok()
-    conn = getConnectionByEnv(env)
-
-    # Add test documents - ensure we have enough for all test scenarios
-    p = conn.pipeline(transaction=False)
-    for i in range(1, num_docs + 1):
-        vector = get_unique_vector(dim, datatype)
-        p.execute_command('HSET', f'doc{i}', 'v', vector.tobytes())
-    p.execute()
 
 @skip(cluster=False) # shard_k_ratio is ignored is SA
 def test_shard_k_ratio_parameter_validation():
@@ -75,7 +51,7 @@ def test_shard_k_ratio_parameter_validation():
     datatype = 'FLOAT32'
     set_up_database_with_vectors(env, dim, num_docs=1, index_name='idx', datatype='FLOAT32')
 
-    query_vec = get_unique_vector(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, datatype)
 
     # Test invalid ratio values
     invalid_ratios = [0.0, -0.1, 1.1, 2.0, 0, 7, "invalid"]
@@ -113,7 +89,7 @@ def test_ft_profile_shard_result_validation_scenarios():
     num_docs = k * env.shardsCount * 3 # ensure we always have enough results in each shard
     set_up_database_with_vectors(env, dim, num_docs=num_docs, index_name='idx', datatype='FLOAT32')
 
-    query_vec = get_unique_vector(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, datatype)
 
     # Test scenarios with different characteristics
     # effectiveK = max(top_k/#shards, ceil(top_k × ratio))
@@ -153,7 +129,7 @@ def test_k_0():
     datatype = 'FLOAT32'
     set_up_database_with_vectors(env, dim, num_docs=10, index_name='idx', datatype='FLOAT32')
 
-    query_vec = get_unique_vector(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, datatype)
 
     k = 0
     ratio = 0.5
@@ -182,7 +158,7 @@ def test_query():
     for i in range(1, num_docs + 1):
         conn.execute_command('HSET', f'doc{i}', 'n', i)
 
-    query_vec = get_unique_vector(dim, datatype)
+    query_vec = create_random_np_array_typed(dim, datatype)
 
     min_shard_ratio = 1 / float(env.shardsCount)
     ratios = [min_shard_ratio, 0.01, 0.9, 1.0]  # Valid ratios
@@ -256,8 +232,8 @@ def test_insufficient_docs_per_shard():
     effectiveK = (k + num_shards - 1) // num_shards
     # Set up database with 10 documents initially
     num_initial_docs = 20
-    set_up_database_with_vectors(env, dim, num_initial_docs, 'idx', datatype)
-    query_vec = get_unique_vector(dim, datatype)
+    set_up_database_with_vectors(env, dim, num_initial_docs, 'idx', datatype=datatype)
+    query_vec = create_random_np_array_typed(dim, datatype)
 
     # The database contains k(5) results in total.
     # However, since in this case effectiveK = 2, some shards won't have enough results,
