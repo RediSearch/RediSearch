@@ -19,7 +19,7 @@ mod bindings {
     #![allow(clippy::missing_const_for_fn)]
 
     use ffi::{NumericFilter, t_fieldIndex, t_fieldMask};
-    use field::{FieldExpirationPredicate, FieldMaskOrIndex};
+    use field::{FieldFilterContext, FieldMaskOrIndex};
     use inverted_index::t_docId;
 
     // Type aliases for C bindings - types without lifetimes for C interop

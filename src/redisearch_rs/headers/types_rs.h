@@ -540,6 +540,20 @@ typedef union FieldMaskOrIndex {
   };
 } FieldMaskOrIndex;
 
+/**
+ * Field filter context used when querying fields.
+ */
+typedef struct FieldFilterContext {
+  /**
+   * the field mask or index to filter on.
+   */
+  union FieldMaskOrIndex field;
+  /**
+   * our field expiration predicate.
+   */
+  enum FieldExpirationPredicate predicate;
+} FieldFilterContext;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus

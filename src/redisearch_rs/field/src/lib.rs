@@ -31,3 +31,13 @@ pub enum FieldExpirationPredicate {
     /// one of the fields need to be expired for the entry to be considered missing.
     Missing = 1,
 }
+
+/// Field filter context used when querying fields.
+#[derive(Debug)]
+#[repr(C)]
+pub struct FieldFilterContext {
+    /// the field mask or index to filter on.
+    pub field: FieldMaskOrIndex,
+    /// our field expiration predicate.
+    pub predicate: FieldExpirationPredicate,
+}
