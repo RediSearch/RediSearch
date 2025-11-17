@@ -4109,7 +4109,7 @@ def cluster_set_test(env: Env):
     def verify_address(addr):
         try:
             with TimeLimit(10, f'Failed waiting cluster set command to be updated with the new IP address `{addr}`'):
-                while env.cmd('SEARCH.CLUSTERINFO')[5][0][3] != addr:
+                while env.cmd('SEARCH.CLUSTERINFO')[5][0][5] != addr:
                     pass
         except Exception as e:
             env.assertTrue(False, message=str(e))
@@ -4261,6 +4261,7 @@ def test_multiple_slot_ranges_per_shard(env: Env):
     env.expect('SEARCH.CLUSTERREFRESH').ok()
 
     generic_shard = [
+        'slots', [ANY] * 2 * ranges_per_shard, # flat of slot ranges list
         'id', ANY,
         'host', '127.0.0.1',
         'port', ANY,
@@ -4306,6 +4307,7 @@ def test_cluster_set_multiple_slots(env: Env):
 
     # SEARCH.CLUSTERSET does not support multiple slot ranges per shard
     generic_shard = [
+        'slots', ANY,
         'id', ANY,
         'host', '127.0.0.1',
         'port', ANY,

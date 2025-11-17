@@ -407,14 +407,22 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
   } else {
     RedisModule_ReplyKV_Array(reply, "shards"); // >shards
     for (int i = 0; i < topo->numShards; i++) {
-      MRClusterNode *node = &topo->shards[i].node;
-      RedisModule_Reply_Map(reply); // >>(node)
+      RedisModule_Reply_Map(reply); // >>(shard)
 
+      // Same syntax as in CLUSTER SHARDS
+      RedisModule_ReplyKV_Array(reply, "slots"); // >>>slots
+      for (int r = 0; r < topo->shards[i].slotRanges->num_ranges; r++) {
+        RedisModule_Reply_LongLong(reply, topo->shards[i].slotRanges->ranges[r].start);
+        RedisModule_Reply_LongLong(reply, topo->shards[i].slotRanges->ranges[r].end);
+      }
+      RedisModule_Reply_ArrayEnd(reply); // >>>slots
+
+      MRClusterNode *node = &topo->shards[i].node;
       REPLY_KVSTR_SAFE("id", node->id);
       REPLY_KVSTR_SAFE("host", node->endpoint.host);
       RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
 
-      RedisModule_Reply_MapEnd(reply); // >>(node)
+      RedisModule_Reply_MapEnd(reply); // >>(shard)
     }
     RedisModule_Reply_ArrayEnd(reply); // >shards
   }
