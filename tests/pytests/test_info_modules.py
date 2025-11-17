@@ -602,3 +602,282 @@ def test_indexing_metrics(env: Env):
   env.assertEqual(res[-1]['search_number_of_active_indexes'], n_indexes)
   env.assertEqual(res[-1]['search_number_of_active_indexes_indexing'], n_indexes)
   env.assertEqual(res[-1]['search_total_active_write_threads'], 1) # 1 write operation by the BG indexer thread
+
+SYNTAX_ERROR = "Parsing/Syntax error for query string"
+ARGS_ERROR = "Error parsing query/aggregation arguments"
+
+SEARCH_PREFIX = 'search_'
+WARN_ERR_SECTION = f'{SEARCH_PREFIX}warnings_and_errors'
+
+SEARCH_SHARD_PREFIX = 'search_shard_'
+SYNTAX_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_syntax"
+ARGS_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_arguments"
+
+COORD_WARN_ERR_SECTION = WARN_ERR_SECTION.replace(SEARCH_PREFIX, 'search_coordinator_')
+
+SEARCH_COORD_PREFIX = 'search_coord_'
+SYNTAX_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_syntax"
+ARGS_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_arguments"
+
+def _common_warnings_errors_test_scenario(env):
+  """Common setup for warnings and errors tests"""
+  # Create index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+  # Create doc
+  env.expect('HSET', 'doc:1', 'text', 'hello world').equal(1)
+  # Create vector index for hybrid
+  env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  # Create doc for hybrid
+  env.expect('HSET', 'vec:1', 'vector', '0,0').equal(1)
+
+class testWarningsAndErrorsStandalone:
+  """Test class for warnings and errors metrics in standalone mode"""
+
+  def __init__(self):
+    skipTest(cluster=True)
+    self.env = Env()
+    _common_warnings_errors_test_scenario(self.env)
+    self.prev_info_dict = info_modules_to_dict(self.env)
+
+  def setup(self):
+    self.prev_info_dict = info_modules_to_dict(self.env)
+
+  def test_syntax_errors_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    # Test syntax errors
+    self.env.expect('FT.SEARCH', 'idx', 'hello world:').error().contains('Syntax error at offset')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    prev_syntax_error_count = int(self.prev_info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC])
+    syntax_error_count = int(info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC])
+    self.env.assertEqual(syntax_error_count, prev_syntax_error_count + 1)
+    # Test syntax errors in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world:').error().contains('Syntax error at offset')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    syntax_error_count = int(info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC])
+    self.env.assertEqual(syntax_error_count, prev_syntax_error_count + 2)
+    # Test syntax errors in hybrid
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', '@vector', '0').error().contains('Syntax error at offset')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    syntax_error_count = int(info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC])
+    self.env.assertEqual(syntax_error_count, prev_syntax_error_count + 3)
+
+  def test_args_errors_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    # Test args errors
+    self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    prev_args_error_count = int(self.prev_info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
+    args_error_count = int(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
+    self.env.assertEqual(args_error_count, prev_args_error_count + 1)
+    # Test args errors in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    args_error_count = int(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
+    self.env.assertEqual(args_error_count, prev_args_error_count + 2)
+    # Test args errors in hybrid
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter
+    info_dict = info_modules_to_dict(self.env)
+    args_error_count = int(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
+    self.env.assertEqual(args_error_count, prev_args_error_count + 3)
+
+  def test_no_error_queries_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    # Check no error queries not affecting any metric
+    before_info_dict = info_modules_to_dict(self.env)
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
+    after_info_dict = info_modules_to_dict(self.env)
+
+    self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
+    self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
+    # Test no error queries in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
+    after_info_dict = info_modules_to_dict(self.env)
+
+    self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
+    self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
+    # Test no error queries in hybrid
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0').noError()
+    after_info_dict = info_modules_to_dict(self.env)
+    self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
+    self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
+
+
+def _common_warnings_errors_cluster_test_scenario(env):
+  """Common setup for warnings and errors cluster tests"""
+  # Create index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+  # Create doc
+  conn = getConnectionByEnv(env)
+  conn.execute_command('HSET', 'doc:1', 'text', 'hello world')
+  # Create vector index for hybrid
+  env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  # Create doc for hybrid
+  conn.execute_command('HSET', 'vec:1', 'vector', '0,0')
+
+class testWarningsAndErrorsCluster:
+  """Test class for warnings and errors metrics in cluster mode with RESP2"""
+
+  def __init__(self):
+    skipTest(cluster=False)
+    self.env = Env(shardsCount=3)
+    _common_warnings_errors_cluster_test_scenario(self.env)
+    # Init all shards
+    for i in range(self.env.shardsCount):
+      verify_shard_init(self.env.getConnection(i))
+
+  def test_syntax_errors_cluster(self):
+    # In cluster mode, syntax errors are only tracked at shard level
+
+    # Check syntax error metric before adding any errors on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
+      self.env.assertEqual(syntax_error_count, '0', message=f"Shard {shardId} has wrong initial syntax error count")
+
+    # Test syntax errors for shard level syntax error
+    self.env.expect('FT.SEARCH', 'idx', 'hello world:').error().contains('Syntax error at offset')
+    # Test counter on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
+      self.env.assertEqual(syntax_error_count, '1', message=f"Shard {shardId} has wrong syntax error count")
+    # Check coord metric unchanged
+    info_dict = info_modules_to_dict(self.env)
+    coord_syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_syntax_error_count, '0')
+    # Syntax error in FT.SEARCH are not checked on the coordinator
+
+    # Test syntax errors in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world:').error().contains('Syntax error at offset')
+    # Test counter on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
+      self.env.assertEqual(syntax_error_count, '2', message=f"Shard {shardId} has wrong syntax error count")
+    # Check coord metric unchanged
+    info_dict = info_modules_to_dict(self.env)
+    coord_syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_syntax_error_count, '0')
+    # Syntax error in FT.AGGREGATE are not checked on the coordinator
+
+
+    # Test syntax errors in hybrid
+    # Syntax errors in the hybrid command are only counted on the coordinator.
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world:', 'VSIM', '@vector', '0').error().contains('Syntax error at offset')
+    # Test counter on each shard unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
+      self.env.assertEqual(syntax_error_count, '2', message=f"Shard {shardId} has wrong syntax error count")
+    # Check coord metric
+    info_dict = info_modules_to_dict(self.env)
+    coord_syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_syntax_error_count, '1')
+
+  def test_args_errors_cluster(self):
+    # In cluster mode, args errors are only tracked at shard level
+
+    # Check args error metric before adding any errors on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+      self.env.assertEqual(args_error_count, '0', message=f"Shard {shardId} has wrong initial args error count")
+
+    # Test args errors
+    self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 'A', 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+      self.env.assertEqual(args_error_count, '1', message=f"Shard {shardId} has wrong args error count")
+    # Check coord metric unchanged
+    info_dict = info_modules_to_dict(self.env)
+    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_args_error_count, '0')
+
+    # Test args errors in aggregate
+    # All args errors in FT.AGGREGATE are counted on the coordinator
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+      self.env.assertEqual(args_error_count, '1', message=f"Shard {shardId} has wrong args error count")
+    # Check coord metric
+    info_dict = info_modules_to_dict(self.env)
+    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_args_error_count, '1')
+
+    # Test args errors in hybrid
+    # All args errors in FT.HYBRID are counted on the coordinator
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
+    # Test counter on each shard
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      info_dict = info_modules_to_dict(shard_conn)
+      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+      self.env.assertEqual(args_error_count, '1', message=f"Shard {shardId} has wrong args error count")
+    # Check coord metric
+    info_dict = info_modules_to_dict(self.env)
+    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
+    self.env.assertEqual(coord_args_error_count, '2')
+
+  def test_no_error_queries_SA(self):
+    # Check no error queries not affecting any metric on each shard
+    before_info_dicts = []
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      before_info_dicts.append(info_modules_to_dict(shard_conn))
+
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      after_info_dict = info_modules_to_dict(shard_conn)
+      before_warn_err = before_info_dicts[shardId - 1][WARN_ERR_SECTION]
+      after_warn_err = after_info_dict[WARN_ERR_SECTION]
+      self.env.assertEqual(before_warn_err, after_warn_err, message=f"Shard {shardId} has wrong warnings/errors section after no-error query")
+      before_coord_warn_err = before_info_dicts[shardId - 1][COORD_WARN_ERR_SECTION]
+      after_coord_warn_err = after_info_dict[COORD_WARN_ERR_SECTION]
+      self.env.assertEqual(before_coord_warn_err, after_coord_warn_err, message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error query")
+
+    # Test no error queries in aggregate
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      after_info_dict = info_modules_to_dict(shard_conn)
+      before_warn_err = before_info_dicts[shardId - 1][WARN_ERR_SECTION]
+      after_warn_err = after_info_dict[WARN_ERR_SECTION]
+      self.env.assertEqual(before_warn_err, after_warn_err, message=f"Shard {shardId} has wrong warnings/errors section after no-error aggregate query")
+      before_coord_warn_err = before_info_dicts[shardId - 1][COORD_WARN_ERR_SECTION]
+      after_coord_warn_err = after_info_dict[COORD_WARN_ERR_SECTION]
+      self.env.assertEqual(before_coord_warn_err, after_coord_warn_err, message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error aggregate query")
+
+    # Test no error queries in hybrid
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0').noError()
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      after_info_dict = info_modules_to_dict(shard_conn)
+      before_warn_err = before_info_dicts[shardId - 1][WARN_ERR_SECTION]
+      after_warn_err = after_info_dict[WARN_ERR_SECTION]
+      self.env.assertEqual(before_warn_err, after_warn_err, message=f"Shard {shardId} has wrong warnings/errors section after no-error hybrid query")
+      before_coord_warn_err = before_info_dicts[shardId - 1][COORD_WARN_ERR_SECTION]
+      after_coord_warn_err = after_info_dict[COORD_WARN_ERR_SECTION]
+      self.env.assertEqual(before_coord_warn_err, after_coord_warn_err, message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error hybrid query")
