@@ -753,9 +753,25 @@ int RMCK_IsIOError(RedisModuleIO *io) {
   return result;
 }
 
+// Track contexts associated with IO objects
+static std::map<RedisModuleIO*, RedisModuleCtx*> io_contexts;
+static std::mutex io_contexts_mutex;
+
 RedisModuleCtx *RMCK_GetContextFromIO(RedisModuleIO *io) {
-  // For mock purposes, return a new context
-  return new RedisModuleCtx();
+  if (!io) return nullptr;
+
+  std::lock_guard<std::mutex> lock(io_contexts_mutex);
+
+  // Check if we already have a context for this IO
+  auto it = io_contexts.find(io);
+  if (it != io_contexts.end()) {
+    return it->second;
+  }
+
+  // Create new context and associate it with this IO
+  RedisModuleCtx *ctx = new RedisModuleCtx();
+  io_contexts[io] = ctx;
+  return ctx;
 }
 
 RedisModuleIO *RMCK_CreateRdbIO(void) {
@@ -763,6 +779,15 @@ RedisModuleIO *RMCK_CreateRdbIO(void) {
 }
 
 void RMCK_FreeRdbIO(RedisModuleIO *io) {
+  if (io) {
+    std::lock_guard<std::mutex> lock(io_contexts_mutex);
+    // Clean up associated context
+    auto it = io_contexts.find(io);
+    if (it != io_contexts.end()) {
+      delete it->second;
+      io_contexts.erase(it);
+    }
+  }
   delete io;
 }
 
