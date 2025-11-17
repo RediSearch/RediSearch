@@ -95,12 +95,12 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'OPTIMIZER', 'Counter', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
-                        ['Type', 'TEXT', 'Term', 'foo', 'Counter', 801, 'Size', 10000]]],
+                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
+                        ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 801, 'Estimated number of matches', 10000]]],
                 ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 10],
-                    ['Type', 'Loader', 'Counter', 10],
-                    ['Type', 'Sorter', 'Counter', 10]]]
+                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Loader', 'Results processed', 10],
+                    ['Type', 'Sorter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 15]', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '10', '110', '210', '310', '410', '510', '610', '710', '810', '910'])
     env.assertEqual(res[1][4:], profiler)
@@ -112,15 +112,15 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'limit', 0 , 3, *params).equal([3, '10', '12', '14'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'INTERSECT', 'Counter', 1200, 'Child iterators',
-                        ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1401, 'Size', 10000],
-                        ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 1200, 'Child iterators',
-                            ['Type', 'NUMERIC', 'Term', '6 - 12', 'Counter', 400, 'Size', 1600],
-                            ['Type', 'NUMERIC', 'Term', '14 - 50', 'Counter', 800, 'Size', 7600]]]],
+                    ['Type', 'INTERSECT', 'Number of reading operations', 1200, 'Child iterators',
+                        ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1401, 'Estimated number of matches', 10000],
+                        ['Type', 'UNION', 'Query type', 'NUMERIC', 'Number of reading operations', 1200, 'Child iterators',
+                            ['Type', 'NUMERIC', 'Term', '6 - 12', 'Number of reading operations', 400, 'Estimated number of matches', 1600],
+                            ['Type', 'NUMERIC', 'Term', '14 - 50', 'Number of reading operations', 800, 'Estimated number of matches', 7600]]]],
                 ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 1200],
-                    ['Type', 'Scorer', 'Counter', 1200],
-                    ['Type', 'Sorter', 'Counter', 10]]]
+                    ['Type', 'Index', 'Results processed', 1200],
+                    ['Type', 'Scorer', 'Results processed', 1200],
+                    ['Type', 'Sorter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 20]', *params)
     env.assertEqual(res[0], [10, '10', '12', '14', '16', '18', '20', '110', '112', '114', '116'])
     env.assertEqual(res[1][4:], profiler)
@@ -135,12 +135,12 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'OPTIMIZER', 'Counter', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
-                        ['Type', 'TAG', 'Term', 'foo', 'Counter', 1401, 'Size', 10000]]],
+                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
+                        ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 1401, 'Estimated number of matches', 10000]]],
                 ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 10],
-                    ['Type', 'Loader', 'Counter', 10],
-                    ['Type', 'Sorter', 'Counter', 10]]]
+                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Loader', 'Results processed', 10],
+                    ['Type', 'Sorter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '10', '110', '210', '310', '410', '510', '610', '710', '810', '910'])
     env.assertEqual(res[1][4:], profiler)
@@ -153,14 +153,14 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'limit', 0 , 3, *params).equal([1, '10', '12', '14'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'INTERSECT', 'Counter', 10, 'Child iterators',
-                        ['Type', 'TAG', 'Term', 'foo', 'Counter', 14, 'Size', 10000],
-                        ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 10, 'Child iterators',
-                            ['Type', 'NUMERIC', 'Term', '6 - 12', 'Counter', 7, 'Size', 1600],
-                            ['Type', 'NUMERIC', 'Term', '14 - 50', 'Counter', 4, 'Size', 7600]]]],
+                    ['Type', 'INTERSECT', 'Number of reading operations', 10, 'Child iterators',
+                        ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 14, 'Estimated number of matches', 10000],
+                        ['Type', 'UNION', 'Query type', 'NUMERIC', 'Number of reading operations', 10, 'Child iterators',
+                            ['Type', 'NUMERIC', 'Term', '6 - 12', 'Number of reading operations', 7, 'Estimated number of matches', 1600],
+                            ['Type', 'NUMERIC', 'Term', '14 - 50', 'Number of reading operations', 4, 'Estimated number of matches', 7600]]]],
                 ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 10]]]
+                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Pager/Limiter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 15]', *params)
     env.assertEqual(res[0][1:], ['10', '12', '14', '110', '112', '114', '210', '212', '214', '310'])
     env.assertEqual(res[1][4:], profiler)
@@ -175,13 +175,13 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19921', '19920'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 1200, 'Child iterators',
-                        ['Type', 'NUMERIC', 'Term', '6 - 12', 'Counter', 800, 'Size', 1600],
-                        ['Type', 'NUMERIC', 'Term', '14 - 50', 'Counter', 400, 'Size', 7600]]],
+                    ['Type', 'UNION', 'Query type', 'NUMERIC', 'Number of reading operations', 1200, 'Child iterators',
+                        ['Type', 'NUMERIC', 'Term', '6 - 12', 'Number of reading operations', 800, 'Estimated number of matches', 1600],
+                        ['Type', 'NUMERIC', 'Term', '14 - 50', 'Number of reading operations', 400, 'Estimated number of matches', 7600]]],
                 ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 1200],
-                    ['Type', 'Loader', 'Counter', 1200],
-                    ['Type', 'Sorter', 'Counter', 10]]]
+                    ['Type', 'Index', 'Results processed', 1200],
+                    ['Type', 'Loader', 'Results processed', 1200],
+                    ['Type', 'Sorter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '10', '11', '110', '111', '210', '211', '310', '311', '410', '411'])
     env.assertEqual(res[1][4:], profiler)
@@ -194,12 +194,12 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'limit', 0 , 3, *params).equal([1, '10', '11', '12'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 10, 'Child iterators',
-                        ['Type', 'NUMERIC', 'Term', '6 - 12', 'Counter', 8, 'Size', 1600],
-                        ['Type', 'NUMERIC', 'Term', '14 - 50', 'Counter', 3, 'Size', 7600]]],
+                    ['Type', 'UNION', 'Query type', 'NUMERIC', 'Number of reading operations', 10, 'Child iterators',
+                        ['Type', 'NUMERIC', 'Term', '6 - 12', 'Number of reading operations', 8, 'Estimated number of matches', 1600],
+                        ['Type', 'NUMERIC', 'Term', '14 - 50', 'Number of reading operations', 3, 'Estimated number of matches', 7600]]],
                 ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 10]]]
+                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Pager/Limiter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', *params)
     env.assertEqual(res[0], [1, '10', '11', '12', '13', '14', '15', '110', '111', '112', '113'])
     env.assertEqual(res[1][4:], profiler)
@@ -214,12 +214,12 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'OPTIMIZER', 'Counter', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
-                        ['Type', 'TEXT', 'Term', 'foo', 'Counter', 800, 'Size', 10000]]],
+                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
+                        ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 800, 'Estimated number of matches', 10000]]],
                 ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 10],
-                    ['Type', 'Loader', 'Counter', 10],
-                    ['Type', 'Sorter', 'Counter', 10]]]
+                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Loader', 'Results processed', 10],
+                    ['Type', 'Sorter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '100', '200', '300', '400', '500', '600', '700', '800', '900'])
     env.assertEqual(res[1][4:], profiler)
@@ -235,11 +235,11 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', 'foo', 'limit', 0 , 3, *params).equal([3, '0', '2', '4'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'TEXT', 'Term', 'foo', 'Counter', 10000, 'Size', 10000]],
+                    ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 10000, 'Estimated number of matches', 10000]],
                 ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 10000],
-                    ['Type', 'Scorer', 'Counter', 10000],
-                    ['Type', 'Sorter', 'Counter', 10]]]
+                    ['Type', 'Index', 'Results processed', 10000],
+                    ['Type', 'Scorer', 'Results processed', 10000],
+                    ['Type', 'Sorter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo', *params)
     env.assertEqual(res[0], [10, '0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
     env.assertEqual(res[1][4:], profiler)
@@ -254,12 +254,12 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'OPTIMIZER', 'Counter', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
-                        ['Type', 'TAG', 'Term', 'foo', 'Counter', 800, 'Size', 10000]]],
+                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
+                        ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 800, 'Estimated number of matches', 10000]]],
                 ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 10],
-                    ['Type', 'Loader', 'Counter', 10],
-                    ['Type', 'Sorter', 'Counter', 10]]]
+                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Loader', 'Results processed', 10],
+                    ['Type', 'Sorter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '100', '200', '300', '400', '500', '600', '700', '800', '900'])
     env.assertEqual(res[1][4:], profiler)
@@ -272,10 +272,10 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'limit', 0 , 3, *params).equal([1, '0', '2', '4'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'TAG', 'Term', 'foo', 'Counter', 10, 'Size', 10000]],
+                    ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 10, 'Estimated number of matches', 10000]],
                 ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 10]]]
+                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Pager/Limiter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', *params)
     env.assertEqual(res[0][1:], ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
     env.assertEqual(res[1][4:], profiler)
@@ -290,12 +290,12 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '99', '98'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'OPTIMIZER', 'Counter', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
-                        ['Type', 'WILDCARD', 'Counter', 1400]]],
+                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
+                        ['Type', 'WILDCARD', 'Number of reading operations', 1400]]],
                     ['Result processors profile',
-                        ['Type', 'Index', 'Counter', 10],
-                        ['Type', 'Loader', 'Counter', 10],
-                        ['Type', 'Sorter', 'Counter', 10]]]
+                        ['Type', 'Index', 'Results processed', 10],
+                        ['Type', 'Loader', 'Results processed', 10],
+                        ['Type', 'Sorter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '1', '100', '101', '200', '201', '300', '301', '400', '401'])
     env.assertEqual(res[1][4:], profiler)
@@ -308,10 +308,10 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '*', 'limit', 0 , 3, *params).equal([1, '0', '1', '2'])
 
     profiler =  [['Iterators profile',
-                    ['Type', 'WILDCARD', 'Counter', 10]],
+                    ['Type', 'WILDCARD', 'Number of reading operations', 10]],
                 ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 10]]]
+                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Pager/Limiter', 'Results processed', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', *params)
     env.assertEqual(res[0][1:], ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
     env.assertEqual(res[1][4:], profiler)
