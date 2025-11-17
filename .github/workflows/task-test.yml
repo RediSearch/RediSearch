@@ -65,7 +65,9 @@ jobs:
     name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
     needs: [get-config]
     runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ needs.get-config.outputs.container || null }}
+    container: 
+      image: ${{ needs.get-config.outputs.container || null }}
+      options: ${{ needs.get-config.outputs.container_options }}
     # Nothing to do if both are `false`, skip
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:

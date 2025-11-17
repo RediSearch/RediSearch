@@ -21,6 +21,9 @@ on:
       container:
         description: "Container image to use"
         value: ${{ jobs.get-config.outputs.container }}
+      container_options:
+        description: "Container options"
+        value: ${{ jobs.get-config.outputs.container_options }}
       setup_script:
         description: "Setup script to run before tests"
         value: ${{ jobs.get-config.outputs.setup_script }}
@@ -37,6 +40,7 @@ jobs:
     outputs:
       env: ${{ steps.get-config.outputs.env }}
       container: ${{ steps.get-config.outputs.container }}
+      container_options: ${{ steps.get-config.outputs.container_options }}
       setup_script: ${{ steps.get-config.outputs.setup_script }}
       post_setup_script: ${{ steps.get-config.outputs.post_setup_script }}
       name: ${{ steps.get-config.outputs.name }}
@@ -68,6 +72,7 @@ jobs:
           config = {
               'env': default_env.get(architecture, runs_on),
               'container': '',
+              'container_options': '--user root',
               'setup_script': '',
               'post_setup_script': '',
               'name': ''
@@ -268,6 +273,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'env={config["env"]}\n')
               f.write(f'container={config["container"]}\n')
+              f.write(f'container_options={config["container_options"]}\n')
               f.write(f'setup_script={config["setup_script"]}\n')
               f.write(f'post_setup_script={config["post_setup_script"]}\n')
               f.write(f'name={config["name"]}\n')
