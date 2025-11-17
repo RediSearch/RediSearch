@@ -836,6 +836,21 @@ pub enum IndexReader<'index_and_filter> {
             inverted_index::IndexReaderCore<'index_and_filter, Numeric>,
         >,
     ),
+    NumericFloatCompression(
+        inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
+    ),
+    NumericFilteredFloatCompression(
+        FilterNumericReader<
+            'index_and_filter,
+            inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
+        >,
+    ),
+    NumericGeoFilteredFloatCompression(
+        FilterGeoReader<
+            'index_and_filter,
+            inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
+        >,
+    ),
 }
 
 // Macro to make calling the methods on the inner index reader easier
@@ -858,6 +873,9 @@ macro_rules! ir_dispatch {
             IndexReader::Numeric(ii) => ii.$method($($args),*),
             IndexReader::NumericFiltered(ii) => ii.$method($($args),*),
             IndexReader::NumericGeoFiltered(ii) => ii.$method($($args),*),
+            IndexReader::NumericFloatCompression(ii) => ii.$method($($args),*),
+            IndexReader::NumericFilteredFloatCompression(ii) => ii.$method($($args),*),
+            IndexReader::NumericGeoFilteredFloatCompression(ii) => ii.$method($($args),*),
         }
     };
 }
@@ -919,6 +937,23 @@ pub unsafe extern "C" fn NewIndexReader(
         }
         (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) => {
             IndexReader::NumericGeoFiltered(FilterGeoReader::new(filter, ii.reader()))
+        }
+        (InvertedIndex::NumericFloatCompression(ii), ReadFilter::None) => {
+            IndexReader::NumericFloatCompression(ii.reader())
+        }
+        (InvertedIndex::NumericFloatCompression(ii), ReadFilter::Numeric(filter))
+            if filter.is_numeric_filter() =>
+        {
+            IndexReader::NumericFilteredFloatCompression(FilterNumericReader::new(
+                filter,
+                ii.reader(),
+            ))
+        }
+        (InvertedIndex::NumericFloatCompression(ii), ReadFilter::Numeric(filter)) => {
+            IndexReader::NumericGeoFilteredFloatCompression(FilterGeoReader::new(
+                filter,
+                ii.reader(),
+            ))
         }
         // In normal Rust we would not panic, but would rather design the type system in such a way
         // that it would be impossible to get the reader for an index with an unsupported filter.
@@ -1154,7 +1189,10 @@ pub unsafe extern "C" fn IndexReader_NumericFilter(ir: *const IndexReader) -> *c
     match ir {
         IndexReader::NumericFiltered(ir) => ir.filter(),
         IndexReader::NumericGeoFiltered(ir) => ir.filter(),
+        IndexReader::NumericFilteredFloatCompression(ir) => ir.filter(),
+        IndexReader::NumericGeoFilteredFloatCompression(ir) => ir.filter(),
         IndexReader::Numeric(_)
+        | IndexReader::NumericFloatCompression(_)
         | IndexReader::Full(_)
         | IndexReader::FullWide(_)
         | IndexReader::FreqsFields(_)
