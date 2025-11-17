@@ -946,10 +946,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
     rs_wall_clock_init(&r->initClock);
-  }
-
-  if (r->qiter.isProfile) {
-    rs_wall_clock_init(&r->qiter.initTime);
+    rs_wall_clock_init(&AREQ_QueryProcessingCtx(r)->initTime);
   }
 
   // This function also builds the RedisSearchCtx
