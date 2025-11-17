@@ -31,17 +31,22 @@ def query_shards_ft_search(env, query, shards, expected):
         env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate document IDs", depth=1)
         env.assertEqual(res, expected, message=f"shard {idx} returned unexpected results", depth=1)
 
+def extract_values(result):
+    values = []
+    if isinstance(result, list) and len(result) >= 2:
+        for entry in result[1:]:  # Skip the count
+            if isinstance(entry, list) and len(entry) >= 2:
+                # For entries like ['n', '69'], extract the value '69'
+                values.append(entry[1])
+    return values
+
 def query_shards_ft_aggregate(env, query, shards, expected):
     """Query_shards implementation for FT.AGGREGATE queries"""
     results = [shard.execute_command(*query) for shard in shards]
     for idx, res in enumerate(results, start=1):
         # Extract values from aggregation results
-        values = []
-        if isinstance(res, list) and len(res) >= 2:
-            for entry in res[1:]:  # Skip the count
-                if isinstance(entry, list) and len(entry) >= 2:
-                    # For entries like ['n', '69'], extract the value '69'
-                    values.append(entry[1])
+        values = extract_values(res)
+        expected_values = extract_values(expected)
 
         # Check for duplicate values in aggregation results
         dups = set(value for value in values if values.count(value) > 1)
@@ -201,8 +206,8 @@ def create_and_populate_index(env: Env, index_name: str, n_docs: int):
             random_words = random.sample(RANDOM_WORDS, min(3, len(RANDOM_WORDS)))
             text_content = f"document {i} content {' '.join(random_words)} data"
             tag_value = "even" if i % 2 == 0 else "odd"
-
-            con.execute_command('HSET', f'doc:{i}',
+            # force each document to a different slot
+            con.execute_command('HSET', f'doc-{i}:{{{i % 2**14}}}',
                               'n', i,
                               'text', text_content,
                               'tag', tag_value,
@@ -266,14 +271,21 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
 
     # Sanity check - all shards should return the same results
+    print("Querying all shards for sanity check")
     query_shards(env, query, shards, expected, query_type)
+    print("Sanity check passed")
 
     # Test searching while importing slots from shard 2 to shard 1
-    with TimeLimit(30):
+    # TODO ASM: These tests will be flaky, cannot guarantee
+    with TimeLimit(60):
         task_id = import_middle_slot_range(shard1, shard2)
         while not is_migration_complete(shard1, task_id):
             try:
+                print("Querying shards while migration is in progress")
                 query_shards(env, query, shards, expected, query_type)
+                print("Query passed")
+                if is_migration_complete(shard1, task_id):
+                    print("Migration completed")
             except Exception as e:
                 # If Migration has completed and Trimming have started we can accept errors, but if migration did not complete it should work still
                 if not is_migration_complete(shard1, task_id):
@@ -284,7 +296,9 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
     # TODO ASM: When Trimming delay is implemented in core, test with all shards
     # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
     # topology is outdated, and the slots that would arrive to each shard would lead to errors.
+    print("Querying shards after migration")
     query_shards(env, query, [shard1, shard2], expected, query_type)
+    print("Query after migration passed")
 
 @skip(cluster=False, min_shards=2)
 def test_ft_search_import_slot_range():
