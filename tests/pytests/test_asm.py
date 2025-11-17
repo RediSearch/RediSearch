@@ -17,11 +17,13 @@ RANDOM_WORDS = [
 def query_shards(env, query, shards, expected, query_type: str = 'FT.SEARCH'):
     if query_type == 'FT.HYBRID':
         return query_shards_hybrid(env, query, shards, expected)
+    elif query_type == 'FT.AGGREGATE':
+        return query_shards_ft_aggregate(env, query, shards, expected)
     else:
-        return query_shards_original(env, query, shards, expected)
+        return query_shards_ft_search(env, query, shards, expected)
 
-def query_shards_original(env, query, shards, expected):
-    """Original query_shards implementation for non-HYBRID queries"""
+def query_shards_ft_search(env, query, shards, expected):
+    """Original query_shards implementation for FT.SEARCH queries"""
     results = [shard.execute_command(*query) for shard in shards]
     for idx, res in enumerate(results, start=1):
         docs = res[1::2]
@@ -29,11 +31,39 @@ def query_shards_original(env, query, shards, expected):
         env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate document IDs", depth=1)
         env.assertEqual(res, expected, message=f"shard {idx} returned unexpected results", depth=1)
 
+def query_shards_ft_aggregate(env, query, shards, expected):
+    """Query_shards implementation for FT.AGGREGATE queries"""
+    results = [shard.execute_command(*query) for shard in shards]
+    for idx, res in enumerate(results, start=1):
+        # Extract values from aggregation results
+        values = []
+        if isinstance(res, list) and len(res) >= 2:
+            for entry in res[1:]:  # Skip the count
+                if isinstance(entry, list) and len(entry) >= 2:
+                    # For entries like ['n', '69'], extract the value '69'
+                    values.append(entry[1])
+
+        # Check for duplicate values in aggregation results
+        dups = set(value for value in values if values.count(value) > 1)
+        env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate values in aggregation results", depth=1)
+        env.assertEqual(res, expected, message=f"shard {idx} returned unexpected results", depth=1)
+
 def query_shards_hybrid(env, query, shards, expected):
-    """Enhanced query_shards implementation for FT.HYBRID queries with simplified doc ID checking"""
+    """Enhanced query_shards implementation for FT.HYBRID queries with score order checking"""
     results = [shard.execute_command(*query) for shard in shards]
 
-    # Helper function to extract document IDs from result
+    # Helper function to extract scores from result (in order)
+    def extract_scores(result):
+        scores = []
+        if isinstance(result, list) and len(result) >= 4 and result[0] == 'total_results' and result[2] == 'results':
+            docs_list = result[3]
+            if isinstance(docs_list, list):
+                for doc_entry in docs_list:
+                    if isinstance(doc_entry, list) and len(doc_entry) >= 4 and doc_entry[0] == '__key' and doc_entry[2] == '__score':
+                        scores.append(doc_entry[3])
+        return scores
+
+    # Helper function to extract document IDs from result (for duplicate checking)
     def extract_doc_ids(result):
         doc_ids = []
         if isinstance(result, list) and len(result) >= 4 and result[0] == 'total_results' and result[2] == 'results':
@@ -44,23 +74,22 @@ def query_shards_hybrid(env, query, shards, expected):
                         doc_ids.append(doc_entry[1])
         return doc_ids
 
-    # Extract expected document IDs
-    expected_doc_ids = extract_doc_ids(expected)
-    print(f'expected_doc_ids: {expected_doc_ids}')
+    # Extract expected scores (in order)
+    expected_scores = extract_scores(expected)
 
     for idx, res in enumerate(results, start=1):
+        # Extract scores from this shard's result (in order)
+        shard_scores = extract_scores(res)
 
-        # Extract document IDs from this shard's result
+        # Extract document IDs for duplicate checking
         shard_doc_ids = extract_doc_ids(res)
-        print(f"shard_doc_ids: {shard_doc_ids}")
-
 
         # Check for duplicates within this shard
         dups = set(doc_id for doc_id in shard_doc_ids if shard_doc_ids.count(doc_id) > 1)
         env.assertEqual(dups, set(), message=f"shard {idx} returned {len(dups)} duplicate document IDs within shard", depth=1)
 
-        # Compare document IDs (ignoring order and other fields like execution_time)
-        env.assertEqual(set(shard_doc_ids), set(expected_doc_ids), message=f"shard {idx} returned unexpected document IDs", depth=1)
+        # Compare scores in order (this ensures ranking consistency)
+        env.assertEqual(shard_scores, expected_scores, message=f"shard {idx} returned unexpected score order", depth=1)
 
 @dataclass(frozen=True)
 class SlotRange:
@@ -243,7 +272,13 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
     with TimeLimit(30):
         task_id = import_middle_slot_range(shard1, shard2)
         while not is_migration_complete(shard1, task_id):
-            query_shards(env, query, shards, expected, query_type)
+            try:
+                query_shards(env, query, shards, expected, query_type)
+            except Exception as e:
+                # If Migration has completed and Trimming have started we can accept errors, but if migration did not complete it should work still
+                if not is_migration_complete(shard1, task_id):
+                    print(f"Migration did not complete but query failed: {e}")
+                    raise e
             time.sleep(0.1)
 
     # TODO ASM: When Trimming delay is implemented in core, test with all shards
