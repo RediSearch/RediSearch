@@ -783,3 +783,5 @@ fn write_all_vectored<const N: usize, W: Write>(
 }
 
 impl NumericDecoder for Numeric {}
+
+impl NumericDecoder for NumericFloatCompression {}
