@@ -319,7 +319,7 @@ class testOomHybridClusterBehavior:
         # Testing warnings verbosity
         self.env.assertEqual(res[5][0], COORD_OOM_WARNING)
 
-# @skip(cluster=False)
+@skip(cluster=False)
 def test_oom_verbosity_cluster_return():
     env  = Env(shardsCount=3, protocol=3)
 

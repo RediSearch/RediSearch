@@ -177,6 +177,22 @@ class TestEarlyBailoutEmptyResultsSA_Resp2:
             empty = remove_keys_with_phrases_from_list(empty, ['time', 'Warning','Iterators profile', 'Result processors profile'])
             self.env.assertEqual(res, empty, message = 'Failed for query params: ' + ' '.join(query_params))
 
+    def test_args_error_when_oom_resp2(self):
+        # OOM should override args errors and return empty results
+        change_oom_policy(self.env, 'return')
+        # Change maxmemory to 1 to trigger OOM
+        self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+        # Test FT.SEARCH with args error
+        res = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[0], 0)
+        # Test FT.AGGREGATE with args error
+        res = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[0], 0)
+        # Test FT.HYBRID with args error
+        res = self.env.cmd('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[1], 0)
+
 class TestEarlyBailoutEmptyResultsSA_Resp3:
     def __init__(self):
         skipTest(cluster=True)
@@ -469,6 +485,22 @@ class TestEarlyBailoutEmptyResultsCoord_Resp2:
             res = remove_keys_with_phrases_from_list(res, ['time', 'Warning','Iterators profile', 'Result processors profile'])
             empty = remove_keys_with_phrases_from_list(empty, ['time', 'Warning','Iterators profile', 'Result processors profile'])
             self.env.assertEqual(res, empty, message = 'Failed for query params: ' + ' '.join(query_params))
+
+    def test_syntax_error_not_oom_resp2(self):
+        # Test that args errors return empty results (not OOM) when policy is return
+        allShards_change_oom_policy(self.env, 'return')
+        # Change maxmemory on all shards to 1
+        allShards_change_maxmemory_low(self.env)
+
+        # Test FT.SEARCH with args error
+        res = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[0], 0)
+        # Test FT.AGGREGATE with args error
+        res = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[0], 0)
+        # Test FT.HYBRID with args error
+        res = self.env.cmd('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[1], 0)
 
 # Test early bailout and empty results for FT.SEARCH, FT.AGGREGATE, FT.HYBRID
 # In Coordinator setting
