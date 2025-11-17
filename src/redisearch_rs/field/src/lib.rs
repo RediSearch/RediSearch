@@ -19,3 +19,15 @@ pub enum FieldMaskOrIndex {
     /// For the other fields, allows a single field to be referenced.
     Mask(t_fieldMask) = 1,
 }
+
+/// Field expiration predicate used when checking fields.
+#[derive(Debug)]
+#[repr(C)]
+/// cbindgen:prefix-with-name
+/// cbindgen:rename-all=ScreamingSnakeCase
+pub enum FieldExpirationPredicate {
+    /// one of the fields need to be valid.
+    Default = 0,
+    /// one of the fields need to be expired for the entry to be considered missing.
+    Missing = 1,
+}
