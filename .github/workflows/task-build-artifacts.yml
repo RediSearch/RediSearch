@@ -63,35 +63,37 @@ jobs:
         if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
         shell: sh -l -eo pipefail {0}
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if ${{ needs.get-config.outputs.setup_script }}; then
               echo "Setup Dependencies succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Setup Dependencies failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Setup Dependencies failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
       - name: Setup Dependencies (Non-Alpine)
         if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3'
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if ${{ needs.get-config.outputs.setup_script }}; then
               echo "Setup Dependencies succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Setup Dependencies failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Setup Dependencies failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
@@ -102,7 +104,7 @@ jobs:
           CONTAINER="${{ needs.get-config.outputs.container }}"
           [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Check if node20 is Supported
-        id: node20
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           CONTAINER="${{ needs.get-config.outputs.container }}"
           for platform in amazonlinux:2 alpine:3; do
@@ -155,65 +157,69 @@ jobs:
       - name: Setup
         working-directory: .install
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
               echo "Setup succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Setup failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Setup failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
       - name: Install aws cli
         working-directory: .install
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
               echo "Install aws cli succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Install aws cli failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Install aws cli failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
       - name: Setup test dependencies
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
               echo "Setup test dependencies succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Setup test dependencies failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Setup test dependencies failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
       - name: install build artifacts req
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if uv pip install -q -r .install/build_package_requirments.txt; then
               echo "Install build artifacts req succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Install build artifacts req failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Install build artifacts req failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
 
       # Get Redis
       - name: Get Redis (node20)

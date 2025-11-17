@@ -13,6 +13,9 @@ on:
         description: 'Architecture (x86_64, aarch64)'
         type: string
         required: true
+      custom-env:
+        description: 'Environment/runner to use (overrides env from task-get-config)'
+        type: string
       san:
         type: string
       coverage:
@@ -61,7 +64,7 @@ jobs:
   common-flow:
     name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
     needs: [get-config]
-    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{ needs.get-config.outputs.container || null }}
     # Nothing to do if both are `false`, skip
     if: ${{ inputs.standalone || inputs.coordinator }}
@@ -76,35 +79,37 @@ jobs:
         if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
         shell: sh -l -eo pipefail {0}
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if ${{ needs.get-config.outputs.setup_script }}; then
               echo "Setup Dependencies succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Setup Dependencies failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Setup Dependencies failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
       - name: Setup Dependencies (Non-Alpine)
         if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3'
         run: |
+          SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
             if ${{ needs.get-config.outputs.setup_script }}; then
               echo "Setup Dependencies succeeded"
-              exit 0
+              SUCCESS=1
+              break
             fi
             if [ $i -lt 5 ]; then
               echo "Setup Dependencies failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          echo "Setup Dependencies failed after 5 attempts"
-          exit 1
+          [ $SUCCESS -eq 1 ] || exit 1
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
@@ -114,7 +119,7 @@ jobs:
           CONTAINER="${{ needs.get-config.outputs.container }}"
           [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Check if node20 is Supported
-        id: node20
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           CONTAINER="${{ needs.get-config.outputs.container }}"
           for platform in amazonlinux:2 alpine:3; do
@@ -291,7 +296,7 @@ jobs:
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           echo "name=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
                              ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
-                             ${{ needs.get-config.outputs.container }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
+                             ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
         env:

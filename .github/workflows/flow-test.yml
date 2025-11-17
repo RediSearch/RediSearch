@@ -115,4 +115,4 @@ jobs:
       rejson-branch: ${{ inputs.rejson-branch }}
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
-      test-config: ${{ inputs.test-config || 'QUICK=1' }}
+      test-config: ${{ inputs.test-config }}

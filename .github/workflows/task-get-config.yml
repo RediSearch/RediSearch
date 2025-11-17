@@ -54,9 +54,19 @@ jobs:
 
           print(f"Getting configuration for platform: {platform}, architecture: {architecture}")
 
+          # Default environment per architecture
+          # Use GitHub variables if available, otherwise use fallback values
+          runs_on = "${{ vars.RUNS_ON || 'ubuntu-latest' }}"
+          runs_on_arm = "${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}"
+
+          default_env = {
+              'x86_64': runs_on,
+              'aarch64': runs_on_arm
+          }
+
           # Initialize default values
           config = {
-              'env': 'ubuntu-latest',
+              'env': default_env.get(architecture, runs_on),
               'container': '',
               'setup_script': '',
               'post_setup_script': '',
@@ -78,17 +88,17 @@ jobs:
               "intel": {
                   "x86_64": {
                       'setup_script': 'echo "HOME=/home/ubuntu" >> $GITHUB_ENV',
-                      'name': 'Intel x86_64'
+                      'name': 'Intel x86_64',
+                      'env': '',
+                      'container': '' 
                   }
               },
               "ubuntu:default": {
                   "x86_64": {
-                      'container': 'ubuntu:latest',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Latest x86_64'
                   },
                   "aarch64": {
-                      'container': 'ubuntu:latest',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Latest ARM64'
                   }
