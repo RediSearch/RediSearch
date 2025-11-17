@@ -140,6 +140,29 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
   return RPMetricsLoader_New();
 }
 
+static bool AggregateConsumeAll(CommonPipelineParams *cpp, PLN_ArrangeStep *astp) {
+  bool unlimited = false;
+  if (IsAggregate(cpp))
+    if (HasDepleter(cpp)) {
+    // FT.AGGREGATE + depleter
+    unlimited = true;
+    } else if (IsCount(cpp)) {
+      // FT.AGGREGATE + LIMIT 0 0
+      unlimited = true;
+    } else if (!HasDepleter(cpp) && !IsOptimized(cpp) && HasSortBy(cpp) &&
+                !astp->isLimited) {
+      // FT.AGGREGATE + WITHCOUNT + SORTBY (no limit, no depleter)
+      unlimited = true;
+  }
+  return unlimited;
+}
+
+static bool AggregateRequiresPagerAtCoordinator(CommonPipelineParams *cpp, PLN_ArrangeStep *astp) {
+  // FT.AGGREGATE + WITHCOUNT + SORTBY (no limit, no depleter)
+  return (IsAggregate(cpp) && !HasDepleter(cpp) && !IsOptimized(cpp) &&
+            HasSortBy(cpp) && !astp->isLimited && !IsInternal(cpp));
+}
+
 static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up, bool forceLoad, uint32_t *outStateFlags) {
   ResultProcessor *rp = NULL;
@@ -155,9 +178,11 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
 
   size_t maxResults = astp->offset + astp->limit;
   if (!maxResults) {
-    if (IsAggregate(&params->common) && (HasDepleter(&params->common) || IsCount(&params->common))) {
+    if (AggregateConsumeAll(&params->common, astp)) {
+      // No LIMIT specified, consume everything
       maxResults = UINT32_MAX;
     } else {
+      // No LIMIT specified, consume DEFAULT_LIMIT
       maxResults = DEFAULT_LIMIT;
       // add default offset and limit
       astp->offset = 0;
@@ -244,6 +269,9 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       rp = RPPager_New(astp->offset, astp->limit);
       up = pushRP(&pipeline->qctx, rp, up);
     }
+  } else if (AggregateRequiresPagerAtCoordinator(&params->common, astp)) {
+      rp = RPPager_New(0, DEFAULT_LIMIT);
+      up = pushRP(&pipeline->qctx, rp, up);
   } else if (astp->offset || (astp->limit && !rp)) {
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);

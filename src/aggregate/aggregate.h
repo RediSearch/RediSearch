@@ -167,6 +167,7 @@ typedef struct {
 #define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
+#define HasSortBy(r) ((r)->reqflags & QEXEC_F_SORTBY)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 
