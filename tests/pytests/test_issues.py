@@ -175,9 +175,9 @@ def test_issue1880(env):
   conn.execute_command('HSET', 'doc1', 't', 'hello world')
   conn.execute_command('HSET', 'doc2', 't', 'hello')
 
-  excepted_res = ['Type', 'INTERSECT', 'Number of reading operations', 1, 'Child iterators', [
+  excepted_res = ['Type', 'INTERSECT', 'Number of reading operations', 1, 'Child iterators',
                     ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 1, 'Estimated number of matches', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 2]]]
+                    ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 2]]
   res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
   res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
   # both queries return `world` iterator before `hello`
