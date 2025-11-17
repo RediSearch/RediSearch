@@ -67,10 +67,9 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
     int profileArgs = parseProfileArgs(argv, argc, req);
     if (profileArgs == -1) return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
 
-    int rc = AREQ_Compile(req, argv + 2 + profileArgs, argc - 2 - profileArgs, &status);
-    if (rc != REDISMODULE_OK) {
-        AREQ_Free(req);
-        return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+    // Check specifically for CURSOR
+    if (RMUtil_ArgIndex("WITHCURSOR", argv, argc) != -1) {
+        AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
     }
 
     // Set the error code after compiling the query, since we don't want to overwrite
@@ -141,10 +140,9 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
 
     parseProfileExecOptions(req, execOptions);
 
-    int rc = AREQ_Compile(req, argv + 2, argc - 2, &status);
-    if (rc != REDISMODULE_OK) {
-        AREQ_Free(req);
-        return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+    // Check specifically for CURSOR
+    if (RMUtil_ArgIndex("WITHCURSOR", argv, argc) != -1) {
+        AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
     }
 
     // Set the error code after compiling the query, since we don't want to overwrite
