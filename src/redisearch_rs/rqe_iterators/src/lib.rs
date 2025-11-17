@@ -18,6 +18,8 @@ pub mod inverted_index;
 pub mod metric;
 pub mod wildcard;
 
+pub(crate) mod maybe_empty;
+
 #[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
 pub enum SkipToOutcome<'iterator, 'index> {
