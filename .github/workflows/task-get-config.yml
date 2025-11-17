@@ -95,10 +95,12 @@ jobs:
               },
               "ubuntu:default": {
                   "x86_64": {
+                      'container': 'ubuntu:latest',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Latest x86_64'
                   },
                   "aarch64": {
+                      'container': 'ubuntu:latest',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Latest ARM64'
                   }
@@ -106,36 +108,36 @@ jobs:
               "ubuntu:noble": {
                   "x86_64": {
                       'container': 'ubuntu:noble',
-                      'setup_script': 'sudo apt update && sudo apt install -y git',
+                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Noble x86_64'
                   },
                   "aarch64": {
                       'container': 'ubuntu:noble',
-                      'setup_script': 'sudo apt update && sudo apt install -y git',
+                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Noble ARM64'
                   }
               },
               "ubuntu:jammy": {
                   "x86_64": {
                       'container': 'ubuntu:jammy',
-                      'setup_script': 'sudo apt update && sudo apt install -y git',
+                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Jammy x86_64'
                   },
                   "aarch64": {
                       'container': 'ubuntu:jammy',
-                      'setup_script': 'sudo apt update && sudo apt install -y git',
+                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Jammy ARM64'
                   }
               },
               "ubuntu:focal": {
                   "x86_64": {
                       'container': 'ubuntu:focal',
-                      'setup_script': 'sudo apt update && sudo apt install -y git',
+                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Focal x86_64'
                   },
                   "aarch64": {
                       'container': 'ubuntu:focal',
-                      'setup_script': 'sudo apt update && sudo apt install -y git',
+                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Focal ARM64'
                   }
               },
@@ -192,24 +194,24 @@ jobs:
               "debian:bullseye": {
                   "x86_64": {
                       'container': 'gcc:11-bullseye',
-                      'setup_script': 'sudo apt update && sudo apt install -y git',
+                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Debian Bullseye x86_64'
                   },
                   "aarch64": {
                       'container': 'gcc:11-bullseye',
-                      'setup_script': 'sudo apt update && sudo apt install -y git',
+                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Debian Bullseye ARM64'
                   }
               },
               "debian:bookworm": {
                   "x86_64": {
                       'container': 'gcc:12-bookworm',
-                      'setup_script': 'sudo apt update && sudo apt install -y git',
+                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Debian Bookworm x86_64'
                   },
                   "aarch64": {
                       'container': 'gcc:12-bookworm',
-                      'setup_script': 'sudo apt update && sudo apt install -y git',
+                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Debian Bookworm ARM64'
                   }
               },
