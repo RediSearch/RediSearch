@@ -290,9 +290,12 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         let dst_row = self;
 
         // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
-        for src_key in src_lookup.cursor() {
-            // Get value from source row
-            if let Some(value) = src_row.get(src_key) {
+        let mut c = src_lookup.cursor();
+
+        while let Some(src_key) = c.current() {
+            if !src_key.is_overridden()
+                && let Some(value) = src_row.get(src_key)
+            {
                 // Find corresponding key in destination lookup
                 let dst_key = dst_lookup
                     .find_key_by_name(src_key.name())
@@ -302,6 +305,33 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
 
                 // Write fields to destination
                 dst_row.write_key(dst_key, value.clone());
+            }
+
+            c.move_next();
+        }
+    }
+
+    /// Move data from the source row into this row. The source row is cleared.
+    pub fn move_fields_from(&mut self, src: &mut Self, lookup: &RLookup) {
+        let mut c = lookup.cursor();
+        while let Some(key) = c.current() {
+            if let Some(value) = src.get(key) {
+                self.write_key(key, value.to_owned());
+            }
+
+            c.move_next();
+        }
+        src.wipe();
+    }
+
+    #[track_caller]
+    #[cfg(any(debug_assertions, test))]
+    pub fn assert_valid(&self, ctx: &str) {
+        for val in &self.dyn_values {
+            if let Some(val) = val
+                && let Some(refcount) = val.refcount()
+            {
+                assert!(refcount >= 1, "{ctx} RSValue refcount must not be zero");
             }
         }
     }

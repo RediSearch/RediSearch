@@ -20,7 +20,7 @@ use libc::c_int;
 use rlookup::RLookup;
 use rlookup::RLookupKeyFlags;
 use rlookup::RLookupRow;
-use rlookup_ffi::row::RLookupRow_Move;
+use rlookup_ffi::row::RLookupRow_MoveFieldsFrom;
 use value::RSValueFFI;
 use value::RSValueTrait;
 
@@ -36,8 +36,11 @@ fn rlookuprow_move() {
         .unwrap();
     src.write_key(key, RSValueFFI::create_num(42.0));
 
+    src.assert_valid("tests::row::rlookuprow_move");
+    dst.assert_valid("tests::row::rlookuprow_move");
+
     unsafe {
-        RLookupRow_Move(
+        RLookupRow_MoveFieldsFrom(
             ptr::from_ref(&lookup),
             Some(NonNull::from(&mut src)),
             Some(NonNull::from(&mut dst)),
@@ -49,33 +52,6 @@ fn rlookuprow_move() {
         .get_key_read(c"foo", RLookupKeyFlags::empty())
         .unwrap();
     assert!(dst.get(&key).is_some());
-}
-
-#[test]
-#[cfg_attr(debug_assertions, should_panic)]
-fn rlookuprow_move_panics_on_non_empty_dst() {
-    let mut lookup = RLookup::new();
-
-    let mut src = RLookupRow::new(&lookup);
-    let mut dst = RLookupRow::new(&lookup);
-
-    let key = lookup
-        .get_key_write(c"foo", RLookupKeyFlags::empty())
-        .unwrap();
-    src.write_key(key, RSValueFFI::create_num(42.0));
-
-    let key = lookup
-        .get_key_write(c"bar", RLookupKeyFlags::empty())
-        .unwrap();
-    dst.write_key(key, RSValueFFI::create_num(24.0));
-
-    unsafe {
-        RLookupRow_Move(
-            ptr::from_ref(&lookup),
-            Some(NonNull::from(&mut src)),
-            Some(NonNull::from(&mut dst)),
-        )
-    }
 }
 
 /// Mock implementation of `RSValue_IncrRef` for testing purposes
@@ -121,7 +97,7 @@ extern "C" fn RSValue_NewNumber(numval: f64) -> *mut ffi::RSValue {
             field.set_bit(0, true);
             field
         },
-        _refcount: 0,
+        _refcount: 1,
     }))
 }
 

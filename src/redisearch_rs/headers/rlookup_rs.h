@@ -423,7 +423,6 @@ void RLookupRow_Reset(RLookupRow *row);
 
 /**
  * Move data from the source row to the destination row. The source row is cleared.
- * The destination row should be pre-cleared (though its cache may still exist).
  *
  * # Safety
  *
@@ -434,7 +433,7 @@ void RLookupRow_Reset(RLookupRow *row);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Move(const struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
+void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -98,7 +98,6 @@ unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
 }
 
 /// Move data from the source row to the destination row. The source row is cleared.
-/// The destination row should be pre-cleared (though its cache may still exist).
 ///
 /// # Safety
 ///
@@ -109,7 +108,7 @@ unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn RLookupRow_Move(
+pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
     lookup: *const RLookup<'static>,
     src: Option<NonNull<RLookupRow>>,
     dst: Option<NonNull<RLookupRow>>,
@@ -136,13 +135,5 @@ pub unsafe extern "C-unwind" fn RLookupRow_Move(
         );
     }
 
-    let mut c = lookup.cursor();
-    while let Some(key) = c.current() {
-        if let Some(value) = src.get(key) {
-            dst.write_key(key, value.to_owned());
-        }
-
-        c.move_next();
-    }
-    src.wipe();
+    dst.move_fields_from(src, lookup);
 }

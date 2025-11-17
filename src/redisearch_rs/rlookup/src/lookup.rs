@@ -456,7 +456,7 @@ impl<'a> RLookupKey<'a> {
     }
 
     #[cfg(any(debug_assertions, test))]
-    fn is_overridden(&self) -> bool {
+    pub fn is_overridden(&self) -> bool {
         let is_overridden = self.name.is_null();
 
         #[cfg(any(debug_assertions, test))]
@@ -788,8 +788,6 @@ impl Drop for KeyList<'_> {
 
 impl<'list, 'a> Cursor<'list, 'a> {
     /// Move the cursor to the next [`RLookupKey`].
-    ///
-    /// Note that contrary to [`Self::next`] this **does not** skip over hidden keys.
     pub fn move_next(&mut self) {
         if let Some(curr) = self.current.take() {
             // Safety: It is safe for us to borrow `curr`, because the iteraror mutably borrows the `KeyList`,
