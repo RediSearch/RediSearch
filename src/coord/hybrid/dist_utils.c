@@ -33,23 +33,6 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     return;
   }
 
-  if (cmd->forProfiling && cmd->protocol == 3) {
-    MRReply *rows = NULL, *meta = NULL;
-    meta = MRReply_ArrayElement(rep, 0);
-    meta = MRReply_MapElement(meta, "results");  // profile has an extra level
-
-    // Check if we got timeout
-    MRReply *warning = MRReply_MapElement(meta, "warning");
-    if (MRReply_Length(warning) > 0) {
-      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
-      // Set an error to be later picked up by `getCursorCommand`
-      if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
-        // When a shard returns timeout on RETURN policy, the profile is not returned.
-        // We set the timeout here so in the next getCursorCommand we will send CURSOR PROFILE
-        MRIteratorCallback_SetTimedOut(MRIteratorCallback_GetCtx(ctx));
-      }
-    }
-  }
   // Normal reply from the shard.
   // In any case, the cursor id is the second element in the reply
   RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
@@ -114,6 +97,24 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     }
   }
 #endif // Reply structure assertions
+
+  if (cmd->forProfiling && cmd->protocol == 3) {
+    MRReply *rows = NULL, *meta = NULL;
+    meta = MRReply_ArrayElement(rep, 0);
+    meta = MRReply_MapElement(meta, "results");  // profile has an extra level
+
+    // Check if we got timeout
+    MRReply *warning = MRReply_MapElement(meta, "warning");
+    if (MRReply_Length(warning) > 0) {
+      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
+      // Set an error to be later picked up by `getCursorCommand`
+      if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
+        // When a shard returns timeout on RETURN policy, the profile is not returned.
+        // We set the timeout here so in the next getCursorCommand we will send CURSOR PROFILE
+        MRIteratorCallback_SetTimedOut(MRIteratorCallback_GetCtx(ctx));
+      }
+    }
+  }
 
   // Push the reply down the chain, to be picked up by getNextReply
   MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply

@@ -228,12 +228,16 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
   ProfilePrinterCtx *cCtx = ctx;
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(cCtx->req)->rootProc;
+  // Calling getNextReply alone is insufficient here, as we might have already encountered EOF from the shards,
+  // which caused the call to getNextReply from RPNet to set cond->wait to true.
+  // We can't also set cond->wait to false because we might still be waiting for shards' replies containing profile information.
 
   // Therefore, we loop to drain all remaining replies from the channel.
   // Pending might be zero, but there might still be replies in the channel to read.
   // We may have pulled all the replies from the channel and arrived here due to a timeout,
   // and now we're waiting for the profile results.
   while (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    MRReply_Free(rpnet->current.root);
     getNextReply(rpnet);
   }
 
