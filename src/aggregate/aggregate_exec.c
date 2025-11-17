@@ -679,6 +679,7 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+
   ProfilePrinterCtx profileCtx = {
       .req = req,
       .timedout = req->has_timedout,
@@ -1391,9 +1392,20 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_EndReply(reply);
       return REDISMODULE_OK;
     }
-
+    // We get here only if it's internal (coord) cursor because cursor is not supported with profile,
+    // and we already checked that the cmd is not for profiling.
+    // Since it's an internal cursor, it must be associated with a spec.
+    RS_ASSERT(cursor_HasSpecWeakRef(cursor));
+    // Check if the spec is still valid
+    StrongRef execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
+    if (!StrongRef_Get(execution_ref)) {
+      // The index was dropped while the cursor was idle.
+      // Notify the client that the query was aborted.
+      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
+      return;
+    }
     sendChunk_ReplyOnly_EmptyResults(reply, req);
-
+    IndexSpecRef_Release(execution_ref);
     // Free the cursor
     Cursor_Free(cursor);
   } else if (strcasecmp(cmd, "DEL") == 0) {
