@@ -689,8 +689,8 @@ def test_profile_child_itrerators_array():
       'profile': {
         'Iterators profile': [
           { 'Child iterators': [
-              {'Number of reading operations': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
-              {'Number of reading operations': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
+              {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
+              {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
             ],
             'Number of reading operations': 2,
             'Query type': 'UNION',
@@ -726,8 +726,8 @@ def test_profile_child_itrerators_array():
       'profile': {
         'Iterators profile': [
           { 'Child iterators': [
-              {'Number of reading operations': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
-              {'Number of reading operations': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
+              {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
+              {'Number of reading operations': 1, 'Estimated number of matches': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
             ],
             'Number of reading operations': 0,
             'Time': ANY,
