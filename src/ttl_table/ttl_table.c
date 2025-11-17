@@ -9,6 +9,7 @@
 
 #include "ttl_table.h"
 #include "rmalloc.h"
+#include "types_rs.h"
 #include "util/minmax.h"
 #include "util/misc.h"
 #include "rmutil/rm_assert.h"

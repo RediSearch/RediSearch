@@ -39,6 +39,7 @@ fn main() {
         let inverted_index = src.join("inverted_index");
         let vecsim = deps.join("VectorSimilarity").join("src");
         let buffer = src.join("buffer");
+        let ttl_table = src.join("ttl_table");
 
         [
             redis_modules,
@@ -48,6 +49,7 @@ fn main() {
             inverted_index,
             vecsim,
             buffer,
+            ttl_table,
         ]
     };
 
