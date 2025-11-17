@@ -14,16 +14,15 @@ use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
-/// A generic full iterator over inverted index entries.
+/// A generic iterator over inverted index entries.
 ///
-/// This iterator provides full index scan to all document IDs in an inverted index.
-/// It is not suitable for queries.
+/// This iterator is used to query an inverted index.
 ///
 /// # Type Parameters
 ///
 /// * `'index` - The lifetime of the index being iterated over.
 /// * `R` - The reader type used to read the inverted index.
-pub struct FullIterator<'index, R> {
+pub struct InvIndIterator<'index, R> {
     /// The reader used to iterate over the inverted index.
     reader: R,
     /// if we reached the end of the index.
@@ -34,7 +33,7 @@ pub struct FullIterator<'index, R> {
     result: RSIndexResult<'index>,
 }
 
-impl<'index, R> FullIterator<'index, R>
+impl<'index, R> InvIndIterator<'index, R>
 where
     R: IndexReader<'index>,
 {
@@ -48,7 +47,7 @@ where
     }
 }
 
-impl<'index, R> RQEIterator<'index> for FullIterator<'index, R>
+impl<'index, R> RQEIterator<'index> for InvIndIterator<'index, R>
 where
     R: IndexReader<'index>,
 {
@@ -163,7 +162,7 @@ where
 ///
 /// * `'index` - The lifetime of the index being iterated over.
 pub struct NumericFull<'index, R> {
-    it: FullIterator<'index, R>,
+    it: InvIndIterator<'index, R>,
 }
 
 impl<'index, R> NumericFull<'index, R>
@@ -173,7 +172,7 @@ where
     pub fn new(reader: R) -> Self {
         let result = RSIndexResult::numeric(0.0);
         Self {
-            it: FullIterator::new(reader, result),
+            it: InvIndIterator::new(reader, result),
         }
     }
 }
@@ -239,7 +238,7 @@ where
 ///
 /// * `'index` - The lifetime of the index being iterated over.
 pub struct TermFull<'index, R> {
-    it: FullIterator<'index, R>,
+    it: InvIndIterator<'index, R>,
 }
 
 impl<'index, R> TermFull<'index, R>
@@ -249,7 +248,7 @@ where
     pub fn new(reader: R) -> Self {
         let result = RSIndexResult::term();
         Self {
-            it: FullIterator::new(reader, result),
+            it: InvIndIterator::new(reader, result),
         }
     }
 }
