@@ -8,7 +8,7 @@
 */
 
 // TODO: dependency for MOD-10080;
-//       unused until than;
+//       unused until then;
 //       this lint overwrite should be removed at that point.
 #![allow(unused)]
 
