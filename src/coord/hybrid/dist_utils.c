@@ -99,6 +99,7 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 #endif // Reply structure assertions
 
   if (cmd->forProfiling && cmd->protocol == 3) {
+    RS_LOG_ASSERT(!cmd->forCursor, "Profiling is not supported on a cursor command");
     MRReply *rows = NULL, *meta = NULL;
     meta = MRReply_ArrayElement(rep, 0);
     meta = MRReply_MapElement(meta, "results");  // profile has an extra level

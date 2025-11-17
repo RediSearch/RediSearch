@@ -236,12 +236,13 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // Pending might be zero, but there might still be replies in the channel to read.
   // We may have pulled all the replies from the channel and arrived here due to a timeout,
   // and now we're waiting for the profile results.
-  while (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
-    MRReply_Free(rpnet->current.root);
-    getNextReply(rpnet);
+  if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    do {
+      MRReply_Free(rpnet->current.root);
+    } while (getNextReply(rpnet));
   }
 
-  size_t num_shards = GetNumShards_UnSafe();  // can we make this safe
+  size_t num_shards = MRIterator_GetNumShards(rpnet->it);
   size_t profile_count = array_len(rpnet->shardsProfile);
 
   PrintShardProfile_ctx sCtx = {

@@ -114,7 +114,9 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 
-size_t MRIterator_GetChannelSize(MRIterator *it);
+size_t MRIterator_GetChannelSize(const MRIterator *it);
+
+size_t MRIterator_GetNumShards(const MRIterator *it);
 
 short MRIterator_GetPending(MRIterator *it);
 

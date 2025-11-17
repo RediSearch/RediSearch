@@ -735,8 +735,8 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
     RedisModule_Reply_ArrayEnd(reply);
 
     if (IsProfile(req)) {
-      ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
       RedisModule_Reply_MapEnd(reply);  // >Results
+      ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
       req->profile(reply, &profileCtx);
     }
 
