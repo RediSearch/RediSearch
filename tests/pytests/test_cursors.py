@@ -537,7 +537,7 @@ def test_cursor_profile(env):
     # create a cursor
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1')
     env.assertNotEqual(cursor, 0)
-    env.expect('FT.CURSOR', 'PROFILE', 'idx', 'cursor').error().contains('cursor request is not profile')
+    env.expect('FT.CURSOR', 'PROFILE', 'idx', cursor).error().contains('cursor request is not profile')
 
 @skip(cluster=True)
 def test_mod_6597(env):
