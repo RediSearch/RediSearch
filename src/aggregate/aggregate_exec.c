@@ -1395,7 +1395,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     sendChunk_ReplyOnly_EmptyResults(reply, req);
 
     // Free the cursor
-    Cursors_Free(cursor);
+    Cursor_Free(cursor);
   } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
     if (rc != REDISMODULE_OK) {
