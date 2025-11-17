@@ -28,4 +28,3 @@ RUN bash -l -eo pipefail .install/test_deps/install_rust_deps.sh
 ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 
 WORKDIR /project
-RUN which uv
