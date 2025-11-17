@@ -152,6 +152,8 @@ trait ToBytes<const N: usize> {
     fn pack(self) -> [u8; N];
 }
 
+/// The base numeric decoder/encoder which follows the encoding format described in the module
+/// documentation.
 pub struct Numeric;
 
 impl Numeric {
@@ -161,6 +163,9 @@ impl Numeric {
     const INT_NEG_TYPE: u8 = 0b11;
 }
 
+/// Like the base [`Numeric`] encoder, but attempts to compress float values to f32 when possible.
+/// This is done by checking if the float value can be represented as f32 without loss of precision,
+/// or if the difference between the f64 and f32 representation is below a certain threshold.
 pub struct NumericFloatCompression;
 
 impl NumericFloatCompression {
