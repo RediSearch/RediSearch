@@ -4251,14 +4251,8 @@ def test_multiple_slot_ranges_per_shard(env: Env):
         for port in ports:
             env.assertEqual(sh.execute_command('CLUSTER', 'MEET', '127.0.0.1', port), 'OK')
 
-    with TimeLimit(40, 'Failed waiting for the cluster to be OK'):
-        while True:
-            states = [sh.execute_command('CLUSTER', 'INFO') for sh in shards]
-            if all([s.startswith('cluster_state:ok') for s in states]):
-                break
-            time.sleep(0.5)
-
-    env.expect('SEARCH.CLUSTERREFRESH').ok()
+    # Wait for the cluster topology to be updated
+    env.waitCluster()
 
     generic_shard = [
         'slots', [ANY] * 2 * ranges_per_shard, # flat of slot ranges list
@@ -4526,9 +4520,7 @@ def test_with_tls():
 
     common_with_auth(env)
 
-# Temporarily disabled due to flakiness
-@skip()
-# @skip(cluster=False)
+@skip(cluster=False)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
     protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""
@@ -4544,6 +4536,7 @@ def test_with_tls_and_non_tls_ports():
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    env.waitCluster()
 
     common_with_auth(env)
 
@@ -4559,12 +4552,7 @@ def test_dual_tls():
 
     # Turn off tls-cluster, which means it's not the preferred port type anymore (but still available)
     verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
-    verify_command_OK_on_all_shards(env, 'SEARCH.CLUSTERREFRESH')
-    try:
-        verify_shard_init(env)
-    except:
-        # Test setup is flaky (redis cluster config change), skip the test
-        env.skip()
+    env.waitCluster()
 
     # Verify all nodes has both `port` (tcp) and `tls-port`
     shards = env.cmd('CLUSTER SHARDS')
