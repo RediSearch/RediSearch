@@ -1074,7 +1074,6 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 
   // Define if we need a depleter in the pipeline
   if (IsAggregate(req)) {
-    bool addDepleter = false;
     bool hasSortBy = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
     if (req->protocol == 2) {
       if (!IsOptimized(req) && !hasSortBy) {
