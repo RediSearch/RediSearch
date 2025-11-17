@@ -11,13 +11,12 @@
 
 use std::time::Duration;
 
+use crate::ffi;
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use rqe_iterators::{RQEIterator, metric::Metric};
-
-use crate::ffi;
+use rqe_iterators::{RQEIterator, metric::MetricIteratorSortedById};
 
 #[derive(Default)]
 pub struct Bencher;
@@ -114,7 +113,7 @@ impl Bencher {
                 || {
                     let data = (1..1_000_000).collect::<Vec<_>>();
                     let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
-                    Metric::new(data, metric_data)
+                    MetricIteratorSortedById::new(data, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -131,7 +130,7 @@ impl Bencher {
                 || {
                     let data = (1..1_000_000).map(|x| x * 1000).collect::<Vec<_>>();
                     let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
-                    Metric::new(data, metric_data)
+                    MetricIteratorSortedById::new(data, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -189,7 +188,7 @@ impl Bencher {
                 || {
                     let data = (1..1_000_000).collect::<Vec<_>>();
                     let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
-                    Metric::new(data, metric_data)
+                    MetricIteratorSortedById::new(data, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
@@ -207,7 +206,7 @@ impl Bencher {
                 || {
                     let data = (1..1_000_000).map(|x| x * 1000).collect::<Vec<_>>();
                     let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
-                    Metric::new(data, metric_data)
+                    MetricIteratorSortedById::new(data, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
