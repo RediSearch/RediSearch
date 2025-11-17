@@ -95,13 +95,9 @@ jobs:
               },
               "ubuntu:default": {
                   "x86_64": {
-                      'container': 'ubuntu:latest',
-                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Latest x86_64'
                   },
                   "aarch64": {
-                      'container': 'ubuntu:latest',
-                      'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Latest ARM64'
                   }
               },
