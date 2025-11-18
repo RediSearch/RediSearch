@@ -4520,7 +4520,8 @@ def test_with_tls():
 
     common_with_auth(env)
 
-@skip(cluster=False)
+# TODO: enable macos+san once https://redislabs.atlassian.net/browse/RED-176581 is fixed
+@skip(cluster=False, macos=True, asan=True)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
     protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""
@@ -4540,7 +4541,8 @@ def test_with_tls_and_non_tls_ports():
 
     common_with_auth(env)
 
-@skip(cluster=False, redis_less_than="8.4")
+# TODO: enable macos+san once https://redislabs.atlassian.net/browse/RED-176581 is fixed
+@skip(cluster=False, redis_less_than="8.4", macos=True, asan=True)
 def test_dual_tls():
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
     env = Env(useTLS=True,          # initially set to use TLS, so `Env` is set as expected

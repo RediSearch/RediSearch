@@ -913,6 +913,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     #  ['slots', [10924, 16383],  'id', '4e51033405651441a4be6ddfb46cd85d0c54af6f', 'host', '127.0.0.1', 'port', 6383],
     #  ['slots', [0, 0],          'id', '1f834c5c207bbe8d6dab0c6f050ff06292eb333c', 'host', '127.0.0.1', 'port', 6385],
     # ]]
+    env.assertOk(new_shard_conn.execute_command("search.CLUSTERREFRESH"))
     cluster_info = new_shard_conn.execute_command("search.clusterinfo")
     shards_idx = cluster_info.index('shards') + 1
     unique_shards = set(shard[3] for shard in cluster_info[shards_idx])
