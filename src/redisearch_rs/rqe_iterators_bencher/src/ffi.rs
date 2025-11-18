@@ -37,13 +37,14 @@ mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
+use std::ffi::c_void;
+
 pub use bindings::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-    IndexFlags_Index_StoreTermOffsets,
+    IndexFlags_Index_StoreTermOffsets, IteratorStatus, ValidateStatus,
 };
-use bindings::{IteratorStatus, ValidateStatus};
-use ffi::RedisModule_Alloc;
+use ffi::{RedisModule_Alloc, RedisModule_Free};
 use inverted_index::RSIndexResult;
 
 use crate::ffi::bindings::Metric_VECTOR_DISTANCE;
@@ -62,6 +63,23 @@ unsafe extern "C" {
     /// Benchmark wildcard iterator skip_to operations directly in C
     /// Returns the number of iterations performed and total time in nanoseconds
     fn benchmark_wildcard_skip_to_direct_c(
+        max_id: u64,
+        step: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
+
+    /// Benchmark optional iterator read operations directly in C
+    /// Returns the number of iterations performed and total time in nanoseconds
+    fn benchmark_optional_read_direct_c(
+        max_id: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
+
+    /// Benchmark optional iterator skip_to operations directly in C
+    /// Returns the number of iterations performed and total time in nanoseconds
+    fn benchmark_optional_skip_to_direct_c(
         max_id: u64,
         step: u64,
         iterations_out: *mut u64,
@@ -109,6 +127,24 @@ impl QueryIterator {
     }
 
     #[inline(always)]
+    pub fn new_optional_full_child(max_id: u64, weight: f64) -> Self {
+        let child =
+            unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, max_id as usize, 1f64) };
+        let query_eval_ctx = new_redis_search_ctx(max_id);
+        let it = unsafe { bindings::NewOptionalIterator(child, query_eval_ctx, weight) };
+        free_redis_search_ctx(query_eval_ctx);
+        Self(it)
+    }
+
+    #[inline(always)]
+    pub fn new_optional_virtual_only(max_id: u64, weight: f64) -> Self {
+        let child = std::ptr::null_mut();
+        let query_eval_ctx = new_redis_search_ctx(max_id);
+        let it = unsafe { bindings::NewOptionalIterator(child, query_eval_ctx, weight) };
+        free_redis_search_ctx(query_eval_ctx);
+        Self(it)
+    }
+
     pub unsafe fn new_numeric_full(ii: *mut bindings::InvertedIndex) -> Self {
         Self(unsafe { bindings::NewInvIndIterator_NumericFull(ii) })
     }
@@ -164,6 +200,56 @@ impl QueryIterator {
     }
 }
 
+fn new_redis_search_ctx(max_id: u64) -> *mut bindings::QueryEvalCtx {
+    let query_eval_ctx = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::QueryEvalCtx>())
+            as *mut bindings::QueryEvalCtx
+    };
+    let doc_table = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::DocTable>())
+            as *mut bindings::DocTable
+    };
+    let search_ctx = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::RedisSearchCtx>())
+            as *mut bindings::RedisSearchCtx
+    };
+    let spec = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::IndexSpec>())
+            as *mut bindings::IndexSpec
+    };
+    unsafe {
+        (*doc_table).maxSize = max_id;
+    }
+    unsafe {
+        (*doc_table).maxDocId = max_id;
+    }
+    unsafe {
+        (*search_ctx).spec = spec;
+    }
+    unsafe {
+        (*query_eval_ctx).docTable = doc_table;
+    }
+    unsafe {
+        (*query_eval_ctx).sctx = search_ctx;
+    }
+    query_eval_ctx
+}
+
+fn free_redis_search_ctx(ctx: *mut bindings::QueryEvalCtx) {
+    unsafe {
+        RedisModule_Free.unwrap()((*(*ctx).sctx).spec as *mut c_void);
+    };
+    unsafe {
+        RedisModule_Free.unwrap()((*ctx).sctx as *mut c_void);
+    };
+    unsafe {
+        RedisModule_Free.unwrap()((*ctx).docTable as *mut c_void);
+    };
+    unsafe {
+        RedisModule_Free.unwrap()(ctx as *mut c_void);
+    };
+}
+
 /// Direct C benchmark results
 #[derive(Debug, Clone)]
 pub struct DirectBenchmarkResult {
@@ -191,6 +277,32 @@ impl QueryIterator {
         let mut time_ns = 0u64;
         unsafe {
             benchmark_wildcard_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
+    }
+
+    /// Run direct C benchmark for optional read operations
+    pub fn benchmark_optional_read_direct(max_id: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_optional_read_direct_c(max_id, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
+    }
+
+    /// Run direct C benchmark for optional skip_to operations
+    pub fn benchmark_optional_skip_to_direct(max_id: u64, step: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_optional_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
         }
         DirectBenchmarkResult {
             iterations,

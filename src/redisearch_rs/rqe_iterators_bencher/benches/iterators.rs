@@ -41,6 +41,11 @@ fn benchmark_wildcard(c: &mut Criterion) {
     bencher.bench(c);
 }
 
+fn benchmark_optional(c: &mut Criterion) {
+    let bencher = benchers::optional::Bencher::default();
+    bencher.bench(c);
+}
+
 fn benchmark_inverted_index_numeric_full(c: &mut Criterion) {
     let bencher = benchers::inverted_index::NumericFullBencher::default();
     bencher.bench(c);
@@ -128,6 +133,7 @@ criterion_group!(
     benchmark_id_list,
     benchmark_metric,
     benchmark_wildcard,
+    benchmark_optional,
     benchmark_inverted_index_numeric_full,
     benchmark_inverted_index_term_full,
 );
