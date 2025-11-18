@@ -81,6 +81,7 @@ impl<E: Encoder + Default> BaseTest<E> {
                 Ok(Some(record)) => {
                     check_record(record, &expected_record(record.doc_id));
                     assert_eq!(it.last_doc_id(), self.doc_ids[i]);
+                    assert_eq!(it.current().unwrap().doc_id, self.doc_ids[i]);
                     assert!(!it.at_eof());
                 }
                 _ => break,
@@ -130,6 +131,7 @@ impl<E: Encoder + Default> BaseTest<E> {
 
                 check_record(record, &expected_record(id));
                 assert_eq!(it.last_doc_id(), id);
+                assert_eq!(it.current().unwrap().doc_id, id);
                 i += 1;
             }
             // Now test skipping to the exact doc ID that exists in the index.
@@ -141,6 +143,7 @@ impl<E: Encoder + Default> BaseTest<E> {
             };
             check_record(record, &expected_record(id));
             assert_eq!(it.last_doc_id(), id);
+            assert_eq!(it.current().unwrap().doc_id, id);
             i += 1;
         }
 
@@ -152,6 +155,7 @@ impl<E: Encoder + Default> BaseTest<E> {
 
         it.rewind();
         assert_eq!(it.last_doc_id(), 0);
+        assert_eq!(it.current().unwrap().doc_id, 0);
         assert!(!it.at_eof());
 
         // Test skipping to all ids that exist
@@ -162,16 +166,19 @@ impl<E: Encoder + Default> BaseTest<E> {
             };
             check_record(record, &expected_record(id));
             assert_eq!(it.last_doc_id(), id);
+            assert_eq!(it.current().unwrap().doc_id, id);
         }
 
         // Test skipping to an id that exceeds the last id
         it.rewind();
         assert_eq!(it.last_doc_id(), 0);
+        assert_eq!(it.current().unwrap().doc_id, 0);
         assert!(!it.at_eof());
         let res = it.skip_to(self.doc_ids.last().unwrap() + 1);
         assert!(matches!(res, Ok(None)));
         // we just rewound
         assert_eq!(it.last_doc_id(), 0);
+        assert_eq!(it.current().unwrap().doc_id, 0);
         assert!(it.at_eof());
     }
 }
@@ -316,6 +323,7 @@ impl<E: Encoder + DecodedBy + Default> RevalidateTest<E> {
         assert_eq!(doc.doc_id, self.doc_ids[2]);
 
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
+        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
         // Nothing changed in the index so revalidate does nothing
         assert_eq!(
@@ -330,6 +338,7 @@ impl<E: Encoder + DecodedBy + Default> RevalidateTest<E> {
             RQEValidateStatus::Ok
         );
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
+        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
         // Remove an element after the current iteration position.
         self.remove_document(self.doc_ids[4]);
@@ -338,6 +347,7 @@ impl<E: Encoder + DecodedBy + Default> RevalidateTest<E> {
             RQEValidateStatus::Ok
         );
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
+        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
         // Remove the element at the current position of the iterator.
         // When validating we won't be able to skip to this element, so we should get RQEValidateStatus::Moved.
@@ -352,6 +362,7 @@ impl<E: Encoder + DecodedBy + Default> RevalidateTest<E> {
         assert_eq!(current_doc.doc_id, self.doc_ids[3]);
         // iterator advanced to the next element
         assert_eq!(it.last_doc_id(), self.doc_ids[3]);
+        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[3]);
 
         // read the next element, docs_ids[4] has been removed so iterator should return the one after.
         let doc = it
@@ -360,6 +371,7 @@ impl<E: Encoder + DecodedBy + Default> RevalidateTest<E> {
             .expect("should not be at EOF");
         assert_eq!(doc.doc_id, self.doc_ids[5]);
         assert_eq!(it.last_doc_id(), self.doc_ids[5]);
+        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[5]);
 
         // edge case: iterator is at the last document which is then removed.
         assert!(!it.at_eof());
@@ -370,6 +382,7 @@ impl<E: Encoder + DecodedBy + Default> RevalidateTest<E> {
         };
         assert_eq!(doc.doc_id, last_doc_id);
         assert_eq!(it.last_doc_id(), last_doc_id);
+        assert_eq!(it.current().unwrap().doc_id, last_doc_id);
 
         self.remove_document(last_doc_id);
         // revalidate should return Moved without current doc and be at EOF.
