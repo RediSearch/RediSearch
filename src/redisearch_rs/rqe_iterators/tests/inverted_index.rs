@@ -13,8 +13,8 @@ use ffi::{
     t_docId, t_fieldMask,
 };
 use inverted_index::{
-    DecodedBy, Encoder, FilterNumericReader, InvertedIndex, NumericFilter, RSIndexResult,
-    RSOffsetVector, RSResultKind, full::Full, test_utils::TermRecordCompare,
+    DecodedBy, Encoder, FilterMaskReader, FilterNumericReader, InvertedIndex, NumericFilter,
+    RSIndexResult, RSOffsetVector, RSResultKind, full::Full, test_utils::TermRecordCompare,
 };
 use rqe_iterators::{
     RQEIterator, RQEValidateStatus, SkipToOutcome,
@@ -446,6 +446,25 @@ fn numeric_full_skip_to() {
 }
 
 #[test]
+/// test reading from Numeric iterator with a filter
+fn numeric_filter() {
+    let test = NumericTest::new(100);
+    let filter = NumericFilter {
+        min: 50.0,
+        max: 75.0,
+        ..Default::default()
+    };
+    let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
+    let mut it = Numeric::new(reader);
+    let docs_ids = test
+        .test
+        .docs_ids_iter()
+        // records have a numeric value of twice their doc id
+        .filter(|id| *id * 2 >= 50 && *id * 2 <= 75);
+    test.test.read(&mut it, docs_ids);
+}
+
+#[test]
 fn numeric_full_revalidate_basic() {
     let test = NumericTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
@@ -502,7 +521,7 @@ impl TermTest {
             term as _,
             RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
             doc_id,
-            (doc_id / 2) as t_fieldMask + 1,
+            doc_id as t_fieldMask,
             (doc_id / 2) as u32 + 1,
         )
     }
@@ -566,6 +585,17 @@ fn term_full_skip_to() {
     let reader = test.test.ii.reader();
     let mut it = Term::new(reader);
     test.test.skip_to(&mut it);
+}
+
+#[test]
+/// test reading from Term iterator with a filter
+fn term_filter() {
+    let test = TermTest::new(10);
+    let reader = FilterMaskReader::new(1, test.test.ii.reader());
+    let mut it = Term::new(reader);
+    // results have their doc id as field mask so we filter by odd ids
+    let docs_ids = test.test.docs_ids_iter().filter(|id| id % 2 == 1);
+    test.test.read(&mut it, docs_ids);
 }
 
 #[test]
