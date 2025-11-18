@@ -2698,7 +2698,20 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_Reply_SimpleString(reply, "warning"); // >warning
     if (rCtx->warning) {
-      MR_ReplyWithMRReply(reply, rCtx->warning);
+      RedisModule_Reply_Array(reply);
+      // Iterate over warning array and track warnings
+      size_t len = MRReply_Length(rCtx->warning);
+      for (int i = 0; i < len; ++i) {
+        // Extract warning string and track it
+        MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
+        const char *warning_str = MRReply_String(currentWarning, NULL);
+        QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
+        QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
+
+        // Reply warning
+        MR_ReplyWithMRReply(reply, currentWarning);
+      }
+      RedisModule_Reply_ArrayEnd(reply);
     } else if (req->queryOOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
     } else {
