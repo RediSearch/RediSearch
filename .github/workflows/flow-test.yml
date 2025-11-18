@@ -34,6 +34,18 @@ on:
       fail-fast:
         type: boolean
         default: true # Default to true on workflow call (as in matrix, and unlike manual trigger)
+      include-basic-test:
+        type: boolean
+        default: false
+        description: 'Include basic-test job in matrix'
+      include-coverage:
+        type: boolean
+        default: false
+        description: 'Include coverage job in matrix'
+      include-sanitize:
+        type: boolean
+        default: false
+        description: 'Include sanitize job in matrix'
 
   workflow_dispatch:
     inputs:
@@ -90,6 +102,18 @@ on:
         description: 'Whether to fail fast on first failure'
         type: boolean
         default: false # Default to false on manual trigger
+      include-basic-test:
+        description: 'Include basic-test job in matrix'
+        type: boolean
+        default: false
+      include-coverage:
+        description: 'Include coverage job in matrix'
+        type: boolean
+        default: false
+      include-sanitize:
+        description: 'Include sanitize job in matrix'
+        type: boolean
+        default: false
 
 jobs:
   generate-matrix:
@@ -97,10 +121,13 @@ jobs:
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
+      include-basic-test: ${{ inputs.include-basic-test }}
+      include-coverage: ${{ inputs.include-coverage }}
+      include-sanitize: ${{ inputs.include-sanitize }}
 
-  # Unified test matrix - includes Linux and macOS platforms
+  # Unified test matrix - includes Linux and macOS platforms, plus optional basic-test, coverage and sanitize
   test-matrix:
-    name: ${{ matrix.platform }} (${{ matrix.architecture }})
+    name: ${{ matrix.job-type }} (${{ matrix.architecture }})
     needs: [generate-matrix]
     strategy:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
@@ -116,3 +143,5 @@ jobs:
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}
+      coverage: ${{ matrix.job-type == 'coverage' }}
+      san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}

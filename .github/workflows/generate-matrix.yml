@@ -14,6 +14,18 @@ on:
         description: 'Architecture filter (e.g., "x86_64" or "all")'
         type: string
         default: all
+      include-basic-test:
+        description: 'Include basic-test job in matrix'
+        type: boolean
+        default: false
+      include-coverage:
+        description: 'Include coverage job in matrix'
+        type: boolean
+        default: false
+      include-sanitize:
+        description: 'Include sanitize job in matrix'
+        type: boolean
+        default: false
     outputs:
       matrix:
         description: "Generated matrix as JSON"
@@ -63,14 +75,41 @@ jobs:
 
           platform_filter = "${{ inputs.platform }}"
           architecture_filter = "${{ inputs.architecture }}"
+          include_basic_test = "${{ inputs.include-basic-test }}" == "true"
+          include_coverage = "${{ inputs.include-coverage }}" == "true"
+          include_sanitize = "${{ inputs.include-sanitize }}" == "true"
 
           # Filter combinations based on inputs
           matrix_items = [
-              {'platform': platform, 'architecture': architecture}
+              {'platform': platform, 'architecture': architecture, 'job-type': 'test'}
               for platform, architecture in all_combinations
               if (platform == platform_filter or platform_filter == 'all') and
                  (architecture == architecture_filter or architecture_filter == 'all')
           ]
+
+          # Add basic-test job if requested (only on ubuntu:default x86_64)
+          if include_basic_test:
+              matrix_items.append({
+                  'platform': 'ubuntu:default',
+                  'architecture': 'x86_64',
+                  'job-type': 'basic-test'
+              })
+
+          # Add coverage job if requested (only on ubuntu:default x86_64)
+          if include_coverage:
+              matrix_items.append({
+                  'platform': 'ubuntu:default',
+                  'architecture': 'x86_64',
+                  'job-type': 'coverage'
+              })
+
+          # Add sanitize job if requested (only on ubuntu:default x86_64)
+          if include_sanitize:
+              matrix_items.append({
+                  'platform': 'ubuntu:default',
+                  'architecture': 'x86_64',
+                  'job-type': 'sanitize'
+              })
 
           # Fail if matrix is empty
           if not matrix_items:
