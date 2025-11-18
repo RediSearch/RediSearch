@@ -312,6 +312,51 @@ double RsValue_Number_Get(struct RsValuePtr v);
 void RsValue_IntoNumber(struct RsValue *v, double n);
 
 /**
+ * Get the string value and length from an RSValue of type [`RsValueType::RmAllocString`] or
+ * [`RsValueType::ConstString`].
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`];
+ * - (2) If `lenp` is non-null, it must be a well-aligned pointer to a `u32` that is valid for writes;
+ * - (3) The value must be either of type [`RsValueType::RmAllocString`] or
+ *   [`RsValueType::ConstString`].
+ *
+ * @param v A reference to the `RsValue` from which to obtain the string
+ * @param lenp A nullable pointer to which the length will be written
+ * @return The string held by `v`
+ */
+const char *RsValue_String_Get(struct RsValuePtr v,
+                               uint32_t *lenp);
+
+/**
+ * Get the string value and length from an `RsValue` of type [`RsValueType::RmAllocString`] or
+ * [`RsValueType::ConstString`].
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`];
+ * - (2) The value must be either of type [`RsValueType::RmAllocString`] or
+ *   [`RsValueType::ConstString`].
+ *
+ * @param v A reference to the `RsValue` from which to obtain the string
+ * @return The string held by `v`
+ */
+const char *RsValue_String_GetPtr(struct RsValuePtr v);
+
+/**
+ * Get the [`RedisModuleString`] from an `RsValue` of type  [`RsValueType::OwnedRedisString`] or
+ * [`RsValueType::BorrowedRedisString`].
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`];
+ * - (2) The value must be either of type [`RsValueType::OwnedRedisString`] or
+ *   [`RsValueType::BorrowedRedisString`].
+ *
+ * @param v A reference to the `RsValue` from which to obtain the Redis string
+ * @return The Redis string held by `v`
+ */
+const RedisModuleString *RsValue_RedisString_Get(struct RsValuePtr v);
+
+/**
  * Gets the string pointer and length from the value,
  * dereferencing in case `value` is a (chain of) RsValue
  * references. Works for all RsValue string types.

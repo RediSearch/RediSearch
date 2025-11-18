@@ -11,6 +11,7 @@
 
 use std::{
     ffi::{c_char, c_double},
+    hint::unreachable_unchecked,
     mem,
     ptr::NonNull,
 };
@@ -25,6 +26,7 @@ use crate::{
     },
     value_type::{AsRsValueType, RsValueType},
 };
+use ffi::RedisModuleString;
 
 pub mod collection;
 pub mod dynamic;
@@ -265,6 +267,115 @@ pub unsafe extern "C" fn RsValue_IntoNumber(v: Option<NonNull<OpaqueDynRsValue>>
     let v = unsafe { v.unwrap_unchecked() };
 
     v.to_number(n);
+}
+
+/// Get the string value and length from an RSValue of type [`RsValueType::RmAllocString`] or
+/// [`RsValueType::ConstString`].
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`];
+/// - (2) If `lenp` is non-null, it must be a well-aligned pointer to a `u32` that is valid for writes;
+/// - (3) The value must be either of type [`RsValueType::RmAllocString`] or
+///   [`RsValueType::ConstString`].
+///
+/// @param v A reference to the `RsValue` from which to obtain the string
+/// @param lenp A nullable pointer to which the length will be written
+/// @return The string held by `v`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_String_Get(
+    v: OpaqueDynRsValuePtr,
+    lenp: Option<NonNull<u32>>,
+) -> *const c_char {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+
+    // Safety: caller must ensure (1)
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    #[allow(unused_unsafe)]
+    unsafe {
+        apply_with_dyn_ptr!(v, |v| {
+            debug_assert!(
+                v.as_value_type().is_const_string() || v.as_value_type().is_rm_alloc_string(),
+                "`v` must be either an rm_alloc string or a const string"
+            );
+
+            if let Some(s) = v.as_rm_alloc_string() {
+                let s_bytes = s.as_bytes();
+
+                if let Some(lenp) = lenp {
+                    // Safety: caller must ensure (2)
+                    unsafe { lenp.write(s_bytes.len() as u32) };
+                }
+
+                return s_bytes.as_ptr() as *const c_char;
+            }
+
+            if let Some(s) = v.as_const_string() {
+                let s_bytes = s.as_bytes();
+
+                if let Some(lenp) = lenp {
+                    // Safety: caller must ensure (2)
+                    unsafe { lenp.write(s_bytes.len() as u32) };
+                }
+
+                return s_bytes.as_ptr() as *const c_char;
+            }
+
+            // Safety: caller must ensure (3)
+            unsafe { unreachable_unchecked() }
+        })
+    }
+}
+
+/// Get the string value and length from an `RsValue` of type [`RsValueType::RmAllocString`] or
+/// [`RsValueType::ConstString`].
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`];
+/// - (2) The value must be either of type [`RsValueType::RmAllocString`] or
+///   [`RsValueType::ConstString`].
+///
+/// @param v A reference to the `RsValue` from which to obtain the string
+/// @return The string held by `v`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_String_GetPtr(v: OpaqueDynRsValuePtr) -> *const c_char {
+    // Safety: caller must ensure (1) and (2)
+    unsafe { RsValue_String_Get(v, None) }
+}
+
+/// Get the [`RedisModuleString`] from an `RsValue` of type  [`RsValueType::OwnedRedisString`] or
+/// [`RsValueType::BorrowedRedisString`].
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`];
+/// - (2) The value must be either of type [`RsValueType::OwnedRedisString`] or
+///   [`RsValueType::BorrowedRedisString`].
+///
+/// @param v A reference to the `RsValue` from which to obtain the Redis string
+/// @return The Redis string held by `v`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_RedisString_Get(
+    v: OpaqueDynRsValuePtr,
+) -> *const RedisModuleString {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+
+    // Safety: caller must ensure (1)
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    #[allow(unused_unsafe)]
+    unsafe {
+        apply_with_dyn_ptr!(v, |v| {
+            if let Some(s) = v.as_owned_redis_string() {
+                return s.as_ptr();
+            }
+
+            if let Some(s) = v.as_borrowed_redis_string() {
+                return s.as_ptr();
+            }
+            // Safety: caller must ensure (2)
+            unsafe { unreachable_unchecked() }
+        })
+    }
 }
 
 /// Gets the string pointer and length from the value,

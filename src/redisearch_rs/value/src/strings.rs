@@ -238,6 +238,11 @@ impl RedisStringRef {
         // Safety: `str_ptr` is valid for reads of `len` bytes.
         unsafe { slice::from_raw_parts(str_ptr as *const u8, len) }
     }
+
+    /// Get a pointer to the wrapped [`RedisModuleString`]
+    pub const fn as_ptr(&self) -> *const RedisModuleString {
+        self.str.as_ptr()
+    }
 }
 
 // Safety: [`RedisStringRef`] does not hold data that cannot be sent
@@ -305,6 +310,11 @@ impl OwnedRedisString {
 
         // Safety: `str_ptr` is valid for reads of `len` bytes.
         unsafe { slice::from_raw_parts(str_ptr as *const u8, len) }
+    }
+
+    /// Get a pointer to the wrapped [`RedisModuleString`]
+    pub const fn as_ptr(&self) -> *const RedisModuleString {
+        self.str.as_ptr()
     }
 }
 

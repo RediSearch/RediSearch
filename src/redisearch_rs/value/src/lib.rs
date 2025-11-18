@@ -296,6 +296,42 @@ pub trait Value: Sized {
         self.swap_from_internal(RsValueInternal::Number(n));
     }
 
+    /// Get a reference to [`OwnedRmAllocString`] being
+    /// wrapped by this value if so, or `None` otherwise.
+    fn as_rm_alloc_string(&self) -> Option<&OwnedRmAllocString> {
+        match self.internal()? {
+            RsValueInternal::RmAllocString(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Get a reference to [`ConstString`] being
+    /// wrapped by this value if so, or `None` otherwise.
+    fn as_const_string(&self) -> Option<&ConstString> {
+        match self.internal()? {
+            RsValueInternal::ConstString(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Get a reference to [`OwnedRedisString`] being
+    /// wrapped by this value if so, or `None` otherwise.
+    fn as_owned_redis_string(&self) -> Option<&OwnedRedisString> {
+        match self.internal()? {
+            RsValueInternal::OwnedRedisString(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Get a reference to [`RedisStringRef`] being
+    /// wrapped by this value if so, or `None` otherwise.
+    fn as_borrowed_redis_string(&self) -> Option<&RedisStringRef> {
+        match self.internal()? {
+            RsValueInternal::BorrowedRedisString(s) => Some(s),
+            _ => None,
+        }
+    }
+
     /// Get the string value as a slice of bytes.
     /// Note: not all string variants guarantee UTF-8 encoding.
     /// Returns `None` if the value is not of one of the string types.
