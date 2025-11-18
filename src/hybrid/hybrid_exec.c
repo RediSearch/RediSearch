@@ -57,8 +57,10 @@ static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, c
 // Returns true if a timeout occurred and was processed as a warning
 static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *err, int returnCode, const char *suffix, bool ignoreTimeout) {
   bool timeoutOccurred = false;
-
+  bool isCoord = GetNumShards_UnSafe();
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
+    // Track warnings in global statistics
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, isCoord);
     ReplyWarning(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT), suffix);
     timeoutOccurred = true;
   } else if (returnCode == RS_RESULT_ERROR) {
@@ -227,6 +229,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
+    // Since internal response uses sendChunk_Resp3, number of shards decides if this is SA or coord
+    bool isCoord = GetNumShards_UnSafe() > 1;
 
     // Set the chunk size limit for the query
     rp->parent->resultLimit = limit;
@@ -238,9 +242,13 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     HybridRequest_GetError(hreq, &err);
     HybridRequest_ClearErrors(hreq);
     if (ShouldReplyWithError(QueryError_GetCode(&err), hreq->reqConfig.timeoutPolicy, false)) {
+      // Track errors in global statistics
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&err), 1, isCoord);
       RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
+      // Track timeout error in global statistics
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, isCoord);
       ReplyWithTimeoutError(reply);
       goto done_err;
     }
