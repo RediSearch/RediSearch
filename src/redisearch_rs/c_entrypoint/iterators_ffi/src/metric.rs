@@ -113,6 +113,7 @@ pub unsafe extern "C" fn SetMetricRLookupHandle(
     header: *mut QueryIterator,
     key_handle: *mut RLookupKeyHandle,
 ) {
+    debug_assert!(!header.is_null());
     debug_assert_eq!(
         // SAFETY: Safe thanks to 1.
         unsafe { *header }.type_,
@@ -133,6 +134,7 @@ pub unsafe extern "C" fn SetMetricRLookupHandle(
 /// 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut *mut RLookupKey {
+    debug_assert!(!header.is_null());
     debug_assert_eq!(
         // SAFETY: Safe thanks to 1.
         unsafe { *header }.type_,
@@ -152,6 +154,7 @@ pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut 
 /// 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn GetMetricType(header: *mut QueryIterator) -> MetricType {
+    debug_assert!(!header.is_null());
     debug_assert_eq!(
         // SAFETY: Safe thanks to 1.
         unsafe { *header }.type_,
