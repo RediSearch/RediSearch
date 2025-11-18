@@ -28,7 +28,7 @@ typedef struct FieldSpec FieldSpec;
 
 [parse]
 parse_deps = true
-include = ["enumflags2", "inverted_index", "low_memory_thin_vec"]
+include = ["enumflags2", "inverted_index", "low_memory_thin_vec", "field"]
 
 [export]
 # Don't export the `low_memory_thin_vec::Header` again
