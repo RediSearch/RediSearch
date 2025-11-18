@@ -396,6 +396,8 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
 
+    env.waitCluster()
+
     # TODO ASM: When Trimming delay is implemented in core, test with all shards
     # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
     # topology is outdated, and the slots that would arrive to each shard would lead to errors.

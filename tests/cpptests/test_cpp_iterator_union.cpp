@@ -346,7 +346,7 @@ TEST_F(UnionIteratorReducerTest, TestUnionQuickWithReaderWildcard) {
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
   // Create an iterator that reads only entries with field mask 2
-  QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
+  QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.mask_tag = FieldMaskOrIndex_Mask, .mask = 2}, nullptr, 1.0);
   InvIndIterator* invIdxIt = (InvIndIterator *)iterator;
   invIdxIt->isWildcard = true;
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
