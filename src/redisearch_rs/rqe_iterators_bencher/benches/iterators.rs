@@ -10,6 +10,7 @@
 //! Benchmark iterators
 
 use criterion::{Criterion, criterion_group, criterion_main};
+/*
 use inverted_index::{
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -19,6 +20,7 @@ use inverted_index::{
     full::{Full, FullWide},
     offsets_only::OffsetsOnly,
 };
+ */
 use rqe_iterators_bencher::benchers;
 
 fn benchmark_empty(c: &mut Criterion) {
@@ -41,6 +43,7 @@ fn benchmark_wildcard(c: &mut Criterion) {
     bencher.bench(c);
 }
 
+/*
 fn benchmark_inverted_index_numeric_full(c: &mut Criterion) {
     let bencher = benchers::inverted_index::NumericFullBencher::default();
     bencher.bench(c);
@@ -121,6 +124,7 @@ fn benchmark_inverted_index_term_full(c: &mut Criterion) {
     )
     .bench(c);
 }
+*/
 
 criterion_group!(
     benches,
@@ -128,8 +132,6 @@ criterion_group!(
     benchmark_id_list,
     benchmark_metric,
     benchmark_wildcard,
-    benchmark_inverted_index_numeric_full,
-    benchmark_inverted_index_term_full,
 );
 
 criterion_main!(benches);
