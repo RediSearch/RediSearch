@@ -1063,6 +1063,17 @@ pub unsafe extern "C" fn IndexReader_IsIndex(
         (IndexReader::NumericGeoFiltered(ir), InvertedIndex::Numeric(ii)) => {
             ir.is_index(ii.inner())
         }
+        (IndexReader::NumericFloatCompression(ir), InvertedIndex::NumericFloatCompression(ii)) => {
+            ir.is_index(ii.inner())
+        }
+        (
+            IndexReader::NumericFilteredFloatCompression(ir),
+            InvertedIndex::NumericFloatCompression(ii),
+        ) => ir.is_index(ii.inner()),
+        (
+            IndexReader::NumericGeoFilteredFloatCompression(ir),
+            InvertedIndex::NumericFloatCompression(ii),
+        ) => ir.is_index(ii.inner()),
         _ => false,
     }
 }
@@ -1276,6 +1287,17 @@ pub unsafe extern "C" fn IndexReader_SwapIndex(ir: *mut IndexReader, ii: *const 
         (IndexReader::NumericGeoFiltered(ir), InvertedIndex::Numeric(ii)) => {
             ir.swap_index(&mut ii.inner())
         }
+        (IndexReader::NumericFloatCompression(ir), InvertedIndex::NumericFloatCompression(ii)) => {
+            ir.swap_index(&mut ii.inner())
+        }
+        (
+            IndexReader::NumericFilteredFloatCompression(ir),
+            InvertedIndex::NumericFloatCompression(ii),
+        ) => ir.swap_index(&mut ii.inner()),
+        (
+            IndexReader::NumericGeoFilteredFloatCompression(ir),
+            InvertedIndex::NumericFloatCompression(ii),
+        ) => ir.swap_index(&mut ii.inner()),
         _ => {}
     }
 }
