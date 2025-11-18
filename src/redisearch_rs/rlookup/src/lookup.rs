@@ -455,7 +455,6 @@ impl<'a> RLookupKey<'a> {
         unsafe { Pin::new_unchecked(b) }
     }
 
-    #[cfg(any(debug_assertions, test))]
     pub fn is_overridden(&self) -> bool {
         let is_overridden = self.name.is_null();
 

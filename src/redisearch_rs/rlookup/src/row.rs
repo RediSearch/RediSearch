@@ -311,7 +311,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         }
     }
 
-    /// Move data from the source row into this row. The source row is cleared.
+    /// Move data from the source row to the destination row. The source row is cleared.
     pub fn move_fields_from(&mut self, src: &mut Self, lookup: &RLookup) {
         let mut c = lookup.cursor();
         while let Some(key) = c.current() {

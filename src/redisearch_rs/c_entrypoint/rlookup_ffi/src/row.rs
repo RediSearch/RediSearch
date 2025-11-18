@@ -120,7 +120,7 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
     let src = unsafe { src.expect("`src` must not be null").as_mut() };
     // Safety: ensured by caller (3.)
     let dst = unsafe { dst.expect("`dst` must not be null").as_mut() };
-    debug_assert!(dst.is_empty(), "expected `dst` to be pre-cleared");
+
     #[cfg(debug_assertions)]
     {
         assert_eq!(
