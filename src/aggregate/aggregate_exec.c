@@ -1402,9 +1402,11 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
       RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
+    } else {
+      sendChunk_ReplyOnly_EmptyResults(reply, req);
+      IndexSpecRef_Release(execution_ref);
     }
-    sendChunk_ReplyOnly_EmptyResults(reply, req);
-    IndexSpecRef_Release(execution_ref);
+
     // Free the cursor
     Cursor_Free(cursor);
   } else if (strcasecmp(cmd, "DEL") == 0) {
