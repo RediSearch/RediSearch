@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Supporting types for [`NumericFull`] and [`TermFull`].
+//! Supporting types for [`Numeric`] and [`Term`].
 
 use ffi::t_docId;
 use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
@@ -155,17 +155,18 @@ where
 
 /// An iterator over numeric inverted index entries.
 ///
-/// This iterator provides full index scan to all document IDs in a numeric inverted index.
-/// It is not suitable for queries.
+/// This iterator can be used to query a numeric inverted index.
+///
+/// The [`inverted_index::IndexReader`] API can be used to fully scan an inverted index.
 ///
 /// # Type Parameters
 ///
 /// * `'index` - The lifetime of the index being iterated over.
-pub struct NumericFull<'index, R> {
+pub struct Numeric<'index, R> {
     it: InvIndIterator<'index, R>,
 }
 
-impl<'index, R> NumericFull<'index, R>
+impl<'index, R> Numeric<'index, R>
 where
     R: NumericReader<'index>,
 {
@@ -177,7 +178,7 @@ where
     }
 }
 
-impl<'index, R> RQEIterator<'index> for NumericFull<'index, R>
+impl<'index, R> RQEIterator<'index> for Numeric<'index, R>
 where
     R: NumericReader<'index>,
 {
@@ -227,21 +228,16 @@ where
 
 /// An iterator over term inverted index entries.
 ///
-/// This iterator provides full index scan to all document IDs in a term inverted index.
-/// It is not suitable for queries.
-///
-/// Note that 'full' is this context refers to the iterator being used for a full index scan.
-/// It is not directly related to the ['inverted_inndex::full::Full'] encoder/decoder as
-/// any decoder producing term results can be used with this iterator.
+/// This iterator can be used to query a term inverted index.
 ///
 /// # Type Parameters
 ///
 /// * `'index` - The lifetime of the index being iterated over.
-pub struct TermFull<'index, R> {
+pub struct Term<'index, R> {
     it: InvIndIterator<'index, R>,
 }
 
-impl<'index, R> TermFull<'index, R>
+impl<'index, R> Term<'index, R>
 where
     R: TermReader<'index>,
 {
@@ -253,7 +249,7 @@ where
     }
 }
 
-impl<'index, R> RQEIterator<'index> for TermFull<'index, R>
+impl<'index, R> RQEIterator<'index> for Term<'index, R>
 where
     R: TermReader<'index>,
 {
