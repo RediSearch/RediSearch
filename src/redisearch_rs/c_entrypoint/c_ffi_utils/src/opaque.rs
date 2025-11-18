@@ -112,11 +112,11 @@ pub trait IntoOpaque: Sized {
 /// ```
 #[macro_export]
 macro_rules! opaque {
-    ($ty:ty, $opaque_ty:ident) => {
+    ($ty:ident $(<$ty_lt:lifetime>)?, $opaque_ty:ident) => {
         mod __opaque {
             use super::{$opaque_ty, $ty};
 
-            impl $crate::opaque::IntoOpaque for $ty {
+            impl$(<$ty_lt>)? $crate::opaque::IntoOpaque for $ty$(<$ty_lt>)? {
                 type Opaque = $opaque_ty;
 
                 fn into_opaque(self) -> Self::Opaque {
@@ -139,14 +139,14 @@ macro_rules! opaque {
                     unsafe { std::mem::transmute(opaque) }
                 }
 
-                unsafe fn from_opaque_ptr<'a>(opaque: *const Self::Opaque) -> Option<&'a Self> {
+                unsafe fn from_opaque_ptr<'_opaque_lt_a>(opaque: *const Self::Opaque) -> Option<&'_opaque_lt_a Self> {
                     // Safety: see trait's safety requirement.
                     unsafe { opaque.cast::<Self>().as_ref() }
                 }
 
-                unsafe fn from_opaque_mut_ptr<'a>(
+                unsafe fn from_opaque_mut_ptr<'_opaque_lt_a>(
                     opaque: *mut Self::Opaque,
-                ) -> Option<&'a mut Self> {
+                ) -> Option<&'_opaque_lt_a mut Self> {
                     // Safety: see trait's safety requirement.
                     unsafe { opaque.cast::<Self>().as_mut() }
                 }
@@ -182,7 +182,7 @@ macro_rules! opaque {
             // Compile-time check that `$opaque_ty` implements
             // `Transmute<$ty>`.
             const _ASSERT_IMPL_TRANSMUTE: () = {
-                const fn assert_impl_transmute_size<T: $crate::opaque::Transmute<$ty>>() {}
+                const fn assert_impl_transmute_size<$($ty_lt,)? T: $crate::opaque::Transmute<$ty $(<$ty_lt>)?>>() {}
                 assert_impl_transmute_size::<$opaque_ty>();
             };
         }

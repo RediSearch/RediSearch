@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use value::{RsValue, RsValueInternal, Value, shared::SharedRsValue};
+use value::{RsValue, RsValueInternal, Value, dynamic::DynRsValueRef, shared::SharedRsValue};
 
 /// Enumeration of the types an
 /// `RsValue` or a `SharedRsValue` can be of.
@@ -137,6 +137,14 @@ impl AsRsValueType for SharedRsValue {
 }
 
 impl AsRsValueType for RsValue {
+    fn as_value_type(&self) -> RsValueType {
+        self.internal()
+            .map(|i| i.as_value_type())
+            .unwrap_or_default()
+    }
+}
+
+impl AsRsValueType for DynRsValueRef<'_> {
     fn as_value_type(&self) -> RsValueType {
         self.internal()
             .map(|i| i.as_value_type())

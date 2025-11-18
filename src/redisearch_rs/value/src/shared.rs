@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ptr, sync::Arc};
+use std::{fmt, ptr, sync::Arc};
 
-use crate::{RsValueInternal, Value};
+use crate::{RsValueInternal, Value, dynamic::DynRsValueRef};
 
 /// A heap-allocated and refcounted RedisSearch dynamic value.
 /// This type is backed by [`Arc<RsValueInternal>`], but uses
@@ -79,12 +79,16 @@ impl Value for SharedRsValue {
         // to be valid by the backing `Arc`.
         Some(unsafe { &*self.ptr })
     }
+
+    fn to_dyn_ref(&self) -> DynRsValueRef<'_> {
+        DynRsValueRef::from(self.clone())
+    }
 }
 
-impl std::fmt::Debug for SharedRsValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for SharedRsValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.internal() {
-            Some(internal) => f.debug_tuple("Defined").field(internal).finish(),
+            Some(internal) => internal.fmt(f),
             None => f.debug_tuple("Undefined").finish(),
         }
     }
