@@ -4109,7 +4109,7 @@ def cluster_set_test(env: Env):
     def verify_address(addr):
         try:
             with TimeLimit(10, f'Failed waiting cluster set command to be updated with the new IP address `{addr}`'):
-                while env.cmd('SEARCH.CLUSTERINFO')[5][0][3] != addr:
+                while env.cmd('SEARCH.CLUSTERINFO')[5][0][5] != addr:
                     pass
         except Exception as e:
             env.assertTrue(False, message=str(e))
@@ -4251,16 +4251,11 @@ def test_multiple_slot_ranges_per_shard(env: Env):
         for port in ports:
             env.assertEqual(sh.execute_command('CLUSTER', 'MEET', '127.0.0.1', port), 'OK')
 
-    with TimeLimit(40, 'Failed waiting for the cluster to be OK'):
-        while True:
-            states = [sh.execute_command('CLUSTER', 'INFO') for sh in shards]
-            if all([s.startswith('cluster_state:ok') for s in states]):
-                break
-            time.sleep(0.5)
-
-    env.expect('SEARCH.CLUSTERREFRESH').ok()
+    # Wait for the cluster topology to be updated
+    env.waitCluster()
 
     generic_shard = [
+        'slots', [ANY] * 2 * ranges_per_shard, # flat of slot ranges list
         'id', ANY,
         'host', '127.0.0.1',
         'port', ANY,
@@ -4306,6 +4301,7 @@ def test_cluster_set_multiple_slots(env: Env):
 
     # SEARCH.CLUSTERSET does not support multiple slot ranges per shard
     generic_shard = [
+        'slots', ANY,
         'id', ANY,
         'host', '127.0.0.1',
         'port', ANY,
@@ -4524,9 +4520,8 @@ def test_with_tls():
 
     common_with_auth(env)
 
-# Temporarily disabled due to flakiness
-@skip()
-# @skip(cluster=False)
+# TODO: enable macos+san once https://redislabs.atlassian.net/browse/RED-176581 is fixed
+@skip(cluster=False, macos=True, asan=True)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
     protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""
@@ -4542,10 +4537,12 @@ def test_with_tls_and_non_tls_ports():
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    env.waitCluster()
 
     common_with_auth(env)
 
-@skip(cluster=False, redis_less_than="8.4")
+# TODO: enable macos+san once https://redislabs.atlassian.net/browse/RED-176581 is fixed
+@skip(cluster=False, redis_less_than="8.4", macos=True, asan=True)
 def test_dual_tls():
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
     env = Env(useTLS=True,          # initially set to use TLS, so `Env` is set as expected
@@ -4557,12 +4554,7 @@ def test_dual_tls():
 
     # Turn off tls-cluster, which means it's not the preferred port type anymore (but still available)
     verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
-    verify_command_OK_on_all_shards(env, 'SEARCH.CLUSTERREFRESH')
-    try:
-        verify_shard_init(env)
-    except:
-        # Test setup is flaky (redis cluster config change), skip the test
-        env.skip()
+    env.waitCluster()
 
     # Verify all nodes has both `port` (tcp) and `tls-port`
     shards = env.cmd('CLUSTER SHARDS')

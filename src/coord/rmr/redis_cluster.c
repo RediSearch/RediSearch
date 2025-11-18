@@ -27,10 +27,12 @@
   } while (0)
 #endif
 
-static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
+static bool parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
   const size_t len = RedisModule_CallReplyLength(node);
   RS_ASSERT(len % 2 == 0);
-  n->endpoint.port = -1; // Use -1 to indicate "not set"
+  char *id = NULL;
+  char *host = NULL;
+  int port = 0; // Use 0 to indicate "not set"
 
   for (size_t i = 0; i < len / 2; i++) {
     size_t key_len, val_len;
@@ -40,23 +42,41 @@ static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
 
     if (STR_EQ(key_str, key_len, "id")) {
       const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
-      n->id = rm_strndup(val_str, val_len);
+      if (val_str && val_len == REDISMODULE_NODE_ID_LEN) {
+        id = rm_strndup(val_str, REDISMODULE_NODE_ID_LEN);
+      }
     } else if (STR_EQ(key_str, key_len, "endpoint")) {
       const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
-      n->endpoint.host = rm_strndup(val_str, val_len);
+      if (val_str && !STR_EQ(val_str, val_len, "") && !STR_EQ(val_str, val_len, "?")) {
+        host = rm_strndup(val_str, val_len);
+      }
     } else if (STR_EQ(key_str, key_len, "tls-port")) {
-      n->endpoint.port = (int)RedisModule_CallReplyInteger(val); // Prefer tls-port if available
-    } else if (STR_EQ(key_str, key_len, "port") && n->endpoint.port == -1) {
-      n->endpoint.port = (int)RedisModule_CallReplyInteger(val); // Only set if tls-port wasn't set
+      int port_val = (int)RedisModule_CallReplyInteger(val);
+      if (port_val > 0) {
+        port = port_val; // Prefer tls-port if available (but only if valid)
+      }
+    } else if (STR_EQ(key_str, key_len, "port") && port == 0) {
+      int port_val = (int)RedisModule_CallReplyInteger(val);
+      if (port_val > 0) {
+        port = port_val; // Only set if tls-port wasn't set and port is valid
+      }
     }
   }
-  // Basic sanity - verify we have the required fields
-  RS_ASSERT_ALWAYS(n->id != NULL);
-  RS_ASSERT_ALWAYS(n->endpoint.host != NULL);
-  RS_ASSERT_ALWAYS(n->endpoint.port != -1);
+  // Verify we have the required fields
+  if (id && host && port > 0) {
+    n->id = id;
+    n->endpoint.host = host;
+    n->endpoint.port = port;
+    return true;
+  }
+
+  // Invalid node. Cleanup and return `false`
+  rm_free(id);
+  rm_free(host);
+  return false;
 }
 
-static void parseMasterNode(RedisModuleCallReply *nodes, MRClusterNode *n) {
+static bool parseMasterNode(RedisModuleCallReply *nodes, MRClusterNode *n) {
   const size_t numNodes = RedisModule_CallReplyLength(nodes);
 
   for (size_t i = 0; i < numNodes; i++) {
@@ -82,18 +102,18 @@ static void parseMasterNode(RedisModuleCallReply *nodes, MRClusterNode *n) {
     size_t val_len;
     const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
     if (STR_EQ(val_str, val_len, "master")) {
-      parseNode(node, n);
-      return;
+      if (parseNode(node, n)) {
+        return true;
+      }
     }
   }
-
-  // We should always find a master node
-  RS_ABORT_ALWAYS("No master node found in shard");
+  return false;
 }
 
-static void parseSlots(RedisModuleCallReply *slots, MRClusterShard *sh) {
+static bool parseSlots(RedisModuleCallReply *slots, MRClusterShard *sh) {
   size_t len = RedisModule_CallReplyLength(slots);
   RS_ASSERT(len % 2 == 0);
+  if (!len) return false;
   size_t buffer_size = SlotRangeArray_SizeOf(len / 2);
   sh->slotRanges = rm_malloc(buffer_size);
   sh->slotRanges->num_ranges = (int32_t)(len / 2);
@@ -101,6 +121,7 @@ static void parseSlots(RedisModuleCallReply *slots, MRClusterShard *sh) {
     sh->slotRanges->ranges[r].start = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(slots, r * 2));
     sh->slotRanges->ranges[r].end = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(slots, r * 2 + 1));
   }
+  return true;
 }
 
 static bool hasSlots(RedisModuleCallReply *shard) {
@@ -110,7 +131,9 @@ static bool hasSlots(RedisModuleCallReply *shard) {
   return RedisModule_CallReplyLength(slots) > 0;
 }
 
-// Sort shards by the port of their first node
+// Sort shards by the port of their node
+// We want to sort by some node value and not by slots, as the nodes in the cluster may be
+// stable while slots can migrate between them
 static void sortShards(MRClusterTopology *topo) {
   // Simple insertion sort, we don't expect many shards
   for (size_t i = 1; i < topo->numShards; i++) {
@@ -173,15 +196,20 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
 
   size_t numShards = RedisModule_CallReplyLength(cluster_shards);
   if (numShards == 0 || (numShards == 1 && !hasSlots(RedisModule_CallReplyArrayElement(cluster_shards, 0)))) {
-    RedisModule_Log(ctx, "warning", "Got no slots in CLUSTER SHARDS");
+    RedisModule_Log(ctx, "warning", "Got no valid shards in CLUSTER SHARDS");
     return NULL;
   }
-  MRClusterTopology *topo = rm_calloc(1, sizeof(MRClusterTopology));
 
-  topo->numShards = numShards;
+  MRClusterTopology *topo = rm_calloc(1, sizeof(MRClusterTopology));
   topo->shards = rm_calloc(numShards, sizeof(MRClusterShard));
 
-  // iterate each nested array
+  // Parse each shard, filter badly formatted or not ready shards
+  // A shard is valid if:
+  // 1. It has some slots associated with
+  // 2. It has a valid master node with a valid endpoint:
+  //    i. Valid node id
+  //   ii. Non-zero port
+  //  iii. Valid endpoint (not missing or a special invalid value)
   for (size_t i = 0; i < numShards; i++) {
     RedisModuleCallReply *currShard = RedisModule_CallReplyArrayElement(cluster_shards, i);
     RS_ASSERT(RedisModule_CallReplyType(currShard) == REDISMODULE_REPLY_ARRAY);
@@ -190,17 +218,29 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     // Handle slots
     ASSERT_KEY(currShard, 0, "slots");
     RedisModuleCallReply *slots = RedisModule_CallReplyArrayElement(currShard, 1);
-    parseSlots(slots, &topo->shards[i]);
+    if (!parseSlots(slots, &topo->shards[topo->numShards])) continue;
 
     // Handle nodes
     ASSERT_KEY(currShard, 2, "nodes");
     RedisModuleCallReply *nodes = RedisModule_CallReplyArrayElement(currShard, 3);
     RS_ASSERT(RedisModule_CallReplyType(nodes) == REDISMODULE_REPLY_ARRAY);
     // parse and store the master
-    parseMasterNode(nodes, &topo->shards[i].node);
+    if (!parseMasterNode(nodes, &topo->shards[topo->numShards].node)) {
+      rm_free(topo->shards[topo->numShards].slotRanges);
+      continue;
+    }
+    // Successfully parsed this shard
+    topo->numShards++;
   }
 
-  // Sort shards by the port of their first node (master), to have a stable order
+  if (!topo->numShards) {
+    RedisModule_Log(ctx, "warning", "Got no valid shards in CLUSTER SHARDS");
+    rm_free(topo->shards);
+    rm_free(topo);
+    return NULL;
+  }
+
+  // Sort shards by the port of their node (master), to have a stable order while the topology is stable
   sortShards(topo);
   return topo;
 }
