@@ -290,7 +290,7 @@ def testProfileVector(env):
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*=>[KNN 3 @v $vec]',
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
-  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 3]
+  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 3, 'Vector search mode', 'STANDARD_KNN']
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Results processed', 3]
   env.assertEqual(actual_res[0], [3, '4', '2', '1'])
   actual_profile = to_dict(actual_res[1][1][0])
@@ -301,7 +301,7 @@ def testProfileVector(env):
   # Range query - uses metric iterator. Radius is set so that the closest 2 vectors will be in the range
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
                                     'SORTBY', 'dist', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
-  expected_iterators_res = ['Type', 'METRIC - VECTOR DISTANCE', 'Number of reading operations', 2]
+  expected_iterators_res = ['Type', 'METRIC - VECTOR DISTANCE', 'Number of reading operations', 2, 'Vector search mode', 'RANGE_QUERY']
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Results processed', 2]
   env.assertEqual(actual_res[0], [2, '4', '2'])
   actual_profile = to_dict(actual_res[1][1][0])
@@ -313,7 +313,7 @@ def testProfileVector(env):
   # Expect ad-hoc BF to take place - going over child iterator exactly once (reading 2 results)
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[KNN 3 @v $vec]',
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
-  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 2, 'Child iterator',
+  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 2, 'Vector search mode', 'HYBRID_ADHOC_BF', 'Child iterator',
                             ['Type', 'INTERSECT', 'Number of reading operations', 2, 'Child iterators', [
                               ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 2, 'Estimated number of matches', 2],
                               ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 2, 'Estimated number of matches', 5]]]]
@@ -332,7 +332,7 @@ def testProfileVector(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[KNN 3 @v $vec]',
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   env.assertEqual(actual_res[0], [3, '4', '6', '7'])
-  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 3, 'Batches number', 2, 'Child iterator',
+  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 3, 'Vector search mode', 'HYBRID_BATCHES', 'Batches number', 2, 'Child iterator',
                             ['Type', 'INTERSECT', 'Number of reading operations', 8, 'Child iterators', [
                               ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 8, 'Estimated number of matches', 9997],
                               ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 8, 'Estimated number of matches', 10000]]]]
@@ -348,7 +348,7 @@ def testProfileVector(env):
 
   # expected results that pass the filter is index_size/2. after two iterations with no results,
   # we should move ad-hoc BF.
-  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 0, 'Batches number', 2, 'Child iterator',
+  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 0, 'Vector search mode', 'HYBRID_BATCHES_TO_ADHOC_BF', 'Batches number', 2, 'Child iterator',
                             ['Type', 'INTERSECT', 'Number of reading operations', 2, 'Child iterators', [
                              ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 5, 'Estimated number of matches', 10000],
                              ['Type', 'TEXT', 'Term', 'other', 'Number of reading operations', 3, 'Estimated number of matches', 10000]]]]
@@ -363,7 +363,7 @@ def testProfileVector(env):
   # index after the 13th batch.
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 2 @v $vec HYBRID_POLICY BATCHES]',
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
-  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 0, 'Batches number', 13, 'Child iterator',
+  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 0, 'Vector search mode', 'HYBRID_BATCHES', 'Batches number', 13, 'Child iterator',
                              ['Type', 'INTERSECT', 'Number of reading operations', 12, 'Child iterators', [
                               ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 25, 'Estimated number of matches', 10000],
                               ['Type', 'TEXT', 'Term', 'other', 'Number of reading operations', 13, 'Estimated number of matches', 10000]]]]
@@ -375,7 +375,7 @@ def testProfileVector(env):
   # After 200 iterations, we should go over the entire index.
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 2 @v $vec HYBRID_POLICY BATCHES BATCH_SIZE 100]',
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent', 'timeout', '100000')
-  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 0, 'Batches number', 200, 'Child iterator',
+  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 0, 'Vector search mode', 'HYBRID_BATCHES', 'Batches number', 200, 'Child iterator',
                             ['Type', 'INTERSECT', 'Number of reading operations', 199, 'Child iterators', [
                              ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 399, 'Estimated number of matches', 10000],
                              ['Type', 'TEXT', 'Term', 'other', 'Number of reading operations', 200, 'Estimated number of matches', 10000]]]]
@@ -389,7 +389,7 @@ def testProfileVector(env):
   # every iteration that returned 0 results.
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 2 @v $vec BATCH_SIZE 100]',
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
-  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 0, 'Batches number', 2, 'Child iterator',
+  expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 0, 'Vector search mode', 'HYBRID_BATCHES_TO_ADHOC_BF', 'Batches number', 2, 'Child iterator',
                             ['Type', 'INTERSECT', 'Number of reading operations', 2, 'Child iterators', [
                              ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 5, 'Estimated number of matches', 10000],
                              ['Type', 'TEXT', 'Term', 'other', 'Number of reading operations', 3, 'Estimated number of matches', 10000]]]]
@@ -693,3 +693,82 @@ def testProfileBM25NormMax(env):
   env.assertTrue(recursive_contains(aggregate_response, "Score Max Normalizer"))
   search_response = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'query', 'hello', 'WITHSCORES', 'SCORER', 'BM25STD.NORM')
   env.assertTrue(recursive_contains(search_response, "Score Max Normalizer"))
+
+def testProfileVectorSearchMode():
+  """Test Vector search mode field in FT.PROFILE for both SEARCH and AGGREGATE"""
+  env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)  # Use RESP3 for easier dict access
+  conn = getConnectionByEnv(env)
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
+
+  conn.execute_command('hset', '1', 'v', 'bababaca', 't', "hello")
+  conn.execute_command('hset', '2', 'v', 'babababa', 't', "hello")
+  conn.execute_command('hset', '3', 'v', 'aabbaabb', 't', "hello")
+  conn.execute_command('hset', '4', 'v', 'bbaabbaa', 't', "hello world")
+  conn.execute_command('hset', '5', 'v', 'aaaabbbb', 't', "hello world")
+
+  # Helper function to test both SEARCH and AGGREGATE
+  def verify_search_mode(query_type, query, params, expected_mode, expected_iterator_type='VECTOR'):
+    scenario_message = f"query_type: {query_type}, query: {query}, params: {params}, expected_mode: {expected_mode}"
+    """
+    Verify that Vector search mode appears in profile for both SEARCH and AGGREGATE
+    query_type: 'SEARCH' or 'AGGREGATE'
+    query: the query string
+    params: list of params (e.g., ['vec', 'aaaaaaaa'])
+    expected_mode: expected search mode string
+    expected_iterator_type: 'VECTOR' or 'METRIC - VECTOR DISTANCE'
+    """
+    cmd = ['FT.PROFILE', 'idx', query_type, 'QUERY', query]
+    cmd.extend(['PARAMS'] + [str(len(params))] + params)
+
+    res = env.cmd(*cmd)
+
+    # Navigate to iterator profile (RESP3 dict structure)
+    shards = res['Profile']['Shards']
+    env.assertGreater(len(shards), 0, message=scenario_message)
+
+    # Check at least one shard has the expected search mode
+    # res['Profile']['Shards'][0]['Iterators profile']['Vector search mode']
+    found = False
+    for shard in shards:
+      iter_profile = shard['Iterators profile']
+      if iter_profile['Type'] == expected_iterator_type:
+        env.assertEqual(iter_profile['Vector search mode'], expected_mode, message=scenario_message)
+        found = True
+        break
+    env.assertTrue(found, message=f"{scenario_message}: Expected iterator type {expected_iterator_type} not found")
+
+  # Test 1: STANDARD_KNN
+  verify_search_mode('SEARCH', '*=>[KNN 3 @v $vec]', ['vec', 'aaaaaaaa'], 'STANDARD_KNN')
+  verify_search_mode('AGGREGATE', '*=>[KNN 3 @v $vec]', ['vec', 'aaaaaaaa'], 'STANDARD_KNN')
+
+  # Test 2: HYBRID_ADHOC_BF
+  verify_search_mode('SEARCH', '(@t:hello world)=>[KNN 3 @v $vec]', ['vec', 'aaaaaaaa'], 'HYBRID_ADHOC_BF')
+  verify_search_mode('AGGREGATE', '(@t:hello world)=>[KNN 3 @v $vec]', ['vec', 'aaaaaaaa'], 'HYBRID_ADHOC_BF')
+
+  # Test 3: RANGE_QUERY (uses METRIC_ITERATOR)
+  verify_search_mode('SEARCH', '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
+                     ['vec', 'aaaaaaaa'], 'RANGE_QUERY', 'METRIC - VECTOR DISTANCE')
+  verify_search_mode('AGGREGATE', '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
+                     ['vec', 'aaaaaaaa'], 'RANGE_QUERY', 'METRIC - VECTOR DISTANCE')
+
+  # Test 4: HYBRID_BATCHES
+  verify_search_mode('SEARCH', '(@t:hello world)=>[KNN 3 @v $vec HYBRID_POLICY BATCHES BATCH_SIZE 100]', ['vec', 'aaaaaaaa'], 'HYBRID_BATCHES')
+  verify_search_mode('AGGREGATE', '(@t:hello world)=>[KNN 3 @v $vec HYBRID_POLICY BATCHES BATCH_SIZE 100]', ['vec', 'aaaaaaaa'], 'HYBRID_BATCHES')
+
+  # Running HYBRID_BATCHES_TO_ADHOC_BF on cluster requires much more data and doesn't add a significant value
+  if env.isCluster():
+    return
+
+  for i in range(6, 5000):
+    conn.execute_command('hset', str(i), 'v', 'bababada', 't', "hello")
+
+  # Add another 10K docs with "other" tag for HYBRID_BATCHES_TO_ADHOC_BF test
+  for i in range(5000, 10001):
+    conn.execute_command('hset', str(i), 'v', '????????', 't', "other")
+
+  # Test 5: HYBRID_BATCHES_TO_ADHOC_BF
+  # Query: "hello" (10K docs) AND "other" (10K docs) → intersection is 0 (disjoint sets)
+  # High estimated results → starts BATCHES, but 0 actual results → switches to ADHOC_BF
+  verify_search_mode('SEARCH', '(@t:hello other)=>[KNN 3 @v $vec BATCH_SIZE 100]', ['vec', '????????'], 'HYBRID_BATCHES_TO_ADHOC_BF')
+  verify_search_mode('AGGREGATE', '(@t:hello other)=>[KNN 3 @v $vec BATCH_SIZE 100]', ['vec', '????????'], 'HYBRID_BATCHES_TO_ADHOC_BF')
