@@ -216,6 +216,7 @@ void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t
     memset(oldArg + pos + newLen, ' ', oldSubStringLen - newLen);
 
     // No length change needed - argument stays same size
+    RS_LOG_ASSERT(!cmd->cmd, "Expect MRCommand_ReplaceArgSubstring to be called before `cmd` is used for the first time");
     return;
   }
 
