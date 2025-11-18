@@ -24,3 +24,6 @@
 /// of the original type, but hides its internals and is FFI-safe even if
 /// original is not.
 pub mod opaque;
+
+/// Provides the [`expect_unchecked`](crate::expect_unchecked!) macro.
+pub mod expect_unchecked;

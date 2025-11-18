@@ -258,3 +258,55 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
     IndexSpec_RemoveFromGlobals(loaded_spec_ref, false);
     RedisModule_FreeString(NULL, serialized);
 }
+
+TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
+    // Create an index with a single text field
+    const char *args[] = {"ON", "HASH", "SCHEMA", "title", "TEXT"};
+    QueryError err = QueryError_Default();
+
+    StrongRef spec_ref = IndexSpec_ParseC("test_duplicate_idx", args, sizeof(args) / sizeof(const char *), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+    IndexSpec *spec = (IndexSpec *)StrongRef_Get(spec_ref);
+    ASSERT_TRUE(spec != nullptr);
+
+    // Create RDB IO context
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    // Write the same index 30 times to RDB
+    // First write the count (30)
+    RMCK_SaveUnsigned(io, 30);
+
+    // Then write the index 30 times
+    for (int i = 0; i < 30; i++) {
+        IndexSpec_RdbSave(io, spec);
+    }
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    // Remove the original spec from globals before loading from RDB
+    IndexSpec_RemoveFromGlobals(spec_ref, false);
+    ASSERT_TRUE(IndexSpec_LoadUnsafe("test_duplicate_idx").rm == NULL);
+
+    // Reset read position to load from RDB
+    io->read_pos = 0;
+
+    // Load from RDB - this should load 30 copies but only store one
+    int result = Indexes_RdbLoad(io, INDEX_CURRENT_VERSION, REDISMODULE_AUX_BEFORE_RDB);
+    EXPECT_EQ(REDISMODULE_OK, result);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+
+    // Verify the loaded index exists and has the correct name
+    StrongRef loaded_spec_ref = IndexSpec_LoadUnsafe("test_duplicate_idx");
+    IndexSpec *loaded_spec = (IndexSpec *)StrongRef_Get(loaded_spec_ref);
+    ASSERT_TRUE(loaded_spec != nullptr);
+    ASSERT_STREQ(HiddenString_GetUnsafe(loaded_spec->specName, NULL), "test_duplicate_idx");
+    ASSERT_EQ(loaded_spec->numFields, 1);
+
+    // Clean up
+    IndexSpec_RemoveFromGlobals(loaded_spec_ref, false);
+}

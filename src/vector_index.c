@@ -21,7 +21,7 @@
 #define CPUID_AVAILABLE 1
 #endif
 
-static bool isLVQSupported() {
+bool isLVQSupported() {
 
 #if defined(CPUID_AVAILABLE) && BUILD_INTEL_SVS_OPT
   // Check if the machine is Intel based on the CPU vendor.
@@ -119,7 +119,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
   VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = vq->field->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = vq->field->index}, .predicate = FIELD_EXPIRATION_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
@@ -298,7 +298,7 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
 }
 
 bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits) {
-  return isLVQSupported() && (quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec);
+  return quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec;
 }
 
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {

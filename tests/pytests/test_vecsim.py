@@ -1883,6 +1883,10 @@ def test_index_multi_value_json():
         n = 100
         conn.flushall()
 
+        # Scale factor to avoid FLOAT16/BFLOAT16 overflow: using 1/8 keeps values and distances within safe range
+        # For FLOAT16 with n=250: max value = 250/8 = 31.25, max L2 distance = 4 * 31.25^2 ≈ 3906 (< 65504)
+        scale = 8.0
+
         args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                 '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
                 '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
@@ -1895,10 +1899,10 @@ def test_index_multi_value_json():
 
         for i in range(0, n, 2):
             # Test setting vectors with python list
-            conn.json().set(i, '.', {'vecs': [[i + j] * dim for j in range(per_doc)]})
+            conn.json().set(i, '.', {'vecs': [[(i + j) / scale] * dim for j in range(per_doc)]})
             # Test setting vectors with numpy array of the same type
             conn.json().set(i + 1, '.', {'vecs': [
-                create_np_array_typed([i + 1 + j] * dim, data_t).tolist() for j in range(per_doc)]})
+                create_np_array_typed([(i + 1 + j) / scale] * dim, data_t).tolist() for j in range(per_doc)]})
 
         score_field_name = 'dist'
         k = min(10, n)
@@ -1908,15 +1912,19 @@ def test_index_multi_value_json():
         expected_res_knn = []  # the expected ids are going to be unique
         for i in range(k):
             expected_res_knn.append(str(i))                                 # Expected id
-            expected_res_knn.append([score_field_name, str(i * i * dim)])   # Expected score
+            dist = i * i * dim / (scale * scale)
+            # Server returns int for whole numbers, float otherwise
+            expected_res_knn.append([score_field_name, str(int(dist) if dist == int(dist) else dist)])
 
-        radius = dim * k**2 + 40
-        element = create_np_array_typed([n]*dim, data_t)
+        radius = (dim * k**2 + 40) / (scale * scale)
+        element = create_np_array_typed([n / scale]*dim, data_t)
         cmd_range = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'LIMIT', 0, n]
         expected_res_range = []
         for i in range(n-k-per_doc+1, n-per_doc+1):
             expected_res_range.append(str(i))
-            expected_res_range.append([score_field_name, str(dim * (n-per_doc-i+1)**2)])
+            dist = dim * (n-per_doc-i+1)**2 / (scale * scale)
+            # Server returns int for whole numbers, float otherwise
+            expected_res_range.append([score_field_name, str(int(dist) if dist == int(dist) else dist)])
         for i in range(n-per_doc+1, n):        # Ids for which there is a vector whose distance to the query vec is zero.
             expected_res_range.append(str(i))
             expected_res_range.append([score_field_name, '0'])
