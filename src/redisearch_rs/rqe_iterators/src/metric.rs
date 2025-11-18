@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{RQEIterator, RQEIteratorError, SkipToOutcome, id_list::IdList};
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList};
 use ffi::{RLookupKey, RLookupKeyHandle, RSYieldableMetric, array_ensure_append_n_func, t_docId};
 use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
 use value::{RSValueFFI, RSValueTrait};
@@ -128,6 +128,11 @@ impl<'index, const SORTED_BY_ID: bool> MetricIterator<'index, SORTED_BY_ID> {
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index>
     for MetricIterator<'index, SORTED_BY_ID>
 {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.base.current()
+    }
+
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.base.at_eof() {
             return Ok(None);
@@ -162,20 +167,29 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index>
         }
     }
 
+    #[inline(always)]
     fn rewind(&mut self) {
         self.base.rewind();
     }
 
+    #[inline(always)]
     // This should always return total results from the iterator, even after some yields.
     fn num_estimated(&self) -> usize {
         self.base.num_estimated()
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         self.base.last_doc_id()
     }
 
+    #[inline(always)]
     fn at_eof(&self) -> bool {
         self.base.at_eof()
+    }
+
+    #[inline(always)]
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        self.base.revalidate()
     }
 }
