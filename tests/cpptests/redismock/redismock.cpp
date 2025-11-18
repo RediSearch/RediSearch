@@ -38,6 +38,11 @@
 
 static std::mutex RMCK_GlobalLock;
 
+// KeyMeta mock storage
+static std::map<RedisModuleKey*, std::map<RedisModuleKeyMetaClassId, uint64_t>> keyMetaStorage;
+static RedisModuleKeyMetaClassId nextClassId = 1;
+static std::map<RedisModuleKeyMetaClassId, RedisModuleKeyMetaClassConfig> classConfigs;
+
 std::string HashValue::Key::makeKey() const {
   if (flags & REDISMODULE_HASH_CFIELDS) {
     return std::string(cstr);
@@ -1391,6 +1396,150 @@ static int RMCK_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, Redi
   return cur->it != cur->end;
 }
 
+// KeyMeta mock implementations
+static RedisModuleKeyMetaClassId RMCK_CreateKeyMetaClass(RedisModuleCtx *ctx,
+                                                         const char *name,
+                                                         int encver,
+                                                         RedisModuleKeyMetaClassConfig *config) {
+  RedisModuleKeyMetaClassId classId = nextClassId++;
+  classConfigs[classId] = *config;
+  return classId;
+}
+
+static int RMCK_GetKeyMeta(RedisModuleKeyMetaClassId class_id,
+                          RedisModuleKey *key,
+                          uint64_t *meta) {
+  auto keyIt = keyMetaStorage.find(key);
+  if (keyIt == keyMetaStorage.end()) {
+    *meta = 0;
+    return REDISMODULE_OK;
+  }
+
+  auto metaIt = keyIt->second.find(class_id);
+  if (metaIt == keyIt->second.end()) {
+    *meta = 0;
+    return REDISMODULE_OK;
+  }
+
+  *meta = metaIt->second;
+  return REDISMODULE_OK;
+}
+
+static int RMCK_SetKeyMeta(RedisModuleKeyMetaClassId class_id,
+                          RedisModuleKey *key,
+                          uint64_t meta) {
+  keyMetaStorage[key][class_id] = meta;
+  return REDISMODULE_OK;
+}
+
+static void RMCK_ClearKeyMeta() {
+  // Clean up any allocated metadata using the free callback
+  for (auto& keyPair : keyMetaStorage) {
+    for (auto& metaPair : keyPair.second) {
+      if (metaPair.second != 0) {
+        auto configIt = classConfigs.find(metaPair.first);
+        if (configIt != classConfigs.end() && configIt->second.free) {
+          configIt->second.free("testkey", metaPair.second);
+        }
+      }
+    }
+  }
+
+  keyMetaStorage.clear();
+  classConfigs.clear();
+  nextClassId = 1;
+}
+
+// External interface for clearing KeyMeta storage
+void RMCK_ClearKeyMetaStorage() {
+  RMCK_ClearKeyMeta();
+}
+
+// Copy key with metadata - simulates Redis COPY command
+int RMCK_CopyKey(RedisModuleCtx *ctx, RedisModuleString *srcKey, RedisModuleString *dstKey) {
+  // Get source key - try both read and write modes to handle keys that exist but have no value
+  RedisModuleKey *src = RedisModule_OpenKey(ctx, srcKey, REDISMODULE_READ);
+  if (!src) {
+    src = RedisModule_OpenKey(ctx, srcKey, REDISMODULE_WRITE);
+    if (!src) {
+      return REDISMODULE_ERR; // Source key doesn't exist
+    }
+  }
+
+  // Check if destination key already exists
+  RedisModuleKey *dst = RedisModule_OpenKey(ctx, dstKey, REDISMODULE_READ);
+  if (dst) {
+    // Destination key already exists
+    RedisModule_CloseKey(src);
+    RedisModule_CloseKey(dst);
+    return REDISMODULE_ERR;
+  }
+
+  // Copy the value if it exists
+  Value *srcValue = src->ref;
+  Value *newValue = nullptr;
+
+  if (srcValue) {
+    // Create a copy based on the value type
+    switch (srcValue->typecode()) {
+      case REDISMODULE_KEYTYPE_STRING: {
+        StringValue *srcStr = static_cast<StringValue*>(srcValue);
+        newValue = new StringValue(std::string(*dstKey));
+        static_cast<StringValue*>(newValue)->m_string = srcStr->m_string;
+        break;
+      }
+      case REDISMODULE_KEYTYPE_HASH: {
+        HashValue *srcHash = static_cast<HashValue*>(srcValue);
+        HashValue *newHash = new HashValue(std::string(*dstKey));
+        // Copy all hash fields
+        for (const auto& item : srcHash->items()) {
+          newHash->add(item.first.c_str(), item.second.value.c_str());
+        }
+        newValue = newHash;
+        break;
+      }
+      // Add other types as needed
+      default:
+        RedisModule_CloseKey(src);
+        return REDISMODULE_ERR; // Unsupported type for copying
+    }
+
+    // Set the new value in the database
+    ctx->db->set(newValue);
+  }
+
+  // Copy KeyMeta data
+  auto srcKeyIt = keyMetaStorage.find(src);
+  if (srcKeyIt != keyMetaStorage.end()) {
+    // Open destination key to get the RedisModuleKey pointer
+    RedisModuleKey *dstKeyPtr = RedisModule_OpenKey(ctx, dstKey, REDISMODULE_WRITE);
+
+    // Copy metadata for each class
+    for (const auto& metaPair : srcKeyIt->second) {
+      RedisModuleKeyMetaClassId classId = metaPair.first;
+      uint64_t srcMeta = metaPair.second;
+
+      // Find the class config to call the copy callback
+      auto configIt = classConfigs.find(classId);
+      if (configIt != classConfigs.end() && configIt->second.copy && srcMeta != 0) {
+        uint64_t newMeta = srcMeta;
+        // Call the copy callback
+        if (configIt->second.copy(nullptr, &newMeta)) {
+          keyMetaStorage[dstKeyPtr][classId] = newMeta;
+        }
+      } else if (srcMeta != 0) {
+        // If no copy callback, just copy the metadata value directly
+        keyMetaStorage[dstKeyPtr][classId] = srcMeta;
+      }
+    }
+
+    RedisModule_CloseKey(dstKeyPtr);
+  }
+
+  RedisModule_CloseKey(src);
+  return REDISMODULE_OK;
+}
+
 static void registerApis() {
   REGISTER_API(GetApi);
   REGISTER_API(Alloc);
@@ -1500,6 +1649,13 @@ static void registerApis() {
   REGISTER_API(ClusterPropagateForSlotMigration);
   REGISTER_API(ClusterGetLocalSlotRanges);
   REGISTER_API(ClusterFreeSlotRanges);
+
+  // KeyMeta
+  REGISTER_API(CreateKeyMetaClass);
+  REGISTER_API(GetKeyMeta);
+  REGISTER_API(SetKeyMeta);
+  REGISTER_API(ClearKeyMeta);
+  REGISTER_API(CopyKey);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

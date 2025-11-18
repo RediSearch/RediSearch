@@ -727,6 +727,7 @@ DEBUG_COMMAND(DocIdToId) {
   GET_SEARCH_CTX(argv[2])
   size_t n;
   const char *key = RedisModule_StringPtrLen(argv[3], &n);
+  // TODO: Get key and use DocIdMeta_Get
   t_docId id = DocTable_GetId(&sctx->spec->docs, key, n);
   RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
   SearchCtx_Free(sctx);

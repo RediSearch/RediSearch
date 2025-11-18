@@ -25,6 +25,10 @@ struct RedisModuleIO {
 
 std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx *ctx);
 
+// External interface for clearing KeyMeta storage
+void RMCK_ClearKeyMetaStorage();
+int RMCK_CopyKey(RedisModuleCtx *ctx, RedisModuleString *srcKey, RedisModuleString *dstKey);
+
 extern "C" {
 #else
 struct RedisModuleIO;
