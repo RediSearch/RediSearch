@@ -170,6 +170,11 @@ impl<'index, R> Numeric<'index, R>
 where
     R: NumericReader<'index>,
 {
+    /// Create an iterator returning results from a numeric inverted index.
+    ///
+    /// Filtering the results can be achieved by wrapping the reader with
+    /// a [`NumericReader`] such as [`inverted_index::FilterNumericReader`]
+    /// or [`inverted_index::FilterGeoReader`].
     pub fn new(reader: R) -> Self {
         let result = RSIndexResult::numeric(0.0);
         Self {
@@ -241,6 +246,10 @@ impl<'index, R> Term<'index, R>
 where
     R: TermReader<'index>,
 {
+    /// Create an iterator returning results from a term inverted index.
+    ///
+    /// Filtering the results can be achieved by wrapping the reader with
+    /// a [`inverted_index::FilterMaskReader`].
     pub fn new(reader: R) -> Self {
         let result = RSIndexResult::term();
         Self {
