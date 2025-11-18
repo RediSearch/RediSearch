@@ -335,15 +335,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pyjwt"
-version = "2.10.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e7/46/bd74733ff231675599650d3e47f361794b22ef3e3770998dda30d3b63726/pyjwt-2.10.1.tar.gz", hash = "sha256:3cc5772eb20009233caf06e9d8a0577824723b44e6648ee0a2aedb6cf9381953", size = 87785, upload-time = "2024-11-28T03:43:29.933Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/ad/689f02752eeec26aed679477e80e632ef1b682313be70793d798c1d5fc8f/PyJWT-2.10.1-py3-none-any.whl", hash = "sha256:dcdd193e30abefd5debf142f9adfcdd2b58004e644f25406ffaebd50bd98dacb", size = 22997, upload-time = "2024-11-28T03:43:27.893Z" },
-]
-
-[[package]]
 name = "pytest"
 version = "7.4.4"
 source = { registry = "https://pypi.org/simple" }
@@ -385,14 +376,11 @@ wheels = [
 
 [[package]]
 name = "redis"
-version = "5.3.1"
+version = "5.0.8"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pyjwt" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/6a/cf/128b1b6d7086200c9f387bd4be9b2572a30b90745ef078bd8b235042dc9f/redis-5.3.1.tar.gz", hash = "sha256:ca49577a531ea64039b5a36db3d6cd1a0c7a60c34124d46924a45b956e8cf14c", size = 4626200, upload-time = "2025-07-25T08:06:27.778Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/48/10/defc227d65ea9c2ff5244645870859865cba34da7373477c8376629746ec/redis-5.0.8.tar.gz", hash = "sha256:0c5b10d387568dfe0698c6fad6615750c24170e548ca2deac10c649d463e9870", size = 4595651, upload-time = "2024-07-30T14:11:52.137Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7f/26/5c5fa0e83c3621db835cfc1f1d789b37e7fa99ed54423b5f519beb931aa7/redis-5.3.1-py3-none-any.whl", hash = "sha256:dc1909bd24669cc31b5f67a039700b16ec30571096c5f1f0d9d2324bff31af97", size = 272833, upload-time = "2025-07-25T08:06:26.317Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/d1/19a9c76811757684a0f74adc25765c8a901d67f9f6472ac9d57c844a23c8/redis-5.0.8-py3-none-any.whl", hash = "sha256:56134ee08ea909106090934adc36f65c9bcbbaecea5b21ba704ba6fb561f8eb4", size = 255608, upload-time = "2024-07-30T14:11:49.541Z" },
 ]
 
 [[package]]
@@ -449,7 +437,7 @@ requires-dist = [
     { name = "numpy", specifier = "<=2.2.4" },
     { name = "orderly-set", specifier = "<=5.3.0" },
     { name = "packaging", specifier = "<=24.2" },
-    { name = "redis", specifier = ">=5.2.1,<6.0.0" },
+    { name = "redis", specifier = "~=5.0.8" },
     { name = "rltest", specifier = ">=0.7.18,<0.8.0" },
     { name = "scipy", specifier = "<=1.15.2" },
 ]
