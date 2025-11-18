@@ -101,7 +101,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   while (entry != NULL) {
     bool isNew;
     if (spec->diskSpec) {
-      SearchDisk_IndexDocument(spec->diskSpec, entry->term, aCtx->doc->docId, entry->fieldMask);
+      SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask);
       // assume all terms are new, avoid the disk io to check
       isNew = true;
     } else {
@@ -190,8 +190,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     if (spec->diskSpec) {
-      const char *key = RedisModule_StringPtrLen(cur->doc->docKey, NULL);
-      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, cur->doc->score, cur->docFlags, cur->fwIdx->maxFreq);
+      size_t len;
+      const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
+      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len, cur->doc->score, cur->docFlags, cur->fwIdx->maxFreq);
       if (docId) {
         cur->doc->docId = docId;
       } else {
