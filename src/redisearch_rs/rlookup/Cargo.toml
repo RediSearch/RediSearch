@@ -11,8 +11,8 @@ enumflags2.workspace = true
 libc.workspace = true
 pin-project.workspace = true
 sorting_vector.workspace = true
-value = { workspace = true, features = ["c_ffi_impl"] }
 strum.workspace = true
+value = { workspace = true, features = ["c_ffi_impl"] }
 thiserror.workspace = true
 redis_mock.workspace = true
 redis-module.workspace = true
