@@ -27,12 +27,30 @@ struct SharedExclusiveLockBenchmarkData {
   int sleep_microseconds;
 };
 
+// Structure for SharedExclusiveLock benchmark data
+struct SharedExclusiveLockBenchmarkDataWithJobs {
+  RedisModuleCtx *ctx;
+  std::atomic<int> *threads_ready;
+  std::atomic<bool> *start_flag;
+  int sleep_microseconds;
+  int num_jobs;
+};
+
+
 // Structure for regular mutex benchmark data
 struct MutexBenchmarkData {
   std::mutex *mtx;
   std::atomic<int> *threads_ready;
   std::atomic<bool> *start_flag;
   int sleep_microseconds;
+};
+
+struct MutexBenchmarkDataWithJobs {
+  std::mutex *mtx;
+  std::atomic<int> *threads_ready;
+  std::atomic<bool> *start_flag;
+  int sleep_microseconds;
+  int num_jobs;
 };
 
 // Worker thread function using SharedExclusiveLock
@@ -58,6 +76,24 @@ void* shared_exclusive_lock_worker(void* arg) {
   return nullptr;
 }
 
+void *shared_exclusive_lock_worker_with_jobs(void *arg) {
+  SharedExclusiveLockBenchmarkDataWithJobs* data = static_cast<SharedExclusiveLockBenchmarkDataWithJobs*>(arg);
+  data->threads_ready->fetch_add(1);
+  while (!data->start_flag->load()) {
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+  for (int i = 0; i < data->num_jobs; ++i) {
+    // Try to acquire the SharedExclusiveLock and do work
+    SharedExclusiveLockType lock_type = SharedExclusiveLock_Acquire(data->ctx);
+    if (data->sleep_microseconds > 0) {
+      std::this_thread::sleep_for(std::chrono::microseconds(data->sleep_microseconds));
+    }
+    // Release the lock
+    SharedExclusiveLock_Release(data->ctx, lock_type);
+  }
+  return nullptr;
+}
+
 // Worker thread function using regular mutex
 void* mutex_worker(void* arg) {
   MutexBenchmarkData* data = static_cast<MutexBenchmarkData*>(arg);
@@ -76,6 +112,21 @@ void* mutex_worker(void* arg) {
     std::this_thread::sleep_for(std::chrono::microseconds(data->sleep_microseconds));
   }
 
+  return nullptr;
+}
+
+void *mutex_worker_with_jobs(void *arg) {
+  MutexBenchmarkDataWithJobs* data = static_cast<MutexBenchmarkDataWithJobs*>(arg);
+  data->threads_ready->fetch_add(1);
+  while (!data->start_flag->load()) {
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+  for (int i = 0; i < data->num_jobs; ++i) {
+    std::lock_guard<std::mutex> lock(*data->mtx);
+    if (data->sleep_microseconds > 0) {
+      std::this_thread::sleep_for(std::chrono::microseconds(data->sleep_microseconds));
+    }
+  }
   return nullptr;
 }
 
@@ -150,6 +201,48 @@ BENCHMARK_DEFINE_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLock)(benchmark
   }
 }
 
+BENCHMARK_DEFINE_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWithJobs)(benchmark::State& state) {
+  const int num_threads = state.range(0);
+  const int sleep_microseconds = state.range(1);
+  const int num_jobs = state.range(2);
+
+  for (auto _ : state) {
+    state.PauseTiming();
+    std::atomic<int> threads_ready{0};
+    std::atomic<bool> start_flag{false};
+    std::vector<pthread_t> threads(num_threads);
+    std::vector<SharedExclusiveLockBenchmarkDataWithJobs> thread_data(num_threads);
+    // Create worker threads
+    for (int i = 0; i < num_threads; ++i) {
+      thread_data[i] = {
+        ctx,
+        &threads_ready,
+        &start_flag,
+        sleep_microseconds,
+        num_jobs
+      };
+      int rc = pthread_create(&threads[i], nullptr, shared_exclusive_lock_worker_with_jobs, &thread_data[i]);
+      if (rc != 0) {
+        state.SkipWithError("Failed to create thread");
+        return;
+      }
+    }
+
+    // Wait for all threads to be ready
+    while (threads_ready.load() < num_threads) {
+      std::this_thread::sleep_for(std::chrono::microseconds(1));
+    }
+    // Signal threads to start
+    state.ResumeTiming();
+    start_flag.store(true);
+
+    // Wait for all threads to complete
+    for (int i = 0; i < num_threads; ++i) {
+      pthread_join(threads[i], nullptr);
+    }
+  }
+}
+
 // Benchmark using regular mutex coordination
 BENCHMARK_DEFINE_F(BM_SharedExclusiveLockVsMutex, RegularMutex)(benchmark::State& state) {
   const int num_threads = state.range(0);
@@ -173,6 +266,52 @@ BENCHMARK_DEFINE_F(BM_SharedExclusiveLockVsMutex, RegularMutex)(benchmark::State
         sleep_microseconds
       };
       int rc = pthread_create(&threads[i], nullptr, mutex_worker, &thread_data[i]);
+      if (rc != 0) {
+        state.SkipWithError("Failed to create thread");
+        return;
+      }
+    }
+
+    // Wait for all threads to be ready
+    while (threads_ready.load() < num_threads) {
+      std::this_thread::sleep_for(std::chrono::microseconds(1));
+    }
+
+    // Signal threads to start
+    state.ResumeTiming();
+    start_flag.store(true);
+
+    // Wait for all threads to complete
+    for (int i = 0; i < num_threads; ++i) {
+      pthread_join(threads[i], nullptr);
+    }
+  }
+}
+
+BENCHMARK_DEFINE_F(BM_SharedExclusiveLockVsMutex, RegularMutexWithJobs)(benchmark::State& state) {
+  const int num_threads = state.range(0);
+  const int sleep_microseconds = state.range(1);
+  const int num_jobs = state.range(2);
+
+  for (auto _ : state) {
+    state.PauseTiming();
+    std::atomic<int> threads_ready{0};
+    std::atomic<bool> start_flag{false};
+    std::mutex mtx;
+
+    std::vector<pthread_t> threads(num_threads);
+    std::vector<MutexBenchmarkDataWithJobs> thread_data(num_threads);
+
+    // Create worker threads
+    for (int i = 0; i < num_threads; ++i) {
+      thread_data[i] = {
+        &mtx,
+        &threads_ready,
+        &start_flag,
+        sleep_microseconds,
+        num_jobs
+      };
+      int rc = pthread_create(&threads[i], nullptr, mutex_worker_with_jobs, &thread_data[i]);
       if (rc != 0) {
         state.SkipWithError("Failed to create thread");
         return;
@@ -243,6 +382,74 @@ BENCHMARK_DEFINE_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWhileOwned)
     SharedExclusiveLock_TakeBackGIL();
   }
 }
+
+// Register benchmarks with different configurations
+// Arguments: (num_threads, sleep_microseconds, num_jobs)
+
+// Light workload - few threads, minimal work, no sleep, 100 jobs
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, RegularMutexWithJobs)
+    ->Args({4, 0, 100})
+    ->Args({8, 0, 100})
+    ->Args({16, 0, 100})
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWithJobs)
+    ->Args({4, 0, 100})
+    ->Args({8, 0, 100})
+    ->Args({16, 0, 100})
+    ->Unit(benchmark::kMillisecond);
+
+// Light workload - few threads, minimal work, no sleep, 1000 jobs
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, RegularMutexWithJobs)
+    ->Args({4, 0, 1000})
+    ->Args({8, 0, 1000})
+    ->Args({16, 0, 1000})
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWithJobs)
+    ->Args({4, 0, 1000})
+    ->Args({8, 0, 1000})
+    ->Args({16, 0, 1000})
+    ->Unit(benchmark::kMillisecond);
+
+// Medium workload - few threads, minimal work, some sleep, 100 jobs
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, RegularMutexWithJobs)
+    ->Args({4, 100, 100})
+    ->Args({8, 100, 100})
+    ->Args({16, 100, 100})
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWithJobs)
+    ->Args({4, 100, 100})
+    ->Args({8, 100, 100})
+    ->Args({16, 100, 100})
+    ->Unit(benchmark::kMillisecond);
+
+// Medium workload - many jobs few threads, minimal work, some sleep, 1000 jobs
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, RegularMutexWithJobs)
+    ->Args({4, 100, 1000})
+    ->Args({8, 100, 1000})
+    ->Args({16, 100, 1000})
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWithJobs)
+    ->Args({4, 100, 1000})
+    ->Args({8, 100, 1000})
+    ->Args({16, 100, 1000})
+    ->Unit(benchmark::kMillisecond);
+
+// Large workload - many threads, some work, some sleep, 1000 jobs
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, RegularMutexWithJobs)
+    ->Args({64, 100, 1000})
+    ->Args({128, 100, 1000})
+    ->Args({256, 100, 1000})
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWithJobs)
+    ->Args({64, 100, 1000})
+    ->Args({128, 100, 1000})
+    ->Args({256, 100, 1000})
+    ->Unit(benchmark::kMillisecond);
 
 // Register benchmarks with different configurations
 // Arguments: (num_threads, sleep_microseconds)
@@ -322,6 +529,7 @@ BENCHMARK_REGISTER_F(BM_SharedExclusiveLockVsMutex, SharedExclusiveLockWhileOwne
     ->Args({128, 1000})
     ->Args({256, 1000})
     ->Unit(benchmark::kMillisecond);
+
 
 // Cleanup function to be called at program exit
 static void cleanup() {
