@@ -1073,11 +1073,21 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   }
 
   // Define if we need a depleter in the pipeline
-  if (IsAggregate(req)) {
-    bool hasSortBy = (AREQ_RequestFlags(req) & QEXEC_F_SORTBY);
-    if (req->protocol == 2) {
-      if (!IsOptimized(req) && !hasSortBy) {
-        // FT.AGGREGATE idx '*' WITHCOUNT [LIMIT]
+  if (IsAggregate(req) && !IsOptimized(req) && !IsCount(req)) {
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
+    bool isLimited = (arng && arng->isLimited && arng->limit > 0);
+
+    if (req->protocol == 2)
+    {
+      if (!HasSortBy(req) || (HasSortBy(req) && isLimited)) {
+        // FT.AGGREGATE idx '*' WITHCOUNT + SORTBY + LIMIT
+        // FT.AGGREGATE idx '*' WITHCOUNT + LIMIT
+        AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+      }
+    } else if (req->protocol == 3) {
+      if (isLimited) {
+        // FT.AGGREGATE idx '*' WITHCOUNT + LIMIT
+        // FT.AGGREGATE idx '*' WITHCOUNT + SORTBY + LIMIT
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       }
     }

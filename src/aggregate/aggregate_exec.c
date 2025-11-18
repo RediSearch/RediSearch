@@ -416,9 +416,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       resultsLen = calc_results_len(req, limit);
     }
 
-    if (IsOptimized(req) ||
-        // FT.AGGREGATE + WITHCOUNT + [SORTBY] + [LIMIT]
-        (IsAggregate(req) && !IsOptimized(req) )) {
+    if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
     }
 
@@ -580,9 +578,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
 
-    if (IsOptimized(req) ||
-        // FT.AGGREGATE + WITHCOUNT + [SORTBY] + [LIMIT]
-        (IsAggregate(req) && !IsOptimized(req))) {
+    if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
     }
 

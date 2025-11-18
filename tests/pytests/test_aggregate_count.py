@@ -24,18 +24,46 @@ def _setup_index_and_data(env, docs):
             'description', description, 'price', price, 'categories', category)
 
 
-def _get_total_results(res):
+def _get_total_results(res) -> int:
+    # Extract the total_results from the query response
     if isinstance(res, dict):
         return res['total_results']
     else:
         return res[0]
 
+
 def _get_results(res):
+    # Extract the results from the query response
     if isinstance(res, dict):
         return res['results']
     else:
         return res[1:]
 
+
+def _get_RP_profile(env, res):
+    # Extract the RP types from the profile response
+    if isinstance(res, dict):
+        if env.isCluster():
+            print(res['Profile']['Shards'][0])
+            print(res['Profile']['Coordinator'])
+            profile = res['Profile']['Coordinator']['Result processors profile']
+        else:
+            profile = res['Profile']['Shards'][0]['Result processors profile']
+        return [item['Type'] for item in profile]
+    else:
+        if env.isCluster():
+            profile = res[1][3][11]
+        else:
+            profile = res[1][1][0][13]
+        return [item[1] for item in profile]
+
+def _translate_query_to_profile_query(query) -> list:
+    profile = ['FT.PROFILE']
+    profile.append(query[1])        # index name
+    profile.append(query[0][3:])    # command
+    profile.append('QUERY')
+    profile.extend(query[2:])       # query
+    return profile
 
 def _test_limit00(protocol):
     env = Env(protocol=protocol)
@@ -112,13 +140,13 @@ def _test_withcount(protocol):
         # No sorter, limit results
         # total_results = number of documents matching the query up to the LIMIT
         # length of results = min(total_results, LIMIT)
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, 50], 50, 50),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, int(docs/2)], int(docs/2), int(docs/2)),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, 50], docs, 50),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, int(docs/2)], docs, int(docs/2)),
         (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, docs*4], docs, docs),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 10, 50], 50, 50),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 100, docs], docs - 100, docs - 100),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 10, 50], docs, 50),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 100, docs], docs, docs - 100),
         (['FT.AGGREGATE', 'games', '@price:[1, 100]', 'WITHCOUNT', 'LIMIT', 0, docs], 100, 100),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', docs, docs*2], 0, 0),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', docs, docs*2], docs, 0),
 
         # WITHCOUNT + SORTBY 0
         # No sorter, no limit, returns all results
@@ -135,12 +163,12 @@ def _test_withcount(protocol):
         # WITHCOUNT + SORTBY + LIMIT
         # total_results = number of documents matching the query up to the LIMIT
         # length of results = min(total_results, LIMIT)
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], 50, 50),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@price', 'LIMIT', 0, 50], 50, 50),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, int(docs/2)], int(docs/2), int(docs/2)),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], docs, 50),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@price', 'LIMIT', 0, 50], docs, 50),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, int(docs/2)], docs, int(docs/2)),
         (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, docs*4], docs, docs),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 10, 50], 50, 50),
-        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 100, docs], docs - 100, docs - 100),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 10, 50], docs, 50),
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 100, docs], docs, docs - 100),
         (['FT.AGGREGATE', 'games', '@price:[1, 100]', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, docs], 100, 100),
     ]
 
@@ -237,116 +265,94 @@ def test_withoutcount_resp3():
 def test_withoutcount_resp2():
     _test_withoutcount(2)
 
-def test_profile_resp2():
-    # Test when the depleter is added for FT.AGGREGATE RESP2
-    env = Env(protocol=2)
-    conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'text')
-    conn.execute_command('HSET', '1', 't', 'hello')
-    conn.execute_command('HSET', '2', 't', 'world')
 
-    # Setup expected result processor profiles
-    if env.isCluster():
-        rp0 = ['Type', 'Network', 'Time', ANY, 'Results processed', ANY]
-    else:
-        rp0 = ['Type', 'Index', 'Time', ANY, 'Results processed', ANY]
-    rp1 = ['Type', 'Depleter', 'Time', ANY, 'Results processed', ANY]
+def _test_profile(protocol):
+    env = Env(protocol=protocol)
+    docs = 5
+    _setup_index_and_data(env, docs)
 
-    for on_timeout_policy in ['return', 'fail']:
-        env.expect('CONFIG', 'SET', 'search-on-timeout', on_timeout_policy).ok()
+    queries_and_profiles = [
+        # query,
+        # resp2 profile,
+        # resp3 profile
 
-        # WITHOUTCOUNT doesn't add a depleter
-        queries = [
-            ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHOUTCOUNT'],
-        ]
-        for dialect in [1, 2, 3, 4]:
-            env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
-            for query in queries:
-                profile = env.cmd(*query)
-                if env.isCluster():
-                    RP_profile = profile[1][3][11]
-                else:
-                    RP_profile = profile[1][1][0][13]
-                env.assertEqual(len(RP_profile), 1,
-                                message=f'query: {query} profile: {RP_profile}, dialect: {dialect}')
-                env.assertEqual(RP_profile[0], rp0)
+        # WITHCOUNT
+        # No sorter, no limit, returns all results
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT'],
+         ['Depleter'],
+         []),
 
-        # WITHCOUNT adds a depleter
-        queries = [
-            ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHCOUNT'),
-        ]
-        for dialect in [1, 2, 3, 4]:
-            env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
-            for query in queries:
-                profile = env.cmd(*query)
-                if env.isCluster():
-                    RP_profile = profile[1][3][11]
-                else:
-                    RP_profile = profile[1][1][0][13]
-                message=f'query: {query} profile: {RP_profile} dialect: {dialect}'
-                env.assertEqual(len(RP_profile), 2, message=message)
-                env.assertEqual(RP_profile[0], rp0)
-                env.assertEqual(RP_profile[1], rp1)
+        # WITHCOUNT + LIMIT 0 0
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, 0],
+         ['Counter'],
+         ['Counter']),
 
-        # Queries without explicit WITHCOUNT/WITHOUTCOUNT the behavior
-        # depends on the dialect:
-        # - Dialect 1-3 adds a depleter    (WITHCOUNT by default)
-        # - Dialect 4 doesn't add depleter (WITHOUTCOUNT by default)
-        queries = [
-            ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'],
-        ]
-        for dialect in [1, 2, 3, 4]:
-            env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
-            for query in queries:
-                profile = env.cmd(*query)
-                if env.isCluster():
-                    RP_profile = profile[1][3][11]
-                else:
-                    RP_profile = profile[1][1][0][13]
+        # WITHCOUNT + LIMIT
+        # No sorter, limit results
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'LIMIT', 0, 50],
+         ['Depleter', 'Pager/Limiter'],
+         ['Depleter', 'Pager/Limiter']),
 
-                if dialect < 4:
-                    env.assertEqual(len(RP_profile), 2,
-                                    message=f'query: {query} profile: {RP_profile}, dialect: {dialect}')
-                    env.assertEqual(RP_profile[0], rp0)
-                    env.assertEqual(RP_profile[1], rp1)
-                else:
-                    env.assertEqual(len(RP_profile), 1,
-                                    message=f'query: {query} profile: {RP_profile}, dialect: {dialect}')
-                    env.assertEqual(RP_profile[0], rp0)
+        # WITHCOUNT + SORTBY 0
+        # No sorter, no limit, returns all results
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '0'],
+         ['Depleter'],
+         []),
+
+        # WITHCOUNT + SORTBY
+        # Sorter, limit results to DEFAULT_LIMIT
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'],
+         ['Depleter', 'Sorter', 'Pager/Limiter'],
+         ['Depleter', 'Sorter', 'Pager/Limiter']),
+
+        # WITHCOUNT + SORTBY + LIMIT
+        (['FT.AGGREGATE', 'games', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
+         ['Depleter', 'Sorter', 'Pager/Limiter'],
+         ['Depleter', 'Sorter', 'Pager/Limiter']),
+
+        # WITHOUTCOUNT
+        (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT'],
+         [],
+         []),
+
+        # WITHOUTCOUNT + LIMIT
+        (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'LIMIT', 0, 50],
+         ['Pager/Limiter'],
+         ['Pager/Limiter']),
+
+        # WITHOUTCOUNT + SORTBY 0
+        (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'SORTBY', '0'],
+         [],
+         []),
+
+        # WITHOUTCOUNT + SORTBY
+        (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'],
+         ['Sorter'],
+         ['Sorter']),
 
 
-def test_profile_resp3():
-    # Test when the depleter is added for FT.AGGREGATE RESP3
-    env = Env(protocol=3)
-    conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'text')
-    conn.execute_command('HSET', '1', 't', 'hello')
-    conn.execute_command('HSET', '2', 't', 'world')
-
-    if env.isCluster():
-        rp0 = {'Type': 'Network', 'Time': ANY, 'Results processed': ANY}
-    else:
-        rp0 = {'Type': 'Index', 'Time': ANY, 'Results processed': ANY}
-
-    queries = [
-        ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',],
-        ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHOUTCOUNT'],
-        ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHCOUNT'],
+        # WITHOUTCOUNT + SORTBY + LIMIT
+        (['FT.AGGREGATE', 'games', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
+         ['Sorter', 'Pager/Limiter'],
+         ['Sorter', 'Pager/Limiter']),
     ]
 
-    # In RESP3, we never have a depleter
-    for on_timeout_policy in ['return', 'fail']:
-        env.expect('CONFIG', 'SET', 'search-on-timeout', on_timeout_policy).ok()
-        for dialect in [1, 2, 3, 4]:
-            env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
-            for query in queries:
-                profile = env.cmd(*query)
-                if env.isCluster():
-                    RP_profile = profile['Profile']['Coordinator']['Result processors profile']
-                else:
-                    RP_profile = profile['Profile']['Shards'][0]['Result processors profile']
+    for query, resp2_profile, resp3_profile in queries_and_profiles:
+        cmd=' '.join(str(x) for x in query)
+        ftprofile = _translate_query_to_profile_query(query)
+        res = env.cmd(*ftprofile)
+        RP_list = _get_RP_profile(env, res)
+        print('RP_list:', RP_list)
+        if protocol == 2:
+            message = f'{cmd}: RP_list != resp2_profile - RESP2'
+            env.assertEqual(RP_list[1:], resp2_profile, message=message)
+        else:
+            message = f'{cmd}: RP_list != resp2_profile - RESP3'
+            env.assertEqual(RP_list[1:], resp3_profile, message=message)
 
-                message = f'query: {query} profile: {RP_profile} on_timeout_policy: {on_timeout_policy}'
-                env.assertEqual(len(RP_profile), 1,
-                                message=message)
-                env.assertEqual(RP_profile[0], rp0)
+def test_profile_resp2():
+    _test_profile(2)
+
+def test_profile_resp3():
+    _test_profile(3)
+
