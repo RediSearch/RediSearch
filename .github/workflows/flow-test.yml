@@ -34,10 +34,6 @@ on:
       fail-fast:
         type: boolean
         default: true # Default to true on workflow call (as in matrix, and unlike manual trigger)
-      include-basic-test:
-        type: boolean
-        default: false
-        description: 'Include basic-test job in matrix'
       include-coverage:
         type: boolean
         default: false
@@ -102,10 +98,6 @@ on:
         description: 'Whether to fail fast on first failure'
         type: boolean
         default: false # Default to false on manual trigger
-      include-basic-test:
-        description: 'Include basic-test job in matrix'
-        type: boolean
-        default: false
       include-coverage:
         description: 'Include coverage job in matrix'
         type: boolean
@@ -121,13 +113,12 @@ jobs:
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
-      include-basic-test: ${{ inputs.include-basic-test }}
       include-coverage: ${{ inputs.include-coverage }}
       include-sanitize: ${{ inputs.include-sanitize }}
 
-  # Unified test matrix - includes Linux and macOS platforms, plus optional basic-test, coverage and sanitize
+  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage and sanitize
   test-matrix:
-    name: ${{ matrix.job-type }} (${{ matrix.architecture }})
+    name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}
     needs: [generate-matrix]
     strategy:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}

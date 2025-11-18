@@ -1,0 +1,64 @@
+name: Generate Basic Test Matrix
+
+# This workflow generates a dynamic matrix for basic-test, coverage, and sanitize jobs
+# It only includes jobs that should run based on the provided conditions
+
+on:
+  workflow_call:
+    inputs:
+      include-basic-test:
+        description: 'Include basic-test job in matrix'
+        type: boolean
+        default: false
+      include-coverage:
+        description: 'Include coverage job in matrix'
+        type: boolean
+        default: false
+      include-sanitize:
+        description: 'Include sanitize job in matrix'
+        type: boolean
+        default: false
+    outputs:
+      matrix:
+        description: "Generated matrix as JSON"
+        value: ${{ jobs.generate.outputs.matrix }}
+
+jobs:
+  generate:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    outputs:
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
+    steps:
+      - name: Generate filtered matrix
+        id: generate-matrix
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+
+          include_basic_test = "${{ inputs.include-basic-test }}" == "true"
+          include_coverage = "${{ inputs.include-coverage }}" == "true"
+          include_sanitize = "${{ inputs.include-sanitize }}" == "true"
+
+          # Build matrix items based on conditions
+          matrix_items = []
+
+          if include_basic_test:
+              matrix_items.append({'job-type': 'basic-test'})
+
+          if include_coverage:
+              matrix_items.append({'job-type': 'coverage'})
+
+          if include_sanitize:
+              matrix_items.append({'job-type': 'sanitize'})
+
+          # Fail if matrix is empty
+          if not matrix_items:
+              print("Error: No jobs to run based on conditions")
+              sys.exit(1)
+
+          # Write to GitHub output
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
+

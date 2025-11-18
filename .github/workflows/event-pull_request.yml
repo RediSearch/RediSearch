@@ -34,25 +34,28 @@ jobs:
   spellcheck:
     uses: ./.github/workflows/task-spellcheck.yml
 
+  generate-basic-matrix:
+    needs: [check-what-changed]
+    uses: ./.github/workflows/generate-basic-matrix.yml
+    with:
+      include-basic-test: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
+      include-coverage: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && !github.event.pull_request.draft && (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) }}
+      include-sanitize: ${{ !github.event.pull_request.draft && (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) }}
+
   test-matrix:
-    needs: [check-what-changed, get-latest-redis-tag]
-    # Run if: code/tests changed OR enforce:test label OR (coverage enabled AND not draft AND enforce:coverage label) OR (not draft AND enforce:sanitize label)
-    if: >
-      (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true') ||
-      contains(github.event.pull_request.labels.*.name, 'enforce:test') ||
-      (vars.ENABLE_CODE_COVERAGE != 'false' && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) ||
-      (!github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'enforce:sanitize'))
-    uses: ./.github/workflows/flow-test.yml
+    needs: [check-what-changed, get-latest-redis-tag, generate-basic-matrix]
+    strategy:
+      matrix: ${{ fromJson(needs.generate-basic-matrix.outputs.matrix) }}
+      fail-fast: true
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
       platform: ubuntu:default
       architecture: x86_64
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
-      fail-fast: true
-      include-basic-test: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
-      include-coverage: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && !github.event.pull_request.draft && (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) }}
-      include-sanitize: ${{ !github.event.pull_request.draft && (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) }}
+      coverage: ${{ matrix.job-type == 'coverage' }}
+      san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
       rejson-branch: master
 
   pr-validation:
