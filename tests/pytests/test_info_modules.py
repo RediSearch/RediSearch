@@ -2,6 +2,7 @@ from common import *
 from RLTest import Env
 import redis
 from inspect import currentframe
+import numpy as np
 
 
 def info_modules_to_dict(conn):
@@ -628,7 +629,7 @@ def _common_warnings_errors_test_scenario(env):
   # Create vector index for hybrid
   env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   # Create doc for hybrid
-  env.expect('HSET', 'vec:1', 'vector', '0,0').equal(1)
+  env.expect('HSET', 'vec:1', 'vector', np.array([0.0, 0.0]).astype(np.float32).tobytes()).equal(1)
 
 class testWarningsAndErrorsStandalone:
   """Test class for warnings and errors metrics in standalone mode"""
@@ -723,7 +724,7 @@ def _common_warnings_errors_cluster_test_scenario(env):
   # Create vector index for hybrid
   env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   # Create doc for hybrid
-  conn.execute_command('HSET', 'vec:1', 'vector', '0,0')
+  conn.execute_command('HSET', 'vec:1', 'vector', np.array([0.0, 0.0]).astype(np.float32).tobytes())
 
 class testWarningsAndErrorsCluster:
   """Test class for warnings and errors metrics in cluster mode with RESP2"""
@@ -755,10 +756,10 @@ class testWarningsAndErrorsCluster:
       syntax_error_count = info_dict[WARN_ERR_SECTION][SYNTAX_ERROR_SHARD_METRIC]
       self.env.assertEqual(syntax_error_count, '1', message=f"Shard {shardId} has wrong syntax error count")
     # Check coord metric unchanged
+    # Syntax error in FT.SEARCH are not checked on the coordinator
     info_dict = info_modules_to_dict(self.env)
     coord_syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
     self.env.assertEqual(coord_syntax_error_count, '0')
-    # Syntax error in FT.SEARCH are not checked on the coordinator
 
     # Test syntax errors in aggregate
     self.env.expect('FT.AGGREGATE', 'idx', 'hello world:').error().contains('Syntax error at offset')
@@ -773,7 +774,6 @@ class testWarningsAndErrorsCluster:
     coord_syntax_error_count = info_dict[COORD_WARN_ERR_SECTION][SYNTAX_ERROR_COORD_METRIC]
     self.env.assertEqual(coord_syntax_error_count, '0')
     # Syntax error in FT.AGGREGATE are not checked on the coordinator
-
 
     # Test syntax errors in hybrid
     # Syntax errors in the hybrid command are only counted on the coordinator.
@@ -840,7 +840,7 @@ class testWarningsAndErrorsCluster:
     coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
     self.env.assertEqual(coord_args_error_count, '2')
 
-  def test_no_error_queries_SA(self):
+  def test_no_error_queries_cluster(self):
     # Check no error queries not affecting any metric on each shard
     before_info_dicts = []
     for shardId in range(1, self.env.shardsCount + 1):
