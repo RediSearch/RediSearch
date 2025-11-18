@@ -708,7 +708,7 @@ class testWarningsAndErrorsStandalone:
     self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
 
     # Test no error queries in hybrid
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0').noError()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', np.array([0.0, 0.0]).astype(np.float32).tobytes()).noError()
     after_info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(before_info_dict[WARN_ERR_SECTION], after_info_dict[WARN_ERR_SECTION])
     self.env.assertEqual(before_info_dict[COORD_WARN_ERR_SECTION], after_info_dict[COORD_WARN_ERR_SECTION])
@@ -898,3 +898,10 @@ class testWarningsAndErrorsCluster:
       before_coord_warn_err = before_info_dicts[shardId - 1][COORD_WARN_ERR_SECTION]
       after_coord_warn_err = after_info_dict[COORD_WARN_ERR_SECTION]
       self.env.assertEqual(before_coord_warn_err, after_coord_warn_err, message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error hybrid query")
+
+def test_errors_and_warnings_init(env):
+  # Verify fields in metric are initialized properly
+  info_dict = info_modules_to_dict(env)
+  for metric in [WARN_ERR_SECTION, COORD_WARN_ERR_SECTION]:
+    for field in info_dict[metric]:
+      env.assertEqual(info_dict[metric][field], '0')
