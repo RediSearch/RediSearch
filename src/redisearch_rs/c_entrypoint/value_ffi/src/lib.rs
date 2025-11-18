@@ -11,32 +11,42 @@
 
 use std::{
     ffi::{c_char, c_double},
+    mem,
     ptr::NonNull,
 };
 
 use c_ffi_utils::{expect_unchecked, opaque::IntoOpaque};
-use value::{RsValue, Value, opaque::OpaqueRsValue};
+use value::{RsValue, Value, shared::SharedRsValue};
 
-use crate::value_type::{AsRsValueType, RsValueType};
+use crate::{
+    dynamic::{
+        DynRsValue, DynRsValuePtr,
+        opaque::{OpaqueDynRsValue, OpaqueDynRsValuePtr},
+    },
+    value_type::{AsRsValueType, RsValueType},
+};
 
 pub mod collection;
+pub mod dynamic;
 pub mod shared;
 pub mod value_type;
 
 /// Creates a stack-allocated, undefined `RsValue`.
+///
 /// @returns a stack-allocated `RsValue` of type `RsValueType_Undef`
 #[unsafe(no_mangle)]
-pub extern "C" fn RsValue_Undefined() -> OpaqueRsValue {
-    RsValue::undefined().into_opaque()
+pub extern "C" fn RsValue_Undefined() -> OpaqueDynRsValue {
+    DynRsValue::from(RsValue::undefined()).into_opaque()
 }
 
 /// Creates a stack-allocated `RsValue` containing a number.
 /// The returned value is not allocated on the heap and should not be freed.
+///
 /// @param n The numeric value to wrap
 /// @return A stack-allocated `RsValue` of type `RsValueType_Number`
 #[unsafe(no_mangle)]
-pub extern "C" fn RsValue_Number(n: c_double) -> OpaqueRsValue {
-    RsValue::number(n).into_opaque()
+pub extern "C" fn RsValue_Number(n: c_double) -> OpaqueDynRsValue {
+    DynRsValue::from(RsValue::number(n)).into_opaque()
 }
 
 /// Creates a stack-allocated `RsValue` containing a malloc'd string.
@@ -54,12 +64,15 @@ pub extern "C" fn RsValue_Number(n: c_double) -> OpaqueRsValue {
 /// @param len The length of the string
 /// @return A stack-allocated `RsValue` of type `RsValueType_String` with `RSString_Malloc` subtype
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_String(str: Option<NonNull<c_char>>, len: u32) -> OpaqueRsValue {
+pub unsafe extern "C" fn RsValue_String(
+    str: Option<NonNull<c_char>>,
+    len: u32,
+) -> OpaqueDynRsValue {
     // Safety: caller must ensure (1)
     let str = unsafe { expect_unchecked!(str) };
     // Safety: caller must ensure (2), (3), (4), and (5)
     let v = unsafe { RsValue::take_rm_alloc_string(str, len) };
-    v.into_opaque()
+    DynRsValue::from(v).into_opaque()
 }
 
 /// Returns a pointer to a statically allocated NULL `RsValue`.
@@ -68,39 +81,35 @@ pub unsafe extern "C" fn RsValue_String(str: Option<NonNull<c_char>>, len: u32) 
 ///
 /// @return A pointer to a static `RsValue` of type `RsValueType_Null`
 #[unsafe(no_mangle)]
-pub extern "C" fn RsValue_NullStatic() -> *const OpaqueRsValue {
-    static RSVALUE_NULL: RsValue = RsValue::null_const();
-    RSVALUE_NULL.as_opaque_ptr()
+pub extern "C" fn RsValue_NullStatic() -> OpaqueDynRsValuePtr {
+    static RSVALUE_NULL: DynRsValue = DynRsValue::null_const();
+    DynRsValuePtr::from_dyn_value(&RSVALUE_NULL).into_opaque()
 }
 
 /// Get the type of an `RsValue` as an [`RsValueType`].
 ///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+///
 /// @param v The value to inspect
 /// @return The `RsValueType` of the value
-///
-/// # Safety
-/// The passed pointer must originate from one of the `RsValue` constructors,
-/// i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
-/// or [`RsValue_NullStatic`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_Type(v: *const OpaqueRsValue) -> RsValueType {
-    debug_assert!(!v.is_null(), "`v` must not be NULL");
-    // Safety:
-    // The caller must guarantee that `v` originates from one of the RsValue constructors,
-    // all of which produce an `OpaqueRsValue` by calling `RsValue::into_opaque()`.
-    let v = unsafe { RsValue::from_opaque_ptr(v) };
-    v.unwrap().as_value_type()
+pub unsafe extern "C" fn RsValue_Type(v: OpaqueDynRsValuePtr) -> RsValueType {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+    // Safety: caller must ensure (1)
+    unsafe { apply_with_dyn_ptr!(v, |v| v.as_value_type()) }
 }
 
 /// Check if the `RsValue` is a reference.
 ///
-/// @param v The value to check
-/// @return true if the value is of type [`RsValueType::Ref`], false otherwise
-///
 /// # Safety
 /// See [`RsValue_Type`].
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Ref`], false otherwise
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_IsReference(v: *const OpaqueRsValue) -> bool {
+pub unsafe extern "C" fn RsValue_IsReference(v: OpaqueDynRsValuePtr) -> bool {
     // Safety: caller must ensure safety requirements of `RsValue_Type`
     // are met.
     unsafe { RsValue_Type(v).is_ref() }
@@ -108,13 +117,13 @@ pub unsafe extern "C" fn RsValue_IsReference(v: *const OpaqueRsValue) -> bool {
 
 /// Check if the `RsValue` is a number.
 ///
-/// @param v The value to check
-/// @return true if the value is of type [`RsValueType::Number`], false otherwise
-///
 /// # Safety
 /// See [`RsValue_Type`].
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Number`], false otherwise
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_IsNumber(v: *const OpaqueRsValue) -> bool {
+pub unsafe extern "C" fn RsValue_IsNumber(v: OpaqueDynRsValuePtr) -> bool {
     // Safety: caller must ensure safety requirements of `RsValue_Type`
     // are met.
     unsafe { RsValue_Type(v).is_number() }
@@ -122,13 +131,13 @@ pub unsafe extern "C" fn RsValue_IsNumber(v: *const OpaqueRsValue) -> bool {
 
 /// Check if the `RsValue` is a string.
 ///
-/// @param v The value to check
-/// @return true if the value is of type [`RsValueType::String`], false otherwise
-///
 /// # Safety
 /// See [`RsValue_Type`].
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::String`], false otherwise
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_IsString(v: *const OpaqueRsValue) -> bool {
+pub unsafe extern "C" fn RsValue_IsString(v: OpaqueDynRsValuePtr) -> bool {
     // Safety: caller must ensure safety requirements of `RsValue_Type`
     // are met.
     unsafe { RsValue_Type(v).is_string() }
@@ -136,13 +145,13 @@ pub unsafe extern "C" fn RsValue_IsString(v: *const OpaqueRsValue) -> bool {
 
 /// Check if the `RsValue` is an array.
 ///
-/// @param v The value to check
-/// @return true if the value is of type [`RsValueType::Array`], false otherwise
-///
 /// # Safety
 /// See [`RsValue_Type`].
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Array`], false otherwise
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_IsArray(v: *const OpaqueRsValue) -> bool {
+pub unsafe extern "C" fn RsValue_IsArray(v: OpaqueDynRsValuePtr) -> bool {
     // Safety: caller must ensure safety requirements of `RsValue_Type`
     // are met.
     unsafe { RsValue_Type(v).is_array() }
@@ -150,13 +159,13 @@ pub unsafe extern "C" fn RsValue_IsArray(v: *const OpaqueRsValue) -> bool {
 
 /// Check if the `RsValue` is a Redis string type.
 ///
-/// @param v The value to check
-/// @return true if the value is of type [`RsValueType::BorrowedRedisString`], false otherwise
-///
 /// # Safety
 /// See [`RsValue_Type`].
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::BorrowedRedisString`], false otherwise
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_IsRedisString(v: *const OpaqueRsValue) -> bool {
+pub unsafe extern "C" fn RsValue_IsRedisString(v: OpaqueDynRsValuePtr) -> bool {
     // Safety: caller must ensure safety requirements of `RsValue_Type`
     // are met.
     unsafe { RsValue_Type(v).is_borrowed_redis_string() }
@@ -164,13 +173,13 @@ pub unsafe extern "C" fn RsValue_IsRedisString(v: *const OpaqueRsValue) -> bool 
 
 /// Check if the `RsValue` is an owned Redis string.
 ///
-/// @param v The value to check
-/// @return true if the value is of type [`RsValueType::OwnedRedisString`], false otherwise
-///
 /// # Safety
 /// See [`RsValue_Type`].
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::OwnedRedisString`], false otherwise
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_IsOwnRString(v: *const OpaqueRsValue) -> bool {
+pub unsafe extern "C" fn RsValue_IsOwnRString(v: OpaqueDynRsValuePtr) -> bool {
     // Safety: caller must ensure safety requirements of `RsValue_Type`
     // are met.
     unsafe { RsValue_Type(v).is_owned_redis_string() }
@@ -178,13 +187,13 @@ pub unsafe extern "C" fn RsValue_IsOwnRString(v: *const OpaqueRsValue) -> bool {
 
 /// Check whether the `RsValue` is a trio.
 ///
-/// @param v The value to check
-/// @return true if the value is of type [`RsValueType::Trio`], false otherwise
-///
 /// # Safety
 /// See [`RsValue_Type`].
+///
+/// @param v The value to check
+/// @return true if the value is of type [`RsValueType::Trio`], false otherwise
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_IsTrio(v: *const OpaqueRsValue) -> bool {
+pub unsafe extern "C" fn RsValue_IsTrio(v: OpaqueDynRsValuePtr) -> bool {
     // Safety: caller must ensure safety requirements of `RsValue_Type`
     // are met.
     unsafe { RsValue_Type(v).is_trio() }
@@ -192,13 +201,13 @@ pub unsafe extern "C" fn RsValue_IsTrio(v: *const OpaqueRsValue) -> bool {
 
 /// Returns true if the value contains any type of string
 ///
-/// @param v The value to check
-/// @return true if the value is any type of string, false otherwise
-///
 /// # Safety
 /// See [`RsValue_Type`].
+///
+/// @param v The value to check
+/// @return true if the value is any type of string, false otherwise
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_IsAnyString(v: *const OpaqueRsValue) -> bool {
+pub unsafe extern "C" fn RsValue_IsAnyString(v: OpaqueDynRsValuePtr) -> bool {
     // Safety: caller must ensure safety requirements of `RsValue_Type`
     // are met.
     unsafe { RsValue_Type(v).is_any_string() }
@@ -206,53 +215,362 @@ pub unsafe extern "C" fn RsValue_IsAnyString(v: *const OpaqueRsValue) -> bool {
 
 /// Check if the value is NULL;
 ///
-/// @param v The value to check
-/// @return true if the value is NULL, false otherwise
-///
 /// # Safety
 /// See [`RsValue_Type`].
+///
+/// @param v The value to check
+/// @return true if the value is NULL, false otherwise
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_IsNull(v: *const OpaqueRsValue) -> bool {
+pub unsafe extern "C" fn RsValue_IsNull(v: OpaqueDynRsValuePtr) -> bool {
     // Safety: caller must ensure safety requirements of `RsValue_Type`
     // are met.
     unsafe { RsValue_Type(v).is_null() }
 }
 
-/// Gets the `f64` wrapped by the [`RsValue`]
+/// Gets the `f64` wrapped by the [`OpaqueDynRsValue`]
 ///
 /// # Safety
-/// - (1) `v` must point to an `RsValue` originating from one of the constructors.
-/// - (2) `v` must be non-null;
-/// - (3) `v` must be valid for reads;
-/// - (4) `v` must be a number value.
+/// - (1) `v` originate from a call to [`RsValue_DynPtr`].
+/// - (2) `v` must be a number value.
+///
+/// @param v A reference to the `RsValue` from which to obtain the numeric value
+/// @return The numeric value held by the `RsValue`
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_Number_Get(v: *const OpaqueRsValue) -> f64 {
+pub unsafe extern "C" fn RsValue_Number_Get(v: OpaqueDynRsValuePtr) -> f64 {
     // Safety: caller must ensure (1)
-    let v = unsafe { RsValue::from_opaque_ptr(v) };
-    // Safety: caller must ensure (2) and (3)
-    let v = unsafe { expect_unchecked!(v, "`v` must not be NULL") };
-    // Safety: caller must ensure (4).
-    unsafe { expect_unchecked!(v.get_number(), "v must be of type 'Number'") }
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+    // Safety: caller must ensure (1)
+    let n = unsafe { apply_with_dyn_ptr!(v, |v| v.get_number()) };
+    // Safety: caller must ensure (2).
+    unsafe { expect_unchecked!(n, "v must be of type 'Number'") }
 }
 
-/// Convert an [`RsValue`] to a number type in-place.
+/// Convert an `RsValue` to a number type in-place.
 /// This clears the existing value and replaces it with the given value.
-///
-/// @param v The value to modify
-/// @param n The numeric value to set
 ///
 /// # Safety
 /// - (1) `v` must be non-null;
 /// - (2) `v` must point to an `RsValue` originating from one of the constructors.
+///
+/// @param v The value to modify
+/// @param n The numeric value to set
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_IntoNumber(v: Option<NonNull<OpaqueRsValue>>, n: f64) {
+pub unsafe extern "C" fn RsValue_IntoNumber(v: Option<NonNull<OpaqueDynRsValue>>, n: f64) {
     // Safety: caller must ensure (1)
     let v = unsafe { expect_unchecked!(v) };
     // Safety: caller must ensure (2)
-    let v = unsafe { RsValue::from_opaque_mut_ptr(v.as_ptr()) };
+    let v = unsafe { DynRsValue::from_opaque_mut_ptr(v.as_ptr()) };
     // Safety: caller must ensure (1). The previous statement casts the pointer
     // to an `Option<&mut RsValue>`, which will be None if and only if `v` were null.
     let v = unsafe { v.unwrap_unchecked() };
 
     v.to_number(n);
+}
+
+/// Gets the string pointer and length from the value,
+/// dereferencing in case `value` is a (chain of) RsValue
+/// references. Works for all RsValue string types.
+///
+/// The returned string may or may not be null-terminated.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+/// - (2) The value `v` points to must be of any of the string types;
+/// - (3) The length of the string the value holds must not exceed [`u32::MAX`];
+/// - (4) `lenp` must be non-null, well-aligned and valid for writes;
+/// - (5) The returned pointer is invalidated upon mutation of the value.
+///
+/// @param v The value from which to obtain the data
+/// @param lenp The location to which to write the string length
+/// @return A pointer to the start of the string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_StringPtrLen(
+    v: OpaqueDynRsValuePtr,
+    lenp: Option<NonNull<u32>>,
+) -> *const c_char {
+    // Safety: caller must ensure (5)
+    let lenp = unsafe { expect_unchecked!(lenp) };
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+
+    // It's hard to make Rust understand that in fact
+    // we're doing a single unsafe operation that applies
+    // a macro which does more unsafe operations,
+    // rather than a whole bunch of unsafe operations
+    // in a single block.
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    #[allow(unused_unsafe)]
+    // Safety: caller must ensure (1)
+    unsafe {
+        apply_with_dyn_ptr!(v, |v| {
+            let v = v.deep_deref();
+            // Safety: Caller must ensure (2)
+            let bytes = unsafe { expect_unchecked!(v.string_as_bytes(), "`v` is not a string") };
+            // Safety: Caller must ensure (3)
+            let len: u32 = unsafe {
+                expect_unchecked!(bytes.len().try_into(), "string length exceeds `u32::MAX`")
+            };
+            // Safety: Caller must ensure (4)
+            unsafe { lenp.write(len) };
+            bytes.as_ptr() as *const c_char
+        })
+    }
+}
+
+/// Repeatedly dereference self until ending up at a non-reference value.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+///
+/// @param v The value to dereference
+/// @return The value at the end of the reference chain
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Dereference(v: OpaqueDynRsValuePtr) -> OpaqueDynRsValuePtr {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+    // Safety: caller must ensure (1)
+    let v_ptr = unsafe {
+        apply_with_dyn_ptr!(v, |v| {
+            let v_ref = v.deep_deref();
+            DynRsValuePtr::from_dyn_value_ref(v_ref)
+        })
+    };
+
+    v_ptr.into_opaque()
+}
+
+/// Clone `src` and assign it to `dst`, thereby
+/// dropping the `RsValue`.
+///
+/// # Safety
+/// - (1) `dst` must be non-null.
+/// - (2) The `RsValue` `dst` points to must originate from one of the `RsValue` constructors,
+///   i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
+///   or [`RsValue_NullStatic`].
+/// - (3) `v` must originate from a call to [`RsValue_DynPtr`].
+///
+/// @param dst A pointer to which to write a clone of `src`
+/// @param src A pointer to a value that is to be cloned and assigned to `dst`.
+pub unsafe extern "C" fn RsValue_Replace(
+    dst: Option<NonNull<OpaqueDynRsValue>>,
+    src: OpaqueDynRsValuePtr,
+) {
+    // Safety: caller must ensure (1)
+    let dst = unsafe { expect_unchecked!(dst) };
+    // Safety: caller must ensure (2)
+    let dst = unsafe { DynRsValue::from_opaque_non_null(dst) };
+
+    // Safety: caller must ensure (3)
+    let src = unsafe { DynRsValuePtr::from_opaque(src) };
+
+    match src {
+        DynRsValuePtr::Exclusive(v) => {
+            // Safety: caller must ensure (3)
+            let v = unsafe { v.as_ref() };
+            // Safety: caller must ensure (3)
+            let v = unsafe { expect_unchecked!(v, "`v` must not be null") };
+            *dst = v.clone().into();
+        }
+        DynRsValuePtr::Shared(v) => {
+            // Safety: caller must ensure (3)
+            let v = unsafe { SharedRsValue::from_raw(v) };
+            *dst = v.clone().into();
+            mem::forget(v);
+        }
+    }
+}
+
+/// Obtain a dynamic pointer to the value. This pointer is different from
+/// a pointer to an `RsValue`, which in case of a shared value would
+/// require dereferencing twice in order to reach the value itself.
+///
+/// # Safety
+/// - (1) The `RsValue` `v` points to must originate from one of the `RsValue` constructors,
+///   i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
+///   or [`RsValue_NullStatic`].
+/// - (2) `v` must be non-null.
+///
+/// @param v A pointer to the `RsValue` to convert to an `RsValuePtr`
+/// @return A reference to the `RsValue` v points to.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_DynPtr(v: *mut OpaqueDynRsValue) -> OpaqueDynRsValuePtr {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValue::from_opaque_ptr(v) };
+    // Safety: caller must ensure (2)
+    let v = unsafe { expect_unchecked!(v, "`v` must not be NULL") };
+    DynRsValuePtr::from_dyn_value(v).into_opaque()
+}
+
+/// Free an RsValue.
+///
+/// # Safety
+/// - (1) `v` must point to an `RsValue` that originates from one of the `RsValue` constructors,
+///   i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`], or [`RsValue_NullStatic`].
+/// - (2) `v` is no longer valid after this call as the `RsValue` it points to is destructed.
+///
+/// @param v Pointer to the `RsValue` that is to be freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Free(v: Option<NonNull<OpaqueDynRsValue>>) {
+    // Safety: caller must ensure (1)
+    let v = unsafe { expect_unchecked!(v) };
+    // Safety: caller must ensure (1)
+    let v = unsafe { v.read() };
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValue::from_opaque(v) };
+    drop(v);
+}
+
+#[cfg(test)]
+redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
+
+#[cfg(test)]
+mod test {
+    use c_ffi_utils::opaque::IntoOpaque;
+    use std::{
+        ffi::{CStr, c_char},
+        ptr::NonNull,
+    };
+
+    use value::{RsValue, Value};
+
+    use crate::{
+        RsValue_DynPtr, RsValue_Free, RsValue_IntoNumber, RsValue_Number, RsValue_Replace,
+        dynamic::DynRsValue,
+        shared::{RsValue_NewConstString, RsValue_NewNumber},
+    };
+    const STR: &CStr = c"hello";
+    const STRPTR: *const c_char = STR.as_ptr();
+    const STRLEN: u32 = STR.count_bytes() as u32;
+
+    #[test]
+    fn create_convert_free_exclusive() {
+        // Safety: `STRPTR` points to const `STR` and its length is `STRLEN`
+        let v = unsafe { RsValue::const_string(STRPTR, STRLEN) };
+        let v = DynRsValue::from(v);
+        let mut v = v.into_opaque();
+
+        // Safety: `v` is nonnull and is correctly initialized.
+        unsafe { RsValue_IntoNumber(Some(NonNull::from_mut(&mut v)), 1.23) };
+
+        // Safety: `v` originates from a call to `DynRsValue::into_opaque`
+        let mut v = unsafe { DynRsValue::from_opaque(v) };
+        // Safety: `v` is nonnull and is correctly initialized.
+        unsafe { RsValue_Free(Some(v.as_opaque_non_null())) };
+    }
+
+    #[test]
+    fn create_convert_free_shared() {
+        // Safety: `STRPTR` points to const `STR` and its length is `STRLEN`
+        let mut v = unsafe { RsValue_NewConstString(STRPTR, STRLEN) };
+
+        // Safety: `v` is nonnull and is correctly initialized.
+        unsafe { RsValue_IntoNumber(Some(NonNull::from_mut(&mut v)), 1.23) };
+        // Safety: `v` originates from a call to one of the constructors
+        let mut v = unsafe { DynRsValue::from_opaque(v) };
+        // Safety: `v` is nonnull and is correctly initialized.
+        unsafe { RsValue_Free(Some(v.as_opaque_non_null())) }
+
+        // Avoid double free
+        std::mem::forget(v);
+    }
+
+    #[test]
+    fn create_replace_free_exclusive_exclusive() {
+        // Safety: `STRPTR` points to const `STR` and its length is `STRLEN`
+        let v_src = unsafe { RsValue::const_string(STRPTR, STRLEN) };
+        let v_src = DynRsValue::from(v_src);
+        let mut v_src = v_src.into_opaque();
+        // Safety: `v_src` is nonnull and is correctly initialized.
+        let v_src_ptr = unsafe { RsValue_DynPtr(&mut v_src as *mut _) };
+
+        let mut v_dst = RsValue_Number(1.23);
+        let v_dst_ptr = Some(NonNull::from_mut(&mut v_dst));
+
+        // Safety: `v_dst_ptr` and `v_src_ptr` are created according to the
+        // requirements of `RsValue_Replace`
+        unsafe {
+            RsValue_Replace(v_dst_ptr, v_src_ptr);
+        }
+
+        // Safety: `v_dst_ptr` was not freed before and will not be used
+        // after below call
+        unsafe { RsValue_Free(v_dst_ptr) };
+        // Safety: `v_src_ptr` was not freed before and will not be used
+        // after below call
+        unsafe { RsValue_Free(Some(NonNull::from_mut(&mut v_src))) };
+    }
+
+    #[test]
+    fn create_replace_free_shared_shared() {
+        // Safety: `STRPTR` points to const `STR` and its length is `STRLEN`
+        let mut v_src = unsafe { RsValue_NewConstString(STRPTR, STRLEN) };
+        // Safety: `v_src` is nonnull and is correctly initialized.
+        let v_src_ptr = unsafe { RsValue_DynPtr(&mut v_src as *mut _) };
+
+        let mut v_dst = RsValue_NewNumber(1.23);
+        let v_dst_ptr = Some(NonNull::from_mut(&mut v_dst));
+
+        // Safety: `v_dst_ptr` and `v_src_ptr` are created according to the
+        // requirements of `RsValue_Replace`
+        unsafe {
+            RsValue_Replace(v_dst_ptr, v_src_ptr);
+        }
+
+        // Safety: `v_dst_ptr` was not freed before and will not be used
+        // after below call
+        unsafe { RsValue_Free(v_dst_ptr) };
+        // Safety: `v_src_ptr` was not freed before and will not be used
+        // after below call
+        unsafe { RsValue_Free(Some(NonNull::from_mut(&mut v_src))) };
+    }
+
+    #[test]
+    fn create_replace_free_shared_exclusive() {
+        // Safety: `STRPTR` points to const `STR` and its length is `STRLEN`
+        let mut v_src = unsafe { RsValue_NewConstString(STRPTR, STRLEN) };
+        // Safety: `v_src` is nonnull and is correctly initialized.
+        let v_src_ptr = unsafe { RsValue_DynPtr(&mut v_src as *mut _) };
+
+        let mut v_dst = RsValue_Number(1.23);
+        let v_dst_ptr = Some(NonNull::from_mut(&mut v_dst));
+
+        // Safety: `v_dst_ptr` and `v_src_ptr` are created according to the
+        // requirements of `RsValue_Replace`
+        unsafe {
+            RsValue_Replace(v_dst_ptr, v_src_ptr);
+        }
+
+        // Safety: `v_dst_ptr` was not freed before and will not be used
+        // after below call
+        unsafe { RsValue_Free(v_dst_ptr) };
+        // Safety: `v_src_ptr` was not freed before and will not be used
+        // after below call
+        unsafe { RsValue_Free(Some(NonNull::from_mut(&mut v_src))) };
+    }
+
+    #[test]
+    fn create_replace_free_exclusive_shared() {
+        // Safety: `STRPTR` points to const `STR` and its length is `STRLEN`
+        let v_src = unsafe { RsValue::const_string(STRPTR, STRLEN) };
+        let v_src = DynRsValue::from(v_src);
+        let mut v_src = v_src.into_opaque();
+        // Safety: `v_src` is nonnull and is correctly initialized.
+        let v_src_ptr = unsafe { RsValue_DynPtr(&mut v_src as *mut _) };
+
+        let mut v_dst = RsValue_NewNumber(1.23);
+        let v_dst_ptr = Some(NonNull::from_mut(&mut v_dst));
+
+        // Safety: `v_dst_ptr` and `v_src_ptr` are created according to the
+        // requirements of `RsValue_Replace`
+        unsafe {
+            RsValue_Replace(v_dst_ptr, v_src_ptr);
+        }
+
+        // Safety: `v_dst_ptr` was not freed before and will not be used
+        // after below call
+        unsafe { RsValue_Free(v_dst_ptr) };
+        // Safety: `v_src_ptr` was not freed before and will not be used
+        // after below call
+        unsafe { RsValue_Free(Some(NonNull::from_mut(&mut v_src))) };
+    }
 }

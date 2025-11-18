@@ -2185,6 +2185,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "redis_mock",
  "value",
 ]
 

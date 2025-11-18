@@ -17,3 +17,6 @@ c_ffi_utils.workspace = true
 ffi.workspace = true
 libc.workspace = true
 value.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true

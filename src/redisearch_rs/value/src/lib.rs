@@ -15,6 +15,7 @@ use std::{
 
 use crate::{
     collection::{RsValueArray, RsValueMap},
+    dynamic::DynRsValueRef,
     shared::SharedRsValue,
     strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef, RsValueString},
     trio::RsValueTrio,
@@ -34,6 +35,7 @@ mod test_utils;
 pub use test_utils::RSValueMock;
 
 pub mod collection;
+pub mod dynamic;
 pub mod shared;
 pub mod strings;
 pub mod trio;
@@ -77,6 +79,7 @@ pub enum RsValue {
 }
 
 impl RsValue {
+    /// `const` function for creating a null value.
     pub const fn null_const() -> Self {
         Self::Def(RsValueInternal::Null)
     }
@@ -106,16 +109,27 @@ impl Value for RsValue {
             Self::Def(internal) => Some(internal),
         }
     }
+
+    fn to_dyn_ref(&self) -> DynRsValueRef<'_> {
+        DynRsValueRef::from(self)
+    }
+
+    fn to_shared(&self) -> SharedRsValue {
+        match self.internal() {
+            Some(internal) => SharedRsValue::from_internal(internal.clone()),
+            None => SharedRsValue::undefined(),
+        }
+    }
 }
 
 pub trait Value: Sized {
     /// Create a new value from an [`RsValueInternal`]
     fn from_internal(internal: RsValueInternal) -> Self;
 
-    // Create a new, undefined value
+    /// Create a new, undefined value
     fn undefined() -> Self;
 
-    // Clear this value
+    /// Clear this value
     fn clear(&mut self) {
         *self = Self::undefined();
     }
@@ -124,6 +138,18 @@ pub trait Value: Sized {
     /// held by this value if it is defined. Returns `None` if
     /// the value is undefined.
     fn internal(&self) -> Option<&RsValueInternal>;
+
+    /// Create a [`DynRsValueRef`] holding a reference
+    /// to `self`.
+    fn to_dyn_ref(&self) -> DynRsValueRef<'_>;
+
+    /// Convert `Self` into a [`SharedRsValue`].
+    fn to_shared(&self) -> SharedRsValue;
+
+    /// Swap `self`'s value with the passed [`RsValueInternal`].
+    fn swap_from_internal(&mut self, internal: RsValueInternal) {
+        *self = Self::from_internal(internal);
+    }
 
     /// Create a new, NULL value
     fn null() -> Self {
@@ -237,8 +263,20 @@ pub trait Value: Sized {
         Self::from_internal(RsValueInternal::Map(map))
     }
 
+    /// Repeatedly dereference `self` until
+    /// ending up at a non-reference value
+    ///
+    /// Calls [`Value::to_dyn_ref`] to convert the reference
+    /// to to a `DynRsValueRef`.
+    fn deep_deref(&self) -> DynRsValueRef<'_> {
+        match self.internal() {
+            Some(RsValueInternal::Ref(ref_v)) => ref_v.deep_deref(),
+            _ => self.to_dyn_ref(),
+        }
+    }
+
     /// Attempt to parse the passed string as an `f64`, and wrap it
-    /// in a [`SharedRsValue`].
+    /// in a value.
     fn parse_number(s: &str) -> Result<Self, std::num::ParseFloatError> {
         Ok(Self::number(s.parse()?))
     }
@@ -255,27 +293,24 @@ pub trait Value: Sized {
     /// Convert the value to a number in-place,
     /// dropping the existing value.
     fn to_number(&mut self, n: f64) {
-        *self = Self::number(n);
+        self.swap_from_internal(RsValueInternal::Number(n));
     }
-}
 
-pub mod opaque {
-    use c_ffi_utils::opaque::{Size, Transmute};
+    /// Get the string value as a slice of bytes.
+    /// Note: not all string variants guarantee UTF-8 encoding.
+    /// Returns `None` if the value is not of one of the string types.
+    fn string_as_bytes(&self) -> Option<&[u8]> {
+        let bytes = match self.internal()? {
+            RsValueInternal::RmAllocString(string) => string.as_bytes(),
+            RsValueInternal::ConstString(string) => string.as_bytes(),
+            RsValueInternal::OwnedRedisString(string) => string.as_bytes(),
+            RsValueInternal::BorrowedRedisString(string) => string.as_bytes(),
+            RsValueInternal::String(string) => string.as_str().as_bytes(),
+            _ => return None,
+        };
 
-    use super::RsValue;
-
-    /// Opaque projection of [`RsValue`], allowing the
-    /// non-FFI-safe [`RsValue`] to be passed to C
-    /// and even allow C land to place it on the stack.
-    #[repr(C, align(8))]
-    pub struct OpaqueRsValue(Size<16>);
-
-    // Safety: `OpaqueRsValue` is defined as a `MaybeUninit` slice of
-    // bytes with the same size and alignment as `RsValue`, so any valid
-    // `RsValue` has a bit pattern which is a valid `OpaqueRsValue`.
-    unsafe impl Transmute<RsValue> for OpaqueRsValue {}
-
-    c_ffi_utils::opaque!(RsValue, OpaqueRsValue);
+        Some(bytes)
+    }
 }
 
 #[cfg(test)]
