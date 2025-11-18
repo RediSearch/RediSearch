@@ -90,8 +90,9 @@ def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 100.0):
             while not is_migration_complete(conn, task_id):
                 time.sleep(0.1)
                 iter += 1
-    except Exception:
-        raise Exception(f"Timeout waiting for slot import to complete after {iter} iterations")
+    except Exception as e:
+        message = f"Timeout waiting for slot import to complete after {iter} iterations"
+        raise Exception(f'Timeout: {message}')
 
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
