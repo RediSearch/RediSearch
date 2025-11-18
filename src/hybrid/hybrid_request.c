@@ -103,7 +103,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     // we open the docKey as hidden in case the user didn't request it, if it already exists it will stay as it was
     // if it didn't then it will be marked as unresolved
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-    const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
+    const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUPKEYFLAG_HIDDEN);
     HybridLookupContext *lookupCtx = HybridLookupContext_New(req->requests, tailLookup);
     ResultProcessor *merger = RPHybridMerger_New(params->aggregationParams.common.sctx, 
                                                  params->scoringCtx, upstreams, req->nrequests, 

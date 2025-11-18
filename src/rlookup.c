@@ -70,7 +70,7 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
   // Get the key first
   RLookupKey *k = RLookup_FindKey(lookup, name, len);
   if (!k) {
-    k = RLookup_GetKey_WriteEx(lookup, name, len, NameAlloc);
+    k = RLookup_GetKey_WriteEx(lookup, name, len, RLOOKUPKEYFLAG_NAMEALLOC);
   }
   RLookup_WriteKey(k, dst, v);
 }
@@ -110,11 +110,11 @@ void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
 }
 
 RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
-  if (type == Bool || type == Int) {
+  if (type == RLOOKUPCOERCETYPE_BOOL || type == RLOOKUPCOERCETYPE_INT) {
     long long ll;
     RedisModule_StringToLongLong(src, &ll);
     return RSValue_NewNumberFromInt64(ll);
-  } else if (type == Dbl) {
+  } else if (type == RLOOKUPCOERCETYPE_DBL) {
     double dd;
     RedisModule_StringToDouble(src, &dd);
     return RSValue_NewNumber(dd);
@@ -304,14 +304,14 @@ done:
 RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
   switch (RedisModule_CallReplyType(rep)) {
     case REDISMODULE_REPLY_STRING: {
-      if (otype == Bool || otype == Int) {
+      if (otype == RLOOKUPCOERCETYPE_BOOL || otype == RLOOKUPCOERCETYPE_INT) {
         goto create_int;
       }
 
     create_string:;
       size_t len;
       const char *s = RedisModule_CallReplyStringPtr(rep, &len);
-      if (otype == Dbl) {
+      if (otype == RLOOKUPCOERCETYPE_DBL) {
         // Convert to double -- calling code should check if NULL
         return RSValue_NewParsedNumber(s, len);
       }
@@ -321,7 +321,7 @@ RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
 
     case REDISMODULE_REPLY_INTEGER:
     create_int:
-      if (otype == Str || otype == Dbl) {
+      if (otype == RLOOKUPCOERCETYPE_STR || otype == RLOOKUPCOERCETYPE_DBL) {
         goto create_string;
       }
       return RSValue_NewNumberFromInt64(RedisModule_CallReplyInteger(rep));
@@ -341,9 +341,9 @@ RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
 static inline bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst, RLookupLoadOptions *options) {
   return (!options->forceLoad && (
         // No need to "write" this key. It's always implicitly loaded!
-        (kk->flags & ValAvailable) ||
+        (kk->flags & RLOOKUPKEYFLAG_VALAVAILABLE) ||
         // There is no value in the sorting vector, and we don't need to load it from the document.
-        ((kk->flags & SvSrc) && (RLookup_GetItem(kk, dst) == NULL))
+        ((kk->flags & RLOOKUPKEYFLAG_SVSRC) && (RLookup_GetItem(kk, dst) == NULL))
     ));
 }
 
@@ -381,11 +381,11 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     // `val` was created by `RedisModule_HashGet` and is owned by us.
     // This function might retain it, but it's thread-safe to free it afterwards without any locks
     // as it will hold the only reference to it after the next line.
-    rsv = hvalToValue(val, (kk->flags & Numeric) ? Dbl : Str);
+    rsv = hvalToValue(val, (kk->flags & RLOOKUPKEYFLAG_NUMERIC) ? RLOOKUPCOERCETYPE_DBL : RLOOKUPCOERCETYPE_STR);
     RedisModule_FreeString(RSDummyContext, val);
   } else if (!strcmp(kk->path, UNDERSCORE_KEY)) {
     const RedisModuleString *keyName = RedisModule_GetKeyNameFromModuleKey(*keyobj);
-    rsv = hvalToValue(keyName, Str);
+    rsv = hvalToValue(keyName, RLOOKUPCOERCETYPE_STR);
   } else {
     return REDISMODULE_OK;
   }
@@ -475,12 +475,12 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   } else { // If we called load to perform IF operation with FT.ADD command
     for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
       /* key is not part of document schema. no need/impossible to 'load' it */
-      if (!(kk->flags & SchemaSrc)) {
+      if (!(kk->flags & RLOOKUPKEYFLAG_SCHEMASRC)) {
         continue;
       }
       if (!options->forceLoad) {
         /* wanted a sort key, but field is not sortable */
-        if ((options->mode & RLOOKUP_LOAD_SVKEYS) && !(kk->flags & SvSrc)) {
+        if ((options->mode & RLOOKUPLOADMODE_SORTINGVECTORKEYS) && !(kk->flags & RLOOKUPKEYFLAG_SVSRC)) {
           continue;
         }
       }
@@ -516,15 +516,14 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   RLookupKey *rlk = RLookup_FindKey(pd->it, fieldCStr, fieldCStrLen);
   if (!rlk) {
     // First returned document, create the key.
-    rlk = RLookup_GetKey_LoadEx(pd->it, fieldCStr, fieldCStrLen, fieldCStr, ForceLoad | NameAlloc);
-  } else if ((rlk->flags & QuerySrc)
+    rlk = RLookup_GetKey_LoadEx(pd->it, fieldCStr, fieldCStrLen, fieldCStr, RLOOKUPKEYFLAG_FORCELOAD | RLOOKUPKEYFLAG_NAMEALLOC);
+  } else if ((rlk->flags & RLOOKUPKEYFLAG_QUERYSRC)
             /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
     return; // Key name is already taken by a query key, or it's already loaded.
   }
-
-  RLookupCoerceType ctype = Str;
-  if (!pd->options->forceString && rlk->flags & Numeric) {
-    ctype = Dbl;
+  RLookupCoerceType ctype = RLOOKUPCOERCETYPE_STR;
+  if (!pd->options->forceString && rlk->flags & RLOOKUPKEYFLAG_NUMERIC) {
+    ctype = RLOOKUPCOERCETYPE_DBL;
   }
   // This function will retain the value if it's a string. This is thread-safe because
   // the value was created just before calling this callback and will be freed right after
@@ -563,14 +562,14 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       RLookupKey *rlk = RLookup_FindKey(it, kstr, klen);
       if (!rlk) {
         // First returned document, create the key.
-        rlk = RLookup_GetKey_LoadEx(it, kstr, klen, kstr, NameAlloc | ForceLoad);
-      } else if ((rlk->flags & QuerySrc)
+        rlk = RLookup_GetKey_LoadEx(it, kstr, klen, kstr, RLOOKUPKEYFLAG_NAMEALLOC | RLOOKUPKEYFLAG_FORCELOAD);
+      } else if ((rlk->flags & RLOOKUPKEYFLAG_QUERYSRC)
                  /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
         continue; // Key name is already taken by a query key, or it's already loaded.
       }
-      RLookupCoerceType ctype = Str;
-      if (!options->forceString && rlk->flags & Numeric) {
-        ctype = Dbl;
+      RLookupCoerceType ctype = RLOOKUPCOERCETYPE_STR;
+      if (!options->forceString && rlk->flags & RLOOKUPKEYFLAG_NUMERIC) {
+        ctype = RLOOKUPCOERCETYPE_DBL;
       }
       RSValue *vptr = replyElemToValue(repv, ctype);
       RLookup_WriteOwnKey(rlk, dst, vptr);
@@ -653,7 +652,7 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
     RLookupRow_SetSortingVector(dst, options->dmd->sortVector);
   }
 
-  if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
+  if (options->mode & RLOOKUPLOADMODE_ALLKEYS) {
     if (options->dmd->type == DocumentType_Hash) {
       rv = RLookup_HGETALL(it, dst, options);
     } else if (options->dmd->type == DocumentType_Json) {
@@ -675,7 +674,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   for (int i = 0; i < nkeys; ++i) {
     int idx = rule->filter_fields_index[i];
     if (idx == -1) {
-      keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), RLOOKUP_F_NOFLAGS);
+      keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), 0);
       continue;
     }
     FieldSpec *fs = spec->fields + idx;
@@ -695,7 +694,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
                             .type = rule->type,
                             .status = &status,
                             .forceLoad = 1,
-                            .mode = RLOOKUP_LOAD_KEYLIST };
+                            .mode = RLOOKUPLOADMODE_KEYLIST };
   int rv = loadIndividualKeys(it, dst, &opt);
   QueryError_ClearError(&status);
   rm_free(keys);

@@ -31,7 +31,7 @@ TEST_F(RLookupTest, testFlags) {
   RLookupKey *tmpk = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   ASSERT_EQ(NULL, tmpk);
   // Try again with M_WRITE and OVERWRITE
-  RLookupKey *tmpk2 = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_OVERRIDE);
+  RLookupKey *tmpk2 = RLookup_GetKey_Write(&lk, "foo", RLOOKUPKEYFLAG_OVERRIDE);
   ASSERT_TRUE(tmpk2);
 
   RLookup_Cleanup(&lk);
@@ -259,7 +259,7 @@ TEST_F(RLookupTest, testAddKeysFromConflictsOverride) {
   RLookupKey *original_field4_key = destKeys.keys[1];  // field4 (should remain unchanged)
 
   // Add keys with OVERRIDE flag
-  RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_OVERRIDE);
+  RLookup_AddKeysFrom(&source, &dest, RLOOKUPKEYFLAG_OVERRIDE);
 
   // Verify destination has all keys
   ASSERT_EQ(4, dest.rowlen);
@@ -716,27 +716,27 @@ TEST_F(RLookupTest, testAddKeysFromHiddenFlagHandling) {
   RLookup_Init(&dest, NULL);
 
   // Create key in src1 with F_HIDDEN flag
-  RLookupKey *src1_key = RLookup_GetKey_Write(&src1, "test_field", RLOOKUP_F_HIDDEN);
+  RLookupKey *src1_key = RLookup_GetKey_Write(&src1, "test_field", RLOOKUPKEYFLAG_HIDDEN);
   ASSERT_TRUE(src1_key);
-  ASSERT_TRUE(src1_key->flags & RLOOKUP_F_HIDDEN) << "src1 key should have F_HIDDEN flag";
+  ASSERT_TRUE(src1_key->flags & RLOOKUPKEYFLAG_HIDDEN) << "src1 key should have F_HIDDEN flag";
 
   // Add src1 keys first - test flag preservation
   RLookup_AddKeysFrom(&src1, &dest, RLOOKUP_F_NOFLAGS);
 
   RLookupKey *dest_key_after_src1 = RLookup_GetKey_Read(&dest, "test_field", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(dest_key_after_src1);
-  ASSERT_TRUE(dest_key_after_src1->flags & RLOOKUP_F_HIDDEN) << "Destination key should preserve F_HIDDEN flag";
+  ASSERT_TRUE(dest_key_after_src1->flags & RLOOKUPKEYFLAG_HIDDEN) << "Destination key should preserve F_HIDDEN flag";
 
   // Create same key name in src2 WITHOUT F_HIDDEN flag
   RLookupKey *src2_key = RLookup_GetKey_Write(&src2, "test_field", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(src2_key);
-  ASSERT_FALSE(src2_key->flags & RLOOKUP_F_HIDDEN) << "src2 key should NOT have F_HIDDEN flag";
+  ASSERT_FALSE(src2_key->flags & RLOOKUPKEYFLAG_HIDDEN) << "src2 key should NOT have F_HIDDEN flag";
 
   // Store reference to check override behavior
   RLookupKey *original_dest_key = dest_key_after_src1;
 
   // Add src2 keys with OVERRIDE flag - test flag override behavior
-  RLookup_AddKeysFrom(&src2, &dest, RLOOKUP_F_OVERRIDE);
+  RLookup_AddKeysFrom(&src2, &dest, RLOOKUPKEYFLAG_OVERRIDE);
 
   // Verify the key was overridden
   RLookupKey *dest_key_after_src2 = RLookup_GetKey_Read(&dest, "test_field", RLOOKUP_F_NOFLAGS);
@@ -747,7 +747,7 @@ TEST_F(RLookupTest, testAddKeysFromHiddenFlagHandling) {
   ASSERT_NE(original_dest_key, dest_key_after_src2) << "Should point to new key object after override";
 
   // Verify F_HIDDEN flag is now gone (src2 overwrote src1's hidden status)
-  ASSERT_FALSE(dest_key_after_src2->flags & RLOOKUP_F_HIDDEN) << "Destination key should NOT be hidden after src2 override";
+  ASSERT_FALSE(dest_key_after_src2->flags & RLOOKUPKEYFLAG_HIDDEN) << "Destination key should NOT be hidden after src2 override";
 
   RLookup_Cleanup(&src1);
   RLookup_Cleanup(&src2);

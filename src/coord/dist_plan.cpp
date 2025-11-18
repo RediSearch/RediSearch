@@ -399,7 +399,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           }
           RLookup filter_keys;
           RLookup_Init(&filter_keys, NULL);
-          filter_keys.options |= RLOOKUP_OPT_UNRESOLVED_OK;
+          filter_keys.options |= RLOOKUPOPTION_ALLOWUNRESOLVED;
           ExprAST_GetLookupKeys(tmpExpr, &filter_keys, status);
           if (QueryError_HasError(status)) {
             RLookup_Cleanup(&filter_keys);
@@ -573,16 +573,17 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_DISTRIBUTE);
   RS_ASSERT(dstp);
 
-  dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
+  dstp->lk.options |= RLOOKUPOPTION_ALLOWUNRESOLVED;
   int rc = AREQ_BuildPipeline(r, status);
-  dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
+  dstp->lk.options &= ~RLOOKUPOPTION_ALLOWUNRESOLVED;
   if (rc != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
   std::vector<const RLookupKey *> loadFields;
-  for (RLookupKey *kk = dstp->lk.head; kk != NULL; kk = kk->next) {
-    if (kk->flags & RLOOKUP_F_UNRESOLVED) {
+
+  for (RLookupKey *kk = dstp->lk.header.keys.head; kk != NULL; kk = kk->next) {
+    if (kk->flags & RLOOKUPKEYFLAG_UNRESOLVED) {
       loadFields.push_back(kk);
     }
   }

@@ -109,7 +109,7 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
     ret = row->dyn[key->dstidx];
   }
   if (!ret) {
-    if (key->flags & SvSrc) {
+    if (key->flags & RLOOKUPKEYFLAG_SVSRC) {
       const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
       if (sv && RSSortingVector_Length(sv) > key->svidx) {
         ret = RSSortingVector_Get(sv, key->svidx);
@@ -135,17 +135,6 @@ void RLookupRow_Wipe(RLookupRow *row);
  */
 void RLookupRow_Reset(RLookupRow *row);
 
-typedef enum {
-  /* Use keylist (keys/nkeys) for the fields to list */
-  RLOOKUP_LOAD_KEYLIST,
-  /* Load only cached keys (don't open keys) */
-  RLOOKUP_LOAD_SVKEYS,
-  /* Load all keys in the document */
-  RLOOKUP_LOAD_ALLKEYS,
-  /* Load all the keys in the RLookup object */
-  RLOOKUP_LOAD_LKKEYS
-} RLookupLoadFlags;
-
 typedef struct {
   struct RedisSearchCtx *sctx;
 
@@ -165,7 +154,7 @@ typedef struct {
    * The following options control the loading of fields, in case non-SORTABLE
    * fields are desired.
    */
-  RLookupLoadFlags mode;
+  RLookupLoadMode mode;
 
   /**
    * Don't use sortables when loading documents. This will enforce the loader to load
