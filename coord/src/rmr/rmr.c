@@ -675,6 +675,8 @@ void MRIterator_Release(MRIterator *it) {
         cmd->rootCommand = C_DEL;
         strcpy(cmd->strs[1], "DEL");
         cmd->lens[1] = 3;
+        sds_free(cmd->cmd);
+        cmd->cmd = NULL; // will be rebuilt on next use
       }
     }
     // Take a reference to the iterator for the next batch of commands.
