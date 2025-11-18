@@ -904,10 +904,8 @@ def mod5778_add_new_shard_to_cluster(env: Env):
 
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
-    with TimeLimit(40, "fail to acknowledge topology"):
-        shards = env.getOSSMasterNodesConnectionList()
-        while not all([sh.execute_command('CLUSTER', 'INFO').startswith('cluster_state:ok') for sh in shards]):
-            time.sleep(0.5)
+    env.waitCluster()
+
     # search.clusterinfo response format is the following:
     # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'shards', [
     #  ['slots', [1, 5461],       'id', '60cdcb85a8f73f87ac6cc831ee799b75752aace3', 'host', '127.0.0.1', 'port', 6379],
