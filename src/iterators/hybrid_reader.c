@@ -300,7 +300,7 @@ static IteratorStatus HR_ReadHybridUnsortedSingle(HybridIterator *hr) {
   }
   hr->base.current = mmh_pop_min(hr->topResults);
 
-  const t_fieldIndex fieldIndex = hr->filterCtx.field.value.index;
+  const t_fieldIndex fieldIndex = hr->filterCtx.field.index;
   if (hr->sctx && fieldIndex != RS_INVALID_FIELD_INDEX
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId, fieldIndex, hr->filterCtx.predicate, &hr->sctx->time.current)) {
     return ITERATOR_NOTFOUND;
@@ -337,7 +337,7 @@ static IteratorStatus HR_ReadKnnUnsortedSingle(HybridIterator *hr) {
     return ITERATOR_EOF;
   }
 
-  const t_fieldIndex fieldIndex = hr->filterCtx.field.value.index;
+  const t_fieldIndex fieldIndex = hr->filterCtx.field.index;
   if (hr->sctx && fieldIndex != RS_INVALID_FIELD_INDEX
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId, fieldIndex, hr->filterCtx.predicate, &hr->sctx->time.current)) {
     return ITERATOR_NOTFOUND;
