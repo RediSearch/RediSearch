@@ -431,6 +431,8 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, QueryIterator *root, Pr
       if (hi->searchMode == VECSIM_HYBRID_BATCHES ||
           hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
         printProfileNumBatches(hi);
+        printProfileMaxBatchSize(hi);
+        printProfileMaxBatchIteration(hi);
       }
     }
 

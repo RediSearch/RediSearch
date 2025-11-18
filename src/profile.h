@@ -24,6 +24,10 @@
 #define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (rs_timer_ms(&(vtime))))
 #define printProfileNumBatches(hybrid_reader) \
   RedisModule_ReplyKV_LongLong(reply, "Batches number", (hybrid_reader)->numIterations)
+#define printProfileMaxBatchSize(hybrid_reader) \
+  RedisModule_ReplyKV_LongLong(reply, "Largest batch size", (hybrid_reader)->maxBatchSize)
+#define printProfileMaxBatchIteration(hybrid_reader) \
+  RedisModule_ReplyKV_LongLong(reply, "Largest batch iteration (zero based)", (hybrid_reader)->maxBatchIteration)
 #define printProfileOptimizationType(oi) \
   RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", QOptimizer_PrintType((oi)->optim))
 #define printProfileVectorSearchMode(searchMode) \
