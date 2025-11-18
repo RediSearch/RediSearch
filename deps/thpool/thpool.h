@@ -296,6 +296,8 @@ thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *);
 
 size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *);
 
+void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove);
+
 #ifdef __cplusplus
 }
 #endif

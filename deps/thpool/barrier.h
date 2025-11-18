@@ -21,6 +21,7 @@
 /** implementation for macos inspired by
  * http://byronlai.com/jekyll/update/2015/12/26/barrier.html
  */
+#define PTHREAD_BARRIER_SERIAL_THREAD -1
 
 typedef struct {
     pthread_mutex_t mutex;

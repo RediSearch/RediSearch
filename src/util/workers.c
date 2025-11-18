@@ -87,21 +87,20 @@ void workersThreadPool_SetNumWorkers() {
     RedisModule_Log(RSDummyContext, "notice", "Changing workers threadpool size from %zu to %zu", curr_workers, worker_count);
   }
 
-  size_t new_num_threads = worker_count;
   if (worker_count == 0 && curr_workers > 0) {
     redisearch_thpool_terminate_when_empty(_workers_thpool);
-    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
+    // Schedule in the thpool in the config_worker_reducer_job -> a pointer to
+    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers);
     workersThreadPool_OnDeactivation(curr_workers);
   } else if (worker_count > curr_workers) {
-    new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
+    size_t new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
     if (!curr_workers) workersThreadPool_OnActivation(worker_count);
+    RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
+      "Attempt to change the workers thpool size to %lu "
+      "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
   } else if (worker_count < curr_workers) {
-    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
+    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers - worker_count);
   }
-
-  RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
-    "Attempt to change the workers thpool size to %lu "
-    "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
 }
 
 // return number of currently working threads
