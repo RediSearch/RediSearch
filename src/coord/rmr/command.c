@@ -39,6 +39,11 @@ static void assignStr(MRCommand *cmd, size_t idx, const char *s, size_t n) {
   cmd->lens[idx] = n;
   news[n] = '\0';
   memcpy(news, s, n);
+  // Drop the cached sds command representation if set
+  if (cmd->cmd) {
+    sdsfree(cmd->cmd);
+    cmd->cmd = NULL;
+  }
 }
 
 static void assignCstr(MRCommand *cmd, size_t idx, const char *s) {
@@ -176,6 +181,11 @@ void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, char *newArg, size_t l
   rm_free(cmd->strs[index]);
   cmd->strs[index] = newArg;
   cmd->lens[index] = len;
+  // Drop the cached sds command representation if set
+  if (cmd->cmd) {
+    sdsfree(cmd->cmd);
+    cmd->cmd = NULL;
+  }
 }
 void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t len) {
   char *news = rm_malloc(len + 1);
@@ -254,10 +264,4 @@ void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slot
   char *serialized = SlotRangesArray_Serialize(slots);
   size_t serializedLen = SlotRangeArray_SizeOf(slots->num_ranges);
   MRCommand_ReplaceArgNoDup(cmd, cmd->slotsInfoArgIndex, serialized, serializedLen);
-  // This function is expected to be called from an io thread, which means that
-  // the command may have already been used, so we drop the cached sds command representation
-  if (cmd->cmd) {
-    sdsfree(cmd->cmd);
-    cmd->cmd = NULL;
-  }
 }
