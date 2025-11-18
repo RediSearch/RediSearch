@@ -72,3 +72,6 @@ include = ["c_ffi_utils", "query_error"]
 
 [export.rename]
 "OpaqueQueryError" = "QueryError"
+
+[export]
+include = ["QueryWarningCode"]
