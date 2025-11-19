@@ -74,7 +74,7 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 }
 
 
-static int getNextReply(RPNet *nc) {
+int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
     // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
     // TODO: could be replaced with a query specific configuration
