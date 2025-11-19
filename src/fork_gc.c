@@ -1046,8 +1046,6 @@ static int periodicCb(void *privdata) {
     usleep(500);
   }
 
-  pid_t ppid_before_fork = getpid();
-
   TimeSampler_Start(&ts);
   int pipefd[2];
   int rc = pipe(pipefd);  // create the pipe
