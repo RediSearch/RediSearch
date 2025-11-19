@@ -1556,6 +1556,7 @@ void RediSearch_CleanupModule(void) {
   // Let the workers finish BEFORE we call CursorList_Destroy, since it frees a global
   // data structure that is accessed upon releasing the spec (and running thread might hold
   // a reference to the spec bat this time).
+  //TODO(Joan): Is this draining safe?
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 

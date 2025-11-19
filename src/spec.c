@@ -3537,6 +3537,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
     return;
   }
   Indexes_Free(specDict_g);
+  //TODO(Joan): Is this draining safe?
   workersThreadPool_Drain(ctx, 0);
   Dictionary_Clear();
   RSGlobalStats.totalStats.used_dialects = 0;

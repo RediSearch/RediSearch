@@ -130,6 +130,7 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
+  RedisModule_Log(RSDummyContext, "notice", "Draining workers thread pool with threshold %zu", threshold);
   if (RedisModule_Yield) {
     // Wait until all the threads in the pool run the jobs until there are no more than <threshold>
     // jobs in the queue. Periodically return and call RedisModule_Yield, so redis can answer PINGs

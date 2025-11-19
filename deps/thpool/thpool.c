@@ -382,15 +382,17 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
 
   pthread_mutex_lock(&thpool_p->jobqueues.lock);
   //TODO(Joan): Should we fail if the thpool has a pending configuration_reduce_threads_job?
-  size_t n_threads = thpool_p->n_threads + n_threads_to_add;
   if (thpool_p->jobqueues.config_reduce_threads_job) {
     struct config_reduce_threads_job_arg *job_arg = thpool_p->jobqueues.config_reduce_threads_job->arg;
-    size_t n_threads_to_remove = job_arg->n_threads_to_remove;
-    LOG_IF_EXISTS("verbose", "Thread pool size increase of %zu aborted due to pending thread reduction of %zu threads by a configuration job", n_threads_to_add, n_threads_to_remove);
-    pthread_mutex_unlock(&thpool_p->jobqueues.lock);
-    return thpool_p->n_threads;
+    size_t old_n_threads_to_remove = job_arg->n_threads_to_remove;
+    thpool_p->n_threads += old_n_threads_to_remove;
+    thpool_p->jobqueues.config_reduce_threads_job = NULL;
+    LOG_IF_EXISTS("verbose", "Thread pool size has a pending reduction of %zu threads. This reduction will be aborted", old_n_threads_to_remove);
   }
-
+  // If config_reduce_threads_job is not there but the ADMIN jobs are running, if TERMINATE_ASAP we are safe because the admin jobs would be taken by the other threads
+  // This would mean that the old threads would be remove dand the new threads would be created eventually leading to the expected number of threads.
+  pthread_mutex_unlock(&thpool_p->jobqueues.lock);
+  size_t n_threads = thpool_p->n_threads + n_threads_to_add;
   thpool_p->n_threads = n_threads;
   /* Add new threads */
   for (size_t n = 0; n < n_threads_to_add; n++) {
@@ -1134,26 +1136,31 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
    * `num_threads_alive` to `n_threads` */
   if (thpool_p->state == THPOOL_UNINITIALIZED)
     return;
+
+  pthread_mutex_lock(&thpool_p->jobqueues.lock);
   size_t n_threads = thpool_p->n_threads;
-  size_t jobs_count = priority_queue_len(&thpool_p->jobqueues);
+  size_t jobs_count = priority_queue_len_unsafe(&thpool_p->jobqueues);
   if (n_threads == 0 && jobs_count > 0) {
     LOG_IF_EXISTS("warning",
                   "redisearch_thpool_schedule_config_reduce_threads_job(): "
                   "Attempt to kill all threads while jobqueue contains %zu jobs",
                   jobs_count);
   }
-
-  pthread_mutex_lock(&thpool_p->jobqueues.lock);
   LOG_IF_EXISTS("verbose", "Scheduling from main thread a configuration job to remove %zu threads", n_threads_to_remove);
   assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
-  thpool_p->n_threads -= n_threads_to_remove;
 
   assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
 
   if (thpool_p->jobqueues.config_reduce_threads_job) {
+    size_t old_n_threads_to_remove = ((struct config_reduce_threads_job_arg *)thpool_p->jobqueues.config_reduce_threads_job->arg)->n_threads_to_remove;
+    thpool_p->n_threads += old_n_threads_to_remove;
+    LOG_IF_EXISTS("verbose", "Overriding previous configuration that requested to remove %zu threads with a new job to remove %zu threads", old_n_threads_to_remove, n_threads_to_remove);
     rm_free(thpool_p->jobqueues.config_reduce_threads_job->arg);
     rm_free(thpool_p->jobqueues.config_reduce_threads_job);
   }
+  // If config_reduce_threads_job is not there but the ADMIN jobs are running, if TERMINATE_ASAP we are safe because the admin jobs would be taken by the other threads.
+  // If the old config is TERMINATE_WHEN_EMPTY it means that we are removing all threads, and we should set to THPOOL_UNINITIALIZED.
+  thpool_p->n_threads -= n_threads_to_remove;
   struct config_reduce_threads_job_arg *job_arg = (struct config_reduce_threads_job_arg *)rm_malloc(sizeof(*job_arg));
   job_arg->thpool = thpool_p;
   job_arg->n_threads_to_remove = n_threads_to_remove;
@@ -1162,6 +1169,10 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   thpool_p->jobqueues.config_reduce_threads_job->function = config_reduce_threads_job;
   thpool_p->jobqueues.config_reduce_threads_job->arg = job_arg;
   thpool_p->jobqueues.config_reduce_threads_job->prev = NULL;
+  if (thpool_p->n_threads == 0) {
+    assert(new_state == THREAD_TERMINATE_WHEN_EMPTY && "If we are removing all threads, the new state must be THREAD_TERMINATE_WHEN_EMPTY");
+    thpool_p->state = THPOOL_UNINITIALIZED;
+  }
   pthread_cond_broadcast(&thpool_p->jobqueues.has_jobs);
   pthread_mutex_unlock(&thpool_p->jobqueues.lock);
 }
