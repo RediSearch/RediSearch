@@ -111,11 +111,13 @@ where
         Some(&mut self.result)
     }
 
+    #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         (self.read_impl)(self)
     }
 
     // TODO: implement InvIndIterator_SkipTo_withSeeker_CheckExpiration with the query iterators.
+    #[inline(always)]
     fn skip_to(
         &mut self,
         doc_id: t_docId,
