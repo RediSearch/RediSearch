@@ -111,7 +111,9 @@ static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *
       return REDISMODULE_OK;
     }
   }
-  RedisModule_Log(fgc->ctx, "warning", "ForkGC - got timeout while reading from pipe (%s)", strerror(errno));
+  short revents = fgc->pollfd_read[0].revents;
+  RedisModule_Log(fgc->ctx, "warning", "ForkGC - got timeout while reading from pipe. errno: %s, revents: 0x%x (POLLIN=%x POLLERR=%x POLLHUP=%x POLLNVAL=%x)",
+                  strerror(errno), revents, (revents & POLLIN), (revents & POLLERR), (revents & POLLHUP), (revents & POLLNVAL));
   return REDISMODULE_ERR;
 }
 
