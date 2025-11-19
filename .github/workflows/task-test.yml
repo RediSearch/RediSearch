@@ -57,6 +57,9 @@ jobs:
   # Get configuration for this specific platform and architecture
   get-config:
     uses: ./.github/workflows/task-get-config.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
   build-image:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
@@ -115,9 +118,7 @@ jobs:
           tags: ${{ steps.meta.outputs.image }}
           cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max
           cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
-    with:
-      platform: ${{ inputs.platform }}
-      architecture: ${{ inputs.architecture }}
+
 
   common-flow:
     needs: [get-config, build-image]
