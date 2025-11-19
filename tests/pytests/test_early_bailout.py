@@ -121,6 +121,15 @@ class TestEarlyBailoutEmptyResultsSA_Resp2:
                 empty = empty[0]
             self.env.assertEqual(res, empty, message = 'Failed for query params: ' + ' '.join(query_params))
 
+    def test_early_bailout_aggregate_invalid_format_resp2(self):
+        # Test that invalid FORMAT argument during OOM returns error
+        change_oom_policy(self.env, 'return')
+        self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+        # Invalid FORMAT value should trigger error path in shallow_parse_query_args
+        self.env.expect('FT.AGGREGATE', 'not_empty', '*', 'FORMAT', 'INVALID').error()
+        self.env.expect('FT.AGGREGATE', 'not_empty', '*', 'WITHCURSOR', 'FORMAT', 'INVALID').error()
+
 
     def test_early_bailout_hybrid_resp2(self):
 
@@ -287,6 +296,15 @@ class TestEarlyBailoutEmptyResultsSA_Resp3:
             del res['warning']
             del empty['warning']
             self.env.assertEqual(res, empty, message = 'Failed for query params: ' + ' '.join(query_params))
+
+    def test_early_bailout_aggregate_invalid_format_resp3(self):
+        # Test that invalid FORMAT argument during OOM returns error
+        change_oom_policy(self.env, 'return')
+        self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+        # Invalid FORMAT value should trigger error path in shallow_parse_query_args
+        self.env.expect('FT.AGGREGATE', 'not_empty', '*', 'FORMAT', 'INVALID').error()
+        self.env.expect('FT.AGGREGATE', 'not_empty', '*', 'WITHCURSOR', 'FORMAT', 'INVALID').error()
 
 
     def test_early_bailout_hybrid_resp3(self):

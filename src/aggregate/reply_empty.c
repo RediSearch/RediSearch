@@ -89,7 +89,7 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
 
     if (shallow_parse_query_args(argv + profileArgs, argc - profileArgs, req) != REDISMODULE_OK) {
         AREQ_Free(req);
-        return REDISMODULE_ERR;
+        return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     }
 
     // Set the error code after compiling the query, since we don't want to overwrite
@@ -162,7 +162,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
 
     if (shallow_parse_query_args(argv, argc, req) != REDISMODULE_OK) {
         AREQ_Free(req);
-        return REDISMODULE_ERR;
+        return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     }
 
     // Set the error code after compiling the query, since we don't want to overwrite
