@@ -350,14 +350,12 @@ static inline bool HasExpiration(const InvIndIterator *it) {
 
 // Returns true if the iterator should skip multi-values from the same document
 static inline bool ShouldSkipMulti(const InvIndIterator *it) {
-  return it->skipMulti &&                       // Skip multi-values is requested
-        IndexReader_HasMulti(it->reader); // The index holds multi-values (if not, no need to check)
+  return IndexReader_HasMulti(it->reader); // The index holds multi-values (if not, no need to check)
 }
 
 static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
-                                        bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
+                                        const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
   it->reader = NewIndexReader(idx, *decoderCtx);
-  it->skipMulti = skipMulti; // Original request, regardless of what implementation is chosen
   it->sctx = sctx;
   it->filterCtx = *filterCtx;
   it->isWildcard = false;
@@ -374,7 +372,7 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
   base->Revalidate = InvIndIterator_Revalidate;
 
   // Choose the Read and SkipTo methods for best performance
-  skipMulti = ShouldSkipMulti(it);
+  bool skipMulti = ShouldSkipMulti(it);
   bool hasExpiration = HasExpiration(it);
 
   // Read function choice:
@@ -403,19 +401,19 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
 }
 
 static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
-                                        bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
+                                       const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
   RS_ASSERT(idx);
   InvIndIterator *it = rm_calloc(1, sizeof(*it));
-  return InitInvIndIterator(it, idx, res, filterCtx, skipMulti, sctx, decoderCtx, checkAbortFn);
+  return InitInvIndIterator(it, idx, res, filterCtx, sctx, decoderCtx, checkAbortFn);
 }
 
 static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, RSIndexResult *res, const NumericRangeTree *rt, const FieldFilterContext *filterCtx,
-                bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
+                const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
   RS_ASSERT(idx);
   NumericInvIndIterator *it = rm_calloc(1, sizeof(*it));
 
   // Initialize the iterator first
-  InitInvIndIterator(&it->base, idx, res, filterCtx, skipMulti, sctx, decoderCtx, NumericCheckAbort);
+  InitInvIndIterator(&it->base, idx, res, filterCtx, sctx, decoderCtx, NumericCheckAbort);
 
   if (rt) {
     it->revisionId = rt->revisionId;
@@ -433,7 +431,7 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const Re
     decoderCtx = (IndexDecoderCtx){.numeric_tag = IndexDecoderCtx_Numeric, .numeric = flt};
   }
 
-  QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), rt, fieldCtx, true, sctx, &decoderCtx);
+  QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), rt, fieldCtx, sctx, &decoderCtx);
   InvIndIterator *it = (InvIndIterator *)ret;
   it->profileCtx.numeric.rangeMin = rangeMin;
   it->profileCtx.numeric.rangeMax = rangeMax;
@@ -479,7 +477,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
     dctx.field_mask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
   }
 
-  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &dctx, TermCheckAbort);
+  return NewInvIndIterator(idx, record, &fieldCtx, sctx, &dctx, TermCheckAbort);
 }
 
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
@@ -508,7 +506,7 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
 
   TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
   it->tagIdx = tagIdx;
-  return InitInvIndIterator(&it->base, idx, record, &fieldCtx, true, sctx, &dctx, TagCheckAbort);
+  return InitInvIndIterator(&it->base, idx, record, &fieldCtx, sctx, &dctx, TagCheckAbort);
 }
 
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight) {
@@ -521,7 +519,7 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
   record->freq = 1;
 
   InvIndIterator *it = rm_calloc(1, sizeof(*it));
-  InitInvIndIterator(it, idx, record, &fieldCtx, true, sctx, &decoderCtx, WildcardCheckAbort);
+  InitInvIndIterator(it, idx, record, &fieldCtx, sctx, &decoderCtx, WildcardCheckAbort);
   it->isWildcard = true; // Mark as wildcard iterator
   return &it->base;
 }
@@ -535,5 +533,5 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
   RSIndexResult *record = NewVirtualResult(0.0, RS_FIELDMASK_ALL);
   record->freq = 1;
 
-  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &decoderCtx, MissingCheckAbort);
+  return NewInvIndIterator(idx, record, &fieldCtx, sctx, &decoderCtx, MissingCheckAbort);
 }
