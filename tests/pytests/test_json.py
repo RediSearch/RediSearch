@@ -83,9 +83,8 @@ def testSearchUpdatedContent(env):
     res[2][1] = json.loads(res[2][1])
     env.assertEqual(res, expected)
 
-    # TODO: Why does the following result look like that? (1 count and 2 arrays of result pairs)
     res = env.cmd('ft.aggregate', 'idx1', '*', 'LOAD', '1', 'labelT')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['labelT', 'rex'], ['labelT', 'riceratops']]))
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, ['labelT', 'rex'], ['labelT', 'riceratops']]))
     env.expect('ft.aggregate', 'idx1', 're*', 'LOAD', '1', 'labelT').equal([1, ['labelT', 'rex']])
 
     res = env.cmd('ft.aggregate', 'idx1', '*', 'LOAD', '1', 'labelT')
