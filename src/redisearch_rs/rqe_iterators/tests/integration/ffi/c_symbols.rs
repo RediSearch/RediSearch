@@ -80,6 +80,10 @@ macro_rules! stub_c_fn {
 // above using the corresponding test binaries.
 stub_c_fn! {
     fast_float_strtod,
+    HiddenString_Compare,
+    HiddenString_Duplicate,
+    HiddenString_Free,
+    HiddenString_GetUnsafe,
     Obfuscate_Number,
     Obfuscate_Text,
     QueryError_SetWithUserDataFmt,
