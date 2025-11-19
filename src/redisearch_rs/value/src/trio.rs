@@ -21,6 +21,21 @@ impl RsValueTrio {
     pub fn new(left: SharedRsValue, middle: SharedRsValue, right: SharedRsValue) -> Self {
         Self(Box::new(RsValueTrioData(left, middle, right)))
     }
+
+    /// Get the left value
+    pub fn left(&self) -> &SharedRsValue {
+        &self.0.0
+    }
+
+    /// Get the middle value
+    pub fn middle(&self) -> &SharedRsValue {
+        &self.0.1
+    }
+
+    /// Get the right value
+    pub fn right(&self) -> &SharedRsValue {
+        &self.0.2
+    }
 }
 
 impl fmt::Debug for RsValueTrio {

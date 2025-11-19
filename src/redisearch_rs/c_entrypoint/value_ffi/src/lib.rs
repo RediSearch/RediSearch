@@ -458,9 +458,7 @@ pub unsafe extern "C" fn RsValue_Map_Len(v: OpaqueDynRsValueRef) -> u32 {
     unsafe { expect_unchecked!(v.map_cap(), "Value is not a map") }
 }
 
-/// Get an entry from a map value. Takes ownership
-/// of the key and value, and as such they need to be freed
-/// explicitly.
+/// Get an entry from a map value.
 ///
 /// # Safety
 /// - (1) `v` must originate from a call to [`RsValue_DynRef`].
@@ -502,6 +500,66 @@ pub unsafe extern "C" fn RsValue_Map_GetEntry(
     let entry_value = DynRsValue::from(entry.key.clone()).into_opaque();
     // Safety: caller must ensure (5)
     unsafe { value.write(entry_value) };
+}
+
+/// Get the left value of a trio value.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynRef`].
+/// - (2) The `RsValue` `v` points to must be of type [`RsValueType::Trio`]
+///
+/// @param v A reference to the trio value to extract the left value from
+/// @return The left value of the trio
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Trio_GetLeft(v: OpaqueDynRsValueRef) -> OpaqueDynRsValue {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValueRef::from_opaque(v) };
+    // Safety: caller must ensure (2)
+    let trio = unsafe { expect_unchecked!(v.as_trio(), "Value is not a trio") };
+
+    let left = trio.left().clone();
+
+    DynRsValue::from(left).into_opaque()
+}
+
+/// Get the middle value of a trio value.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynRef`].
+/// - (2) The `RsValue` `v` points to must be of type [`RsValueType::Trio`]
+///
+/// @param v A reference to the trio value to extract the middle value from
+/// @return The middle value of the trio
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Trio_GetMiddle(v: OpaqueDynRsValueRef) -> OpaqueDynRsValue {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValueRef::from_opaque(v) };
+    // Safety: caller must ensure (2)
+    let trio = unsafe { expect_unchecked!(v.as_trio(), "Value is not a trio") };
+
+    let middle = trio.middle().clone();
+
+    DynRsValue::from(middle).into_opaque()
+}
+
+/// Get the right value of a trio value.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynRef`].
+/// - (2) The `RsValue` `v` points to must be of type [`RsValueType::Trio`]
+///
+/// @param v A reference to the trio value to extract the right value from
+/// @return The right value of the trio
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Trio_GetRight(v: OpaqueDynRsValueRef) -> OpaqueDynRsValue {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValueRef::from_opaque(v) };
+    // Safety: caller must ensure (2)
+    let trio = unsafe { expect_unchecked!(v.as_trio(), "Value is not a trio") };
+
+    let right = trio.right().clone();
+
+    DynRsValue::from(right).into_opaque()
 }
 
 /// Repeatedly dereference self until ending up at a non-reference value.

@@ -322,6 +322,9 @@ pub trait Value: Sized {
         }
     }
 
+    /// Get the entry at the passed index of the
+    /// array wrapped by this value if so, or `None` if
+    /// the value is not an array or the index is out of bounds.
     fn array_get(&self, i: u32) -> Option<&SharedRsValue> {
         match self.internal()? {
             RsValueInternal::Array(array) => array.get(i),
@@ -329,6 +332,8 @@ pub trait Value: Sized {
         }
     }
 
+    /// Get the capacity of the array being
+    /// wrapped by this value if so, or `None` otherwise.
     fn array_cap(&self) -> Option<u32> {
         match self.internal()? {
             RsValueInternal::Array(array) => Some(array.cap()),
@@ -336,6 +341,9 @@ pub trait Value: Sized {
         }
     }
 
+    /// Get the entry at the passed index of the
+    /// map wrapped by this value if so, or `None` if
+    /// the value is not a map or the index is out of bounds.
     fn map_get(&self, i: u32) -> Option<&RsValueMapEntry> {
         match self.internal()? {
             RsValueInternal::Map(map) => map.get(i),
@@ -343,9 +351,20 @@ pub trait Value: Sized {
         }
     }
 
+    /// Get the capacity of the map being
+    /// wrapped by this value if so, or `None` otherwise.
     fn map_cap(&self) -> Option<u32> {
         match self.internal()? {
             RsValueInternal::Map(map) => Some(map.cap()),
+            _ => None,
+        }
+    }
+
+    /// Get a reference to [`RsValueTrio`] being
+    /// wrapped by this value if so, or `None` otherwise.
+    fn as_trio(&self) -> Option<&RsValueTrio> {
+        match self.internal()? {
+            RsValueInternal::Trio(trio) => Some(trio),
             _ => None,
         }
     }
