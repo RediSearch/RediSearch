@@ -701,7 +701,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_EmptyArray(reply);
 
     // <format>
-    RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+    } else {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    }
 
     // results (empty array)
     RedisModule_ReplyKV_Array(reply, "results");

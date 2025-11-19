@@ -17,6 +17,26 @@
 #include "../rmutil/util.h"
 #include "reply_empty.h"
 
+// Helper function that performs minimal parsing of query arguments to support sendChunk output
+static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *req) {
+    // Check specifically for CURSOR
+    if (RMUtil_ArgIndex("WITHCURSOR", argv, argc) != -1) {
+        AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
+    }
+    // Parse format
+    int formatIndex = RMUtil_ArgExists("FORMAT", argv, argc, 1);
+    if (formatIndex > 0) {
+        formatIndex++;
+        ArgsCursor ac;
+        ArgsCursor_InitRString(&ac, argv+formatIndex, argc-formatIndex);
+        if (parseValueFormat(&req->reqflags, &ac, AREQ_QueryProcessingCtx(req)->err) != REDISMODULE_OK) {
+            return REDISMODULE_ERR;
+        }
+    }
+    return REDISMODULE_OK;
+}
+
+
 // Helper function for empty replies for aggregate-style queries.
 // Compiles the query to get request flags and formatting, then uses sendChunk_ReplyOnly_EmptyResults.
 // Works for both single-shard and coordinator aggregate queries.
@@ -67,9 +87,9 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
     int profileArgs = parseProfileArgs(argv, argc, req);
     if (profileArgs == -1) return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
 
-    // Check specifically for CURSOR
-    if (RMUtil_ArgIndex("WITHCURSOR", argv, argc) != -1) {
-        AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
+    if (shallow_parse_query_args(argv + profileArgs, argc - profileArgs, req) != REDISMODULE_OK) {
+        AREQ_Free(req);
+        return REDISMODULE_ERR;
     }
 
     // Set the error code after compiling the query, since we don't want to overwrite
@@ -140,9 +160,9 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
 
     parseProfileExecOptions(req, execOptions);
 
-    // Check specifically for CURSOR
-    if (RMUtil_ArgIndex("WITHCURSOR", argv, argc) != -1) {
-        AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
+    if (shallow_parse_query_args(argv, argc, req) != REDISMODULE_OK) {
+        AREQ_Free(req);
+        return REDISMODULE_ERR;
     }
 
     // Set the error code after compiling the query, since we don't want to overwrite
