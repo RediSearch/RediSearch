@@ -33,7 +33,7 @@ impl FieldMaskOrIndex {
 }
 
 /// Field expiration predicate used when checking fields.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(C)]
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
