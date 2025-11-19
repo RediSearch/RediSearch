@@ -3537,7 +3537,8 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
     return;
   }
   Indexes_Free(specDict_g);
-  //TODO(Joan): Is this draining safe?
+  //TODO(Joan): Is this draining safe? why do we need to drain the thread pool?
+  RedisModule_Log(ctx, "notice", "onFlush: Draining workers thread pool with threshold 0");
   workersThreadPool_Drain(ctx, 0);
   Dictionary_Clear();
   RSGlobalStats.totalStats.used_dialects = 0;

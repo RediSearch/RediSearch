@@ -131,6 +131,7 @@ struct SignalThreadCtxWithBarrier {
   ThreadState new_state;
   pthread_barrier_t *barrier;
   atomic_int num_threads_to_wait;
+  redisearch_thpool_t *thpool;
 };
 
 /* ========================== PROTOTYPES ============================ */
@@ -143,7 +144,11 @@ static void redisearch_thpool_push_chain_verify_init_threads(redisearch_thpool_t
                                                              job *last_newjob,
                                                              size_t num,
                                                              thpool_priority priority);
-
+static void redisearch_thpool_push_chain(redisearch_thpool_t *thpool_p,
+                                        job *first_newjob,
+                                        job *last_newjob,
+                                        size_t num,
+                                        thpool_priority priority);
 static int thread_init(redisearch_thpool_t *thpool_p);
 static void *thread_do(redisearch_thpool_t *thpool_p);
 
@@ -257,24 +262,21 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
   redisearch_thpool_lock(thpool_p);
   size_t curr_num_threads_alive = thpool_p->num_threads_alive;
   size_t n_threads = thpool_p->n_threads;
-  size_t n_new_threads;
+  size_t n_new_threads = 0;
   if (curr_num_threads_alive) { // Case 2 - some or all threads are alive in
                                 // TERMINATE_WHEN_EMPTY state
-    size_t n_threads_to_revive, n_threads_to_kill;
+    size_t n_threads_to_revive = 0;
+    size_t n_threads_to_kill = 0;
     if (curr_num_threads_alive >= n_threads) { // Case 2.a
       // Revive n_threads
       n_threads_to_revive = n_threads;
       // Kill extra threads
       n_threads_to_kill = curr_num_threads_alive - n_threads;
-      // No new threads
-      n_new_threads = 0;
     } else {                                  // Case 2.b
       // Revive all threads
       n_threads_to_revive = curr_num_threads_alive;
       // Add missing threads
       n_new_threads = n_threads - curr_num_threads_alive;
-      // No threads to kill
-      n_threads_to_kill = 0;
     }
 
     /* In both cases we send `curr_num_threads_alive` jobs. */
@@ -458,12 +460,11 @@ int redisearch_thpool_add_n_work(redisearch_thpool_t * thpool_p,
       thpool_p, first_newjob, last_newjob, n_jobs, priority);
 
   return 0;
-
 fail:
   LOG_IF_EXISTS("warning",
-                "redisearch_thpool_add_n_work(): Could not allocate memory for "
-                "%zu new jobs",
-                n_jobs);
+                  "redisearch_thpool_add_n_work(): Could not allocate memory for "
+                  "%zu new jobs",
+                  n_jobs);
   while (first_newjob) {
     job *tmp = first_newjob->prev;
     rm_free(first_newjob);
@@ -471,6 +472,31 @@ fail:
   }
   return -1;
 }
+
+/* Add n work to the thread pool */
+int redisearch_thpool_add_n_work_not_verify_init(redisearch_thpool_t * thpool_p,
+  redisearch_thpool_work_t *jobs, size_t n_jobs,
+  thpool_priority priority) {
+  if (n_jobs == 0)
+    return 0;
+  jobsChain jobs_chain = create_jobs_chain(jobs, n_jobs);
+
+  job *first_newjob = jobs_chain.first_job;
+  job *last_newjob = jobs_chain.last_job;
+  if (!jobs_chain.first_job || !jobs_chain.last_job) {
+    LOG_IF_EXISTS("warning",
+    "redisearch_thpool_add_n_work_not_verify_init(): Could not allocate memory "
+    "for %zu new jobs",
+    n_jobs);
+    return -1;
+  }
+
+  /* Add jobs to queue */
+  redisearch_thpool_push_chain(thpool_p, first_newjob, last_newjob, n_jobs, priority);
+
+  return 0;
+}
+
 
 static void redisearch_thpool_push_chain_verify_init_threads(
     redisearch_thpool_t *thpool_p, job *f_newjob_p, job *l_newjob_p, size_t n,
@@ -482,6 +508,15 @@ static void redisearch_thpool_push_chain_verify_init_threads(
 
   /* Initialize threads if needed */
   redisearch_thpool_verify_init(thpool_p);
+}
+
+static void redisearch_thpool_push_chain(
+    redisearch_thpool_t *thpool_p, job *f_newjob_p, job *l_newjob_p, size_t n,
+    thpool_priority priority) {
+  redisearch_thpool_lock(thpool_p);
+  priority_queue_push_chain_unsafe(&thpool_p->jobqueues, f_newjob_p, l_newjob_p,
+                                  n, priority);
+  redisearch_thpool_unlock(thpool_p);
 }
 
 /* Wait until all jobs have finished */
@@ -1086,11 +1121,14 @@ static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
   adminJobArg *job_arg = job_arg_;
   struct SignalThreadCtxWithBarrier *signal_struct = job_arg->arg;
   ThreadState new_state = signal_struct->new_state;
+  redisearch_thpool_t *thpool = signal_struct->thpool;
   job_arg->thread_ctx->thread_state = new_state;
+  LOG_IF_THPOOL_EXISTS("verbose", "Thread changing state to %s",  new_state == THREAD_TERMINATE_ASAP ? "THREAD_TERMINATE_ASAP" : "THREAD_TERMINATE_WHEN_EMPTY");
 
   /* Wait all threads to get the barrier */
   int ret = pthread_barrier_wait(signal_struct->barrier);
   if (ret == PTHREAD_BARRIER_SERIAL_THREAD) {
+    LOG_IF_THPOOL_EXISTS("verbose", "Thread destroying barrier");
     pthread_barrier_destroy(signal_struct->barrier);
   }
   int num_threads_to_wait_before = atomic_fetch_sub(&signal_struct->num_threads_to_wait, 1);
@@ -1098,6 +1136,7 @@ static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
     rm_free(signal_struct->barrier);
     rm_free(signal_struct);
   }
+  LOG_IF_THPOOL_EXISTS("verbose", "Thread done waiting on barrier");
 }
 
 static void config_reduce_threads_job(void *arg) {
@@ -1115,13 +1154,15 @@ static void config_reduce_threads_job(void *arg) {
   struct SignalThreadCtxWithBarrier *signal_job_arg = rm_malloc(sizeof(struct SignalThreadCtxWithBarrier));
   signal_job_arg->barrier = barrier;
   signal_job_arg->new_state = new_state;
+  signal_job_arg->thpool = thpool;
   atomic_init(&signal_job_arg->num_threads_to_wait, n_threads_to_remove);
   /* Set new state of all threads to 'new_state'. */
   for (size_t i = 0; i < n_threads_to_remove; i++) {
     jobs[i].arg_p = signal_job_arg;
     jobs[i].function_p = admin_job_change_state_last_destroys_barrier;
   }
-  redisearch_thpool_add_n_work(thpool, jobs, n_threads_to_remove, THPOOL_PRIORITY_ADMIN);
+  // I do not need to verify init since we are actually putting in priority queue, and I do not want to wait on another barrier
+  redisearch_thpool_add_n_work_not_verify_init(thpool, jobs, n_threads_to_remove, THPOOL_PRIORITY_ADMIN);
 
   rm_free(job_arg);
 }
