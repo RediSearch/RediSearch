@@ -22,21 +22,25 @@ jobs:
       repo: redis/redis
       prefix: '8.0'
 
-  test-linux:
-    needs: [get-latest-redis-tag]
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  generate-matrix:
+    uses: ./.github/workflows/generate-matrix.yml
+
+  # Run tests on multiple platforms - matrix generated dynamically
+  unified-test-matrix:
+    name: ${{ matrix.platform }} (${{ matrix.architecture }})
+    needs: [get-latest-redis-tag, generate-matrix]
+    strategy:
+      fail-fast: true  # This will cancel ALL matrix jobs on first failure
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
+      test-config: QUICK=1
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '8.0'
 
-  test-macos:
-    needs: [get-latest-redis-tag]
-    uses: ./.github/workflows/flow-macos.yml
-    secrets: inherit
-    with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: '8.0'
 
   coverage:
     needs: [get-latest-redis-tag]
@@ -44,27 +48,31 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
+      platform: ubuntu:default
+      architecture: x86_64
       coverage: true
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '8.0'
       test-config: '' # run all tests
 
   sanitize:
-    needs: [get-latest-redis-tag]
-    secrets: inherit
+    needs: get-latest-redis-tag
     uses: ./.github/workflows/task-test.yml
+    secrets: inherit
     with:
+      platform: ubuntu:default
+      architecture: x86_64
+      san: address
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '8.0'
       test-config: '' # run all tests
-      san: address
-      env: ubuntu-latest
 
   pr-validation:
     needs:
       - get-latest-redis-tag
-      - test-linux
-      - test-macos
+      - lint
+      - unified-test-matrix
+      - run-on-intel
       - coverage
       - sanitize
     runs-on: ${{ vars.RUNS_ON }}
