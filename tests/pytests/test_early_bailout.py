@@ -142,7 +142,7 @@ class TestEarlyBailoutEmptyResultsSA_Resp2:
             res = self.env.cmd('FT.HYBRID', 'not_empty_hybrid', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert OOM warning exists
-            self.env.assertEqual(res[5][0], SHARD_OOM_WARNING)
+            self.env.assertEqual(res[5][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty[5], [])
             # Clear warnings from results
             del res[5]
@@ -243,7 +243,7 @@ class TestEarlyBailoutEmptyResultsSA_Resp3:
             res = self.env.cmd('FT.SEARCH', 'not_empty', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert res has OOM warning
-            self.env.assertEqual(res['warning'][0], SHARD_OOM_WARNING)
+            self.env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty['warning'], [])
             # Clear warnings from res
             del res['warning']
@@ -281,7 +281,7 @@ class TestEarlyBailoutEmptyResultsSA_Resp3:
                 empty = empty[0]
 
             # Assert OOM warning exists
-            self.env.assertEqual(res['warning'][0], SHARD_OOM_WARNING)
+            self.env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty['warning'], [])
             # Clear warnings from results
             del res['warning']
@@ -309,7 +309,7 @@ class TestEarlyBailoutEmptyResultsSA_Resp3:
             res = self.env.cmd('FT.HYBRID', 'not_empty_hybrid', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert OOM warning exists
-            self.env.assertEqual(res['warnings'][0], SHARD_OOM_WARNING)
+            self.env.assertEqual(res['warnings'][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty['warnings'], [])
             # Clear warnings from results
             del res['warnings']
@@ -339,7 +339,7 @@ class TestEarlyBailoutEmptyResultsSA_Resp3:
             res = self.env.cmd('FT.PROFILE', 'not_empty', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert res has OOM warning
-            self.env.assertEqual(res['Results']['warning'][0], SHARD_OOM_WARNING)
+            self.env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty['Results']['warning'], [])
 
             # Clear time related fields from results

@@ -82,16 +82,16 @@ def test_oom_verbosity_standalone():
     # Check commands return SHARD_OOM_WARNING when returning empty results
     change_oom_policy(env, 'return')
     res = env.cmd('FT.SEARCH', 'idx', '*')
-    env.assertEqual(res['warning'][0], SHARD_OOM_WARNING)
+    env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
-    env.assertEqual(res['warning'][0], SHARD_OOM_WARNING)
+    env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
     res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', '1')
-    env.assertEqual(res['warnings'][0], SHARD_OOM_WARNING)
-    # Check profile returns SHARD_OOM_WARNING
+    env.assertEqual(res['warnings'][0], COORD_OOM_WARNING)
+    # Check profile returns COORD_OOM_WARNING
     res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
-    env.assertEqual(res['Results']['warning'][0], SHARD_OOM_WARNING)
+    env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
-    env.assertEqual(res['Results']['warning'][0], SHARD_OOM_WARNING)
+    env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
 
 
 class testOomClusterBehavior:
@@ -319,7 +319,7 @@ class testOomHybridClusterBehavior:
         # Testing warnings verbosity
         self.env.assertEqual(res[5][0], COORD_OOM_WARNING)
 
-# @skip(cluster=False)
+@skip(cluster=False)
 def test_oom_verbosity_cluster_return():
     env  = Env(shardsCount=3, protocol=3)
 

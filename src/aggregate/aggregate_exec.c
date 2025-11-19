@@ -717,9 +717,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     // warning
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
     if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
-      // SA and shards should use SHARD warning
-      // Coordinator should use CLUSTER warning
-      const char *warning = (GetNumShards_UnSafe() > 1) && !IsInternal(req) ? QUERY_WOOM_COORD : QUERY_WOOM_SHARD;
+      // Shards should use SHARD warning
+      // SA and Coordinator should use COORD warning
+      const char *warning = !IsInternal(req) ? QUERY_WOOM_COORD : QUERY_WOOM_SHARD;
       RedisModule_Reply_SimpleString(reply, warning);
     }
     RedisModule_Reply_ArrayEnd(reply);

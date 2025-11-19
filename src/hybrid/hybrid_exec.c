@@ -321,9 +321,8 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
     RedisModule_Reply_SimpleString(reply, "warnings");
     if (QueryError_HasQueryOOMWarning(err)) {
         RedisModule_Reply_Array(reply);
-        // This function is called by Coordinator or SA, so based on the number of shards, we decide which warning to return.
-        const char *warning = GetNumShards_UnSafe() > 1 ? QUERY_WOOM_COORD : QUERY_WOOM_SHARD;
-        RedisModule_Reply_SimpleString(reply, warning);
+        // This function is called by Coordinator or SA
+        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
         RedisModule_Reply_ArrayEnd(reply);
     } else {
         RedisModule_Reply_EmptyArray(reply);
