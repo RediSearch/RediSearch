@@ -13,11 +13,18 @@ use std::cmp::min;
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+
+/// An iterator that yields results according to a sorted IDs list, specified on construction.
+pub type SortedIdList<'index> = IdList<'index, true>;
+/// An iterator that yields results according to an IDs list, specified on construction,
+/// which may or may not be sorted.
+pub type UnsortedIdList<'index> = IdList<'index, false>;
 
 /// An iterator that yields results according to an IDs list given on construction.
-pub struct IdList<'index> {
-    /// The list of document IDs to iterate over. Must be sorted, unique, and non-empty.
+pub struct IdList<'index, const SORTED: bool> {
+    /// The list of document IDs to iterate over.
+    /// There must be no duplicates. The list must be sorted if `SORTED` is set to `true`.
     ids: Vec<t_docId>,
     /// The current position of the iterator (a.k.a the next document ID to return by `read`).
     /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
@@ -26,9 +33,12 @@ pub struct IdList<'index> {
     result: RSIndexResult<'index>,
 }
 
-impl<'index> IdList<'index> {
+impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     #[inline(always)]
-    /// Creates a new ID list iterator. The list of document IDs must be sorted, unique, and non-empty.
+    /// Creates a new ID list iterator.
+    ///
+    /// The list of document IDs cannot contain duplicates.
+    /// If `SORTED` is set to `true`, the list must be sorted.
     pub fn new(ids: Vec<t_docId>) -> Self {
         Self::with_result(ids, RSIndexResult::virt())
     }
@@ -36,11 +46,13 @@ impl<'index> IdList<'index> {
     /// Same as [`IdList::new`] but with a custom [`RSIndexResult`],
     /// useful when wrapping this iterator and requiring a non-virtual result.
     pub fn with_result(ids: Vec<t_docId>, result: RSIndexResult<'index>) -> Self {
-        debug_assert!(!ids.is_empty());
-        debug_assert!(
-            ids.is_sorted_by(|a, b| a < b),
-            "IDs must be sorted and unique"
-        );
+        if SORTED && !cfg!(feature = "disable_sort_checks_in_idlist") {
+            debug_assert!(
+                ids.is_sorted_by(|a, b| a < b),
+                "IDs must be sorted and unique"
+            );
+        }
+
         IdList {
             ids,
             offset: 0,
@@ -49,7 +61,7 @@ impl<'index> IdList<'index> {
     }
 }
 
-impl<'index> IdList<'index> {
+impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     #[inline(always)]
     fn get_current(&self) -> Option<t_docId> {
         self.ids.get(self.offset).copied()
@@ -78,6 +90,10 @@ impl<'index> IdList<'index> {
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<(SkipToOutcome<'_, 'index>, usize)>, RQEIteratorError> {
+        if !SORTED && !cfg!(feature = "disable_sort_checks_in_idlist") {
+            panic!("Can't skip when working with unsorted document ids");
+        }
+
         // Safe to unwrap as we are not at eof + the list must not be empty
         if self.at_eof() || self.ids.last().unwrap() < &doc_id {
             self.offset = self.ids.len(); // Move to EOF
@@ -113,7 +129,12 @@ impl<'index> IdList<'index> {
     }
 }
 
-impl<'index> RQEIterator<'index> for IdList<'index> {
+impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SORTED_BY_ID> {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        Some(&mut self.result)
+    }
+
     #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         Ok(self.read_and_get_offset()?.map(|t| t.0))
@@ -129,6 +150,7 @@ impl<'index> RQEIterator<'index> for IdList<'index> {
 
     fn rewind(&mut self) {
         self.offset = 0;
+        self.result.doc_id = 0;
     }
 
     fn num_estimated(&self) -> usize {
@@ -146,5 +168,10 @@ impl<'index> RQEIterator<'index> for IdList<'index> {
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.get_current().is_none()
+    }
+
+    #[inline(always)]
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        Ok(RQEValidateStatus::Ok)
     }
 }

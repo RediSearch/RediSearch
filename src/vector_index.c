@@ -119,7 +119,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
   VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = vq->field->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = vq->field->index}, .predicate = FIELD_EXPIRATION_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
