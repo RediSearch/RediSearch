@@ -88,9 +88,9 @@ void workersThreadPool_SetNumWorkers() {
   }
 
   if (worker_count == 0 && curr_workers > 0) {
-    redisearch_thpool_terminate_when_empty(_workers_thpool);
     // Schedule in the thpool in the config_worker_reducer_job -> a pointer to
-    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers);
+    RedisModule_Log(RSDummyContext, "notice", "Scheduling config_reduce_threads_job to remove all %zu threads when empty", curr_workers);
+    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers, true);
     workersThreadPool_OnDeactivation(curr_workers);
   } else if (worker_count > curr_workers) {
     size_t new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
@@ -99,7 +99,8 @@ void workersThreadPool_SetNumWorkers() {
       "Attempt to change the workers thpool size to %lu "
       "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
   } else if (worker_count < curr_workers) {
-    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers - worker_count);
+    RedisModule_Log(RSDummyContext, "notice", "Scheduling config_reduce_threads_job to remove %zu threads ASAP", curr_workers - worker_count);
+    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers - worker_count, false);
   }
 }
 

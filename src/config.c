@@ -417,6 +417,7 @@ CONFIG_SETTER(setWorkThreads) {
 
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
+  // TODO(Joan): Is it safe to trigger change in connections per shard? if SetNumWorkers is done asynchronously?
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
@@ -434,6 +435,7 @@ RedisModuleString **err) {
   config->numWorkerThreads = val;
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
+  // TODO(Joan): Is it safe to trigger change in connections per shard? if SetNumWorkers is done asynchronously?
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }

@@ -7,6 +7,7 @@
 #ifndef _THPOOL_
 #define _THPOOL_
 #include <stddef.h>
+#include <stdbool.h>
 
 #define DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD 1
 
@@ -296,7 +297,7 @@ thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *);
 
 size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *);
 
-void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove);
+void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool remove_all);
 
 #ifdef __cplusplus
 }
