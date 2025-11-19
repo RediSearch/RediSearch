@@ -1073,7 +1073,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   }
 
   // Define if we need a depleter in the pipeline
-  if (IsAggregate(req) && !IsOptimized(req) && !IsCount(req) && !IsCursor(req)) {
+  if (IsAggregate(req) && !IsOptimized(req) && !IsCount(req)) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
     bool isLimited = (arng && arng->isLimited && arng->limit > 0);
 
