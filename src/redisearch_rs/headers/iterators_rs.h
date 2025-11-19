@@ -112,6 +112,23 @@ RLookupKey **GetMetricOwnKeyRef(QueryIterator *header);
  */
 enum MetricType GetMetricType(QueryIterator *header);
 
+/**
+ * Create a new non-optimized optional iterator.
+ *
+ * # Safety
+ *
+ * 1. `child_it` must be a valid pointer to an implementation of the C query iterator API.
+ * 2. `child_it` is not null.
+ * 3. `child_it` must not be aliased.
+ */
+QueryIterator *NewNonOptimizedOptionalIterator(QueryIterator *child, t_docId max_id, double weight);
+
+const QueryIterator *GetNonOptimizedOptionalIteratorChild(const QueryIterator *header);
+
+QueryIterator *TakeNonOptimizedOptionalIteratorChild(QueryIterator *header);
+
+void SetNonOptimizedOptionalIteratorChild(QueryIterator *header, QueryIterator *child);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
