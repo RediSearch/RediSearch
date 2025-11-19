@@ -363,18 +363,6 @@ size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
 size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
                                      size_t n_threads_to_add) {
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
-
-  /** THPOOL_UNINITIALIZED means either:
-   * 1. thpool->n_threads > 0, and there are no threads alive
-   * 2. There are threads alive in terminate_when_empty state.
-   * In both cases only calling `verify_init` will add/remove threads to adjust
-   * `num_threads_alive` to `n_threads`
-   * @note if thpool->n_threads was decreased to 0 (thpool_remove_threads), the thpool is in INITIALIZED
-   * state. */
-  if (thpool_p->state == THPOOL_UNINITIALIZED)
-    // return this value to keep old behavior
-    return thpool_p->n_threads;
-
   size_t n_threads = thpool_p->n_threads + n_threads_to_add;
   thpool_p->n_threads = n_threads;
   /* Add new threads */
@@ -387,9 +375,8 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
     usleep(1);
   }
 
-  LOG_IF_EXISTS("verbose", "Thread pool size increased to %zu successfully", n_threads)
-
   pthread_mutex_unlock(&thpool_p->jobqueues.lock);
+  thpool_p->state = THPOOL_INITIALIZED;
 
   return thpool_p->n_threads;
 }
@@ -478,7 +465,6 @@ int redisearch_thpool_add_n_work_not_verify_init(redisearch_thpool_t * thpool_p,
   return 0;
 }
 
-
 static void redisearch_thpool_push_chain_verify_init_threads(
     redisearch_thpool_t *thpool_p, job *f_newjob_p, job *l_newjob_p, size_t n,
     thpool_priority priority) {
@@ -564,7 +550,6 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
   } else {
     redisearch_thpool_unlock(thpool_p);
   }
-
   thpool_p->state = THPOOL_UNINITIALIZED;
 }
 
@@ -1100,9 +1085,9 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
   /** THPOOL_UNINITIALIZED means either:
    * 1. thpool->n_threads > 0, and there are no threads alive
-   * 2. There are threads alive in TERMINATE_WHEN_EMPTY or TERMINATE_ASAP state.
+   * 2. There are threads alive in TERMINATE_WHEN_EMPTY state.
    * In any case we cannot remove more threads. */
-  if (thpool_p->state == THPOOL_UNINITIALIZED)
+  if (thpool_p->state == THPOOL_UNINITIALIZED || thpool_p->n_threads == 0)
     return;
 
   size_t n_threads = thpool_p->n_threads;
@@ -1121,7 +1106,7 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   ThreadState new_state = remove_all ? THREAD_TERMINATE_WHEN_EMPTY : THREAD_TERMINATE_ASAP;
 
   // If config_reduce_threads_job is not there but the ADMIN jobs are running, if TERMINATE_ASAP we are safe because the admin jobs would be taken by the other threads.
-  // If the old config is TERMINATE_WHEN_EMPTY it means that we are removing all threads, and we should set to THPOOL_UNINITIALIZED.
+  // If the old config is TERMINATE_WHEN_EMPTY it means that we were removing all threads, and we should not enter here again
   thpool_p->n_threads -= n_threads_to_remove;
   redisearch_thpool_work_t jobs[n_threads_to_remove];
   /* Create a barrier. */
@@ -1140,7 +1125,6 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   // I do not need to verify init since we are actually putting in priority queue, and I do not want to wait on another barrier
   redisearch_thpool_add_n_work_not_verify_init(thpool_p, jobs, n_threads_to_remove, THPOOL_PRIORITY_ADMIN);
   if (thpool_p->n_threads == 0) {
-    LOG_IF_EXISTS("verbose", "Setting thpool state to THPOOL_UNINITIALIZED");
     thpool_p->state = THPOOL_UNINITIALIZED;
   }
 }
