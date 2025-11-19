@@ -390,14 +390,17 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestAddThreads) {
 static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpool_p,
                                                        size_t n_threads_to_keep_alive,
                                                        size_t final_n_threads) {
+    //TODO(Joan): Revisit this test
     size_t total_jobs_pushed = 0;
 
     auto setThpoolThreadsNumber = [thpool_p, &final_n_threads]() -> size_t {
-        if (final_n_threads < RUNTIME_CONFIG_N_THREADS) {
-            return redisearch_thpool_remove_threads(thpool_p, RUNTIME_CONFIG_N_THREADS - final_n_threads);
-        } else {
-            return redisearch_thpool_add_threads(thpool_p, final_n_threads - RUNTIME_CONFIG_N_THREADS);
+        if (final_n_threads < redisearch_thpool_get_num_threads(thpool_p)) {
+            redisearch_thpool_schedule_config_reduce_threads_job(thpool_p, redisearch_thpool_get_num_threads(thpool_p) - final_n_threads, false);
+            return redisearch_thpool_get_num_threads(thpool_p);
+        } else if (final_n_threads > redisearch_thpool_get_num_threads(thpool_p)) {
+            return redisearch_thpool_add_threads(thpool_p, final_n_threads - redisearch_thpool_get_num_threads(thpool_p));
         }
+        return redisearch_thpool_get_num_threads(thpool_p);
     };
 
     /** The test goes as follows:
@@ -435,9 +438,13 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
     ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).total_pending_jobs, n_threads_to_keep_alive);
     // The threads will wake up and pull the change state job (terminate when empty).
     // `n_threads_to_keep_alive` of them will pull another job and wait. The others will see an empty queue and exit.
-    redisearch_thpool_terminate_when_empty(thpool_p);
+    redisearch_thpool_schedule_config_reduce_threads_job(thpool_p, redisearch_thpool_get_num_threads(thpool_p), true);
     // Jobs done should be RUNTIME_CONFIG_N_THREADS from the first waitForAdminJobFunc batch.
     // `n_threads_to_keep_alive` are still waiting in the second batch of `waitForAdminJobFunc`.
+    while (redisearch_thpool_get_stats(thpool_p).total_jobs_done < RUNTIME_CONFIG_N_THREADS) {
+        // redisearch_thpool_schedule_config_reduce_threads_job does not wait for admin jobs to be done.
+        usleep(1);
+    }
     ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).total_jobs_done, RUNTIME_CONFIG_N_THREADS);
 
     while (!((redisearch_thpool_get_stats(thpool_p).num_threads_alive == n_threads_to_keep_alive) &&
@@ -445,7 +452,6 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
         usleep(1);
     }
 
-    // Now change number of threads. This will only change thpool->n_threads, but won't affect the current running threads.
     ASSERT_EQ(setThpoolThreadsNumber(), final_n_threads);
 
     // Assert n_threads is as expected

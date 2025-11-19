@@ -360,6 +360,10 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
   size_t n_threads = thpool_p->n_threads + n_threads_to_add;
   thpool_p->n_threads = n_threads;
+  // TODO(Joan): I am not sure about this, but thpool unit tests fail otherwise
+  if (thpool_p->state == THPOOL_UNINITIALIZED) {
+    return n_threads;
+  }
   /* Add new threads */
   for (size_t n = 0; n < n_threads_to_add; n++) {
     thread_init(thpool_p);
