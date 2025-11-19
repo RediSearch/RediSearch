@@ -677,11 +677,6 @@ class TestQueryDebugCommands(object):
         expectError(debug_params, 'INTERNAL_ONLY must be used with TIMEOUT_AFTER_N')
         expectError(debug_params, 'INTERNAL_ONLY must be used with TIMEOUT_AFTER_N')
 
-        # TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR is disabled.
-        if (self.env.isCluster() and self.cmd == "AGGREGATE"):
-            debug_params = ['TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3]
-            expectError(debug_params, 'INTERNAL_ONLY with TIMEOUT_AFTER_N 0 is not allowed without WITHCURSOR')
-
     def QueryDebug(self):
         env = self.env
         basic_debug_query = self.basic_debug_query
@@ -810,6 +805,12 @@ class TestQueryDebugCommands(object):
         res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
         should_timeout = False
         self.verifyResultsResp3(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
+
+        # Test TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster mode - should work and return empty results
+        if env.isCluster():
+            debug_params = ['TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3]
+            res = env.cmd(*basic_debug_query, *debug_params)
+            self.verifyResultsResp3(res, 0, message="AggregateDebug: TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster:")
 
         self.StrictPolicy()
 
