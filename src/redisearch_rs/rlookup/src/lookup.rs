@@ -947,7 +947,8 @@ impl<'a> RLookup<'a> {
     }
 
     pub fn init(&mut self, spcache: Option<IndexSpecCache>) {
-        // c version used memset to zero initialize, We behave the same way in release, but add a debug assert to catch misuses.
+        // C-CODE: used memset to zero initialize,
+        // We behave the same way in release, but add a debug assert to catch misuses.
         if self.index_spec_cache.is_some() {
             debug_assert!(false, "RLookup already initialized with an IndexSpecCache");
             *self = Self::new();

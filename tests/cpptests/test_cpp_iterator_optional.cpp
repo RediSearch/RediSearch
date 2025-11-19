@@ -9,7 +9,6 @@
 
 #include <algorithm>
 #include <vector>
-#include "rmutil/alloc.h"
 #include "gtest/gtest.h"
 
 #include "src/iterators/optional_iterator.h"
