@@ -17,7 +17,6 @@ use crate::{Decoder, Encoder, IndexBlock, RSIndexResult, TermDecoder};
 ///
 /// The delta is encoded as a raw 4-byte value.
 /// This is different from the regular [`crate::doc_ids_only::DocIdsOnly`] encoder which uses varint encoding.
-#[derive(Clone, Copy, Default)]
 pub struct RawDocIdsOnly;
 
 impl Encoder for RawDocIdsOnly {
@@ -25,7 +24,6 @@ impl Encoder for RawDocIdsOnly {
     const RECOMMENDED_BLOCK_ENTRIES: u16 = 1000;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         _record: &RSIndexResult,

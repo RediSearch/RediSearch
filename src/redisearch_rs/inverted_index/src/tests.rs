@@ -10,6 +10,7 @@
 use core::panic;
 use std::{
     io::{Cursor, Read},
+    marker::PhantomData,
     ptr,
     sync::atomic,
 };
@@ -54,7 +55,6 @@ impl Encoder for Dummy {
     type Delta = u32;
 
     fn encode<W: std::io::Write + std::io::Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         _record: &RSIndexResult,
@@ -67,7 +67,7 @@ impl Encoder for Dummy {
 
 #[test]
 fn memory_usage() {
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
     assert_eq!(ii.memory_usage(), 40);
 
@@ -79,7 +79,7 @@ fn memory_usage() {
 
 #[test]
 fn adding_records() {
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     let record = RSIndexResult::default().doc_id(10);
 
     let mem_growth = ii.add_record(&record).unwrap();
@@ -113,7 +113,7 @@ fn adding_records() {
 
 #[test]
 fn adding_same_record_twice() {
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     let record = RSIndexResult::default().doc_id(10);
 
     ii.add_record(&record).unwrap();
@@ -150,7 +150,6 @@ fn adding_same_record_twice() {
         const ALLOW_DUPLICATES: bool = true;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &self,
             mut writer: W,
             _delta: Self::Delta,
             _record: &RSIndexResult,
@@ -161,7 +160,7 @@ fn adding_same_record_twice() {
         }
     }
 
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, AllowDupsDummy);
+    let mut ii = InvertedIndex::<AllowDupsDummy>::new(IndexFlags_Index_DocIdsOnly);
 
     ii.add_record(&record).unwrap();
     assert_eq!(ii.blocks.len(), 1);
@@ -203,7 +202,6 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &self,
             mut writer: W,
             _delta: Self::Delta,
             _record: &RSIndexResult,
@@ -214,7 +212,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         }
     }
 
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, SmallBlocksDummy);
+    let mut ii = InvertedIndex::<SmallBlocksDummy>::new(IndexFlags_Index_DocIdsOnly);
 
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
     assert_eq!(
@@ -257,7 +255,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
 
 #[test]
 fn adding_big_delta_makes_new_block() {
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     let record = RSIndexResult::default().doc_id(10);
 
     let mem_growth = ii.add_record(&record).unwrap();
@@ -309,7 +307,6 @@ fn adding_ii_blocks_growth_strategy() {
         const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &self,
             mut writer: W,
             _delta: Self::Delta,
             _record: &RSIndexResult,
@@ -334,7 +331,7 @@ fn adding_ii_blocks_growth_strategy() {
         }
     }
 
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, SmallBlocksDummy);
+    let mut ii = InvertedIndex::<SmallBlocksDummy>::new(IndexFlags_Index_DocIdsOnly);
 
     assert_eq!(
         ii.blocks.capacity(),
@@ -396,7 +393,7 @@ fn adding_ii_blocks_growth_strategy() {
 
 #[test]
 fn adding_tracks_entries() {
-    let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let mut ii = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
     assert_eq!(ii.memory_usage(), 48);
     assert_eq!(ii.number_of_entries(), 0);
@@ -415,7 +412,7 @@ fn adding_tracks_entries() {
 
 #[test]
 fn adding_track_field_mask() {
-    let mut ii = FieldMaskTrackingIndex::new(IndexFlags_Index_StoreFieldFlags, Dummy);
+    let mut ii = FieldMaskTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreFieldFlags);
 
     assert_eq!(ii.memory_usage(), 56);
     assert_eq!(ii.field_mask(), 0);
@@ -487,7 +484,7 @@ fn reading_records() {
             last_doc_id: 100,
         },
     ];
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
     let mut result = RSIndexResult::default();
 
@@ -533,7 +530,7 @@ fn reading_over_empty_blocks() {
             last_doc_id: 30,
         },
     ];
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
     let mut result = RSIndexResult::default();
 
@@ -564,7 +561,6 @@ fn read_using_the_first_block_id_as_the_base() {
         type Delta = u32;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &self,
             _writer: W,
             _delta: Self::Delta,
             _record: &RSIndexResult,
@@ -606,7 +602,7 @@ fn read_using_the_first_block_id_as_the_base() {
         first_doc_id: 10,
         last_doc_id: 12,
     }];
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, FirstBlockIdDummy);
+    let ii = InvertedIndex::<FirstBlockIdDummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
     let mut result = RSIndexResult::default();
 
@@ -647,7 +643,7 @@ fn seeking_records() {
         },
     ];
 
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
     let mut result = RSIndexResult::default();
 
@@ -677,7 +673,7 @@ fn seeking_records() {
 
 #[test]
 fn index_reader_construction_with_no_blocks() {
-    let ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     let mut ir = ii.reader();
     let mut result = RSIndexResult::default();
 
@@ -726,7 +722,7 @@ fn index_reader_skip_to() {
             last_doc_id: 50,
         },
     ];
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
 
     assert_eq!(ir.current_block_idx, 0, "should start at the first block");
@@ -785,7 +781,7 @@ fn reader_reset() {
             last_doc_id: 100,
         },
     ];
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
     let mut result = RSIndexResult::default();
 
@@ -817,7 +813,7 @@ fn reader_reset() {
 
 #[test]
 fn reader_needs_revalidation() {
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
 
     let ir = ii.reader();
@@ -844,7 +840,7 @@ fn reader_unique_docs() {
             last_doc_id: 100,
         },
     ];
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let ir = ii.reader();
 
     assert_eq!(ir.unique_docs(), 3);
@@ -862,7 +858,6 @@ fn reader_has_duplicates() {
         const ALLOW_DUPLICATES: bool = true;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &self,
             mut writer: W,
             _delta: Self::Delta,
             _record: &RSIndexResult,
@@ -887,7 +882,7 @@ fn reader_has_duplicates() {
         }
     }
 
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, AllowDupsDummy);
+    let mut ii = InvertedIndex::<AllowDupsDummy>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
 
     {
@@ -902,9 +897,8 @@ fn reader_has_duplicates() {
 
 #[test]
 fn reader_flags() {
-    let mut ii = InvertedIndex::new(
+    let mut ii = InvertedIndex::<Dummy>::new(
         IndexFlags_Index_StoreTermOffsets | IndexFlags_Index_WideSchema,
-        Dummy,
     );
     ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
     let ir = ii.reader();
@@ -917,13 +911,13 @@ fn reader_flags() {
 
 #[test]
 fn reader_is_index() {
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
     let ir = ii.reader();
 
     assert!(ir.is_index(&ii));
 
-    let ii2 = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let ii2 = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     assert!(!ir.is_index(&ii2));
 }
 
@@ -1133,7 +1127,7 @@ fn synced_discriminants() {
 
 #[test]
 fn summary() {
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
     assert_eq!(
         ii.summary(),
@@ -1170,7 +1164,7 @@ fn summary() {
 
 #[test]
 fn summary_store_numeric() {
-    let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_StoreNumeric, Dummy);
+    let mut ii = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreNumeric);
 
     assert_eq!(
         ii.summary(),
@@ -1218,7 +1212,6 @@ fn blocks_summary() {
         const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &self,
             mut writer: W,
             _delta: Self::Delta,
             _record: &RSIndexResult,
@@ -1229,7 +1222,7 @@ fn blocks_summary() {
         }
     }
 
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, SmallBlocksDummy);
+    let mut ii = InvertedIndex::<SmallBlocksDummy>::new(IndexFlags_Index_DocIdsOnly);
 
     assert_eq!(ii.blocks_summary().len(), 0);
 
@@ -1273,7 +1266,6 @@ fn blocks_summary_store_numeric() {
         const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &self,
             mut writer: W,
             _delta: Self::Delta,
             _record: &RSIndexResult,
@@ -1284,7 +1276,7 @@ fn blocks_summary_store_numeric() {
         }
     }
 
-    let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_StoreNumeric, SmallBlocksDummy);
+    let mut ii = EntriesTrackingIndex::<SmallBlocksDummy>::new(IndexFlags_Index_StoreNumeric);
 
     assert_eq!(ii.blocks_summary().len(), 0);
 
@@ -1318,15 +1310,15 @@ fn blocks_summary_store_numeric() {
 /// Helper macro to encode a series of doc IDs using the provided encoder. The first ID is encoded
 /// as a delta from 0, and each subsequent ID is encoded as a delta from the previous ID.
 macro_rules! encode_ids {
-    ($encoder:expr, $first_id:expr $(, $doc_id:expr)* ) => {
+    ($encoder:ty, $first_id:expr $(, $doc_id:expr)* ) => {
         {
             let mut writer = Cursor::new(Vec::new());
-            $encoder.encode(&mut writer, 0, &RSIndexResult::default().doc_id($first_id)).unwrap();
+            <$encoder>::encode(&mut writer, 0, &RSIndexResult::default().doc_id($first_id)).unwrap();
 
             let mut _last_id = $first_id;
             $(
                 let delta = $doc_id - _last_id;
-                $encoder.encode(&mut writer, delta, &RSIndexResult::default().doc_id($doc_id)).unwrap();
+                <$encoder>::encode(&mut writer, delta, &RSIndexResult::default().doc_id($doc_id)).unwrap();
                 _last_id = $doc_id;
             )*
             writer.into_inner()
@@ -1337,9 +1329,8 @@ macro_rules! encode_ids {
 #[test]
 fn index_block_repair_delete() {
     // Make a block with three entries (two duplicates) which will be deleted
-    let encoder = Dummy;
     let block = IndexBlock {
-        buffer: encode_ids!(encoder, 10, 11, 11),
+        buffer: encode_ids!(Dummy, 10, 11, 11),
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 11,
@@ -1350,7 +1341,11 @@ fn index_block_repair_delete() {
     }
 
     let repair_status = block
-        .repair(cb, None::<fn(&RSIndexResult, &IndexBlock)>, encoder)
+        .repair(
+            cb,
+            None::<fn(&RSIndexResult, &IndexBlock)>,
+            PhantomData::<Dummy>::default(),
+        )
         .unwrap();
 
     assert_eq!(
@@ -1364,9 +1359,8 @@ fn index_block_repair_delete() {
 #[test]
 fn index_block_repair_unchanged() {
     // Create an index block with two entries. None of which were deleted
-    let encoder = Dummy;
     let block = IndexBlock {
-        buffer: encode_ids!(encoder, 10, 11),
+        buffer: encode_ids!(Dummy, 10, 11),
         num_entries: 2,
         first_doc_id: 10,
         last_doc_id: 11,
@@ -1377,7 +1371,11 @@ fn index_block_repair_unchanged() {
     }
 
     let repair_status = block
-        .repair(cb, None::<fn(&RSIndexResult, &IndexBlock)>, encoder)
+        .repair(
+            cb,
+            None::<fn(&RSIndexResult, &IndexBlock)>,
+            PhantomData::<Dummy>::default(),
+        )
         .unwrap();
 
     assert_eq!(repair_status, None);
@@ -1386,9 +1384,8 @@ fn index_block_repair_unchanged() {
 #[test]
 fn index_block_repair_some_deletions() {
     // Create an index block with three entries. The second one will not be deleted
-    let encoder = Dummy;
     let block = IndexBlock {
-        buffer: encode_ids!(encoder, 10, 11, 12),
+        buffer: encode_ids!(Dummy, 10, 11, 12),
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 12,
@@ -1399,7 +1396,11 @@ fn index_block_repair_some_deletions() {
     }
 
     let repair_status = block
-        .repair(cb, None::<fn(&RSIndexResult, &IndexBlock)>, encoder)
+        .repair(
+            cb,
+            None::<fn(&RSIndexResult, &IndexBlock)>,
+            PhantomData::<Dummy>::default(),
+        )
         .unwrap();
 
     assert_eq!(
@@ -1441,7 +1442,6 @@ fn index_block_repair_delta_too_big() {
         type Delta = U5Delta;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &self,
             mut writer: W,
             delta: Self::Delta,
             _record: &RSIndexResult,
@@ -1474,28 +1474,24 @@ fn index_block_repair_delta_too_big() {
 
     // Create an index block with three entries - the middle entry will be deleted creating a delta that is too big
     let mut writer = Cursor::new(Vec::new());
-    let encoder = SmallDeltaDummy;
-    encoder
-        .encode(
-            &mut writer,
-            U5Delta(0),
-            &RSIndexResult::default().doc_id(10),
-        )
-        .unwrap();
-    encoder
-        .encode(
-            &mut writer,
-            U5Delta(31),
-            &RSIndexResult::default().doc_id(41),
-        )
-        .unwrap();
-    encoder
-        .encode(
-            &mut writer,
-            U5Delta(1),
-            &RSIndexResult::default().doc_id(42),
-        )
-        .unwrap();
+    SmallDeltaDummy::encode(
+        &mut writer,
+        U5Delta(0),
+        &RSIndexResult::default().doc_id(10),
+    )
+    .unwrap();
+    SmallDeltaDummy::encode(
+        &mut writer,
+        U5Delta(31),
+        &RSIndexResult::default().doc_id(41),
+    )
+    .unwrap();
+    SmallDeltaDummy::encode(
+        &mut writer,
+        U5Delta(1),
+        &RSIndexResult::default().doc_id(42),
+    )
+    .unwrap();
 
     let block = IndexBlock {
         buffer: writer.into_inner(),
@@ -1509,7 +1505,11 @@ fn index_block_repair_delta_too_big() {
     }
 
     let repair_status = block
-        .repair(cb, None::<fn(&RSIndexResult, &IndexBlock)>, encoder)
+        .repair(
+            cb,
+            None::<fn(&RSIndexResult, &IndexBlock)>,
+            PhantomData::<SmallDeltaDummy>::default(),
+        )
         .unwrap();
 
     assert_eq!(
@@ -1519,14 +1519,12 @@ fn index_block_repair_delta_too_big() {
                 IndexBlock {
                     buffer: {
                         let mut writer = Cursor::new(Vec::new());
-                        let encoder = SmallDeltaDummy;
-                        encoder
-                            .encode(
-                                &mut writer,
-                                U5Delta(0),
-                                &RSIndexResult::default().doc_id(10),
-                            )
-                            .unwrap();
+                        SmallDeltaDummy::encode(
+                            &mut writer,
+                            U5Delta(0),
+                            &RSIndexResult::default().doc_id(10),
+                        )
+                        .unwrap();
 
                         writer.into_inner()
                     },
@@ -1537,14 +1535,12 @@ fn index_block_repair_delta_too_big() {
                 IndexBlock {
                     buffer: {
                         let mut writer = Cursor::new(Vec::new());
-                        let encoder = SmallDeltaDummy;
-                        encoder
-                            .encode(
-                                &mut writer,
-                                U5Delta(0),
-                                &RSIndexResult::default().doc_id(42),
-                            )
-                            .unwrap();
+                        SmallDeltaDummy::encode(
+                            &mut writer,
+                            U5Delta(0),
+                            &RSIndexResult::default().doc_id(42),
+                        )
+                        .unwrap();
 
                         writer.into_inner()
                     },
@@ -1565,35 +1561,34 @@ fn ii_scan_gc() {
     // - One which will be completely deleted
     // - One which will be partially deleted
     // - Two which will be unchanged
-    let encoder = Dummy;
     let blocks = vec![
         IndexBlock {
-            buffer: encode_ids!(encoder, 10, 11),
+            buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
         },
         IndexBlock {
-            buffer: encode_ids!(encoder, 20, 21, 22),
+            buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
         },
         IndexBlock {
-            buffer: encode_ids!(encoder, 30),
+            buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
         },
         IndexBlock {
-            buffer: encode_ids!(encoder, 40),
+            buffer: encode_ids!(Dummy, 40),
             num_entries: 1,
             first_doc_id: 40,
             last_doc_id: 40,
         },
     ];
 
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
+    let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
     fn cb(doc_id: t_docId) -> bool {
         [21, 22, 30, 40].contains(&doc_id)
@@ -1636,22 +1631,21 @@ fn ii_scan_gc() {
 #[test]
 fn ii_scan_gc_no_change() {
     // Create 2 blocks which will be unchanged
-    let encoder = Dummy;
     let blocks = vec![
         IndexBlock {
-            buffer: encode_ids!(encoder, 10, 11),
+            buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
         },
         IndexBlock {
-            buffer: encode_ids!(encoder, 30),
+            buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
         },
     ];
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
+    let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
     fn cb(_doc_id: t_docId) -> bool {
         true
@@ -1672,34 +1666,33 @@ fn ii_apply_gc() {
     // - One which will be partially deleted
     // - One which will be unchanged
     // - One which will be split into multiple blocks
-    let encoder = Dummy;
     let blocks = vec![
         IndexBlock {
-            buffer: encode_ids!(encoder, 10, 11),
+            buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
         },
         IndexBlock {
-            buffer: encode_ids!(encoder, 20, 21, 22),
+            buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
         },
         IndexBlock {
-            buffer: encode_ids!(encoder, 30),
+            buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
         },
         IndexBlock {
-            buffer: encode_ids!(encoder, 40, 71, 72),
+            buffer: encode_ids!(Dummy, 40, 71, 72),
             num_entries: 3,
             first_doc_id: 40,
             last_doc_id: 72,
         },
     ];
-    let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
     // Inverted index is 40 bytes base
     // 1st index block is 40 bytes + 16 bytes for the buffer capacity
@@ -1816,23 +1809,22 @@ fn ii_apply_gc() {
 #[test]
 fn ii_apply_gc_last_block_updated() {
     // Create 2 blocks where the last block will have new entries since the GC scan
-    let encoder = Dummy;
     let blocks = vec![
         IndexBlock {
-            buffer: encode_ids!(encoder, 10, 11),
+            buffer: encode_ids!(Dummy, 10, 11),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
         },
         IndexBlock {
-            buffer: encode_ids!(encoder, 20, 21, 22),
+            buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
         },
     ];
 
-    let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, encoder);
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
     // Inverted index is 40 bytes base
     // 1st index block is 40 bytes + 16 bytes for the buffer capacity
@@ -1916,7 +1908,6 @@ fn ii_apply_gc_entries_tracking_index() {
         const ALLOW_DUPLICATES: bool = true;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &self,
             mut writer: W,
             delta: Self::Delta,
             _record: &RSIndexResult,
@@ -1948,7 +1939,7 @@ fn ii_apply_gc_entries_tracking_index() {
     }
 
     // Create entries tracking index with two duplicate records
-    let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_DocIdsOnly, AllowDupsDummy);
+    let mut ii = EntriesTrackingIndex::<AllowDupsDummy>::new(IndexFlags_Index_DocIdsOnly);
 
     let _ = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
     let _ = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
