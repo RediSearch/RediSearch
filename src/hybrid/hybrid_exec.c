@@ -57,7 +57,7 @@ static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, c
 // Returns true if a timeout occurred and was processed as a warning
 static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *err, int returnCode, const char *suffix, bool ignoreTimeout) {
   bool timeoutOccurred = false;
-  bool isCoord = GetNumShards_UnSafe();
+  bool isCoord = GetNumShards_UnSafe()> 1;
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
     // Track warnings in global statistics
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, isCoord);
