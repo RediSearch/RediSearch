@@ -9,26 +9,23 @@ on:
 # TODO: Use RedisJSON's `master` branch when testing on nightly
 
 jobs:
-  test-linux:
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  test-all-platforms:
+    uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
+      platform: all
+      architecture: all
       redis-ref: unstable
       test-config: QUICK=1
       fail-fast: false
-
-  test-macos:
-    uses: ./.github/workflows/flow-macos.yml
-    secrets: inherit
-    with:
-      redis-ref: unstable
-      test-config: QUICK=1
 
   coverage:
     if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
+      platform: ubuntu:default
+      architecture: x86_64
       coverage: true
       test-config: QUICK=1
       get-redis: unstable
@@ -43,10 +40,11 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
+      platform: ubuntu:default
+      architecture: x86_64
       get-redis: unstable
       test-config: QUICK=1
       san: address
-      env: ubuntu-latest
 
   micro-benchmarks:
     uses: ./.github/workflows/flow-micro-benchmarks.yml
@@ -54,7 +52,7 @@ jobs:
 
 
   notify-failure:
-    needs: [test-linux, test-macos, coverage, run-on-intel, sanitize, micro-benchmarks]
+    needs: [test-all-platforms, coverage, run-on-intel, sanitize, micro-benchmarks]
     if: failure()
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
