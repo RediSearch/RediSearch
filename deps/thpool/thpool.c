@@ -371,7 +371,6 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
   }
 
   pthread_mutex_unlock(&thpool_p->jobqueues.lock);
-  thpool_p->state = THPOOL_INITIALIZED;
 
   return thpool_p->n_threads;
 }
