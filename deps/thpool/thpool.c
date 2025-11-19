@@ -1098,12 +1098,10 @@ static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
 
 void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool remove_all) {
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
-  ThreadState new_state = remove_all ? THREAD_TERMINATE_WHEN_EMPTY : THREAD_TERMINATE_ASAP;
   /** THPOOL_UNINITIALIZED means either:
    * 1. thpool->n_threads > 0, and there are no threads alive
-   * 2. There are threads alive in terminate_when_empty state.
-   * In both cases only calling `verify_init` will add/remove threads to adjust
-   * `num_threads_alive` to `n_threads` */
+   * 2. There are threads alive in TERMINATE_WHEN_EMPTY or TERMINATE_ASAP state.
+   * In any case we cannot remove more threads. */
   if (thpool_p->state == THPOOL_UNINITIALIZED)
     return;
 
@@ -1116,9 +1114,11 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
                   jobs_count);
   }
   LOG_IF_EXISTS("verbose", "Scheduling from main thread a configuration job to remove %zu threads", n_threads_to_remove);
+  assert((!remove_all || n_threads_to_remove == n_threads) && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
   assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
-
   assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
+
+  ThreadState new_state = remove_all ? THREAD_TERMINATE_WHEN_EMPTY : THREAD_TERMINATE_ASAP;
 
   // If config_reduce_threads_job is not there but the ADMIN jobs are running, if TERMINATE_ASAP we are safe because the admin jobs would be taken by the other threads.
   // If the old config is TERMINATE_WHEN_EMPTY it means that we are removing all threads, and we should set to THPOOL_UNINITIALIZED.
@@ -1139,4 +1139,8 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   }
   // I do not need to verify init since we are actually putting in priority queue, and I do not want to wait on another barrier
   redisearch_thpool_add_n_work_not_verify_init(thpool_p, jobs, n_threads_to_remove, THPOOL_PRIORITY_ADMIN);
+  if (thpool_p->n_threads == 0) {
+    LOG_IF_EXISTS("verbose", "Setting thpool state to THPOOL_UNINITIALIZED");
+    thpool_p->state = THPOOL_UNINITIALIZED;
+  }
 }
