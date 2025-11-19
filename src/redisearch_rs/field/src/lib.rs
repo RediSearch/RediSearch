@@ -44,6 +44,16 @@ pub enum FieldExpirationPredicate {
     Missing = 1,
 }
 
+impl FieldExpirationPredicate {
+    /// Returns the raw value of the expiration predicate.
+    pub fn raw(&self) -> u32 {
+        match self {
+            FieldExpirationPredicate::Default => 0,
+            FieldExpirationPredicate::Missing => 1,
+        }
+    }
+}
+
 /// Field filter context used when querying fields.
 #[derive(Debug)]
 #[repr(C)]
