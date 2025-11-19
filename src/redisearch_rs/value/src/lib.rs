@@ -14,7 +14,7 @@ use std::{
 };
 
 use crate::{
-    collection::{RsValueArray, RsValueMap},
+    collection::{RsValueArray, RsValueMap, RsValueMapEntry},
     dynamic::DynRsValueRef,
     shared::SharedRsValue,
     strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef, RsValueString},
@@ -328,6 +328,44 @@ pub trait Value: Sized {
     fn as_borrowed_redis_string(&self) -> Option<&RedisStringRef> {
         match self.internal()? {
             RsValueInternal::BorrowedRedisString(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Get the entry at the passed index of the
+    /// array wrapped by this value if so, or `None` if
+    /// the value is not an array or the index is out of bounds.
+    fn array_get(&self, i: u32) -> Option<&SharedRsValue> {
+        match self.internal()? {
+            RsValueInternal::Array(array) => array.get(i),
+            _ => None,
+        }
+    }
+
+    /// Get the capacity of the array being
+    /// wrapped by this value if so, or `None` otherwise.
+    fn array_cap(&self) -> Option<u32> {
+        match self.internal()? {
+            RsValueInternal::Array(array) => Some(array.cap()),
+            _ => None,
+        }
+    }
+
+    /// Get the entry at the passed index of the
+    /// map wrapped by this value if so, or `None` if
+    /// the value is not a map or the index is out of bounds.
+    fn map_get(&self, i: u32) -> Option<&RsValueMapEntry> {
+        match self.internal()? {
+            RsValueInternal::Map(map) => map.get(i),
+            _ => None,
+        }
+    }
+
+    /// Get the capacity of the map being
+    /// wrapped by this value if so, or `None` otherwise.
+    fn map_cap(&self) -> Option<u32> {
+        match self.internal()? {
+            RsValueInternal::Map(map) => Some(map.cap()),
             _ => None,
         }
     }

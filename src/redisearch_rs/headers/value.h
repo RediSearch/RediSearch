@@ -88,6 +88,8 @@ typedef struct RsValueMapEntry {
  *   is less than `u32::MAX`. The reason for this is that when doing pointer
  *   addition, we must ensure we don't overflow `isize::MAX`.
  *   See [`NonNull::add`].
+ * - (2) `entries` is a well-aligned pointer to a heap-allocated array of `Self::cap` items,
+ *   that is valid for both reads and writes.
  */
 typedef struct PACKED RsValueCollection_RsValueMapEntry {
   /**
@@ -115,6 +117,8 @@ typedef struct RsValueCollection_RsValueMapEntry RsValueMap;
  *   is less than `u32::MAX`. The reason for this is that when doing pointer
  *   addition, we must ensure we don't overflow `isize::MAX`.
  *   See [`NonNull::add`].
+ * - (2) `entries` is a well-aligned pointer to a heap-allocated array of `Self::cap` items,
+ *   that is valid for both reads and writes.
  */
 typedef struct PACKED RsValueCollection_SharedRsValue {
   /**
@@ -375,6 +379,63 @@ const RedisModuleString *RsValue_RedisString_Get(struct RsValuePtr v);
  * @return A pointer to the start of the string.
  */
 const char *RsValue_StringPtrLen(struct RsValuePtr v, uint32_t *lenp);
+
+/**
+ * Get an item from an array value
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+ * - (2) The `RsValue` `v` points to must be of type [`RsValueType::Array`]
+ * - (3) `index` must be less than the capacity of the array held by the value.
+ *
+ * @param v A reference to an `RsValue` array from which to get the item
+ * @param i The index
+ * @return A reference to the `RsValue` at index `i`
+ */
+struct RsValuePtr RsValue_ArrayItem(struct RsValuePtr v, uint32_t index);
+
+/**
+ * Get the capacity of an array value.
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+ * - (2) The `RsValue` `v` points to must be of type [`RsValueType::Array`]
+ *
+ * @param v A reference to an `RsValue` array for which to obtain the length
+ * @return The array length
+ */
+uint32_t RsValue_ArrayLen(struct RsValuePtr v);
+
+/**
+ * Get the capacity of a map value, i.e. the number of entries it holds.
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+ * - (2) The `RsValue` `v` points to must be of type [`RsValueType::Map`]
+ *
+ * @param v A reference to an `RsValue` map for which to obtain the length
+ * @return The map length
+ */
+uint32_t RsValue_Map_Len(struct RsValuePtr v);
+
+/**
+ * Get an entry from a map value.
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+ * - (2) The `RsValue` `v` points to must be of type [`RsValueType::Map`]
+ * - (3) `index` must be less than the capacity of the map held by the value.
+ * - (4) `key` must be non-null, well-aligned, and valid for writes
+ * - (5) `value` must be non-null, well-aligned, and valid for writes
+ *
+ * @param v A reference to an `RsValue` array from which to get the item
+ * @param i The index
+ * @return A reference to the `RsValue` at index `i`
+ */
+void RsValue_Map_GetEntry(struct RsValuePtr v,
+                          uint32_t index,
+                          struct RsValue *key,
+                          struct RsValue *value);
 
 /**
  * Repeatedly dereference self until ending up at a non-reference value.

@@ -289,9 +289,9 @@ pub unsafe extern "C" fn RsValue_String_Get(
     // Safety: caller must ensure (1)
     let v = unsafe { DynRsValuePtr::from_opaque(v) };
 
-    // Safety: caller must ensure (1)
     #[allow(clippy::multiple_unsafe_ops_per_block)]
     #[allow(unused_unsafe)]
+    // Safety: caller must ensure (1)
     unsafe {
         apply_with_dyn_ptr!(v, |v| {
             debug_assert!(
@@ -360,9 +360,9 @@ pub unsafe extern "C" fn RsValue_RedisString_Get(
     // Safety: caller must ensure (1)
     let v = unsafe { DynRsValuePtr::from_opaque(v) };
 
-    // Safety: caller must ensure (1)
     #[allow(clippy::multiple_unsafe_ops_per_block)]
     #[allow(unused_unsafe)]
+    // Safety: caller must ensure (1)
     unsafe {
         apply_with_dyn_ptr!(v, |v| {
             if let Some(s) = v.as_owned_redis_string() {
@@ -424,6 +424,142 @@ pub unsafe extern "C" fn RsValue_StringPtrLen(
             // Safety: Caller must ensure (4)
             unsafe { lenp.write(len) };
             bytes.as_ptr() as *const c_char
+        })
+    }
+}
+
+/// Get an item from an array value
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+/// - (2) The `RsValue` `v` points to must be of type [`RsValueType::Array`]
+/// - (3) `index` must be less than the capacity of the array held by the value.
+///
+/// @param v A reference to an `RsValue` array from which to get the item
+/// @param i The index
+/// @return A reference to the `RsValue` at index `i`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_ArrayItem(
+    v: OpaqueDynRsValuePtr,
+    index: u32,
+) -> OpaqueDynRsValuePtr {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    #[allow(unused_unsafe)]
+    // Safety: caller must ensure (1)
+    unsafe {
+        apply_with_dyn_ptr!(v, |v| {
+            // Safety: caller must ensure (2) and (3)
+            let item = unsafe {
+                expect_unchecked!(
+                    v.array_get(index),
+                    "Array index out of bounds or value is not an array"
+                )
+            };
+            DynRsValuePtr::from_dyn_value_ref(item.to_dyn_ref()).into_opaque()
+        })
+    }
+}
+
+/// Get the capacity of an array value.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+/// - (2) The `RsValue` `v` points to must be of type [`RsValueType::Array`]
+///
+/// @param v A reference to an `RsValue` array for which to obtain the length
+/// @return The array length
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_ArrayLen(v: OpaqueDynRsValuePtr) -> u32 {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    #[allow(unused_unsafe)]
+    // Safety: caller must ensure (1)
+    unsafe {
+        apply_with_dyn_ptr!(
+            v,
+            // Safety: caller must ensure (2)
+            |v| unsafe { expect_unchecked!(v.array_cap(), "Value is not an array") }
+        )
+    }
+}
+
+/// Get the capacity of a map value, i.e. the number of entries it holds.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+/// - (2) The `RsValue` `v` points to must be of type [`RsValueType::Map`]
+///
+/// @param v A reference to an `RsValue` map for which to obtain the length
+/// @return The map length
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Map_Len(v: OpaqueDynRsValuePtr) -> u32 {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    #[allow(unused_unsafe)]
+    // Safety: caller must ensure (1)
+    unsafe {
+        apply_with_dyn_ptr!(
+            v,
+            // Safety: caller must ensure (2)
+            |v| unsafe { expect_unchecked!(v.map_cap(), "Value is not a map") }
+        )
+    }
+}
+
+/// Get an entry from a map value.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+/// - (2) The `RsValue` `v` points to must be of type [`RsValueType::Map`]
+/// - (3) `index` must be less than the capacity of the map held by the value.
+/// - (4) `key` must be non-null, well-aligned, and valid for writes
+/// - (5) `value` must be non-null, well-aligned, and valid for writes
+///
+/// @param v A reference to an `RsValue` array from which to get the item
+/// @param i The index
+/// @return A reference to the `RsValue` at index `i`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Map_GetEntry(
+    v: OpaqueDynRsValuePtr,
+    index: u32,
+    key: Option<NonNull<OpaqueDynRsValue>>,
+    value: Option<NonNull<OpaqueDynRsValue>>,
+) {
+    // Safety: caller must ensure (4)
+    let key = unsafe { expect_unchecked!(key) };
+    // Safety: caller must ensure (5)
+    let value = unsafe { expect_unchecked!(value) };
+
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    #[allow(unused_unsafe)]
+    // Safety: caller must ensure (1)
+    unsafe {
+        apply_with_dyn_ptr!(v, |v| {
+            // Safety: caller must ensure (2) and (3)
+            let entry = unsafe {
+                expect_unchecked!(
+                    v.map_get(index),
+                    "Map index out of bounds or value is not a map"
+                )
+            };
+
+            let entry_key = DynRsValue::from(entry.key.clone()).into_opaque();
+            // Safety: caller must ensure (4)
+            unsafe { key.write(entry_key) };
+
+            let entry_value = DynRsValue::from(entry.value.clone()).into_opaque();
+            // Safety: caller must ensure (5)
+            unsafe { value.write(entry_value) };
         })
     }
 }
