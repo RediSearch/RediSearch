@@ -38,6 +38,11 @@ struct InvIndIterator<'index, R> {
     read_impl: fn(&mut Self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>,
 }
 
+fn has_expiration() -> bool {
+    // TODO
+    false
+}
+
 impl<'index, R> InvIndIterator<'index, R>
 where
     R: IndexReader<'index>,
@@ -45,6 +50,7 @@ where
     fn new(reader: R, result: RSIndexResult<'static>) -> Self {
         // no need to manually skip duplicates if there is none in the II.
         let skip_multi = reader.has_duplicates();
+        let has_expiration = has_expiration();
 
         let read_impl = if skip_multi {
             Self::read_skip_multi
