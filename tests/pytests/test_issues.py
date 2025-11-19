@@ -889,36 +889,39 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     env.addShardToClusterIfExists()
     new_shard_conn = env.getConnection(shardId=initial_shards_count+1)
     verify_shard_init(new_shard_conn)
-    # Expect that the cluster will be aware of the new shard.
+    # Expect that the cluster will be aware of the new shard, but for redisearch coordinator, the new shard isn't
+    # considered part of the partition yet as it does not contain any slots.
     env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
-    env.assertEqual(new_shard_conn.execute_command("search.clusterinfo")[:2], ['num_partitions', int(initial_shards_count) + 1])
+    env.assertEqual(new_shard_conn.execute_command("search.clusterinfo")[:2], ['num_partitions', int(initial_shards_count)])
 
     # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
     new_shard_id = new_shard_conn.execute_command('CLUSTER MYID')
     source_shard_id = conn.execute_command('CLUSTER MYID')
-    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {source_shard_id}"), "OK")
-    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"), "OK")
-    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
-    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
+    env.assertOk(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {source_shard_id}"))
+    env.assertOk(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"))
+    env.assertOk(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"))
+    env.assertOk(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"))
 
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
-    with TimeLimit(40, "fail to acknowledge topology"):
-        shards = env.getOSSMasterNodesConnectionList()
-        while not all([sh.execute_command('CLUSTER', 'INFO').startswith('cluster_state:ok') for sh in shards]):
-            time.sleep(0.5)
+    env.waitCluster()
+
     # search.clusterinfo response format is the following:
     # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'shards', [
-    #  ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385],
-    #  ['60cdcb85a8f73f87ac6cc831ee799b75752aace3', '127.0.0.1', 6379],
-    #  ['6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', '127.0.0.1', 6381],
-    #  ['4e51033405651441a4be6ddfb46cd85d0c54af6f', '127.0.0.1', 6383],
+    #  ['slots', [1, 5461],       'id', '60cdcb85a8f73f87ac6cc831ee799b75752aace3', 'host', '127.0.0.1', 'port', 6379],
+    #  ['slots', [5462, 10923],   'id', '6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', 'host', '127.0.0.1', 'port', 6381],
+    #  ['slots', [10924, 16383],  'id', '4e51033405651441a4be6ddfb46cd85d0c54af6f', 'host', '127.0.0.1', 'port', 6383],
+    #  ['slots', [0, 0],          'id', '1f834c5c207bbe8d6dab0c6f050ff06292eb333c', 'host', '127.0.0.1', 'port', 6385],
     # ]]
-    env.assertOk(new_shard_conn.execute_command("search.CLUSTERREFRESH"))
     cluster_info = new_shard_conn.execute_command("search.clusterinfo")
     shards_idx = cluster_info.index('shards') + 1
-    unique_shards = set(shard[1] for shard in cluster_info[shards_idx])
-    env.assertEqual(len(unique_shards), initial_shards_count+1, message=f"cluster info is {cluster_info}")
+    unique_shards = set(shard[3] for shard in cluster_info[shards_idx])
+    with TimeLimit(10, f"Failed waiting for new shard to appear in search.clusterinfo: {cluster_info}"):
+      while len(unique_shards) != initial_shards_count+1:
+        time.sleep(0.1)
+        cluster_info = new_shard_conn.execute_command("search.clusterinfo")
+        shards_idx = cluster_info.index('shards') + 1
+        unique_shards = set(shard[3] for shard in cluster_info[shards_idx])
 
 @skip(cluster=True)
 def test_mod5910(env):

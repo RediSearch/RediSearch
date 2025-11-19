@@ -413,7 +413,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       return REDISMODULE_ERR;
     }
     // helper array to collect depleters so in async we can deplete them all at once before returning the cursors
-    arrayof(ResultProcessor*) depleters = NULL; 
+    arrayof(ResultProcessor*) depleters = NULL;
     if (backgroundDepletion) {
       depleters = array_new(ResultProcessor *, req->nrequests);
     }
@@ -562,6 +562,8 @@ static inline void DefaultCleanup(StrongRef hybrid_ref) {
 static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_ref, HybridPipelineParams *hybridParams, QueryError *status) {
     freeHybridParams(hybridParams);
     DefaultCleanup(hybrid_ref);
+    // Update global query errors, this path is only used for SA and internal, both are considered shards.
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, SHARD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, status);
 }
 

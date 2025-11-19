@@ -226,7 +226,7 @@ void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
 void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "garbage_collector");
   InfoGCStats stats = total_info->gc_stats;
-  RedisModule_InfoAddFieldDouble(ctx, "gc_bytes_collected", stats.totalCollectedBytes);
+  RedisModule_InfoAddFieldLongLong(ctx, "gc_bytes_collected", stats.totalCollectedBytes);
   RedisModule_InfoAddFieldULongLong(ctx, "gc_total_cycles", stats.totalCycles);
   RedisModule_InfoAddFieldULongLong(ctx, "gc_total_ms_run", stats.totalTime);
   RedisModule_InfoAddFieldULongLong(ctx, "gc_total_docs_not_collected", IndexesGlobalStats_GetLogicallyDeletedDocs());
@@ -248,6 +248,15 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   // highest number of failures out of all specs
   RedisModule_InfoAddFieldULongLong(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
   RedisModule_InfoAddFieldULongLong(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
+  // Queries errors and warnings
+  QueriesGlobalStats stats = TotalGlobalStats_GetQueryStats();
+
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_syntax", stats.shard_errors.syntax);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_arguments", stats.shard_errors.arguments);
+  // Coordinator errors and warnings
+  RedisModule_InfoAddSection(ctx, "coordinator_warnings_and_errors");
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_syntax", stats.coord_errors.syntax);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_arguments", stats.coord_errors.arguments);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {

@@ -20,6 +20,7 @@ on:
 
 env:
   checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.ref_name }}
+  input_tag: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   validate-tag:
@@ -44,29 +45,35 @@ jobs:
         env:
           # Not used, but useful for debugging in case of failure. See https://github.com/actions/runner/issues/2788
           GH_CONTEXT: ${{ toJson(github) }}
+          EVENT_BASE_REF: ${{ github.event.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ env.input_tag }}
         shell: python
         run: |
+          import os
+          version_branch = os.environ["EVENT_BASE_REF"]
           with open("src/version.h", "r") as fp:
             major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
+            release_branch = f"{major}.{minor}"
+            if version_branch == f"refs/heads/{major}.{minor+1}":
+              release_branch = f"{major}.{minor+1}"
           def valid_tag(tag):
             return tag == f"v{major}.{minor}.{patch}"
           def valid_version_branch(branch):
-            return branch == f"refs/heads/{major}.{minor}"
-          tag = '${{ inputs.tag || github.ref_name }}'
+            return branch == f"refs/heads/{release_branch}"
+          tag = os.environ["INPUT_TAG"]
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
-          version_branch = '${{ github.event.base_ref }}'
-          if '${{ github.event_name }}' == 'push' and not valid_version_branch(version_branch):
+          if os.environ["EVENT_NAME"] == 'push' and not valid_version_branch(version_branch):
             start = version_branch.rfind("/") + 1 # get the branch name, not the full ref
             raise Exception(f"Tag {tag} does not match the head of version branch {major}.{minor} (Got {version_branch[start:]})")
 
-          import os
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
             print(f"cur_version={major}.{minor}.{patch}", file=fp)
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
             print(f"next_patch={patch+1}", file=fp)
             print(f"should_bump={str(valid_version_branch(version_branch)).lower()}", file=fp)
-            print(f"release_branch={major}.{minor}", file=fp)
+            print(f"release_branch={release_branch}", file=fp)
 
   update-version:
     # Generate a PR to bump the version for the next patch (if releasing from a version branch)
@@ -75,6 +82,12 @@ jobs:
     if: needs.validate-tag.outputs.should_bump == 'true'
     env:
       BRANCH: bump-version-${{ needs.validate-tag.outputs.next_version }}
+      # Common environment variables for security (shell injection prevention)
+      CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
+      NEXT_VERSION: ${{ needs.validate-tag.outputs.next_version }}
+      RELEASE_BRANCH: ${{ needs.validate-tag.outputs.release_branch }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -84,35 +97,42 @@ jobs:
           PATCH_LINE_PREFIX: '#define REDISEARCH_VERSION_PATCH'
           NEXT_PATCH: ${{ needs.validate-tag.outputs.next_patch }}
         # find the line with the patch version and replace it with the next patch version
-        run: sed -i "s/^${{ env.PATCH_LINE_PREFIX }} [0-9]\+$/${{ env.PATCH_LINE_PREFIX }} ${{ env.NEXT_PATCH }}/" src/version.h
+        run: sed -i "s/^$PATCH_LINE_PREFIX [0-9]\+$/$PATCH_LINE_PREFIX $NEXT_PATCH/" src/version.h
 
       - name: Commit and push
+        env:
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          SENDER_ID: ${{ github.event.sender.id }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
         run: |
-          git config --global user.name "${{ github.triggering_actor }}"
-          git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
-          git checkout -b ${{ env.BRANCH }}
+          git config --global user.name "$TRIGGERING_ACTOR"
+          git config --global user.email "$SENDER_ID+$SENDER_LOGIN@users.noreply.github.com"
+          git checkout -b "$BRANCH"
           git add src/version.h
-          git commit -m "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}"
-          git push origin ${{ env.BRANCH }}
+          git commit -m "Bump version from $CUR_VERSION to $NEXT_VERSION"
+          git push origin "$BRANCH"
 
       - name: Create Pull Request
         env:
           GH_TOKEN: ${{ github.token }}
+          TEAM_LEADERS: ${{ vars.TEAM_LEADERS }}
+          ISSUES_SHIFT_ASSIGNEE: ${{ vars.ISSUES_SHIFT_ASSIGNEE }}
+          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           gh pr create \
-            --title    "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}" \
-            --body     "This PR was automatically created by the release workflow of ${{ inputs.tag || github.ref_name }}." \
-            --head     "${{ env.BRANCH }}" \
-            --base     "${{ needs.validate-tag.outputs.release_branch }}" \
-            --reviewer "${{ vars.TEAM_LEADERS }},${{ vars.ISSUES_SHIFT_ASSIGNEE }},${{ github.actor }}" \
+            --title    "Bump version from $CUR_VERSION to $NEXT_VERSION" \
+            --body     "This PR was automatically created by the release workflow of $RELEASE_TAG." \
+            --head     "$BRANCH" \
+            --base     "$RELEASE_BRANCH" \
+            --reviewer "$TEAM_LEADERS,$ISSUES_SHIFT_ASSIGNEE,$GITHUB_ACTOR" \
             --draft
 
       - name: Trigger CI
         env:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
         run: |
-          gh pr ready ${{ env.BRANCH }} -R ${{ github.repository }}
-          gh pr merge ${{ env.BRANCH }} -R ${{ github.repository }} --auto
+          gh pr ready "$BRANCH" -R "$GITHUB_REPOSITORY"
+          gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto
 
   set-artifacts:
     needs: validate-tag
@@ -136,6 +156,8 @@ jobs:
       - name: Set Version Artifacts
         env:
           SOURCE: ${{ inputs.snapshot_of || inputs.tag || needs.validate-tag.outputs.release_branch }}
+          CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
+          EXPECTED_SHA: ${{ needs.validate-tag.outputs.expected_sha }}
         shell: python
         run: |
           import boto3
@@ -148,9 +170,9 @@ jobs:
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
 
-          suffix = ".${{ env.SOURCE }}.zip"
-          new_suffix = ".${{ needs.validate-tag.outputs.cur_version }}.zip"
-          expected_sha = "${{ needs.validate-tag.outputs.expected_sha }}"
+          suffix = f".{os.environ['SOURCE']}.zip"
+          new_suffix = f".{os.environ['CUR_VERSION']}.zip"
+          expected_sha = os.environ["EXPECTED_SHA"]
 
           client = boto3.client("s3")
 
@@ -194,7 +216,7 @@ jobs:
           for dir in [oss_dir, ent_dir]:
               files.extend(list_snapshots_by_branch(dir))
 
-          group_print("${{ env.SOURCE }} Build Candidates", files)
+          group_print(f"{os.environ['SOURCE']} Build Candidates", files)
           if not files:
               raise Exception("::error title=No candidates found!")
 

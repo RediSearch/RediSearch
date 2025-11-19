@@ -62,8 +62,7 @@ fn test_encode_freqs_offsets() {
 
         let record = TestTermRecord::new(doc_id, 0, freq, offsets);
 
-        let bytes_written = FreqsOffsets::default()
-            .encode(&mut buf, delta, &record.record)
+        let bytes_written = FreqsOffsets::encode(&mut buf, delta, &record.record)
             .expect("to encode freqs offsets record");
 
         assert_eq!(bytes_written, expected_encoding.len());
@@ -92,7 +91,7 @@ fn test_encode_freqs_offsets_output_too_small() {
     let mut cursor = Cursor::new(buf);
     let record = inverted_index::RSIndexResult::term();
 
-    let res = FreqsOffsets::default().encode(&mut cursor, 0, &record);
+    let res = FreqsOffsets::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
