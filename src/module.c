@@ -1556,7 +1556,6 @@ void RediSearch_CleanupModule(void) {
   // Let the workers finish BEFORE we call CursorList_Destroy, since it frees a global
   // data structure that is accessed upon releasing the spec (and running thread might hold
   // a reference to the spec bat this time).
-  RedisModule_Log(RSDummyContext, "notice", "CleanupModule: Draining workers thread pool with threshold 0");
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 

@@ -115,12 +115,6 @@ typedef struct redisearch_thpool_t {
                                                 '-<thread id>'*/
 } redisearch_thpool_t;
 
-struct SignalThreadCtxWithBarrier {
-  ThreadState new_state;
-  pthread_barrier_t *barrier;
-  atomic_int num_threads_to_wait;
-  redisearch_thpool_t *thpool;
-};
 
 /* ========================== PROTOTYPES ============================ */
 
@@ -351,6 +345,7 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
     usleep(1);
   }
 
+  LOG_IF_EXISTS("verbose", "Thread pool size increased to %zu successfully", n_threads)
   return thpool_p->n_threads;
 }
 
@@ -1034,6 +1029,13 @@ static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
 
 /* ========================== CONFIGURATION THREAD REDUCTION ============================ */
 
+struct SignalThreadCtxWithBarrier {
+  ThreadState new_state;
+  pthread_barrier_t *barrier;
+  atomic_int num_threads_to_wait;
+  redisearch_thpool_t *thpool;
+};
+
 static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
   adminJobArg *job_arg = job_arg_;
   struct SignalThreadCtxWithBarrier *signal_struct = job_arg->arg;
@@ -1093,6 +1095,7 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
     jobs[i].function_p = admin_job_change_state_last_destroys_barrier;
   }
   // I do not need to verify init since we are actually putting in priority queue, and I do not want to wait on another barrier
+  // As per the input, I know i am Initialized, I do not need to verify it (and avoid waiting)
   redisearch_thpool_add_n_work_not_verify_init(thpool_p, jobs, n_threads_to_remove, THPOOL_PRIORITY_ADMIN);
   if (thpool_p->n_threads == 0) {
     thpool_p->state = THPOOL_UNINITIALIZED;
