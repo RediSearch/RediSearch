@@ -1754,7 +1754,7 @@ dictType dictTypeHybridSearchResult = {
  typedef struct {
  ResultProcessor base;
  // Timeout handling
- size_t timeoutCounter;
+ uint32_t timeoutCounter;
  RedisSearchCtx *sctx;
 
  HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
