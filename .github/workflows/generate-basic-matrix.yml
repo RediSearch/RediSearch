@@ -22,12 +22,16 @@ on:
       matrix:
         description: "Generated matrix as JSON"
         value: ${{ jobs.generate.outputs.matrix }}
+      has-jobs:
+        description: "Whether there are any jobs to run"
+        value: ${{ jobs.generate.outputs.has-jobs }}
 
 jobs:
   generate:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
+      has-jobs: ${{ steps.generate-matrix.outputs.has-jobs }}
     steps:
       - name: Generate filtered matrix
         id: generate-matrix
@@ -53,12 +57,17 @@ jobs:
           if include_sanitize:
               matrix_items.append({'job-type': 'sanitize'})
 
-          # Fail if matrix is empty
+          # Check if matrix is empty
+          has_jobs = len(matrix_items) > 0
+
+          # If matrix is empty, create a minimal valid matrix structure
+          # This prevents the workflow from failing while allowing downstream jobs to skip
           if not matrix_items:
-              print("Error: No jobs to run based on conditions")
-              sys.exit(1)
+              print("No jobs to run based on conditions - creating empty matrix")
+              matrix_items = []
 
           # Write to GitHub output
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
+              f.write(f'has-jobs={str(has_jobs).lower()}\n')
 
