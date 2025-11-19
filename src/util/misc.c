@@ -29,7 +29,7 @@ const char *ExtractKeyName(const char *s, size_t *len, QueryError *status, bool 
   } else if (*s == '$') {
     return s;
   } else if (strictPrefix) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing prefix: name requires '@' prefix, JSON path require '$' prefix", ", got: %s in %s", s, context);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "SEARCH_PREFIX_MISSING: Missing prefix: name requires '@' prefix, JSON path require '$' prefix", ", got: %s in %s", s, context);
     return NULL;
   } else {
     return s;
