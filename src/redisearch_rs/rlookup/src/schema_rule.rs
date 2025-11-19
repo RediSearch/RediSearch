@@ -18,7 +18,11 @@ use std::ffi::CStr;
 /// We wrap the SchemaRule C implementation here.
 ///
 /// Given a valid SchemaRule pointer, the fields `lang_field`, `score_field`, and `payload_field`
-/// are guaranteed to either be null or point to valid C strings.
+/// are guaranteed to either be null or point to valid C strings. So we assume these invariants:
+///
+/// 1. If `lang_field` is non-null, it points to a valid C string.
+/// 2. If `score_field` is non-null, it points to a valid C string.
+/// 3. If `payload_field` is non-null, it points to a valid C string.
 #[repr(transparent)]
 pub struct SchemaRuleWrapper(NonNull<ffi::SchemaRule>);
 
@@ -26,7 +30,11 @@ impl SchemaRuleWrapper {
     /// Create a SchemaRuleWrapper from a raw pointer.
     ///
     /// Returns None if the pointer is null.
-    pub fn from_raw(ptr: *mut ffi::SchemaRule) -> Option<Self> {
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the given pointer upholds the safety invariants described on the type documentation.
+    pub unsafe fn from_raw(ptr: *mut ffi::SchemaRule) -> Option<Self> {
         NonNull::new(ptr).map(SchemaRuleWrapper)
     }
 
@@ -53,7 +61,7 @@ impl SchemaRuleWrapper {
         if rule.lang_field.is_null() {
             None
         } else {
-            // Safety: A schema rule with a non-null lang_field points to a valid CStr.
+            // Safety: Usage of this type requires that a non-null lang_field points to a valid CStr.
             Some(unsafe { CStr::from_ptr(rule.lang_field) })
         }
     }
@@ -64,7 +72,7 @@ impl SchemaRuleWrapper {
         if rule.score_field.is_null() {
             None
         } else {
-            // Safety: A schema rule with a non-null score_field points to a valid CStr.
+            // Safety: Usage of this type requires that a non-null score_field points to a valid CStr.
             Some(unsafe { CStr::from_ptr(rule.score_field) })
         }
     }
@@ -75,7 +83,7 @@ impl SchemaRuleWrapper {
         if rule.payload_field.is_null() {
             None
         } else {
-            // Safety: A schema rule with a non-null payload_field points to a valid CStr.
+            // Safety: Usage of this type requires that non-null payload_field points to a valid CStr.
             Some(unsafe { CStr::from_ptr(rule.payload_field) })
         }
     }

@@ -69,7 +69,8 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// * `rule` - An optional [`SchemaRuleWrapper`] to exclude key names used for special purposes, e.g. score, lang or payload.
     ///   If set to `None`, no such exclusions are applied (this is the case on the coordinator).
     ///
-    /// The returned `Vec<bool>` indicates which fields were counted (true) or skipped (false).
+    /// The returned `Vec<bool>` indicates which fields were counted (true) or skipped (false) and the `usize` is the count of fields that
+    /// have not been skipped, i.e. it is the number of true values inside the `Vec<bool>`.
     pub fn get_length(
         &self,
         lookup: &RLookup,
@@ -78,23 +79,30 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         rule: Option<&SchemaRuleWrapper>,
     ) -> (usize, Vec<bool>) {
         let mut skip_field_indices = vec![false; lookup.get_row_len() as usize];
-        let num_fields = self.get_length_no_alloc(
-            lookup,
-            required_flags,
-            excluded_flags,
-            rule,
-            skip_field_indices.as_mut_slice(),
-        );
+        // Safety: We ensure that the length of skip_field_indices is lookup.get_row_len(), as required by the safety contract of get_length_no_alloc.
+        let num_fields = unsafe {
+            self.get_length_no_alloc(
+                lookup,
+                required_flags,
+                excluded_flags,
+                rule,
+                skip_field_indices.as_mut_slice(),
+            )
+        };
         (num_fields, skip_field_indices)
     }
 
     /// Returns the number of visible fields in this [`RLookupRow`].
     ///
     /// It acts as [`RLookupRow::get_length`] but instead of allocating a Vec internally, it takes a mutable slice, thus
-    /// avoiding allocations and allowing the caller to reuse memory.
+    /// avoiding allocations and allowing the caller to reuse memory. For this reason the length of `out_flags` must be larger or equal to
+    /// the return value of `RLookup::get_row_len`.
     ///
     /// See [`RLookupRow::get_length`] for argument details.
-    pub fn get_length_no_alloc(
+    ///
+    /// # Safety
+    /// 1. Caller must ensure that `out_flags` has a length at least equal to `lookup.get_row_len()`.
+    pub unsafe fn get_length_no_alloc(
         &self,
         lookup: &RLookup,
         required_flags: RLookupKeyFlags,
@@ -102,6 +110,11 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         rule: Option<&SchemaRuleWrapper>,
         out_flags: &mut [bool],
     ) -> usize {
+        debug_assert!(
+            out_flags.len() >= lookup.get_row_len() as usize,
+            "out_flags length must be at least equal to lookup.get_row_len()"
+        );
+
         let mut num_fields = 0;
         let mut idx = 0;
         let mut cursor = lookup.cursor();
@@ -335,7 +348,9 @@ mod tests {
             let boxed_rule = Box::new(schema_rule);
             let non_null_ptr = NonNull::new(Box::into_raw(boxed_rule)).unwrap();
 
-            TestSchemaRuleWrapper(SchemaRuleWrapper::from_raw(non_null_ptr.as_ptr()).unwrap())
+            unsafe {
+                TestSchemaRuleWrapper(SchemaRuleWrapper::from_raw(non_null_ptr.as_ptr()).unwrap())
+            }
         }
     }
 
