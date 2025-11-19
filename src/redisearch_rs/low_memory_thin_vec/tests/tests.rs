@@ -701,7 +701,7 @@ fn test_into_iter_as_mut_slice() {
 fn test_into_iter_debug() {
     let vec = low_memory_thin_vec!['a', 'b', 'c'];
     let into_iter = vec.into_iter();
-    let debug = format!("{:?}", into_iter);
+    let debug = format!("{into_iter:?}");
     assert_eq!(debug, "IntoIter(['a', 'b', 'c'])");
 }
 

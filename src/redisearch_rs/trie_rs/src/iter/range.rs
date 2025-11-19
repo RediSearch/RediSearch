@@ -40,7 +40,7 @@ pub struct RangeBoundary<'a> {
 
 impl<'a> RangeBoundary<'a> {
     /// Create a new range boundary that includes its boundary value.
-    pub fn included(value: &'a [u8]) -> Self {
+    pub const fn included(value: &'a [u8]) -> Self {
         Self {
             value,
             is_included: true,
@@ -48,7 +48,7 @@ impl<'a> RangeBoundary<'a> {
     }
 
     /// Create a new range boundary that doesn't include its boundary value.
-    pub fn excluded(value: &'a [u8]) -> Self {
+    pub const fn excluded(value: &'a [u8]) -> Self {
         Self {
             value,
             is_included: false,
@@ -64,7 +64,7 @@ pub struct RangeFilter<'a> {
 
 impl RangeFilter<'_> {
     /// A filter that matches all entries.
-    pub fn all() -> Self {
+    pub const fn all() -> Self {
         Self {
             min: None,
             max: None,
@@ -293,42 +293,42 @@ impl<'tm, Data> RangeIter<'tm, Data> {
                 self.stack.reserve(node.children().len());
 
                 let mut max_index = node.children().len();
-                if let Some(max) = child_max {
-                    if let Some(first) = max.first() {
-                        max_index = match node.children_first_bytes().binary_search(first) {
-                            Ok(i) => {
-                                self.stack.push(StackEntry {
-                                    node: &node.children()[i],
-                                    was_visited: false,
-                                    min: child_min,
-                                    max: child_max,
-                                });
-                                i
-                            }
-                            Err(i) => i,
-                        };
-                    }
+                if let Some(max) = child_max
+                    && let Some(first) = max.first()
+                {
+                    max_index = match node.children_first_bytes().binary_search(first) {
+                        Ok(i) => {
+                            self.stack.push(StackEntry {
+                                node: &node.children()[i],
+                                was_visited: false,
+                                min: child_min,
+                                max: child_max,
+                            });
+                            i
+                        }
+                        Err(i) => i,
+                    };
                 }
 
                 let mut min_index = 0;
 
                 let mut min_entry = None;
-                if let Some(min) = child_min {
-                    if let Some(first) = min.first() {
-                        min_index =
-                            match node.children_first_bytes()[..max_index].binary_search(first) {
-                                Ok(i) => {
-                                    min_entry = Some(StackEntry {
-                                        node: &node.children()[i],
-                                        was_visited: false,
-                                        min: child_min,
-                                        max: child_max,
-                                    });
-                                    i + 1
-                                }
-                                Err(i) => i,
-                            };
-                    }
+                if let Some(min) = child_min
+                    && let Some(first) = min.first()
+                {
+                    min_index = match node.children_first_bytes()[..max_index].binary_search(first)
+                    {
+                        Ok(i) => {
+                            min_entry = Some(StackEntry {
+                                node: &node.children()[i],
+                                was_visited: false,
+                                min: child_min,
+                                max: child_max,
+                            });
+                            i + 1
+                        }
+                        Err(i) => i,
+                    };
                 }
 
                 for child in node
@@ -351,10 +351,8 @@ impl<'tm, Data> RangeIter<'tm, Data> {
                 }
             }
 
-            if yield_current {
-                if let Some(data) = node.data() {
-                    return Some(data);
-                }
+            if yield_current && let Some(data) = node.data() {
+                return Some(data);
             }
         }
     }

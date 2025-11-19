@@ -13,17 +13,19 @@ workspace = true
 bench = false
 
 [[bench]]
-name = "numeric"
+name = "encoding_decoding"
 harness = false
 
-[build-dependencies]
-bindgen.workspace = true
+[[bench]]
+name = "garbage_collection"
+harness = false
 
 [dependencies]
 buffer.workspace = true
 criterion.workspace = true
 ffi.workspace = true
 inverted_index.workspace = true
+itertools.workspace = true
 redis_mock.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]

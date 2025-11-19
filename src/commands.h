@@ -21,7 +21,9 @@
 
 // write commands
 #define RS_CREATE_CMD RS_CMD_WRITE_PREFIX ".CREATE"
-#define RS_CREATE_IF_NX_CMD RS_CMD_WRITE_PREFIX "._CREATEIFNX"  // for replica of support
+#define RS_CREATE_IF_NX_CMD RS_CMD_WRITE_PREFIX "._CREATEIFNX"        // for replica of support
+// Itzik - check if RS_SETPAYLOAD_CMD is used or defined somewhere else and can be removed
+#define RS_SETPAYLOAD_CMD RS_CMD_WRITE_PREFIX ".SETPAYLOAD"
 #define RS_DROP_CMD RS_CMD_WRITE_PREFIX ".DROP"
 #define RS_DROP_INDEX_CMD RS_CMD_WRITE_PREFIX ".DROPINDEX"
 #define RS_DROP_IF_X_CMD RS_CMD_WRITE_PREFIX "._DROPIFX"             // for replica of support
@@ -36,7 +38,15 @@
 #define RS_ALIASDEL RS_CMD_WRITE_PREFIX ".ALIASDEL"
 #define RS_ALIASDEL_IF_EX RS_CMD_WRITE_PREFIX "._ALIASDELIFX"        // for replica of support
 #define RS_ALIASUPDATE RS_CMD_WRITE_PREFIX ".ALIASUPDATE"
-#define RS_GET_CMD RS_CMD_WRITE_PREFIX ".GET"                        // "write" so it won't be redirected on enterprise cluster
+#define RS_RESTORE_IF_NX RS_CMD_WRITE_PREFIX "._RESTOREIFNX"         // for replica of support (Currently there is no FT.RESTORE command)
+
+// Legacy write commands that are key-bounded (+ extra legacy commands that have to be registered for enterprise)
+#define RS_ADD_CMD "FT.ADD"
+#define RS_DEL_CMD "FT.DEL"
+#define RS_GET_CMD "FT.GET"
+#define RS_SAFEADD_CMD "FT.SAFEADD"
+#define LEGACY_RS_SAFEADD_CMD "_FT.SAFEADD"
+#define LEGACY_RS_DEL_CMD "_FT.DEL"
 
 // document write commands
 #define RS_ADD_CMD RS_CMD_WRITE_PREFIX ".ADD"
@@ -62,6 +72,7 @@
 // read commands
 #define RS_INFO_CMD RS_CMD_READ_PREFIX ".INFO"
 #define RS_SEARCH_CMD RS_CMD_READ_PREFIX ".SEARCH"
+#define RS_HYBRID_CMD RS_CMD_READ_PREFIX ".HYBRID"
 #define RS_AGGREGATE_CMD RS_CMD_READ_PREFIX ".AGGREGATE"
 #define RS_PROFILE_CMD RS_CMD_READ_PREFIX ".PROFILE"
 #define RS_MGET_CMD RS_CMD_READ_PREFIX ".MGET"

@@ -72,9 +72,10 @@ def testDocscoreScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
-    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
-    env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
-    env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    con = env.getClusterConnectionIfNeeded()
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem'))
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem'))
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'DOCSCORE')
     env.assertEqual(res[0], 3)
     env.assertEqual(res[2][1], "Document's score is 1.00")
@@ -87,9 +88,10 @@ def testTFIDFScorerExplanation(env):
     waitForIndex(env, 'idx')
     dialect = int(env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1])
 
-    env.cmd('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
-    env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
-    env.cmd('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem')
+    con = env.getClusterConnectionIfNeeded()
+    con.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
+    con.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
+    con.execute_command('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem')
 
     res = env.cmd('ft.search', 'idx', 'hello world', 'SCORER', 'TFIDF', 'WITHSCORES', 'EXPLAINSCORE')
     env.assertEqual(res[0], 3)
@@ -115,12 +117,18 @@ def testTFIDFScorerExplanation(env):
                                     ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                      '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
                                    '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
+    dialect1_coord =['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1', [[
+                                '(Weight 1.00 * total children TFIDF 30.00)', [
+                                  '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)', [
+                                    '(Weight 1.00 * total children TFIDF 20.00)', [
+                                      '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                                      '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]]]
     dialect2 = ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 30.00)', [
                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
-    env.assertEqual(res[2][1], dialect1 if dialect == 1 else dialect2)
+    env.assertEqual(res[2][1], dialect2 if dialect != 1 else dialect1_coord if env.isCluster() else dialect1)
 
     res1 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
             [['(Weight 1.00 * total children TFIDF 40.00)',
@@ -152,9 +160,10 @@ def testBM25ScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
-    env.expect('ft.add', 'idx', 'doc1{hash_tag}', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
-    env.expect('ft.add', 'idx', 'doc2{hash_tag}', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
-    env.expect('ft.add', 'idx', 'doc3{hash_tag}', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    con = env.getClusterConnectionIfNeeded()
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc1{hash_tag}', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc2{hash_tag}', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem'))
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc3{hash_tag}', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem'))
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25')
     env.assertEqual(res[0], 3)
 
@@ -316,9 +325,8 @@ def testOptionalAndWildcardScoring(env):
 
     expected_res = [1, 'doc2', ['0.6288345545057012',
                                 ['Final BM25 : words BM25 0.63 * document score 1.00',
-                                 [['(Weight 1.00 * children BM25 0.63)',
-                                   ['words: (0.63 = Weight 1.00 * IDF 0.69 * (F 1.00 * (k1 1.2 + 1)) '
-                                    '/ (F 1.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 5 / Average Doc Len 4.00)))']]]]]]
+                                 ['words: (0.63 = Weight 1.00 * IDF 0.69 * (F 1.00 * (k1 1.2 + 1)) '
+                                    '/ (F 1.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 5 / Average Doc Len 4.00)))']]]]
     res = conn.execute_command('ft.search', 'idx', '*ds', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD', 'nocontent')
     env.assertEqual(res, expected_res)
 
@@ -326,9 +334,10 @@ def testDisMaxScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
-    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
-    env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
-    env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    con = env.getClusterConnectionIfNeeded()
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem'))
+    env.assertOk(con.execute_command('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem'))
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'DISMAX')
     env.assertEqual(res[0], 3)
     env.assertEqual(res[2][1], ['20.00 = Weight 1.00 * children DISMAX 20.00',
@@ -338,24 +347,10 @@ def testDisMaxScorerExplanation(env):
     env.assertEqual(res[8][1], ['20.00 = Weight 1.00 * children DISMAX 20.00',
             ['DISMAX 10.00 = Weight 1.00 * Frequency 10', 'DISMAX 10.00 = Weight 1.00 * Frequency 10']])
 
-def testScoreReplace(env):
-    conn = getConnectionByEnv(env)
-    env.expect('ft.create idx ON HASH schema f text').ok()
-    waitForIndex(env, 'idx')
-    conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
-    conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
-    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '54.61673365109679'])
-    conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
-    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '59.27440327054199'])
-    if not env.isCluster():
-        env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
-        env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
-        env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '0.3955628932786397'])
-
 def testScoreDecimal(env):
     env.expect('ft.create idx ON HASH schema title text').ok()
     waitForIndex(env, 'idx')
-    env.expect('ft.add idx doc1 0.01 fields title hello').ok()
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', '0.01', 'fields', 'title', 'hello'))
     res = env.cmd('ft.search idx hello withscores nocontent')
     env.assertLess(float(res[2]), 1)
 
@@ -881,3 +876,98 @@ def testBM25STDScoreWithWeight(env: Env):
 
 def testBM25ScoreWithWeight(env: Env):
     scorer_with_weight_test(env, 'BM25')
+
+@skip(cluster=True)
+def testBM25STDUnderflow(env: Env):
+    """
+    Tests that we do not underflow when calculating the BM25STD score.
+    Before the fix, we had an underflow when calculating the IDF, which caused
+    the score to be jump rapidly in case of specific update/delete flows (MOD-12223).
+    This test also shows the scoring behavior currently in RediSearch, in which
+    for the same database image by the user, the score can change until the GC
+    runs.
+    """
+
+    # Set the scorer to `BM25STD` (we had this issue only there)
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'BM25STD').ok()
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Turn off the GC, to model the scenario without interference
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+
+    # Add a document with a single term
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc0', 'title', 'hello')
+
+    # Get the score for `hello`
+    res = env.cmd('ft.search', 'idx', 'hello', 'withscores', 'nocontent')
+    score_before = float(res[2])
+
+    # Update doc0, such that it will be deleted and re-added to the index
+    conn.execute_command('HSET', 'doc0', 'title', 'hello')
+    # Now, we have 1 document in the index, but the inverted-index of `hello`
+    # contains 2 entries, until the GC cleans it up
+
+    # After the fix, when we search for the term, the score should not jump, but
+    # rather be slightly smaller, since the idf will be smaller
+    # See https://en.wikipedia.org/wiki/Okapi_BM25 for more details
+    res = env.cmd('ft.search', 'idx', 'hello', 'withscores', 'nocontent')
+    score_after_update = float(res[2])
+
+    env.assertGreater(score_before, score_after_update)
+
+    # Reschedule the gc - add a job to the queue
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+
+@skip(cluster=True)
+def testBM25DocLen(env: Env):
+    """
+    Tests that the total document length is calculated correctly (MOD-122234).
+    Relevant for the BM25 and BM25STD scorers.
+    This test currently tests updates only, i.e., for an existing doc.
+    """
+
+    def get_avg_doc_len(response: str, std: bool = True):
+        score_exp = response[2][1][1][0]
+        split_by = 'Average Doc Len ' if std else 'Average Len'
+        avg_doc_len = float(score_exp.split(split_by)[1].split(')')[0])
+        return avg_doc_len
+
+    def validate_avg_doc_len(env, query: str, expected_avg_len: float):
+        for std in [True, False]:
+            res = env.cmd('FT.SEARCH', 'idx', query, 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD' if std else 'BM25')
+            env.assertEqual(get_avg_doc_len(res, std), expected_avg_len)
+
+    # --------------------------------- Update ---------------------------------
+
+    # Create an index with a TEXT field
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Add the first document
+    env.cmd('HSET', 'doc0', 'title', 'hello world')
+
+    # The average doc length should be 2
+    validate_avg_doc_len(env, 'hello', 2)
+
+    # Add the same document -> we re-index, and the avg doc length should be
+    # updated on the fly to the new doc length
+    env.cmd('HSET', 'doc0', 'title', 'hello world baby')
+
+    validate_avg_doc_len(env, 'hello', 3)
+
+    # -------------------------------- Deletion --------------------------------
+
+    # Add a document with 5 terms (not stopwords)
+    env.cmd('HSET', 'doc1', 'title', 'hello world baby cat mouse')
+
+    # The average doc length should be 4
+    validate_avg_doc_len(env, 'hello', 4)
+
+    # Delete the document with 5 terms, the average doc length should be updated
+    # on the fly back to 3
+    env.cmd('DEL', 'doc1')
+
+    validate_avg_doc_len(env, 'hello', 3)

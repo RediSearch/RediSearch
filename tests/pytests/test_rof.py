@@ -1,7 +1,7 @@
 from common import skipOnCrdtEnv
 
 def createRdb(env, q):
-  r = env.getConnection().pipeline()
+  r = env.getClusterConnectionIfNeeded().pipeline()
 
   a_list = ['A', 'DSL', 'for', 'Abstract', 'Data', 'Types.', 'Redis', 'is', 'a', 'DSL', '(Domain', 'Specific', 'Language)', 'that', 'manipulates', 'abstract', 'data', 'types', 'and', 'implemented', 'as', 'a', 'TCP', 'daemon.', 'Commands', 'manipulate', 'a', 'key', 'space', 'where', 'keys', 'are', 'binary-safe', 'strings', 'and', 'values', 'are', 'different', 'kinds', 'of', 'abstract', 'data', 'types.', 'Every', 'data', 'type', 'represents', 'an', 'abstract', 'version', 'of', 'a', 'fundamental', 'data', 'structure.', 'For', 'instance', 'Redis', 'Lists', 'are', 'an', 'abstract', 'representation', 'of', 'linked', 'lists.', 'In', 'Redis,', 'the', 'essence', 'of', 'a', 'data', 'type', 'isnt', 'just', 'the', 'kind', 'of', 'operations', 'that', 'the', 'data', 'types', 'support,', 'but', 'also', 'the', 'space', 'and', 'time', 'complexity', 'of', 'the', 'data', 'type', 'and', 'the', 'operations', 'performed', 'upon', 'it.']
   b_list = ['Memory', 'storage', 'is', '#1.', 'The', 'Redis', 'data', 'set,', 'composed', 'of', 'defined', 'key-value', 'pairs,', 'is', 'primarily', 'stored', 'in', 'the', 'computers', 'memory.', 'The', 'amount', 'of', 'memory', 'in', 'all', 'kinds', 'of', 'computers,', 'including', 'entry-level', 'servers,', 'is', 'increasing', 'significantly', 'each', 'year.', 'Memory', 'is', 'fast,', 'and', 'allows', 'Redis', 'to', 'have', 'very', 'predictable', 'performance.', 'Datasets', 'composed', 'of', '10k', 'or', '40', 'millions', 'keys', 'will', 'perform', 'similarly.', 'Complex', 'data', 'types', 'like', 'Redis', 'Sorted', 'Sets', 'are', 'easy', 'to', 'implement', 'and', 'manipulate', 'in', 'memory', 'with', 'good', 'performance,', 'making', 'Redis', 'very', 'simple.', 'Redis', 'will', 'continue', 'to', 'explore', 'alternative', 'options', '(where', 'data', 'can', 'be', 'optionally', 'stored', 'on', 'disk,', 'say)', 'but', 'the', 'main', 'goal', 'of', 'the', 'project', 'remains', 'the', 'development', 'of', 'an', 'in-memory', 'database.']
@@ -36,4 +36,3 @@ def testRoF(env):
 
   for _ in env.reloadingIterator():
     env.expect('ft.search rof * limit 0 0').equal([q])
-

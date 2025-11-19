@@ -99,10 +99,8 @@ impl<'tm, Data> ContainsIter<'tm, Data> {
                 });
             }
 
-            if is_match {
-                if let Some(data) = node.data() {
-                    return Some(data);
-                }
+            if is_match && let Some(data) = node.data() {
+                return Some(data);
             }
         }
     }

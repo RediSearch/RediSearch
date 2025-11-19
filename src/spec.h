@@ -28,6 +28,7 @@
 #include <pthread.h>
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -153,7 +154,7 @@ typedef struct {
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
-  size_t totalIndexTime;
+  rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;
   size_t totalDocsLen;
   uint32_t activeQueries;
@@ -163,9 +164,7 @@ typedef struct {
 typedef enum {
   Index_StoreTermOffsets = 0x01,
   Index_StoreFieldFlags = 0x02,
-
-  // Was StoreScoreIndexes, but these are always stored, so this option is unused
-  Index__Reserved1 = 0x04,
+  Index_HasMultiValue = 0x04,
   Index_HasCustomStopwords = 0x08,
   Index_StoreFreqs = 0x010,
   Index_StoreNumeric = 0x020,
@@ -189,7 +188,6 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
-
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -205,7 +203,9 @@ typedef struct Version {
 extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
-extern bool isTrimming;
+extern bool should_filter_slots;
+extern bool isTrimming; // TODO: remove this when redis deprecates sharding trimming events
+extern bool isFlex;
 
 /**
  * This "ID" type is independent of the field mask, and is used to distinguish
@@ -286,6 +286,7 @@ typedef struct {
 
 // Forward declaration
 typedef struct InvertedIndex InvertedIndex;
+typedef const void* RedisSearchDiskIndexSpec;
 
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
@@ -356,6 +357,8 @@ typedef struct IndexSpec {
   // Contains all the existing documents (for wildcard search)
   InvertedIndex *existingDocs;
 
+  // Disk index handle
+  RedisSearchDiskIndexSpec *diskSpec;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -507,8 +510,25 @@ int isRdbLoading(RedisModuleCtx *ctx);
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status);
 
+
+/**
+ * Convert an IndexSpec to its RDB serialized form, by calling the `IndexSpecType` rdb_save function.
+ * Note that the returned RedisModuleString* must be freed by the caller
+ * using RedisModule_FreeString
+*/
+RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
+
+/**
+ * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
+ * Note that this function also stores the index spec in the global spec dictionary, as if it was loaded
+ * from the RDB file.
+ * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure.
+ * Does not consume the serialized string, the caller is responsible for freeing it.
+*/
+int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
+
 /* Start the garbage collection loop on the index spec */
-void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef spec_ref, IndexSpec *sp);
+void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
@@ -553,9 +573,7 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index);
 int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status);
 
-// Translate the field mask to an array of field indices based on the "on" bits
-// Out capacity should be enough to hold 128 fields
-uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out);
+bool IndexSpec_IsCoherent(IndexSpec *sp, sds* prefixes, size_t n_prefixes);
 
 /**
  * Checks that the given parameters pass memory limits (used while starting from RDB)
@@ -627,8 +645,8 @@ RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
-int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
-void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
+IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status);
+void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
@@ -683,9 +701,14 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
 
 /**
  * @return all memory used by the index `sp`.
- * Uses the sizes of the doc-table, tag and text overhead if they are not `0`.
+ * Uses the sizes of the doc-table, tag and text overhead if they are not `0`
+ * (otherwise compute them in-place). Vector overhead is expected to be passed in as an argument
+ * and will not be computed in-place
+ * TODO: fIx so this will account for the entire index memory, preferably by using an allocator,
+ * currently it is a best effort that account only for part of the actual memory.
  */
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
+  size_t text_overhead, size_t vector_overhead);
 
 /**
 * obfuscate argument is used to determine how we will format the index name
@@ -701,6 +724,8 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 void Indexes_Init(RedisModuleCtx *ctx);
 void Indexes_Free(dict *d);
+size_t Indexes_Count();
+void Indexes_Propagate(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
@@ -728,6 +753,15 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 // Must only be called if the spec was promoted successfully
 // Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
+
+// This function is called in case the server starts RDB loading.
+void Indexes_StartRDBLoadingEvent();
+
+// This function is called in case the server ends RDB loading.
+void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
+
+// This function is to be called when loading finishes (failed or not)
+void Indexes_EndLoading();
 
 #ifdef __cplusplus
 }

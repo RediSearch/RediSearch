@@ -139,13 +139,26 @@ typedef struct {
   enum FieldExpirationPredicate predicate;
 } FieldFilterContext;
 
-bool DocTable_HasExpiration(DocTable *t, t_docId docId);
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 
 // Will return true if the document passed the predicate
 // default predicate - one of the fields did not yet expire -> entry is still valid
 // missing predicate - one of the fields did expire -> entry is valid in the context of missing
-bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
+static inline bool DocTable_CheckFieldExpirationPredicate(const DocTable *t, t_docId docId, t_fieldIndex field, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
+  if (!t->ttl) return true;
+  return TimeToLiveTable_VerifyDocAndField(t->ttl, docId, field, predicate, expirationPoint);
+}
+// Same as above, but for a field mask (non-wide schema)
+static inline bool DocTable_CheckFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, uint32_t fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
+  if (!t->ttl) return true;
+  return TimeToLiveTable_VerifyDocAndFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
+}
+// Same as above, but for a wide field mask
+static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
+  if (!t->ttl) return true;
+  return TimeToLiveTable_VerifyDocAndWideFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
+}
+
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesn't */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
@@ -161,12 +174,6 @@ static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) 
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
-
-int DocTable_Delete(DocTable *t, const char *key, size_t n);
-static inline int DocTable_DeleteR(DocTable *t, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_Delete(t, s, n);
-}
 
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n);
 static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *r) {
@@ -185,6 +192,17 @@ static inline const RSDocumentMetadata *DocTable_BorrowByKey(DocTable *dt, const
 /* Change name of document hash in the same spec without reindexing */
 int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
                      size_t to_len);
+
+/* increasing the ref count of the given dmd */
+/*
+ * This macro is atomic and fits for single writer and multiple readers as it is used only
+ * after we locked the index spec (R/W) and we either have a writer alone or multiple readers.
+ */
+#define DMD_Incref(md)                                                        \
+  ({                                                                          \
+    uint16_t count = __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED); \
+    RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
+  })
 
 /* don't use this function directly. Use DMD_Return */
 void DMD_Free(const RSDocumentMetadata *);

@@ -34,7 +34,7 @@
 %name RSQueryParser_v1_
 
 %syntax_error {
-    QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+    QueryError_SetWithUserDataFmt(ctx->status, QUERY_ERROR_CODE_SYNTAX,
         "Syntax error", " at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 }
@@ -89,6 +89,27 @@ static int one_not_null(void *a, void *b, void *out) {
         *(void **)out = b;
         return NODENN_ONE_NULL;
     }
+}
+
+// optimize NOT nodes: NOT(NOT(A)) = A
+// if the child is a NOT node, return its child instead of creating a double negation
+static inline struct RSQueryNode* not_step(struct RSQueryNode* child) {
+    if (!child) {
+        return NULL;
+    }
+
+    // If the child is a NOT node, return its child (double negation elimination)
+    if (child->type == QN_NOT) {
+        struct RSQueryNode* grandchild = child->children[0];
+        // Detach the grandchild from its parent to prevent it from being freed
+        child->children[0] = NULL;
+        // Free the NOT node (the parent)
+        QueryNode_Free(child);
+        return grandchild;
+    }
+
+    // Otherwise, create a new NOT node
+    return NewNotNode(child);
 }
 
 } // END %include
@@ -359,11 +380,7 @@ termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= MINUS expr(B) . {
-    if (B) {
-        A = NewNotNode(B);
-    } else {
-        A = NULL;
-    }
+    A = not_step(B);
 }
 
 /////////////////////////////////////////////////////////////////

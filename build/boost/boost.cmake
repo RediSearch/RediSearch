@@ -20,7 +20,7 @@ else()
     Set(FETCHCONTENT_QUIET FALSE)
     FetchContent_Declare(
             Boost
-            URL https://archives.boost.io/release/1.84.0/source/boost_1_84_0.tar.gz
+            URL https://github.com/boostorg/boost/releases/download/boost-1.88.0/boost-1.88.0-b2-nodocs.tar.gz
             USES_TERMINAL_DOWNLOAD TRUE
             DOWNLOAD_NO_EXTRACT FALSE
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE

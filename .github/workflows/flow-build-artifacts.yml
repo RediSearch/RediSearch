@@ -14,7 +14,7 @@ on:
           - rockylinux:9
           - debian:bullseye
           - debian:bookworm
-          - meiravgrimberg937/gcc12-amzn2:slim
+          - amazonlinux:2
           - amazonlinux:2023
           - mariner:2
           - azurelinux:3
@@ -30,6 +30,10 @@ on:
           - aarch64
         description: 'Architecture to build on. Use "all" to build on all'
         default: all
+      force_beta:
+        type: boolean
+        description: 'Force beta version generation even for non-master branches (for testing)'
+        default: false
   workflow_call:
     inputs:
       platform:
@@ -38,6 +42,9 @@ on:
       architecture:
         type: string
         default: all
+      force_beta:
+        type: boolean
+        default: false
 
 jobs:
   setup:
@@ -46,6 +53,7 @@ jobs:
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ steps.get-redis.outputs.tag }}
+      beta-version: ${{ steps.beta-version.outputs.BETA_VERSION }}
     steps:
       - uses: actions/checkout@v4
       - id: set-sha
@@ -56,6 +64,30 @@ jobs:
           # TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
           # echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "tag=unstable" >> $GITHUB_OUTPUT
+      - name: Generate Beta Version unique identifier
+        id: beta-version
+        run: |
+          # Generate beta version for master branch builds or when force_beta is enabled
+          BRANCH_NAME="${{ github.ref_name }}"
+          FORCE_BETA="${{ inputs.force_beta }}"
+          echo "Building from branch: $BRANCH_NAME"
+          echo "Force beta enabled: $FORCE_BETA"
+
+          if [[ "$BRANCH_NAME" == "master" ]] || [[ "$FORCE_BETA" == "true" ]]; then
+            # Generate timestamp at workflow start for consistent beta versioning across all builds
+            TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
+            # Add workflow number to ensure the version is unique (if multiple workflows started at the same time)
+            WORKFLOW_NUM=${{ github.run_number }}
+            BETA_VERSION="99.99.99.${TIMESTAMP}.${WORKFLOW_NUM}"
+            echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
+            if [[ "$BRANCH_NAME" == "master" ]]; then
+              echo "Master branch detected, generating beta version: $BETA_VERSION"
+            else
+              echo "Force beta enabled for branch $BRANCH_NAME, generating beta version: $BETA_VERSION"
+            fi
+          else
+            echo "Non-master branch detected ($BRANCH_NAME) and force_beta not enabled, no beta version generated"
+          fi
       - name: Validate Reference
         shell: python
         run: |
@@ -87,9 +119,9 @@ jobs:
           platforms = []
 
           if '${{ inputs.architecture }}' in ['all', 'x86_64']:
-            platforms.append('macos-13')
+            platforms.append('macos-15-intel')
           if '${{ inputs.architecture }}' in ['all', 'aarch64']:
-            platforms.append('macos-latest-xlarge')
+            platforms.append('macos-latest')
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             print(f'platforms={platforms}', file=f)
@@ -109,6 +141,7 @@ jobs:
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      beta-version: ${{ needs.setup.outputs.beta-version }}
 
   build-linux-arm:
     needs: [decide-linux, setup]
@@ -126,6 +159,7 @@ jobs:
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      beta-version: ${{ needs.setup.outputs.beta-version }}
 
   build-macos:
     needs: [decide-macos, setup]
@@ -140,3 +174,4 @@ jobs:
       env: ${{ matrix.OS }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      beta-version: ${{ needs.setup.outputs.beta-version }}

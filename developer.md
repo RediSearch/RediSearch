@@ -33,7 +33,7 @@ For installing the prerequisites you can take the following approaches:
 1. Install the dependencies manually - check our install script at ".install/install_script.sh" for the list of dependencies. In general, the common installations are:
    - `rust` (latest stable version)
    - `cmake >= 3.25.1`
-   - `boost == 1.84.0` you can skip this dependency so our CMake script will have it for you, but this has build time penalty.
+   - `boost == 1.88.0` you can skip this dependency so our CMake script will have it for you, but this has build time penalty.
    - `build-essential` (on Debian/Ubuntu) or equivalent build tools on other systems
    - `python3` and `python3-pip` (for running tests)
    - `openssl-devel` / `libssl-dev` (for secure connections)
@@ -100,7 +100,7 @@ For running specific tests you can use the following commands:
 
 ### Test prerequisites
 To run the python behavioral tests you need to install the following dependencies:
-* python test requirements listed in [requirements.txt](tests/pytests/requirements.txt)
+* python test requirements listed in [pyproject.toml](tests/pytests/pyproject.toml)
 * If you want to execute RediSearch+RedisJSON behavioral tests you need to install [rust](https://www.rust-lang.org/tools/install), which is required to compile the RedisJSON module 
 
 if you don't want to install those manually, you can use the CI installation scripts to install the dependencies.

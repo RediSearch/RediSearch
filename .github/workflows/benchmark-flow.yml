@@ -37,7 +37,7 @@ on:
 
 jobs:
   benchmark-steps:
-    name: "Benchmark ${{ inputs.allowed_envs }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
+    name: "Benchmark ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
     runs-on: ubuntu-24.04  # We need the os to be a match to the base image used in the benchmarks.
     defaults:
       run:
@@ -57,18 +57,21 @@ jobs:
         run: ./install_boost.sh
 
       - name: Build RediSearch
-        run: ./build.sh ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
-      - name: Prepare automation
+        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
+      - name: Install Python dependencies
         run: |
-          ./deps/readies/bin/getpy3
           pip3 install --upgrade pip
           python3 -m pip install -r tests/benchmarks/requirements.txt
-          VERSION=1.11.1 sudo ./deps/readies/bin/getterraform
+      - name: install terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.11.1
+          terraform_wrapper: false
       - name: Prepare ReJSON Module
         run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
-        timeout-minutes: 240 # timeout for the step
+        timeout-minutes: 360 # timeout for the step
         working-directory: tests/benchmarks
         env:
           # Hard-coded

@@ -10,6 +10,7 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
+  - oss-standalone-threads-6
   - oss-cluster-02-primaries
   - oss-cluster-04-primaries
   - oss-cluster-08-primaries
@@ -17,6 +18,7 @@ setups:
   - oss-cluster-20-primaries
   - oss-cluster-24-primaries
   - oss-cluster-32-primaries
+  - oss-cluster-04-primaries-threads-6
 
 dbconfig:
   - dataset_name: "1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M"

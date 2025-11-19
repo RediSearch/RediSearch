@@ -10,6 +10,7 @@
 #include "doc_table.h"
 #include "redismodule.h"
 #include "inverted_index.h"
+#include "iterators/inverted_index_iterator.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
@@ -43,121 +44,6 @@ static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
                            .tv_nsec = 0 };
   clock_gettime(CLOCK_MONOTONIC_RAW, &monotoicNow);
   rs_timeradd(&monotoicNow, &duration, &searchTime->timeout);
-}
-
-void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
-  if (encver > INVERTED_INDEX_ENCVER) {
-    return NULL;
-  }
-
-  // dummy_index_memsize is not used because this function is only used to load
-  // legacy RDB indexes, legacy indexes should be upgraded on load
-  size_t dummy_index_memsize;
-  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0, &dummy_index_memsize);
-
-  // If the data was encoded with a version that did not include the store numeric / store freqs
-  // options - we force adding StoreFreqs.
-  if (encver <= INVERTED_INDEX_NOFREQFLAG_VER) {
-    idx->flags |= Index_StoreFreqs;
-  }
-  idx->lastId = RedisModule_LoadUnsigned(rdb);
-  idx->numDocs = RedisModule_LoadUnsigned(rdb);
-  idx->size = RedisModule_LoadUnsigned(rdb);
-  idx->blocks = rm_calloc(idx->size, sizeof(IndexBlock));
-
-  size_t actualSize = 0;
-  for (uint32_t i = 0; i < idx->size; i++) {
-    IndexBlock *blk = &idx->blocks[actualSize];
-    blk->firstId = RedisModule_LoadUnsigned(rdb);
-    blk->lastId = RedisModule_LoadUnsigned(rdb);
-    blk->numEntries = RedisModule_LoadUnsigned(rdb);
-    if (blk->numEntries > 0) {
-      ++actualSize;
-    }
-
-    blk->buf.data = RedisModule_LoadStringBuffer(rdb, &blk->buf.offset);
-    blk->buf.cap = blk->buf.offset;
-    // if we read a buffer of 0 bytes we still read 1 byte from the RDB that needs to be freed
-    if (!blk->buf.cap && blk->buf.data) {
-      RedisModule_Free(blk->buf.data);
-      blk->buf.data = NULL;
-    } else {
-      char *buf = rm_malloc(blk->buf.offset);
-      memcpy(buf, blk->buf.data, blk->buf.offset);
-      RedisModule_Free(blk->buf.data);
-      blk->buf.data = buf;
-    }
-  }
-  idx->size = actualSize;
-  if (idx->size == 0) {
-    // dummy_sz is not used because this function is only used to load
-    // legacy RDB indexes, legacy indexes should be upgraded on load
-    size_t dummy_sz;
-    InvertedIndex_AddBlock(idx, 0, &dummy_sz);
-  } else {
-    idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
-  }
-  return idx;
-}
-void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
-
-  InvertedIndex *idx = value;
-  RedisModule_SaveUnsigned(rdb, idx->flags);
-  RedisModule_SaveUnsigned(rdb, idx->lastId);
-  RedisModule_SaveUnsigned(rdb, idx->numDocs);
-  uint32_t readSize = 0;
-  for (uint32_t i = 0; i < idx->size; i++) {
-    IndexBlock *blk = &idx->blocks[i];
-    if (blk->numEntries == 0) {
-      continue;
-    }
-    ++readSize;
-  }
-  RedisModule_SaveUnsigned(rdb, readSize);
-
-  for (uint32_t i = 0; i < idx->size; i++) {
-    IndexBlock *blk = &idx->blocks[i];
-    if (blk->numEntries == 0) {
-      continue;
-    }
-    RedisModule_SaveUnsigned(rdb, blk->firstId);
-    RedisModule_SaveUnsigned(rdb, blk->lastId);
-    RedisModule_SaveUnsigned(rdb, blk->numEntries);
-    if (IndexBlock_DataLen(blk)) {
-      RedisModule_SaveStringBuffer(rdb, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
-    } else {
-      RedisModule_SaveStringBuffer(rdb, "", 0);
-    }
-  }
-}
-void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
-}
-
-unsigned long InvertedIndex_MemUsage(const void *value) {
-  const InvertedIndex *idx = value;
-  unsigned long ret = sizeof_InvertedIndex(idx->flags)
-                      + sizeof(IndexBlock) * idx->size;
-  for (size_t i = 0; i < idx->size; i++) {
-    ret += IndexBlock_DataCap(&idx->blocks[i]);
-  }
-  return ret;
-}
-
-int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
-  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
-                               .rdb_load = InvertedIndex_RdbLoad,
-                               .rdb_save = InvertedIndex_RdbSave,
-                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
-                               .mem_usage = InvertedIndex_MemUsage,
-                               .free = InvertedIndex_Free};
-
-  InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", INVERTED_INDEX_ENCVER, &tm);
-  if (InvertedIndexType == NULL) {
-    RedisModule_Log(ctx, "warning", "Could not create inverted index type");
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
 }
 
 /**
@@ -277,9 +163,9 @@ static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, RedisModuleSt
     *outIsNew = true;
   }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->dtor = InvertedIndex_Free;
+  kdv->dtor = (void (*)(void *))InvertedIndex_Free;
   size_t index_size;
-  kdv->p = NewInvertedIndex(ctx->spec->flags, 1, &index_size);
+  kdv->p = NewInvertedIndex(ctx->spec->flags, &index_size);
   ctx->spec->stats.invertedSize += index_size;
   dictAdd(ctx->spec->keysDict, termKey, kdv);
   return kdv->p;
@@ -292,9 +178,9 @@ InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *te
   return idx;
 }
 
-IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
-                              t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
-                              double weight) {
+QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
+                                t_fieldMask fieldMask, double weight) {
+
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term->str, term->len);
   InvertedIndex *idx = NULL;
   RedisModuleKey *k = NULL;
@@ -304,20 +190,17 @@ IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocT
     goto err;
   }
 
-  if (!idx->numDocs ||
-     (Index_StoreFieldMask(ctx->spec) && !(idx->fieldMask & fieldMask))) {
+  if (!InvertedIndex_NumDocs(idx) ||
+     (Index_StoreFieldMask(ctx->spec) && !(InvertedIndex_FieldMask(idx) & fieldMask))) {
     // empty index! or index does not have results from requested field.
     // pass
     goto err;
   }
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value.mask = fieldMask};
-  IndexReader *ret = NewTermIndexReaderEx(idx, ctx, fieldMaskOrIndex, term, weight);
-  if (csx) {
-    ConcurrentSearch_AddKey(csx, TermReader_OnReopen, ret, NULL);
-  }
+  FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
+  QueryIterator *it = NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
   RedisModule_FreeString(ctx->redisCtx, termKey);
-  return ret;
+  return it;
 
 err:
   if (k) {
@@ -325,6 +208,9 @@ err:
   }
   if (termKey) {
     RedisModule_FreeString(ctx->redisCtx, termKey);
+  }
+  if (term) {
+    Term_Free(term);
   }
   return NULL;
 }

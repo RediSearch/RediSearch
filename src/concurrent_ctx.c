@@ -56,17 +56,8 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
 
 static void threadHandleCommand(void *p) {
   ConcurrentCmdCtx *ctx = p;
-  // Lock GIL if needed
-  if (!(ctx->options & CMDCTX_NO_GIL)) {
-    RedisModule_ThreadSafeContextLock(ctx->ctx);
-  }
 
   ctx->handler(ctx->ctx, ctx->argv, ctx->argc, ctx);
-
-  // Unlock GIL if needed
-  if (!(ctx->options & CMDCTX_NO_GIL)) {
-    RedisModule_ThreadSafeContextUnlock(ctx->ctx);
-  }
 
   if (!(ctx->options & CMDCTX_KEEP_RCTX)) {
     RedisModule_FreeThreadSafeContext(ctx->ctx);
@@ -87,7 +78,7 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
   return cctx->spec_ref;
 }
 
-int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
+int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           WeakRef spec_ref) {
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
@@ -98,7 +89,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
-  cmdCtx->options = options;
+  cmdCtx->options = 0;
   // Copy command arguments so they can be released by the calling thread
   cmdCtx->argv = rm_calloc(argc, sizeof(RedisModuleString *));
   for (int i = 0; i < argc; i++) {
@@ -109,69 +100,4 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
 
   ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmdCtx, poolType);
   return REDISMODULE_OK;
-}
-
-int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
-                                        RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return ConcurrentSearch_HandleRedisCommandEx(poolType, 0, handler, ctx, argv, argc, (WeakRef){0});
-}
-
-void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx) {
-  size_t sz = ctx->numOpenKeys;
-  for (size_t i = 0; i < sz; i++) {
-    ConcurrentKeyCtx *kx = &ctx->openKeys[i];
-    // if the key is marked as shared, make sure it isn't now
-    kx->cb(kx->privdata);
-  }
-}
-
-/** Initialize a concurrent context */
-void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx) {
-  ctx->ctx = rctx;
-  ctx->numOpenKeys = 0;
-  ctx->openKeys = NULL;
-}
-
-void ConcurrentSearchCtx_InitSingle(ConcurrentSearchCtx *ctx, RedisModuleCtx *rctx, ConcurrentReopenCallback cb) {
-  ctx->ctx = rctx;
-  ctx->numOpenKeys = 1;
-  ctx->openKeys = rm_calloc(1, sizeof(*ctx->openKeys));
-  ctx->openKeys->cb = cb;
-}
-
-void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
-  // Release the monitored open keys
-  for (size_t i = 0; i < ctx->numOpenKeys; i++) {
-    ConcurrentKeyCtx *cctx = ctx->openKeys + i;
-
-    // free the private data if needed
-    if (cctx->freePrivData) {
-      cctx->freePrivData(cctx->privdata);
-    }
-  }
-
-  rm_free(ctx->openKeys);
-  ctx->numOpenKeys = 0;
-}
-
-/* Add a "monitored" key to the context. When keys are open during concurrent execution, they need
- * to be closed before we yield execution and release the GIL, and reopened when we get back the
- * execution context.
- * To simplify this, each place in the program that holds a reference to a redis key
- * based data, registers itself and the key to be automatically reopened.
- *
- * After reopening, a callback
- * is being called to notify the key holder that it has been reopened, and handle the consequences.
- * This is used by index iterators to avoid holding reference to deleted keys or changed data.
- *
- * We register the key, the flags to reopen it, a string holding its name for reopening, a callback
- * for notification, and private callback data. if freePrivDataCallback is provided, we will call it
- * when the context is freed to release the private data. If NULL is passed, we do nothing */
-void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, ConcurrentReopenCallback cb,
-                             void *privdata, void (*freePrivDataCallback)(void *)) {
-  ctx->numOpenKeys++;
-  ctx->openKeys = rm_realloc(ctx->openKeys, ctx->numOpenKeys * sizeof(ConcurrentKeyCtx));
-  ctx->openKeys[ctx->numOpenKeys - 1] = (ConcurrentKeyCtx){.cb = cb,
-                                                           .privdata = privdata,
-                                                           .freePrivData = freePrivDataCallback};
 }

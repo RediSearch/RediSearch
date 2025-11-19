@@ -61,10 +61,8 @@ extern "C" {
 
 typedef struct {
   uint32_t len;
-  // TODO: optimize memory by making cap a 16-bit delta from len, and elem_sz 16 bit as well. This
-  // makes the whole header fit in 64 bit
-  uint32_t cap;
-  uint32_t elem_sz;
+  uint16_t remain_cap; // Remaining capacity of the array
+  uint16_t elem_sz;
   char buf[];
 } array_hdr_t;
 
@@ -72,7 +70,7 @@ typedef struct {
 
 typedef void *array_t;
 /* Internal - calculate the array size for allocations */
-#define array_sizeof(hdr) (sizeof(array_hdr_t) + (uint64_t)(hdr)->cap * (hdr)->elem_sz)
+#define array_sizeof(hdr) (sizeof(array_hdr_t) + (uint64_t) ((hdr)->len + (hdr)->remain_cap) * (hdr)->elem_sz)
 /* Internal - get a pointer to the array header */
 #define array_hdr(arr) ((array_hdr_t *)(((char *)(arr)) - sizeof(array_hdr_t)))
 /* Internal - get a pointer to an element inside the array at a given index */
@@ -80,13 +78,21 @@ typedef void *array_t;
 
 static inline uint32_t array_len(array_t arr);
 
-/* Initialize a new array with a given element size and capacity. Should not be used directly - use
+uint32_t array_len_func(array_t arr);
+
+/* Initialize a new array with a given element size and remaining capacity. Should not be used directly - use
  * array_new instead */
-array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len);
+array_t array_new_sz(uint16_t elem_sz, uint16_t remain_cap, uint32_t len);
 
 /* Free the array, without dealing with individual elements */
 /* Function declared as a symbol to allow invocation from Rust */
 void array_free(array_t arr);
+
+/* Function declared as a symbol to allow invocation from Rust */
+array_t array_ensure_append_n_func(array_t arr, array_t src, uint16_t n, uint16_t elem_sz);
+
+/* Function declared as a symbol to allow invocation from Rust */
+array_t array_clear_func(array_t arr, uint16_t elem_sz);
 
 /* Initialize an array for a given type T with a given capacity and zero length. The array should be
  * case to a pointer to that type. e.g.
@@ -100,21 +106,21 @@ void array_free(array_t arr);
 /* Initialize an array for a given type T with a given length. The capacity allocated is identical
  * to the length
  *  */
-#define array_newlen(T, len) (T *)(array_new_sz(sizeof(T), len, len))
+#define array_newlen(T, len) (T *)(array_new_sz(sizeof(T), 0, len))
 
-static inline array_t array_ensure_cap(array_t arr, uint32_t cap) {
-  array_hdr_t *hdr = array_hdr(arr);
-  if (cap > hdr->cap) {
-    hdr->cap = MAX(hdr->cap * 2, cap);
-    hdr = (array_hdr_t *)array_realloc_fn(hdr, array_sizeof(hdr));
-  }
-  return (array_t)hdr->buf;
-}
-
-/* Ensure capacity for the array to grow by one */
+/* Ensure capacity for the array to grow by n elements */
 static inline array_t array_grow(array_t arr, size_t n) {
-  array_hdr(arr)->len += n;
-  return array_ensure_cap(arr, array_hdr(arr)->len);
+  array_hdr_t *hdr = array_hdr(arr);
+  uint32_t arr_alloc_len = hdr->len + hdr->remain_cap;
+  hdr->len += n;
+  if (n > hdr->remain_cap) {
+    hdr->remain_cap = MAX(2*arr_alloc_len, hdr->len) - hdr->len;
+    hdr = (array_hdr_t *)array_realloc_fn(hdr, array_sizeof(hdr));
+  } else {
+    hdr->remain_cap -= n;
+  }
+  
+  return (array_t)hdr->buf;
 }
 
 static inline array_t array_ensure_len(array_t arr, size_t len) {
@@ -199,8 +205,8 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
     }                                                                     \
     if (array_len(*arrpp) <= pos) {                                       \
       size_t curlen = array_len(*arrpp);                                  \
-      array_hdr(*arrpp)->len = pos + 1;                                   \
-      *arrpp = (T *)array_ensure_cap(*(arrpp), array_hdr(*(arrpp))->len); \
+      uint32_t delta = (pos + 1) - curlen;                                \
+      *arrpp = (T *)array_grow(*(arrpp), delta);                          \
       memset((T *)*arrpp + curlen, 0, sizeof(T) * ((pos + 1) - curlen));  \
     }                                                                     \
     (T *)(*arrpp) + pos;                                                  \
@@ -221,33 +227,31 @@ static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
   return arr ? array_hdr(arr)->len : 0;
 }
 
-#define ARR_CAP_NOSHRINK ((uint32_t)-1)
-static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
+/* Get the length of the array */
+static ARR_FORCEINLINE uint16_t array_remain_cap(array_t arr) {
+  return arr ? array_hdr(arr)->remain_cap : 0;
+}
+
+static inline void *array_trimm(array_t arr, uint32_t new_len) {
   array_hdr_t *arr_hdr = array_hdr(arr);
-  RS_LOG_ASSERT(len >= 0, "trimming len is negative");
-  RS_LOG_ASSERT((cap == ARR_CAP_NOSHRINK || cap > 0 || len == cap), "trimming capacity is illegal");
-  RS_LOG_ASSERT((cap == ARR_CAP_NOSHRINK || cap >= len), "trimming len is greater then capacity");
-  RS_LOG_ASSERT((len <= arr_hdr->len), "trimming len is greater then current len");
-  arr_hdr->len = len;
-  if (cap != ARR_CAP_NOSHRINK) {
-    arr_hdr->cap = cap;
-    arr_hdr = (array_hdr_t *)array_realloc_fn(arr_hdr, array_sizeof(arr_hdr));
-  }
+  RS_LOG_ASSERT(new_len >= 0, "trimming len is negative");
+  RS_LOG_ASSERT((new_len <= arr_hdr->len), "trimming len is greater then current len");
+  arr_hdr->remain_cap += arr_hdr->len - new_len;
+  arr_hdr->len = new_len;
   return arr_hdr->buf;
 }
 
 /* Trim array by `len` elements */
-#define array_trimm_len(arr, len) (__typeof__(arr)) array_trimm(arr, array_len(arr) - (len), ARR_CAP_NOSHRINK)
-
-/* Resize array to `cap` elements */
-#define array_trimm_cap(arr, len) (__typeof__(arr)) array_trimm(arr, len, len)
+#define array_trimm_len(arr, len) (__typeof__(arr)) array_trimm(arr, array_len(arr) - (len))
 
 #define array_clear(arr)                    \
   ({                                        \
     if (!arr) {                             \
       arr = array_new(__typeof__(*arr), 1); \
     } else {                                \
-      array_hdr(arr)->len = 0;              \
+      array_hdr_t *arr_hdr = array_hdr(arr);\
+      arr_hdr->remain_cap += arr_hdr->len;  \
+      arr_hdr->len = 0;                     \
     }                                       \
     arr;                                    \
   })
@@ -282,6 +286,7 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
 #define array_pop(arr)                  \
   ({                                    \
     RS_ASSERT(array_hdr(arr)->len > 0); \
+    ++array_hdr(arr)->remain_cap;       \
     arr[--(array_hdr(arr)->len)];       \
   })
 
@@ -292,6 +297,7 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
     if (array_len(arr) - 1 > ix) {                                                \
       memcpy(arr + ix, arr + ix + 1, sizeof(*arr) * (array_len(arr) - (ix + 1))); \
     }                                                                             \
+    ++array_hdr(arr)->remain_cap;                                                 \
     --array_hdr(arr)->len;                                                        \
     arr;                                                                          \
   })
@@ -302,6 +308,7 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
     if (array_len(arr) > 1) {            \
       arr[ix] = arr[array_len(arr) - 1]; \
     }                                    \
+    ++array_hdr(arr)->remain_cap;        \
     --array_hdr(arr)->len;               \
     arr;                                 \
   })

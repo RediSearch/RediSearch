@@ -23,7 +23,7 @@ struct InvertedIndex;
 extern "C" {
 #endif
 
-/**
+/*
  * A Tag Index is an index that indexes textual tags for documents, in a simple manner than a full
  * text index, although
  * it uses the same internal mechanism as a full-text index.
@@ -134,10 +134,8 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
+QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
                                    double weight, t_fieldIndex fieldIndex);
-
-void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc, array_t *iters);
 
 /* Open the tag index key in redis */
 TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *formattedKey, bool create_if_missing);
@@ -147,16 +145,11 @@ TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *formattedKey, 
  * If a new index was created, the size of the new index is returned in *sz,
  * otherwise *sz is set to 0
 */
-struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
-                                          size_t len, int create_if_missing, size_t *sz);
+struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
+                                         size_t len, int create_if_missing, size_t *sz);
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
-
-#define TAGIDX_CURRENT_VERSION 1
-extern RedisModuleType *TagIndexType;
-/* Register the tag index type in redis */
-int TagIndex_RegisterType(RedisModuleCtx *ctx);
 
 /*
 * Calculates the overhead used by the TrieMaps of the TAG field named `name`, in

@@ -285,6 +285,13 @@ def testEscape(env):
 
   query_type = lambda res: res[1][1][0][3][3]
 
+  # add more documents so the wildcard queries are not optimized to a single term
+  conn.execute_command('HSET', 'more_doc1', 't', 'heplo') # codespell:ignore heplo
+  conn.execute_command('HSET', 'more_doc7', 't', 'hello\\\'werld') # codespell:ignore werld
+  conn.execute_command('HSET', 'more_doc8', 't', 'hello\\\\werld') # codespell:ignore werld
+  conn.execute_command('HSET', 'more_doc9', 't', '\\\'helno') # codespell:ignore helno
+  conn.execute_command('HSET', 'more_doc10', 't', '\\\\helno') # codespell:ignore helno
+
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'he?lo'")
   env.assertEqual(query_type(res), "WILDCARD - he?lo")
 

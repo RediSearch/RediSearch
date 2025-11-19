@@ -10,6 +10,7 @@ doctest = false
 
 [build-dependencies]
 cc.workspace = true
+build_utils = { path = "../build_utils" }
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.build-dependencies.bindgen]
 # Statically link to the libclang on aarch64-unknown-linux-musl,

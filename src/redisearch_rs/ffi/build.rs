@@ -8,11 +8,12 @@
 */
 
 use std::env;
-use std::fs::read_dir;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use build_utils::{git_root, rerun_if_c_changes};
 
 fn main() {
-    let root = git_root();
+    let root = git_root().expect("Could not find git root for static library linking");
 
     // Construct the correct folder path based on OS and architecture
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
@@ -37,6 +38,7 @@ fn main() {
         let redisearch_rs = src.join("redisearch_rs").join("headers");
         let inverted_index = src.join("inverted_index");
         let vecsim = deps.join("VectorSimilarity").join("src");
+        let buffer = src.join("buffer");
 
         [
             redis_modules,
@@ -45,13 +47,28 @@ fn main() {
             redisearch_rs,
             inverted_index,
             vecsim,
+            buffer,
         ]
     };
 
     let headers = [
         root.join("src").join("redisearch.h"),
-        root.join("src").join("buffer.h"),
+        root.join("deps")
+            .join("RedisModulesSDK")
+            .join("redismodule.h"),
+        root.join("src").join("buffer/buffer.h"),
+        root.join("src").join("search_result.h"),
+        root.join("src").join("config.h"),
         root.join("src").join("result_processor.h"),
+        root.join("src").join("sortable.h"),
+        root.join("src").join("value.h"),
+        root.join("src").join("obfuscation").join("hidden.h"),
+        root.join("src").join("spec.h"),
+        root.join("src").join("doc_table.h"),
+        root.join("src").join("score_explain.h"),
+        root.join("src").join("rlookup.h"),
+        root.join("src").join("query.h"),
+        root.join("src").join("util").join("arr").join("arr.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();
@@ -67,7 +84,7 @@ fn main() {
         bindings = bindings.clang_arg(format!("-I{}", include.display()));
         // Re-run the build script if any of the C files in the included
         // directory changes
-        rerun_if_c_changes(&include);
+        let _ = rerun_if_c_changes(&include);
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -77,32 +94,4 @@ fn main() {
         .expect("Unable to generate bindings")
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Couldn't write bindings!");
-}
-
-fn git_root() -> std::path::PathBuf {
-    let mut path = std::env::current_dir().unwrap();
-    while !path.join(".git").exists() {
-        path = path.parent().unwrap().to_path_buf();
-    }
-    path
-}
-
-/// Walk the specified directory and emit granular `rerun-if-changed` statements,
-/// scoped to `*.c` and `*.h` files.
-/// It'd be nice if `cargo` supported globbing syntax natively, but that's not the
-/// case today.
-fn rerun_if_c_changes(dir: &Path) {
-    for entry in read_dir(dir).expect("Failed to read directory") {
-        let Ok(entry) = entry else {
-            continue;
-        };
-        let path = entry.path();
-        if path.is_dir() {
-            rerun_if_c_changes(&path);
-        } else if let Some(extension) = path.extension() {
-            if extension == "c" || extension == "h" {
-                println!("cargo:rerun-if-changed={}", path.display());
-            }
-        }
-    }
 }

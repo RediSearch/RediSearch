@@ -417,8 +417,8 @@ def test_switch_loader_modes():
     env.expect('FT.CURSOR', 'DEL', 'idx', cursor3).noError().ok()
 
 @skip(cluster=False)
-def test_change_num_connections(env: Env):
-
+def test_change_num_connections():
+    env = initEnv('SEARCH_IO_THREADS 20')
     # Validate the default values
     env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '0']])
     env.expect(config_cmd(), 'GET', 'CONN_PER_SHARD').equal([['CONN_PER_SHARD', '0']])
@@ -426,6 +426,7 @@ def test_change_num_connections(env: Env):
     # The logic of the number of connections is as follows:
     # - If `CONN_PER_SHARD` is not 0, the number of connections is `CONN_PER_SHARD`
     # - If `CONN_PER_SHARD` is 0, the number of connections is `WORKERS` + 1
+    # - Each SEARCH_IO_THREAD has this number of connections: CEIL_DIV(connPerShard, coordinatorIOThreads)
 
     # Helper that will return the expected output structure.
     # In this test we don't care about the actual values, so we use the ANY matcher.
@@ -433,49 +434,73 @@ def test_change_num_connections(env: Env):
     # ['127.0.0.1:6379', ['Connected', 'Connected'],
     #  '127.0.0.1:6381', ['Connected', 'Connecting'],
     #  '127.0.0.1:6383', ['Connected', 'Connected']]
+    num_io_threads = 20
+
+    # This function implements the same logic as CEIL_DIV(connPerShard, coordinatorIOThreads)
+    # from src/coord/config.c line 85: size_t conn_pool_size = CEIL_DIV(connPerShard, realConfig->coordinatorIOThreads);
+    def compute_total_number_of_connections(num_connections):
+        import math
+        return num_io_threads * max(1, math.ceil(num_connections // num_io_threads))
+
     def expected(conns):
         return [
             ANY,          # The shard id (host:port)
             [ANY] * conns # The connections states
         ] * env.shardsCount
 
-    # By default, the number of connections is 1
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
+    # By default, the number of connections is 1 (WORKERS=0, so connPerShard=0+1=1, conn_pool_size=ceil(1/20)=1)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(1)))
 
     # Increase the number of worker threads to 6
     env.expect(config_cmd(), 'SET', 'WORKERS', '6').ok()
-    # The number of connections should be 7
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(7))
+    # The number of connections should be ceil(7/20) = 1
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(7)))
 
     # Set the number of connections to 4
     env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '4').ok()
-    # The number of connections should be 4
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(4))
+    # The number of connections should be ceil(4/20) = 1
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(4)))
 
     # Decrease the number of worker threads to 5
     env.expect(config_cmd(), 'SET', 'WORKERS', '5').ok()
-    # The number of connections should remain 4
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(4))
+    # The number of connections should remain ceil(4/20) = 1 (CONN_PER_SHARD takes precedence)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(4)))
 
     # Set the number of connections to 0
     env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '0').ok()
-    # The number of connections should be 6 (5 worker threads + 1)
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(6))
+    # The number of connections should be ceil(6/20) = 1 (5 worker threads + 1)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(6)))
 
     # Set back the number of worker threads to 0
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
-    # The number of connections should be 1 again
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
+    # The number of connections should be ceil(1/20) = 1 again
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(1)))
+
+    # Set back Connection per shard to 40
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '40').ok()
+    # The number of connections should be ceil(40/20) = 2
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(40)))
+
+    # Set Connection per shard to 100
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '100').ok()
+    # The number of connections should be ceil(100/20) = 5
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(100)))
 
 def test_change_workers_number():
 
     def check_threads(expected_num_threads_alive, expected_n_threads):
-        env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive)
-        env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads)
+        env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1, message='numThreadsAlive should match num_threads_alive')
+        env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
+
     # On start up the threadpool is not initialized. We can change the value of requested threads
     # without actually creating the threads.
     env = initEnv(moduleArgs='WORKERS 1')
     check_threads(expected_num_threads_alive=0, expected_n_threads=1)
+
+    # Before starting the test, set the number of connections per shard to 2 to avoid flakiness
+    # due to connections being rapidly opened/closed when changing the number of workers.
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '2').ok()
+
     # Increase number of threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
     check_threads(expected_num_threads_alive=0, expected_n_threads=2)
@@ -579,3 +604,184 @@ def testNameLoader(env: Env):
     env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@not-sortable')
     env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+
+def _test_ft_search_with_io_threads(io_threads):
+    """Helper function to test queries with specific IO thread count"""
+    # Create environment with specific IO thread count
+    env = initEnv(moduleArgs=f'SEARCH_IO_THREADS {io_threads}')
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE').ok()
+
+    # Add test documents
+    conn = getConnectionByEnv(env)
+    doc_count = 100
+    for i in range(doc_count):
+        conn.execute_command('HSET', f'doc:{i}',
+                            'txt', f'hello world document {i}',
+                            'num', i)
+
+    # Run different query types and verify results
+
+    # 1. Simple search
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'NOCONTENT')
+    env.assertEqual(res[0], doc_count, message=f"Simple search with {io_threads} IO threads")
+
+    # 2. Numeric range query
+    res = env.cmd('FT.SEARCH', 'idx', '@num:[10 50]', 'NOCONTENT')
+    env.assertEqual(res[0], 41, message=f"Numeric range query with {io_threads} IO threads")
+
+    # 3. Combined query with sorting
+    res = env.cmd('FT.SEARCH', 'idx', 'world @num:[20 40]', 'SORTBY', 'num', 'DESC', 'NOCONTENT')
+    env.assertEqual(res[0], 21, message=f"Combined query with {io_threads} IO threads")
+    # Check sort order (first result should be doc:40)
+    env.assertEqual(res[1], 'doc:40', message=f"Sort order with {io_threads} IO threads")
+
+    # 4. Aggregate query
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'GROUPBY', '1', '@num',
+                 'REDUCE', 'count', '0', 'AS', 'count',
+                 'FILTER', '@count > 0')
+    env.assertEqual(len(res), doc_count + 1, message=f"Aggregate query with {io_threads} IO threads")
+
+    # Clean up for next iteration
+    env.cmd('FLUSHALL')
+    env.flush()
+    env.stop()
+
+
+@skip(cluster=False)
+def test_ft_search_with_coord_1_io_thread():
+    _test_ft_search_with_io_threads(1)
+
+@skip(cluster=False)
+def test_ft_search_with_coord_5_io_threads():
+    _test_ft_search_with_io_threads(5)
+
+@skip(cluster=False)
+def test_ft_search_with_coord_10_io_threads():
+    _test_ft_search_with_io_threads(10)
+
+
+def _test_ft_aggregate_with_io_threads(io_threads):
+    """Helper function to test aggregate queries with specific IO thread count"""
+    # Create environment with specific IO thread count
+    env = initEnv(moduleArgs=f'SEARCH_IO_THREADS {io_threads}')
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE', 'tag', 'TAG').ok()
+
+    # Add test documents
+    conn = getConnectionByEnv(env)
+    doc_count = 100
+    for i in range(doc_count):
+        tag_value = f"tag{i % 10}" # Create 10 different tag values
+        conn.execute_command('HSET', f'doc:{i}',
+                            'txt', f'hello world document {i}',
+                            'num', i,
+                            'tag', tag_value)
+
+    # Run different aggregate queries and verify results
+
+    # 1. Simple aggregate
+    res = env.cmd('FT.AGGREGATE', 'idx', '*')
+    # Check exact structure - 100 empty arrays after the counter
+    env.assertEqual(len(res), 101, message=f"Simple aggregate with {io_threads} IO threads")
+    env.assertEqual(res[1:], [[] for _ in range(100)], message=f"Simple aggregate structure with {io_threads} IO threads")
+
+    # 2. Aggregate with LOAD
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@num', 'LIMIT', 0, 10)
+    # Check exact number of results and structure
+    env.assertEqual(len(res), 11, message=f"Aggregate with LOAD with {io_threads} IO threads")
+    # Verify each result has the correct format ['num', value]
+    for i in range(1, len(res)):
+        env.assertEqual(len(res[i]), 2, message=f"Result format with {io_threads} IO threads")
+        env.assertEqual(res[i][0], 'num', message=f"Field name with {io_threads} IO threads")
+
+    # 3. Aggregate with GROUPBY
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'GROUPBY', 1, '@tag',
+                 'REDUCE', 'COUNT', 0, 'AS', 'count')
+    # Check exact number of groups and their structure
+    env.assertEqual(len(res), 11, message=f"Aggregate with GROUPBY with {io_threads} IO threads")
+    for i in range(1, len(res)):
+        env.assertEqual(len(res[i]), 4, message=f"Group format with {io_threads} IO threads")
+        env.assertEqual(res[i][0], 'tag', message=f"Group field name with {io_threads} IO threads")
+        env.assertEqual(res[i][2], 'count', message=f"Count field name with {io_threads} IO threads")
+        env.assertEqual(res[i][3], '10', message=f"Group count with {io_threads} IO threads")
+
+    # 4. Aggregate with SORTBY
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'SORTBY', 2, '@num', 'DESC',
+                 'LIMIT', 0, 5)
+    # Check exact number of results and descending order
+    env.assertEqual(len(res), 6, message=f"Aggregate with SORTBY with {io_threads} IO threads")
+    # Verify descending order of results
+    expected_values = ['99', '98', '97', '96', '95']
+    for i in range(5):
+        env.assertEqual(res[i+1][1], expected_values[i],
+                       message=f"Sort order at position {i} with {io_threads} IO threads")
+
+    # 5. Aggregate with APPLY
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'LOAD', 1, '@num',
+                 'APPLY', '@num * 2', 'AS', 'doubled',
+                 'LIMIT', 0, 5)
+    # Check exact structure and calculated values
+    env.assertEqual(len(res), 6, message=f"Aggregate with APPLY with {io_threads} IO threads")
+    for i in range(1, len(res)):
+        env.assertEqual(len(res[i]), 4, message=f"Result format with {io_threads} IO threads")
+        env.assertEqual(res[i][0], 'num', message=f"First field name with {io_threads} IO threads")
+        env.assertEqual(res[i][2], 'doubled', message=f"Second field name with {io_threads} IO threads")
+        # Verify doubled value is correct
+        num_val = int(res[i][1])
+        doubled_val = int(res[i][3])
+        env.assertEqual(doubled_val, num_val * 2,
+                       message=f"APPLY calculation for {num_val} with {io_threads} IO threads")
+
+    # 6. Aggregate with FILTER
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'LOAD', 1, '@num',
+                 'FILTER', '@num > 90')
+    # Check exact number of results (9 documents with num > 90)
+    env.assertEqual(len(res), 10, message=f"Aggregate with FILTER with {io_threads} IO threads")
+    # Verify all values are > 90
+    for i in range(1, len(res)):
+        env.assertGreater(int(res[i][1]), 90,
+                         message=f"Filter condition with {io_threads} IO threads")
+
+    # 7. Complex aggregate with multiple operations
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'GROUPBY', 1, '@tag',
+                 'REDUCE', 'AVG', 1, '@num', 'AS', 'avg_num',
+                 'REDUCE', 'COUNT', 0, 'AS', 'count',
+                 'SORTBY', 2, '@avg_num', 'DESC')
+    # Check exact number of groups and descending order of avg_num
+    env.assertEqual(len(res), 11, message=f"Complex aggregate with {io_threads} IO threads")
+    # Verify descending order of avg_num
+    for i in range(1, len(res)-1):
+        current_avg = float(res[i][5])  # Fixed: value is at index 5, not 4
+        next_avg = float(res[i+1][5])   # Fixed: value is at index 5, not 4
+        env.assertGreaterEqual(current_avg, next_avg,
+                              message=f"Sort order of avg_num with {io_threads} IO threads")
+
+    # Clean up for next iteration
+    env.cmd('FLUSHALL')
+    env.flush()
+    env.stop()
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_1_io_thread():
+    _test_ft_aggregate_with_io_threads(1)
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_5_io_threads():
+    _test_ft_aggregate_with_io_threads(5)
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_10_io_threads():
+    _test_ft_aggregate_with_io_threads(10)
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_20_io_threads():
+    _test_ft_aggregate_with_io_threads(20)

@@ -267,9 +267,15 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
-    if (DocTable_Delete(&sp->docs, docKey, len)) {
+    RSDocumentMetadata* md = DocTable_Pop(&sp->docs, docKey, len);
+    if (md) {
       // Delete returns true/false, not RM_{OK,ERR}
+      RS_LOG_ASSERT(sp->stats.numDocuments > 0, "numDocuments cannot be negative");
       sp->stats.numDocuments--;
+      RS_LOG_ASSERT(sp->stats.totalDocsLen >= md->len, "totalDocsLen is smaller than dmd->len");
+      sp->stats.totalDocsLen -= md->len;
+      DMD_Return(md);
+
       if (sp->gc) {
         GCContext_OnDelete(sp->gc);
       }
@@ -331,7 +337,7 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
     if (ourErr->s) {
       *ourErr->s = rm_strdup(QueryError_GetUserError(&aCtx->status));
     }
-    ourErr->hasErr = aCtx->status.code;
+    ourErr->hasErr = QueryError_GetCode(&aCtx->status);
   }
 }
 
@@ -340,12 +346,10 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   IndexSpec* sp = __RefManager_Get_Object(rm);
 
   RSError err = {.s = errs};
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
   if (aCtx == NULL) {
-    if (status.detail) {
-      QueryError_ClearError(&status);
-    }
+    QueryError_ClearError(&status);
     RWLOCK_RELEASE();
     return REDISMODULE_ERR;
   }
@@ -561,7 +565,7 @@ size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
 }
 
 typedef struct RS_ApiIter {
-  IndexIterator* internal;
+  QueryIterator* internal;
   RedisSearchCtx sctx;
   RSIndexResult* res;
   const RSDocumentMetadata* lastmd;
@@ -596,7 +600,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   dictPauseRehashing(sp->keysDict);
 
   RSSearchOptions options = {0};
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   RSSearchOptions_Init(&options);
   if(sp->rule != NULL && sp->rule->lang_default != DEFAULT_LANGUAGE) {
     options.language = sp->rule->lang_default;
@@ -621,28 +625,24 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &it->sctx, NULL, 0, &status);
-  if (!it->internal) {
-    goto end;
-  }
+  it->internal = QAST_Iterate(&it->qast, &options, &it->sctx, 0, &status);
+  RS_ASSERT(it->internal);
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
-  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
+  const char *defaultScorer = RSGlobalConfig.defaultScorer;
+  RS_LOG_ASSERT(defaultScorer, "No default scorer");
+  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
   RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;
   it->minscore = DBL_MAX;
   it->sp = sp;
 
-  // dummy statement for goto
-  ;
 end:
 
-  if (QueryError_HasError(&status) || it->internal == NULL) {
-    if (it) {
-      RediSearch_ResultsIteratorFree(it);
-      it = NULL;
-    }
+  if (QueryError_HasError(&status)) {
+    RediSearch_ResultsIteratorFree(it);
+    it = NULL;
     if (error) {
       *error = rm_strdup(QueryError_GetUserError(&status));
     }
@@ -682,7 +682,8 @@ int RediSearch_QueryNodeType(QueryNode* qn) {
 // use only by LLAPI + unittest
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, RefManager* rm, size_t* len) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
+  while (iter->internal->Read(iter->internal) == ITERATOR_OK) {
+    iter->res = iter->internal->current;
     const RSDocumentMetadata* md = DocTable_Borrow(&sp->docs, iter->res->docId);
     if (md == NULL) {
       continue;
@@ -718,7 +719,7 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
 }
 
 void RediSearch_ResultsIteratorReset(RS_ApiIter* iter) {
-  iter->internal->Rewind(iter->internal->ctx);
+  iter->internal->Rewind(iter->internal);
 }
 
 RSIndexOptions* RediSearch_CreateIndexOptions() {
@@ -913,7 +914,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
 size_t RediSearch_MemUsage(RSIndex* rm) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  return IndexSpec_TotalMemUsage(sp, 0, 0, 0);
+  return IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0);
 }
 
 // Collect statistics of all the currently existing indexes

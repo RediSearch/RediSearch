@@ -33,6 +33,7 @@ typedef struct {
   // Used if the iterator yields some value.
   // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
   struct RLookupKey *ownKey;
+  struct RLookupKeyHandle *keyHandle; // Back-reference to the handle that points to this iterator's ownKey
 } MetricIterator;
 
 /**
@@ -40,9 +41,9 @@ typedef struct {
  * @param num - the number of doc ids in the list
  * @param weight - the weight of the node (assigned to the returned result)
  */
-QueryIterator *IT_V2(NewIdListIterator)(t_docId *ids, t_offset num, double weight);
+QueryIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight);
 
-QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type);
+QueryIterator *NewMetricIterator(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type);
 
 #ifdef __cplusplus
 }

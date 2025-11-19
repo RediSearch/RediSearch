@@ -7,11 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
-#include "search_ctx.h"
 #include "VecSim/vec_sim.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 #include "query_node.h"
 #include "query_ctx.h"
+#include "field_spec.h"
 
 #define VECSIM_TYPE_BFLOAT16 "BFLOAT16"
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"
@@ -39,6 +39,7 @@
 #define VECSIM_EPSILON "EPSILON"
 #define VECSIM_HYBRID_POLICY "HYBRID_POLICY"
 #define VECSIM_BATCH_SIZE "BATCH_SIZE"
+#define VECSIM_SHARD_WINDOW_RATIO "SHARD_WINDOW_RATIO"
 #define VECSIM_TYPE "TYPE"
 #define VECSIM_DIM "DIM"
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
@@ -63,9 +64,10 @@
 #define VECSIM_LEANVEC_4X8 "LeanVec4x8"
 #define VECSIM_LEANVEC_8X8 "LeanVec8x8"
 #define VECSIM_TRAINING_THRESHOLD "TRAINING_THRESHOLD"
+#define VECSIM_REDUCED_DIM "REDUCE"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
-  QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
+  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
 
 #define VECSIM_KNN_K_TOO_LARGE_ERR_MSG "KNN K parameter is too large"
 
@@ -92,6 +94,13 @@ typedef struct {
   size_t vecLen;                 // vector length
   size_t k;                      // number of vectors to return
   VecSimQueryReply_Order order;  // specify the result order.
+  double shardWindowRatio;       // shard window ratio for distributed queries
+
+  // Position tracking for K value modification (shard ratio optimization)
+  // For literal K (e.g., "KNN 10"): stores position and length of numeric value
+  // For parameter K (e.g., "KNN $k"): stores position and length INCLUDING the '$' prefix
+  size_t k_token_pos;            // Byte offset where K token starts in original query
+  size_t k_token_len;            // Length of K token
 } KNNVectorQuery;
 
 typedef struct {
@@ -139,11 +148,13 @@ typedef struct VecSimLogCtx {
 
 VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index);
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
+QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
 void VectorQuery_Free(VectorQuery *vq);
+char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen);
+void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen);
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
                                             VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status);
@@ -153,6 +164,10 @@ const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits);
 const char *VecSimSearchHistory_ToString(VecSimOptionMode option);
+bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits);
+bool isLVQSupported();
+
+VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField);
 
 void VecSimParams_Cleanup(VecSimParams *params);
 
@@ -173,7 +188,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef);
 extern "C" {
 #endif
 
-IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
+QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
                                                           bool yields_metric);
 #ifdef __cplusplus
 }

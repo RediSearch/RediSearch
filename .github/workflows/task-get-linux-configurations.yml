@@ -7,10 +7,9 @@ env:
                     'ubuntu:jammy',
                     'ubuntu:focal',
                     'rockylinux:8',
-                    'rockylinux:9',
                     'gcc:11-bullseye',
                     'gcc:12-bookworm',
-                    'meiravgrimberg937/gcc12-amzn2:slim',
+                    'amazonlinux:2',
                     'amazonlinux:2023',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0',
                     'mcr.microsoft.com/azurelinux/base/core:3.0',
@@ -19,7 +18,6 @@ env:
                     'ubuntu:jammy',
                     'ubuntu:focal',
                     'rockylinux:8',
-                    'rockylinux:9',
                     'gcc:11-bullseye',
                     'gcc:12-bookworm',
                     'amazonlinux:2023',
@@ -109,14 +107,14 @@ jobs:
           arm_include = []
           x86_include = []
 
-          # meiravgrimberg937/gcc12-amzn2:slim needs pre-checkout dependencies
-          if 'meiravgrimberg937/gcc12-amzn2:slim' in x86_platforms:
+          # amazonlinux:2 needs pre-checkout dependencies
+          if 'amazonlinux:2' in x86_platforms:
             x86_include.append({
-              'OS': 'meiravgrimberg937/gcc12-amzn2:slim',
+              'OS': 'amazonlinux:2',
               'pre-deps': "yum install -y tar gzip git"})
-          if 'meiravgrimberg937/gcc12-amzn2:slim' in arm_platforms:
+          if 'amazonlinux:2' in arm_platforms:
             arm_include.append({
-              'OS': 'meiravgrimberg937/gcc12-amzn2:slim',
+              'OS': 'amazonlinux:2',
               'pre-deps': "yum install -y tar gzip git"})
 
           # amazonlinux:2023 needs pre-checkout dependencies
@@ -172,11 +170,11 @@ jobs:
             if rocky_version in x86_platforms:
               x86_include.append({
                 'OS': rocky_version,
-                'pre-deps': "yum update -y && yum install -y git"})
+                'pre-deps': "dnf update -y && dnf install -y git"})
             if rocky_version in arm_platforms:
               arm_include.append({
                 'OS': rocky_version,
-                'pre-deps': "yum update -y && yum install -y git"})
+                'pre-deps': "dnf update -y && dnf install -y git"})
 
 
 

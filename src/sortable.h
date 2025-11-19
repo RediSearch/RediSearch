@@ -41,8 +41,8 @@ typedef struct RSSortingVector {
 /* Put a number in the sorting vector */
 void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num);
 
-/* Put a string in the sorting vector, set the flag is_normalized to false if string needs to be normalized */
-void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str, bool is_normalized);
+/* Put a string in the sorting vector, the caller has to ensure that the String is normalized, see normalizeStr() */
+void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str);
 
 /* Put another RSValue instance in the sorting vector */
 void RSSortingVector_PutRSVal(RSSortingVector* vec, size_t idx, RSValue* val);
@@ -66,6 +66,10 @@ void SortingVector_Free(RSSortingVector *v);
 
 /* Load a sorting vector from RDB. Used by legacy RDB load only */
 RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb);
+
+/* Normalize sorting string for storage. This folds everything to unicode equivalent strings. The
+ * allocated return string needs to be freed later */
+char *normalizeStr(const char *str);
 
 #ifdef __cplusplus
 }

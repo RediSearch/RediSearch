@@ -38,7 +38,7 @@ static int AliasTable_Add(AliasTable *table, const HiddenString *alias, StrongRe
   IndexSpec *spec = StrongRef_Get(spec_ref);
   e = dictAddRaw(table->d, (void *)alias, &existing);
   if (existing) {
-    QueryError_SetError(error, QUERY_EINDEXEXISTS, "Alias already exists");
+    QueryError_SetError(error, QUERY_ERROR_CODE_INDEX_EXISTS, "Alias already exists");
     return REDISMODULE_ERR;
   }
   RS_LOG_ASSERT(e->key != alias, "Alias should be different than key");
@@ -68,7 +68,7 @@ static int AliasTable_Del(AliasTable *table, const HiddenString *alias, StrongRe
     }
   }
   if (idx == -1) {
-    QueryError_SetError(error, QUERY_ENOINDEX, "Alias does not belong to provided spec");
+    QueryError_SetError(error, QUERY_ERROR_CODE_NO_INDEX, "Alias does not belong to provided spec");
     return REDISMODULE_ERR;
   }
 
@@ -113,7 +113,7 @@ void IndexSpec_ClearAliases(StrongRef spec_ref) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
   for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
     HiddenString **pp = sp->aliases + ii;
-    QueryError e = {0};
+    QueryError e = QueryError_Default();
     int rc = IndexAlias_Del(*pp, spec_ref, INDEXALIAS_NO_BACKREF, &e);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
     HiddenString_Free(*pp, true);

@@ -17,125 +17,110 @@
 namespace RediSearch {
 namespace GeoShape {
 
-auto QueryIterator::base() noexcept -> IndexIterator * {
+auto CPPQueryIterator::base() noexcept -> QueryIterator * {
   return &base_;
 }
 
-int QueryIterator::read_single(RSIndexResult *&hit) noexcept {
-  if (!base_.isValid || !has_next()) {
-    return INDEXREAD_EOF;
+IteratorStatus CPPQueryIterator::read_single() noexcept {
+  if (!has_next()) {
+    return ITERATOR_EOF;
   }
   t_docId docId = iter_[index_++];
-  const t_fieldIndex fieldIndex = filterCtx_.field.value.index;
-  if (sctx_ && fieldIndex != RS_INVALID_FIELD_INDEX && !DocTable_VerifyFieldExpirationPredicate(&sctx_->spec->docs, docId, &fieldIndex, 1, filterCtx_.predicate, &sctx_->time.current)) {
-    return INDEXREAD_NOTFOUND;
+  const t_fieldIndex fieldIndex = filterCtx_.field.index;
+  if (sctx_ && fieldIndex != RS_INVALID_FIELD_INDEX && !DocTable_CheckFieldExpirationPredicate(&sctx_->spec->docs, docId, fieldIndex, filterCtx_.predicate, &sctx_->time.current)) {
+    return ITERATOR_NOTFOUND;
   }
 
   base_.current->docId = docId;
-  hit = base_.current;
-  return INDEXREAD_OK;
+  base_.lastDocId = docId;
+  return ITERATOR_OK;
 }
 
-int QueryIterator::read(RSIndexResult *&hit) noexcept {
-  size_t timeoutCounter = 0;
-  int rc = INDEXREAD_OK;
+IteratorStatus CPPQueryIterator::read() noexcept {
+  uint32_t timeoutCounter = 0;
+  IteratorStatus rc = ITERATOR_OK;
   do {
     if (TimedOut_WithCounter(&sctx_->time.timeout, &timeoutCounter)) {
-      return INDEXREAD_TIMEOUT;
+      return ITERATOR_TIMEOUT;
     }
-    rc = read_single(hit);
-  } while (rc == INDEXREAD_NOTFOUND);
+    rc = read_single();
+  } while (rc == ITERATOR_NOTFOUND);
   return rc;
 }
-int QueryIterator::skip_to(t_docId docId, RSIndexResult *&hit) {
-  if (!base_.isValid || !has_next()) {
-    return INDEXREAD_EOF;
+IteratorStatus CPPQueryIterator::skip_to(t_docId docId) {
+  if (!has_next()) {
+    return ITERATOR_EOF;
   }
   if (docId > iter_.back()) {
-    base_.isValid = false;
-    return INDEXREAD_EOF;
+    base_.atEOF = true;
+    return ITERATOR_EOF;
   }
 
   const auto it = std::ranges::lower_bound(std::ranges::next(std::ranges::begin(iter_), index_),
                                            std::ranges::end(iter_), docId);
   index_ = std::ranges::distance(std::ranges::begin(iter_), it + 1);
   if (!has_next()) {
-    abort();
+    base_.atEOF = true;
   }
 
   base_.current->docId = *it;
-  hit = base_.current;
+  base_.lastDocId = *it;
 
   if (*it == docId) {
-    return INDEXREAD_OK;
+    return ITERATOR_OK;
   }
-  return INDEXREAD_NOTFOUND;
+  return ITERATOR_NOTFOUND;
 }
-t_docId QueryIterator::current() const noexcept {
+t_docId CPPQueryIterator::current() const noexcept {
   return base_.current->docId;
 }
-int QueryIterator::has_next() const noexcept {
+bool CPPQueryIterator::has_next() const noexcept {
   return index_ < len();
 }
-std::size_t QueryIterator::len() const noexcept {
+std::size_t CPPQueryIterator::len() const noexcept {
   return iter_.size();
 }
-void QueryIterator::abort() noexcept {
-  base_.isValid = false;
-}
-void QueryIterator::rewind() noexcept {
-  base_.isValid = true;
+void CPPQueryIterator::rewind() noexcept {
+  base_.atEOF = false;
   base_.current->docId = 0;
   index_ = 0;
 }
 
 namespace {
-int QIter_Read(void *ctx, RSIndexResult **hit) {
-  return static_cast<QueryIterator *>(ctx)->read(*hit);
+IteratorStatus QIter_Read(QueryIterator *ctx) {
+  return reinterpret_cast<CPPQueryIterator *>(ctx)->read();
 }
-int QIter_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  return static_cast<QueryIterator *>(ctx)->skip_to(docId, *hit);
+IteratorStatus QIter_SkipTo(QueryIterator *ctx, t_docId docId) {
+  return reinterpret_cast<CPPQueryIterator *>(ctx)->skip_to(docId);
 }
-t_docId QIter_LastDocId(void *ctx) {
-  return static_cast<QueryIterator const *>(ctx)->current();
-}
-int QIter_HasNext(void *ctx) {
-  return static_cast<QueryIterator const *>(ctx)->has_next();
-}
-void QIter_Free(IndexIterator *self) {
-  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-  const auto qi = static_cast<QueryIterator *const>(self->ctx);
+void QIter_Free(QueryIterator *self) {
+  using alloc_type = Allocator::TrackingAllocator<CPPQueryIterator>;
+  const auto qi = reinterpret_cast<CPPQueryIterator *const>(self);
   auto alloc = alloc_type{qi->iter_.get_allocator()};
   IndexResult_Free(self->current);
   std::allocator_traits<alloc_type>::destroy(alloc, qi);
   std::allocator_traits<alloc_type>::deallocate(alloc, qi, 1);
 }
-std::size_t QIter_Len(void *ctx) {
-  return static_cast<QueryIterator const *>(ctx)->len();
+std::size_t QIter_NumEstimated(QueryIterator *ctx) {
+  return reinterpret_cast<CPPQueryIterator const *>(ctx)->len();
 }
-void QIter_Abort(void *ctx) {
-  static_cast<QueryIterator *>(ctx)->abort();
-}
-void QIter_Rewind(void *ctx) {
-  static_cast<QueryIterator *>(ctx)->rewind();
+void QIter_Rewind(QueryIterator *ctx) {
+  reinterpret_cast<CPPQueryIterator *>(ctx)->rewind();
 }
 
 }  // anonymous namespace
 
-IndexIterator QueryIterator::init_base(QueryIterator *ctx) {
-  return IndexIterator{
-      .isValid = 1,
-      .ctx = ctx,
-      .current = NewVirtualResult(0, RS_FIELDMASK_ALL),
+QueryIterator CPPQueryIterator::init_base() {
+  return QueryIterator{
       .type = ID_LIST_ITERATOR,
-      .NumEstimated = QIter_Len,
+      .atEOF = false,
+      .lastDocId = 0,
+      .current = NewVirtualResult(0, RS_FIELDMASK_ALL),
+      .NumEstimated = QIter_NumEstimated,
       .Read = QIter_Read,
       .SkipTo = QIter_SkipTo,
-      .LastDocId = QIter_LastDocId,
-      .HasNext = QIter_HasNext,
+      .Revalidate = Default_Revalidate,
       .Free = QIter_Free,
-      .Len = QIter_Len,
-      .Abort = QIter_Abort,
       .Rewind = QIter_Rewind,
   };
 }

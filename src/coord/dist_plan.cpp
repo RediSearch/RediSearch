@@ -9,6 +9,7 @@
 
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_plan.h"
+#include "pipeline/pipeline_construction.h"
 #include "aggregate/reducer.h"
 #include "util/arr.h"
 #include "dist_plan.h"
@@ -107,8 +108,8 @@ reducerDistributionFunc getDistributionFunc(const char *key);
 static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
                                 PLN_DistributeStep *dstp, QueryError *status) {
   PLN_GroupStep *gr = (PLN_GroupStep *)step;
-  PLN_GroupStep *grLocal = PLNGroupStep_New(gr->properties, gr->nproperties);
-  PLN_GroupStep *grRemote = PLNGroupStep_New(gr->properties, gr->nproperties);
+  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->strictPrefix);
+  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->strictPrefix);
 
   size_t nreducers = array_len(gr->reducers);
   grLocal->reducers = array_new(PLN_Reducer, nreducers);
@@ -180,11 +181,7 @@ static void freeDistStep(PLN_BaseStep *bstp) {
     dstp->plan = NULL;
   }
   if (dstp->serialized) {
-    auto &v = *dstp->serialized;
-    for (auto s : v) {
-      rm_free((void *)s);
-    }
-    delete &v;
+    array_free_ex(dstp->serialized, rm_free(*(char **)ptr));
   }
   if (dstp->oldSteps) {
     for (size_t ii = 0; ii < array_len(dstp->oldSteps); ++ii) {
@@ -203,7 +200,7 @@ static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
 
 #define CHECK_ARG_COUNT(N)                                                               \
   if (src->args.argc != N) {                                                             \
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid arguments for reducer %s", \
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid arguments for reducer %s", \
                            src->name);                                                   \
     return REDISMODULE_ERR;                                                              \
   }
@@ -211,7 +208,7 @@ static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
 /* Distribute COUNT into remote count and local SUM */
 static int distributeCount(ReducerDistCtx *rdctx, QueryError *status) {
   if (rdctx->srcReducer->args.argc != 0) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Count accepts 0 values only");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Count accepts 0 values only");
     return REDISMODULE_ERR;
   }
   const char *countAlias;
@@ -377,7 +374,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
   dstp->base.type = PLN_T_DISTRIBUTE;
   dstp->plan = remote;
-  dstp->serialized = new std::vector<const char *>();
+  dstp->serialized = array_new(char *, 1);
   dstp->base.dtor = freeDistStep;
   dstp->base.getLookup = distStepGetLookup;
   BlkAlloc_Init(&dstp->alloc);
@@ -441,11 +438,11 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         // Otherwise (if there was no arrange step), we can move the filter step from local to remote
         current = hadArrange ? PLN_NEXT_STEP(current) : moveStep(remote, src, current);
         break;
+      case PLN_T_VECTOR_NORMALIZER:
       case PLN_T_LOAD:
-      case PLN_T_APPLY: {
+      case PLN_T_APPLY:
         current = moveStep(remote, src, current);
         break;
-      }
       case PLN_T_ARRANGE: {
         PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
         // If we already had an arrange step, or this arrange step should only run local,
@@ -515,18 +512,35 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
   for (DLLIST_node *nn = &lastLkStep->llnodePln; nn != &remote->steps; nn = nn->next) {
     PLN_BaseStep *cur = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     switch (cur->type) {
+      case PLN_T_VECTOR_NORMALIZER: {
+        PLN_VectorNormalizerStep *vnStep = (PLN_VectorNormalizerStep *)cur;
+        RLookup_GetKey_Write(lookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);
+        break;
+      }
       case PLN_T_LOAD: {
         PLN_LoadStep *lstp = (PLN_LoadStep *)cur;
-        for (size_t ii = 0; ii < AC_NumArgs(&lstp->args); ++ii) {
-          const char *s = stripAtPrefix(AC_StringArg(&lstp->args, ii));
-          RLookup_GetKey_Write(lookup, s, RLOOKUP_F_NOFLAGS);
+        // Use the original ArgsCursor directly
+        ArgsCursor ac = lstp->args;
+
+        // Process all arguments in the ArgsCursor
+        while (!AC_IsAtEnd(&ac)) {
+          const char *name = AC_GetStringNC(&ac, NULL);
+
+          // Check for AS alias
+          if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+            RS_ASSERT(!AC_IsAtEnd(&ac));
+            name = AC_GetStringNC(&ac, NULL); // structure is validated earlier, can safely assume it's not at the end
+          }
+          name = stripAtPrefix(name);
+          RLookup_GetKey_Write(lookup, name, RLOOKUP_F_NOFLAGS);
         }
         break;
       }
       case PLN_T_GROUP: {
         PLN_GroupStep *gstp = (PLN_GroupStep *)cur;
-        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-          const char *propname = stripAtPrefix(gstp->properties[ii]);
+        arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
+        for (size_t ii = 0; ii < array_len(properties); ++ii) {
+          const char *propname = stripAtPrefix(properties[ii]);
           RLookup_GetKey_Write(lookup, propname, RLOOKUP_F_NOFLAGS);
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
@@ -551,17 +565,12 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
 
   AGPLN_PopStep(&local->firstStep_s.base);
   AGPLN_Prepend(local, &dstp->base);
-  auto tmp = (char **)AGPLN_Serialize(dstp->plan);
-  auto &v = *dstp->serialized;
-  for (size_t ii = 0; ii < array_len(tmp); ++ii) {
-    v.push_back(tmp[ii]);
-  }
-  array_free(tmp);
+  AGPLN_Serialize(dstp->plan, &dstp->serialized);
 }
 
 int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
 
-  auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
+  auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_DISTRIBUTE);
   RS_ASSERT(dstp);
 
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
@@ -578,19 +587,17 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
     }
   }
 
-  auto &ser_args = *dstp->serialized;
   if (!loadFields.empty()) {
-    ser_args.push_back(rm_strndup("LOAD", 4));
+    array_append(dstp->serialized, rm_strndup("LOAD", 4));
     char *ldsze;
     rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
-    ser_args.push_back(ldsze);
+    array_append(dstp->serialized, ldsze);
     for (auto kk : loadFields) {
-      ser_args.push_back(rm_strndup(kk->name, kk->name_len));
+      array_append(dstp->serialized, rm_strndup(kk->name, kk->name_len));
     }
   }
 
   us->lookup = &dstp->lk;
-  us->serialized = ser_args.data();
-  us->nserialized = ser_args.size();
+  us->serialized = dstp->serialized;
   return REDISMODULE_OK;
 }

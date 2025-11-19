@@ -11,7 +11,6 @@
 #include "gtest/gtest.h"
 
 #include "numeric_index.h"
-#include "index.h"
 #include "rmutil/alloc.h"
 #include "index_utils.h"
 #include "redisearch_api.h"
@@ -23,7 +22,7 @@
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c
-IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
+QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
                                      const NumericFilter *f, IteratorsConfig *config,
                                      const FieldFilterContext* filterCtx);
 }
@@ -122,19 +121,14 @@ void testRangeIteratorHelper(bool isMulti) {
       }
     }
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
-    FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+    FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
     FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-    IndexIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
+    QueryIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
 
     int xcount = 0;
-    RSIndexResult *res = NULL;
 
-    while (IITER_HAS_NEXT(it)) {
-
-      int rc = it->Read(it->ctx, &res);
-      if (rc == INDEXREAD_EOF) {
-        break;
-      }
+    while (it->Read(it) == ITERATOR_OK) {
+      RSIndexResult *res = it->current;
 
       size_t found_mult = -1;
       for( size_t mult = 0; mult < mult_count; ++mult) {
@@ -145,8 +139,9 @@ void testRangeIteratorHelper(bool isMulti) {
         }
       }
       ASSERT_NE(found_mult, -1);
-      if (res->type == RSResultType_Union) {
-        res = res->data.agg.children[0];
+      if (res->data.tag == RSResultData_Union) {
+        const RSAggregateResult *agg = IndexResult_AggregateRef(res);
+        res = (RSIndexResult*)AggregateResult_Get(agg, 0);
       }
 
       // printf("rc: %d docId: %d, n %f lookup %f, flt %f..%f\n", rc, res->docId, res->num.value,
@@ -154,17 +149,16 @@ void testRangeIteratorHelper(bool isMulti) {
 
       found_mult = -1;
       for( size_t mult = 0; mult < mult_count; ++mult) {
-        if (res->data.num.value == lookup[res->docId].v[mult]) {
+        if (IndexResult_NumValue(res) == lookup[res->docId].v[mult]) {
           ASSERT_TRUE(NumericFilter_Match(flt, lookup[res->docId].v[mult]));
           found_mult = mult;
         }
       }
       ASSERT_NE(found_mult, -1);
 
-      ASSERT_EQ(res->type, RSResultType_Numeric);
-      // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
+      ASSERT_EQ(res->data.tag, RSResultData_Numeric);
       ASSERT_TRUE(!RSIndexResult_HasOffsets(res));
-      ASSERT_TRUE(!RSIndexResult_IsAggregate(res));
+      ASSERT_TRUE(!IndexResult_IsAggregate(res));
       ASSERT_TRUE(res->docId > 0);
       ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);
     }
@@ -200,17 +194,17 @@ void testRangeIteratorHelper(bool isMulti) {
   // test loading limited range
   double rangeArray[6][2] = {{0, 1000}, {0, 3000}, {1000, 3000}, {15000, 20000}, {19500, 20000}, {-1000, 21000}};
 
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_DEFAULT};
   for (size_t i = 0; i < 6; i++) {
     for (int j = 0; j < 2; ++j) {
       // j==1 for ascending order, j==0 for descending order
       NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j, NULL);
-      IndexIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
-      size_t numEstimated = it->NumEstimated(it->ctx);
+      QueryIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
+      size_t numEstimated = it->NumEstimated(it);
       NumericFilter *fltLimited = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j, NULL);
       fltLimited->limit = 50;
-      IndexIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config, &filterCtx);
-      size_t numEstimatedLimited = itLimited->NumEstimated(itLimited->ctx);
+      QueryIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config, &filterCtx);
+      size_t numEstimatedLimited = itLimited->NumEstimated(itLimited);
       // printf("%f %f %ld %ld\n", rangeArray[i][0], rangeArray[i][1], numEstimated, numEstimatedLimited);
       ASSERT_TRUE(numEstimated >= numEstimatedLimited );
       it->Free(it);
@@ -238,7 +232,8 @@ TEST_F(RangeTest, EmptyTreeSanity) {
   NumericRangeNode *failed_range = NULL;
 
   NumericRangeTree *rt = NewNumericRangeTree();
-  size_t empty_numeric_mem_size = sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  // The base inverted index is 40 bytes + 8 bytes for the entries count of numeric records
+  size_t empty_numeric_mem_size = 48;
   size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
   if (failed_range) {
     FAIL();
@@ -258,7 +253,6 @@ protected:
   void SetUp() override {
     RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec = 3000000;
     index = createSpec(ctx);
-
   }
 
   void TearDown() override {
@@ -286,7 +280,7 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
 
   auto print_failure = [&]() {
     std::cout << "Expected range memory = " << expected_mem << std::endl;
-    std::cout << "Failed range mem: " << NumericRangeGetMemory(failed_range) << std::endl;
+    std::cout << "Failed range mem: " << InvertedIndex_MemUsage(failed_range->range->entries) << std::endl;
   };
 
   // add docs with random numbers

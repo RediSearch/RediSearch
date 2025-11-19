@@ -9,6 +9,7 @@
 #include "coord/rmr/rmr.h"
 #include "coord/rmr/rq.h"
 #include "commands.h"
+#include "coord/rmr/io_runtime_ctx.h"
 #include "debug_commands.h"
 #include "debug_command_names.h"
 #include "coord/rmr/redis_cluster.h"
@@ -54,7 +55,7 @@ DEBUG_COMMAND(clearTopology) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   if (argc != 2) return RedisModule_WrongArity(ctx);
-  RQ_Debug_ClearPendingTopo();
+  MR_Debug_ClearPendingTopo();
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

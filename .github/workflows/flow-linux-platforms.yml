@@ -48,7 +48,7 @@ on:
           - rockylinux:9
           - debian:bullseye
           - debian:bookworm
-          - meiravgrimberg937/gcc12-amzn2:slim
+          - amazonlinux:2
           - amazonlinux:2023
           - mariner:2
           - azurelinux:3

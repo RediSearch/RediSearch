@@ -26,13 +26,12 @@ typedef struct RSScoreExplain {
 /*
  * RedisModule_reply.
  */
-void SEReply(RedisModule_Reply *reply, RSScoreExplain *scrExp);
+void SEReply(RedisModule_Reply *reply, const RSScoreExplain *scrExp);
 
 /*
  * Release allocated resources.
  */
 void SEDestroy(RSScoreExplain *scrExp);
-
 
 #define EXPLAIN(exp, fmt, args...) \
   {                                \

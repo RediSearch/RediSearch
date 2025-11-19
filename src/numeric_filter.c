@@ -34,7 +34,7 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
   errno = 0;
   *target = fast_float_strtod(s, &endptr);
   if (*endptr != '\0' || *target == HUGE_VAL || *target == -HUGE_VAL) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, isMin ? "Bad lower range" : "Bad upper range", ": %s", s);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, isMin ? "Bad lower range" : "Bad upper range", ": %s", s);
     return REDISMODULE_ERR;
   }
   if(sign == -1) {
@@ -61,15 +61,15 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
  */
 LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_NumRemaining(ac) < 3) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "FILTER requires 3 arguments");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FILTER requires 3 arguments");
     return NULL;
   }
 
   LegacyNumericFilter *nf = rm_calloc(1, sizeof(*nf));
 
   // make sure we have an index spec for this filter and it's indeed numeric
-  nf->base.inclusiveMax = 1;
-  nf->base.inclusiveMin = 1;
+  nf->base.maxInclusive = 1;
+  nf->base.minInclusive = 1;
   nf->base.min = 0;
   nf->base.max = 0;
   // Store the field name at the field spec pointer, to validate later
@@ -81,7 +81,7 @@ LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFil
   if (!*s) {
     *hasEmptyFilterValue = true;
   }
-  if (parseDoubleRange(s, &nf->base.inclusiveMin, &nf->base.min, 1, 1, status) != REDISMODULE_OK) {
+  if (parseDoubleRange(s, &nf->base.minInclusive, &nf->base.min, 1, 1, status) != REDISMODULE_OK) {
     LegacyNumericFilter_Free(nf);
     return NULL;
   }
@@ -90,7 +90,7 @@ LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFil
   if (!*s) {
     *hasEmptyFilterValue = true;
   }
-  if (parseDoubleRange(s, &nf->base.inclusiveMax, &nf->base.max, 0, 1, status) != REDISMODULE_OK) {
+  if (parseDoubleRange(s, &nf->base.maxInclusive, &nf->base.max, 0, 1, status) != REDISMODULE_OK) {
     LegacyNumericFilter_Free(nf);
     return NULL;
   }
@@ -113,10 +113,10 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
   f->min = min;
   f->max = max;
   f->fieldSpec = fs;
-  f->inclusiveMax = inclusiveMax;
-  f->inclusiveMin = inclusiveMin;
+  f->maxInclusive = inclusiveMax;
+  f->minInclusive = inclusiveMin;
   f->geoFilter = NULL;
-  f->asc = asc;
+  f->ascending = asc;
   f->offset = 0;
   f->limit = 0;
   return f;

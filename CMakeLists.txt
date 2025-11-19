@@ -22,13 +22,13 @@ function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
     # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
     set(CMAKE_CXX_STANDARD 20)
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
     elseif(PROFILE)
         set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
         set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
@@ -180,6 +180,10 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
+if(BUILD_INTEL_SVS_OPT)
+    add_compile_definitions("BUILD_INTEL_SVS_OPT=1")
+endif()
+
 if(MAX_WORKER_THREADS)
     set_source_files_properties(src/config.c PROPERTIES COMPILE_DEFINITIONS MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
 endif()
@@ -235,8 +239,8 @@ set(Boost_NO_WARN_NEW_VERSIONS ON)
 
 include_directories(
     ${root}/src
+    ${root}/src/buffer
     ${root}/src/coord
-    ${root}/src/inverted_index
     ${root}/src/redisearch_rs/headers
     ${root}/deps/libuv/include
     ${root}/deps
@@ -261,28 +265,32 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
-add_subdirectory(src/inverted_index)
+add_subdirectory(src/buffer)
+add_subdirectory(src/iterators)
 add_subdirectory(src/wildcard)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
+add_subdirectory(src/redisearch_rs)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
 file(GLOB SOURCES
     "src/*.c"
+    "src/pipeline/*.c"
     "src/aggregate/*.c"
     "src/aggregate/expr/*.c"
     "src/aggregate/functions/*.c"
     "src/aggregate/reducers/*.c"
     "src/command_info/*.c"
+    "src/hybrid/*.c"
+    "src/hybrid/parse/*.c"
     "src/ext/*.c"
     "src/hll/*.c"
     "src/query_parser/v1/*.c"
     "src/query_parser/v2/*.c"
     "src/util/*.c"
     "src/trie/*.c"
-    "src/iterators/*.c"
     "src/info/*.c"
     "src/info/info_redis/*.c"
     "src/info/info_redis/threads/*.c"
@@ -303,7 +311,8 @@ add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:arr>
-    $<TARGET_OBJECTS:inverted_index>
+    $<TARGET_OBJECTS:buffer>
+    $<TARGET_OBJECTS:iterators>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
@@ -316,7 +325,29 @@ set(FINAL_OBJECTS
 
 #----------------------------------------------------------------------------------------------
 # Build the shared library
-add_library(redisearch SHARED ${FINAL_OBJECTS})
+# Build as static library for integration with disk storage
+# Allow overriding library type via option
+
+
+# Default behavior: SHARED when main project, STATIC when subdirectory
+if(NOT DEFINED REDISEARCH_BUILD_SHARED)
+    if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+        set(REDISEARCH_BUILD_SHARED ON)
+    else()
+        set(REDISEARCH_BUILD_SHARED OFF)
+    endif()
+endif()
+
+option(REDISEARCH_BUILD_SHARED "Build RediSearch as shared library" OFF)
+
+# Create library with determined type
+if(REDISEARCH_BUILD_SHARED)
+    add_library(redisearch SHARED ${FINAL_OBJECTS})
+    message(STATUS "Building RediSearch as SHARED library")
+else()
+    add_library(redisearch STATIC ${FINAL_OBJECTS})
+    message(STATUS "Building RediSearch as STATIC library")
+endif()
 
 if(COORD_TYPE STREQUAL "rlec")
     set_target_properties(redisearch PROPERTIES OUTPUT_NAME "module-enterprise")
@@ -326,7 +357,8 @@ set_target_properties(redisearch
     PROPERTIES
     LINKER_LANGUAGE CXX
     C_STANDARD 17
-    C_STANDARD_REQUIRED ON)
+    C_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON)
 setup_shared_object_target(redisearch "")
 target_link_libraries(redisearch
         redisearch-geometry
@@ -334,19 +366,20 @@ target_link_libraries(redisearch
         VectorSimilarity
         redisearch-coord
         arr
-        inverted_index
+        buffer
+        iterators
         wildcard
         uv_a
-        ${BINDIR}/redisearch_rs/libredisearch_rs.a
+        redisearch_rs
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
 
 extract_debug_symbols(redisearch)
-add_dependencies(redisearch 
-                 VectorSimilarity 
-                 generate_command_info
-                 uv_a)
+add_dependencies(redisearch VectorSimilarity)
+add_dependencies(redisearch generate_command_info)
+add_dependencies(redisearch uv_a)
+add_dependencies(redisearch redisearch_rs)
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration

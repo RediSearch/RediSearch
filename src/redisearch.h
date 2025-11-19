@@ -102,18 +102,6 @@ enum FieldExpirationPredicate {
   FIELD_EXPIRATION_MISSING // one of the fields need to be expired for the entry to be considered missing
 };
 
-typedef struct {
-  // tells us the actual type of the field member
-  // true - fieldMask, false - fieldIndex
-  bool isFieldMask;
-  union {
-    // For textual fields, allows to host multiple field indices at once
-    t_fieldMask mask;
-    // For the other fields, allows a single field to be referenced
-    t_fieldIndex index;
-  } value;
-} FieldMaskOrIndex;
-
 #define hasPayload(x) (x & Document_HasPayload)
 #define hasExpirationTimeInformation(x) (x & Document_HasExpiration)
 
@@ -276,8 +264,7 @@ typedef struct {
 } RSVirtualRecord;
 
 
-#define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
-#define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
+#define RS_RESULT_NUMERIC (RSResultData_Numeric | RSResultData_Metric)
 
 // Forward declaration of needed structs
 struct RLookupKey;
@@ -298,8 +285,6 @@ RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t)
 RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res);
 
 int RSIndexResult_HasOffsets(const RSIndexResult *res);
-
-int RSIndexResult_IsAggregate(const RSIndexResult *r);
 
 /* RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
  * order to completely filter out results and disregard them in the totals count */

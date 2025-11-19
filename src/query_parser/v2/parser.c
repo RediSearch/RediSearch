@@ -104,6 +104,27 @@ static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQue
     return A;
 }
 
+// optimize NOT nodes: NOT(NOT(A)) = A
+// if the child is a NOT node, return its child instead of creating a double negation
+static inline struct RSQueryNode* not_step(struct RSQueryNode* child) {
+    if (!child) {
+        return NULL;
+    }
+
+    // If the child is a NOT node, return its child (double negation elimination)
+    if (child->type == QN_NOT) {
+        struct RSQueryNode* grandchild = child->children[0];
+        // Detach the grandchild from its parent to prevent it from being freed
+        child->children[0] = NULL;
+        // Free the NOT node (the parent)
+        QueryNode_Free(child);
+        return grandchild;
+    }
+
+    // Otherwise, create a new NOT node
+    return NewNotNode(child);
+}
+
 static void setup_trace(QueryParseCtx *ctx) {
 #ifdef PARSER_DEBUG
   void RSQueryParser_Trace(FILE*, char*);
@@ -114,13 +135,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg,
       " at offset %d near %.*s", tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg,
       " at offset %d near %f", tok->pos, tok->numval);
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg, " at offset %d", tok->pos);
   }
 }
 
@@ -233,7 +254,7 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 **                       the minor type might be the name of the identifier.
 **                       Each non-terminal can have a different minor type.
 **                       Terminal symbols all have the same minor type, though.
-**                       This macros defines the minor type for terminal 
+**                       This macros defines the minor type for terminal
 **                       symbols.
 **    YYMINORTYPE        is the data type used for all minor types.
 **                       This is typically a union of many types, one of
@@ -286,8 +307,8 @@ typedef union {
 #define YYSTACKDEPTH 256
 #endif
 #define RSQueryParser_v2_ARG_SDECL  QueryParseCtx *ctx ;
-#define RSQueryParser_v2_ARG_PDECL , QueryParseCtx *ctx 
-#define RSQueryParser_v2_ARG_PARAM ,ctx 
+#define RSQueryParser_v2_ARG_PDECL , QueryParseCtx *ctx
+#define RSQueryParser_v2_ARG_PARAM ,ctx
 #define RSQueryParser_v2_ARG_FETCH  QueryParseCtx *ctx =yypParser->ctx ;
 #define RSQueryParser_v2_ARG_STORE yypParser->ctx =ctx ;
 #define RSQueryParser_v2_CTX_SDECL
@@ -327,7 +348,7 @@ typedef union {
 /* Next are the tables used to determine what action to take based on the
 ** current state and lookahead token.  These tables are used to implement
 ** functions that take a state number and lookahead value and return an
-** action integer.  
+** action integer.
 **
 ** Suppose the action integer is N.  Then the action is determined as
 ** follows
@@ -610,9 +631,9 @@ static const YYACTIONTYPE yy_default[] = {
 };
 /********** End of lemon-generated parsing tables *****************************/
 
-/* The next table maps tokens (terminal symbols) into fallback tokens.  
+/* The next table maps tokens (terminal symbols) into fallback tokens.
 ** If a construct like the following:
-** 
+**
 **      %fallback ID X Y Z.
 **
 ** appears in the grammar, then ID becomes a fallback token for X, Y,
@@ -727,10 +748,10 @@ static char *yyTracePrompt = 0;
 #endif /* NDEBUG */
 
 #ifndef NDEBUG
-/* 
+/*
 ** Turn parser tracing on by giving a stream to which to write the trace
 ** and a prompt to preface each trace message.  Tracing is turned off
-** by making either argument NULL 
+** by making either argument NULL
 **
 ** Inputs:
 ** <ul>
@@ -755,7 +776,7 @@ void RSQueryParser_v2_Trace(FILE *TraceFILE, char *zTracePrompt){
 #if defined(YYCOVERAGE) || !defined(NDEBUG)
 /* For tracing shifts, the names of all terminals and nonterminals
 ** are required.  The following table supplies these names */
-static const char *const yyTokenName[] = { 
+static const char *const yyTokenName[] = {
   /*    0 */ "$",
   /*    1 */ "LOWEST",
   /*    2 */ "TEXTEXPR",
@@ -985,7 +1006,7 @@ static int yyGrowStack(yyParser *p){
 #endif
     p->yystksz = newSize;
   }
-  return pNew==0; 
+  return pNew==0;
 }
 #endif
 
@@ -1027,7 +1048,7 @@ void RSQueryParser_v2_Init(void *yypRawParser RSQueryParser_v2_CTX_PDECL){
 }
 
 #ifndef RSQueryParser_v2__ENGINEALWAYSONSTACK
-/* 
+/*
 ** This function allocates a new parser.
 ** The only argument is a pointer to a function which works like
 ** malloc.
@@ -1054,7 +1075,7 @@ void *RSQueryParser_v2_Alloc(void *(*mallocProc)(YYMALLOCARGTYPE) RSQueryParser_
 /* The following function deletes the "minor type" or semantic value
 ** associated with a symbol.  The symbol can be either a terminal
 ** or nonterminal. "yymajor" is the symbol code, and "yypminor" is
-** a pointer to the value to be deleted.  The code used to do the 
+** a pointer to the value to be deleted.  The code used to do the
 ** deletions is derived from the %destructor and/or %token_destructor
 ** directives of the input grammar.
 */
@@ -1069,7 +1090,7 @@ static void yy_destructor(
     /* Here is inserted the actions which take place when a
     ** terminal or non-terminal is destroyed.  This can happen
     ** when the symbol is popped from the stack during a
-    ** reduce or during error processing or when a parser is 
+    ** reduce or during error processing or when a parser is
     ** being destroyed before it is finished parsing.
     **
     ** Note: during a reduce, the only symbols destroyed are those
@@ -1092,7 +1113,7 @@ static void yy_destructor(
     case 74: /* as */
     case 75: /* param_size */
 {
- 
+
 }
       break;
     case 42: /* expr */
@@ -1111,22 +1132,22 @@ static void yy_destructor(
     case 58: /* vector_command */
     case 59: /* vector_range_command */
 {
- QueryNode_Free((yypminor->yy3)); 
+ QueryNode_Free((yypminor->yy3));
 }
       break;
     case 43: /* attribute */
 {
- rm_free((char*)(yypminor->yy79).value); 
+ rm_free((char*)(yypminor->yy79).value);
 }
       break;
     case 44: /* attribute_list */
 {
- array_free_ex((yypminor->yy41), rm_free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy41), rm_free((char*)((QueryAttribute*)ptr )->value));
 }
       break;
     case 55: /* geo_filter */
 {
- QueryParam_Free((yypminor->yy62)); 
+ QueryParam_Free((yypminor->yy62));
 }
       break;
     case 61: /* vector_attribute_list */
@@ -1192,7 +1213,7 @@ void RSQueryParser_v2_Finalize(void *p){
 }
 
 #ifndef RSQueryParser_v2__ENGINEALWAYSONSTACK
-/* 
+/*
 ** Deallocate and destroy a parser.  Destructors are called for
 ** all stack elements before shutting the parser down.
 **
@@ -1370,7 +1391,7 @@ static void yyStackOverflow(yyParser *yypParser){
    ** stack every overflows */
 /******** Begin %stack_overflow code ******************************************/
 
-  QueryError_SetError(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX,
     "Parser stack overflow. Try moving nested parentheses more to the left");
 /******** End %stack_overflow code ********************************************/
    RSQueryParser_v2_ARG_STORE /* Suppress warning about unused %extra_argument var */
@@ -1415,7 +1436,7 @@ static void yy_shift(
     assert( yypParser->yyhwm == (int)(yypParser->yytos - yypParser->yystack) );
   }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
   if( yypParser->yytos>yypParser->yystackEnd ){
     yypParser->yytos--;
     yyStackOverflow(yypParser);
@@ -1935,11 +1956,7 @@ static YYACTIONTYPE yy_reduce(
       case 35: /* expr ::= MINUS expr */
       case 36: /* text_expr ::= MINUS text_expr */ yytestcase(yyruleno==36);
 {
-  if (yymsp[0].minor.yy3) {
-    yymsp[-1].minor.yy3 = NewNotNode(yymsp[0].minor.yy3);
-  } else {
-    yymsp[-1].minor.yy3 = NULL;
-  }
+  yymsp[-1].minor.yy3 = not_step(yymsp[0].minor.yy3);
 }
         break;
       case 37: /* expr ::= TILDE expr */
@@ -2186,7 +2203,7 @@ static YYACTIONTYPE yy_reduce(
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
     QueryNode* E = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
-    yylhsminor.yy3 = NewNotNode(E);
+    yylhsminor.yy3 = not_step(E);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
@@ -2420,8 +2437,7 @@ static YYACTIONTYPE yy_reduce(
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy3 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     yylhsminor.yy3->vn.vq->field = yymsp[-1].minor.yy150.fs;
-    int n_written = rm_asprintf(&yylhsminor.yy3->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy150.tok.len, yymsp[-1].minor.yy150.tok.s);
-    RS_ASSERT(n_written != -1);
+    VectorQuery_SetDefaultScoreField(yylhsminor.yy3->vn.vq, yymsp[-1].minor.yy150.tok.s, yymsp[-1].minor.yy150.tok.len);
   } else {
     reportSyntaxError(ctx->status, &yymsp[-3].minor.yy0, "Syntax error: Expecting Vector Similarity command");
     yylhsminor.yy3 = NULL;
@@ -2663,7 +2679,7 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ERROR_CODE_SYNTAX,
     "Syntax error", " at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/
@@ -2786,7 +2802,7 @@ void RSQueryParser_v2_(
                   (int)(yypParser->yytos - yypParser->yystack));
         }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
         if( yypParser->yytos>=yypParser->yystackEnd ){
           yyStackOverflow(yypParser);
           break;
@@ -2825,7 +2841,7 @@ void RSQueryParser_v2_(
 #ifdef YYERRORSYMBOL
       /* A syntax error has occurred.
       ** The response to an error depends upon whether or not the
-      ** grammar defines an error token "ERROR".  
+      ** grammar defines an error token "ERROR".
       **
       ** This is what we do if the grammar does define ERROR:
       **

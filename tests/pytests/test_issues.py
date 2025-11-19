@@ -169,9 +169,9 @@ def test_issue1880(env):
   conn.execute_command('HSET', 'doc1', 't', 'hello world')
   conn.execute_command('HSET', 'doc2', 't', 'hello')
 
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 2]]]
+  excepted_res = ['Type', 'INTERSECT', 'Number of reading operations', 1, 'Child iterators', [
+                    ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 1, 'Estimated number of matches', 1],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 2]]]
   res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
   res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
   # both queries return `world` iterator before `hello`
@@ -179,12 +179,9 @@ def test_issue1880(env):
   env.assertEqual(res2[1][1][0][3], excepted_res)
 
   # test with a term which does not exist
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 0, 'Child iterators', [
-                    None,
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 0, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0, 'Size', 2]]]
-  res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
+  excepted_res = ['Type', 'EMPTY', 'Number of reading operations', 0]
 
+  res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
   env.assertEqual(res3[1][1][0][3], excepted_res)
 
 def test_issue1932(env):
@@ -415,28 +412,28 @@ def test_SkipFieldWithNoMatch(env):
   conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   # bar exists in `t2` only
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'EMPTY', 'Counter', 0])
+  env.assertEqual(res[1][1][0][3], ['Type', 'EMPTY', 'Number of reading operations', 0])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1] )
 
   # Check with NOFIELDS flag
   env.cmd('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   waitForIndex(env, 'idx_nomask')
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
 @skip(cluster=True)
 def test_update_num_terms(env):
@@ -900,32 +897,31 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
     new_shard_id = new_shard_conn.execute_command('CLUSTER MYID')
     source_shard_id = conn.execute_command('CLUSTER MYID')
-    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {source_shard_id}"), "OK")
-    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"), "OK")
-    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
-    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
+    env.assertOk(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {source_shard_id}"))
+    env.assertOk(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"))
+    env.assertOk(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"))
+    env.assertOk(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"))
 
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
-    with TimeLimit(40, "fail to acknowledge topology"):
-        while True:
-            time.sleep(0.5)
-            cluster_info = new_shard_conn.execute_command("search.clusterinfo")
-            if cluster_info[:2] == ['num_partitions', int(initial_shards_count+1)]:
-                break
-    # search.clusterinfo response format is the following:
-    # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'slots',
-    # [0, 0, ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
-    # [1, 5461, ['60cdcb85a8f73f87ac6cc831ee799b75752aace3', '127.0.0.1', 6379, 'master ']],
-    # [5462, 10923, ['6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', '127.0.0.1', 6381, 'master ']],
-    # [10924, 16383, ['4e51033405651441a4be6ddfb46cd85d0c54af6f', '127.0.0.1', 6383, 'master ']]]
-    unique_shards = set(shard[2][0] for shard in cluster_info[9:])
-    env.assertEqual(len(unique_shards), initial_shards_count+1, message=f"cluster info is {cluster_info}")
+    env.waitCluster()
 
-    # Verify that slot 0 moved to the new shard,
-    shards_with_slot_0 = [shard for shard in cluster_info[9:] if shard[0] == 0]
-    env.assertEqual(len(shards_with_slot_0), 1, message=f"cluster info is {cluster_info}")
-    env.assertEqual(shards_with_slot_0[0][2][0], new_shard_id, message=f"cluster info is {cluster_info}")
+    # search.clusterinfo response format is the following:
+    # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'shards', [
+    #  ['slots', [1, 5461],       'id', '60cdcb85a8f73f87ac6cc831ee799b75752aace3', 'host', '127.0.0.1', 'port', 6379],
+    #  ['slots', [5462, 10923],   'id', '6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', 'host', '127.0.0.1', 'port', 6381],
+    #  ['slots', [10924, 16383],  'id', '4e51033405651441a4be6ddfb46cd85d0c54af6f', 'host', '127.0.0.1', 'port', 6383],
+    #  ['slots', [0, 0],          'id', '1f834c5c207bbe8d6dab0c6f050ff06292eb333c', 'host', '127.0.0.1', 'port', 6385],
+    # ]]
+    cluster_info = new_shard_conn.execute_command("search.clusterinfo")
+    shards_idx = cluster_info.index('shards') + 1
+    unique_shards = set(shard[3] for shard in cluster_info[shards_idx])
+    with TimeLimit(10, f"Failed waiting for new shard to appear in search.clusterinfo: {cluster_info}"):
+      while len(unique_shards) != initial_shards_count+1:
+        time.sleep(0.1)
+        cluster_info = new_shard_conn.execute_command("search.clusterinfo")
+        shards_idx = cluster_info.index('shards') + 1
+        unique_shards = set(shard[3] for shard in cluster_info[shards_idx])
 
 @skip(cluster=True)
 def test_mod5910(env):
@@ -1451,11 +1447,11 @@ def test_mod_8809_single_index_single_field(env:Env):
     env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
     initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
     env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
-    
+
     # Create index
     dimension = 128
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
-    
+
     # Add enough documents to trigger yields
     num_docs = 1000
     for i in range(num_docs):
@@ -1463,36 +1459,36 @@ def test_mod_8809_single_index_single_field(env:Env):
         env.execute_command('HSET', f'doc{i}', 'v', vector.tobytes())
     waitForIndex(env, 'idx')
 
-    
+
     # Check that yield was not called
     yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
     env.assertEqual(yields_count, 0, message="Yield should not have been called")
-    
-    # Reload and check 
+
+    # Reload and check
     env.broadcast('SAVE')
     env.broadcast('DEBUG RELOAD NOSAVE')
     waitForIndex(env, 'idx')
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
-    
-    # Verify the number of yields 
+
+    # Verify the number of yields
     expected_min_yields = num_docs // yield_every_n_ops
     yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
-    env.assertGreaterEqual(yields_count, expected_min_yields, 
+    env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
-    
+
     # Test with different configuration
     yields_every_n_ops = 5
     env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
     env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
 
-    # Reload and check 
+    # Reload and check
     env.broadcast('SAVE')
     env.broadcast('DEBUG RELOAD NOSAVE')
     waitForIndex(env, 'idx')
 
     yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
     expected_min_yields = num_docs // yield_every_n_ops
-    env.assertGreaterEqual(yields_count, expected_min_yields, 
+    env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
 
 @skip(cluster=True)
@@ -1507,7 +1503,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
     initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
     env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
-    
+
     # Create index
     dimension = 128
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
@@ -1523,7 +1519,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     waitForIndex(env, 'idx2')
     waitForIndex(env, 'idx3')
 
-    # Reload and check 
+    # Reload and check
     env.broadcast('SAVE')
     env.broadcast('DEBUG RELOAD NOSAVE')
     waitForIndex(env, 'idx')
@@ -1533,27 +1529,79 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     # Check that yield was called
     yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
     env.assertGreater(yields_count, 0, message="Yield should have been called at least once")
-    
-    # Verify the number of yields 
+
+    # Verify the number of yields
     expected_min_yields = 7 * num_docs // yield_every_n_ops
-    env.assertGreaterEqual(yields_count, expected_min_yields, 
+    env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
-    
+
     # Test with different configuration
     yield_every_n_ops = 5
     env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
     env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
 
-    # Reload and check 
+    # Reload and check
     env.broadcast('SAVE')
     env.broadcast('DEBUG RELOAD NOSAVE')
     waitForIndex(env, 'idx')
     waitForIndex(env, 'idx2')
     waitForIndex(env, 'idx3')
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
-    
+
     yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
     expected_min_yields = 7 * num_docs // yield_every_n_ops
-    env.assertGreaterEqual(yields_count, expected_min_yields, 
+    env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
 
+def _mod_8157(env:Env):
+    """
+    Test missing profile info on aggregate query
+    """
+    shard_chunk_size = 1000 # Hardcoded chunk size from the shards
+
+    def verify_profile(reply):
+        if env.protocol == 2:
+            # RESP2 returns a list of lists
+            profile = reply[1]
+        else:
+            # RESP3 returns a dictionary
+            profile = reply['Profile']
+        profile = to_dict(profile)
+        env.assertContains('Shards', profile, message='missing `Shards` section', depth=1)
+        env.assertEqual(len(profile['Shards']), env.shardsCount, message='missing some shards profile info', depth=1)
+
+    # Case 1: Profile info arrives in an empty reply (some shards have no documents,
+    # one have exactly `shard_chunk_size` documents, so another read is required to get EOF)
+    env.expect('FT.CREATE', 'idx1', 'PREFIX', '1', 'case1:', 'SCHEMA', 't', 'TEXT').ok()
+    # Add to some shard exactly `shard_chunk_size` documents
+    with env.getClusterConnectionIfNeeded() as conn:
+      for i in range(shard_chunk_size):
+        # Use `{x}` suffix to ensure that the documents are added to the same shard
+        conn.execute_command('HSET', f'case1:{i}{{x}}', 't', 'foo')
+
+    reply = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*')
+    verify_profile(reply)
+
+    # Case 2: Profile info arrives but the coordinator doesn't consume the reply fully
+    # (previously, we didn't pass the reply to the profile reply aggregation)
+    env.expect('FT.CREATE', 'idx2', 'PREFIX', '1', 'case2:', 'SCHEMA', 't', 'TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as conn:
+      # `chunk_size` documents spread across all shards, so each shard will have less than `shard_chunk_size` documents
+      for i in range(shard_chunk_size):
+        conn.execute_command('HSET', f'case2:{i}', 't', 'foo')
+    # Search for a bit less than `shard_chunk_size` documents, so the coordinator will not deplete the last shard reply
+    reply = env.cmd('FT.PROFILE', 'idx2', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(int(shard_chunk_size * 0.95)))
+    verify_profile(reply)
+
+@skip(cluster=False, min_shards=2)
+def test_mod_8157_RESP2():
+  _mod_8157(Env(protocol=2))
+
+@skip(cluster=False, min_shards=2)
+def test_mod_8157_RESP3():
+  _mod_8157(Env(protocol=3))
+
+@skip(cluster=True)
+def test_mod_11975(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.SEARCH', 'idx', '@t:("*")', 'DIALECT', '2').equal([0])

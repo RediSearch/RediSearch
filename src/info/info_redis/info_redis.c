@@ -160,6 +160,13 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
       RedisModule_InfoAddFieldLongLong(ctx, "Flat", RSGlobalStats.fieldsStats.numVectorFieldsFlat);
     if (RSGlobalStats.fieldsStats.numVectorFieldsHNSW > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "HNSW", RSGlobalStats.fieldsStats.numVectorFieldsHNSW);
+    if (RSGlobalStats.fieldsStats.numVectorFieldsSvsVamana > 0) {
+      RedisModule_InfoAddFieldLongLong(ctx, "SVS_VAMANA",
+                                       RSGlobalStats.fieldsStats.numVectorFieldsSvsVamana);
+      if (RSGlobalStats.fieldsStats.numVectorFieldsSvsVamanaCompressed > 0)
+        RedisModule_InfoAddFieldLongLong(ctx, "SVS_VAMANA_Compressed",
+                                         RSGlobalStats.fieldsStats.numVectorFieldsSvsVamanaCompressed);
+    }
     RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors",
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_VECTOR));
     RedisModule_InfoEndDictField(ctx);
@@ -193,18 +200,18 @@ void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
 void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "memory");
 
-	// Total
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes", total_info->total_mem);
+  // Total
+  RedisModule_InfoAddFieldULongLong(ctx, "used_memory_indexes", total_info->total_mem);
   RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", MEMORY_MB(total_info->total_mem));
-	// Min
-  RedisModule_InfoAddFieldDouble(ctx, "smallest_memory_index", total_info->min_mem);
+  // Min
+  RedisModule_InfoAddFieldULongLong(ctx, "smallest_memory_index", total_info->min_mem);
   RedisModule_InfoAddFieldDouble(ctx, "smallest_memory_index_human", MEMORY_MB(total_info->min_mem));
-	// Max
-  RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index", total_info->max_mem);
+  // Max
+  RedisModule_InfoAddFieldULongLong(ctx, "largest_memory_index", total_info->max_mem);
   RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index_human", MEMORY_MB(total_info->max_mem));
 
-	// Vector memory
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
+  // Vector memory
+  RedisModule_InfoAddFieldULongLong(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
 }
 
 void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
@@ -219,9 +226,9 @@ void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
 void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "garbage_collector");
   InfoGCStats stats = total_info->gc_stats;
-  RedisModule_InfoAddFieldDouble(ctx, "gc_bytes_collected", stats.totalCollectedBytes);
-  RedisModule_InfoAddFieldDouble(ctx, "gc_total_cycles", stats.totalCycles);
-  RedisModule_InfoAddFieldDouble(ctx, "gc_total_ms_run", stats.totalTime);
+  RedisModule_InfoAddFieldLongLong(ctx, "gc_bytes_collected", stats.totalCollectedBytes);
+  RedisModule_InfoAddFieldULongLong(ctx, "gc_total_cycles", stats.totalCycles);
+  RedisModule_InfoAddFieldULongLong(ctx, "gc_total_ms_run", stats.totalTime);
   RedisModule_InfoAddFieldULongLong(ctx, "gc_total_docs_not_collected", IndexesGlobalStats_GetLogicallyDeletedDocs());
   RedisModule_InfoAddFieldULongLong(ctx, "gc_marked_deleted_vectors", total_info->fields_stats.total_mark_deleted_vectors);
 }
@@ -237,10 +244,10 @@ void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
 
 void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "warnings_and_errors");
-  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures", total_info->indexing_failures);
+  RedisModule_InfoAddFieldULongLong(ctx, "errors_indexing_failures", total_info->indexing_failures);
   // highest number of failures out of all specs
-  RedisModule_InfoAddFieldDouble(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
-  RedisModule_InfoAddFieldDouble(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
+  RedisModule_InfoAddFieldULongLong(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
+  RedisModule_InfoAddFieldULongLong(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
@@ -262,6 +269,9 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
   if (RSGlobalConfig.frisoIni != NULL) {
     RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char *)RSGlobalConfig.frisoIni);
   }
+  if (RSGlobalConfig.defaultScorer != NULL) {
+    RedisModule_InfoAddFieldCString(ctx, "default_scorer", (char *)RSGlobalConfig.defaultScorer);
+  }
   RedisModule_InfoAddFieldCString(ctx, "enableGC",
                                   RSGlobalConfig.gcConfigParams.enableGC ? "ON" : "OFF");
   RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix",
@@ -274,6 +284,8 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
                                    RSGlobalConfig.requestConfigParams.queryTimeoutMS);
   RedisModule_InfoAddFieldCString(ctx, "timeout_policy",
 																	(char *)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
+  RedisModule_InfoAddFieldCString(ctx, "oom_policy",
+                                  (char *)OomPolicy_ToString(RSGlobalConfig.requestConfigParams.oomPolicy));
   RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
   RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
 

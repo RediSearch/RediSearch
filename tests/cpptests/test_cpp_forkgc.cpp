@@ -21,6 +21,7 @@
 #include "info/global_stats.h"
 #include "redis_index.h"
 #include "index_utils.h"
+#include "notifications.h"
 extern "C" {
 #include "util/dict.h"
 }
@@ -88,6 +89,7 @@ class FGCTest : public ::testing::Test {
   pthread_t thread;
 
   void SetUp() override {
+    Initialize_KeyspaceNotifications();
     ism = createSpec(ctx);
     RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
     RSGlobalStats.totalStats.logically_deleted = 0;
@@ -202,7 +204,7 @@ TEST_F(FGCTestNumeric, testNumeric) {
  * entries are equal, and we conclude there weren't any changes in the parent to the block buffer.
  * Make sure the modification take place. */
 TEST_F(FGCTestTag, testRemoveEntryFromLastBlock) {
-  const auto startValue = TotalIIBlocks;
+  const auto startValue = TotalIIBlocks();
 
   // Add two documents
   size_t docSize = this->addDocumentWrapper("doc1", "f1", "hello");
@@ -228,17 +230,14 @@ TEST_F(FGCTestTag, testRemoveEntryFromLastBlock) {
 
   // gc stats
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-  // The buffer's initial capacity is INDEX_BLOCK_INITIAL_CAP, the function
-  // IndexBlock_Repair() shrinks the buffer to the number of valid entries in
-  // the block, collecting the remaining memory.
-  ASSERT_EQ(INDEX_BLOCK_INITIAL_CAP - 1, fgc->stats.totalCollected);
+  ASSERT_EQ(1, fgc->stats.totalCollected);
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
   ASSERT_EQ(0, (get_spec(ism))->stats.numDocuments);
   ASSERT_EQ(1, (get_spec(ism))->stats.numRecords);
   ASSERT_EQ(invertedSizeBeforeApply - fgc->stats.totalCollected, (get_spec(ism))->stats.invertedSize);
-  ASSERT_EQ(1, TotalIIBlocks - startValue);
+  ASSERT_EQ(1, TotalIIBlocks() - startValue);
 }
 
 /**
@@ -248,7 +247,7 @@ TEST_F(FGCTestTag, testRemoveEntryFromLastBlock) {
  * index contains both documents.
  * */
 TEST_F(FGCTestTag, testRemoveLastBlockWhileUpdate) {
-  const auto startValue = TotalIIBlocks;
+  const auto startValue = TotalIIBlocks();
   // Add a document
   ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
   /**
@@ -279,7 +278,7 @@ TEST_F(FGCTestTag, testRemoveLastBlockWhileUpdate) {
   ASSERT_EQ(1, (get_spec(ism))->stats.numDocuments);
   ASSERT_EQ(2, (get_spec(ism))->stats.numRecords);
   ASSERT_EQ(invertedSizeBeforeApply, (get_spec(ism))->stats.invertedSize);
-  ASSERT_EQ(1, TotalIIBlocks - startValue);
+  ASSERT_EQ(1, TotalIIBlocks() - startValue);
 }
 
 /**
@@ -288,7 +287,7 @@ TEST_F(FGCTestTag, testRemoveLastBlockWhileUpdate) {
  * Make sur eno modifications are applied.
  * */
 TEST_F(FGCTestTag, testModifyLastBlockWhileAddingNewBlocks) {
-  const auto startValue = TotalIIBlocks;
+  const auto startValue = TotalIIBlocks();
   unsigned curId = 1;
 
 
@@ -308,18 +307,18 @@ TEST_F(FGCTestTag, testModifyLastBlockWhileAddingNewBlocks) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
   sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
-  while (iv->size < 3) {
+  while (InvertedIndex_NumBlocks(iv) < 3) {
     ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(curId++).c_str(), "f1", "hello"));
   }
-  ASSERT_EQ(3, TotalIIBlocks - startValue);
+  ASSERT_EQ(3, TotalIIBlocks() - startValue);
 
   // Save the pointer to the original block data.
-  const char *originalData = iv->blocks[0].buf.data;
+  const char *originalData = IndexBlock_Data(InvertedIndex_BlockRef(iv, 0));
   // The fork will return an array of one block with one entry, but we will ignore it.
   size_t invertedSizeBeforeApply = (get_spec(ism))->stats.invertedSize;
   FGC_Apply(fgc);
 
-  const char *afterGcData = iv->blocks[0].buf.data;
+  const char *afterGcData = IndexBlock_Data(InvertedIndex_BlockRef(iv, 0));
   ASSERT_EQ(afterGcData, originalData);
 
   // gc stats
@@ -332,7 +331,7 @@ TEST_F(FGCTestTag, testModifyLastBlockWhileAddingNewBlocks) {
   // their memory was cleaned by the gc.
   ASSERT_EQ(addedDocs - 1, (get_spec(ism))->stats.numDocuments);
   // All other updates are ignored.
-  ASSERT_EQ(3, TotalIIBlocks - startValue);
+  ASSERT_EQ(3, TotalIIBlocks() - startValue);
   ASSERT_EQ(addedDocs, (get_spec(ism))->stats.numRecords);
   ASSERT_EQ(invertedSizeBeforeApply, (get_spec(ism))->stats.invertedSize);
 }
@@ -341,7 +340,7 @@ TEST_F(FGCTestTag, testModifyLastBlockWhileAddingNewBlocks) {
  * All the blocks, except the last block, should be removed.
 */
 TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
-  const auto startValue = TotalIIBlocks;
+  const auto startValue = TotalIIBlocks();
   unsigned curId = 1;
   char buf[1024];
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
@@ -351,12 +350,12 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   // Measure the memory added by the last block.
   size_t lastBlockMemory = 0;
-  while (iv->size < 2) {
+  while (InvertedIndex_NumBlocks(iv) < 2) {
     size_t n = sprintf(buf, "doc%u", curId++);
     lastBlockMemory = this->addDocumentWrapper(buf, "f1", "hello");
   }
 
-  ASSERT_EQ(2, TotalIIBlocks - startValue);
+  ASSERT_EQ(2, TotalIIBlocks() - startValue);
 
   FGC_WaitBeforeFork(fgc);
   // Delete all.
@@ -380,7 +379,8 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   lastBlockMemory += this->addDocumentWrapper(buf, "f1", "hello");
 
   // Save the pointer to the original last block data.
-  const char *originalData = iv->blocks[iv->size - 1].buf.data;
+  const IndexBlock *lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
+  const char *originalData = IndexBlock_Data(lastBlock);
 
   /** Apply the child changes. All the entries the child has seen are marked as deleted,
    * but since the last block was modified by the main the process, we keep it, assuming it
@@ -390,7 +390,8 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   FGC_Apply(fgc);
 
   // gc stats - make sure we skipped the last block
-  const char *afterGcData = iv->blocks[iv->size - 1].buf.data;
+  lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
+  const char *afterGcData = IndexBlock_Data(lastBlock);
   ASSERT_EQ(afterGcData, originalData);
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
 
@@ -400,8 +401,9 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   ASSERT_EQ(1, sctx.spec->stats.numDocuments);
   // But the last block deletion was skipped.
   ASSERT_EQ(2, sctx.spec->stats.numRecords);
-  ASSERT_EQ(lastBlockMemory + sizeof_InvertedIndex(iv->flags), sctx.spec->stats.invertedSize);
-  ASSERT_EQ(1, TotalIIBlocks - startValue);
+  // 40 bytes is the base size of an inverted index
+  ASSERT_EQ(lastBlockMemory + 40, sctx.spec->stats.invertedSize);
+  ASSERT_EQ(1, TotalIIBlocks() - startValue);
 }
 
 /**
@@ -409,7 +411,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
  * This test should be checked with valgrind as it cause index corruption.
  */
 TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
-  const auto startValue = TotalIIBlocks;
+  const auto startValue = TotalIIBlocks();
   // Delete the first block:
   char buf[1024];
   unsigned curId = 1;
@@ -419,18 +421,18 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   // Add 2 full blocks + 1 block with1 entry.
   unsigned middleBlockFirstId = 0;
-  while (iv->size < 3) {
+  while (InvertedIndex_NumBlocks(iv) < 3) {
     size_t n = sprintf(buf, "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
     // A new block had opened
-    if (iv->size == 2 && !middleBlockFirstId) {
+    if (InvertedIndex_NumBlocks(iv) == 2 && !middleBlockFirstId) {
       middleBlockFirstId = curId - 1;
     }
   }
 
   unsigned lastBlockFirstId = curId - 1;
 
-  ASSERT_EQ(3, TotalIIBlocks - startValue);
+  ASSERT_EQ(3, TotalIIBlocks() - startValue);
 
   /**
    * In this case, we want to keep the first entry in the last block,
@@ -460,7 +462,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   size_t valid_docs = curId - 1 - total_deletions;
   ASSERT_EQ(valid_docs, sctx.spec->stats.numDocuments);
 
-  size_t lastBlockEntries = iv->blocks[2].numEntries;
+  size_t lastBlockEntries = IndexBlock_NumEntries(InvertedIndex_BlockRef(iv, 2));
   FGC_ForkAndWaitBeforeApply(fgc);
 
   // Add a document -- this one is to keep
@@ -476,12 +478,12 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   // Other updates should take place.
   ASSERT_EQ(valid_docs, sctx.spec->stats.numDocuments);
   // We are left with the first + last block.
-  ASSERT_EQ(2, iv->size);
+  ASSERT_EQ(2, InvertedIndex_NumBlocks(iv));
   // The first entry was deleted. first block starts from docId = 2.
-  ASSERT_EQ(2, iv->blocks[0].firstId);
+  ASSERT_EQ(2, IndexBlock_FirstId(InvertedIndex_BlockRef(iv, 0)));
   // Last block was moved.
-  ASSERT_EQ(lastBlockFirstId, iv->blocks[1].firstId);
-  ASSERT_EQ(3, iv->blocks[1].numEntries);
+  ASSERT_EQ(lastBlockFirstId, IndexBlock_FirstId(InvertedIndex_BlockRef(iv, 1)));
+  ASSERT_EQ(3, IndexBlock_NumEntries(InvertedIndex_BlockRef(iv, 1)));
 }
 
 /**
@@ -493,7 +495,7 @@ TEST_F(FGCTestTag, testRepairLastBlock) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
   sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx, "f1", "hello");
-  while (iv->size < 2) {
+  while (InvertedIndex_NumBlocks(iv) < 2) {
     char buf[1024];
     size_t n = sprintf(buf, "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
@@ -522,7 +524,7 @@ TEST_F(FGCTestTag, testRepairLastBlock) {
   // since the block size in the main process doesn't equal to its original size as seen by the child,
   // we ignore the fork collection - the last block changes should be discarded.
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
-  ASSERT_EQ(2, iv->size);
+  ASSERT_EQ(2, InvertedIndex_NumBlocks(iv));
 }
 
 /**
@@ -535,7 +537,7 @@ TEST_F(FGCTestTag, testRepairMiddleRemoveLast) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
   sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx, "f1", "hello");
-  while (iv->size < 3) {
+  while (InvertedIndex_NumBlocks(iv) < 3) {
     char buf[1024];
     size_t n = sprintf(buf, "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
@@ -563,7 +565,7 @@ TEST_F(FGCTestTag, testRepairMiddleRemoveLast) {
   ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
 
   FGC_Apply(fgc);
-  ASSERT_EQ(2, iv->size);
+  ASSERT_EQ(2, InvertedIndex_NumBlocks(iv));
 }
 
 /**
@@ -571,24 +573,24 @@ TEST_F(FGCTestTag, testRepairMiddleRemoveLast) {
  * the parent's changes
  */
 TEST_F(FGCTestTag, testRemoveMiddleBlock) {
-  const auto startValue = TotalIIBlocks;
+  const auto startValue = TotalIIBlocks();
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
   sctx.spec->monitorDocumentExpiration = false;
   InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 
-  while (iv->size < 2) {
+  while (InvertedIndex_NumBlocks(iv) < 2) {
     RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello");
   }
 
   unsigned firstMidId = curId;
-  while (iv->size < 3) {
+  while (InvertedIndex_NumBlocks(iv) < 3) {
     RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello");
   }
   unsigned firstLastBlockId = curId;
   unsigned lastMidId = curId - 1;
-  ASSERT_EQ(3, TotalIIBlocks - startValue);
+  ASSERT_EQ(3, TotalIIBlocks() - startValue);
 
   FGC_WaitBeforeFork(fgc);
 
@@ -601,7 +603,7 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
 
   // While the child is running, fill the last block and add another block.
   unsigned newLastBlockId = curId + 1;
-  while (iv->size < 4) {
+  while (InvertedIndex_NumBlocks(iv) < 4) {
     ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello"));
   }
   unsigned lastLastBlockId = curId - 1;
@@ -609,15 +611,17 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   // Get the previous pointer, i.e. the one we expect to have the updated
   // info. We do -2 and not -1 because we have one new document in the
   // fourth block (as a sentinel)
-  const char *pp = iv->blocks[iv->size - 2].buf.data;
+  const IndexBlock *secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
+  const char *pp = IndexBlock_Data(secondLastBlock);
   FGC_Apply(fgc);
 
   // We hadn't performed any changes to the last block prior to the fork.
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-  ASSERT_EQ(3, iv->size);
+  ASSERT_EQ(3, InvertedIndex_NumBlocks(iv));
 
   // The pointer to the last gc-block, received from the fork
-  const char *gcpp = iv->blocks[iv->size - 2].buf.data;
+  secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
+  const char *gcpp = IndexBlock_Data(secondLastBlock);
   ASSERT_EQ(pp, gcpp);
 
   // Now search for the ID- let's be sure it exists
@@ -635,7 +639,7 @@ TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
   sctx.spec->monitorDocumentExpiration = false;
   InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 
-  while (iv->size < 2) {
+  while (InvertedIndex_NumBlocks(iv) < 2) {
     RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello");
   }
   // Delete one document.
@@ -656,13 +660,13 @@ TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
 }
 
 TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
-  const auto startValue = TotalIIBlocks;
-  constexpr size_t docs_per_block = INDEX_BLOCK_SIZE;
+  const auto startValue = TotalIIBlocks();
+  constexpr size_t docs_per_block = 100;
   constexpr size_t first_split_card = 16; // from `numeric_index.c`
   size_t cur_cardinality = 0;
   size_t cur_id = 1;
   size_t expected_total_blocks = 0;
-  EXPECT_EQ(TotalIIBlocks - startValue, expected_total_blocks);
+  EXPECT_EQ(TotalIIBlocks() - startValue, expected_total_blocks);
 
   /*
    * Scenario 1: Taking the child last block, and need to address the parent's changes.
@@ -676,7 +680,7 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   }
   NumericRangeTree *rt = getNumericTree(get_spec(ism), numeric_field_name);
 
-  EXPECT_EQ(TotalIIBlocks - startValue, expected_total_blocks);
+  EXPECT_EQ(TotalIIBlocks() - startValue, expected_total_blocks);
   ASSERT_TRUE(rt->root->range);
   EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rt->root->range));
   FGC_WaitBeforeFork(fgc);
@@ -698,7 +702,7 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
 
   FGC_Apply(fgc);
 
-  EXPECT_EQ(TotalIIBlocks - startValue, expected_total_blocks);
+  EXPECT_EQ(TotalIIBlocks() - startValue, expected_total_blocks);
   ASSERT_TRUE(rt->root->range);
   // The fork is not aware of the new value added after the fork, but the parent should update the
   // cardinality after applying the fork's changes.
@@ -723,18 +727,18 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   for (size_t i = 0; i < docs_per_block / 2; i++) {
     this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(2.718).c_str());
   }
-  EXPECT_EQ(TotalIIBlocks - startValue, expected_total_blocks) << "Number of blocks should not change";
+  EXPECT_EQ(TotalIIBlocks() - startValue, expected_total_blocks) << "Number of blocks should not change";
   // Add another half block worth of documents to the index with a different value.
   ASSERT_LT(++cur_cardinality, first_split_card);
   expected_total_blocks++;
   for (size_t i = 0; i < docs_per_block / 2; i++) {
     this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.618).c_str());
   }
-  EXPECT_EQ(TotalIIBlocks - startValue, expected_total_blocks);
+  EXPECT_EQ(TotalIIBlocks() - startValue, expected_total_blocks);
 
   FGC_Apply(fgc);
 
-  EXPECT_EQ(TotalIIBlocks - startValue, expected_total_blocks);
+  EXPECT_EQ(TotalIIBlocks() - startValue, expected_total_blocks);
   ASSERT_TRUE(rt->root->range);
   // The child is aware of 1 value in the first block and one in the second,
   // while the parent is aware of a third value in the second block and a fourth in the third.
@@ -747,16 +751,19 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   FGC_WaitBeforeFork(fgc);
 
   // Delete the entire second block
-  for (size_t i = rt->root->range->entries->blocks[1].firstId; i <= rt->root->range->entries->blocks[1].lastId; i++) {
+  const IndexBlock *block = InvertedIndex_BlockRef(rt->root->range->entries, 1);
+  t_docId firstId = IndexBlock_FirstId(block);
+  t_docId lastId = IndexBlock_LastId(block);
+  for (size_t i = firstId; i <= lastId; i++) {
     RS::deleteDocument(ctx, ism, numToDocStr(i).c_str());
   }
-  EXPECT_EQ(TotalIIBlocks - startValue, expected_total_blocks);
+  EXPECT_EQ(TotalIIBlocks() - startValue, expected_total_blocks);
 
   FGC_ForkAndWaitBeforeApply(fgc);
   FGC_Apply(fgc);
 
   expected_total_blocks--;
-  EXPECT_EQ(TotalIIBlocks - startValue, expected_total_blocks);
+  EXPECT_EQ(TotalIIBlocks() - startValue, expected_total_blocks);
   ASSERT_TRUE(rt->root->range);
   // We had 2 values in the second block and in it only. We expect the cardinality to decrease by 2.
   cur_cardinality -= 2;

@@ -57,12 +57,12 @@
 %stack_size 256
 
 %stack_overflow {
-  QueryError_SetError(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX,
     "Parser stack overflow. Try moving nested parentheses more to the left");
 }
 
 %syntax_error {
-  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ERROR_CODE_SYNTAX,
     "Syntax error", " at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 }
@@ -147,6 +147,27 @@ static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQue
     return A;
 }
 
+// optimize NOT nodes: NOT(NOT(A)) = A
+// if the child is a NOT node, return its child instead of creating a double negation
+static inline struct RSQueryNode* not_step(struct RSQueryNode* child) {
+    if (!child) {
+        return NULL;
+    }
+
+    // If the child is a NOT node, return its child (double negation elimination)
+    if (child->type == QN_NOT) {
+        struct RSQueryNode* grandchild = child->children[0];
+        // Detach the grandchild from its parent to prevent it from being freed
+        child->children[0] = NULL;
+        // Free the NOT node (the parent)
+        QueryNode_Free(child);
+        return grandchild;
+    }
+
+    // Otherwise, create a new NOT node
+    return NewNotNode(child);
+}
+
 static void setup_trace(QueryParseCtx *ctx) {
 #ifdef PARSER_DEBUG
   void RSQueryParser_Trace(FILE*, char*);
@@ -157,13 +178,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg,
       " at offset %d near %.*s", tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg,
       " at offset %d near %f", tok->pos, tok->numval);
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg, " at offset %d", tok->pos);
   }
 }
 
@@ -562,19 +583,11 @@ termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= MINUS expr(B) . {
-  if (B) {
-    A = NewNotNode(B);
-  } else {
-    A = NULL;
-  }
+  A = not_step(B);
 }
 
 text_expr(A) ::= MINUS text_expr(B) . {
-  if (B) {
-    A = NewNotNode(B);
-  } else {
-    A = NULL;
-  }
+  A = not_step(B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -836,7 +849,7 @@ expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
     QueryNode* E = NewNumericNode(qp, B.fs);
-    A = NewNotNode(E);
+    A = not_step(E);
   }
 }
 
@@ -1078,8 +1091,7 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->field = C.fs;
-    int n_written = rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.tok.len, C.tok.s);
-    RS_ASSERT(n_written != -1);
+    VectorQuery_SetDefaultScoreField(A->vn.vq, C.tok.s, C.tok.len);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
     A = NULL;

@@ -11,7 +11,6 @@
 
 #include <stdlib.h>
 
-#include "index.h"
 #include "query_node.h"
 #include "query_parser/tokenizer.h"
 #include "redis_index.h"
@@ -28,12 +27,28 @@
 extern "C" {
 #endif
 
+// Smart pointer handle for RLookupKey that can be invalidated when iterator is freed
+typedef struct RLookupKeyHandle {
+  RLookupKey **key_ptr;  // Pointer to the actual RLookupKey* field in the iterator
+  bool is_valid;         // Whether the iterator is still alive
+} RLookupKeyHandle;
+
 // Holds a yieldable field name, and the address to write the RLookupKey pointer later.
 typedef struct MetricRequest{
   const char *metric_name;
-  RLookupKey **key_ptr;
+  RLookupKeyHandle *key_handle; // Handle that can be invalidated when iterator is freed
+  bool isInternal; // Indicates if this metric should be excluded from the response
 } MetricRequest;
 
+// Flags indicating which syntax features are enabled for this query
+typedef enum {
+  // All syntax features are enabled
+  QAST_SYNTAX_DEFAULT = 0,
+  // weight attribute is not allowed
+  QAST_NO_WEIGHT = 0x01,
+  // vector queries are not allowed
+  QAST_NO_VECTOR = 0x02,
+} QAST_ValidationFlags;
 
 /**
  * Query AST structure.
@@ -62,6 +77,9 @@ typedef struct QueryAST {
   // Copy of RSGlobalConfig parameters required for query execution,
   // to ensure that they won't change during query execution.
   IteratorsConfig config;
+
+  // Flags indicating which syntax features are enabled for this query
+  QAST_ValidationFlags validationFlags;
 } QueryAST;
 
 /**
@@ -77,7 +95,7 @@ typedef struct QueryAST {
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status);
 
-IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
+QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
 
 /**
  * Global filter options impact *all* query nodes. This structure can be used
@@ -99,6 +117,9 @@ typedef struct {
 /** Set global filters on the AST */
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options);
 
+/** Set a filter node on the AST, handling different node types appropriately */
+void SetFilterNode(QueryAST *q, QueryNode *filterNode);
+
 /**
  * Open the result iterator on the filters. Returns the iterator for the root node.
  *
@@ -106,13 +127,12 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
  * @param opts options
  * @param sctx the search context. Note that this may be retained by the iterators
  *  for the remainder of the query.
- * @param conc Used to save state on the query
  * @param reqflags Request (AGG/SEARCH) flags
  * @param status error detail
  * @return an iterator.
  */
-IndexIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, ConcurrentSearchCtx *conc, uint32_t reqflags, QueryError *status);
+QueryIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
+                            RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly
@@ -130,7 +150,6 @@ int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVers
 int QueryNode_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
-
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */
 char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec);
@@ -140,6 +159,8 @@ void QAST_Print(const QueryAST *ast, const IndexSpec *spec);
 
 /* Cleanup a query AST */
 void QAST_Destroy(QueryAST *q);
+
+
 
 QueryNode *RSQuery_ParseRaw_v1(QueryParseCtx *);
 QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *);

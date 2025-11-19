@@ -34,7 +34,7 @@ jobs:
             "include": [
               {
                 "architecture": "aarch64",
-                "instance-type": "i8g.xlarge",
+                "instance-type": "r8g.xlarge",
                 "ami-id": "ami-0d6c92b636b74f843"
               },
               {
@@ -81,11 +81,13 @@ jobs:
       PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
       PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Install benchmark dependencies
         run: |
           # Then install Python dependencies
           sudo apt install python3-pip -y
-          pip3 install --upgrade pip PyYAML setuptools redisbench-admin
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.11.51
       - name: Compare benchmark results
         run: |
           redisbench-admin compare \

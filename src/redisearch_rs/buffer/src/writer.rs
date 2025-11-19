@@ -31,7 +31,7 @@ impl<'a> BufferWriter<'a> {
     ///
     /// The writer will append new data at the end of the buffer,
     /// growing its capacity if necessary.
-    pub fn new(buffer: &'a mut Buffer) -> Self {
+    pub const fn new(buffer: &'a mut Buffer) -> Self {
         let position = buffer.len();
         Self { buffer, position }
     }
@@ -58,13 +58,20 @@ impl<'a> BufferWriter<'a> {
     }
 
     /// The current position of the writer.
-    pub fn position(&self) -> usize {
+    pub const fn position(&self) -> usize {
         self.position
     }
 
     /// A reference to the buffer we're writing into.
-    pub fn buffer(&mut self) -> &mut Buffer {
+    pub const fn buffer(&mut self) -> &mut Buffer {
         self.buffer
+    }
+
+    /// Cast to a raw pointer on [`ffi::BufferWriter`].
+    pub const fn as_mut_ptr(&mut self) -> *mut ffi::BufferWriter {
+        // Safety: `BufferWriter` has the same memory layout as [`ffi::BufferWriter`]
+        // so we can safely cast one into the other.
+        self as *const _ as *mut _
     }
 }
 

@@ -17,8 +17,12 @@ impl<Data> Node<Data> {
     ///
     /// If the key already exists, the current value is passede to provided function,
     /// and replaced with the value returned by that function.
-    pub fn insert_or_replace_with<F>(&mut self, mut key: &[u8], f: F)
-    where
+    pub fn insert_or_replace_with<F>(
+        &mut self,
+        mut key: &[u8],
+        f: F,
+        total_memory_usage: &mut usize,
+    ) where
         F: FnOnce(Option<Data>) -> Data,
     {
         let mut current = self;
@@ -33,15 +37,24 @@ impl<Data> Node<Data> {
                     // and add a new child to the empty root.
                     current.map(|old_root| {
                         let new_child = Node::new_leaf(key, Some(f(None)));
-                        let children = if ordering == Ordering::Greater {
-                            [new_child, old_root]
-                        } else {
-                            [old_root, new_child]
+
+                        *total_memory_usage += new_child.mem_usage();
+
+                        let new_root = {
+                            let children = if ordering == Ordering::Greater {
+                                [new_child, old_root]
+                            } else {
+                                [old_root, new_child]
+                            };
+                            // SAFETY:
+                            // - Both `key` and `current.label()` are at least one byte long,
+                            //   since `longest_common_prefix` found that their `0`th bytes differ.
+                            unsafe { Node::new_unchecked(&[], children, None) }
                         };
-                        // SAFETY:
-                        // - Both `key` and `current.label()` are at least one byte long,
-                        //   since `longest_common_prefix` found that their `0`th bytes differ.
-                        unsafe { Node::new_unchecked(&[], children, None) }
+
+                        *total_memory_usage += new_root.mem_usage();
+
+                        new_root
                     });
                     break;
                 }
@@ -71,7 +84,13 @@ impl<Data> Node<Data> {
                         // - `old_root.label()` is at least `equal_up_to` bytes long, since `longest_common_prefix`
                         //   found that its `equal_up_to` byte differed from the corresponding byte in
                         //   `key`.
-                        unsafe { old_root.split_unchecked(equal_up_to, Some(new_child)) }
+                        unsafe {
+                            old_root.split_unchecked(
+                                equal_up_to,
+                                Some(new_child),
+                                total_memory_usage,
+                            )
+                        }
                     });
                     break;
                 }
@@ -106,8 +125,9 @@ impl<Data> Node<Data> {
                                 // SAFETY:
                                 // - In this branch, `old_root.label()` is strictly longer than `key`,
                                 //   so `key.len()` is in range for `old_root.label()`.
-                                let mut new_root =
-                                    unsafe { old_root.split_unchecked(key.len(), None) };
+                                let mut new_root = unsafe {
+                                    old_root.split_unchecked(key.len(), None, total_memory_usage)
+                                };
                                 *new_root.data_mut() = Some(f(None));
                                 new_root
                             });
@@ -155,7 +175,11 @@ impl<Data> Node<Data> {
                                         // - The index returned by `binary_search` is
                                         //   never greater than the length of the searched array.
                                         unsafe {
-                                            root.add_child_unchecked(new_child, insertion_index)
+                                            root.add_child_unchecked(
+                                                new_child,
+                                                insertion_index,
+                                                total_memory_usage,
+                                            )
                                         }
                                     });
                                     break;
@@ -239,7 +263,11 @@ impl<Data> Node<Data> {
     /// Remove the descendant of this node that matches the given key, if any.
     ///
     /// Returns the data associated with the removed node, if any.
-    pub fn remove_descendant(&mut self, key: &[u8]) -> Option<Data> {
+    pub fn remove_descendant(
+        &mut self,
+        key: &[u8],
+        total_memory_usage: &mut usize,
+    ) -> Option<Data> {
         // Find the index of child whose label starts with the first byte of the key,
         // as well as the child itself.
         // If the we find none, there's nothing to remove.
@@ -259,18 +287,18 @@ impl<Data> Node<Data> {
                     // If the child is a leaf, we remove the child node itself.
                     // SAFETY:
                     // Guaranteed by invariant 1. in [`Self::child_index_starting_with`].
-                    unsafe { current.remove_child_unchecked(child_index) }
+                    unsafe { current.remove_child_unchecked(child_index, total_memory_usage) }
                 });
             } else {
                 // If there's a single grandchild,
                 // we merge the grandchild into the child.
-                child.merge_child_if_possible();
+                child.merge_child_if_possible(total_memory_usage);
             }
 
             data
         } else {
-            let data = child.remove_descendant(suffix);
-            child.merge_child_if_possible();
+            let data = child.remove_descendant(suffix, total_memory_usage);
+            child.merge_child_if_possible(total_memory_usage);
             data
         }
     }
@@ -278,12 +306,13 @@ impl<Data> Node<Data> {
     /// If `self` has exactly one child, and `self` doesn't hold
     /// any data, merge child into `self`, by moving the child's data and
     /// children into `self`.
-    pub fn merge_child_if_possible(&mut self) {
+    pub fn merge_child_if_possible(&mut self, total_memory_usage: &mut usize) {
         if self.data().is_some() || self.n_children() != 1 {
             return;
         }
         self.map(|old_parent| {
             let old_parent_label_len = old_parent.label_len() as usize;
+            let old_parent_size = old_parent.mem_usage();
             let mut old_parent = old_parent.downgrade();
 
             // After this read, we have two pointers to this child.
@@ -295,6 +324,7 @@ impl<Data> Node<Data> {
             // - Well-aligned and valid for reads,
             //   thanks to invariant #1 in ChildrenBuffer::ptr
             let mut child: Node<Data> = unsafe { old_parent.children().ptr().read() };
+            let old_child_size = child.mem_usage();
 
             // Modify the child's label.
             {
@@ -323,21 +353,35 @@ impl<Data> Node<Data> {
                 })
             };
 
+            *total_memory_usage =
+                *total_memory_usage + child.mem_usage() - old_parent_size - old_child_size;
+
             child
         })
     }
 
+    #[cfg(feature = "test_utils")]
     /// The memory usage of this node and his descendants, in bytes.
-    pub fn mem_usage(&self) -> usize {
-        let mut total_size = self.metadata().layout().size();
+    ///
+    /// It is computed by traversing the sub-tree and adding the size of each node.
+    pub fn recursive_sub_tree_mem_usage(&self) -> usize {
+        let mut total_size = self.mem_usage();
         let mut stack: Vec<&Node<Data>> = self.children().iter().collect();
 
         while let Some(node) = stack.pop() {
-            total_size += node.metadata().layout().size();
+            total_size += node.mem_usage();
             stack.extend(node.children().iter());
         }
 
         total_size
+    }
+
+    /// The memory usage of this node, in bytes.
+    ///
+    /// It doesn't include the memory usage of its descendants,
+    /// beyond the size of the pointers to its own direct children.
+    pub const fn mem_usage(&self) -> usize {
+        self.metadata().layout().size()
     }
 
     /// The number of descendants of this node.

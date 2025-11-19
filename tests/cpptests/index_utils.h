@@ -6,9 +6,13 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "index.h"
+
+#pragma once
+
+#include "query_ctx.h"
 #include "inverted_index.h"
 #include "numeric_index.h"
+#include "ttl_table.h"
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -27,7 +31,7 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with=
  * To get the spec object (not safe), call get_spec(ism);
  * To free the spec and its resources, call freeSpec;
  */
-RefManager *createSpec(RedisModuleCtx *ctx);
+RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& prefixes = {});
 
 void freeSpec(RefManager *ism);
 
@@ -40,15 +44,10 @@ void freeSpec(RefManager *ism);
  *
  * this function also verifies that the memory counter of each range is equal to its actual memory.
  * if not, if will set @param failed_range to point to the range that failed the check.
- * Then, you can get the range memory by calling NumericRangeGetMemory(failed_range);
+ * Then, you can get the range memory by calling InvertedIndex_MemUsage(failed_range);
  * NOTE: Upon early bail out, the returned value will **not** include the memory used by the failed range.
  */
 size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range);
-
-/**
- * Returns the total memory consumed by the inverted index of a numeric tree node.
- */
-size_t NumericRangeGetMemory(const NumericRangeNode *Node);
 
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field);
 
@@ -57,15 +56,9 @@ public:
   QueryEvalCtx qctx;
   RedisSearchCtx sctx;
   IndexSpec spec;
-  DocTable docTable;
   SchemaRule rule;
 
   MockQueryEvalCtx(t_docId maxDocId = 0, size_t numDocs = 0) {
-    // Initialize DocTable
-    docTable = {0};
-    docTable.maxDocId = maxDocId;
-    docTable.size = numDocs ?: maxDocId;
-
     // Initialize SchemaRule
     std::memset(&rule, 0, sizeof(rule));
     rule.index_all = false;
@@ -74,6 +67,11 @@ public:
     spec = {0};
     spec.rule = &rule;
     spec.existingDocs = nullptr;
+    spec.monitorDocumentExpiration = true; // Only depends on API availability, so always true
+    spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
+    spec.docs.maxDocId = maxDocId;
+    spec.docs.size = numDocs ?: maxDocId;
+    spec.stats.numDocuments = spec.docs.size;
 
     // Initialize RedisSearchCtx
     sctx = {0};
@@ -82,19 +80,20 @@ public:
     // Initialize QueryEvalCtx
     qctx = {0};
     qctx.sctx = &sctx;
-    qctx.docTable = &docTable;
+    qctx.docTable = &spec.docs;
   }
 
   MockQueryEvalCtx(std::vector<t_docId> &docs) : MockQueryEvalCtx() {
     std::sort(docs.begin(), docs.end());
     docs.erase(std::unique(docs.begin(), docs.end()), docs.end());
-    docTable.maxDocId = docs.empty() ? 0 : docs.back();
-    docTable.size = docs.size();
+    spec.docs.maxDocId = docs.empty() ? 0 : docs.back();
+    spec.docs.size = docs.size();
+    spec.stats.numDocuments = docs.size();
     rule.index_all = true; // Enable index_all for wildcard iterator tests
-    spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &spec.stats.invertedSize);
-    IndexEncoder enc = InvertedIndex_GetEncoder(spec.existingDocs->flags);
+    spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, &spec.stats.invertedSize);
     for (t_docId docId : docs) {
-      InvertedIndex_WriteEntryGeneric(spec.existingDocs, enc, docId, nullptr);
+      RSIndexResult rec = {.docId = docId, .data = {.tag = RSResultData_Virtual}};
+      InvertedIndex_WriteEntryGeneric(spec.existingDocs, &rec);
     }
   }
 
@@ -102,5 +101,43 @@ public:
     if (spec.existingDocs) {
       InvertedIndex_Free(spec.existingDocs);
     }
+    TimeToLiveTable_Destroy(&spec.docs.ttl);
+    array_free(spec.fieldIdToIndex);
+  }
+
+  void TTL_Add(t_docId docId, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
+    VerifyTTLInit();
+    TimeToLiveTable_Add(spec.docs.ttl, docId, expiration, NULL);
+  }
+
+  void TTL_Add(t_docId docId, t_fieldIndex field, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
+    VerifyTTLInit();
+    arrayof(FieldExpiration) fe = array_new(FieldExpiration, 1);
+    FieldExpiration fe_entry = {field, expiration};
+    array_append(fe, fe_entry);
+    TimeToLiveTable_Add(spec.docs.ttl, docId, {LONG_MAX, LONG_MAX}, fe);
+  }
+  void TTL_Add(t_docId docId, t_fieldMask fieldMask, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
+    VerifyTTLInit();
+    arrayof(FieldExpiration) fe = array_new(FieldExpiration, __builtin_popcountll(fieldMask));
+    for (t_fieldIndex i = 0; i < sizeof(fieldMask) * 8; ++i) {
+      if (fieldMask & (1ULL << i)) {
+        FieldExpiration fe_entry = {i, expiration};
+        array_append(fe, fe_entry);
+      }
+    }
+    TimeToLiveTable_Add(spec.docs.ttl, docId, {LONG_MAX, LONG_MAX}, fe);
+  }
+
+private:
+  void VerifyTTLInit() {
+    if (!spec.fieldIdToIndex) {
+      // By default, set a max-length array (128 text fields) with fieldId(i) -> index(i)
+      spec.fieldIdToIndex = array_new(t_fieldIndex, 128);
+      for (t_fieldIndex i = 0; i < 128; ++i) {
+        array_append(spec.fieldIdToIndex, i);
+      }
+    }
+    TimeToLiveTable_VerifyInit(&spec.docs.ttl);
   }
 };

@@ -75,7 +75,7 @@ typedef struct {
   uint32_t curBucketIdx;
 } ForwardIndexIterator;
 
-int forwardIndexTokenFunc(void *ctx, const Token *tokInfo);
+int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo);
 void ForwardIndexFree(ForwardIndex *idx);
 
 void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags);
@@ -89,8 +89,7 @@ ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, u
 
 /* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
  */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
-                                            ForwardIndexEntry *ent);
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
 
 #ifdef __cplusplus
 }

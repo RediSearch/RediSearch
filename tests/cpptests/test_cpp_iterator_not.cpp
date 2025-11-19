@@ -16,6 +16,11 @@
 #include <vector>
 
 #include "src/iterators/not_iterator.h"
+#include "src/iterators/wildcard_iterator.h"
+#include "src/iterators/empty_iterator.h"
+#include "src/iterators/inverted_index_iterator.h"
+#include "inverted_index.h"
+#include "index_utils.h"
 
 class NotIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<t_docId>, std::optional<t_docId>, bool>> {
 protected:
@@ -25,12 +30,8 @@ protected:
   std::optional<t_docId> opt_max_doc_id;
   t_docId maxDocId;
   QueryIterator *iterator_base;
+  std::unique_ptr<MockQueryEvalCtx> mockQctx;
   bool optimized;
-  IndexSpec *spec = nullptr;
-  RedisSearchCtx *sctx = nullptr;
-  QueryEvalCtx *qctx = nullptr;
-  DocTable *docTable = nullptr;
-
   void SetUp() override {
     // Get child document IDs from parameter
     std::tie(childDocIds, wcDocIds, opt_max_doc_id, optimized) = GetParam();
@@ -75,38 +76,23 @@ protected:
     auto child = (QueryIterator *) new MockIterator(childDocIds);
     struct timespec timeout = {LONG_MAX, 999999999}; // Initialize with "infinite" timeout
     // Store the wildcard iterator in the NotIterator structure instead of directly in QueryIterator
+
+
     if (optimized) {
-      spec = (IndexSpec*)rm_calloc(1, sizeof(IndexSpec));
-      spec->rule = (SchemaRule*)rm_calloc(1, sizeof(SchemaRule));
-      spec->rule->index_all = true;
-
-      sctx = (RedisSearchCtx*)rm_calloc(1, sizeof(RedisSearchCtx));
-      sctx->spec = spec;
-
-      docTable = (DocTable*)rm_calloc(1, sizeof(DocTable));
-      docTable->maxDocId = maxDocId;
-      docTable->size = maxDocId;
-
-      qctx = (QueryEvalCtx*)rm_calloc(1, sizeof(QueryEvalCtx));
-      qctx->sctx = sctx;
-      qctx->docTable = docTable;
-
-      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, qctx);
+      std::vector<t_docId> wildcard = {1, 2, 3};
+      mockQctx = std::make_unique<MockQueryEvalCtx>(wildcard);
+      iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
       NotIterator *ni = (NotIterator *)iterator_base;
       ni->wcii->Free(ni->wcii);
       ni->wcii = (QueryIterator *) new MockIterator(wcDocIds);
     } else {
-      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, nullptr);
+      mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
+      iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
     }
   }
 
   void TearDown() override {
     iterator_base->Free(iterator_base);
-    if (spec && spec->rule) rm_free(spec->rule);
-    if (spec) rm_free(spec);
-    if (sctx) rm_free(sctx);
-    if (docTable) rm_free(docTable);
-    if (qctx) rm_free(qctx);
   }
 };
 
@@ -475,6 +461,9 @@ INSTANTIATE_TEST_SUITE_P(
 
 class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
   protected:
+  // Add member variable to store the context
+  std::unique_ptr<MockQueryEvalCtx> mockQctx;
+
   void SetUp() override {
     // Get child document IDs from parameter
     std::tie(childDocIds, wcDocIds, opt_max_doc_id, optimized) = GetParam();
@@ -506,12 +495,13 @@ class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
 
     // Define timeout only once
     struct timespec timeout = {0, 1};
-    iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, nullptr);
-    NotIterator *ni = (NotIterator *)iterator_base;
-
-    // Store the wildcard iterator in the NotIterator structure instead of directly in QueryIterator
     if (optimized) {
-      ni->wcii = (QueryIterator *) new MockIterator(wcDocIds);
+      std::vector<t_docId> wildcard = {1, 2, 3};
+      mockQctx = std::make_unique<MockQueryEvalCtx>(wildcard);
+      iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
+    } else {
+      mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
+      iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
     }
   }
 
@@ -575,10 +565,12 @@ class NotIteratorNoChildTest : public ::testing::Test {
 protected:
   QueryIterator *iterator_base;
   t_docId maxDocId = 50;
+  std::unique_ptr<MockQueryEvalCtx> mockQctx;
 
   void SetUp() override {
     struct timespec timeout = {LONG_MAX, 999999999}; // Initialize with "infinite" timeout
-    iterator_base = IT_V2(NewNotIterator)(nullptr, maxDocId, 1.0, timeout, nullptr);
+    mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
+    iterator_base = NewNotIterator(nullptr, maxDocId, 1.0, timeout, &mockQctx->qctx);
   }
 
   void TearDown() override {
@@ -634,4 +626,448 @@ TEST_F(NotIteratorNoChildTest, Rewind) {
     ASSERT_EQ(iterator_base->lastDocId, 0);
     ASSERT_FALSE(iterator_base->atEOF);
   }
+}
+
+class NotIteratorReducerTest : public ::testing::Test {};
+
+TEST_F(NotIteratorReducerTest, TestNotWithNullChild) {
+  // Test rule 1: If the child is NULL, return a wildcard iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
+
+  QueryIterator *it = NewNotIterator(nullptr, maxDocId, 1.0, timeout, &mockQctx.qctx);
+
+  // Should return a wildcard iterator
+  ASSERT_EQ(it->type, WILDCARD_ITERATOR);
+  it->Free(it);
+}
+
+TEST_F(NotIteratorReducerTest, TestNotWithEmptyChild) {
+  // Test rule 1: If the child is an empty iterator, return a wildcard iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
+
+  QueryIterator *emptyChild = NewEmptyIterator();
+  QueryIterator *it = NewNotIterator(emptyChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
+
+  // Should return a wildcard iterator
+  ASSERT_EQ(it->type, WILDCARD_ITERATOR);
+  it->Free(it);
+}
+
+TEST_F(NotIteratorReducerTest, TestNotWithEmptyChildOptimized) {
+  // Test rule 1: If the child is an empty iterator, return a wildcard iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  std::vector<t_docId> wildcard = {1, 2, 3};
+  MockQueryEvalCtx mockQctx(wildcard);
+
+  QueryIterator *emptyChild = NewEmptyIterator();
+  QueryIterator *it = NewNotIterator(emptyChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
+
+  // Should return a wildcard iterator
+  ASSERT_EQ(it->type, INV_IDX_ITERATOR);
+  it->Free(it);
+}
+
+TEST_F(NotIteratorReducerTest, TestNotWithWildcardChild) {
+  // Test rule 2: If the child is a wildcard iterator, return an empty iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  std::vector<t_docId> wildcard = {1, 2, 3};
+  MockQueryEvalCtx mockQctx(wildcard);
+
+  QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, maxDocId, 1.0);
+  QueryIterator *it = NewNotIterator(wildcardChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
+
+  // Should return an empty iterator
+  ASSERT_EQ(it->type, EMPTY_ITERATOR);
+  it->Free(it);
+}
+
+TEST_F(NotIteratorReducerTest, TestNotWithReaderWildcardChild) {
+  // Test rule 2: If the child is a wildcard iterator, return an empty iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+  size_t memsize;
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
+  ASSERT_TRUE(idx != nullptr);
+  for (t_docId i = 1; i < 1000; ++i) {
+    auto res = (RSIndexResult) {
+      .docId = i,
+      .fieldMask = 1,
+      .freq = 1,
+      .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
+    };
+    InvertedIndex_WriteEntryGeneric(idx, &res);
+  }
+  // Create an iterator that reads only entries with field mask 2
+  QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.mask_tag = FieldMaskOrIndex_Mask, .mask = 2}, nullptr, 1.0);
+  InvIndIterator* invIdxIt = (InvIndIterator *)wildcardChild;
+  invIdxIt->isWildcard = true;
+  MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
+  QueryIterator *it = NewNotIterator(wildcardChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
+
+  // Should return an empty iterator
+  ASSERT_EQ(it->type, EMPTY_ITERATOR);
+  it->Free(it);
+  InvertedIndex_Free(idx);
+}
+
+// Test class for Revalidate functionality of Not Iterator
+class NotIteratorRevalidateTest : public ::testing::Test {
+protected:
+  QueryIterator *ni_base;
+  MockIterator* mockChild;
+  std::unique_ptr<MockQueryEvalCtx> mockCtx;
+  const t_docId maxDocId = 100;
+  const size_t numDocs = 50;
+  const double weight = 1.0;
+
+  void SetUp() override {
+    // Create child iterator with specific docIds to exclude
+    std::vector<t_docId> childDocIds = {15, 25, 35, 45}; // These will be excluded
+    mockChild = new MockIterator(childDocIds);
+    QueryIterator *child = reinterpret_cast<QueryIterator *>(mockChild);
+
+    // Create NOT iterator with child (non-optimized version)
+    mockCtx = std::make_unique<MockQueryEvalCtx>(maxDocId, numDocs);
+    struct timespec timeout = {LONG_MAX, 999999999}; // Initialize with "infinite" timeout
+    ni_base = NewNotIterator(child, maxDocId, weight, timeout, &mockCtx->qctx);
+  }
+
+  void TearDown() override {
+    if (ni_base) {
+      ni_base->Free(ni_base);
+    }
+  }
+};
+
+TEST_F(NotIteratorRevalidateTest, RevalidateOK) {
+  // Child returns VALIDATE_OK
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a few documents first (should get docs NOT in child: 1,2,3,4,5,...14,16,...)
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  t_docId firstDoc = ni_base->lastDocId;
+  ASSERT_LT(firstDoc, 15); // Should be before first excluded doc
+
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  t_docId secondDoc = ni_base->lastDocId;
+
+  // Revalidate should return VALIDATE_OK
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify child was revalidated
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+
+  // Should be able to continue reading
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+}
+
+TEST_F(NotIteratorRevalidateTest, RevalidateAborted) {
+  // Child returns VALIDATE_ABORTED
+  mockChild->SetRevalidateResult(VALIDATE_ABORTED);
+
+  // Read a document first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+
+  // NOT iterator handles child abort gracefully by replacing with empty iterator
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  ASSERT_EQ(status, VALIDATE_OK); // NOT iterator continues even when child is aborted
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+}
+
+TEST_F(NotIteratorRevalidateTest, RevalidateMoved) {
+  // Child returns VALIDATE_MOVED - it will advance by one document
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  t_docId originalDocId = ni_base->lastDocId;
+
+  // NOT iterator handles moved child by maintaining current position
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  ASSERT_EQ(status, VALIDATE_OK); // NOT iterator logic keeps current position valid
+
+  // Position should remain valid since child moved beyond current position
+  ASSERT_GE(ni_base->lastDocId, originalDocId);
+}
+
+TEST_F(NotIteratorRevalidateTest, RevalidateChildBecomesEmpty) {
+  // Test scenario where child becomes empty after GC
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+
+  // Revalidate should handle child becoming empty
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  // Should either be OK or MOVED, but not ABORTED
+  ASSERT_NE(status, VALIDATE_ABORTED);
+
+  // With no exclusions, should be able to read more documents
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+}
+
+// Test class for Revalidate functionality of Optimized Not Iterator
+class NotIteratorOptimizedRevalidateTest : public ::testing::Test {
+protected:
+  QueryIterator *ni_base;
+  MockIterator* mockChild;
+  MockIterator* mockWildcard;
+  std::unique_ptr<MockQueryEvalCtx> mockCtx;
+  const t_docId maxDocId = 100;
+  const double weight = 1.0;
+
+  void SetUp() override {
+    // Create child iterator with specific docIds to exclude
+    std::vector<t_docId> childDocIds = {10, 30, 50, 70}; // Sparse exclusions
+    mockChild = new MockIterator(childDocIds);
+    QueryIterator *child = reinterpret_cast<QueryIterator *>(mockChild);
+
+    // Create optimized NOT iterator (will create wildcard internally)
+    std::vector<t_docId> wildcard = {1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95};
+    mockCtx = std::make_unique<MockQueryEvalCtx>(wildcard);
+    struct timespec timeout = {LONG_MAX, 999999999}; // Initialize with "infinite" timeout
+    ni_base = NewNotIterator(child, maxDocId, weight, timeout, &mockCtx->qctx);
+
+    // Replace the wildcard iterator with a mock for testing
+    NotIterator *ni = (NotIterator *)ni_base;
+    QueryIterator *wcii = ni->wcii;
+    ASSERT_TRUE(wcii != nullptr);
+    wcii->Free(wcii); // Free the original wildcard iterator
+    mockWildcard = new MockIterator(wildcard);
+    ni->wcii = reinterpret_cast<QueryIterator *>(mockWildcard);
+  }
+
+  void TearDown() override {
+    if (ni_base) {
+      ni_base->Free(ni_base);
+    }
+  }
+};
+
+// Test combinations: Child OK, Wildcard ABORTED
+TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildOK_WildcardAborted) {
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+  mockWildcard->SetRevalidateResult(VALIDATE_ABORTED);
+
+  // Read a document first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+
+  // Revalidate should handle wildcard abort
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  // Should propagate the abort since wildcard is critical for optimized NOT
+  ASSERT_EQ(status, VALIDATE_ABORTED);
+
+  // Verify wildcard was checked (child might not be checked if wildcard aborts first)
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+}
+
+// Test combinations: Child ABORTED, Wildcard ABORTED
+TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardAborted) {
+  mockChild->SetRevalidateResult(VALIDATE_ABORTED);
+  mockWildcard->SetRevalidateResult(VALIDATE_ABORTED);
+
+  // Read a document first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+
+  // Both iterators aborted - optimized NOT should abort due to wildcard
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  ASSERT_EQ(status, VALIDATE_ABORTED);
+
+  // Verify wildcard was checked (child might not be checked if wildcard aborts first)
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+}
+
+// Test combinations: Child MOVED, Wildcard ABORTED
+TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildMoved_WildcardAborted) {
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+  mockWildcard->SetRevalidateResult(VALIDATE_ABORTED);
+
+  // Read a document first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+
+  // Child moved but wildcard aborted - optimized NOT needs wildcard
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  ASSERT_EQ(status, VALIDATE_ABORTED);
+
+  // Verify wildcard was checked (child might not be checked if wildcard aborts first)
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+}
+
+// Test combinations: Child OK, Wildcard OK
+TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildOK_WildcardOK) {
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+  mockWildcard->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a few documents first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  t_docId originalDocId = ni_base->lastDocId;
+
+  // Revalidate should return VALIDATE_OK
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify both child and wildcard were revalidated
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+  ASSERT_EQ(ni_base->lastDocId, originalDocId); // Position should remain valid
+
+  // Should be able to continue reading
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+}
+
+// Test combinations: Child ABORTED, Wildcard OK
+TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardOK) {
+  mockChild->SetRevalidateResult(VALIDATE_ABORTED);
+  mockWildcard->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a document first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  t_docId originalDocId = ni_base->lastDocId;
+
+  // Optimized NOT iterator handles child abort gracefully
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  //////// Cannot access `mockChild` after it has been replaced
+  ASSERT_EQ(status, VALIDATE_OK); // NOT iterator continues even when child is aborted
+
+  // Verify both iterators were checked
+  ASSERT_EQ(reinterpret_cast<NotIterator *>(ni_base)->child->type, EMPTY_ITERATOR) << "Child should be replaced with empty iterator";
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+  ASSERT_EQ(ni_base->lastDocId, originalDocId); // Position should remain valid
+
+  // Should be able to continue reading (all wildcard docs now included)
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+}
+
+// Test combinations: Child MOVED, Wildcard OK
+TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildMoved_WildcardOK) {
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+  mockWildcard->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a document first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  t_docId originalDocId = ni_base->lastDocId;
+
+  // Child moved but wildcard OK
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  // Should return OK since wildcard didn't move and child movement doesn't affect NOT logic much
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+  ASSERT_EQ(ni_base->lastDocId, originalDocId); // Position should remain valid
+
+  // Should be able to continue reading
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+}
+
+// Test combinations: Child OK, Wildcard MOVED
+TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildOK_WildcardMoved) {
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+  mockWildcard->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  t_docId originalDocId = ni_base->lastDocId;
+
+  // Revalidate should handle wildcard movement
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  // Should return MOVED since wildcard position changed
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+  ASSERT_GT(ni_base->lastDocId, originalDocId); // Position might change due to wildcard movement
+}
+
+// Test combinations: Child ABORTED, Wildcard MOVED
+TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardMoved) {
+  mockChild->SetRevalidateResult(VALIDATE_ABORTED);
+  mockWildcard->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  t_docId originalDocId = ni_base->lastDocId;
+
+  // Child aborted but wildcard moved - should handle gracefully
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  //////// Cannot access `mockChild` after it has been replaced
+  // Should return MOVED since wildcard can still provide documents
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // Verify both iterators were checked
+  ASSERT_EQ(reinterpret_cast<NotIterator *>(ni_base)->child->type, EMPTY_ITERATOR) << "Child should be replaced with empty iterator";
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+  ASSERT_GT(ni_base->lastDocId, originalDocId); // Position might change due to wildcard movement
+}
+
+// Test combinations: Child MOVED, Wildcard MOVED
+TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildMoved_WildcardMoved) {
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+  mockWildcard->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  t_docId originalDocId = ni_base->lastDocId;
+
+  // Both iterators moved
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+  // Should return MOVED since both positions changed
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+  ASSERT_GT(ni_base->lastDocId, originalDocId); // Position might change due to both movements
+
+  // Should be able to continue reading
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+}
+
+// Test specific case to reach line 283: wildcard moves to same ID as child
+TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateWildcardMovesToSameIdAsChild) {
+  // Set up a specific scenario where wildcard and child will be at the same position after revalidation
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+  mockWildcard->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first to establish position
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+
+  ASSERT_EQ(ni_base->lastDocId, 5);
+  ASSERT_EQ(mockChild->base.lastDocId, 10); // Child is at 10
+  ASSERT_EQ(mockWildcard->base.lastDocId, 5); // Wildcard is at 5
+
+  // Revalidate - this should trigger the scenario where wildcard moves
+  // and after syncing state, child is at the same position as wildcard
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+
+  // Should return MOVED since wildcard moved
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_FALSE(ni_base->atEOF); // Should not be at EOF
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+
+  // The position should have changed due to calling NI_Read_Optimized when
+  // child and wildcard were at the same position (line 283)
+  // Since ID 10 is in both wildcard and child, it should advance to next valid position
+  ASSERT_EQ(ni_base->lastDocId, 15); // Should have moved past the conflicting position
+
+  // Should be able to continue reading
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
 }

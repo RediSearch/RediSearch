@@ -18,17 +18,6 @@
 #include "spec.h"
 #include "config.h"
 
-/* increasing the ref count of the given dmd */
-/*
- * This macro is atomic and fits for single writer and multiple readers as it is used only
- * after we locked the index spec (R/W) and we either have a writer alone or multiple readers.
- */
-#define DMD_Incref(md)                                                        \
-  ({                                                                          \
-    uint16_t count = __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED); \
-    RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
-  })
-
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
   DocTable ret = {
@@ -132,6 +121,14 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
 
     // We clear new extra allocation to Null all list pointers
     size_t memsetSize = (t->cap - oldcap) * sizeof(DMDChain);
+
+    // Log DocTable capacity growth to help diagnose cases where a small number of documents
+    // combined with frequent updates cause disproportionate memory usage.
+    // This allows us to confirm if unexpected memory spikes are due to capacity increases.
+    // Note: We do not shrink the DocTable to avoid the cost of rehashing.
+    // To adjust its size, lower the search-max-doctablesize configuration value.
+    RedisModule_Log(RSDummyContext, "notice", "DocTable capacity increase from %zu to %zu", oldcap, t->cap);
+
     memset(&t->buckets[oldcap], 0, memsetSize);
   }
 
@@ -221,24 +218,12 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
   }
 }
 
-bool DocTable_HasExpiration(DocTable *t, t_docId docId)
-{
-  return t->ttl && TimeToLiveTable_HasExpiration(t->ttl, docId);
-}
-
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
   if (!hasExpirationTimeInformation(dmd->flags)) {
       return false;
   }
   RS_LOG_ASSERT(t->ttl, "Document has expiration time information but no TTL table");
   return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
-}
-
-bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
-  if (!t->ttl || !fieldIndices || fieldCount == 0) {
-    return true;
-  }
-  return TimeToLiveTable_VerifyDocAndFields(t->ttl, docId, fieldIndices, fieldCount, predicate, expirationPoint);
 }
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
@@ -361,15 +346,6 @@ static void DocTable_DmdUnchain(DocTable *t, RSDocumentMetadata *md) {
   dllist2_delete(&dmdChain->lroot, &md->llnode);
 }
 
-int DocTable_Delete(DocTable *t, const char *s, size_t n) {
-  RSDocumentMetadata *md = DocTable_Pop(t, s, n);
-  if (md) {
-    DMD_Return(md);
-    return 1;
-  }
-  return 0;
-}
-
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
   t_docId docId = DocIdMap_Get(&t->dim, s, n);
 
@@ -405,7 +381,7 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     DocTable_DmdUnchain(t, md);
     DocIdMap_Delete(&t->dim, s, n);
     --t->size;
-    DMD_Return(md); // Index ref. The caller gets a ref from the `Get` call
+    DMD_Return(md); // Return the ref from the `Borrow` call. The caller needs to release the index ref.
 
     return md;
   }

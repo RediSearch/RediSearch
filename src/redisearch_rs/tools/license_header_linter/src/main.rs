@@ -56,10 +56,16 @@ fn visit_dir(dir: &Path, fix: bool, bad_files: &mut Vec<std::path::PathBuf>) {
         if path.is_dir() {
             if path.file_name().and_then(|s| s.to_str()) == Some("low_memory_thin_vec") {
                 // That crate is under a different license, since it's a fork.
+                println!("Skipping crate: {path:?}");
                 continue;
             }
             visit_dir(&path, fix, bad_files);
         } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+            if path.ends_with("src/controlled_cursor.rs") {
+                // This module has a different license header, since it is copied from Rust std.
+                println!("Skipping file: {path:?}");
+                continue;
+            }
             check_file(&path, fix, bad_files);
         }
     }
@@ -69,7 +75,7 @@ fn check_file(path: &Path, fix: bool, bad_files: &mut Vec<std::path::PathBuf>) {
     let content = read_to_string(path).unwrap_or_default();
     if !content.starts_with(LICENSE_HEADER) {
         if fix {
-            let new_content = format!("{}\n{}", LICENSE_HEADER, content);
+            let new_content = format!("{LICENSE_HEADER}\n{content}");
             write(path, new_content).expect("Failed to write file");
             println!("🛠️  Fixed: {}", path.display());
         } else {

@@ -12,6 +12,9 @@ bench = false
 [lints]
 workspace = true
 
+[features]
+test_utils = []
+
 [dependencies]
 lending-iterator.workspace = true
 libc.workspace = true
@@ -22,5 +25,5 @@ wildcard.workspace = true
 insta.workspace = true
 proptest = { workspace = true, features = ["std"] }
 proptest-derive.workspace = true
-trie_rs.workspace = true
+trie_rs = { workspace = true, features = ["test_utils"] }
 fs-err.workspace = true

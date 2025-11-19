@@ -12,7 +12,6 @@
 #include "inverted_index.h"
 #include "geo_index.h"
 #include "vector_index.h"
-#include "index.h"
 #include "redis_index.h"
 #include "suffix.h"
 #include "config.h"
@@ -21,6 +20,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "redismodule.h"
 #include "debug_commands.h"
+#include "search_disk.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -28,9 +28,8 @@ extern void IncrementYieldCounter(void);
 
 #include <unistd.h>
 
-static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
-                            ForwardIndexEntry *entry) {
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, encoder, entry);
+static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry);
 
   // Update index statistics:
 
@@ -98,21 +97,22 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
-  IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
 
   while (entry != NULL) {
     bool isNew;
-    InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
-    if (isNew && strlen(entry->term) != 0) {
-      IndexSpec_AddTerm(spec, entry->term, entry->len);
-    }
-    if (invidx) {
-      entry->docId = aCtx->doc->docId;
-      RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      IndexerYieldWhileLoading(ctx->redisCtx);
-      writeIndexEntry(spec, invidx, encoder, entry);
-      if (Index_StoreFieldMask(spec)) {
-        invidx->fieldMask |= entry->fieldMask;
+    if (spec->diskSpec) {
+      SearchDisk_IndexDocument(spec->diskSpec, entry->term, aCtx->doc->docId, entry->fieldMask);
+      // assume all terms are new, avoid the disk io to check
+      isNew = true;
+    } else {
+      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
+      if (isNew && strlen(entry->term) != 0) {
+        IndexSpec_AddTerm(spec, entry->term, entry->len);
+      }
+      if (invidx) {
+        entry->docId = aCtx->doc->docId;
+        RS_LOG_ASSERT(entry->docId, "docId should not be 0");
+        writeIndexEntry(spec, invidx, entry);
       }
     }
 
@@ -136,10 +136,11 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   if (replace) {
     RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
-      // decrease the number of documents in the index stats only if the document was there
+      // Update stats of the index only if the document was there
+      RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
       --spec->stats.numDocuments;
-      DMD_Return(aCtx->oldMd);
-      aCtx->oldMd = dmd;
+      RS_LOG_ASSERT(spec->stats.totalDocsLen >= dmd->len, "totalDocsLen is smaller than dmd->len");
+      spec->stats.totalDocsLen -= dmd->len;
       if (spec->gc) {
         GCContext_OnDelete(spec->gc);
       }
@@ -158,6 +159,8 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       if (spec->flags & Index_HasGeometry) {
         GeometryIndex_RemoveId(spec, dmd->id);
       }
+
+      DMD_Return(dmd);
     }
   }
 
@@ -183,6 +186,17 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   for (; cur; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
+      continue;
+    }
+
+    if (spec->diskSpec) {
+      const char *key = RedisModule_StringPtrLen(cur->doc->docKey, NULL);
+      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, cur->doc->score, cur->docFlags, cur->fwIdx->maxFreq);
+      if (docId) {
+        cur->doc->docId = docId;
+      } else {
+        cur->stateFlags |= ACTX_F_ERRORED;
+      }
       continue;
     }
 
@@ -232,8 +246,6 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
-
-      IndexerYieldWhileLoading(sctx->redisCtx);
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
         FieldSpec_AddQueryError(&cur->spec->fields[fs->index], &cur->status, doc->docKey);
@@ -297,15 +309,14 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->fieldName);
     if (iiMissingDocs == NULL) {
       size_t index_size;
-      iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &index_size);
+      iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
         aCtx->spec->stats.invertedSize += index_size;
       dictAdd(spec->missingFieldDict, (void*)fs->fieldName, iiMissingDocs);
     }
     // Add docId to inverted index
     t_docId docId = aCtx->doc->docId;
-    IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-    RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-    aCtx->spec->stats.invertedSize +=InvertedIndex_WriteEntryGeneric(iiMissingDocs, enc, docId, &rec);
+    RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0};
+    aCtx->spec->stats.invertedSize +=InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
@@ -319,14 +330,13 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   if (!sctx->spec->existingDocs) {
     // Create the inverted index if it doesn't exist
     size_t index_size;
-    aCtx->spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &index_size);
+    aCtx->spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
     aCtx->spec->stats.invertedSize += index_size;
   }
 
   t_docId docId = aCtx->doc->docId;
-  IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-  RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, enc, docId, &rec);
+  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0};
+  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
 }
 
 /**
@@ -345,7 +355,7 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   }
 
   if (!ctx.spec) {
-    QueryError_SetCode(&aCtx->status, QUERY_ENOINDEX);
+    QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_NO_INDEX);
     aCtx->stateFlags |= ACTX_F_ERRORED;
     return;
   }
@@ -399,14 +409,21 @@ bool g_isLoading = false;
  * Yield to Redis after a certain number of operations during indexing.
  * This helps keep Redis responsive during long indexing operations.
  * @param ctx The Redis context
+ * @param numOps Tue number of operations to count in the counter before considering RSGlobalConfig.indexerYieldEveryOpsWhileLoading. These are related to the number of fields in the document
+ * @param flags The flags to pass to RedisModule_Yield
  */
-static void IndexerYieldWhileLoading(RedisModuleCtx *ctx) {
+void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags) {
   static size_t opCounter = 0;
 
-  // If server is loading, Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
-  if (g_isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
-    opCounter = 0;
+  // If server is loading, Yield to Redis if the number of operations is greater than the yieldEveryOps
+  opCounter += numOps;
+  if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+    opCounter = opCounter % RSGlobalConfig.indexerYieldEveryOpsWhileLoading;
     IncrementYieldCounter(); // Track that we called yield
-    RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+    unsigned int sleepMicros = GetIndexerSleepBeforeYieldMicros();
+    if (sleepMicros > 0) {
+      usleep(sleepMicros);
+    }
+    RedisModule_Yield(ctx, flags, NULL);
   }
 }

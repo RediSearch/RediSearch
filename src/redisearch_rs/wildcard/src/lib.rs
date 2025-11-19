@@ -191,10 +191,10 @@ impl<'pattern> WildcardPattern<'pattern> {
             };
         }
 
-        if let Some(expected_length) = self.expected_length {
-            if key.len() > expected_length {
-                return MatchOutcome::NoMatch;
-            }
+        if let Some(expected_length) = self.expected_length
+            && key.len() > expected_length
+        {
+            return MatchOutcome::NoMatch;
         }
 
         // Backtrack if possible, otherwise return early claiming we can't match.
@@ -293,7 +293,7 @@ impl<'pattern> WildcardPattern<'pattern> {
     ///
     /// Returns `None` if the pattern may match inputs of variable length (i.e.
     /// it contains at least one wildcard).
-    pub fn expected_length(&self) -> Option<usize> {
+    pub const fn expected_length(&self) -> Option<usize> {
         self.expected_length
     }
 }

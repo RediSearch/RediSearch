@@ -29,3 +29,5 @@ callgrind.out.*
 /1/
 /.install/boost*
 tests/deps/RedisJSON
+**/target/*
+compile_commands.json

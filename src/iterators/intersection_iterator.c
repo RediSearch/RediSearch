@@ -11,6 +11,7 @@
 #include "empty_iterator.h"
 #include "union_iterator.h"
 #include "index_result.h"
+#include "wildcard_iterator.h"
 
 /**************************** Read + SkipTo Helpers ****************************/
 
@@ -61,7 +62,7 @@ static IteratorStatus II_AgreeOnDocId(IntersectionIterator *it, t_docId *curTarg
     }
   }
   // All iterators agree on the docId, so we can set the current result
-  AggregateResult_Reset(it->base.current);
+  IndexResult_ResetAggregate(it->base.current);
   for (uint32_t i = 0; i < it->num_its; i++) {
     RS_ASSERT(docId == it->its[i]->current->docId);
     AggregateResult_AddChild(it->base.current, it->its[i]->current);
@@ -186,7 +187,7 @@ static void II_Rewind(QueryIterator *base) {
 
   base->atEOF = false;
   base->lastDocId = 0;
-  AggregateResult_Reset(base->current);
+  IndexResult_ResetAggregate(base->current);
 
   // rewind all child iterators
   for (uint32_t i = 0; i < ii->num_its; i++) {
@@ -230,29 +231,136 @@ static int cmpIter(QueryIterator **it1, QueryIterator **it2) {
   return (int)(est1 - est2);
 }
 
-// Set estimation for number of results. Returns false if the query is empty (some of the iterators are NULL)
-static bool II_SetEstimation(IntersectionIterator *it) {
+// Set estimation for number of results.
+static void II_SetEstimation(IntersectionIterator *it) {
   // Set the expected number of results to the minimum of all iterators.
   // If any of the iterators is NULL, we set the expected number to 0
   RS_ASSERT(it->num_its); // Ensure there is at least one iterator, so we can set num_expected to SIZE_MAX temporarily
   it->num_expected = SIZE_MAX;
   for (uint32_t i = 0; i < it->num_its; ++i) {
     QueryIterator *cur = it->its[i];
-    if (!cur) {
-      // If the current iterator is empty, then the entire query will fail
-      it->num_expected = 0;
-      return false;
-    }
     size_t amount = cur->NumEstimated(cur);
     if (amount < it->num_expected) {
       it->num_expected = amount;
     }
   }
-  return true;
+}
+
+/**
+ * Reduce the intersection iterator by applying these rules:
+ * 1. If any of the iterators is an empty iterator, return the empty iterator and update the number of children
+ * 2. Remove all wildcard iterators since they would not contribute to the intersection (Return one of them if all are wildcards)
+ * 3. If there is only one left child iterator, return it
+ * 4. Otherwise, return NULL and let the caller create the intersection iterator
+*/
+static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *num) {
+  QueryIterator *ret = NULL;
+
+  // Remove all wildcard iterators from the array
+  size_t current_size = *num;
+  size_t write_idx = 0;
+  bool all_wildcards = true;
+  for (size_t read_idx = 0; read_idx < current_size; read_idx++) {
+    if (IsWildcardIterator(its[read_idx])) {
+      if (!all_wildcards || all_wildcards && read_idx != current_size - 1) {
+        // remove all the wildcards in case there are other non-wildcard iterators
+        // avoid removing it in case it's the last one and all are wildcards
+        its[read_idx]->Free(its[read_idx]);
+      }
+    } else {
+      all_wildcards = false;
+      its[write_idx++] = its[read_idx];
+    }
+  }
+  *num = write_idx;
+
+  // Check for empty iterators
+  for (size_t ii = 0; ii < write_idx; ++ii) {
+    if (!its[ii] || its[ii]->type == EMPTY_ITERATOR) {
+      ret = its[ii] ? its[ii] : NewEmptyIterator();
+      its[ii] = NULL; // Mark as taken
+      break;
+    }
+  }
+
+  if (ret) {
+    // Free all non-NULL iterators
+    for (size_t ii = 0; ii < write_idx; ++ii) {
+      if (its[ii]) {
+        its[ii]->Free(its[ii]);
+      }
+    }
+  } else {
+    // Handle edge cases after wildcard removal
+    if (current_size == 0) {
+      // No iterators were provided, return an empty iterator
+      ret = NewEmptyIterator();
+    } else if (write_idx == 0) {
+      // All iterators were wildcards, return the last one which was not Freed
+      ret = its[current_size - 1];
+    } else if (write_idx == 1) {
+      // Only one iterator left, return it directly
+      ret = its[0];
+    }
+  }
+
+  if (ret != NULL) {
+    rm_free(its);
+  }
+
+  return ret;
+}
+
+static ValidateStatus II_Revalidate(QueryIterator *base) {
+  IntersectionIterator *ii = (IntersectionIterator *)base;
+  bool any_child_moved = false, movedToEOF = false;
+  t_docId max_child_docId = 0;
+
+  // Step 1: Revalidate all children and track status
+  for (uint32_t i = 0; i < ii->num_its; i++) {
+    QueryIterator *child = ii->its[i];
+    ValidateStatus child_status = child->Revalidate(child);
+
+    if (child_status == VALIDATE_ABORTED) {
+      return VALIDATE_ABORTED; // Intersection fails if any child fails
+    }
+
+    if (child_status == VALIDATE_MOVED) {
+      any_child_moved = true;
+      // Track the maximum docId among moved children
+      if (child->atEOF) {
+        movedToEOF = true; // If any child moved and now at EOF, the intersection is also at EOF now
+      } else if (child->lastDocId > max_child_docId) {
+        max_child_docId = child->lastDocId;
+      }
+    }
+  }
+
+  // Step 2: Handle the result based on child status
+  if (!any_child_moved) {
+    // All children returned OK - simply return OK
+    return VALIDATE_OK;
+  } else if (base->atEOF) {
+    // If the intersection was already at EOF, we return OK
+    return VALIDATE_OK;
+  } else if (movedToEOF) {
+    // If any child is at EOF, the intersection is also moved to EOF
+    base->atEOF = true;
+    return VALIDATE_MOVED;
+  }
+
+  // Step 3: At least one child moved - need to find new intersection position
+  // Skip to the maximal docId among moved children
+  base->SkipTo(base, max_child_docId);
+  return VALIDATE_MOVED;
 }
 
 QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight) {
-  RS_ASSERT(its && num > 0);
+  QueryIterator *ret = IntersectionIteratorReducer(its, &num);
+  if (ret != NULL) {
+    return ret;
+  }
+  RS_ASSERT(its && num > 1);
   IntersectionIterator *it = rm_calloc(1, sizeof(*it));
   it->its = its;
   it->num_its = num;
@@ -260,36 +368,32 @@ QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_
   it->max_slop = max_slop < 0 ? INT_MAX : max_slop;
   it->in_order = in_order;
 
-  bool allValid = II_SetEstimation(it);
+  II_SetEstimation(it);
 
   // Sort children iterators from low count to high count which reduces the number of iterations.
-  if (!in_order && allValid) {
+  if (!in_order) {
     qsort(its, num, sizeof(*its), (CompareFunc)cmpIter);
   }
 
   // bind the iterator calls
-  QueryIterator *base = &it->base;
-  base->type = INTERSECT_ITERATOR;
-  base->atEOF = false;
-  base->lastDocId = 0;
-  base->current = NewIntersectResult(num, weight);
-  base->NumEstimated = II_NumEstimated;
+  ret = &it->base;
+  ret->type = INTERSECT_ITERATOR;
+  ret->atEOF = false;
+  ret->lastDocId = 0;
+  ret->current = NewIntersectResult(num, weight);
+  ret->NumEstimated = II_NumEstimated;
   if (max_slop < 0 && !in_order) {
     // No slop and no order means every result is relevant, so we can use the fast path
-    base->Read = II_Read;
-    base->SkipTo = II_SkipTo;
+    ret->Read = II_Read;
+    ret->SkipTo = II_SkipTo;
   } else {
     // Otherwise, we need to check relevancy
-    base->Read = II_Read_CheckRelevancy;
-    base->SkipTo = II_SkipTo_CheckRelevancy;
+    ret->Read = II_Read_CheckRelevancy;
+    ret->SkipTo = II_SkipTo_CheckRelevancy;
   }
-  base->Free = II_Free;
-  base->Rewind = II_Rewind;
+  ret->Free = II_Free;
+  ret->Rewind = II_Rewind;
+  ret->Revalidate = II_Revalidate;
 
-  if (!allValid) {
-    // Some of the iterators are NULL, so the intersection will always be empty.
-    base->Free(base);
-    base = IT_V2(NewEmptyIterator)();
-  }
-  return base;
+  return ret;
 }

@@ -26,6 +26,8 @@ pub struct TrieMap<Data> {
     root: Option<Node<Data>>,
     /// The number of unique keys stored in this map.
     n_unique_keys: usize,
+    /// The memory usage of the whole trie map, in bytes.
+    memory_usage: usize,
 }
 
 impl<Data> Default for TrieMap<Data> {
@@ -33,6 +35,7 @@ impl<Data> Default for TrieMap<Data> {
         Self {
             root: None,
             n_unique_keys: 0,
+            memory_usage: std::mem::size_of::<Self>(),
         }
     }
 }
@@ -77,17 +80,20 @@ impl<Data> TrieMap<Data> {
         // data and attempt to merge the children.
         let data = if suffix.is_empty() {
             if root.n_children() == 0 {
-                self.root.take().and_then(|mut n| n.data_mut().take())
+                let data = self.root.take().and_then(|mut n| n.data_mut().take());
+                // The map is now empty, so we can reset the memory usage.
+                self.memory_usage = std::mem::size_of::<Self>();
+                data
             } else {
                 let data = root.data_mut().take();
-                root.merge_child_if_possible();
+                root.merge_child_if_possible(&mut self.memory_usage);
                 data
             }
         } else {
             // The node we need to remove is deeper in the trie.
-            let data = root.remove_descendant(suffix);
+            let data = root.remove_descendant(suffix, &mut self.memory_usage);
             // After removing the child, we attempt to merge the child into the root.
-            root.merge_child_if_possible();
+            root.merge_child_if_possible(&mut self.memory_usage);
             data
         };
         if data.is_some() {
@@ -128,9 +134,11 @@ impl<Data> TrieMap<Data> {
         match &mut self.root {
             None => {
                 let data = wrapped_f(None);
-                self.root = Some(Node::new_leaf(key, Some(data)));
+                let root = Node::new_leaf(key, Some(data));
+                self.memory_usage += root.mem_usage();
+                self.root = Some(root);
             }
-            Some(root) => root.insert_or_replace_with(key, wrapped_f),
+            Some(root) => root.insert_or_replace_with(key, wrapped_f, &mut self.memory_usage),
         }
 
         if has_cardinality_increased {
@@ -138,14 +146,40 @@ impl<Data> TrieMap<Data> {
         }
     }
 
+    #[cfg(feature = "test_utils")]
     /// Get the memory usage of the trie in bytes.
     /// Includes the memory usage of the root node on the stack.
-    pub fn mem_usage(&self) -> usize {
-        std::mem::size_of::<Self>() + self.root.as_ref().map(|r| r.mem_usage()).unwrap_or(0)
+    ///
+    /// # Performance
+    ///
+    /// Complexity is O(n), where n is the number of nodes in the trie, since
+    /// the method performs a recursive traversal of the trie.
+    ///
+    /// This method is primarily provided to verify that the memory usage
+    /// reported by [`Self::mem_usage`] is accurate.
+    pub fn recursive_mem_usage(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self
+                .root
+                .as_ref()
+                .map(|r| r.recursive_sub_tree_mem_usage())
+                .unwrap_or(0)
+    }
+
+    /// Get the memory usage of the trie in bytes.
+    /// Includes the memory usage of the root node on the stack.
+    ///
+    /// # Performance
+    ///
+    /// Complexity is O(1), since it returns the memory usage
+    /// that's cached in the root node.
+    /// That usage is updated every time a new node is added or removed.
+    pub const fn mem_usage(&self) -> usize {
+        self.memory_usage
     }
 
     /// The number of unique keys stored in this map.
-    pub fn n_unique_keys(&self) -> usize {
+    pub const fn n_unique_keys(&self) -> usize {
         self.n_unique_keys
     }
 
@@ -163,7 +197,7 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over all trie entries whose key is a prefix of `target`.
-    pub fn prefixes_iter<'a>(&'a self, target: &'a [u8]) -> PrefixesIter<'a, Data> {
+    pub const fn prefixes_iter<'a>(&'a self, target: &'a [u8]) -> PrefixesIter<'a, Data> {
         PrefixesIter::new(self.root.as_ref(), target)
     }
 

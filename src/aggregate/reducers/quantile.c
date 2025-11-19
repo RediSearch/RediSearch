@@ -29,7 +29,7 @@ static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
     return 1;
   }
 
-  if (v->t != RSValue_Array) {
+  if (!RSValue_IsArray(v)) {
     if (RSValue_ToNumber(v, &d)) {
       QS_Insert(qs, d);
     }
@@ -48,7 +48,7 @@ static RSValue *quantileFinalize(Reducer *r, void *ctx) {
   QuantStream *qs = ctx;
   QTLReducer *qt = (QTLReducer *)r;
   double value = QS_Query(qs, qt->pct);
-  return RS_NumVal(value);
+  return RSValue_NewNumber(value);
 }
 
 static void quantileFreeInstance(Reducer *unused, void *p) {
@@ -68,7 +68,7 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
     goto error;
   }
   if (!(r->pct >= 0 && r->pct <= 1.0)) {
-    QueryError_SetError(options->status, QUERY_EPARSEARGS, "Percentage must be between 0.0 and 1.0");
+    QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS, "Percentage must be between 0.0 and 1.0");
     goto error;
   }
 
@@ -79,7 +79,7 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
       goto error;
     }
     if (r->resolution < 1 || r->resolution > MAX_SAMPLE_SIZE) {
-      QueryError_SetError(options->status, QUERY_EPARSEARGS, "Invalid resolution");
+      QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid resolution");
       goto error;
     }
   }

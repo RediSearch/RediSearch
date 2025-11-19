@@ -13,6 +13,7 @@
 #include "query_error.h"
 #include "reply.h"
 #include "util/config_macros.h"
+#include "ext/default.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -29,14 +30,35 @@ static const char *on_timeout_vals[2] = {
   "fail"
 };
 
+typedef enum {
+  OomPolicy_Return,       // Return what we have on OOM
+  OomPolicy_Fail,         // Just fail without returning anything
+  OomPolicy_Ignore,       // Ignore OOM and continue
+  OomPolicy_Invalid       // Not a real value
+} RSOomPolicy;
+
+static const int on_oom_enums[3] = {
+  OomPolicy_Return,
+  OomPolicy_Fail,
+  OomPolicy_Ignore
+};
+static const char *on_oom_vals[3] = {
+  "return",
+  "fail",
+  "ignore"
+};
+
+
 typedef enum { GCPolicy_Fork = 0 } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
+const char *OomPolicy_ToString(RSOomPolicy);
 
 /**
  * Returns TimeoutPolicy_Invalid if the string could not be parsed
  */
 RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
+RSOomPolicy OomPolicy_Parse(const char *s, size_t n);
 
 static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
@@ -75,6 +97,8 @@ typedef struct {
   bool printProfileClock;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
+  // OOM policy
+  RSOomPolicy oomPolicy;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -97,6 +121,8 @@ typedef struct {
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
+  // Default scorer name to use when no scorer is specified (default: BM25STD)
+  const char *defaultScorer;
 
   IteratorsConfig iteratorsConfigParams;
 
@@ -197,6 +223,7 @@ extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
 extern RedisModuleString *config_ext_load;
 extern RedisModuleString *config_friso_ini;
+extern RedisModuleString *config_default_scorer;
 
 /**
  * Add new configuration options to the chain of already recognized options
@@ -287,11 +314,15 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define BM25STD_TANH_FACTOR_MIN 1
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 5
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_SHARD_WINDOW_RATIO 1.0
+#define MIN_SHARD_WINDOW_RATIO 0.0  // Exclusive minimum (must be > 0.0)
+#define MAX_SHARD_WINDOW_RATIO 1.0
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
     .extLoad = NULL,                                                           \
     .frisoIni = NULL,                                                          \
+    .defaultScorer = NULL,                                                     \
     .gcConfigParams.enableGC = 1,                                              \
     .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,            \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
@@ -335,6 +366,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
   }
 
 #define REDIS_ARRAY_LIMIT 7

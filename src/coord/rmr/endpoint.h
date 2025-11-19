@@ -9,6 +9,10 @@
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* A single endpoint in the cluster */
 typedef struct MREndpoint {
   char *host;
@@ -26,3 +30,7 @@ void MREndpoint_Copy(MREndpoint *dst, const MREndpoint *src);
 /* Free the endpoint's internal string, doesn't actually free the endpoint object, which is usually
  * allocated on the stack or as part of a value array */
 void MREndpoint_Free(MREndpoint *ep);
+
+#ifdef __cplusplus
+}
+#endif

@@ -65,7 +65,7 @@ typedef struct QOptimizer {
     size_t limit;               // number of required results
 
     bool scorerReq;             // does the query require a scorer (WITHSCORES does not count)
-    ScorerType scorerType;      // 
+    ScorerType scorerType;
 
     const char *fieldName;      // name of sortby field
     const FieldSpec *field;     // spec of sortby field
@@ -73,11 +73,10 @@ typedef struct QOptimizer {
     NumericFilter *nf;          // filter with required parameters
     bool asc;                   // ASC/DESC order of sortby
 
-    IndexIterator *numIter;
-    IndexIterator *root;
+    QueryIterator *numIter;
+    QueryIterator *root;
 
     RedisSearchCtx *sctx;
-    ConcurrentSearchCtx *conc;
 } QOptimizer;
 
 /* create a new QOptimizer struct */

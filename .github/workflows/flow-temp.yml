@@ -12,9 +12,7 @@ on:
     branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-macos:
-    uses: ./.github/workflows/flow-macos.yml
+
+  run-on-intel:
+    uses: ./.github/workflows/flow-intel.yml
     secrets: inherit
-    with:
-      redis-ref: unstable
-      rejson-branch: master
