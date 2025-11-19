@@ -65,7 +65,7 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
     return disk->index.newWildcardIterator(index, weight);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, double score, uint32_t flags, uint32_t maxFreq) {
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxFreq) {
     RS_ASSERT(disk && handle);
     return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxFreq);
 }
