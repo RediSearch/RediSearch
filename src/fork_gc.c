@@ -115,31 +115,33 @@ static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *
   return REDISMODULE_ERR;
 }
 
-#define TRY_RECV_FIXED(gc, obj, len)                   \
-  if (FGC_recvFixed(gc, obj, len) != REDISMODULE_OK) { \
-    return REDISMODULE_ERR;                            \
-  }
-
 static void *RECV_BUFFER_EMPTY = (void *)0x0deadbeef;
 
 static int __attribute__((warn_unused_result))
 FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
-  TRY_RECV_FIXED(fgc, len, sizeof *len);
-  if (*len == SIZE_MAX) {
+  size_t temp_len;
+  if (FGC_recvFixed(fgc, &temp_len, sizeof temp_len) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  if (temp_len == SIZE_MAX) {
+    *len = temp_len;
     *buf = RECV_BUFFER_EMPTY;
     return REDISMODULE_OK;
   }
-  if (*len == 0) {
+  if (temp_len == 0) {
+    *len = temp_len;
     *buf = NULL;
     return REDISMODULE_OK;
   }
 
-  *buf = rm_malloc(*len + 1);
-  ((char *)(*buf))[*len] = 0;
-  if (FGC_recvFixed(fgc, *buf, *len) != REDISMODULE_OK) {
-    rm_free(buf);
+  char *buf_data = rm_malloc(temp_len + 1);
+  buf_data[temp_len] = 0;
+  if (FGC_recvFixed(fgc, buf_data, temp_len) != REDISMODULE_OK) {
+    rm_free(buf_data);
     return REDISMODULE_ERR;
   }
+  *len = temp_len;
+  *buf = buf_data;
   return REDISMODULE_OK;
 }
 
