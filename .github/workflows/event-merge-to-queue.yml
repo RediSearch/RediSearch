@@ -32,7 +32,7 @@ jobs:
     secrets: inherit
 
   test-matrix:
-    needs: get-latest-redis-tag
+    needs: [get-latest-redis-tag, lint]
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:

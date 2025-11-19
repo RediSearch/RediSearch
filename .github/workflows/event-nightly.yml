@@ -33,7 +33,7 @@ jobs:
 
 
   notify-failure:
-    needs: [test-all-platforms, run-on-intel, micro-benchmarks]
+    needs: [lint, spellcheck, test-all-platforms, run-on-intel, micro-benchmarks]
     if: failure()
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
