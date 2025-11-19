@@ -67,34 +67,34 @@ impl<E: Encoder> BaseTest<E> {
         }
     }
 
+    /// Iterator over all the document ids present in the inverted index.
+    fn docs_ids_iter(&self) -> impl Iterator<Item = u64> {
+        self.doc_ids.iter().map(|id| *id)
+    }
+
     /// test read functionality for a given iterator.
-    fn read<'index, I>(&self, it: &mut I)
+    ///
+    /// `docs_ids` is an iterator over the expected document ids to read.
+    fn read<'index, I>(&self, it: &mut I, doc_ids: impl Iterator<Item = u64>)
     where
         I: RQEIterator<'index>,
     {
         let expected_record = &*self.expected_record;
-        let mut i = 0;
 
-        for _ in 0..=self.doc_ids.len() {
-            let result = it.read();
-            match result {
-                Ok(Some(record)) => {
-                    check_record(record, &expected_record(record.doc_id));
-                    assert_eq!(it.last_doc_id(), self.doc_ids[i]);
-                    assert_eq!(it.current().unwrap().doc_id, self.doc_ids[i]);
-                    assert!(!it.at_eof());
-                }
-                _ => break,
-            }
-            i += 1;
+        for doc_id in doc_ids {
+            let record = it
+                .read()
+                .expect("failed to read")
+                .expect("expected result not eof");
+
+            check_record(record, &expected_record(record.doc_id));
+            assert_eq!(it.last_doc_id(), doc_id);
+            assert_eq!(it.current().unwrap().doc_id, doc_id);
+            assert!(!it.at_eof());
         }
 
-        assert_eq!(
-            i,
-            self.doc_ids.len(),
-            "expected to read {} documents but only got {i}",
-            self.doc_ids.len()
-        );
+        // We should have read all the documents
+        assert_eq!(it.read().unwrap(), None);
         assert!(it.at_eof());
         assert_eq!(it.num_estimated(), self.doc_ids.len());
         assert_eq!(it.num_estimated(), self.ii.unique_docs() as usize);
@@ -425,7 +425,7 @@ fn numeric_full_read() {
     let test = NumericTest::new(100);
     let reader = test.test.ii.reader();
     let mut it = Numeric::new(reader);
-    test.test.read(&mut it);
+    test.test.read(&mut it, test.test.docs_ids_iter());
 
     // same but using a passthrough filter
     let test = NumericTest::new(100);
@@ -433,7 +433,7 @@ fn numeric_full_read() {
     let reader = test.test.ii.reader();
     let reader = FilterNumericReader::new(&filter, reader);
     let mut it = Numeric::new(reader);
-    test.test.read(&mut it);
+    test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
 #[test]
@@ -556,7 +556,7 @@ fn term_full_read() {
     let test = TermTest::new(100);
     let reader = test.test.ii.reader();
     let mut it = Term::new(reader);
-    test.test.read(&mut it);
+    test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
 #[test]
