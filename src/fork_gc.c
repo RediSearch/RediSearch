@@ -98,7 +98,8 @@ static void FGC_sendTerminator(ForkGC *fgc) {
 
 static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
   // poll the pipe, so that we don't block while read, with timeout of 3 minutes
-  while (poll(fgc->pollfd_read, 1, 180000) == 1) {
+  int poll_rc;
+  while ((poll_rc = poll(fgc->pollfd_read, 1, 180000)) == 1) {
     ssize_t nrecvd = read(fgc->pipe_read_fd, buf, len);
     if (nrecvd > 0) {
       buf += nrecvd;
@@ -112,8 +113,9 @@ static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *
     }
   }
   short revents = fgc->pollfd_read[0].revents;
-  RedisModule_Log(fgc->ctx, "warning", "ForkGC - got timeout while reading from pipe. errno: %s, revents: 0x%x (POLLIN=%x POLLERR=%x POLLHUP=%x POLLNVAL=%x)",
-                  strerror(errno), revents, (revents & POLLIN), (revents & POLLERR), (revents & POLLHUP), (revents & POLLNVAL));
+  const char *what = (poll_rc == 0) ? "timeout" : "error";
+  RedisModule_Log(fgc->ctx, "warning", "ForkGC - got %s while reading from pipe. errno: %s, revents: 0x%x (POLLIN=%x POLLERR=%x POLLHUP=%x POLLNVAL=%x)",
+                  what, strerror(errno), revents, (revents & POLLIN), (revents & POLLERR), (revents & POLLHUP), (revents & POLLNVAL));
   return REDISMODULE_ERR;
 }
 
