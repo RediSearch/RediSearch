@@ -5,8 +5,8 @@ import numpy as np
 from redis.exceptions import ResponseError
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
-COORD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
-SHARD_OOM_WARNING = "Shard failed to execute the query due to insufficient memory"
+SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
+COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
 
 def run_cmd_expect_oom(env, query_args):
     env.expect(*query_args).error().contains(OOM_QUERY_ERROR)
@@ -319,7 +319,7 @@ class testOomHybridClusterBehavior:
         # Testing warnings verbosity
         self.env.assertEqual(res[5][0], COORD_OOM_WARNING)
 
-@skip(cluster=False)
+# @skip(cluster=False)
 def test_oom_verbosity_cluster_return():
     env  = Env(shardsCount=3, protocol=3)
 
@@ -343,13 +343,13 @@ def test_oom_verbosity_cluster_return():
 
     # FT.SEARCH
     res = env.cmd('FT.SEARCH', 'idx', '*')
-    env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
+    env.assertEqual(res['warning'][0], SHARD_OOM_WARNING)
 
     # TODO - Check warnings in FT.AGGREGATE when empty results are handled correctly
 
     # Search Profile
     res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
-    env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
+    env.assertEqual(res['Results']['warning'][0], SHARD_OOM_WARNING)
     shards_warning_lst = [shard_profile['Warning'] for shard_profile in res['Profile']['Shards']]
     # Since we don't know the order of responses, we need to count 2 errors
     env.assertEqual(shards_warning_lst.count(SHARD_OOM_WARNING), 2)

@@ -5,8 +5,8 @@ from common import *
 # Currently, only OOM `return` policy initiates early bailout
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
-COORD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
-SHARD_OOM_WARNING = "Shard failed to execute the query due to insufficient memory"
+SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
+COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
 
 def remove_keys_with_phrases(data, phrases):
     if isinstance(data, dict):
