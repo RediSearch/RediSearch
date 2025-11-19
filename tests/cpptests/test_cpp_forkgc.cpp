@@ -690,6 +690,50 @@ TEST_F(FGCTestTag, testPipeErrorDuringGC) {
   ASSERT_EQ(0, fgc->stats.totalCollected);
 }
 
+/**
+ * Test that closes the pipe while GC is actively applying changes.
+ * This test runs multiple iterations to increase the chance of hitting different
+ * code paths and timing windows during the apply phase.
+ */
+TEST_F(FGCTestTag, testPipeErrorDuringApply) {
+  // Run multiple iterations to increase coverage of different timing scenarios
+  for (int iteration = 0; iteration < 10; iteration++) {
+    // Add documents to create work for the GC
+    std::string doc1 = "doc1_" + std::to_string(iteration);
+    std::string doc2 = "doc2_" + std::to_string(iteration);
+    std::string doc3 = "doc3_" + std::to_string(iteration);
+
+    ASSERT_TRUE(RS::addDocument(ctx, ism, doc1.c_str(), "f1", "hello"));
+    ASSERT_TRUE(RS::addDocument(ctx, ism, doc2.c_str(), "f1", "hello"));
+    ASSERT_TRUE(RS::addDocument(ctx, ism, doc3.c_str(), "f1", "hello"));
+
+    FGC_WaitBeforeFork(fgc);
+
+    // Delete documents to trigger GC work
+    ASSERT_TRUE(RS::deleteDocument(ctx, ism, doc1.c_str()));
+    ASSERT_TRUE(RS::deleteDocument(ctx, ism, doc2.c_str()));
+
+    FGC_ForkAndWaitBeforeApply(fgc);
+
+    // Start a thread to close the pipe after a brief delay
+    // This creates a race condition where the pipe may be closed at various
+    // points during the apply process
+    std::thread closer([this, iteration]() {
+      // Variable delay to hit different code paths
+      usleep(10 * iteration);
+      close(fgc->pipe_read_fd);
+    });
+
+    // Apply should handle the pipe closure gracefully without crashing
+    FGC_Apply(fgc);
+
+    closer.join();
+
+    // Don't make any assertions about the state - it's timing dependent
+    // The important thing is that we don't crash or have memory corruption
+  }
+}
+
 TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   const auto startValue = TotalIIBlocks();
   constexpr size_t docs_per_block = 100;
