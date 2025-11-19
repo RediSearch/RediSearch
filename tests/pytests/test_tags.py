@@ -368,7 +368,7 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
 
     # ensure later documents with same tag are read
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t:{foo}')
-    env.assertEqual(res, [1, [], []])
+    env.assertEqual(res, [2, [], []])
 
 @skip(cluster=True)
 def testEmptyTagLeak(env):

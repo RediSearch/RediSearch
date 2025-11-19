@@ -424,17 +424,17 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'],
-         ['Index', 'Pager/Limiter'], # ?
-         ['Index', 'Pager/Limiter'], # ?
-         [['Index', 'Pager/Limiter', 'Loader'], ['Network', 'Sorter']], # ?
-         [['Index', 'Pager/Limiter', 'Loader'], ['Network', 'Sorter']]), # ?
+         ['Index', 'Sorter'],
+         ['Index', 'Sorter'],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
 
         # WITHOUTCOUNT + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
-         ['Index', 'Sorter', 'Pager/Limiter'], # ?
-         ['Index', 'Sorter', 'Pager/Limiter'], # ?
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']], # ?
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]), # ?
+         ['Index', 'Sorter', 'Pager/Limiter'],
+         ['Index', 'Sorter', 'Pager/Limiter'],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]),
     ]
 
     for (query, resp2_standalone, resp3_standalone, resp2_cluster,
