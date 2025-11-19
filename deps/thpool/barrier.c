@@ -26,9 +26,9 @@ int barrier_wait_and_destroy(barrier_t *barrier) {
     // Wait for the threads to exit the barrier_wait to safely destroy the barrier.
     while (barrier->received < barrier->count) {
       usleep(1);
-    }
+   }
 
-    return pthread_barrier_destroy(&barrier->barrier);
+   return pthread_barrier_destroy(&barrier->barrier);
 }
 
 /* ============= implementation for MacOS ============= */
@@ -45,6 +45,7 @@ int pthread_barrier_init(pthread_barrier_t *barrier, void *attr, int count) {
     pthread_cond_init(&barrier->condition_variable, NULL);
     return 0;
 }
+#define PTHREAD_BARRIER_SERIAL_THREAD -1
 
 int pthread_barrier_wait(pthread_barrier_t *barrier) {
     pthread_mutex_lock(&barrier->mutex);
