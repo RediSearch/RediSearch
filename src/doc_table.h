@@ -210,8 +210,13 @@ void DMD_Free(const RSDocumentMetadata *);
 /* Decrement the refcount of the DMD object, freeing it if we're the last reference */
 static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;
-  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELAXED)) {
-    DMD_Free(dmd);
+
+  if (dmd) {
+      uint16_t count = __atomic_fetch_sub(&dmd->ref_count, 1, __ATOMIC_RELAXED);
+      RS_LOG_ASSERT(count >= 1, "underflow of dmd ref_count");
+      if (count == 1) {
+        DMD_Free(dmd);
+      }
   }
 }
 

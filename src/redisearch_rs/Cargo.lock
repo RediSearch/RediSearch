@@ -1423,6 +1423,7 @@ dependencies = [
  "query_error_ffi",
  "redis-module",
  "result_processor_ffi",
+ "search_result_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
@@ -1464,6 +1465,7 @@ dependencies = [
  "ffi",
  "libc",
  "pin-project",
+ "search_result",
 ]
 
 [[package]]
