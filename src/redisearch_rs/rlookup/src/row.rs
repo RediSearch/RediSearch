@@ -124,29 +124,25 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
                 break;
             };
 
-            let increment_idx = !key.is_overridden();
-            let should_count = increment_idx
-                && key.flags.contains(required_flags)
-                && !key.flags.intersects(excluded_flags)
-                && self.get(key).is_some()
-                && !rule.is_some_and(|rule| {
-                    rule.lang_field().is_some_and(|lf| lf == key.name_as_cstr())
-                        || rule
-                            .score_field()
-                            .is_some_and(|sf| sf == key.name_as_cstr())
-                        || rule
-                            .payload_field()
-                            .is_some_and(|p| p == key.name_as_cstr())
-                });
+            let will_increment_idx = !key.is_overridden();
+            let key_matches_flag_requirements =
+                key.flags.contains(required_flags) && !key.flags.intersects(excluded_flags);
+            let key_has_associated_value = self.get(key).is_some();
+            let key_allowed_by_rule = !rule.is_some_and(|rule| rule.is_special_key(key));
+
+            let will_count = will_increment_idx
+                && key_matches_flag_requirements
+                && key_has_associated_value
+                && key_allowed_by_rule;
 
             cursor.move_next();
 
-            if should_count {
+            if will_count {
                 out_flags[idx] = true;
                 num_fields += 1;
             }
 
-            if increment_idx {
+            if will_increment_idx {
                 idx += 1;
             }
         }
