@@ -106,8 +106,6 @@ def test_MOD_11658_workers_reduction_under_load():
     env.debugPrint(f"Query success count after config change: {post_count}", force=True)
     env.assertGreater(post_count, pre_count, message="Queries should continue running after config change")
 
-
-
     # Verify the config change took effect
     # TODO(Joan): How can I know if the threads actually disappeared
     # Critical test: Verify Redis is still responsive
@@ -146,7 +144,6 @@ def test_MOD_11658_workers_reduction_under_load():
     env.debugPrint(f"Test completed. Total successful queries: {query_success_count[0]}", force=True)
 
 
-@skip(cluster=False)
 def test_MOD_11658_workers_reduction_sequence():
     """
     Test gradual reduction of workers to see if the issue is specific to large deltas.
@@ -190,7 +187,6 @@ def test_MOD_11658_workers_reduction_sequence():
     env.debugPrint("Gradual reduction test completed successfully", force=True)
 
 
-@skip(cluster=False)
 def test_MOD_11658_workers_zero_to_nonzero():
     """
     Test that increasing workers from 0 to a higher value also works correctly.
