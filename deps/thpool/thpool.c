@@ -93,7 +93,6 @@ typedef struct priority_queue {
   jobqueue high_priority_jobqueue;  /* job queue for high priority tasks */
   jobqueue low_priority_jobqueue;   /* job queue for low priority tasks */
   jobqueue admin_priority_jobqueue; /* job queue for administration tasks */
-  job* config_reduce_threads_job; /* A pointer to a configuration job that reduces the number of threads. */
   pthread_mutex_t lock;             /* used for queue r/w access */
   unsigned char alternating_pulls;  /* number of pulls by non-bias threads from queue */
   unsigned char n_high_priority_bias; /* minimal number of high priority jobs to run in
@@ -120,12 +119,6 @@ typedef struct redisearch_thpool_t {
                                                 null byte) to leave room for
                                                 '-<thread id>'*/
 } redisearch_thpool_t;
-
-struct config_reduce_threads_job_arg {
-  redisearch_thpool_t *thpool;
-  size_t n_threads_to_remove;
-  ThreadState new_state;
-};
 
 struct SignalThreadCtxWithBarrier {
   ThreadState new_state;
@@ -382,18 +375,6 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
     // return this value to keep old behavior
     return thpool_p->n_threads;
 
-  pthread_mutex_lock(&thpool_p->jobqueues.lock);
-  //TODO(Joan): Should we fail if the thpool has a pending configuration_reduce_threads_job?
-  if (thpool_p->jobqueues.config_reduce_threads_job) {
-    struct config_reduce_threads_job_arg *job_arg = thpool_p->jobqueues.config_reduce_threads_job->arg;
-    size_t old_n_threads_to_remove = job_arg->n_threads_to_remove;
-    thpool_p->n_threads += old_n_threads_to_remove;
-    thpool_p->jobqueues.config_reduce_threads_job = NULL;
-    LOG_IF_EXISTS("verbose", "Thread pool size has a pending reduction of %zu threads. This reduction will be aborted", old_n_threads_to_remove);
-  }
-  // If config_reduce_threads_job is not there but the ADMIN jobs are running, if TERMINATE_ASAP we are safe because the admin jobs would be taken by the other threads
-  // This would mean that the old threads would be remove dand the new threads would be created eventually leading to the expected number of threads.
-  pthread_mutex_unlock(&thpool_p->jobqueues.lock);
   size_t n_threads = thpool_p->n_threads + n_threads_to_add;
   thpool_p->n_threads = n_threads;
   /* Add new threads */
@@ -915,7 +896,6 @@ static int priority_queue_init(priorityJobqueue *priority_queue_p,
   priority_queue_p->high_priority_tickets = high_priority_bias_threshold;
   priority_queue_p->state = JOBQ_RUNNING;
   priority_queue_p->num_jobs_in_progress = 0;
-  priority_queue_p->config_reduce_threads_job = NULL;
   pthread_cond_init(&(priority_queue_p->has_jobs), NULL);
 
   return 0;
@@ -925,11 +905,6 @@ static void priority_queue_clear(priorityJobqueue *priority_queue_p) {
   jobqueue_clear(&priority_queue_p->high_priority_jobqueue);
   jobqueue_clear(&priority_queue_p->low_priority_jobqueue);
   jobqueue_clear(&priority_queue_p->admin_priority_jobqueue);
-  if (priority_queue_p->config_reduce_threads_job) {
-    rm_free(priority_queue_p->config_reduce_threads_job->arg);
-    rm_free(priority_queue_p->config_reduce_threads_job);
-    priority_queue_p->config_reduce_threads_job = NULL;
-  }
 }
 
 static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
@@ -977,21 +952,6 @@ static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
   return job_ctx;
 }
 static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobqueue *priority_queue_p) {
-  if (priority_queue_p->config_reduce_threads_job) {
-    priority_queue_p->num_jobs_in_progress++;
-    job *job_p = (job *)rm_malloc(sizeof(job));
-    job_p->function = priority_queue_p->config_reduce_threads_job->function;
-    job_p->arg = priority_queue_p->config_reduce_threads_job->arg;
-    job_p->prev = NULL;
-    priorityJobCtx job_ctx = {
-        .job = job_p,
-        .is_admin = false,
-        .has_priority_ticket = false,
-    };
-    priority_queue_p->config_reduce_threads_job = NULL;
-    return job_ctx;
-  }
-
   bool is_admin = true, has_priority_ticket = false;
   job *job_p = NULL;
   /* Pull from the admin queue first */
@@ -1136,34 +1096,6 @@ static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
   LOG_IF_THPOOL_EXISTS("verbose", "Thread done waiting on barrier");
 }
 
-static void config_reduce_threads_job(void *arg) {
-  struct config_reduce_threads_job_arg *job_arg = arg;
-  redisearch_thpool_t *thpool = job_arg->thpool;
-  size_t n_threads_to_remove = job_arg->n_threads_to_remove;
-  ThreadState new_state = job_arg->new_state;
-  /* Create jobs and their args. */
-  LOG_IF_THPOOL_EXISTS("verbose", "Scheduling from thread pool %zu threads to remove %s", n_threads_to_remove, new_state == THREAD_TERMINATE_ASAP ? "ASAP" : "when empty");
-
-  redisearch_thpool_work_t jobs[n_threads_to_remove];
-  /* Create a barrier. */
-  pthread_barrier_t *barrier = rm_malloc(sizeof(pthread_barrier_t));
-  pthread_barrier_init(barrier, NULL, n_threads_to_remove);
-  struct SignalThreadCtxWithBarrier *signal_job_arg = rm_malloc(sizeof(struct SignalThreadCtxWithBarrier));
-  signal_job_arg->barrier = barrier;
-  signal_job_arg->new_state = new_state;
-  signal_job_arg->thpool = thpool;
-  atomic_init(&signal_job_arg->num_threads_to_wait, n_threads_to_remove);
-  /* Set new state of all threads to 'new_state'. */
-  for (size_t i = 0; i < n_threads_to_remove; i++) {
-    jobs[i].arg_p = signal_job_arg;
-    jobs[i].function_p = admin_job_change_state_last_destroys_barrier;
-  }
-  // I do not need to verify init since we are actually putting in priority queue, and I do not want to wait on another barrier
-  redisearch_thpool_add_n_work_not_verify_init(thpool, jobs, n_threads_to_remove, THPOOL_PRIORITY_ADMIN);
-
-  rm_free(job_arg);
-}
-
 void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool remove_all) {
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
   ThreadState new_state = remove_all ? THREAD_TERMINATE_WHEN_EMPTY : THREAD_TERMINATE_ASAP;
@@ -1175,7 +1107,6 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   if (thpool_p->state == THPOOL_UNINITIALIZED)
     return;
 
-  pthread_mutex_lock(&thpool_p->jobqueues.lock);
   size_t n_threads = thpool_p->n_threads;
   size_t jobs_count = priority_queue_len_unsafe(&thpool_p->jobqueues);
   if (n_threads == 0 && jobs_count > 0) {
@@ -1189,28 +1120,23 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
 
   assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
 
-  if (thpool_p->jobqueues.config_reduce_threads_job) {
-    size_t old_n_threads_to_remove = ((struct config_reduce_threads_job_arg *)thpool_p->jobqueues.config_reduce_threads_job->arg)->n_threads_to_remove;
-    thpool_p->n_threads += old_n_threads_to_remove;
-    LOG_IF_EXISTS("verbose", "Overriding previous configuration that requested to remove %zu threads with a new job to remove %zu threads", old_n_threads_to_remove, n_threads_to_remove);
-    rm_free(thpool_p->jobqueues.config_reduce_threads_job->arg);
-    rm_free(thpool_p->jobqueues.config_reduce_threads_job);
-  }
   // If config_reduce_threads_job is not there but the ADMIN jobs are running, if TERMINATE_ASAP we are safe because the admin jobs would be taken by the other threads.
   // If the old config is TERMINATE_WHEN_EMPTY it means that we are removing all threads, and we should set to THPOOL_UNINITIALIZED.
   thpool_p->n_threads -= n_threads_to_remove;
-  struct config_reduce_threads_job_arg *job_arg = (struct config_reduce_threads_job_arg *)rm_malloc(sizeof(*job_arg));
-  job_arg->thpool = thpool_p;
-  job_arg->n_threads_to_remove = n_threads_to_remove;
-  job_arg->new_state = new_state;
-  thpool_p->jobqueues.config_reduce_threads_job = (job *)rm_malloc(sizeof(job));
-  thpool_p->jobqueues.config_reduce_threads_job->function = config_reduce_threads_job;
-  thpool_p->jobqueues.config_reduce_threads_job->arg = job_arg;
-  thpool_p->jobqueues.config_reduce_threads_job->prev = NULL;
-  if (thpool_p->n_threads == 0) {
-    assert(new_state == THREAD_TERMINATE_WHEN_EMPTY && "If we are removing all threads, the new state must be THREAD_TERMINATE_WHEN_EMPTY");
-    thpool_p->state = THPOOL_UNINITIALIZED;
+  redisearch_thpool_work_t jobs[n_threads_to_remove];
+  /* Create a barrier. */
+  pthread_barrier_t *barrier = rm_malloc(sizeof(pthread_barrier_t));
+  pthread_barrier_init(barrier, NULL, n_threads_to_remove);
+  struct SignalThreadCtxWithBarrier *signal_job_arg = rm_malloc(sizeof(struct SignalThreadCtxWithBarrier));
+  signal_job_arg->barrier = barrier;
+  signal_job_arg->new_state = new_state;
+  signal_job_arg->thpool = thpool_p;
+  atomic_init(&signal_job_arg->num_threads_to_wait, n_threads_to_remove);
+  /* Set new state of all threads to 'new_state'. */
+  for (size_t i = 0; i < n_threads_to_remove; i++) {
+    jobs[i].arg_p = signal_job_arg;
+    jobs[i].function_p = admin_job_change_state_last_destroys_barrier;
   }
-  pthread_cond_broadcast(&thpool_p->jobqueues.has_jobs);
-  pthread_mutex_unlock(&thpool_p->jobqueues.lock);
+  // I do not need to verify init since we are actually putting in priority queue, and I do not want to wait on another barrier
+  redisearch_thpool_add_n_work_not_verify_init(thpool_p, jobs, n_threads_to_remove, THPOOL_PRIORITY_ADMIN);
 }
