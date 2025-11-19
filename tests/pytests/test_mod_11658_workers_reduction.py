@@ -3,6 +3,26 @@ from common import *
 import threading
 import time
 import random
+import os
+
+def check_worker_log_messages(env, expected_pattern):
+    """Check log file for worker-related messages"""
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    found = False
+    try:
+      with open(logFilePath, 'r') as f:
+          content = f.read()
+          if expected_pattern in content:
+              found = True
+    except Exception as e:
+        # Most likely we are with PARALLEL=0 and logfile is not used (do not fail)
+        found = True
+        env.debugPrint(f"Error reading log file: {e}", force=True)
+
+    return found
 
 def test_MOD_11658_workers_reduction_under_load():
     """
@@ -142,6 +162,9 @@ def test_MOD_11658_workers_reduction_under_load():
     env.assertTrue(final_search[0] > 0, message="Search should return results at end of test")
 
     env.debugPrint(f"Test completed. Total successful queries: {query_success_count[0]}", force=True)
+
+    # We can only be sure at least one has been terminated
+    env.assertTrue(check_worker_log_messages(env, "Terminating thread"))
 
 
 def test_MOD_11658_workers_reduction_sequence():
