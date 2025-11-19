@@ -44,7 +44,8 @@ jobs:
 
   test-matrix:
     needs: [check-what-changed, get-latest-redis-tag, generate-basic-matrix, lint, spellcheck]
-    if: ${{ needs.generate-basic-matrix.outputs.has-jobs == 'true' }}
+    # Run if there are jobs AND (lint succeeded or was skipped) AND (spellcheck succeeded or was skipped)
+    if: ${{ needs.generate-basic-matrix.outputs.has-jobs == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     strategy:
       matrix: ${{ fromJson(needs.generate-basic-matrix.outputs.matrix) }}
       fail-fast: true
