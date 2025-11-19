@@ -91,6 +91,9 @@ pub trait RQEIterator<'index> {
 
     /**************** properties ****************/
 
+    /// Returns the last doc entry that was read or skipped to.
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>>;
+
     /// Returns the last doc id that was read or skipped to.
     fn last_doc_id(&self) -> t_docId;
 

@@ -9,7 +9,7 @@
 
 //! Optional iterator implementation
 
-use ffi::t_docId;
+use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -56,9 +56,24 @@ where
         Self {
             max_doc_id: max_id,
             weight,
-            result: RSIndexResult::virt(),
+            result: RSIndexResult::virt()
+                .weight(0.)
+                .frequency(1)
+                .field_mask(RS_FIELDMASK_ALL),
             child: Some(child),
         }
+    }
+
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+
+    pub fn set_child(&mut self, new_child: I) {
+        self.child = Some(new_child);
+    }
+
+    pub const fn take_child(&mut self) -> Option<I> {
+        self.child.take()
     }
 }
 
@@ -71,31 +86,25 @@ where
             return Ok(None);
         }
 
-        let maybe_real = self
-            .child
-            .as_mut()
-            .map(|child| {
-                if child.last_doc_id() != self.result.doc_id {
-                    return Ok(None);
-                }
-                child.read()
-            })
-            .transpose()?
-            .flatten();
+        if let Some(child) = self.child.as_mut()
+            && child.last_doc_id() == self.result.doc_id
+        {
+            // The last document we read came from the child iterator,
+            // so let's keep reading from it.
+            child.read()?;
+        }
 
         self.result.doc_id += 1;
 
-        if let Some(real) = maybe_real {
-            debug_assert_eq!(
-                self.result.doc_id, real.doc_id,
-                "reads are expected to be always sequential"
-            );
-
-            real.weight = self.weight;
-            return Ok(Some(real));
+        if let Some(child) = self.child.as_mut()
+            && let Some(current) = child.current()
+            && current.doc_id == self.result.doc_id
+        {
+            current.weight = self.weight;
+            Ok(Some(current))
+        } else {
+            Ok(Some(&mut self.result))
         }
-
-        Ok(Some(&mut self.result))
     }
 
     // C-Code: SkipTo for OPTIONAL iterator - Non-optimized version.
@@ -143,10 +152,7 @@ where
                 self.child = None; // Drop it so we become fully virtual until max is reached
                 Ok(if last_child_doc_id != self.result.doc_id {
                     // virtual
-                    self.result.doc_id += 1;
-                    RQEValidateStatus::Moved {
-                        current: Some(&mut self.result),
-                    }
+                    RQEValidateStatus::Ok
                 } else {
                     // was real before abort, re-read to
                     // prevent returning stale data.
@@ -193,5 +199,15 @@ where
 
     fn at_eof(&self) -> bool {
         self.result.doc_id >= self.max_doc_id
+    }
+
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if let Some(child) = self.child.as_mut()
+            && child.last_doc_id() == self.result.doc_id
+        {
+            child.current()
+        } else {
+            Some(&mut self.result)
+        }
     }
 }

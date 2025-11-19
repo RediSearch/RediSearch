@@ -83,4 +83,8 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     fn at_eof(&self) -> bool {
         self.current_id >= self.top_id
     }
+
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (!self.at_eof()).then_some(&mut self.result)
+    }
 }

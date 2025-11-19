@@ -163,4 +163,9 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     fn at_eof(&self) -> bool {
         self.get_current().is_none()
     }
+
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (!self.at_eof()).then_some(&mut self.result)
+    }
 }

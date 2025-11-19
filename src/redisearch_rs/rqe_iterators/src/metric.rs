@@ -171,6 +171,10 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index>
         self.base.num_estimated()
     }
 
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.base.current()
+    }
+
     fn last_doc_id(&self) -> t_docId {
         self.base.last_doc_id()
     }

@@ -48,6 +48,11 @@ impl<'index> RQEIterator<'index> for Empty {
     }
 
     #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        None
+    }
+
+    #[inline(always)]
     fn at_eof(&self) -> bool {
         true
     }

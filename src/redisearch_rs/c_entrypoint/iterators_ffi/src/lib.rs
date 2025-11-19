@@ -10,4 +10,5 @@
 mod c2rust;
 pub mod id_list;
 pub mod metric;
+pub mod optional;
 mod wrapper;

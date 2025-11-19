@@ -626,6 +626,10 @@ impl<'index> RQEIterator<'index> for RevalidateTestIterator<'index> {
             Ok(RQEValidateStatus::Ok)
         }
     }
+
+    fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
+        (!self.at_eof()).then_some(&mut self.result)
+    }
 }
 
 #[test]

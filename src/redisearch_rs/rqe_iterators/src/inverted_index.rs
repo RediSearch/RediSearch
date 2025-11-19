@@ -147,6 +147,10 @@ where
 
         Ok(res)
     }
+
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (!self.at_eos).then_some(&mut self.result)
+    }
 }
 
 /// An iterator over numeric inverted index entries.
@@ -206,6 +210,10 @@ where
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.it.revalidate()
+    }
+
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.it.current()
     }
 }
 
@@ -270,5 +278,9 @@ where
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.it.revalidate()
+    }
+
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.it.current()
     }
 }

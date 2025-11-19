@@ -252,9 +252,9 @@ void Profile_AddIters(QueryIterator **root) {
       break;
     }
     case OPTIONAL_ITERATOR: {
-      QueryIterator *child = ((OptionalIterator *)(*root))->child;
+      QueryIterator *child = TakeOptionalIteratorChild(*root);
       Profile_AddIters(&child);
-      ((OptionalIterator *)(*root))->child = child;
+      SetOptionalIteratorChild(*root, child);
       break;
     }
     case HYBRID_ITERATOR: {
@@ -457,9 +457,13 @@ PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,          "WILDCARD");
 PRINT_PROFILE_SINGLE_NO_CHILD(printIdListIt,            "ID-LIST");
 PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,             "EMPTY");
 PRINT_PROFILE_SINGLE(printNotIt, NotIterator,           "NOT");
-PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL");
 PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,     "VECTOR");
 PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
+
+PRINT_PROFILE_FUNC(printOptionalIt) {
+  PrintIteratorChildProfile(reply, (root), counters, cpuTime, depth, limited, config,
+    GetOptionalIteratorChild(root), "OPTIONAL");
+}
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
