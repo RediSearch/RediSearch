@@ -9,7 +9,10 @@
 
 //! Supporting types for [`Numeric`] and [`Term`].
 
-use ffi::t_docId;
+use std::ptr::NonNull;
+
+use ffi::{IndexSpec, RS_INVALID_FIELD_INDEX, RedisSearchCtx, t_docId};
+use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -32,24 +35,88 @@ pub struct InvIndIterator<'index, R> {
     /// A reusable result object to avoid allocations on each `read` call.
     result: RSIndexResult<'index>,
 
+    /// The search context used to revalidate the iterator and to check for expiration.
+    sctx: Option<NonNull<RedisSearchCtx>>,
+    /// The context for the field/s filter, used to determine if the field/s is/are expired.
+    filter_ctx: FieldFilterContext,
+
     /// The implementation of the `read` method.
     /// Using dynamic dispatch so we can pick the right version during the
     /// iterator construction saving to re-do the checks each time read() is called.
     read_impl: fn(&mut Self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>,
+    /// The implementation of the `skip_to` method.
+    skip_to_impl:
+        fn(&mut Self, t_docId) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError>,
+}
+
+/// Returns `true` if the iterator should check for expired record when reading from the inverted index.
+fn has_expiration(spec: &IndexSpec, mask_or_index: FieldMaskOrIndex) -> bool {
+    if spec.docs.ttl.is_null() {
+        return false;
+    }
+
+    if !spec.monitorDocumentExpiration {
+        return false;
+    }
+
+    // check if the specific field/fieldMask has expiration
+    match mask_or_index {
+        FieldMaskOrIndex::Mask(_mask) => true,
+        FieldMaskOrIndex::Index(index) if index != RS_INVALID_FIELD_INDEX => true,
+        _ => false,
+    }
+
+    // TODO: better estimation
 }
 
 impl<'index, R> InvIndIterator<'index, R>
 where
     R: IndexReader<'index>,
 {
-    pub fn new(reader: R, result: RSIndexResult<'static>) -> Self {
+    /// # Safety
+    ///
+    /// 1. `context` is either None or a valid pointer to a `RedisSearchCtx`.
+    /// 2. if `context` is Some then `context.spec` is a valid pointer to an `IndexSpec`.
+    /// 3. 1 and 2 must stay valid during the iterator's lifetime.
+    pub fn new(
+        reader: R,
+        result: RSIndexResult<'static>,
+        filter_ctx: FieldFilterContext,
+        context: Option<NonNull<RedisSearchCtx>>,
+    ) -> Self {
+        #[cfg(debug_assertions)]
+        if let Some(context) = &context {
+            debug_assert!(context.is_aligned());
+            // SAFETY: Guaranteed by 1.
+            let context = unsafe { context.as_ref() };
+            debug_assert!(!context.spec.is_null());
+            debug_assert!(context.spec.is_aligned());
+        }
+
         // no need to manually skip duplicates if there is none in the II.
         let skip_multi = reader.has_duplicates();
+        let has_expiration = context
+            .as_ref()
+            .map(|sctx| {
+                // SAFETY: Guaranteed by 1.
+                let sctx = unsafe { sctx.as_ref() };
+                // SAFETY: Guaranteed by 2.
+                let spec = unsafe { sctx.spec.as_ref().expect("sctx.spec cannot be NULL") };
+                has_expiration(spec, filter_ctx.field)
+            })
+            .unwrap_or_default();
 
-        let read_impl = if skip_multi {
-            Self::read_skip_multi
+        let read_impl = match (skip_multi, has_expiration) {
+            (true, true) => Self::read_skip_multi_check_expiration,
+            (true, false) => Self::read_skip_multi,
+            (false, true) => Self::read_check_expiration,
+            (false, false) => Self::read_default,
+        };
+
+        let skip_to_impl = if has_expiration {
+            Self::skip_to_check_expiration
         } else {
-            Self::read_default
+            Self::skip_to_default
         };
 
         Self {
@@ -57,14 +124,13 @@ where
             at_eos: false,
             last_doc_id: 0,
             result,
+            filter_ctx,
+            sctx: context,
             read_impl,
+            skip_to_impl,
         }
     }
 
-    // TODO: this a port of InvIndIterator_Read_Default, the simplest read version.
-    // The more complex ones will be implemented as part of the query iterators:
-    // - InvIndIterator_Read_SkipMulti_CheckExpiration
-    // - InvIndIterator_Read_CheckExpiration
     /// Default read implementation, without any additional filtering.
     fn read_default(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.at_eos {
@@ -100,32 +166,72 @@ where
         self.at_eos = true;
         Ok(None)
     }
-}
 
-impl<'index, R> RQEIterator<'index> for InvIndIterator<'index, R>
-where
-    R: IndexReader<'index>,
-{
-    #[inline(always)]
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        Some(&mut self.result)
+    /// Returns `false` if the current document is expired.
+    fn check_current_expiration(&self) -> bool {
+        let Some(sctx) = self.sctx.as_ref() else {
+            // no search context so record cannot expire
+            return true;
+        };
+        // SAFETY: 1 + 3
+        let sctx = unsafe { sctx.as_ref() };
+        // SAFETY: 2 + 3
+        let spec = unsafe { *(sctx.spec) };
+
+        if spec.docs.ttl.is_null() {
+            // no TTL so record cannot expire
+            return true;
+        };
+
+        let current_time = &sctx.time.current as *const _;
+
+        match self.filter_ctx.field {
+            FieldMaskOrIndex::Index(index) => unsafe {
+                ffi::TimeToLiveTable_VerifyDocAndField(
+                    spec.docs.ttl,
+                    self.result.doc_id,
+                    index,
+                    self.filter_ctx.predicate.raw(),
+                    current_time,
+                )
+            },
+            FieldMaskOrIndex::Mask(_) => todo!(),
+        }
     }
 
-    #[inline(always)]
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        (self.read_impl)(self)
+    /// Read implementation that skips entries based on field mask expiration.
+    fn read_check_expiration(
+        &mut self,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.at_eos {
+            return Ok(None);
+        }
+
+        while self.reader.next_record(&mut self.result)? {
+            if !self.check_current_expiration() {
+                continue;
+            }
+            self.last_doc_id = self.result.doc_id;
+            return Ok(Some(&mut self.result));
+        }
+
+        // exited the while loop so we reached the end of the index
+        self.at_eos = true;
+        Ok(None)
     }
 
-    // TODO: implement InvIndIterator_SkipTo_withSeeker_CheckExpiration with the query iterators.
-    #[inline(always)]
-    fn skip_to(
+    /// Read implementation that combines skipping multi-value entries and checking field mask expiration.
+    fn read_skip_multi_check_expiration(
+        &mut self,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        todo!()
+    }
+
+    // SkipTo implementation that uses a seeker to find the next valid docId, no additional filtering.
+    fn skip_to_default(
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        // cannot be called with an id smaller than the last one returned by the iterator, see
-        // [`RQEIterator::skip_to`].
-        debug_assert!(self.last_doc_id < doc_id);
-
         if self.at_eos {
             return Ok(None);
         }
@@ -145,6 +251,65 @@ where
             // found a record with an id greater than the requested one
             Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
         }
+    }
+
+    // SkipTo implementation that uses a seeker and checks for field expiration.
+    fn skip_to_check_expiration(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        if self.at_eos {
+            return Ok(None);
+        }
+
+        while self.reader.seek_record(doc_id, &mut self.result)? {
+            if !self.check_current_expiration() {
+                continue;
+            }
+
+            // The seeker found a doc id that is greater or equal to the requested doc id
+            // and the doc id did not expired.
+            self.last_doc_id = self.result.doc_id;
+
+            if self.result.doc_id == doc_id {
+                // found the record
+                return Ok(Some(SkipToOutcome::Found(&mut self.result)));
+            } else {
+                // found a record with an id greater than the requested one
+                return Ok(Some(SkipToOutcome::NotFound(&mut self.result)));
+            }
+        }
+
+        // exited the while loop so we reached the end of the index
+        self.at_eos = true;
+        Ok(None)
+    }
+}
+
+impl<'index, R> RQEIterator<'index> for InvIndIterator<'index, R>
+where
+    R: IndexReader<'index>,
+{
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        Some(&mut self.result)
+    }
+
+    #[inline(always)]
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (self.read_impl)(self)
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        // cannot be called with an id smaller than the last one returned by the iterator, see
+        // [`RQEIterator::skip_to`].
+        debug_assert!(self.last_doc_id() < doc_id);
+
+        (self.skip_to_impl)(self, doc_id)
     }
 
     fn rewind(&mut self) {
@@ -217,10 +382,30 @@ where
     /// Filtering the results can be achieved by wrapping the reader with
     /// a [`NumericReader`] such as [`inverted_index::FilterNumericReader`]
     /// or [`inverted_index::FilterGeoReader`].
-    pub fn new(reader: R) -> Self {
+    pub fn new(reader: R, filter_ctx: FieldFilterContext) -> Self {
         let result = RSIndexResult::numeric(0.0);
         Self {
-            it: InvIndIterator::new(reader, result),
+            it: InvIndIterator::new(reader, result, filter_ctx, None),
+        }
+    }
+
+    /// Variant of [`Self::new`] that allows passing a search context.
+    /// The search context is used to check for expired documents when reading
+    /// from the inverted index.
+    ///
+    /// # Safety
+    ///
+    /// 1. `context` is a valid pointer to a `RedisSearchCtx`.
+    /// 2. `context.spec` is a valid pointer to an `IndexSpec`.
+    /// 3. 1 and 2 must stay valid during the iterator's lifetime.
+    pub fn with_context(
+        reader: R,
+        filter_ctx: FieldFilterContext,
+        context: NonNull<RedisSearchCtx>,
+    ) -> Self {
+        let result = RSIndexResult::numeric(0.0);
+        Self {
+            it: InvIndIterator::new(reader, result, filter_ctx, Some(context)),
         }
     }
 }
@@ -292,10 +477,15 @@ where
     ///
     /// Filtering the results can be achieved by wrapping the reader with
     /// a [`inverted_index::FilterMaskReader`].
-    pub fn new(reader: R) -> Self {
+    pub fn new(reader: R, field: FieldMaskOrIndex) -> Self {
         let result = RSIndexResult::term();
+        let field_ctx = FieldFilterContext {
+            field,
+            predicate: field::FieldExpirationPredicate::Default,
+        };
+
         Self {
-            it: InvIndIterator::new(reader, result),
+            it: InvIndIterator::new(reader, result, field_ctx, None),
         }
     }
 }

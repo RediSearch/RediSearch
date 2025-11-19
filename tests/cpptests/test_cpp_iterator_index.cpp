@@ -280,6 +280,7 @@ TEST_F(IndexIteratorTestEdges, EOFAfterFiltering) {
     ASSERT_EQ(iterator->SkipTo(iterator, 1), ITERATOR_EOF);
 }
 
+// TODO
 class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> {
   protected:
       static constexpr size_t n_docs = 1000;

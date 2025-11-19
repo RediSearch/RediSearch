@@ -8,10 +8,12 @@
 */
 
 use ffi::{
-    IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
-    t_docId, t_fieldMask,
+    FieldExpiration, IndexFlags, IndexFlags_Index_StoreByteOffsets,
+    IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
+    IndexFlags_Index_StoreTermOffsets, IndexSpec, QueryEvalCtx, RedisSearchCtx, SchemaRule,
+    t_docId, t_expirationTimePoint, t_fieldIndex, t_fieldMask,
 };
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{
     DecodedBy, Encoder, FilterMaskReader, FilterNumericReader, InvertedIndex, NumericFilter,
     RSIndexResult, RSOffsetVector, RSResultKind, full::Full, test_utils::TermRecordCompare,
@@ -20,7 +22,7 @@ use rqe_iterators::{
     RQEIterator, RQEValidateStatus, SkipToOutcome,
     inverted_index::{Numeric, Term},
 };
-use std::cell::UnsafeCell;
+use std::{cell::UnsafeCell, pin::Pin, ptr};
 
 mod c_mocks;
 
@@ -392,9 +394,281 @@ impl<E: Encoder + DecodedBy> RevalidateTest<E> {
     }
 }
 
+/// Test fields expiration.
+struct ExpirationTest<E> {
+    doc_ids: Vec<t_docId>,
+    ii: InvertedIndex<E>,
+    expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+    mock_ctx: Pin<Box<MockContext>>,
+}
+
+impl<E: Encoder> ExpirationTest<E> {
+    fn new(
+        ii_flags: IndexFlags,
+        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        n_docs: u64,
+    ) -> Self {
+        let create_record = &*expected_record;
+        // Generate a set of document IDs for testing.
+        let doc_ids = (1..=n_docs).map(|i| i as t_docId).collect::<Vec<_>>();
+
+        let mut ii = InvertedIndex::<E>::new(ii_flags);
+
+        for doc_id in doc_ids.iter() {
+            let record = create_record(*doc_id);
+            ii.add_record(&record).expect("failed to add record");
+        }
+
+        let mock_ctx = MockContext::new(0, 0);
+
+        Self {
+            doc_ids,
+            ii,
+            expected_record,
+            mock_ctx,
+        }
+    }
+
+    /// Mark the index as expired for the given document IDs.
+    fn mark_index_expired(&mut self, ids: Vec<t_docId>, index: t_fieldIndex) {
+        let mock_ctx = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.mock_ctx)) };
+        mock_ctx.mark_index_expired(ids, index);
+    }
+
+    fn context(&self) -> ptr::NonNull<RedisSearchCtx> {
+        ptr::NonNull::new(&self.mock_ctx.sctx as *const _ as *mut _)
+            .expect("mock context should not be null")
+    }
+
+    /// test read of expired documents.
+    fn read<'index, I>(&self, it: &mut I)
+    where
+        I: RQEIterator<'index>,
+    {
+        let expected_record = &*self.expected_record;
+
+        for doc_id in self.doc_ids.iter().step_by(2).copied() {
+            let record = it
+                .read()
+                .expect("failed to read")
+                .expect("expected result not eof");
+
+            check_record(record, &expected_record(record.doc_id));
+            assert_eq!(it.last_doc_id(), doc_id);
+            assert_eq!(it.current().unwrap().doc_id, doc_id);
+            assert!(!it.at_eof());
+        }
+
+        // We should have read all the documents
+        assert_eq!(it.read().unwrap(), None);
+        assert!(it.at_eof());
+        assert_eq!(it.num_estimated(), self.doc_ids.len());
+        assert_eq!(it.num_estimated(), self.ii.unique_docs() as usize);
+
+        // try reading at eof
+        assert!(matches!(it.read(), Ok(None)));
+        assert!(it.at_eof());
+    }
+
+    /// test skip_to on expired documents.
+    fn skip_to<'index, I>(&self, it: &mut I)
+    where
+        I: RQEIterator<'index>,
+    {
+        let expected_record = &*self.expected_record;
+
+        let last_id = self.doc_ids.last().copied().unwrap();
+
+        // Skip to odd IDs should work
+        let odd_ids = self.doc_ids.iter().filter(|id| **id % 2 != 0).copied();
+        for doc_id in odd_ids {
+            let record = match it
+                .skip_to(doc_id)
+                .expect("skip_to failed")
+                .expect("expected result not eof")
+            {
+                SkipToOutcome::Found(res) => res,
+                SkipToOutcome::NotFound(_) => panic!("Document not found"),
+            };
+
+            check_record(record, &expected_record(doc_id));
+            assert_eq!(it.last_doc_id(), doc_id);
+            assert_eq!(it.current().unwrap().doc_id, doc_id);
+            assert!(!it.at_eof());
+        }
+
+        // Test skipping to even IDs - should skip to next odd ID
+        it.rewind();
+
+        let even_ids = self
+            .doc_ids
+            .iter()
+            .filter(|id| **id % 2 == 0 && **id != last_id)
+            .copied();
+        for doc_id in even_ids {
+            let record = match it
+                .skip_to(doc_id)
+                .expect("skip_to failed")
+                .expect("expected result not eof")
+            {
+                SkipToOutcome::Found(_) => panic!("Should not find even ID"),
+                SkipToOutcome::NotFound(res) => res,
+            };
+
+            check_record(record, &expected_record(doc_id + 1));
+            assert_eq!(it.last_doc_id(), doc_id + 1);
+            assert_eq!(it.current().unwrap().doc_id, doc_id + 1);
+            assert!(!it.at_eof());
+        }
+
+        if last_id % 2 == 0 {
+            // the last id is odd, so trying to skip to it should move to eof
+            assert!(it.skip_to(last_id).expect("skip_to failed").is_none());
+            assert!(it.at_eof());
+        }
+
+        // Test skipping to ID beyond range
+        it.rewind();
+        assert!(it.skip_to(last_id + 1).expect("skip_to failed").is_none());
+    }
+}
+
+struct MockContext {
+    rule: SchemaRule,
+    spec: IndexSpec,
+    sctx: RedisSearchCtx,
+    qctx: QueryEvalCtx,
+}
+
+impl Default for MockContext {
+    fn default() -> Self {
+        let rule: SchemaRule = unsafe { std::mem::zeroed() };
+        let spec: IndexSpec = unsafe { std::mem::zeroed() };
+        let sctx: RedisSearchCtx = unsafe { std::mem::zeroed() };
+        let qctx: QueryEvalCtx = unsafe { std::mem::zeroed() };
+
+        Self {
+            rule,
+            spec,
+            sctx,
+            qctx,
+        }
+    }
+}
+
+impl MockContext {
+    fn new(max_doc_id: t_docId, num_docs: usize) -> Pin<Box<Self>> {
+        // Need to Pin the whole struct so pointers remain valid.
+        let mut boxed = Box::pin(Self::default());
+
+        // SAFETY: We need to set up self-referential pointers after pinning.
+        // The struct is now pinned and won't move, so these pointers will remain valid.
+        unsafe {
+            let ptr = boxed.as_mut().get_unchecked_mut();
+
+            // Initialize SchemaRule
+            ptr.rule.index_all = false;
+
+            // Initialize IndexSpec
+            ptr.spec.rule = &mut ptr.rule;
+            ptr.spec.monitorDocumentExpiration = true; // Only depends on API availability, so always true
+            ptr.spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
+            ptr.spec.docs.maxDocId = max_doc_id;
+            ptr.spec.docs.size = if num_docs > 0 {
+                num_docs
+            } else {
+                max_doc_id as usize
+            };
+            ptr.spec.stats.numDocuments = ptr.spec.docs.size;
+
+            // Initialize RedisSearchCtx
+            ptr.sctx.spec = &mut ptr.spec;
+
+            // Initialize QueryEvalCtx
+            ptr.qctx.sctx = &mut ptr.sctx;
+            ptr.qctx.docTable = &mut ptr.spec.docs;
+        }
+
+        boxed
+    }
+
+    fn mark_index_expired(&mut self, ids: Vec<t_docId>, index: t_fieldIndex) {
+        // Already expired
+        let expiration = t_expirationTimePoint {
+            tv_nsec: 1,
+            tv_sec: 1,
+        };
+
+        for id in ids {
+            self.ttl_add_index(id, index, expiration);
+        }
+
+        // Set up the mock current time further in the future than the expiration point.
+        self.set_current_time(t_expirationTimePoint {
+            tv_sec: 100,
+            tv_nsec: 100,
+        });
+    }
+
+    fn ttl_add_index(
+        &mut self,
+        doc_id: t_docId,
+        field: t_fieldIndex,
+        expiration: t_expirationTimePoint,
+    ) {
+        self.verify_ttl_init();
+
+        let fe_entry = FieldExpiration {
+            index: field,
+            point: expiration,
+        };
+        let doc_expiration_time = ffi::t_expirationTimePoint {
+            tv_sec: i64::MAX,
+            tv_nsec: i64::MAX,
+        };
+        let fe =
+            unsafe { ffi::array_new_sz(std::mem::size_of::<FieldExpiration>() as u16, 128, 1) };
+        let fe = fe.cast();
+        unsafe {
+            *fe = fe_entry;
+        };
+
+        unsafe {
+            ffi::TimeToLiveTable_Add(self.spec.docs.ttl, doc_id, doc_expiration_time, fe as _);
+        }
+    }
+
+    fn verify_ttl_init(&mut self) {
+        if !self.spec.fieldIdToIndex.is_null() {
+            return;
+        }
+
+        // By default, set a max-length array (128 text fields) with fieldId(i) -> index(i)
+        // FIXME: valgrind
+        let arr = unsafe { ffi::array_new_sz(std::mem::size_of::<t_fieldIndex>() as u16, 128, 0) };
+        let arr = arr.cast::<t_fieldIndex>();
+
+        for i in 0..128 as t_fieldIndex {
+            unsafe {
+                arr.offset(i as isize).write(i);
+            }
+        }
+
+        self.spec.fieldIdToIndex = arr as _;
+        unsafe {
+            ffi::TimeToLiveTable_VerifyInit(&mut self.spec.docs.ttl);
+        }
+    }
+
+    fn set_current_time(&mut self, time: t_expirationTimePoint) {
+        self.sctx.time.current = time;
+    }
+}
+
 struct NumericTest {
     test: BaseTest<inverted_index::numeric::Numeric>,
     revalidate_test: RevalidateTest<inverted_index::numeric::Numeric>,
+    expiration_test: ExpirationTest<inverted_index::numeric::Numeric>,
 }
 
 impl NumericTest {
@@ -415,7 +689,66 @@ impl NumericTest {
                 Box::new(Self::expected_record),
                 n_docs,
             ),
+            expiration_test: ExpirationTest::new(
+                IndexFlags_Index_StoreNumeric,
+                Box::new(Self::expected_record),
+                n_docs,
+            ),
         }
+    }
+
+    fn test_read_expiration(&mut self) {
+        const FIELD_INDEX: t_fieldIndex = 42;
+        // Make every even document ID field expired
+        let even_ids = self
+            .expiration_test
+            .doc_ids
+            .iter()
+            .filter(|id| **id % 2 == 0)
+            .copied()
+            .collect();
+
+        self.expiration_test
+            .mark_index_expired(even_ids, FIELD_INDEX);
+
+        let reader = self.expiration_test.ii.reader();
+        let mut it = Numeric::with_context(
+            reader,
+            FieldFilterContext {
+                field: FieldMaskOrIndex::Index(FIELD_INDEX),
+                predicate: FieldExpirationPredicate::Default,
+            },
+            self.expiration_test.context(),
+        );
+
+        self.expiration_test.read(&mut it);
+    }
+
+    fn test_skip_to_expiration(&mut self) {
+        const FIELD_INDEX: t_fieldIndex = 42;
+        // Make every even document ID field expired
+        let even_ids = self
+            .expiration_test
+            .doc_ids
+            .iter()
+            .filter(|id| **id % 2 == 0)
+            .copied()
+            .collect();
+
+        self.expiration_test
+            .mark_index_expired(even_ids, FIELD_INDEX);
+
+        let reader = self.expiration_test.ii.reader();
+        let mut it = Numeric::with_context(
+            reader,
+            FieldFilterContext {
+                field: FieldMaskOrIndex::Index(FIELD_INDEX),
+                predicate: FieldExpirationPredicate::Default,
+            },
+            self.expiration_test.context(),
+        );
+
+        self.expiration_test.skip_to(&mut it);
     }
 }
 
@@ -424,7 +757,7 @@ impl NumericTest {
 fn numeric_full_read() {
     let test = NumericTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new(reader, FieldFilterContext::index_invalid_default());
     test.test.read(&mut it, test.test.docs_ids_iter());
 
     // same but using a passthrough filter
@@ -432,7 +765,7 @@ fn numeric_full_read() {
     let filter = NumericFilter::default();
     let reader = test.test.ii.reader();
     let reader = FilterNumericReader::new(&filter, reader);
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new(reader, FieldFilterContext::index_invalid_default());
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
@@ -441,7 +774,7 @@ fn numeric_full_read() {
 fn numeric_full_skip_to() {
     let test = NumericTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new(reader, FieldFilterContext::index_invalid_default());
     test.test.skip_to(&mut it);
 }
 
@@ -455,7 +788,7 @@ fn numeric_filter() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new(reader, FieldFilterContext::index_invalid_default());
     let docs_ids = test
         .test
         .docs_ids_iter()
@@ -468,7 +801,7 @@ fn numeric_filter() {
 fn numeric_full_revalidate_basic() {
     let test = NumericTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new(reader, FieldFilterContext::index_invalid_default());
     test.revalidate_test.revalidate_basic(&mut it);
 }
 
@@ -476,7 +809,7 @@ fn numeric_full_revalidate_basic() {
 fn numeric_full_revalidate_at_eof() {
     let test = NumericTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new(reader, FieldFilterContext::index_invalid_default());
     test.revalidate_test.revalidate_at_eof(&mut it);
 }
 
@@ -484,7 +817,7 @@ fn numeric_full_revalidate_at_eof() {
 fn numeric_full_revalidate_after_index_disappears() {
     let test = NumericTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new(reader, FieldFilterContext::index_invalid_default());
     test.revalidate_test
         .revalidate_after_index_disappears(&mut it, true);
 }
@@ -494,9 +827,19 @@ fn numeric_full_revalidate_after_index_disappears() {
 fn numeric_full_revalidate_after_document_deleted() {
     let test = NumericTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new(reader, FieldFilterContext::index_invalid_default());
     test.revalidate_test
         .revalidate_after_document_deleted(&mut it);
+}
+
+#[test]
+fn numeric_read_expiration() {
+    NumericTest::new(100).test_read_expiration();
+}
+
+#[test]
+fn numeric_skip_to_expiration() {
+    NumericTest::new(100).test_skip_to_expiration();
 }
 
 struct TermTest {
@@ -574,7 +917,7 @@ impl TermTest {
 fn term_full_read() {
     let test = TermTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Term::new(reader);
+    let mut it = Term::new(reader, FieldMaskOrIndex::mask_all());
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
@@ -583,7 +926,7 @@ fn term_full_read() {
 fn term_full_skip_to() {
     let test = TermTest::new(100);
     let reader = test.test.ii.reader();
-    let mut it = Term::new(reader);
+    let mut it = Term::new(reader, FieldMaskOrIndex::mask_all());
     test.test.skip_to(&mut it);
 }
 
@@ -592,7 +935,7 @@ fn term_full_skip_to() {
 fn term_filter() {
     let test = TermTest::new(10);
     let reader = FilterMaskReader::new(1, test.test.ii.reader());
-    let mut it = Term::new(reader);
+    let mut it = Term::new(reader, FieldMaskOrIndex::mask_all());
     // results have their doc id as field mask so we filter by odd ids
     let docs_ids = test.test.docs_ids_iter().filter(|id| id % 2 == 1);
     test.test.read(&mut it, docs_ids);
@@ -602,7 +945,7 @@ fn term_filter() {
 fn term_full_revalidate_basic() {
     let test = TermTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
+    let mut it = Term::new(reader, FieldMaskOrIndex::mask_all());
     test.revalidate_test.revalidate_basic(&mut it);
 }
 
@@ -610,7 +953,7 @@ fn term_full_revalidate_basic() {
 fn term_full_revalidate_at_eof() {
     let test = TermTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
+    let mut it = Term::new(reader, FieldMaskOrIndex::mask_all());
     test.revalidate_test.revalidate_at_eof(&mut it);
 }
 
@@ -618,7 +961,7 @@ fn term_full_revalidate_at_eof() {
 fn term_full_revalidate_after_index_disappears() {
     let test = TermTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
+    let mut it = Term::new(reader, FieldMaskOrIndex::mask_all());
     test.revalidate_test
         .revalidate_after_index_disappears(&mut it, true);
 }
@@ -628,7 +971,7 @@ fn term_full_revalidate_after_index_disappears() {
 fn term_full_revalidate_after_document_deleted() {
     let test = TermTest::new(10);
     let reader = unsafe { (*test.revalidate_test.ii.get()).reader() };
-    let mut it = Term::new(reader);
+    let mut it = Term::new(reader, FieldMaskOrIndex::mask_all());
     test.revalidate_test
         .revalidate_after_document_deleted(&mut it);
 }
@@ -642,7 +985,7 @@ fn skip_multi_id() {
     let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
     let _ = ii.add_record(&RSIndexResult::numeric(3.0).doc_id(1));
 
-    let mut it = Numeric::new(ii.reader());
+    let mut it = Numeric::new(ii.reader(), FieldFilterContext::index_invalid_default());
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -668,7 +1011,7 @@ fn skip_multi_id_and_value() {
     let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
     let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
 
-    let mut it = Numeric::new(ii.reader());
+    let mut it = Numeric::new(ii.reader(), FieldFilterContext::index_invalid_default());
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -701,7 +1044,7 @@ fn get_correct_value() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, ii.reader());
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new(reader, FieldFilterContext::index_invalid_default());
 
     // Read the first entry. Expect to get the entry with value 2.0
     let record = it
@@ -735,7 +1078,7 @@ fn eof_after_filtering() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, ii.reader());
-    let mut it = Numeric::new(reader);
+    let mut it = Numeric::new(reader, FieldFilterContext::index_invalid_default());
 
     // Attempt to skip to the first entry, expecting EOF since no entries match the filter
     assert_eq!(it.skip_to(1).expect("skip_to failed"), None);
