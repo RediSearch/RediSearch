@@ -28,11 +28,6 @@
     thpool_p->log(level, str, ##__VA_ARGS__);                                  \
   }
 
-#define LOG_IF_THPOOL_EXISTS(level, str, ...)                                  \
-  if (thpool->log) {                                                         \
-    thpool->log(level, str, ##__VA_ARGS__);                                  \
-  }
-
 #define MAX_THPOOL_NAME_BUFFER_SIZE 11
 /* ========================== ENUMS ============================ */
 
@@ -1068,7 +1063,6 @@ static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
   ThreadState new_state = signal_struct->new_state;
   redisearch_thpool_t *thpool = signal_struct->thpool;
   job_arg->thread_ctx->thread_state = new_state;
-  LOG_IF_THPOOL_EXISTS("verbose", "Thread changing state to %s",  new_state == THREAD_TERMINATE_ASAP ? "THREAD_TERMINATE_ASAP" : "THREAD_TERMINATE_WHEN_EMPTY");
 
   /* Wait all threads to get the barrier */
   pthread_barrier_wait(signal_struct->barrier);
@@ -1078,7 +1072,6 @@ static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
     rm_free(signal_struct->barrier);
     rm_free(signal_struct);
   }
-  LOG_IF_THPOOL_EXISTS("verbose", "Thread done waiting on barrier");
 }
 
 void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool remove_all) {
