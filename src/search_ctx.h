@@ -13,8 +13,6 @@
 
 #include "redismodule.h"
 #include "spec.h"
-#include "concurrent_ctx.h"
-#include "trie/trie_type.h"
 #include <time.h>
 
 #ifdef __cplusplus
