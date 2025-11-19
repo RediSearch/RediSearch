@@ -750,7 +750,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
 static FGCError FGC_parentHandleTags(ForkGC *gc) {
   size_t fieldNameLen;
-  char *fieldName;
+  char *fieldName = NULL;
   uint64_t tagUniqueId;
   InvertedIndex *value = NULL;
   FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &tagUniqueId);
