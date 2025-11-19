@@ -14,11 +14,11 @@ $MODE apk add --no-cache build-base gcc g++ make linux-headers openblas-dev \
 # See https://github.com/astral-sh/python-build-standalone/pull/569
 if [ "$(uname -m)" = "aarch64" ]; then
     $MODE apk add --no-cache python3 python3-dev py3-pip
+    # Needed before checkout
+    $MODE apk add --no-cache gcompat libstdc++ libgcc
 else
     # On x86_64, we need Python headers to build psutil@5.x.y from
     # source, since it only started providing wheels for musl
     # in version 6.w.z.
     $MODE apk add --no-cache python3-dev
-    # Needed before checkout
-    $MODE apk add --no-cache gcompat libstdc++ libgcc
 fi
