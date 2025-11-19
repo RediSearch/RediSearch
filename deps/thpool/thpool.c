@@ -1126,13 +1126,10 @@ static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
   LOG_IF_THPOOL_EXISTS("verbose", "Thread changing state to %s",  new_state == THREAD_TERMINATE_ASAP ? "THREAD_TERMINATE_ASAP" : "THREAD_TERMINATE_WHEN_EMPTY");
 
   /* Wait all threads to get the barrier */
-  int ret = pthread_barrier_wait(signal_struct->barrier);
-  if (ret == PTHREAD_BARRIER_SERIAL_THREAD) {
-    LOG_IF_THPOOL_EXISTS("verbose", "Thread destroying barrier");
-    pthread_barrier_destroy(signal_struct->barrier);
-  }
+  pthread_barrier_wait(signal_struct->barrier);
   int num_threads_to_wait_before = atomic_fetch_sub(&signal_struct->num_threads_to_wait, 1);
   if (num_threads_to_wait_before - 1 == 0) {
+    pthread_barrier_destroy(signal_struct->barrier);
     rm_free(signal_struct->barrier);
     rm_free(signal_struct);
   }
