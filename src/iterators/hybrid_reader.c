@@ -386,6 +386,8 @@ static void HR_Rewind(QueryIterator *ctx) {
   HybridIterator *hr = (HybridIterator *)ctx;
   hr->resultsPrepared = false;
   hr->numIterations = 0;
+  hr->maxBatchSize = 0;
+  hr->maxBatchIteration = 0;
   VecSimQueryReply_Free(hr->reply);
   VecSimQueryReply_IteratorFree(hr->iter);
   hr->reply = NULL;
