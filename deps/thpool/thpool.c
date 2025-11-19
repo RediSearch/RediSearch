@@ -325,6 +325,7 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
                 thpool_p->n_threads)
 }
 
+//TODO(Joan): Remove this function from the codebase
 size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
                                         size_t n_threads_to_remove) {
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
@@ -561,18 +562,6 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
   } else {
     redisearch_thpool_unlock(thpool_p);
   }
-  thpool_p->state = THPOOL_UNINITIALIZED;
-}
-
-void redisearch_thpool_terminate_when_empty(redisearch_thpool_t *thpool_p) {
-  assert(thpool_p->jobqueues.state == JOBQ_RUNNING);
-  if (thpool_p->state == THPOOL_UNINITIALIZED)
-    return;
-  size_t n_threads = thpool_p->n_threads;
-  redisearch_thpool_broadcast_new_state(thpool_p, n_threads,
-                                        THREAD_TERMINATE_WHEN_EMPTY);
-
-  /* Change thpool state to uninitialized */
   thpool_p->state = THPOOL_UNINITIALIZED;
 }
 

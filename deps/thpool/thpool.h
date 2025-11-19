@@ -242,13 +242,6 @@ void redisearch_thpool_pause_threads_no_wait(redisearch_thpool_t *);
 void redisearch_thpool_resume_threads(redisearch_thpool_t *);
 
 /**
- * @brief Signal all threads to terminate when there are
- * no more pending jobs in the queue.
- * NOTICE: Jobs added to the jobq after this call might not be executed.
- */
-void redisearch_thpool_terminate_when_empty(redisearch_thpool_t *);
-
-/**
  * @brief Destroy the threadpool
  *
  * This will wait for the currently active threads to finish and free all the

@@ -265,9 +265,9 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
     redisearch_thpool_add_work(this->pool, sleep_job_us, &time_us, THPOOL_PRIORITY_HIGH);
 
     // Change the threads state.
-    redisearch_thpool_terminate_when_empty(this->pool);
+    redisearch_thpool_schedule_config_reduce_threads_job(this->pool, TEST_FUNCTIONALITY_N_THREADS, true);
     ASSERT_FALSE(redisearch_thpool_is_initialized(this->pool));
-    // Threads should still be alive.
+    // Threads should still be alive
     ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, TEST_FUNCTIONALITY_N_THREADS);
 
     // Wait for MarkAndWaitForSignFunc jobs to be pulled.
@@ -303,6 +303,7 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
     ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, 0);
 
     // Recreate threads.
+    redisearch_thpool_add_threads(this->pool, TEST_FUNCTIONALITY_N_THREADS);
     redisearch_thpool_add_work(this->pool, sleep_job_us, &time_us, THPOOL_PRIORITY_HIGH);
     ASSERT_TRUE(redisearch_thpool_is_initialized(this->pool));
 
@@ -559,8 +560,7 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestSetToZeroWhileTerminateWhenEmpty) {
     ASSERT_EQ(redisearch_thpool_get_stats(this->pool).total_pending_jobs , n_jobs);
 
     // Set to terminate when empty, still jobs in the queue.
-    redisearch_thpool_terminate_when_empty(this->pool);
-    ASSERT_EQ(redisearch_thpool_remove_threads(this->pool, 1), 0);
+    redisearch_thpool_schedule_config_reduce_threads_job(this->pool, redisearch_thpool_get_num_threads(this->pool), true);
     // Wait for the jobs to be done.
     redisearch_thpool_wait(this->pool);
     // Expect 0 threads alive and n_jobs done.
