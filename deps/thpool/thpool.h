@@ -129,21 +129,6 @@ int redisearch_thpool_add_n_work(redisearch_thpool_t *,
                                  thpool_priority priority);
 
 /**
- * @brief Remove threads from a threadpool
- *
- * If the threadpool in initialized, the operation will be performed immediately.
- * Otherwise, the operation will be performed when the threadpool is initialized.
- * @note calling this function after calling terminate when empty, will have no effect
- * on the current running threads.
- *
- *
- * @param threadpool     the threadpool to wait for
- * @param n_threads_to_remove     number of theads to remove
- * @return The new number of threads in the threadpool
- */
-size_t redisearch_thpool_remove_threads(redisearch_thpool_t *, size_t n_threads_to_remove);
-
-/**
  * @brief Add threads to a threadpool
  *
  * If the threadpool in initialized, the operation will be performed immediately.

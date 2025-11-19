@@ -325,45 +325,6 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
                 thpool_p->n_threads)
 }
 
-//TODO(Joan): Remove this function from the codebase
-size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
-                                        size_t n_threads_to_remove) {
-  /* n_threads is only configured and read by the main thread (protected by the GIL). */
-  assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
-  thpool_p->n_threads -= n_threads_to_remove;
-  size_t n_threads = thpool_p->n_threads;
-
-  /** THPOOL_UNINITIALIZED means either:
-   * 1. thpool->n_threads > 0, and there are no threads alive
-   * 2. There are threads alive in terminate_when_empty state.
-   * In both cases only calling `verify_init` will add/remove threads to adjust
-   * `num_threads_alive` to `n_threads` */
-  if (thpool_p->state == THPOOL_UNINITIALIZED)
-    return n_threads;
-
-  size_t jobs_count = priority_queue_len(&thpool_p->jobqueues);
-  if (n_threads == 0 && jobs_count > 0) {
-    LOG_IF_EXISTS("warning",
-                  "redisearch_thpool_remove_threads(): "
-                  "Killing all threads while jobqueue contains %zu jobs",
-                  jobs_count);
-  }
-
-  assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
-
-  redisearch_thpool_broadcast_new_state(thpool_p, n_threads_to_remove,
-                                        THREAD_TERMINATE_ASAP);
-
-  /* Wait until `num_threads_alive` == `n_threads` */
-  while (thpool_p->num_threads_alive != n_threads) {
-    usleep(1);
-  }
-
-  LOG_IF_EXISTS("verbose", "Thread pool size decreased to %zu successfully", n_threads)
-
-  return n_threads;
-}
-
 size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
                                      size_t n_threads_to_add) {
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
