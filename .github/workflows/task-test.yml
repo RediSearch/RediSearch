@@ -60,7 +60,7 @@ jobs:
   build-image:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
-    name: Build container for ${{ needs.get-config.outputs.container  || get-config.outputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    name: Build container for ${{ needs.get-config.outputs.container  || needs.get-config.outputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ get-config.outputs.env }}
     permissions:
       contents: read
