@@ -819,7 +819,7 @@ class testWarningsAndErrorsCluster:
   """Test class for warnings and errors metrics in cluster mode with RESP2"""
 
   def __init__(self):
-    # skipTest(cluster=False)
+    skipTest(cluster=False)
     self.env = Env()
     _common_warnings_errors_cluster_test_scenario(self.env)
     self.shards_prev_info_dict = {}
