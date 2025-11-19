@@ -1308,7 +1308,7 @@ impl<'a> RLookup<'a> {
         Some(key)
     }
 
-    /// The row len is u
+    /// The row len of the [`RLookup`] is the number of keys in its key list not counting the overridden keys.
     pub(crate) const fn get_row_len(&self) -> u32 {
         self.header.keys.rowlen
     }
