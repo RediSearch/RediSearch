@@ -123,10 +123,13 @@ jobs:
   common-flow:
     needs: [get-config, build-image]
     name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    # Run if get-config succeeded and at least one test type is enabled
+    if: |
+      always() &&
+      needs.get-config.result == 'success' &&
+      (inputs.standalone || inputs.coordinator)
     runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{ needs.build-image.result == 'success' && needs.build-image.outputs.image || needs.get-config.outputs.container || null }}
-    # Nothing to do if both are `false`, skip
-    if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
