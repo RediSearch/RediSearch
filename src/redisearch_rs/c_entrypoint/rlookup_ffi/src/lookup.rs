@@ -396,3 +396,92 @@ pub unsafe extern "C" fn RLookup_FindKey<'a>(
 
     Some(NonNull::from_ref(rlk))
 }
+
+/// Search the IndexSpecCache for a field by name.
+///
+/// A FieldSpec is returned if the provided lookup contains an IndexSpecCache and there is a field
+/// with the given name.
+///
+/// # Safety
+/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 2. The memory pointed to by `field_name` must contain a valid nul terminator at the end of the string.
+/// 3. `field_name` must be [valid] for reads of bytes up to and including the nul terminator.
+///    This means in particular:
+///     1. The entire memory range of this `CStr` must be contained within a single allocation!
+///     2. `field_name` must be non-null even for a zero-length cstr.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
+    lookup: Option<NonNull<RLookup>>,
+    field_name: *const c_char,
+) -> *const ffi::FieldSpec {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.unwrap().as_ref() };
+
+    // Safety: ensured by caller (2., 3.)
+    let field_name = unsafe { CStr::from_ptr(field_name) };
+
+    lookup
+        ._ffi_find_field_in_spec_cache(field_name)
+        .map_or(std::ptr::null(), |fs| fs as *const ffi::FieldSpec)
+}
+
+/// Create a new RLookupKey and add it to the RLookup.
+///
+/// # Safety
+/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup
+/// 2. The memory pointed to by `name` must contain a valid nul terminator at the end of the string.
+/// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
+///    This means in particular:
+///     1. `name_len` must be same as `strlen(name)`
+///     2. The entire memory range of this `CStr` must be contained within a single allocation!
+///     3. `name` must be non-null even for a zero-length cstr.
+/// 4. The given `flags` must correspond to a value of the enum `RLookupKeyFlags`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_CreateKey(
+    lookup: Option<NonNull<RLookup>>,
+    name: *const c_char,
+    name_len: size_t,
+    flags: u32,
+) -> *mut RLookupKey {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.unwrap().as_mut() };
+
+    // Safety: ensured by caller (2., 3.)
+    let name = unsafe {
+        // `name_len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `name_len + 1` below)
+        let bytes = slice::from_raw_parts(name.cast::<u8>(), name_len + 1);
+
+        CStr::from_bytes_with_nul(bytes).unwrap()
+    };
+
+    // Safety: must be ensured by caller (4)
+    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+    let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
+        Cow::Owned(name.to_owned())
+    } else {
+        Cow::Borrowed(name)
+    };
+
+    let rlk = lookup._ffi_new_key(name, flags);
+    rlk as *mut RLookupKey
+}
+
+/// Set the path of a RLookupKey. This is not doable via direct field access from C, as Rust tracks with _path and path field.
+///
+/// # Safety
+/// 1. `rlk` must be a [valid], non-null pointer to a `RLookupKey`
+/// 2. The memory pointed to by `path` must contain a valid nul terminator at the end of the string.
+/// 3. `path` must be [valid] for reads of bytes up to and including the nul terminator.
+///    This means in particular:
+///     1. The entire memory range of this `CStr` must be contained within a single allocation!
+///     2. `path` must be non-null even for a zero-length cstr.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_KeySetPath(rlk: Option<NonNull<RLookupKey>>, path: *const c_char) {
+    // Safety: ensured by caller (1.)
+    let rlk = unsafe { rlk.unwrap().as_mut() };
+
+    // Safety: ensured by caller (2., 3.)
+    let path = unsafe { CStr::from_ptr(path) };
+    rlk._ffi_set_path(path);
+}

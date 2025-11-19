@@ -488,6 +488,13 @@ impl<'a> RLookupKey<'a> {
         unsafe { *self.next.get() }
     }
 
+    /// Set the path of this key
+    pub fn _ffi_set_path(&mut self, path: impl Into<Cow<'a, CStr>>) {
+        let path = path.into();
+        self._path = Some(path);
+        self.path = self._path.as_ref().unwrap().as_ptr();
+    }
+
     /// Update the pointer to the next node
     #[inline]
     fn set_next(
@@ -1024,6 +1031,32 @@ impl<'a> RLookup<'a> {
     // FIXME [MOD-10315] replace with more efficient search
     pub fn find_key_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
         self.keys.find_by_name(name)
+    }
+
+    /// Find a field spec in the associated `IndexSpecCache`, if any, we use it to not break encapsulation for FFI.
+    ///
+    /// This is temporary and should be removed when `loadIndividualKeys` is ported and `RLookupRow` is migrated.
+    /// See MOD-11051 and MOD-10405.
+    pub fn _ffi_find_field_in_spec_cache(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
+        let cache = self.index_spec_cache.as_ref()?;
+        cache.find_field(name)
+    }
+
+    /// Create a new key and add it to this lookup, we use it to not break encapsulation for FFI.
+    ///
+    /// This is temporary and should be removed when `RLookup_LoadRuleFields` is ported and `RLookupRow` is migrated.
+    /// See MOD-12284 and MOD-10405.
+    pub fn _ffi_new_key(
+        &mut self,
+        name: impl Into<Cow<'a, CStr>>,
+        flags: RLookupKeyFlags,
+    ) -> &mut RLookupKey<'a> {
+        // we clone here to work around lifetime issues with FFI:
+        let rlk = RLookupKey::new(self, name, flags);
+        let rlk = self.keys.push(rlk);
+
+        // Safety: We trust the FFI caller to not move the RLookupKey and thus not violate pinning.
+        unsafe { rlk.get_unchecked_mut() }
     }
 
     /// Add all non-overridden keys from `src` to `self`.
