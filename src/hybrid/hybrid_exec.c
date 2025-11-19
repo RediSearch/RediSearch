@@ -284,7 +284,7 @@ done:
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
       // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
       // because this warning is not related to subqueries or post-processing terminology
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     }
 
     replyWarningsWithSuffixes(reply, hreq, qctx, rc);
@@ -322,7 +322,7 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
     if (QueryError_HasQueryOOMWarning(err)) {
         RedisModule_Reply_Array(reply);
         // This function is called by Coordinator or SA, so based on the number of shards, we decide which warning to return.
-        const char *warning = GetNumShards_UnSafe() > 1 ? QUERY_WOOM_CLUSTER : QUERY_WOOM_SHARD;
+        const char *warning = GetNumShards_UnSafe() > 1 ? QUERY_WOOM_COORD : QUERY_WOOM_SHARD;
         RedisModule_Reply_SimpleString(reply, warning);
         RedisModule_Reply_ArrayEnd(reply);
     } else {

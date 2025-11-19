@@ -593,7 +593,7 @@ done_3:
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
       // We use the cluster warning since shard level warning sent via empty reply bailout
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     }
     if (rc == RS_RESULT_TIMEDOUT) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
@@ -719,7 +719,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
       // SA and shards should use SHARD warning
       // Coordinator should use CLUSTER warning
-      const char *warning = (GetNumShards_UnSafe() > 1) && !IsInternal(req) ? QUERY_WOOM_CLUSTER : QUERY_WOOM_SHARD;
+      const char *warning = (GetNumShards_UnSafe() > 1) && !IsInternal(req) ? QUERY_WOOM_COORD : QUERY_WOOM_SHARD;
       RedisModule_Reply_SimpleString(reply, warning);
     }
     RedisModule_Reply_ArrayEnd(reply);
