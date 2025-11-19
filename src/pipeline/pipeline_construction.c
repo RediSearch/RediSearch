@@ -269,20 +269,20 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     }
   }
 
-  if (AggregateRequiresPagerAtCoordinator(&params->common, astp)) {
-      if (astp->offset || (astp->limit)) {
-        rp = RPPager_New(astp->offset, astp->limit);
-        up = pushRP(&pipeline->qctx, rp, up);
-      } else {
-        rp = RPPager_New(0, DEFAULT_LIMIT);
-        up = pushRP(&pipeline->qctx, rp, up);
-      }
-  } else if (astp->offset || (astp->limit && !rp)) {
+  if (astp->offset || (astp->limit && !rp)) {
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);
   } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
+  } else if (AggregateRequiresPagerAtCoordinator(&params->common, astp)) {
+    if (astp->offset || (astp->limit)) {
+      rp = RPPager_New(astp->offset, astp->limit);
+      up = pushRP(&pipeline->qctx, rp, up);
+    } else {
+      rp = RPPager_New(0, DEFAULT_LIMIT);
+      up = pushRP(&pipeline->qctx, rp, up);
+    }
   }
 
 

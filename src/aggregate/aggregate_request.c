@@ -1091,6 +1091,11 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       }
     }
+
+    // For FT.AGGREGATE with cursor, we can't use depleters.
+    if (IsCursor(req) && !IsInternal(req)) {
+      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+    }
   }
 
   return REDISMODULE_OK;

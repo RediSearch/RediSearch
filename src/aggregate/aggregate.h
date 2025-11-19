@@ -163,6 +163,7 @@ typedef struct {
 #define HasDepleter(r) ((r)->reqflags & QEXEC_F_HAS_DEPLETER)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
+#define IsCursor(r) ((r)->reqflags & QEXEC_F_IS_CURSOR)
 #define HasScorer(r) ((r)->optimizer && (r)->optimizer->scorerType != SCORER_TYPE_NONE)
 #define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
