@@ -81,6 +81,13 @@ impl Value for DynRsValue {
     fn to_dyn_ref(&self) -> DynRsValueRef<'_> {
         self.as_ref()
     }
+
+    fn clear(&mut self) {
+        match self {
+            DynRsValue::Exclusive(_) => *self = Self::Exclusive(RsValue::undefined()),
+            DynRsValue::Shared(_) => *self = Self::Shared(SharedRsValue::undefined()),
+        }
+    }
 }
 
 /// A reference to a [`DynRsValue`].
@@ -102,6 +109,13 @@ impl<'v> DynRsValueRef<'v> {
                 .map(SharedRsValue::from_internal)
                 .unwrap_or_else(SharedRsValue::undefined),
             DynRsValueRef::Shared(v) => v.clone(),
+        }
+    }
+
+    pub fn to_owned(&self) -> DynRsValue {
+        match self {
+            DynRsValueRef::Exclusive(v) => DynRsValue::from((*v).clone()),
+            DynRsValueRef::Shared(v) => DynRsValue::from(v.clone()),
         }
     }
 }

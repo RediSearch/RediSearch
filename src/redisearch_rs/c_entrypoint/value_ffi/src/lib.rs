@@ -242,7 +242,7 @@ pub unsafe extern "C" fn RsValue_Number_Get(v: OpaqueDynRsValueRef) -> f64 {
     unsafe { expect_unchecked!(v.get_number(), "v must be of type 'Number'") }
 }
 
-/// Convert an [`OpaqueDynRsValue`] to a number type in-place.
+/// Convert an `RsValue` to a number type in-place.
 /// This clears the existing value and replaces it with the given value.
 ///
 /// # Safety
@@ -562,6 +562,30 @@ pub unsafe extern "C" fn RsValue_Trio_GetRight(v: OpaqueDynRsValueRef) -> Opaque
     DynRsValue::from(right).into_opaque()
 }
 
+/// Increment the reference count of an `RsValue`, ensuring
+/// it doesn't get freed until after `RsValue_DecrRef` is called.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynRef`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_IncrRef(v: OpaqueDynRsValueRef) {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValueRef::from_opaque(v) };
+
+    let v = v.to_shared();
+    std::mem::forget(v);
+}
+
+/// Decrement the reference count of an `RsValue`.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynRef`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_DecrRef(v: OpaqueDynRsValueRef) {
+    // Safety: caller must ensure (1)
+    drop(unsafe { DynRsValueRef::from_opaque(v) });
+}
+
 /// Repeatedly dereference self until ending up at a non-reference value.
 ///
 /// # Safety
@@ -600,6 +624,44 @@ pub unsafe extern "C" fn RsValue_DynRef(v: *mut OpaqueDynRsValue) -> OpaqueDynRs
     DynRsValueRef::from(v).into_opaque()
 }
 
+/// Clear an `RsValue` in-place.
+/// This clears the existing value and replaces it with the given value.
+///
+/// # Safety
+/// - (1) `v` must be non-null;
+/// - (2) `v` must point to an `RsValue` originating from one of the constructors.
+///
+/// @param v The value to clear
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Clear(v: Option<NonNull<OpaqueDynRsValue>>) {
+    // Safety: caller must ensure (1)
+    let v = unsafe { expect_unchecked!(v) };
+    // Safety: caller must ensure (2)
+    let v = unsafe { DynRsValue::from_opaque_mut_ptr(v.as_ptr()) };
+    // Safety: caller must ensure (1). The previous statement casts the pointer
+    // to an `Option<&mut RsValue>`, which will be None if and only if `v` were null.
+    let v = unsafe { v.unwrap_unchecked() };
+    v.clear();
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Replace(
+    dst: Option<NonNull<OpaqueDynRsValue>>,
+    src: OpaqueDynRsValueRef,
+) {
+    // Safety: caller must ensure (1)
+    let dst = unsafe { expect_unchecked!(dst) };
+    // Safety: caller must ensure (2)
+    let dst = unsafe { DynRsValue::from_opaque_mut_ptr(dst.as_ptr()) };
+    // Safety: caller must ensure (1). The previous statement casts the pointer
+    // to an `Option<&mut RsValue>`, which will be None if and only if `v` were null.
+    let dst = unsafe { dst.unwrap_unchecked() };
+
+    let src = unsafe { DynRsValueRef::from_opaque(src) };
+
+    *dst = src.to_owned();
+}
+
 /// Free an RsValue.
 ///
 /// # Safety
@@ -609,7 +671,9 @@ pub unsafe extern "C" fn RsValue_DynRef(v: *mut OpaqueDynRsValue) -> OpaqueDynRs
 ///
 /// @param v Pointer to the `RsValue` that is to be freed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RsValue_Free(v: *mut OpaqueDynRsValue) {
+pub unsafe extern "C" fn RsValue_Free(v: Option<NonNull<OpaqueDynRsValue>>) {
+    // Safety: caller must ensure (1)
+    let v = unsafe { expect_unchecked!(v) };
     // Safety: caller must ensure (1)
     let v = unsafe { v.read() };
     // Safety: caller must ensure (1)
@@ -629,13 +693,14 @@ mod test {
 
     use crate::{RsValue_Free, RsValue_IntoNumber, shared::RsValue_NewConstString};
 
+    const STR: &CStr = c"hello";
+    const STR_LEN: u32 = STR.count_bytes() as u32;
+
     #[test]
     fn create_replace_free() {
-        const STR: &CStr = c"hello";
-
         // Unique
-        // Safety: `STR` is const and its length is 5.
-        let v = unsafe { RsValue::const_string(STR.as_ptr(), 5) };
+        // Safety: `STR` is const and its length is `STR_LEN`.
+        let v = unsafe { RsValue::const_string(STR.as_ptr(), STR_LEN) };
         let v = DynRsValue::from(v);
         let mut v = v.into_opaque();
 
@@ -645,20 +710,21 @@ mod test {
         // Safety: `v` originates from a call to `DynRsValue::into_opaque`
         let mut v = unsafe { DynRsValue::from_opaque(v) };
         // Safety: `v` is nonnull and is correctly initialized.
-        unsafe { RsValue_Free(v.as_opaque_mut_ptr()) };
+        unsafe { RsValue_Free(NonNull::new(v.as_opaque_mut_ptr())) };
 
         // Shared
-        // Safety: `STR` is const and its length is 5
-        let mut v = unsafe { RsValue_NewConstString(STR.as_ptr(), 5) };
+        // Safety: `STR` is const and its length is `STR_LEN`
+        let mut v = unsafe { RsValue_NewConstString(STR.as_ptr(), STR_LEN) };
 
         // Safety: `v` is nonnull and is correctly initialized.
         unsafe { RsValue_IntoNumber(Some(NonNull::from_mut(&mut v)), 1.23) };
         // Safety: `v` originates from a call to one of the constructors
         let mut v = unsafe { DynRsValue::from_opaque(v) };
         // Safety: `v` is nonnull and is correctly initialized.
-        unsafe { RsValue_Free(v.as_opaque_mut_ptr()) }
+        unsafe { RsValue_Free(NonNull::new(v.as_opaque_mut_ptr())) }
 
         // Avoid double free
         std::mem::forget(v);
     }
+
 }

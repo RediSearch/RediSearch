@@ -308,7 +308,7 @@ bool RsValue_IsNull(struct RsValueRef v);
 double RsValue_Number_Get(struct RsValueRef v);
 
 /**
- * Convert an [`OpaqueDynRsValue`] to a number type in-place.
+ * Convert an `RsValue` to a number type in-place.
  * This clears the existing value and replaces it with the given value.
  *
  * # Safety
@@ -479,6 +479,23 @@ struct RsValue RsValue_Trio_GetMiddle(struct RsValueRef v);
 struct RsValue RsValue_Trio_GetRight(struct RsValueRef v);
 
 /**
+ * Increment the reference count of an `RsValue`, ensuring
+ * it doesn't get freed until after `RsValue_DecrRef` is called.
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynRef`].
+ */
+void RsValue_IncrRef(struct RsValueRef v);
+
+/**
+ * Decrement the reference count of an `RsValue`.
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynRef`].
+ */
+void RsValue_DecrRef(struct RsValueRef v);
+
+/**
  * Repeatedly dereference self until ending up at a non-reference value.
  *
  * # Safety
@@ -504,6 +521,20 @@ struct RsValueRef RsValue_Dereference(struct RsValueRef v);
  * @return A reference to the `RsValue` v points to.
  */
 struct RsValueRef RsValue_DynRef(struct RsValue *v);
+
+/**
+ * Clear an `RsValue` in-place.
+ * This clears the existing value and replaces it with the given value.
+ *
+ * # Safety
+ * - (1) `v` must be non-null;
+ * - (2) `v` must point to an `RsValue` originating from one of the constructors.
+ *
+ * @param v The value to clear
+ */
+void RsValue_Clear(struct RsValue *v);
+
+void RsValue_Replace(struct RsValue *dst, struct RsValueRef src);
 
 /**
  * Free an RsValue.
