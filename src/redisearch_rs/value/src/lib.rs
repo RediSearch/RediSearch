@@ -14,7 +14,7 @@ use std::{
 };
 
 use crate::{
-    collection::{RsValueArray, RsValueMap},
+    collection::{RsValueArray, RsValueMap, RsValueMapEntry},
     dynamic::DynRsValueRef,
     shared::SharedRsValue,
     strings::{ConstString, OwnedRedisString, OwnedRmAllocString, RedisStringRef, RsValueString},
@@ -318,6 +318,34 @@ pub trait Value: Sized {
     fn as_borrowed_redis_string(&self) -> Option<&RedisStringRef> {
         match self.internal()? {
             RsValueInternal::BorrowedRedisString(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn array_get(&self, i: u32) -> Option<&SharedRsValue> {
+        match self.internal()? {
+            RsValueInternal::Array(array) => array.get(i),
+            _ => None,
+        }
+    }
+
+    fn array_cap(&self) -> Option<u32> {
+        match self.internal()? {
+            RsValueInternal::Array(array) => Some(array.cap()),
+            _ => None,
+        }
+    }
+
+    fn map_get(&self, i: u32) -> Option<&RsValueMapEntry> {
+        match self.internal()? {
+            RsValueInternal::Map(map) => map.get(i),
+            _ => None,
+        }
+    }
+
+    fn map_cap(&self) -> Option<u32> {
+        match self.internal()? {
+            RsValueInternal::Map(map) => Some(map.cap()),
             _ => None,
         }
     }

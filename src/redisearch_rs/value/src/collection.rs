@@ -27,6 +27,8 @@ use crate::SharedRsValue;
 ///   is less than `u32::MAX`. The reason for this is that when doing pointer
 ///   addition, we must ensure we don't overflow `isize::MAX`.
 ///   See [`NonNull::add`].
+/// - (2) `entries` is a well-aligned pointer to a heap-allocated array of `Self::cap` items,
+///   that is valid for both reads and writes.
 #[repr(C, packed)]
 pub struct RsValueCollection<T> {
     /// Pointer to a heap-allocated array of `Self::cap` items.
@@ -153,6 +155,28 @@ impl<T> RsValueCollection<T> {
             unsafe { map.write_entry(entry, i as u32) };
         }
         map
+    }
+
+    /// Get the collection's capacity
+    pub const fn cap(&self) -> u32 {
+        self.cap
+    }
+
+    /// Get the item at the passed index from the collection.
+    /// Returns None if the index is out of bounds.
+    pub const fn get(&self, index: u32) -> Option<&T> {
+        if index >= self.cap {
+            return None;
+        }
+
+        // Safety:
+        // Index is less than `self.cap`, which is
+        // always less than isize::MAX / size_of::<T>()
+        // as guaranteed by invariant (1)
+        let ptr = unsafe { self.entries.add(index as usize) };
+
+        // Safety: invariant (2)
+        Some(unsafe { ptr.as_ref() })
     }
 
     /// Create a non-consuming iterator over the collection's entries.
@@ -284,6 +308,14 @@ impl RsValueArray {
     pub const fn inner(&self) -> &RsValueCollection<SharedRsValue> {
         &self.0
     }
+
+    pub const fn cap(&self) -> u32 {
+        self.0.cap()
+    }
+
+    pub const fn get(&self, index: u32) -> Option<&SharedRsValue> {
+        self.0.get(index)
+    }
 }
 
 impl fmt::Debug for RsValueArray {
@@ -311,6 +343,14 @@ impl RsValueMap {
     pub const fn inner(&self) -> &RsValueCollection<RsValueMapEntry> {
         &self.0
     }
+
+    pub const fn cap(&self) -> u32 {
+        self.0.cap()
+    }
+
+    pub const fn get(&self, index: u32) -> Option<&RsValueMapEntry> {
+        self.0.get(index)
+    }
 }
 
 impl fmt::Debug for RsValueMap {
@@ -328,8 +368,8 @@ impl fmt::Debug for RsValueMap {
 #[repr(C)]
 #[derive(Clone)]
 pub struct RsValueMapEntry {
-    key: SharedRsValue,
-    value: SharedRsValue,
+    pub key: SharedRsValue,
+    pub value: SharedRsValue,
 }
 
 impl RsValueMapEntry {
