@@ -71,6 +71,7 @@ jobs:
       packages: write # required for GHCR push
     outputs:
       image: ${{ steps.meta.outputs.image }}
+      succeeded: ${{ steps.mark-success.outputs.succeeded }}
     steps:
       - name: fail
         run: exit 1
@@ -121,7 +122,11 @@ jobs:
           tags: ${{ steps.meta.outputs.image }}
           cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max
           cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
-
+      # This step ONLY runs if all previous steps succeeded
+      - name: Mark success
+        id: mark-success
+        run: |
+          echo "succeeded=true" >> $GITHUB_OUTPUT
 
   common-flow:
     needs: [get-config, build-image]
@@ -132,13 +137,13 @@ jobs:
       needs.get-config.result == 'success' &&
       (inputs.standalone || inputs.coordinator)
     runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ needs.build-image.result == 'success' && needs.build-image.outputs.image || needs.get-config.outputs.container || null }}
+    container: ${{ needs.build-image.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
       - name: Fix HOME Directory
-        if: ${{ needs.build-image.result == 'success' && needs.get-config.outputs.container }}
+        if: ${{ needs.build-image.succeeded == 'true' && needs.get-config.outputs.container }}
         shell: bash
         run: |
           # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
@@ -156,7 +161,7 @@ jobs:
       # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Setup Dependencies (Alpine)
-        if: needs.build-image.result != 'success' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
+        if: needs.build-image.succeeded == 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
         shell: sh -l -eo pipefail {0}
         run: |
           SUCCESS=0
@@ -282,7 +287,7 @@ jobs:
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup
-        if: needs.build-image.result != 'success' 
+        if: needs.build-image.succeeded == 'true'
         working-directory: .install
         run: |
           SUCCESS=0
@@ -303,7 +308,7 @@ jobs:
             exit 1
           fi
       - name: Setup Rust test dependencies
-        if: needs.build-image.result != 'success'  # Only run if NOT using custom container
+        if: needs.build-image.succeeded == 'true' # Only run if NOT using custom container
         run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
 
       - name: Setup Python test dependencies
