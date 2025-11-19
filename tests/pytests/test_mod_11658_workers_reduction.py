@@ -225,3 +225,43 @@ def test_MOD_11658_workers_zero_to_nonzero():
     env.assertTrue(result[0] > 0)
 
     env.debugPrint("Workers increase test completed successfully", force=True)
+
+
+def test_MOD_11658_workers_increase_from_nonzero():
+    """
+    Test that increasing workers from 0 to a higher value also works correctly.
+    This tests the reverse direction to ensure the connection pool expansion works.
+    """
+    # Start with WORKERS=0
+    env = Env(moduleArgs='WORKERS 2', enableDebugCommand=True)
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+
+    # Add documents
+    conn = getConnectionByEnv(env)
+    for i in range(100):
+        conn.execute_command('HSET', f'doc{i}', 'text', f'document {i}')
+
+    waitForIndex(env, 'idx')
+
+    # Verify initial state
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '2']])
+
+    # Query should work with WORKERS=0 (on main thread)
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
+
+    # Increase workers to 8
+    env.expect(config_cmd(), 'SET', 'WORKERS', '8').ok()
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '8']])
+
+    # Verify still responsive
+    ping_result = env.cmd('PING')
+    env.assertTrue(ping_result in ['PONG', True])
+
+    # Query should still work
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
+
+    env.debugPrint("Workers increase test completed successfully", force=True)
