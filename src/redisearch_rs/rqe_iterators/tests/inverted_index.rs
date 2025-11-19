@@ -632,3 +632,29 @@ fn term_full_revalidate_after_document_deleted() {
     test.revalidate_test
         .revalidate_after_document_deleted(&mut it);
 }
+
+#[test]
+fn skip_multi_id() {
+    // Add multiple entries with the same docId
+    let mut ii =
+        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::numeric(3.0).doc_id(1));
+
+    let mut it = Numeric::new(ii.reader());
+
+    // Read the first entry. Expect to get the entry with value 1.0
+    let record = it
+        .read()
+        .expect("failed to read")
+        .expect("expected result not eof");
+    assert_eq!(record.doc_id, 1);
+    assert_eq!(record.as_numeric(), Some(1.0));
+    assert_eq!(it.last_doc_id(), 1);
+    assert!(!it.at_eof());
+
+    // Read the next entry. Expect EOF since we have only one unique docId
+    assert_eq!(it.read().unwrap(), None);
+    assert!(it.at_eof());
+}
