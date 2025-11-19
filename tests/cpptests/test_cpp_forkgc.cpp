@@ -659,6 +659,37 @@ TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
   ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
 }
 
+/**
+ * Test that simulates a pipe error during GC to trigger the error path.
+ * This test verifies that the error handling doesn't cause double-free or other issues.
+ */
+TEST_F(FGCTestTag, testPipeErrorDuringGC) {
+  // Add some documents to create work for the GC
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc3", "f1", "hello"));
+
+  FGC_WaitBeforeFork(fgc);
+
+  // Delete documents to trigger GC work
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc2"));
+
+  FGC_ForkAndWaitBeforeApply(fgc);
+
+  // Close the read end of the pipe from the parent's perspective
+  // This will cause poll() to immediately return an error (POLLNVAL),
+  // simulating a pipe failure scenario without waiting 3 minutes
+  close(fgc->pipe_read_fd);
+
+  // This should handle the error gracefully without crashes or double-frees
+  FGC_Apply(fgc);
+
+  // The GC should have failed, so no bytes should be collected
+  // (or at least the operation should complete without crashing)
+  ASSERT_EQ(0, fgc->stats.totalCollected);
+}
+
 TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   const auto startValue = TotalIIBlocks();
   constexpr size_t docs_per_block = 100;
