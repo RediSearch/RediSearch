@@ -25,6 +25,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "rpnet.h"
 #include "coord/hybrid/dist_utils.h"
+#include "info/global_stats.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   for (const RLookupKey *kk = nc->lookup->head; kk; kk = kk->next) {
@@ -338,6 +339,7 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
 static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp,
                           StrongRef *strong_ref, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
   RS_ASSERT(QueryError_HasError(status));
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(ctx, status);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
