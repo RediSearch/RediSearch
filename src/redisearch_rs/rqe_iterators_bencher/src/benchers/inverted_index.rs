@@ -95,7 +95,7 @@ impl NumericFullBencher {
     }
 
     fn rust_index(delta: u64) -> InvertedIndex<Numeric> {
-        let mut ii = InvertedIndex::new(ffi::IndexFlags_Index_StoreNumeric, Numeric::default());
+        let mut ii = InvertedIndex::<Numeric>::new(ffi::IndexFlags_Index_StoreNumeric);
         for doc_id in 1..INDEX_SIZE {
             let record = RSIndexResult::numeric(doc_id as f64).doc_id(doc_id * delta);
             ii.add_record(&record).expect("failed to add record");
@@ -263,7 +263,7 @@ impl<E> Drop for TermFullBencher<E> {
 
 impl<E> TermFullBencher<E>
 where
-    E: Encoder + DecodedBy + Default,
+    E: Encoder + DecodedBy,
     E::Decoder: TermDecoder,
 {
     pub fn new(decoder_name: &str, ii_flags: u32) -> Self {
@@ -336,7 +336,7 @@ where
     }
 
     fn rust_index(&self, sparse: bool) -> InvertedIndex<E> {
-        let mut ii = InvertedIndex::new(self.ii_flags, E::default());
+        let mut ii = InvertedIndex::<E>::new(self.ii_flags);
 
         let delta = if sparse { SPARSE_DELTA } else { 1 };
         for doc_id in 1..INDEX_SIZE {

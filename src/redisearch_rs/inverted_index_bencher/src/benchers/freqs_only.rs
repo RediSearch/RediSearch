@@ -43,7 +43,7 @@ impl Bencher {
                     .doc_id(100)
                     .frequency(freq);
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = FreqsOnly.encode(&mut buffer, delta, &record).unwrap();
+                let _grew_size = FreqsOnly::encode(&mut buffer, delta, &record).unwrap();
                 let encoded = buffer.into_inner();
 
                 TestValue {
@@ -70,7 +70,8 @@ impl Bencher {
                             .doc_id(100)
                             .frequency(test.freq);
 
-                        let grew_size = FreqsOnly.encode(&mut buffer, test.delta, &record).unwrap();
+                        let grew_size =
+                            FreqsOnly::encode(&mut buffer, test.delta, &record).unwrap();
 
                         black_box(grew_size);
                     }

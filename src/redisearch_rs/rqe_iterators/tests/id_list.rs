@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use inverted_index::RSResultKind;
 use rqe_iterators::{
     RQEIterator, RQEValidateStatus, SkipToOutcome,
     id_list::{SortedIdList, UnsortedIdList},
@@ -30,7 +31,12 @@ static CASES: &[&[u64]] = &[
 
 #[test]
 fn empty_initialization_works() {
-    let i = SortedIdList::new(vec![]);
+    let mut i = SortedIdList::new(vec![]);
+
+    let result = i.current().unwrap();
+    assert_eq!(0, result.doc_id);
+    assert_eq!(RSResultKind::Virtual, result.kind());
+
     assert!(i.at_eof());
 }
 
@@ -43,7 +49,11 @@ fn unsorted_initialization_of_sorted_variant_panics() {
 
 #[test]
 fn unsorted_initialization_of_unsorted_variant_works() {
-    let _ = UnsortedIdList::new(vec![5, 3, 1, 4, 2]);
+    let mut it = UnsortedIdList::new(vec![5, 3, 1, 4, 2]);
+
+    let result = it.current().unwrap();
+    assert_eq!(0, result.doc_id);
+    assert_eq!(RSResultKind::Virtual, result.kind());
 }
 
 #[cfg(not(feature = "disable_sort_checks_in_idlist"))]
@@ -63,7 +73,7 @@ fn duplicate_initialization() {
 
 #[test]
 fn read() {
-    for (i, &case) in CASES.iter().enumerate() {
+    for (i, case) in CASES.into_iter().copied().enumerate() {
         let mut it = SortedIdList::new(case.to_vec());
 
         assert_eq!(
@@ -73,7 +83,7 @@ fn read() {
         );
         assert!(!it.at_eof(), "Case {i} is at EOF before reading");
 
-        for &expected_id in case {
+        for expected_id in case.into_iter().copied() {
             assert!(!it.at_eof(), "Case {i}");
             let res = it.read();
             assert!(res.is_ok(), "Case {i}, expected {expected_id}");
@@ -82,6 +92,10 @@ fn read() {
             let res = res.unwrap();
             assert_eq!(res.doc_id, expected_id, "Case {i}");
             assert_eq!(it.last_doc_id(), expected_id, "Case {i}");
+
+            let result = it.current().unwrap();
+            assert_eq!(expected_id, result.doc_id);
+            assert_eq!(RSResultKind::Virtual, result.kind());
         }
 
         assert!(it.at_eof(), "Case {i}");

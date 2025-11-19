@@ -54,6 +54,15 @@ pub enum RQEValidateStatus<'iterator, 'index> {
 }
 
 pub trait RQEIterator<'index> {
+    /// Return the current [`RSIndexResult`] stored within this [`RQEIterator`].
+    ///
+    /// Calls to `read`, `skip_to` and `revalidate` (moved case) also return this reference.
+    /// Sometimes however, especially in the case of wrapper iterators, you might
+    /// not have an immediate use for the actual result, and would instead want to keep it aside
+    /// for later in time. The child iterator already has that result anyway,
+    /// and it is this method which provides the ability to expose it (for later use).
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>>;
+
     /// Read the next entry from the iterator.
     ///
     /// On a successful read, the iterator must set its `last_doc_id` property to the new current result id
@@ -77,10 +86,7 @@ pub trait RQEIterator<'index> {
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
     /// The iterator should check if it is still valid.
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Default implementation does nothing.
-        Ok(RQEValidateStatus::Ok)
-    }
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
 
     ///Rewind the iterator to the beginning and reset its properties.
     fn rewind(&mut self);

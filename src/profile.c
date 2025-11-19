@@ -409,6 +409,10 @@ PRINT_PROFILE_FUNC(printMetricIt) {
 
   printProfileCounters(counters);
 
+  if (it->type == VECTOR_DISTANCE) {
+    printProfileVectorSearchMode(VECSIM_RANGE_QUERY);
+  }
+
   RedisModule_Reply_MapEnd(reply);
 }
 
@@ -424,9 +428,12 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, QueryIterator *root, Pr
 
     if (root->type == HYBRID_ITERATOR) {
       HybridIterator *hi = (HybridIterator *)root;
+      printProfileVectorSearchMode(hi->searchMode);
       if (hi->searchMode == VECSIM_HYBRID_BATCHES ||
           hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
         printProfileNumBatches(hi);
+        printProfileMaxBatchSize(hi);
+        printProfileMaxBatchIteration(hi);
       }
     }
 
