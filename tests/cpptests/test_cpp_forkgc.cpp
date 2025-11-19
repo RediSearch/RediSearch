@@ -697,7 +697,7 @@ TEST_F(FGCTestTag, testPipeErrorDuringGC) {
  */
 TEST_F(FGCTestTag, testPipeErrorDuringApply) {
   // Run multiple iterations to increase coverage of different timing scenarios
-  for (int iteration = 0; iteration < 10; iteration++) {
+  for (int iteration = 0; iteration < 1000; iteration++) {
     // Add documents to create work for the GC
     std::string doc1 = "doc1_" + std::to_string(iteration);
     std::string doc2 = "doc2_" + std::to_string(iteration);
@@ -720,7 +720,7 @@ TEST_F(FGCTestTag, testPipeErrorDuringApply) {
     // points during the apply process
     std::thread closer([this, iteration]() {
       // Variable delay to hit different code paths
-      usleep(10 * iteration);
+      usleep(iteration);
       close(fgc->pipe_read_fd);
     });
 
