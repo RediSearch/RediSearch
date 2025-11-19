@@ -61,7 +61,7 @@ jobs:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     name: Build container for ${{ needs.get-config.outputs.container  || needs.get-config.outputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
-    runs-on: ${{ get-config.outputs.env }}
+    runs-on: ${{ needs.get-config.outputs.env }}
     permissions:
       contents: read
       packages: write # required for GHCR push
@@ -85,10 +85,10 @@ jobs:
           CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's/[:\/]/-/g')
 
           # Unique image tag per workflow run and architecture
-          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ get-config.outputs.env }}-${RUN_ID}"
+          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ needs.get-config.outputs.env }}-${RUN_ID}"
 
           # Shared cache ref (without run_id)
-          CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ get-config.outputs.env }}-cache"
+          CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ needs.get-config.outputs.env }}-cache"
 
           echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "cache=$CACHE_REF" >> $GITHUB_OUTPUT
