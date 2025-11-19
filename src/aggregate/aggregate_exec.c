@@ -517,7 +517,7 @@ done_2:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
-
+    req->has_timedout = has_timedout;
     // Prepare profile printer context
     ProfilePrinterCtx profileCtx = {
       .req = req,
@@ -655,18 +655,18 @@ done_3:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
-
-    // Prepare profile printer context
-    ProfilePrinterCtx profileCtx = {
-      .req = req,
-      .timedout = has_timedout,
-      .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
-      .bgScanOOM = req->sctx->spec && req->sctx->spec->scan_failed_OOM,
-    };
+    req->has_timedout = has_timedout;
 
     if (IsProfile(req)) {
       RedisModule_Reply_MapEnd(reply); // >Results
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
+        // Prepare profile printer context
+        ProfilePrinterCtx profileCtx = {
+          .req = req,
+          .timedout = has_timedout,
+          .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
+          .bgScanOOM = req->sctx->spec && req->sctx->spec->scan_failed_OOM,
+        };
         req->profile(reply, &profileCtx);
       }
     }
@@ -713,6 +713,106 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
   if (req->sctx->spec) {
     IndexSpec_DecrActiveQueries(req->sctx->spec);
+  }
+}
+
+static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
+  RedisSearchCtx *sctx = req->sctx;
+
+  ProfilePrinterCtx profileCtx = {
+      .req = req,
+      .timedout = req->has_timedout,
+      .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
+      .bgScanOOM = sctx && sctx->spec && sctx->spec->scan_failed_OOM
+  };
+
+  return profileCtx;
+}
+
+// Simple version of sendChunk that returns empty results for aggregate queries.
+// Handles both RESP2 and RESP3 protocols with cursor support.
+// Based on sendChunk_Resp2/3 patterns.
+ void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, AREQ *req) {
+
+  if (reply->resp3) {
+
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_Array(reply);
+    }
+    // RESP3 format - use map structure
+    RedisModule_Reply_Map(reply);
+
+    if (IsProfile(req)) {
+      Profile_PrepareMapForReply(reply);
+    }
+
+    // attributes (field names)
+    RedisModule_Reply_SimpleString(reply, "attributes");
+    RedisModule_Reply_EmptyArray(reply);
+
+    // <format>
+    if (req->reqflags & QEXEC_FORMAT_EXPAND) {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+    } else {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    }
+
+    // results (empty array)
+    RedisModule_ReplyKV_Array(reply, "results");
+    RedisModule_Reply_ArrayEnd(reply);
+
+    // total_results
+    RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
+
+    // warning
+    RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+    RedisModule_Reply_ArrayEnd(reply);
+
+    if (IsProfile(req)) {
+      RedisModule_Reply_MapEnd(reply);  // >Results
+      ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
+      req->profile(reply, &profileCtx);
+    }
+
+    RedisModule_Reply_MapEnd(reply);
+
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_LongLong(reply, 0);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
+  } else {
+
+    // Upon `FT.PROFILE` commands, embed the response inside another map
+    if (IsProfile(req)) {
+      Profile_PrepareMapForReply(reply);
+    } else if (req->reqflags & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_Array(reply);
+    }
+
+    // RESP2 format - use array structure
+    RedisModule_Reply_Array(reply);
+
+    // First element is always the total count (0 for empty results)
+    RedisModule_Reply_LongLong(reply, 0);
+
+    // No individual results to add for empty results
+
+    RedisModule_Reply_ArrayEnd(reply);
+
+    ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
+
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+      // Cursor done
+      RedisModule_Reply_LongLong(reply, 0);
+      if (IsProfile(req)) {
+        req->profile(reply, &profileCtx);
+      }
+      // Cursor end array
+      RedisModule_Reply_ArrayEnd(reply);
+    } else if (IsProfile(req)) {
+      req->profile(reply, &profileCtx);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
   }
 }
 
@@ -1216,6 +1316,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
 
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
+ * FT.CURSOR PROFILE {index} {CID}
  * FT.CURSOR DEL {index} {CID}
  * FT.CURSOR GC {index}
  */
@@ -1274,6 +1375,38 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else {
       cursorRead(reply, cursor, count, false);
     }
+  } else if (strcasecmp(cmd, "PROFILE") == 0) {
+    // Return profile
+    Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+    if (cursor == NULL) {
+      RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
+
+    AREQ *req = cursor->execState;
+    if (!IsProfile(req)) {
+      RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
+    // We get here only if it's internal (coord) cursor because cursor is not supported with profile,
+    // and we already checked that the cmd is not for profiling.
+    // Since it's an internal cursor, it must be associated with a spec.
+    RS_ASSERT(cursor_HasSpecWeakRef(cursor));
+    // Check if the spec is still valid
+    StrongRef execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
+    if (!StrongRef_Get(execution_ref)) {
+      // The index was dropped while the cursor was idle.
+      // Notify the client that the query was aborted.
+      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
+    } else {
+      sendChunk_ReplyOnly_EmptyResults(reply, req);
+      IndexSpecRef_Release(execution_ref);
+    }
+
+    // Free the cursor
+    Cursor_Free(cursor);
   } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
     if (rc != REDISMODULE_OK) {
