@@ -370,8 +370,6 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
     usleep(1);
   }
 
-  pthread_mutex_unlock(&thpool_p->jobqueues.lock);
-
   return thpool_p->n_threads;
 }
 
