@@ -77,6 +77,15 @@ void waitForAdminJobFunc(void *p) {
     }
 };
 
+void waitForSignFunc(void *p) {
+    bool *bool_p = (bool *)p;
+
+    // wait for the admin jobs to be pushed
+    while (!*bool_p) {
+        usleep(1);
+    }
+};
+
 void sleep_job_ms(void *p) {
     size_t *time_ms = (size_t *)p;
     std::this_thread::sleep_for(std::chrono::milliseconds(*time_ms));
@@ -390,7 +399,6 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestAddThreads) {
 static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpool_p,
                                                        size_t n_threads_to_keep_alive,
                                                        size_t final_n_threads) {
-    //TODO(Joan): Revisit this test
     size_t total_jobs_pushed = 0;
 
     auto setThpoolThreadsNumber = [thpool_p, &final_n_threads]() -> size_t {
@@ -415,8 +423,7 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
      * 6. Add jobs to the queue to trigger verify init.
      * 7. Expect final_n_threads threads in the pool */
 
-
-    // Keep all the threads busy until while we call terminate when empty
+    // Keep all the threads busy until while we schedule the reduction of all threads
     for (int i = 0; i < RUNTIME_CONFIG_N_THREADS; i++) {
         redisearch_thpool_add_work(thpool_p, waitForAdminJobFunc, thpool_p, THPOOL_PRIORITY_HIGH);
         ++total_jobs_pushed;
@@ -428,8 +435,9 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
     }
 
     // Keep `n_threads_to_keep_alive` of the threads working and alive during remove threads + verify init
+    bool unblock = false;
     for (int i = 0; i < n_threads_to_keep_alive; i++) {
-        redisearch_thpool_add_work(thpool_p, waitForAdminJobFunc, thpool_p, THPOOL_PRIORITY_HIGH);
+        redisearch_thpool_add_work(thpool_p, waitForSignFunc, &unblock, THPOOL_PRIORITY_HIGH);
         ++total_jobs_pushed;
     }
 
@@ -451,18 +459,23 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
              redisearch_thpool_num_jobs_in_progress(thpool_p) == n_threads_to_keep_alive)) {
         usleep(1);
     }
+    // At this point we have n_threads_to_keep_alive threads alive and 0 threads per configuration.
+    ASSERT_EQ(redisearch_thpool_get_num_threads(thpool_p), 0);
 
+    // Now final_n_threads would aim to start `final_n_threads - n_threads` threads.
     ASSERT_EQ(setThpoolThreadsNumber(), final_n_threads);
 
     // Assert n_threads is as expected
     ASSERT_EQ(redisearch_thpool_get_num_threads(thpool_p), final_n_threads);
 
-    // Assert nothing has changed
-    ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).num_threads_alive, n_threads_to_keep_alive);
+    // Assert maybe some have started, although some will soon terminate
+    ASSERT_GE(redisearch_thpool_get_stats(thpool_p).num_threads_alive, n_threads_to_keep_alive);
+    // Assert the number of jobs in progress is as expected (no other was in the queue)
     ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(thpool_p), n_threads_to_keep_alive);
 
     // Now we add another job to trigger verify init.
     size_t time_us = 1;
+    unblock = true;
     redisearch_thpool_add_work(thpool_p, sleep_job_us, &time_us, THPOOL_PRIORITY_HIGH);
     ++total_jobs_pushed;
 

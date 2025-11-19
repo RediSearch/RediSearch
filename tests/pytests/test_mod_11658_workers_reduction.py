@@ -127,7 +127,6 @@ def test_MOD_11658_workers_reduction_under_load():
     env.assertGreater(post_count, pre_count, message="Queries should continue running after config change")
 
     # Verify the config change took effect
-    # TODO(Joan): How can I know if the threads actually disappeared
     # Critical test: Verify Redis is still responsive
     # This is where the bug manifests - Redis becomes unresponsive
     try:

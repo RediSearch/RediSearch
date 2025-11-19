@@ -137,8 +137,8 @@ static void redisearch_thpool_push_chain(redisearch_thpool_t *thpool_p,
                                         job *last_newjob,
                                         size_t num,
                                         thpool_priority priority);
-static int thread_init(redisearch_thpool_t *thpool_p);
-static void *thread_do(redisearch_thpool_t *thpool_p);
+static int thread_init(redisearch_thpool_t *thpool_p, bool *started);
+static void *thread_do(void *p);
 
 static int jobqueue_init(jobqueue *jobqueue_p);
 static void jobqueue_clear(jobqueue *jobqueue_p);
@@ -302,13 +302,21 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
   }
 
   /* Add new threads if needed */
+  bool started[n_new_threads];
   for (size_t n = 0; n < n_new_threads; n++) {
-    thread_init(thpool_p);
+    thread_init(thpool_p, &started[n]);
   }
 
   /* Wait for threads to initialize */
-  while (thpool_p->num_threads_alive != thpool_p->n_threads) {
-    usleep(1); // avoid busy loop, wait for a very small amount of time.
+  size_t n_started = 0;
+  while (n_started < n_new_threads) {
+    for (size_t n = 0; n < n_new_threads; n++) {
+      if (started[n]) {
+        ++n_started;
+        started[n] = false;
+      }
+    }
+    usleep(1);
   }
 
   thpool_p->state = THPOOL_INITIALIZED;
@@ -360,17 +368,24 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
   size_t n_threads = thpool_p->n_threads + n_threads_to_add;
   thpool_p->n_threads = n_threads;
-  // TODO(Joan): I am not sure about this, but thpool unit tests fail otherwise
-  if (thpool_p->state == THPOOL_UNINITIALIZED) {
-    return n_threads;
-  }
   /* Add new threads */
+  bool started[n_threads_to_add];
   for (size_t n = 0; n < n_threads_to_add; n++) {
-    thread_init(thpool_p);
+    thread_init(thpool_p, &started[n]);
   }
 
-  /* Wait until `num_threads_alive` == `n_threads` */
-  while (thpool_p->num_threads_alive != n_threads) {
+  /* Wait until `num_threads_alive` == `n_threads` .
+    It could be that we have already them alive because they are in TERMINATE_WHEN_EMPTY state.
+  */
+
+  size_t n_started = 0;
+  while (n_started < n_threads_to_add) {
+    for (size_t n = 0; n < n_threads_to_add; n++) {
+      if (started[n]) {
+        ++n_started;
+        started[n] = false;
+      }
+    }
     usleep(1);
   }
 
@@ -649,16 +664,24 @@ void redisearch_thpool_resume_threads(redisearch_thpool_t *thpool_p) {
 }
 
 /* ============================ THREAD ============================== */
-
+struct thread_do_args {
+  redisearch_thpool_t *thpool_p;
+  bool *started; // Signal the start of the thread to the initializer, so it can wait for all threads to start. This is more robust than relying on num_threads_alive,
+                // since this may change due to other threads terminating (TERMINATE_WITH_EMPTY, etc ...)
+};
 /* Initialize a thread in the thread pool
  *
  * @param thread        address to the pointer of the thread to be created
  * @param id            id to be given to the thread
  * @return 0 on success, -1 otherwise.
  */
-static int thread_init(redisearch_thpool_t *thpool_p) {
+static int thread_init(redisearch_thpool_t *thpool_p, bool *started) {
   pthread_t thread_id;
-  pthread_create(&thread_id, NULL, (void *(*)(void *))thread_do, thpool_p);
+  *started = false;
+  struct thread_do_args *args = rm_malloc(sizeof(struct thread_do_args));
+  args->thpool_p = thpool_p;
+  args->started = started;
+  pthread_create(&thread_id, NULL, (void *(*)(void *))thread_do, args);
   pthread_detach(thread_id);
   return 0;
 }
@@ -671,7 +694,9 @@ static int thread_init(redisearch_thpool_t *thpool_p) {
  * @param  thread        thread that will run this function
  * @return nothing
  */
-static void *thread_do(redisearch_thpool_t *thpool_p) {
+static void *thread_do(void *p) {
+  struct thread_do_args *args = (struct thread_do_args *)p;
+  redisearch_thpool_t *thpool_p = args->thpool_p;
 
   /* Set thread name for profiling and debugging */
   char thread_name[16] = {0};
@@ -694,6 +719,7 @@ static void *thread_do(redisearch_thpool_t *thpool_p) {
 
   /* Mark thread as alive (initialized) */
   thpool_p->num_threads_alive += 1;
+  *args->started = true;
   threadCtx thread_ctx = {.thread_state = THREAD_RUNNING};
 
   while (true) {
