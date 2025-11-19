@@ -31,19 +31,74 @@ pub struct InvIndIterator<'index, R> {
     last_doc_id: t_docId,
     /// A reusable result object to avoid allocations on each `read` call.
     result: RSIndexResult<'index>,
+
+    /// The implementation of the `read` method.
+    /// Using dynamic dispatch so we can pick the right version during the
+    /// iterator construction saving to re-do the checks each time read() is called.
+    read_impl: fn(&mut Self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>,
 }
 
 impl<'index, R> InvIndIterator<'index, R>
 where
     R: IndexReader<'index>,
 {
-    pub const fn new(reader: R, result: RSIndexResult<'static>) -> Self {
+    pub fn new(reader: R, result: RSIndexResult<'static>) -> Self {
+        // no need to manually skip duplicates if there is none in the II.
+        let skip_multi = reader.has_duplicates();
+
+        let read_impl = if skip_multi {
+            Self::read_skip_multi
+        } else {
+            Self::read_default
+        };
+
         Self {
             reader,
             at_eos: false,
             last_doc_id: 0,
             result,
+            read_impl,
         }
+    }
+
+    // TODO: this a port of InvIndIterator_Read_Default, the simplest read version.
+    // The more complex ones will be implemented as part of the query iterators:
+    // - InvIndIterator_Read_SkipMulti_CheckExpiration
+    // - InvIndIterator_Read_CheckExpiration
+    /// Default read implementation, without any additional filtering.
+    fn read_default(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.at_eos {
+            return Ok(None);
+        }
+
+        if self.reader.next_record(&mut self.result)? {
+            self.last_doc_id = self.result.doc_id;
+            Ok(Some(&mut self.result))
+        } else {
+            self.at_eos = true;
+            Ok(None)
+        }
+    }
+
+    /// Read implementation that skips multi-value entries from the same document.
+    fn read_skip_multi(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.at_eos {
+            return Ok(None);
+        }
+
+        while self.reader.next_record(&mut self.result)? {
+            if self.last_doc_id == self.result.doc_id {
+                // Prevent returning the same doc
+                continue;
+            }
+
+            self.last_doc_id = self.result.doc_id;
+            return Ok(Some(&mut self.result));
+        }
+
+        // exited the while loop so we reached the end of the index
+        self.at_eos = true;
+        Ok(None)
     }
 }
 
@@ -56,23 +111,8 @@ where
         Some(&mut self.result)
     }
 
-    // TODO: this a port of InvIndIterator_Read_Default, the simplest read version.
-    // The more complex ones will be implemented as part of the next iterators:
-    // - InvIndIterator_Read_SkipMulti_CheckExpiration
-    // - InvIndIterator_Read_SkipMulti
-    // - InvIndIterator_Read_CheckExpiration
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.at_eos {
-            return Ok(None);
-        }
-
-        if self.reader.next_record(&mut self.result)? {
-            self.last_doc_id = self.result.doc_id;
-            Ok(Some(&mut self.result))
-        } else {
-            self.at_eos = true;
-            Ok(None)
-        }
+        (self.read_impl)(self)
     }
 
     // TODO: implement InvIndIterator_SkipTo_withSeeker_CheckExpiration with the query iterators.
