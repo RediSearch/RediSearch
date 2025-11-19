@@ -233,7 +233,7 @@ struct KeyList<'a> {
     head: Option<NonNull<RLookupKey<'a>>>,
     tail: Option<NonNull<RLookupKey<'a>>>,
     // Length of the data row. This is not necessarily the number
-    // of lookup keys. Hidden keys created through [`CursorMut::override_current`] increase
+    // of lookup keys. Overridden keys created through [`CursorMut::override_current`] increase
     // the number of actually allocated keys without increasing the conceptual rowlen.
     rowlen: u32,
 }
@@ -450,8 +450,14 @@ impl<'a> RLookupKey<'a> {
         unsafe { Pin::new_unchecked(b) }
     }
 
+    #[cfg(not(any(debug_assertions, test)))]
+    #[inline(always)]
+    pub fn is_overridden(&self) -> bool {
+        self.name.is_null()
+    }
+
     #[cfg(any(debug_assertions, test))]
-    fn is_tombstone(&self) -> bool {
+    pub fn is_overridden(&self) -> bool {
         self.name.is_null()
             && self.name_len == usize::MAX
             && self.path.is_null()
@@ -490,7 +496,7 @@ impl<'a> RLookupKey<'a> {
             self.flags
         );
 
-        if !self.is_tombstone() {
+        if !self.is_overridden() {
             use std::ptr;
 
             assert!(
@@ -878,7 +884,9 @@ impl<'list, 'a> CursorMut<'list, 'a> {
                 name,
                 path,
                 old.header.dstidx,
-                old.header.flags | flags,
+                // NAME_ALLOC is a transient flag in Rust and must not be copied over,
+                // thus we can safely just set the provided flags here.
+                flags,
                 #[cfg(debug_assertions)]
                 *old.rlookup_id,
             );
@@ -1011,16 +1019,23 @@ impl<'a> RLookup<'a> {
     ///  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
     ///  * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
     pub fn add_keys_from(&mut self, src: &RLookup<'a>, flags: RLookupKeyFlags) {
-        // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
-        for src_key in src.cursor() {
-            // Combine caller's control flags with source key's persistent properties
-            // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
-            // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
-            let combined_flags = flags | src_key.flags & !TRANSIENT_FLAGS;
+        // Manually iterate through all keys including hidden ones
+        // (the Iterator impl for Cursor skips hidden keys, but we want to include those but skip overridden ones)
+        let mut cursor = src.cursor();
 
-            // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
-            // In this case, we just want to move on to the next key
-            let _ = self.get_key_write(src_key._name.clone(), combined_flags);
+        while let Some(src_key) = cursor.current() {
+            if !src_key.is_overridden() {
+                // Combine caller's control flags with source key's persistent properties
+                // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
+                // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
+                let combined_flags = flags | (src_key.flags & !TRANSIENT_FLAGS);
+
+                // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
+                // In this case, we just want to move on to the next key
+                let _ = self.get_key_write(src_key._name.clone(), combined_flags);
+            }
+
+            cursor.move_next();
         }
     }
 
@@ -1272,6 +1287,10 @@ impl<'a> RLookup<'a> {
         };
 
         Some(key)
+    }
+
+    pub const fn get_row_len(&self) -> u32 {
+        self.header.keys.rowlen
     }
 }
 
@@ -1972,8 +1991,8 @@ mod tests {
         assert_eq!(found.dstidx, 0);
         // new key should have provided keys
         assert!(found.flags.contains(RLookupKeyFlag::Numeric));
-        // new key should inherit any old flags
-        assert!(found.flags.contains(RLookupKeyFlag::Unresolved));
+        // new key should not inherit any old flags
+        assert!(!found.flags.contains(RLookupKeyFlag::Unresolved));
     }
 
     #[test]
@@ -1993,7 +2012,7 @@ mod tests {
         let mut c = keylist.cursor_front();
 
         // we expect the first item to be the tombstone of the old key
-        assert!(c.current().unwrap().is_tombstone());
+        assert!(c.current().unwrap().is_overridden());
 
         // and the next item to be the new key
         c.move_next();
@@ -2455,7 +2474,7 @@ mod tests {
     }
 
     #[test]
-    fn rlookup_add_fields_from_empty_dst() {
+    fn rlookup_add_keys_from_basic() {
         let mut src = RLookup::new();
         src.get_key_write(c"foo", RLookupKeyFlags::empty()).unwrap();
         src.get_key_write(c"bar", RLookupKeyFlags::empty()).unwrap();
@@ -2469,9 +2488,73 @@ mod tests {
         assert!(dst.keys.find_by_name(c"baz").is_some());
     }
 
-    /// Asserts that if a key already exists in `dst` AND the `Override` flag is set, it will override that key.
     #[test]
-    fn rlookup_add_fields_exists_override() {
+    fn rlookup_add_keys_from_empty_source() {
+        let src = RLookup::new();
+
+        let mut dst = RLookup::new();
+        dst.get_key_write(c"existing", RLookupKeyFlags::empty())
+            .unwrap();
+
+        assert_eq!(dst.get_row_len(), 1);
+        dst.add_keys_from(&src, RLookupKeyFlags::empty());
+        assert_eq!(dst.get_row_len(), 1);
+
+        assert!(dst.keys.find_by_name(c"existing").is_some());
+    }
+
+    #[test]
+    fn rlookup_add_keys_from_multiple_sources() {
+        // Initialize lookups
+        let mut src1 = RLookup::new();
+        let mut src2 = RLookup::new();
+        let mut src3 = RLookup::new();
+        let mut dest = RLookup::new();
+
+        // Create overlapping keys in different sources
+        // src1: field1, field2, field3
+        let _src1_key1 = src1.get_key_write(c"field1", RLookupKeyFlags::empty());
+        let _src1_key2 = src1.get_key_write(c"field2", RLookupKeyFlags::empty());
+        let _src1_key3 = src1.get_key_write(c"field3", RLookupKeyFlags::empty());
+
+        // src2: field2, field3, field4 (field2, field3 overlap with src1)
+        let _src2_key2 = src2.get_key_write(c"field2", RLookupKeyFlags::empty());
+        let _src2_key3 = src2.get_key_write(c"field3", RLookupKeyFlags::empty());
+        let _src2_key4 = src2.get_key_write(c"field4", RLookupKeyFlags::empty());
+
+        // src3: field3, field4, field5 (field3, field4 overlap)
+        let _src3_key3 = src3.get_key_write(c"field3", RLookupKeyFlags::empty());
+        let _src3_key4 = src3.get_key_write(c"field4", RLookupKeyFlags::empty());
+        let _src3_key5 = src3.get_key_write(c"field5", RLookupKeyFlags::empty());
+
+        // Add sources sequentially (first wins for conflicts)
+        dest.add_keys_from(&src1, RLookupKeyFlags::empty()); // field1, field2, field3
+        dest.add_keys_from(&src2, RLookupKeyFlags::empty()); // field4 (field2, field3 already exist)
+        dest.add_keys_from(&src3, RLookupKeyFlags::empty()); // field5 (field3, field4 already exist)
+
+        // Verify final result: all unique keys present (first wins for conflicts)
+        assert_eq!(5, dest.get_row_len()); // field1, field2, field3, field4, field5
+
+        let d_key1 = dest.get_key_read(c"field1", RLookupKeyFlags::empty());
+        assert!(d_key1.is_some());
+
+        let d_key2 = dest.get_key_read(c"field2", RLookupKeyFlags::empty());
+        assert!(d_key2.is_some());
+
+        let d_key3 = dest.get_key_read(c"field3", RLookupKeyFlags::empty());
+        assert!(d_key3.is_some());
+
+        let d_key4 = dest.get_key_read(c"field4", RLookupKeyFlags::empty());
+        assert!(d_key4.is_some());
+
+        let d_key5 = dest.get_key_read(c"field5", RLookupKeyFlags::empty());
+        assert!(d_key5.is_some());
+    }
+
+    /// Asserts that if a key already exists in `dst` AND the `Override` flag is set, it will override that key.
+    /// This is an explicit override behavior, and thus the flag must be given as parameter to add_keys_from.
+    #[test]
+    fn rlookup_add_keys_from_override_existing() {
         let mut src = RLookup::new();
         src.get_key_write(c"foo", RLookupKeyFlags::empty()).unwrap();
         src.get_key_write(c"bar", RLookupKeyFlags::empty()).unwrap();
@@ -2482,7 +2565,9 @@ mod tests {
         let mut dst = RLookup::new();
         let old_dst_baz = &raw const *dst.get_key_write(c"baz", RLookupKeyFlags::empty()).unwrap();
 
+        assert_eq!(dst.get_row_len(), 1);
         dst.add_keys_from(&src, make_bitflags!(RLookupKeyFlag::Override));
+        assert_eq!(dst.get_row_len(), 3);
 
         assert!(dst.keys.find_by_name(c"foo").is_some());
         assert!(dst.keys.find_by_name(c"bar").is_some());
@@ -2503,8 +2588,9 @@ mod tests {
     }
 
     /// Asserts that if a key already exists in `dst` AND the `Override` flag is NOT set, it will skip copying that key.
+    /// That is default override behavior: the existing key is kept.
     #[test]
-    fn rlookup_add_fields_exists_skip() {
+    fn rlookup_add_keys_from_skip_existing() {
         let mut src = RLookup::new();
         src.get_key_write(c"foo", RLookupKeyFlags::empty()).unwrap();
         src.get_key_write(c"bar", RLookupKeyFlags::empty()).unwrap();
@@ -2515,7 +2601,9 @@ mod tests {
             .get_key_write(c"baz", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
             .unwrap();
 
+        assert_eq!(dst.get_row_len(), 1);
         dst.add_keys_from(&src, RLookupKeyFlags::empty());
+        assert_eq!(dst.get_row_len(), 3);
 
         assert!(dst.keys.find_by_name(c"foo").is_some());
         assert!(dst.keys.find_by_name(c"bar").is_some());
@@ -2533,6 +2621,72 @@ mod tests {
         assert!(ptr::addr_eq(old_dst_baz, &raw const *dst_baz));
         // and should still contain all the old flags
         assert!(dst_baz.flags == make_bitflags!(RLookupKeyFlag::{ExplicitReturn | QuerySrc}));
+    }
+
+    /// Test that the Hidden flag is properly handled when adding keys from one lookup to another.
+    /// Verifies that:
+    /// 1. The Hidden flag is preserved when copying keys
+    /// 2. The Override flag allows overriding an existing hidden key with a non-hidden key
+    #[test]
+    fn rlookup_add_keys_from_hidden_flag_handling() {
+        // Create source and destination lookups
+        let mut src1 = RLookup::new();
+        let mut src2 = RLookup::new();
+        let mut dest = RLookup::new();
+
+        // Create key in src1 with Hidden flag
+        let src1_key = src1
+            .get_key_write(c"test_field", make_bitflags!(RLookupKeyFlag::Hidden))
+            .expect("writing test_field to src1 failed");
+        assert!(src1_key.flags.contains(RLookupKeyFlag::Hidden));
+
+        // Add src1 keys first - test flag preservation
+        dest.add_keys_from(&src1, RLookupKeyFlags::empty());
+        assert_eq!(dest.get_row_len(), 1);
+
+        let dest_key_after_src1 = dest
+            .get_key_read(c"test_field", RLookupKeyFlags::empty())
+            .expect("test_field cannot be read from dst");
+        assert!(dest_key_after_src1.flags.contains(RLookupKeyFlag::Hidden));
+
+        // Create same key name in src2 WITHOUT Hidden flag
+        let src2_key = src2
+            .get_key_write(c"test_field", RLookupKeyFlags::empty())
+            .expect("writing test_field to src2 failed");
+        assert!(!src2_key.flags.contains(RLookupKeyFlag::Hidden));
+
+        // Store pointer to original dest key to check override behavior, without getting
+        // borrow checker involved, this gives a false positive in Miri.
+        #[cfg(not(miri))]
+        let original_dest_key_ptr = std::ptr::from_ref(dest_key_after_src1);
+        // Add src2 keys with Override flag - test flag override behavior
+        dest.add_keys_from(&src2, make_bitflags!(RLookupKeyFlag::Override));
+        assert_eq!(dest.get_row_len(), 1);
+
+        // Verify the key was overridden
+        let dest_key_after_src2 = dest
+            .get_key_read(c"test_field", RLookupKeyFlags::empty())
+            .expect("test_field cannot be read from dst after src2 add");
+
+        #[cfg(not(miri))]
+        {
+            // Verify override happened (should point to new key object after override)
+            assert!(!ptr::addr_eq(
+                original_dest_key_ptr,
+                &raw const *dest_key_after_src2
+            ));
+            assert_eq!(
+                unsafe {
+                    (original_dest_key_ptr.as_ref())
+                        .expect("pointer is null")
+                        .name
+                },
+                std::ptr::null_mut()
+            );
+        }
+
+        // Verify Hidden flag is now gone (src2 overwrote src1's hidden status)
+        assert!(!dest_key_after_src2.flags.contains(RLookupKeyFlag::Hidden));
     }
 
     #[test]
