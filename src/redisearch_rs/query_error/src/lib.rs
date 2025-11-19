@@ -247,8 +247,12 @@ impl QueryWarningCode {
             Self::Ok => c"Success (not a warning)",
             Self::TimedOut => c"Timeout limit was reached",
             Self::ReachedMaxPrefixExpansions => c"Max prefix expansions limit was reached",
-            Self::OutOfMemoryShard => c"Shard failed to execute the query due to insufficient memory",
-            Self::OutOfMemoryCoord => c"One or more shards failed to execute the query due to insufficient memory",
+            Self::OutOfMemoryShard => {
+                c"Shard failed to execute the query due to insufficient memory"
+            }
+            Self::OutOfMemoryCoord => {
+                c"One or more shards failed to execute the query due to insufficient memory"
+            }
         }
     }
 }

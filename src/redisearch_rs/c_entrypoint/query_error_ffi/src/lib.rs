@@ -385,9 +385,12 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
 ///
 /// - `message` must be a valid C string or a NULL pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(message: *const c_char) -> QueryWarningCode {
+pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
+    message: *const c_char,
+) -> QueryWarningCode {
     const TIMED_OUT_WARNING_CSTR: &CStr = QueryWarningCode::TimedOut.to_c_str();
-    const REACHED_MAX_PREFIX_EXPANSIONS_WARNING_CSTR: &CStr = QueryWarningCode::ReachedMaxPrefixExpansions.to_c_str();
+    const REACHED_MAX_PREFIX_EXPANSIONS_WARNING_CSTR: &CStr =
+        QueryWarningCode::ReachedMaxPrefixExpansions.to_c_str();
     const OUT_OF_MEMORY_COORD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryCoord.to_c_str();
     const OUT_OF_MEMORY_SHARD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryShard.to_c_str();
 
