@@ -8,10 +8,12 @@
 */
 
 pub(crate) mod ffi;
+pub(crate) mod utils;
 
 mod empty;
 mod id_list;
 mod inverted_index;
 mod maybe_empty;
 mod metric;
+mod optional;
 mod wildcard;

@@ -1612,6 +1612,7 @@ dependencies = [
  "field",
  "inverted_index",
  "inverted_index_ffi",
+ "iterators_ffi",
  "itertools 0.14.0",
  "redis_mock",
  "rqe_iterators",
