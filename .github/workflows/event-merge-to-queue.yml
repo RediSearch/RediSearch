@@ -39,7 +39,7 @@ jobs:
       platform: all
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      test-config: QUICK=1
+      job-test-config: '{"test": "QUICK=1", "coverage": "", "sanitize": ""}'
       fail-fast: true  # This will cancel ALL matrix jobs on first failure
       include-coverage: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
       include-sanitize: true

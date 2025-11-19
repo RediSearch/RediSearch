@@ -16,7 +16,7 @@ jobs:
       platform: all
       architecture: all
       redis-ref: unstable
-      test-config: QUICK=1
+      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
       fail-fast: false
       include-coverage: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
       include-sanitize: true
