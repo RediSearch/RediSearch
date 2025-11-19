@@ -18,6 +18,7 @@
 #include "commands.h"
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
+#include "info/global_stats.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -469,6 +470,9 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     QueryError *status) {
 
     RS_ASSERT(QueryError_HasError(status));
+
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
+
     QueryError_ReplyAndClear(ctx, status);
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     if (sp) {
