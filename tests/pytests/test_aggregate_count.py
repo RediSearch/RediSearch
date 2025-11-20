@@ -81,6 +81,8 @@ def _test_limit00(protocol):
         queries_and_results = [
             (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 0], docs),
             (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LIMIT', 0, 0], ANY),
+            # WITHOUTCOUNT is implied by default
+            (['FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 0], ANY),
         ]
 
         for query, expected_results in queries_and_results:
@@ -98,28 +100,6 @@ def _test_limit00(protocol):
                 env.assertEqual(
                     len(results), 0,
                     message=f'{cmd}: len(results) != 0 dialect: {dialect}')
-
-        # If no WITHCOUNT/WITHOUTCOUNT is specified, the behavior depends on the dialect.
-        query =['FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 0]
-        cmd=' '.join(str(x) for x in query)
-        for dialect in [1, 2, 3, 4]:
-            if dialect < 4:
-                expected_results = docs
-            else:
-                expected_results = ANY
-
-            env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
-            res = env.cmd(*query)
-            total_results = _get_total_results(res)
-            results = _get_results(res)
-
-            # Verify results
-            env.assertEqual(
-                total_results, expected_results,
-                message=f'{cmd}: total_results != expected dialect: {dialect} on_timeout_policy: {on_timeout_policy}')
-            env.assertEqual(
-                len(results), 0,
-                message=f'{cmd}: len(results) != 0 dialect: {dialect} on_timeout_policy: {on_timeout_policy}')
 
 
 def test_limit00_resp3():
@@ -393,8 +373,8 @@ def _test_profile(protocol):
 
         # WITHCOUNT + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
-         ['Index', 'Depleter', 'Sorter', 'Pager/Limiter'],
-         ['Index', 'Depleter', 'Sorter', 'Pager/Limiter'],
+         ['Index', 'Sorter', 'Pager/Limiter'],
+         ['Index', 'Sorter', 'Pager/Limiter'],
          [['Index', 'Depleter', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']],
          [['Index', 'Depleter', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]),
 
@@ -413,8 +393,22 @@ def _test_profile(protocol):
          [['Index'], ['Network']],
          [['Index'], ['Network']]),
 
+        # WITHOUTCOUNT implicit (by default)
+        (['FT.AGGREGATE', 'idx', '*'],
+         ['Index'],
+         ['Index'],
+         [['Index'], ['Network']],
+         [['Index'], ['Network']]),
+
         # WITHOUTCOUNT + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LIMIT', 0, 50],
+         ['Index', 'Pager/Limiter'],
+         ['Index', 'Pager/Limiter'],
+         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
+         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
+
+         # WITHOUTCOUNT (implicit) + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 50],
          ['Index', 'Pager/Limiter'],
          ['Index', 'Pager/Limiter'],
          [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],

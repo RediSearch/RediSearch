@@ -125,6 +125,9 @@ typedef enum {
   // The query should use a depleter in the pipeline (for FT.AGGREGATE)
   QEXEC_F_HAS_DEPLETER = 0x10000000,
 
+  // The query has an explicit WITHCOUNT (for FT.AGGREGATE)
+  QEXEC_F_HAS_WITHCOUNT = 0x20000000,
+
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 
@@ -161,6 +164,7 @@ typedef struct {
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define HasDepleter(r) ((r)->reqflags & QEXEC_F_HAS_DEPLETER)
+#define HasWithCount(r) ((r)->reqflags & QEXEC_F_HAS_WITHCOUNT)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define IsCursor(r) ((r)->reqflags & QEXEC_F_IS_CURSOR)
@@ -230,7 +234,8 @@ typedef struct AREQ {
   /** Flags indicating current execution state */
   uint32_t stateflags;
 
-  int protocol; // RESP2/3
+  /** Protocol version RESP2/3 */
+  unsigned char protocol;
 
   /*
   // Dialect version used on this request

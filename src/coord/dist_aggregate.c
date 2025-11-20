@@ -471,14 +471,10 @@ static int executePlan(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, i
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
 
     // Pre-calculate total for FT.AGGREGATE + WITHCOUNT + WITHCURSOR in cluster
-    if (IsAggregate(r) && !IsOptimized(r) && IsCursor(r)) {
+    if (IsAggregate(r) && HasWithCount(r) && IsCursor(r)) {
       uint32_t total = executeCountingQuery(argv, argc, sp, ctx);
       r->cursor_precalculated_total = total;
       r->cursor_has_precalculated_total = true;
-
-      RedisModule_Log(RSDummyContext, "notice",
-                      "executePlan: Pre-calculated cluster-wide total=%u for cursor",
-                      total);
     }
 
     StrongRef dummy_spec_ref = {.rm = NULL};

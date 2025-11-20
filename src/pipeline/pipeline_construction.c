@@ -142,18 +142,22 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
 
 static bool AggregateConsumeAll(CommonPipelineParams *cpp, PLN_ArrangeStep *astp) {
   bool unlimited = false;
+  if (!HasDepleter(cpp)) {
+    return false;
+  }
+
   if (IsAggregate(cpp))
     if (HasDepleter(cpp)) {
     // FT.AGGREGATE + depleter
     unlimited = true;
-    } else if (IsCount(cpp)) {
-      // FT.AGGREGATE + LIMIT 0 0
-      unlimited = true;
-    } else if (!HasDepleter(cpp) && !IsOptimized(cpp) && HasSortBy(cpp) &&
-                !astp->isLimited) {
-      // FT.AGGREGATE + WITHCOUNT + SORTBY (no limit, no depleter)
-      unlimited = true;
-  }
+    // } else if (IsCount(cpp)) {
+    //   // FT.AGGREGATE + LIMIT 0 0
+    //   unlimited = true;
+    // } else if (!HasDepleter(cpp) && !IsOptimized(cpp) && HasSortBy(cpp) &&
+    //             !astp->isLimited) {
+    //   // FT.AGGREGATE + WITHCOUNT + SORTBY (no limit, no depleter)
+    //   unlimited = true;
+    }
   return unlimited;
 }
 
@@ -174,10 +178,11 @@ static bool PipelineRequiresSorter(AggregationPipelineParams *params) {
 static bool AggregateRequiresPagerAtCoordinator(CommonPipelineParams *cpp, PLN_ArrangeStep *astp) {
   bool addPager = false;
   if (IsAggregate(cpp) && !IsInternal(cpp)) {
-    if (!HasDepleter(cpp) && !IsOptimized(cpp) && HasSortBy(cpp) && !astp->isLimited ) {
-      // FT.AGGREGATE + WITHCOUNT + SORTBY (no limit, no depleter)
-      addPager = true;
-    } else if (HasDepleter(cpp) && astp->isLimited) {
+    // if (!HasDepleter(cpp) && !IsOptimized(cpp) && HasSortBy(cpp) && !astp->isLimited ) {
+    //   // FT.AGGREGATE + WITHCOUNT + SORTBY (no limit, no depleter)
+    //   addPager = true;
+    // } else
+    if (HasDepleter(cpp) && astp->isLimited) {
       // FT.AGGREGATE + depleter + LIMIT
       addPager = true;
     }

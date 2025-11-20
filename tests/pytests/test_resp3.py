@@ -332,11 +332,10 @@ def test_cursor():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
-    docs = 3
     exp = {
       'attributes': [],
       'warning': [],
-      'total_results': docs,
+      'total_results': 3,
       'format': 'STRING',
       'results': [
         {'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
@@ -346,7 +345,7 @@ def test_cursor():
     env.assertEqual(res, exp)
 
     exp = {
-      'attributes': [], 'warning': [], 'total_results': docs, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 0, 'format': 'STRING',
       'results': [
           {'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []}
         ]}
@@ -354,12 +353,12 @@ def test_cursor():
     env.assertEqual(res, exp)
 
     exp = {
-      'attributes': [], 'warning': [], 'total_results': docs, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 0, 'format': 'STRING',
       'results': [{'extra_attributes': {}, 'values': []}]}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
 
-    exp = {'attributes': [], 'warning': [], 'total_results': docs, 'format': 'STRING', 'results': []}
+    exp = {'attributes': [], 'warning': [], 'total_results': 0, 'format': 'STRING', 'results': []}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
     env.assertEqual(cursor, 0)
@@ -1614,9 +1613,8 @@ def test_totalResults_aggregate():
   # Test the `total_results` field for a cursor
   res, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '5')
   while cid:
-    env.assertEqual(res['total_results'], n_docs)
+    env.assertEqual(res['total_results'], 5)
     res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
 
   # Cursor is depleted.
-  env.assertEqual(res['total_results'], n_docs)
-  env.assertEqual(res['results'], [])
+  env.assertEqual(res['total_results'], 0)

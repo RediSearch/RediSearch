@@ -594,9 +594,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+      AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
       optimization_specified = true;
     } else {
       ParseAggPlanContext papCtx = {
@@ -1074,7 +1076,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   }
 
   // Define if we need a depleter in the pipeline
-  if (IsAggregate(req) && !IsOptimized(req) && !IsCount(req)) {
+  if (IsAggregate(req) && HasWithCount(req) && !IsCount(req)) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
     bool isLimited = (arng && arng->isLimited && arng->limit > 0);
 

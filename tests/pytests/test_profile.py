@@ -143,67 +143,33 @@ def testProfileAggregate(env):
   conn.execute_command('hset', '1', 't', 'hello')
   conn.execute_command('hset', '2', 't', 'world')
 
-  # WITHCOUNT is the default in dialect 2 -> Depleter
-  expected_res = [['Type', 'Index', 'Results processed', 1],
-                  ['Type', 'Loader', 'Results processed', 1],
-                  ['Type', 'Grouper', 'Results processed', 1],
-                  ['Type', 'Depleter', 'Results processed', 1]]
-  actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', 'hello',
-                                    'groupby', 1, '@t',
-                                    'REDUCE', 'count', '0', 'as', 'sum')
-  env.assertEqual(actual_res[1][1][0][5], expected_res)
-
-  # Test WITHOUTCOUNT -> No depleter
   expected_res = [['Type', 'Index', 'Results processed', 1],
                   ['Type', 'Loader', 'Results processed', 1],
                   ['Type', 'Grouper', 'Results processed', 1]]
-  actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate',
-                                    'query', 'hello', 'withoutcount',
+  actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', 'hello',
                                     'groupby', 1, '@t',
                                     'REDUCE', 'count', '0', 'as', 'sum')
-  env.assertEqual(actual_res[1][1][0][5], expected_res)
-
-  expected_res = [['Type', 'Index', 'Results processed', 2],
-                  ['Type', 'Loader', 'Results processed', 2],
-                  ['Type', 'Projector - Function startswith', 'Results processed', 2],
-                  ['Type', 'Depleter', 'Results processed', 2]]
-  actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
-                'load', 1, 't',
-                'apply', 'startswith(@t, "hel")', 'as', 'prefix') # codespell:ignore hel
   env.assertEqual(actual_res[1][1][0][5], expected_res)
 
   expected_res = [['Type', 'Index', 'Results processed', 2],
                   ['Type', 'Loader', 'Results processed', 2],
                   ['Type', 'Projector - Function startswith', 'Results processed', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
-                'withoutcount',
                 'load', 1, 't',
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix') # codespell:ignore hel
   env.assertEqual(actual_res[1][1][0][5], expected_res)
 
   expected_res = [['Type', 'Index', 'Results processed', 2],
                   ['Type', 'Loader', 'Results processed', 2],
-                  ['Type', 'Projector - Literal banana', 'Results processed', 2],
-                  ['Type', 'Depleter', 'Results processed', 2]]
-  actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
-                'load', 1, 't',
-                'apply', '"banana"', 'as', 'prefix')
-  env.assertEqual(actual_res[1][1][0][5], expected_res)
-
-  expected_res = [['Type', 'Index', 'Results processed', 2],
-                  ['Type', 'Loader', 'Results processed', 2],
                   ['Type', 'Projector - Literal banana', 'Results processed', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
-                'withoutcount',
                 'load', 1, 't',
                 'apply', '"banana"', 'as', 'prefix')
   env.assertEqual(actual_res[1][1][0][5], expected_res)
 
   expected_res = [['Type', 'Index', 'Results processed', 2],
                   ['Type', 'Loader', 'Results processed', 2],
-                  ['Type', 'Depleter', 'Results processed', 2],
                   ['Type', 'Sorter', 'Results processed', 2],
-                  ['Type', 'Pager/Limiter', 'Results processed', 2],
                   ['Type', 'Loader', 'Results processed', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*', 'sortby', 2, '@t', 'asc', 'limit', 0, 10, 'LOAD', 2, '@__key', '@t')
   env.assertEqual(actual_res[1][1][0][5], expected_res)
@@ -524,7 +490,6 @@ def TimeoutWarningInProfile(env):
         ['Type', 'WILDCARD', 'Time', ANY, 'Number of reading operations', ANY],
        'Result processors profile',
         [['Type', 'Index', 'Time', ANY, 'Results processed', ANY],
-         ['Type', 'Depleter', 'Time', ANY, 'Results processed', ANY],
          ['Type', 'Pager/Limiter', 'Time', ANY, 'Results processed', ANY]]
       ]],
      'Coordinator', []]

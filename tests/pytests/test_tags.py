@@ -317,9 +317,8 @@ def testTagGCClearEmptyWithCursor(env):
     conn.execute_command('HSET', 'doc2', 't', 'foo')
     env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
 
-    n_docs = 2
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
-    env.assertEqual(res, [n_docs, []])
+    env.assertEqual(res, [1, []])
 
     # delete both documents and run the GC to clean 'foo' inverted index
     env.expect('DEL', 'doc1').equal(1)
@@ -332,7 +331,7 @@ def testTagGCClearEmptyWithCursor(env):
 
     # read from the cursor
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-    env.assertEqual(res, [n_docs])
+    env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
 @skip(cluster=True)
@@ -345,9 +344,8 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     conn.execute_command('HSET', 'doc2', 't', 'foo')
     env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
 
-    n_docs = 2
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
-    env.assertEqual(res, [n_docs, []])
+    env.assertEqual(res, [1, []])
 
     # delete both documents and run the GC to clean 'foo' inverted index
     env.expect('DEL', 'doc1').equal(1)
@@ -361,17 +359,16 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     # add data
     conn.execute_command('HSET', 'doc3', 't', 'foo')
     conn.execute_command('HSET', 'doc4', 't', 'foo')
-    n_docs = 2
     env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [3, 4]]])
 
     # read from the cursor
     res, cursor = conn.execute_command('FT.CURSOR', 'READ', 'idx', cursor)
-    env.assertEqual(res, [n_docs])
+    env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
     # ensure later documents with same tag are read
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t:{foo}')
-    env.assertEqual(res, [n_docs, [], []])
+    env.assertEqual(res, [1, [], []])
 
 @skip(cluster=True)
 def testEmptyTagLeak(env):

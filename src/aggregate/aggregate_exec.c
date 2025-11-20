@@ -1226,7 +1226,7 @@ static void precalculateCursorTotal(AREQ *r, Cursor *cursor, bool coord) {
   cursor->has_precalculated_total = false;
   cursor->precalculated_total = 0;
 
-  if (IsAggregate(r) && !IsOptimized(r) && IsCursor(r) && !IsInternal(r)) {
+  if (IsAggregate(r) && HasWithCount(r) && IsCursor(r) && !IsInternal(r)) {
     if (coord) {
       // Coordinator mode: use the total collected from all shards
       cursor->precalculated_total = r->cursor_precalculated_total;
