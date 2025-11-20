@@ -67,6 +67,7 @@ jobs:
               matrix_items = []
 
           # Write to GitHub output
+          has_jobs = len(matrix_items) > 0
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
               f.write(f'has-jobs={str(has_jobs).lower()}\n')

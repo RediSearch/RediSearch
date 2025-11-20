@@ -72,7 +72,6 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-
       # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Setup Dependencies (Alpine)
