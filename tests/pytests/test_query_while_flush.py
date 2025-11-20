@@ -3,7 +3,7 @@ import time
 from common import *
 
 @skip(cluster=True)
-def test_query_while_flush(env):
+def test_query_while_flush():
     """
     Test scenario:
     1. Create index1 with 100 documents
@@ -15,6 +15,7 @@ def test_query_while_flush(env):
        - After FLUSHALL: Errors>0, Successes==0 (for old queries)
        - New index queries work properly
     """
+    env = Env(moduleArgs='WORKERS 2')
     env.expect('FT.CREATE', 'index1', 'ON', 'HASH', 'SCHEMA', 'text', 'TEXT').ok()
 
     # Add 100 documents to index1
@@ -28,6 +29,9 @@ def test_query_while_flush(env):
     result = env.cmd('FT.SEARCH', 'index1', 'hello')
     env.assertEqual(result[0], 100)  # Should find all 100 documents
 
+    # Replace the flushall_called flag with a threading event
+    flushall_called = threading.Event()
+
     # Statistics tracking
     stats = {
         'before_flush_errors': 0,
@@ -35,8 +39,7 @@ def test_query_while_flush(env):
         'after_flush_errors': 0,
         'after_flush_successes': 0,
         'stop_queries': False,
-        'flush_completed': False,
-        'flushall_called': False
+        'flush_completed': False
     }
 
     def query_worker(stats):
@@ -48,7 +51,7 @@ def test_query_while_flush(env):
               # Query index1
               local_conn.execute_command('FT.SEARCH', 'index1', 'hello')
 
-              if not stats['flushall_called']:
+              if not flushall_called.is_set():
                 # Check if flush has completed
                 if not stats['flush_completed']:
                     stats['before_flush_successes'] += 1
@@ -57,7 +60,7 @@ def test_query_while_flush(env):
 
           except Exception as e:
               # Check if flush has completed
-              if not stats['flushall_called']:
+              if not flushall_called.is_set():
                 if not stats['flush_completed']:
                     stats['before_flush_errors'] += 1
                 else:
@@ -66,7 +69,7 @@ def test_query_while_flush(env):
           # Small delay to avoid overwhelming the system
           time.sleep(0.001)
 
-    # Start 5 query threads
+    # Start 5 query threads (pass the event)
     num_threads = 5
     threads = []
     for i in range(num_threads):
@@ -81,8 +84,11 @@ def test_query_while_flush(env):
     # Let queries run for a bit to accumulate some successes
     time.sleep(0.5)
 
-    # Verify we have some successes before flush
-    stats['flushall_called'] = True
+    # Signal that flushall is about to be called
+    flushall_called.set()
+    # Sleep to guarantee synchronization (if a thread sent between the set and its check, we want to minimize risk)
+    # The alternative is to use a lock, but in Python there is no native read-write lock, and therefore would be hard to accumulate queries in the workers queue
+    # so this is a simpler better approach
     time.sleep(0.5)
     env.assertGreater(stats['before_flush_successes'], 0)
     env.assertEqual(stats['before_flush_errors'], 0)
@@ -92,8 +98,13 @@ def test_query_while_flush(env):
 
     # Mark flush as completed
     stats['flush_completed'] = True
-    stats['flushall_called'] = False
-
+    # Sleep to guarantee synchronization (if a thread sent between the set and its check, we want to minimize risk)
+    # The alternative is to use a lock, but in Python there is no native read-write lock, and therefore would be hard to accumulate queries in the workers queue
+    # so this is a simpler better approach
+    # Otherwise I could see successes attributed to before flush that should have been after
+    time.sleep(0.5)
+    flushall_called.clear()  # Reset the event
+    print(f'Is flag set? {flushall_called.is_set()}')
     # Create index2 and verify it works properly
     env.expect('FT.CREATE', 'index2', 'ON', 'HASH', 'SCHEMA', 'text', 'TEXT').ok()
 
