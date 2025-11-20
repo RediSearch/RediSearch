@@ -2,7 +2,6 @@ import threading
 import time
 from common import *
 
-@skip(cluster=True)
 def test_query_while_flush():
     """
     Test scenario:
@@ -20,7 +19,7 @@ def test_query_while_flush():
 
     # Add 100 documents to index1
     for i in range(100):
-        env.cmd('HSET', f'doc:{i}', 'text', f'hello world document {i}')
+        env.getClusterConnectionIfNeeded().execute_command('HSET', f'doc:{i}', 'text', f'hello world document {i}')
 
     # Wait for indexing to complete
     waitForIndex(env, 'index1')
@@ -110,7 +109,7 @@ def test_query_while_flush():
 
     # Add some documents to index2
     for i in range(10):
-        env.cmd('HSET', f'newdoc:{i}', 'text', f'new document {i}')
+        env.getClusterConnectionIfNeeded().execute_command('HSET', f'newdoc:{i}', 'text', f'new document {i}')
 
     # Wait for indexing to complete
     waitForIndex(env, 'index2')
