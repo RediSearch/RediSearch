@@ -1,0 +1,83 @@
+name: Generate Test Matrix
+
+# This workflow generates a dynamic matrix for test and build workflows
+# It filters the platform/architecture combinations based on inputs
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform filter (e.g., "ubuntu:noble" or "all")'
+        type: string
+        default: all
+      architecture:
+        description: 'Architecture filter (e.g., "x86_64" or "all")'
+        type: string
+        default: all
+    outputs:
+      matrix:
+        description: "Generated matrix as JSON"
+        value: ${{ jobs.generate.outputs.matrix }}
+
+jobs:
+  generate:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    outputs:
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
+    steps:
+      - name: Generate filtered matrix
+        id: generate-matrix
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+
+          # All available platform/architecture combinations
+          all_combinations = [
+              ('ubuntu:noble', 'x86_64'),
+              ('ubuntu:noble', 'aarch64'),
+              ('ubuntu:jammy', 'x86_64'),
+              ('ubuntu:jammy', 'aarch64'),
+              ('ubuntu:focal', 'x86_64'),
+              ('ubuntu:focal', 'aarch64'),
+              ('rockylinux:8', 'x86_64'),
+              ('rockylinux:8', 'aarch64'),
+              ('rockylinux:9', 'x86_64'),
+              ('rockylinux:9', 'aarch64'),
+              ('amazonlinux:2', 'x86_64'),
+              ('amazonlinux:2023', 'x86_64'),
+              ('amazonlinux:2023', 'aarch64'),
+              ('debian:bullseye', 'x86_64'),
+              ('debian:bullseye', 'aarch64'),
+              ('debian:bookworm', 'x86_64'),
+              ('debian:bookworm', 'aarch64'),
+              ('mariner:2', 'x86_64'),
+              ('azurelinux:3', 'x86_64'),
+              ('azurelinux:3', 'aarch64'),
+              ('alpine:3', 'x86_64'),
+              ('alpine:3', 'aarch64'),
+              ('macos', 'x86_64'),
+              ('macos', 'aarch64')
+          ]
+
+          platform_filter = "${{ inputs.platform }}"
+          architecture_filter = "${{ inputs.architecture }}"
+
+          # Filter combinations based on inputs
+          matrix_items = [
+              {'platform': platform, 'architecture': architecture}
+              for platform, architecture in all_combinations
+              if (platform == platform_filter or platform_filter == 'all') and
+                 (architecture == architecture_filter or architecture_filter == 'all')
+          ]
+
+          # Fail if matrix is empty
+          if not matrix_items:
+              print(f"Error: No matching platform/architecture combinations found for platform='{platform_filter}', architecture='{architecture_filter}'")
+              sys.exit(1)
+
+          # Write to GitHub output
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
+

@@ -98,6 +98,25 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   }
 #endif // Reply structure assertions
 
+  if (cmd->forProfiling && cmd->protocol == 3) {
+    RS_LOG_ASSERT(!cmd->forCursor, "Profiling is not supported on a cursor command");
+    MRReply *rows = NULL, *meta = NULL;
+    meta = MRReply_ArrayElement(rep, 0);
+    meta = MRReply_MapElement(meta, "results");  // profile has an extra level
+
+    // Check if we got timeout
+    MRReply *warning = MRReply_MapElement(meta, "warning");
+    if (MRReply_Length(warning) > 0) {
+      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
+      // Set an error to be later picked up by `getCursorCommand`
+      if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
+        // When a shard returns timeout on RETURN policy, the profile is not returned.
+        // We set the timeout here so in the next getCursorCommand we will send CURSOR PROFILE
+        MRIteratorCallback_SetTimedOut(MRIteratorCallback_GetCtx(ctx));
+      }
+    }
+  }
+
   // Push the reply down the chain, to be picked up by getNextReply
   MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
 
@@ -133,7 +152,11 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
     const char *idx = MRCommand_ArgStringPtrLen(cmd, 1, NULL);
     // If we timed out and not in cursor mode, we want to send the shard a DEL
     // command instead of a READ command (here we know it has more results)
-    if (timedout && !cmd->forCursor) {
+    if (timedout && cmd->forProfiling) {
+      newCmd = MR_NewCommand(4, "_FT.CURSOR", "PROFILE", idx, buf);
+      // Internally we delete the cursor
+      newCmd.rootCommand = C_PROFILE;
+    } else if (timedout && !cmd->forCursor) {
       newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
       // Mark that the last command was a DEL command
       newCmd.rootCommand = C_DEL;
@@ -157,11 +180,23 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
     RS_ASSERT(STR_EQ(cmd->strs[1], cmd->lens[1], "READ"));
     RS_ASSERT(atoll(cmd->strs[3]) == cursorId);
 
-    // If we timed out and not in cursor mode, we want to send the shard a DEL
-    // command instead of a READ command (here we know it has more results)
-    if (timedout && !cmd->forCursor) {
-      MRCommand_ReplaceArg(cmd, 1, "DEL", 3);
-      cmd->rootCommand = C_DEL;
+    if (timedout) {
+      // We are going to modify the command, so we need to free the cached sds
+      if (cmd->cmd) {
+        sdsfree(cmd->cmd);
+        cmd->cmd = NULL;
+      }
+      // If we timed out and it's a profile command, we want to get the profile data
+      if (cmd->forProfiling) {
+        RS_LOG_ASSERT(!cmd->forCursor, "profile is not supported on a cursor command");
+        MRCommand_ReplaceArg(cmd, 1, "PROFILE", strlen("PROFILE"));
+        cmd->rootCommand = C_PROFILE;
+      } else if (!cmd->forCursor) {
+        // If we timed out and not in cursor mode, we want to send the shard a DEL
+        // command instead of a READ command (here we know it has more results)
+        MRCommand_ReplaceArg(cmd, 1, "DEL", 3);
+        cmd->rootCommand = C_DEL;
+      }
     }
   }
 
