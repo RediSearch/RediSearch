@@ -5,24 +5,9 @@ import time
 import random
 import os
 
-def check_worker_log_messages(env, expected_pattern):
-    """Check log file for worker-related messages"""
-    logDir = env.cmd('config', 'get', 'dir')[1]
-    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
-    logFilePath = os.path.join(logDir, logFileName)
-
-    found = False
-    try:
-      with open(logFilePath, 'r') as f:
-          content = f.read()
-          if expected_pattern in content:
-              found = True
-    except Exception as e:
-        # Most likely we are with PARALLEL=0 and logfile is not used (do not fail)
-        found = True
-        env.debugPrint(f"Error reading log file: {e}", force=True)
-
-    return found
+def check_threads(env, expected_num_threads_alive, expected_n_threads):
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1, message='numThreadsAlive should match num_threads_alive')
+    env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
 
 def test_MOD_11658_workers_reduction_under_load():
     """
@@ -66,7 +51,6 @@ def test_MOD_11658_workers_reduction_under_load():
     # Verify initial state
     initial_workers = env.cmd(config_cmd(), 'GET', 'WORKERS')
     env.assertEqual(initial_workers, [['WORKERS', '8']])
-
     # Flag to control query threads
     stop_queries = threading.Event()
     query_success_count = [0]  # Use list to allow modification in thread
@@ -107,6 +91,8 @@ def test_MOD_11658_workers_reduction_under_load():
     # Verify queries are running successfully
     initial_success = query_success_count[0]
     env.assertTrue(initial_success > 0, message="Queries should be running successfully before config change")
+    # I can check the thread pool state after the thpool is initialized by the first query
+    check_threads(env, 8, 8)
 
     # Now change WORKERS to 0 (simulating QPF change from 8 to 0)
     # This is the critical moment that triggers the bug
@@ -125,6 +111,7 @@ def test_MOD_11658_workers_reduction_under_load():
     post_count = query_success_count[0]
     env.debugPrint(f"Query success count after config change: {post_count}", force=True)
     env.assertGreater(post_count, pre_count, message="Queries should continue running after config change")
+    check_threads(env, 0, 0)
 
     # Verify the config change took effect
     # Critical test: Verify Redis is still responsive
@@ -161,9 +148,7 @@ def test_MOD_11658_workers_reduction_under_load():
     env.assertTrue(final_search[0] > 0, message="Search should return results at end of test")
 
     env.debugPrint(f"Test completed. Total successful queries: {query_success_count[0]}", force=True)
-
-    # We can only be sure at least one has been terminated
-    env.assertTrue(check_worker_log_messages(env, "Terminating thread"))
+    check_threads(env, 0, 0)
 
 
 def test_MOD_11658_workers_reduction_sequence():
@@ -185,6 +170,9 @@ def test_MOD_11658_workers_reduction_sequence():
 
     # Test gradual reduction
     worker_sequence = [8, 4, 2, 1, 0]
+    result = env.cmd('FT.SEARCH', 'idx', 'searchable', 'LIMIT', '0', '5')
+    # I can check the thread pool state after the thpool is initialized by the first query
+    check_threads(env, 8, 8)
 
     for workers in worker_sequence:
         env.debugPrint(f"Testing with WORKERS={workers}", force=True)
@@ -206,6 +194,9 @@ def test_MOD_11658_workers_reduction_sequence():
         # Small delay between changes
         time.sleep(0.5)
 
+    time.sleep(5)
+    check_threads(env, 0, 0)
+
     env.debugPrint("Gradual reduction test completed successfully", force=True)
 
 
@@ -217,6 +208,7 @@ def test_MOD_11658_workers_zero_to_nonzero():
     # Start with WORKERS=0
     env = Env(moduleArgs='WORKERS 0', enableDebugCommand=True)
 
+    check_threads(env, 0, 0)
     # Create index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
 
@@ -237,6 +229,7 @@ def test_MOD_11658_workers_zero_to_nonzero():
     # Increase workers to 8
     env.expect(config_cmd(), 'SET', 'WORKERS', '8').ok()
     env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '8']])
+    check_threads(env, 8, 8)
 
     # Verify still responsive
     ping_result = env.cmd('PING')
@@ -273,10 +266,13 @@ def test_MOD_11658_workers_increase_from_nonzero():
     # Query should work with WORKERS=0 (on main thread)
     result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
     env.assertTrue(result[0] > 0)
+    # I can check the thread pool state after the thpool is initialized by the first query
+    check_threads(env, 2, 2)
 
     # Increase workers to 8
     env.expect(config_cmd(), 'SET', 'WORKERS', '8').ok()
     env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '8']])
+    check_threads(env, 8, 8)
 
     # Verify still responsive
     ping_result = env.cmd('PING')
