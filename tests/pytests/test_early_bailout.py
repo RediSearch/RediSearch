@@ -5,7 +5,8 @@ from common import *
 # Currently, only OOM `return` policy initiates early bailout
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
-OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
+SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
+COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
 
 def remove_keys_with_phrases(data, phrases):
     if isinstance(data, dict):
@@ -120,6 +121,15 @@ class TestEarlyBailoutEmptyResultsSA_Resp2:
                 empty = empty[0]
             self.env.assertEqual(res, empty, message = 'Failed for query params: ' + ' '.join(query_params))
 
+    def test_early_bailout_aggregate_invalid_format_resp2(self):
+        # Test that invalid FORMAT argument during OOM returns error
+        change_oom_policy(self.env, 'return')
+        self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+        # Invalid FORMAT value should trigger error path in shallow_parse_query_args
+        self.env.expect('FT.AGGREGATE', 'not_empty', '*', 'FORMAT', 'INVALID').error()
+        self.env.expect('FT.AGGREGATE', 'not_empty', '*', 'WITHCURSOR', 'FORMAT', 'INVALID').error()
+
 
     def test_early_bailout_hybrid_resp2(self):
 
@@ -141,7 +151,7 @@ class TestEarlyBailoutEmptyResultsSA_Resp2:
             res = self.env.cmd('FT.HYBRID', 'not_empty_hybrid', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert OOM warning exists
-            self.env.assertEqual(res[5][0], OOM_WARNING)
+            self.env.assertEqual(res[5][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty[5], [])
             # Clear warnings from results
             del res[5]
@@ -175,6 +185,22 @@ class TestEarlyBailoutEmptyResultsSA_Resp2:
             res = remove_keys_with_phrases_from_list(res, ['time', 'Warning','Iterators profile', 'Result processors profile'])
             empty = remove_keys_with_phrases_from_list(empty, ['time', 'Warning','Iterators profile', 'Result processors profile'])
             self.env.assertEqual(res, empty, message = 'Failed for query params: ' + ' '.join(query_params))
+
+    def test_args_error_when_oom_resp2(self):
+        # OOM should override args errors and return empty results
+        change_oom_policy(self.env, 'return')
+        # Change maxmemory to 1 to trigger OOM
+        self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+        # Test FT.SEARCH with args error
+        res = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[0], 0)
+        # Test FT.AGGREGATE with args error
+        res = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[0], 0)
+        # Test FT.HYBRID with args error
+        res = self.env.cmd('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[1], 0)
 
 class TestEarlyBailoutEmptyResultsSA_Resp3:
     def __init__(self):
@@ -226,7 +252,7 @@ class TestEarlyBailoutEmptyResultsSA_Resp3:
             res = self.env.cmd('FT.SEARCH', 'not_empty', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert res has OOM warning
-            self.env.assertEqual(res['warning'][0], OOM_WARNING)
+            self.env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty['warning'], [])
             # Clear warnings from res
             del res['warning']
@@ -264,12 +290,21 @@ class TestEarlyBailoutEmptyResultsSA_Resp3:
                 empty = empty[0]
 
             # Assert OOM warning exists
-            self.env.assertEqual(res['warning'][0], OOM_WARNING)
+            self.env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty['warning'], [])
             # Clear warnings from results
             del res['warning']
             del empty['warning']
             self.env.assertEqual(res, empty, message = 'Failed for query params: ' + ' '.join(query_params))
+
+    def test_early_bailout_aggregate_invalid_format_resp3(self):
+        # Test that invalid FORMAT argument during OOM returns error
+        change_oom_policy(self.env, 'return')
+        self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+        # Invalid FORMAT value should trigger error path in shallow_parse_query_args
+        self.env.expect('FT.AGGREGATE', 'not_empty', '*', 'FORMAT', 'INVALID').error()
+        self.env.expect('FT.AGGREGATE', 'not_empty', '*', 'WITHCURSOR', 'FORMAT', 'INVALID').error()
 
 
     def test_early_bailout_hybrid_resp3(self):
@@ -292,7 +327,7 @@ class TestEarlyBailoutEmptyResultsSA_Resp3:
             res = self.env.cmd('FT.HYBRID', 'not_empty_hybrid', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert OOM warning exists
-            self.env.assertEqual(res['warnings'][0], OOM_WARNING)
+            self.env.assertEqual(res['warnings'][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty['warnings'], [])
             # Clear warnings from results
             del res['warnings']
@@ -322,7 +357,7 @@ class TestEarlyBailoutEmptyResultsSA_Resp3:
             res = self.env.cmd('FT.PROFILE', 'not_empty', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert res has OOM warning
-            self.env.assertEqual(res['Results']['warning'][0], OOM_WARNING)
+            self.env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty['Results']['warning'], [])
 
             # Clear time related fields from results
@@ -434,7 +469,7 @@ class TestEarlyBailoutEmptyResultsCoord_Resp2:
             res = self.env.cmd('FT.HYBRID', 'not_empty_hybrid', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert OOM warning exists
-            self.env.assertEqual(res[5][0], OOM_WARNING)
+            self.env.assertEqual(res[5][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty[5], [])
             # Clear warnings from results
             del res[5]
@@ -468,6 +503,22 @@ class TestEarlyBailoutEmptyResultsCoord_Resp2:
             res = remove_keys_with_phrases_from_list(res, ['time', 'Warning','Iterators profile', 'Result processors profile'])
             empty = remove_keys_with_phrases_from_list(empty, ['time', 'Warning','Iterators profile', 'Result processors profile'])
             self.env.assertEqual(res, empty, message = 'Failed for query params: ' + ' '.join(query_params))
+
+    def test_syntax_error_not_oom_resp2(self):
+        # Test that args errors return empty results (not OOM) when policy is return
+        allShards_change_oom_policy(self.env, 'return')
+        # Change maxmemory on all shards to 1
+        allShards_change_maxmemory_low(self.env)
+
+        # Test FT.SEARCH with args error
+        res = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[0], 0)
+        # Test FT.AGGREGATE with args error
+        res = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[0], 0)
+        # Test FT.HYBRID with args error
+        res = self.env.cmd('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '0', 'LIMIT', 0, 0, 'MEOW')
+        self.env.assertEqual(res[1], 0)
 
 # Test early bailout and empty results for FT.SEARCH, FT.AGGREGATE, FT.HYBRID
 # In Coordinator setting
@@ -521,7 +572,7 @@ class TestEarlyBailoutEmptyResultsCoord_Resp3:
             res = self.env.cmd('FT.SEARCH', 'not_empty', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert res has OOM warning
-            self.env.assertEqual(res['warning'], OOM_WARNING)
+            self.env.assertEqual(res['warning'], COORD_OOM_WARNING)
             self.env.assertEqual(empty['warning'], [])
             # Clear warnings from res
             del res['warning']
@@ -558,7 +609,7 @@ class TestEarlyBailoutEmptyResultsCoord_Resp3:
                 empty = empty[0]
 
             # Assert OOM warning exists
-            self.env.assertEqual(res['warning'][0], OOM_WARNING)
+            self.env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty['warning'], [])
             # Clear warnings from results
             del res['warning']
@@ -585,7 +636,7 @@ class TestEarlyBailoutEmptyResultsCoord_Resp3:
             res = self.env.cmd('FT.HYBRID', 'not_empty_hybrid', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert OOM warning exists
-            self.env.assertEqual(res['warnings'][0], OOM_WARNING)
+            self.env.assertEqual(res['warnings'][0], COORD_OOM_WARNING)
             self.env.assertEqual(empty['warnings'], [])
             # Clear warnings from results
             del res['warnings']
@@ -618,7 +669,7 @@ class TestEarlyBailoutEmptyResultsCoord_Resp3:
             res_warning = res['Results']['warning']
             if isinstance(res_warning, list) and res_warning:
                 res_warning = res_warning[0]
-            self.env.assertEqual(res_warning , OOM_WARNING)
+            self.env.assertEqual(res_warning , COORD_OOM_WARNING)
             empty_warning = empty['Results']['warning']
             if isinstance(empty_warning, list) and empty_warning:
                 empty_warning = empty_warning[0]
