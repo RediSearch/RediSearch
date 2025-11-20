@@ -201,7 +201,9 @@ def testProfileAggregate(env):
 
   expected_res = [['Type', 'Index', 'Results processed', 2],
                   ['Type', 'Loader', 'Results processed', 2],
+                  ['Type', 'Depleter', 'Results processed', 2],
                   ['Type', 'Sorter', 'Results processed', 2],
+                  ['Type', 'Pager/Limiter', 'Results processed', 2],
                   ['Type', 'Loader', 'Results processed', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*', 'sortby', 2, '@t', 'asc', 'limit', 0, 10, 'LOAD', 2, '@__key', '@t')
   env.assertEqual(actual_res[1][1][0][5], expected_res)
@@ -522,6 +524,7 @@ def TimeoutWarningInProfile(env):
         ['Type', 'WILDCARD', 'Time', ANY, 'Number of reading operations', ANY],
        'Result processors profile',
         [['Type', 'Index', 'Time', ANY, 'Results processed', ANY],
+         ['Type', 'Depleter', 'Time', ANY, 'Results processed', ANY],
          ['Type', 'Pager/Limiter', 'Time', ANY, 'Results processed', ANY]]
       ]],
      'Coordinator', []]
