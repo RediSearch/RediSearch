@@ -3058,6 +3058,12 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
       goto cleanup;
   }
 
+  if (isSpecOnDisk(sp)) {
+    sp->terms = TrieType_GenericLoad(rdb, 0);
+    if (sp->terms == NULL)
+      goto cleanup;
+  }
+
   sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
 
   size_t narr = LoadUnsigned_IOError(rdb, goto cleanup);
