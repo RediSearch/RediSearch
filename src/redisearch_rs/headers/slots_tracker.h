@@ -15,6 +15,10 @@
 // This removes any overhead when checking versions from the query execution path.                          //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// Forward declarations for internal functions used by static inline functions
+uint32_t slots_tracker_set_local_slots_internal(const RedisModuleSlotRangeArray *ranges);
+uint32_t slots_tracker_mark_partially_available_slots_internal(const RedisModuleSlotRangeArray *ranges);
+
 // Global version counter for the key space state.
 // Aligned with the definition in result_processor.c
 extern atomic_uint key_space_version;
@@ -202,3 +206,17 @@ bool slots_tracker_has_fully_available_overlap(const RedisModuleSlotRangeArray *
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
 struct OptionSlotTrackerVersion slots_tracker_check_availability(const RedisModuleSlotRangeArray *ranges);
+
+/**
+ * Resets the tracker to its initial state.
+ *
+ * This function is intended for testing purposes only. It resets the tracker
+ * to a clean state with no slots configured and version reset to initial.
+ *
+ * # Safety
+ *
+ * This function must be called from the main thread only.
+ * This function is intended for testing use only and should not be called
+ * in production code.
+ */
+void slots_tracker_reset_for_testing(void);
