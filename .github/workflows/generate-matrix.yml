@@ -26,12 +26,16 @@ on:
       matrix:
         description: "Generated matrix as JSON"
         value: ${{ jobs.generate.outputs.matrix }}
+      has-jobs:
+        description: "Whether there are any jobs to run"
+        value: ${{ jobs.generate.outputs.has-jobs }}
 
 jobs:
   generate:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
+      has-jobs: ${{ steps.generate-matrix.outputs.has-jobs }}
     steps:
       - name: Generate filtered matrix
         id: generate-matrix
@@ -98,12 +102,11 @@ jobs:
                   'job-type': 'sanitize'
               })
 
-          # Fail if matrix is empty
-          if not matrix_items:
-              print(f"Error: No matching platform/architecture combinations found for platform='{platform_filter}', architecture='{architecture_filter}'")
-              sys.exit(1)
+          # Check if matrix has any jobs
+          has_jobs = len(matrix_items) > 0
 
           # Write to GitHub output
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
+              f.write(f'has-jobs={str(has_jobs).lower()}\n')
 

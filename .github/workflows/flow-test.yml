@@ -122,6 +122,7 @@ jobs:
   test-matrix:
     name: ${{ (matrix.job-type || 'test') == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', (matrix.job-type || 'test'), matrix.architecture) }}
     needs: [generate-matrix]
+    if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
     strategy:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
       fail-fast: ${{ inputs.fail-fast }}
