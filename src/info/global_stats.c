@@ -115,10 +115,10 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
 void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coord) {
   QueryErrorsGlobalStats *queries_errors = coord ? &RSGlobalStats.totalStats.queries.coord_errors : &RSGlobalStats.totalStats.queries.shard_errors;
   switch (code) {
-    case QUERY_ERROR_CODE_SYNTAX:
+    case QUERY_ESYNTAX:
       INCR_BY(queries_errors->syntax, toAdd);
       break;
-    case QUERY_ERROR_CODE_PARSE_ARGS:
+    case QUERY_EPARSEARGS:
       INCR_BY(queries_errors->arguments, toAdd);
       break;
   }
