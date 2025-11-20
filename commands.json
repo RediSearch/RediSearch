@@ -1005,7 +1005,7 @@
               {
                 "name": "count",
                 "type": "string",
-                "token":"FIELDS"
+                "token": "FIELDS"
               },
               {
                 "name": "field",
@@ -1055,7 +1055,7 @@
               {
                 "name": "count",
                 "type": "string",
-                "token":"FIELDS"
+                "token": "FIELDS"
               },
               {
                 "name": "field",
@@ -1989,7 +1989,6 @@
     "since": "1.1.0",
     "group": "search"
   },
-
   "FT.HYBRID": {
     "summary": "Performs hybrid search combining text search and vector similarity search",
     "complexity": "O(N+M) where N is the complexity of the text search and M is the complexity of the vector search",
@@ -2465,7 +2464,7 @@
         "arguments": [
           {
             "name": "expression",
-            "type": "string",
+            "type": "block",
             "expression": true,
             "token": "APPLY",
             "arguments": [

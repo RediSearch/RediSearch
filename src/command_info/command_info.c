@@ -2234,3 +2234,896 @@ int SetFtCursorDelInfo(RedisModuleCommand *cmd) {
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
+// Info for FT.HYBRID
+int SetFtHybridInfo(RedisModuleCommand *cmd) {
+  const RedisModuleCommandInfo info = {
+    .version = REDISMODULE_COMMAND_INFO_VERSION,
+    .summary = "Performs hybrid search combining text search and vector similarity search",
+    .complexity = "O(N+M) where N is the complexity of the text search and M is the complexity of the vector search",
+    .args = (RedisModuleCommandArg[]){
+      {
+        .name = "index",
+        .type = REDISMODULE_ARG_TYPE_STRING,
+      },
+      {
+        .name = "search_clause",
+        .type = REDISMODULE_ARG_TYPE_BLOCK,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "search",
+            .token = "SEARCH",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+          },
+          {
+            .name = "query",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+          },
+          {
+            .name = "scorer",
+            .token = "SCORER",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+          },
+          {
+            .name = "yield_score_as",
+            .token = "YIELD_SCORE_AS",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+          },
+          {0}
+        },
+      },
+      {
+        .name = "vsim_clause",
+        .type = REDISMODULE_ARG_TYPE_BLOCK,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "vsim",
+            .token = "VSIM",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+          },
+          {
+            .name = "field",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+          },
+          {
+            .name = "vector",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+          },
+          {
+            .name = "vector_query_type",
+            .type = REDISMODULE_ARG_TYPE_ONEOF,
+            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+            .subargs = (RedisModuleCommandArg[]){
+              {
+                .name = "knn_clause",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .name = "knn",
+                    .token = "KNN",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "count",
+                    .type = REDISMODULE_ARG_TYPE_INTEGER,
+                  },
+                  {
+                    .name = "k",
+                    .token = "K",
+                    .type = REDISMODULE_ARG_TYPE_INTEGER,
+                  },
+                  {
+                    .name = "ef_runtime",
+                    .token = "EF_RUNTIME",
+                    .type = REDISMODULE_ARG_TYPE_INTEGER,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {
+                    .name = "yield_score_as",
+                    .token = "YIELD_SCORE_AS",
+                    .type = REDISMODULE_ARG_TYPE_STRING,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "range_clause",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .name = "range",
+                    .token = "RANGE",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "count",
+                    .type = REDISMODULE_ARG_TYPE_INTEGER,
+                  },
+                  {
+                    .name = "radius",
+                    .token = "RADIUS",
+                    .type = REDISMODULE_ARG_TYPE_DOUBLE,
+                  },
+                  {
+                    .name = "epsilon",
+                    .token = "EPSILON",
+                    .type = REDISMODULE_ARG_TYPE_DOUBLE,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {
+                    .name = "yield_score_as",
+                    .token = "YIELD_SCORE_AS",
+                    .type = REDISMODULE_ARG_TYPE_STRING,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {0}
+                },
+              },
+              {0}
+            },
+          },
+          {
+            .name = "filter",
+            .token = "FILTER",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+          },
+          {0}
+        },
+      },
+      {
+        .name = "combine",
+        .type = REDISMODULE_ARG_TYPE_BLOCK,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "combine",
+            .token = "COMBINE",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+          },
+          {
+            .name = "method",
+            .type = REDISMODULE_ARG_TYPE_ONEOF,
+            .subargs = (RedisModuleCommandArg[]){
+              {
+                .name = "rrf_method",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .name = "rrf",
+                    .token = "RRF",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "count",
+                    .type = REDISMODULE_ARG_TYPE_INTEGER,
+                  },
+                  {
+                    .name = "constant",
+                    .token = "CONSTANT",
+                    .type = REDISMODULE_ARG_TYPE_DOUBLE,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {
+                    .name = "window",
+                    .token = "WINDOW",
+                    .type = REDISMODULE_ARG_TYPE_INTEGER,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {
+                    .name = "yield_score_as",
+                    .token = "YIELD_SCORE_AS",
+                    .type = REDISMODULE_ARG_TYPE_STRING,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "linear_method",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .name = "linear",
+                    .token = "LINEAR",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "count",
+                    .type = REDISMODULE_ARG_TYPE_INTEGER,
+                  },
+                  {
+                    .name = "weights",
+                    .type = REDISMODULE_ARG_TYPE_BLOCK,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                    .subargs = (RedisModuleCommandArg[]){
+                      {
+                        .name = "alpha",
+                        .token = "ALPHA",
+                        .type = REDISMODULE_ARG_TYPE_DOUBLE,
+                      },
+                      {
+                        .name = "beta",
+                        .token = "BETA",
+                        .type = REDISMODULE_ARG_TYPE_DOUBLE,
+                      },
+                      {0}
+                    },
+                  },
+                  {
+                    .name = "window",
+                    .token = "WINDOW",
+                    .type = REDISMODULE_ARG_TYPE_INTEGER,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {
+                    .name = "yield_score_as",
+                    .token = "YIELD_SCORE_AS",
+                    .type = REDISMODULE_ARG_TYPE_STRING,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {0}
+                },
+              },
+              {0}
+            },
+          },
+          {0}
+        },
+      },
+      {
+        .name = "limit",
+        .type = REDISMODULE_ARG_TYPE_BLOCK,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "limit",
+            .token = "LIMIT",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+          },
+          {
+            .name = "offset",
+            .type = REDISMODULE_ARG_TYPE_INTEGER,
+          },
+          {
+            .name = "num",
+            .type = REDISMODULE_ARG_TYPE_INTEGER,
+          },
+          {0}
+        },
+      },
+      {
+        .name = "sorting",
+        .type = REDISMODULE_ARG_TYPE_ONEOF,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "sortby",
+            .type = REDISMODULE_ARG_TYPE_BLOCK,
+            .subargs = (RedisModuleCommandArg[]){
+              {
+                .name = "sortby",
+                .token = "SORTBY",
+                .type = REDISMODULE_ARG_TYPE_STRING,
+              },
+              {
+                .name = "order",
+                .type = REDISMODULE_ARG_TYPE_ONEOF,
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .name = "asc",
+                    .token = "ASC",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "desc",
+                    .token = "DESC",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {0}
+                },
+              },
+              {0}
+            },
+          },
+          {
+            .name = "nosort",
+            .token = "NOSORT",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+          },
+          {0}
+        },
+      },
+      {
+        .name = "params",
+        .type = REDISMODULE_ARG_TYPE_BLOCK,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "params",
+            .token = "PARAMS",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+          },
+          {
+            .name = "nargs",
+            .type = REDISMODULE_ARG_TYPE_INTEGER,
+          },
+          {
+            .name = "values",
+            .type = REDISMODULE_ARG_TYPE_BLOCK,
+            .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+            .subargs = (RedisModuleCommandArg[]){
+              {
+                .name = "name",
+                .type = REDISMODULE_ARG_TYPE_STRING,
+              },
+              {
+                .name = "value",
+                .type = REDISMODULE_ARG_TYPE_STRING,
+              },
+              {0}
+            },
+          },
+          {0}
+        },
+      },
+      {
+        .name = "timeout",
+        .token = "TIMEOUT",
+        .type = REDISMODULE_ARG_TYPE_INTEGER,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+      },
+      {
+        .name = "format",
+        .token = "FORMAT",
+        .type = REDISMODULE_ARG_TYPE_STRING,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+      },
+      {
+        .name = "load",
+        .type = REDISMODULE_ARG_TYPE_BLOCK,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "count",
+            .token = "LOAD",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+          },
+          {
+            .name = "field",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+            .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+          },
+          {0}
+        },
+      },
+      {
+        .name = "loadall",
+        .token = "LOAD *",
+        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+      },
+      {
+        .name = "groupby",
+        .type = REDISMODULE_ARG_TYPE_BLOCK,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "groupby",
+            .token = "GROUPBY",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+          },
+          {
+            .name = "nproperties",
+            .type = REDISMODULE_ARG_TYPE_INTEGER,
+          },
+          {
+            .name = "property",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+            .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+          },
+          {
+            .name = "reduce",
+            .type = REDISMODULE_ARG_TYPE_BLOCK,
+            .flags = REDISMODULE_CMD_ARG_OPTIONAL | REDISMODULE_CMD_ARG_MULTIPLE,
+            .subargs = (RedisModuleCommandArg[]){
+              {
+                .name = "reduce",
+                .token = "REDUCE",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+              },
+              {
+                .name = "function",
+                .type = REDISMODULE_ARG_TYPE_ONEOF,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .name = "count",
+                    .token = "COUNT",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "count_distinct",
+                    .token = "COUNT_DISTINCT",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "count_distinctish",
+                    .token = "COUNT_DISTINCTISH",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "sum",
+                    .token = "SUM",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "min",
+                    .token = "MIN",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "max",
+                    .token = "MAX",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "avg",
+                    .token = "AVG",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "stddev",
+                    .token = "STDDEV",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "quantile",
+                    .token = "QUANTILE",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "tolist",
+                    .token = "TOLIST",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "first_value",
+                    .token = "FIRST_VALUE",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "random_sample",
+                    .token = "RANDOM_SAMPLE",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "nargs",
+                .type = REDISMODULE_ARG_TYPE_INTEGER,
+              },
+              {
+                .name = "arg",
+                .type = REDISMODULE_ARG_TYPE_STRING,
+                .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+              },
+              {
+                .name = "name",
+                .token = "AS",
+                .type = REDISMODULE_ARG_TYPE_STRING,
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+              },
+              {0}
+            },
+          },
+          {0}
+        },
+      },
+      {
+        .name = "apply",
+        .type = REDISMODULE_ARG_TYPE_BLOCK,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL | REDISMODULE_CMD_ARG_MULTIPLE,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "expression",
+            .token = "APPLY",
+            .type = REDISMODULE_ARG_TYPE_BLOCK,
+            .subargs = (RedisModuleCommandArg[]){
+              {
+                .name = "exists",
+                .token = "exists",
+                .summary = "Checks whether a field exists in a document.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "s",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "log",
+                .token = "log",
+                .summary = "Return the logarithm of a number, property or subexpression",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "x",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "abs",
+                .token = "abs",
+                .summary = "Return the absolute value of a numeric expression",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "x",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "ceil",
+                .token = "ceil",
+                .summary = "Round to the smallest integer not less than x",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "x",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "floor",
+                .token = "floor",
+                .summary = "Round to largest integer not greater than x",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "x",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "log2",
+                .token = "log2",
+                .summary = "Return the logarithm of x to base 2",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "x",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "exp",
+                .token = "exp",
+                .summary = "Return the exponent of x, e.g., e^x",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "x",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "sqrt",
+                .token = "sqrt",
+                .summary = "Return the square root of x",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "x",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "upper",
+                .token = "upper",
+                .summary = "Return the uppercase conversion of s",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "s",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "lower",
+                .token = "lower",
+                .summary = "Return the lowercase conversion of s",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "s",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "startswith",
+                .token = "startswith",
+                .summary = "Return 1 if s2 is the prefix of s1, 0 otherwise.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "s1",
+                  },
+                  {
+                    .token = "s2",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "contains",
+                .token = "contains",
+                .summary = "Return the number of occurrences of s2 in s1, 0 otherwise. If s2 is an empty string, return length(s1) + 1.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "s1",
+                  },
+                  {
+                    .token = "s2",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "strlen",
+                .token = "strlen",
+                .summary = "Return the length of s",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "s",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "substr",
+                .token = "substr",
+                .summary = "Return the substring of s, starting at offset and having count characters. If offset is negative, it represents the distance from the end of the string. If count is -1, it means \"the rest of the string starting at offset\".",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "s",
+                  },
+                  {
+                    .token = "offset",
+                  },
+                  {
+                    .token = "count",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "format",
+                .token = "format",
+                .summary = "Use the arguments following fmt to format a string. Currently the only format argument supported is %s and it applies to all types of arguments.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "fmt",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "matched_terms",
+                .token = "matched_terms",
+                .summary = "Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, Redis will return the first N matches found, based on query order.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "max_terms=100",
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "split",
+                .token = "split",
+                .summary = "Split a string by any character in the string sep, and strip any characters in strip. If only s is specified, it is split by commas and spaces are stripped. The output is an array.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "s",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "timefmt",
+                .token = "timefmt",
+                .summary = "Return a formatted time string based on a numeric timestamp value x.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "x",
+                  },
+                  {
+                    .token = "fmt",
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "parsetime",
+                .token = "parsetime",
+                .summary = "The opposite of timefmt() - parse a time format using a given format string",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "timesharing",
+                  },
+                  {
+                    .token = "fmt",
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "day",
+                .token = "day",
+                .summary = "Round a Unix timestamp to midnight (00:00) start of the current day.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "timestamp",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "hour",
+                .token = "hour",
+                .summary = "Round a Unix timestamp to the beginning of the current hour.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "timestamp",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "minute",
+                .token = "minute",
+                .summary = "Round a Unix timestamp to the beginning of the current minute.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "timestamp",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "month",
+                .token = "month",
+                .summary = "Round a unix timestamp to the beginning of the current month.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "timestamp",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "dayofweek",
+                .token = "dayofweek",
+                .summary = "Convert a Unix timestamp to the day number (Sunday = 0).",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "timestamp",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "dayofmonth",
+                .token = "dayofmonth",
+                .summary = "Convert a Unix timestamp to the day of month number (1 .. 31).",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "timestamp",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "dayofyear",
+                .token = "dayofyear",
+                .summary = "Convert a Unix timestamp to the day of year number (0 .. 365).",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "timestamp",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "year",
+                .token = "year",
+                .summary = "Convert a Unix timestamp to the current year (e.g. 2018).",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "timestamp",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "monthofyear",
+                .token = "monthofyear",
+                .summary = "Convert a Unix timestamp to the current month (0 .. 11).",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "timestamp",
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "geodistance",
+                .token = "geodistance",
+                .summary = "Return distance in meters.",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .token = "",
+                  },
+                  {0}
+                },
+              },
+              {0}
+            },
+          },
+          {
+            .name = "name",
+            .token = "AS",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+          },
+          {0}
+        },
+      },
+      {
+        .name = "filter",
+        .token = "FILTER",
+        .type = REDISMODULE_ARG_TYPE_STRING,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+      },
+      {0}
+    },
+    .arity = -3,
+    .since = "8.4.0",
+  };
+  return RedisModule_SetCommandInfo(cmd, &info);
+}
+

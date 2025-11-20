@@ -121,6 +121,13 @@
       "since": "1.0.0",
       "summary": "Returns the execution plan for a complex query"
     },
+    "FT.HYBRID": {
+      "complexity": "O(N+M) where N is the complexity of the text search and M is the complexity of the vector search",
+      "has_info": true,
+      "name": "FT.HYBRID",
+      "since": "8.4.0",
+      "summary": "Performs hybrid search combining text search and vector similarity search"
+    },
     "FT.INFO": {
       "complexity": "O(1)",
       "has_info": true,

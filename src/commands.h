@@ -48,13 +48,6 @@
 #define LEGACY_RS_SAFEADD_CMD "_FT.SAFEADD"
 #define LEGACY_RS_DEL_CMD "_FT.DEL"
 
-// document write commands
-#define RS_ADD_CMD RS_CMD_WRITE_PREFIX ".ADD"
-#define RS_SAFEADD_CMD RS_CMD_WRITE_PREFIX ".SAFEADD"
-#define LEGACY_RS_SAFEADD_CMD "_FT.SAFEADD"
-#define RS_DEL_CMD RS_CMD_WRITE_PREFIX ".DEL"
-#define LEGACY_RS_DEL_CMD "_FT.DEL"
-
 // Suggestion commands are key-bounded, so they are already directed to the correct shard
 #define RS_SUGADD_CMD "FT.SUGADD"
 #define RS_SUGGET_CMD "FT.SUGGET"

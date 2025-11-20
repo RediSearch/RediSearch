@@ -37,3 +37,4 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd);
 int SetFtProfileInfo(RedisModuleCommand *cmd);
 int SetFtCursorReadInfo(RedisModuleCommand *cmd);
 int SetFtCursorDelInfo(RedisModuleCommand *cmd);
+int SetFtHybridInfo(RedisModuleCommand *cmd);
