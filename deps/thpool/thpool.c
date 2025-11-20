@@ -296,23 +296,24 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
   }
 
   /* Add new threads if needed */
-  bool started[n_new_threads];
-  for (size_t n = 0; n < n_new_threads; n++) {
-    thread_init(thpool_p, &started[n]);
-  }
-
-  /* Wait for threads to initialize */
-  size_t n_started = 0;
-  while (n_started < n_new_threads) {
+  if (n_new_threads > 0) {
+    bool started[n_new_threads];
     for (size_t n = 0; n < n_new_threads; n++) {
-      if (started[n]) {
-        ++n_started;
-        started[n] = false;
-      }
+      thread_init(thpool_p, &started[n]);
     }
-    usleep(1);
-  }
 
+    /* Wait for threads to initialize */
+    size_t n_started = 0;
+    while (n_started < n_new_threads) {
+      for (size_t n = 0; n < n_new_threads; n++) {
+        if (started[n]) {
+          ++n_started;
+          started[n] = false;
+        }
+      }
+      usleep(1);
+    }
+  }
   thpool_p->state = THPOOL_INITIALIZED;
 
   LOG_IF_EXISTS("verbose", "Thread pool of size %zu initialized successfully",
@@ -322,6 +323,7 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
 size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
                                      size_t n_threads_to_add) {
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
+  assert(n_threads_to_add > 0 && "Number of threads to add must be greater than 0");
   size_t n_threads = thpool_p->n_threads + n_threads_to_add;
   thpool_p->n_threads = n_threads;
   /* Add new threads */
@@ -1050,6 +1052,7 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   if (thpool_p->state == THPOOL_UNINITIALIZED || thpool_p->n_threads == 0) {
     if (thpool_p->n_threads > 0) {
       // If is UNINITIALIZED, at least it would lazily initialize less threads
+      assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
       thpool_p->n_threads -= n_threads_to_remove;
     }
     return;

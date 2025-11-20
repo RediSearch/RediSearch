@@ -536,7 +536,7 @@ def test_change_workers_number():
 
     # Enable threadpool
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
-    # Since additioning workers affter initialization is not lazy anymore, this would indeed create the thread
+    # Since additioning workers after initialization is not lazy anymore, this would indeed create the thread
     check_threads(expected_num_threads_alive=1, expected_n_threads=1)
     env.expect('ft.search', 'idx', '*').equal([0])
     # Keep initialized
