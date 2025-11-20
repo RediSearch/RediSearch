@@ -249,6 +249,8 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
     child_num_estimated = VecSimIndex_IndexSize(hr->index);
   }
   size_t child_upper_bound = child_num_estimated;
+  // Track maximum batch size
+  hr->maxBatchSize = hr->runtimeParams.batchSize;
   while (VecSimBatchIterator_HasNext(batch_it)) {
     hr->numIterations++;
     size_t vec_index_size = VecSimIndex_IndexSize(hr->index);
@@ -258,6 +260,11 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
     size_t batch_size = hr->runtimeParams.batchSize;
     if (batch_size == 0) {
       batch_size = n_res_left * ((float)vec_index_size / child_num_estimated) + 1;
+      // If given by the user, it's constant, otherwise update the maximum batch size.
+      if (batch_size > hr->maxBatchSize) {
+        hr->maxBatchSize = batch_size;
+        hr->maxBatchIteration = hr->numIterations - 1;  // Zero-based
+      }
     }
     VecSimQueryReply_Free(hr->reply);
     VecSimQueryReply_IteratorFree(hr->iter);
@@ -366,6 +373,8 @@ static void HR_Rewind(void *ctx) {
   HybridIterator *hr = ctx;
   hr->resultsPrepared = false;
   hr->numIterations = 0;
+  hr->maxBatchSize = 0;
+  hr->maxBatchIteration = 0;
   VecSimQueryReply_Free(hr->reply);
   VecSimQueryReply_IteratorFree(hr->iter);
   hr->reply = NULL;
@@ -427,6 +436,8 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->topResults = NULL;
   hi->returnedResults = NULL;
   hi->numIterations = 0;
+  hi->maxBatchSize = 0;
+  hi->maxBatchIteration = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
