@@ -13,6 +13,7 @@
 #include "../../../deps/rmutil/rm_assert.h"
 #include "query_error.h"
 #include <string.h>
+#include "info/global_stats.h"
 
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
 #define INTERNAL_HYBRID_RESP2_LENGTH 6
@@ -220,14 +221,13 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
             if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
                 QueryError_SetQueryOOMWarning(status);
             } else {
-                QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to process shard responses, first error: %s, total error count: %zu",
+                QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
                     QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));
                 success = false;
                 break;
             }
         }
     }
-
     // Cleanup
     MRIterator_Release(it);
     cleanupCtx(ctx);
