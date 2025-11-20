@@ -22,10 +22,15 @@
 #define shift_right(arr, len, start, by) \
   memmove((arr) + (start) + (by), (arr) + (start), ((len) - (start)) * sizeof(*(arr)));
 
-void MRCommand_Free(MRCommand *cmd) {
+static inline void dropCachedCmdIfNeeded(MRCommand *cmd) {
   if (cmd->cmd) {
     sdsfree(cmd->cmd);
+    cmd->cmd = NULL;
   }
+}
+
+void MRCommand_Free(MRCommand *cmd) {
+  dropCachedCmdIfNeeded(cmd);
   for (int i = 0; i < cmd->num; i++) {
     rm_free(cmd->strs[i]);
   }
@@ -40,10 +45,7 @@ static void assignStr(MRCommand *cmd, size_t idx, const char *s, size_t n) {
   news[n] = '\0';
   memcpy(news, s, n);
   // Drop the cached sds command representation if set
-  if (cmd->cmd) {
-    sdsfree(cmd->cmd);
-    cmd->cmd = NULL;
-  }
+  dropCachedCmdIfNeeded(cmd);
 }
 
 static void assignCstr(MRCommand *cmd, size_t idx, const char *s) {
@@ -182,10 +184,7 @@ void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, char *newArg, size_t l
   cmd->strs[index] = newArg;
   cmd->lens[index] = len;
   // Drop the cached sds command representation if set
-  if (cmd->cmd) {
-    sdsfree(cmd->cmd);
-    cmd->cmd = NULL;
-  }
+  dropCachedCmdIfNeeded(cmd);
 }
 void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t len) {
   char *news = rm_malloc(len + 1);
