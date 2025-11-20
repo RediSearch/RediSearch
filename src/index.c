@@ -1688,7 +1688,7 @@ PRINT_PROFILE_FUNC(printMetricIt) {
 
   printProfileIteratorCounter(counter);
 
-  if (GetMetric(root) == VECTOR_DISTANCE) {
+  if (mi->type == VECTOR_DISTANCE) {
     printProfileVectorSearchMode(VECSIM_RANGE_QUERY);
   }
 
