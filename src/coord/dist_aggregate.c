@@ -229,11 +229,34 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
   ProfilePrinterCtx *cCtx = ctx;
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(cCtx->req)->rootProc;
+  // Calling getNextReply alone is insufficient here, as we might have already encountered EOF from the shards,
+  // which caused the call to getNextReply from RPNet to set cond->wait to true.
+  // We can't also set cond->wait to false because we might still be waiting for shards' replies containing profile information.
+
+  // Therefore, we loop to drain all remaining replies from the channel.
+  // Pending might be zero, but there might still be replies in the channel to read.
+  // We may have pulled all the replies from the channel and arrived here due to a timeout,
+  // and now we're waiting for the profile results.
+  if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    do {
+      MRReply_Free(rpnet->current.root);
+    } while (getNextReply(rpnet));
+  }
+
+  size_t num_shards = MRIterator_GetNumShards(rpnet->it);
+  size_t profile_count = array_len(rpnet->shardsProfile);
+
   PrintShardProfile_ctx sCtx = {
-    .count = array_len(rpnet->shardsProfile),
+    .count = profile_count,
     .replies = rpnet->shardsProfile,
     .isSearch = false,
   };
+
+  if (profile_count != num_shards) {
+    RedisModule_Log(RSDummyContext, "warning", "Profile data received from %zu out of %zu shards",
+                    profile_count, num_shards);
+  }
+
   Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, cCtx);
 }
 

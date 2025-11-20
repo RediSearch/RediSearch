@@ -27,7 +27,7 @@ typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
 typedef struct BasicDiskAPI {
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx, const char *path);
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, DocumentType type);
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
   void (*closeIndexSpec)(RedisSearchDiskIndexSpec *index);
   void (*close)(RedisSearchDisk *disk);
 } BasicDiskAPI;
@@ -40,22 +40,24 @@ typedef struct IndexDiskAPI {
    *
    * @param index Pointer to the index
    * @param term Term to associate the document with
+   * @param termLen Length of the term
    * @param docId Document ID to index
    * @param fieldMask Field mask indicating which fields are present in the document
    * @return true if the write was successful, false otherwise
    */
-  bool (*indexDocument)(RedisSearchDiskIndexSpec *index, const char *term, t_docId docId, t_fieldMask fieldMask);
+  bool (*indexDocument)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask);
 
    /**
    * @brief Creates a new iterator for the inverted index
    *
    * @param index Pointer to the index
    * @param term Term to associate the document with
+   * @param termLen Length of the term
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, const char* term, t_fieldMask fieldMask, double weight);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, const char* term, size_t termLen, t_fieldMask fieldMask, double weight);
 
   /**
    * @brief Returns the number of documents in the index
@@ -75,12 +77,13 @@ typedef struct DocTableDiskAPI {
    *
    * @param handle Handle to the document table
    * @param key Document key
+   * @param keyLen Length of the document key
    * @param score Document score (for ranking)
    * @param flags Document flags
    * @param maxFreq Maximum term frequency in the document
    * @return New document ID, or 0 on error/duplicate
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, double score, uint32_t flags, uint32_t maxFreq);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxFreq);
 
   /**
    * @brief Returns whether the docId is in the deleted set
