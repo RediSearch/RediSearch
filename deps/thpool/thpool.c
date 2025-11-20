@@ -315,7 +315,7 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
 
   thpool_p->state = THPOOL_INITIALIZED;
 
-  LOG_IF_EXISTS("verbose", "Thread pool of size %zu created successfully",
+  LOG_IF_EXISTS("verbose", "Thread pool of size %zu initialized successfully",
                 thpool_p->n_threads)
 }
 
@@ -1033,14 +1033,12 @@ struct SignalThreadCtxWithBarrier {
   ThreadState new_state;
   pthread_barrier_t *barrier;
   atomic_int num_threads_to_wait;
-  redisearch_thpool_t *thpool;
 };
 
 static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
   adminJobArg *job_arg = job_arg_;
   struct SignalThreadCtxWithBarrier *signal_struct = job_arg->arg;
   ThreadState new_state = signal_struct->new_state;
-  redisearch_thpool_t *thpool = signal_struct->thpool;
   job_arg->thread_ctx->thread_state = new_state;
 
   /* Wait all threads to get the barrier */
@@ -1059,8 +1057,13 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
    * 1. thpool->n_threads > 0, and there are no threads alive
    * 2. There are threads alive in TERMINATE_WHEN_EMPTY state.
    * In any case we cannot remove more threads. */
-  if (thpool_p->state == THPOOL_UNINITIALIZED || thpool_p->n_threads == 0)
+  if (thpool_p->state == THPOOL_UNINITIALIZED || thpool_p->n_threads == 0) {
+    if (thpool_p->n_threads > 0) {
+      // If is UNINITIALIZED, at least it would lazily initialize less threads
+      thpool_p->n_threads -= n_threads_to_remove;
+    }
     return;
+  }
 
   size_t n_threads = thpool_p->n_threads;
   size_t jobs_count = priority_queue_len(&thpool_p->jobqueues);
@@ -1070,7 +1073,7 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
                   "Attempt to kill all threads while jobqueue contains %zu jobs",
                   jobs_count);
   }
-  LOG_IF_EXISTS("verbose", "Scheduling from main thread a configuration job to remove %zu threads", n_threads_to_remove);
+  LOG_IF_EXISTS("verbose", "Scheduling from main thread to remove %zu threads", n_threads_to_remove);
   assert((!remove_all || n_threads_to_remove == n_threads) && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
   assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
   assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
@@ -1087,7 +1090,6 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   struct SignalThreadCtxWithBarrier *signal_job_arg = rm_malloc(sizeof(struct SignalThreadCtxWithBarrier));
   signal_job_arg->barrier = barrier;
   signal_job_arg->new_state = new_state;
-  signal_job_arg->thpool = thpool_p;
   atomic_init(&signal_job_arg->num_threads_to_wait, n_threads_to_remove);
   /* Set new state of all threads to 'new_state'. */
   for (size_t i = 0; i < n_threads_to_remove; i++) {
