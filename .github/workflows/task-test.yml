@@ -62,14 +62,82 @@ jobs:
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
+  build-image:
+    needs: get-config
+    if: ${{ needs.get-config.outputs.container }}
+    continue-on-error: true
+    name: Build container for ${{ needs.get-config.outputs.container  || needs.get-config.outputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    runs-on: ${{ needs.get-config.outputs.env }}
+    permissions:
+      contents: read
+      packages: write # required for GHCR push
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      succeeded: ${{ steps.mark-success.outputs.succeeded }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set image name
+        id: meta
+        run: |
+          # Base image name
+          IMAGE_NAME="ghcr.io/redisearch/redisearch-ci"
+
+          # Append container and sanitizer to make it unique
+          CONTAINER=${{ needs.get-config.outputs.container || 'default' }}
+          SAN=${{ inputs.san || 'none' }}
+          RUN_ID=${{ github.run_id }}
+
+          # Normalize container string (replace : / with -)
+          CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's/[:\/]/-/g')
+
+          # Unique image tag per workflow run and architecture
+          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ needs.get-config.outputs.env }}-${RUN_ID}"
+
+          # Shared cache ref (without run_id)
+          CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ needs.get-config.outputs.env }}-cache"
+
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "cache=$CACHE_REF" >> $GITHUB_OUTPUT
+          echo "Using image tag: $IMAGE_TAG"
+          echo "Using cache ref: $CACHE_REF"
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and push (cached)
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          context: .
+          build-args: |
+            BASE_IMAGE=${{ needs.get-config.outputs.container || 'ubuntu:24.04' }}
+          file: Dockerfile
+          tags: ${{ steps.meta.outputs.image }}
+          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max
+          cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
+      # This step ONLY runs if all previous steps succeeded
+      - name: Mark success
+        id: mark-success
+        run: |
+          echo "succeeded=true" >> $GITHUB_OUTPUT
 
   common-flow:
+    needs: [get-config, build-image]
     name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
-    needs: [get-config]
+    # Run if get-config succeeded and at least one test type is enabled
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success' &&
+      (inputs.standalone || inputs.coordinator)
     runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ needs.get-config.outputs.container || null }}
-    # Nothing to do if both are `false`, skip
-    if: ${{ inputs.standalone || inputs.coordinator }}
+    container: ${{ needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -99,7 +167,7 @@ jobs:
       # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Setup Dependencies (Alpine)
-        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
         shell: sh -l -eo pipefail {0}
         run: |
           SUCCESS=0
@@ -117,7 +185,7 @@ jobs:
           done
           [ $SUCCESS -eq 1 ] || exit 1
       - name: Setup Dependencies (Non-Alpine)
-        if: needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3'
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3'
         run: |
           SUCCESS=0
           for i in {1..5}; do
