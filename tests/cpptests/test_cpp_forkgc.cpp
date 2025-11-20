@@ -29,6 +29,8 @@ extern "C" {
 #include <set>
 #include <random>
 #include <unordered_set>
+#include <thread>
+
 /**
  * The following tests purpose is to make sure the garbage collection is working properly,
  * without causing any data corruption or loss.
