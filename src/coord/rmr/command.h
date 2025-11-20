@@ -15,7 +15,7 @@
 #include <assert.h>
 #include <stdbool.h>
 
-typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2 } MRRootCommand;
+typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2, C_PROFILE = 3 } MRRootCommand;
 
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
