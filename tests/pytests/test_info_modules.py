@@ -1378,7 +1378,7 @@ def test_errors_and_warnings_init(env):
     for field in info_dict[metric]:
       env.assertEqual(info_dict[metric][field], '0')
 
-# @skip(cluster=False)
+@skip(cluster=False)
 def test_warnings_metric_count_oom_cluster_in_shards_resp3():
   # Test OOM warnings in shards only with RESP3
   env  = Env(protocol=3)

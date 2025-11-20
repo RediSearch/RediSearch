@@ -2700,27 +2700,15 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       RedisModule_Reply_Array(reply);
       // Iterate over warning array and track warnings
 
-      // Efficient way to check if we already saw a warning
-      // Each warning code is represented by a bit in the arrayWarnings bitmap
-      // Using uint8_t since we have less than 8 warning codes at the moment
-      uint8_t arrayWarnings = 0;
-
       size_t len = MRReply_Length(rCtx->warning);
-      for (int i = 0; i < len; ++i) {
-        // Extract warning string and track it
-        MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
-        const char *warning_str = MRReply_String(currentWarning, NULL);
-        QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
-        arrayWarnings |= warningCode >> 1;
-        // Reply warning
-        MR_ReplyWithMRReply(reply, currentWarning);
-      }
-      // Iterate over arrayWarnings and update global statistics
-      for (QueryWarningCode warningCode = 1; warningCode <= QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD; warningCode <<= 1) {
-        if (arrayWarnings & warningCode) {
+      for (size_t i = 0; i < len; ++i) {
+          MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
+          const char *warning_str = MRReply_String(currentWarning, NULL);
+          QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
           QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
-        }
+          MR_ReplyWithMRReply(reply, currentWarning);
       }
+
       RedisModule_Reply_ArrayEnd(reply);
     } else if (req->queryOOM) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
@@ -2818,17 +2806,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   }
   RedisModule_Reply_MapEnd(reply);
 
-  // Count warnings if needed
-  if (rCtx->warning) {
-    size_t len = MRReply_Length(rCtx->warning);
-    for (int i = 0; i < len; ++i) {
-      // Extract warning string and track it ()
-      MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
-      const char *warning_str = MRReply_String(currentWarning, NULL);
-      QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
-      QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
-    }
-  } else if (req->queryOOM) {
+  if (req->queryOOM) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
   }
   //-------------------------------------------------------------------------------------------
