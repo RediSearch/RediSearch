@@ -92,7 +92,8 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
                           "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
                           "to avoid infinite loop");
           debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
-          SearchCtx_UpdateTime(debug_req->r.sctx, debug_req->r.reqConfig.queryTimeoutMS);
+          updateTimeout(&debug_req->r.timeoutTime, debug_req->r.reqConfig.queryTimeoutMS);
+          SearchCtx_UpdateTimeout(debug_req->r.sctx, debug_req->r.timeoutTime);
       }
     } else {  // INTERNAL_ONLY was not provided, or we are not in a cluster coordinator
       // Add timeout to the pipeline
