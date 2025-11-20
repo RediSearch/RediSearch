@@ -609,6 +609,7 @@ done_3:
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
       // We use the cluster warning since shard level warning sent via empty reply bailout
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     }

@@ -870,7 +870,7 @@ class testWarningsAndErrorsCluster:
   """Test class for warnings and errors metrics in cluster mode with RESP2"""
 
   def __init__(self):
-    # skipTest(cluster=False)
+    skipTest(cluster=False)
     self.env = Env()
     _common_warnings_errors_cluster_test_scenario(self.env)
     self.shards_prev_info_dict = {}
@@ -1223,6 +1223,8 @@ class testWarningsAndErrorsCluster:
       self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC], '0',
                            message=f"Shard {shardId} OOM warning should not change after FT.HYBRID")
 
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '0').ok()
+
     # Test other metrics not changed
     tested_in_this_test = [OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC]
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
@@ -1282,20 +1284,22 @@ class testWarningsAndErrorsCluster:
     allShards_change_oom_policy(self.env, 'RETURN')
     # Test warning in FT.SEARCH
     self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
-    # Coord: +1
+
+    # Coord: unchanged (Coord doesn't count warnings since resp2 doesn't return warnings)
     info_coord = info_modules_to_dict(self.env)
-    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 1),
-                         message="Coordinator OOM warning should be +1 after FT.SEARCH")
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord),
+                         message="Coordinator OOM warning should not change after FT.SEARCH")
     # Shards: +1 each (besides shard 1 which is coord)
     shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
     self.env.assertEqual(shards_metrics.count(str(base_warn_shards[1] + 1)), 2,
                          message="Wrong number of shards with OOM warning +1 after FT.SEARCH")
+
     # Test warning in FT.AGGREGATE
     self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
-    # Coord: +1
+    # Coord: unchanged (Coord doesn't count warnings since resp2 doesn't return warnings)
     info_coord = info_modules_to_dict(self.env)
-    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 2),
-                         message="Coordinator OOM warning should be +1 after FT.AGGREGATE")
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord),
+                         message="Coordinator OOM warning should not change after FT.AGGREGATE")
     # Shards: +1 each (besides shard 1 which is coord)
     shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
     self.env.assertEqual(shards_metrics.count(str(base_warn_shards[1] + 2)), 2,
@@ -1305,15 +1309,17 @@ class testWarningsAndErrorsCluster:
     self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).noError()
     # Coord: +1
     info_coord = info_modules_to_dict(self.env)
-    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 3),
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 1),
                          message="Coordinator OOM warning should be +1 after FT.HYBRID")
     # Shards: +1 each (besides shard 1 which is coord)
     shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
     self.env.assertEqual(shards_metrics.count(str(base_warn_shards[1] + 3)), 2,
                          message="Wrong number of shards with OOM warning +1 after FT.HYBRID")
 
+    allShards_set_unlimited_maxmemory_for_oom(self.env)
+
     # Test other metrics not changed
-    tested_in_this_test = [OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC]
+    tested_in_this_test = [OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC, OOM_ERROR_SHARD_METRIC, OOM_WARNING_SHARD_METRIC]
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
 
 
@@ -1371,3 +1377,30 @@ def test_errors_and_warnings_init(env):
   for metric in [WARN_ERR_SECTION, COORD_WARN_ERR_SECTION]:
     for field in info_dict[metric]:
       env.assertEqual(info_dict[metric][field], '0')
+
+# @skip(cluster=False)
+def test_warnings_metric_count_oom_cluster_in_shards_resp3():
+  # Test OOM warnings in shards only with RESP3
+  env  = Env(protocol=3)
+  _common_warnings_errors_cluster_test_scenario(env)
+  # Set OOM policy to return
+  allShards_change_oom_policy(env, 'RETURN')
+  allShards_change_maxmemory_low(env)
+  # Set unlimited maxmemory for coord
+  set_unlimited_maxmemory_for_oom(env)
+  # Test warning in FT.SEARCH
+  res = env.cmd('FT.SEARCH', 'idx', 'hello world')
+  env.assertEqual(res['warning'][0], 'One or more shards failed to execute the query due to insufficient memory')
+  # Coord: +1
+  info_coord = info_modules_to_dict(env)
+  env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], '1')
+
+  # Test warning in FT.AGGREGATE
+  # FT.AGGREGATE doesn't return warning in cluster for empty results
+  res = env.cmd('FT.AGGREGATE', 'idx', 'hello world')
+  # TODO - Check warning in FT.AGGREGATE when empty results are handled correctly
+  # The following asserts should fail when empty results are handled correctly
+  env.assertEqual(res['warning'], [])
+  # Coord: +1
+  info_coord = info_modules_to_dict(env)
+  env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], '1')
