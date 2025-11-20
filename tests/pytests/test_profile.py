@@ -721,7 +721,8 @@ def testProfileVectorSearchMode():
       # Navigate to iterator profile (RESP3 dict structure)
       shards_iter_profile = []
       if env.isCluster():
-        shards = res['Shards']
+        profile_field = 'shards' if query_type == 'SEARCH' else 'Shards'
+        shards = res[profile_field]
         for key, shard in shards.items():
           if key == 'Coordinator':
             break
