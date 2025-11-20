@@ -73,6 +73,8 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
       succeeded: ${{ steps.mark-success.outputs.succeeded }}
     steps:
+      - name: Fail
+        run: exit 1
       - name: Checkout
         uses: actions/checkout@v5
       - name: Set image name
