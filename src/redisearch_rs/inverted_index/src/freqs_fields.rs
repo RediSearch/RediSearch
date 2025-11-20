@@ -23,14 +23,12 @@ use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
 /// The delta, frequency, field mask are encoded using [qint encoding](qint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Clone, Copy, Default)]
 pub struct FreqsFields;
 
 impl Encoder for FreqsFields {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -75,14 +73,12 @@ impl Decoder for FreqsFields {
 /// The field mask is then encoded using [varint encoding](varint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Clone, Copy, Default)]
 pub struct FreqsFieldsWide;
 
 impl Encoder for FreqsFieldsWide {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,

@@ -43,9 +43,8 @@ fn test_encode_freqs_only() {
         let mut buf = Cursor::new(Vec::new());
         let record = RSIndexResult::virt().doc_id(doc_id).frequency(freq);
 
-        let bytes_written = FreqsOnly
-            .encode(&mut buf, delta, &record)
-            .expect("to encode freqs only record");
+        let bytes_written =
+            FreqsOnly::encode(&mut buf, delta, &record).expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
         assert_eq!(buf.get_ref(), &expected_encoding);
@@ -69,7 +68,7 @@ fn test_encode_freqs_only_output_too_small() {
     let mut cursor = Cursor::new(buf);
 
     let record = RSIndexResult::virt().doc_id(10).frequency(5);
-    let res = FreqsOnly.encode(&mut cursor, 0, &record);
+    let res = FreqsOnly::encode(&mut cursor, 0, &record);
 
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();

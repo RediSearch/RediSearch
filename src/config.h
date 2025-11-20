@@ -245,7 +245,7 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
 int ReadConfig(RedisModuleString **argv, int argc, char **err);
 
 /* Register module configuration parameters using Module Configuration API */
-int RegisterModuleConfig(RedisModuleCtx *ctx);
+int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
 
 /**
  * Writes the retrieval of the configuration value to the network.

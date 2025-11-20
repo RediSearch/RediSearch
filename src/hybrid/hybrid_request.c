@@ -27,7 +27,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
     StrongRef sync_ref = {0};
     int rc = REDISMODULE_OK;
     if (depleteInBackground) {
-      sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
+      sync_ref = DepleterSync_New(req->nrequests, true);
     }
 
     // Build individual pipelines for each search request
