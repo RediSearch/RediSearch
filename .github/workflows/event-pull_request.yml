@@ -56,8 +56,8 @@ jobs:
       architecture: x86_64
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
-      coverage: ${{ matrix.job-type == 'coverage' }}
-      san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
+      coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
+      san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
       rejson-branch: master
 
   pr-validation:

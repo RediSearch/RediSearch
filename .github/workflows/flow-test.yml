@@ -135,6 +135,6 @@ jobs:
       rejson-branch: ${{ inputs.rejson-branch }}
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
-      test-config: ${{ fromJson(inputs.job-test-config)[matrix.job-type] }}
-      coverage: ${{ matrix.job-type == 'coverage' }}
-      san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
+      test-config: ${{ fromJson(inputs.job-test-config)[(matrix.job-type || 'test')] }}
+      coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
+      san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
