@@ -298,15 +298,6 @@ static void sendHeaderString(ForkGC *gc, void *arg) {
   FGC_sendBuffer(gc, iov->iov_base, iov->iov_len);
 }
 
-static void FGC_reportProgress(ForkGC *gc) {
-  RedisModule_SendChildHeartbeat(gc->progress);
-}
-
-static void FGC_setProgress(ForkGC *gc, float progress) {
-  gc->progress = progress;
-  FGC_reportProgress(gc);
-}
-
 static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   TrieIterator *iter = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
   rune *rstr = NULL;
@@ -320,7 +311,6 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
-      FGC_reportProgress(gc);
     }
     rm_free(term);
   }
@@ -436,7 +426,6 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
         FGC_sendFixed(gc, nctx.last_block_card.registers, NR_REG_SIZE);
         FGC_sendFixed(gc, nctx.majority_card.registers, NR_REG_SIZE);
       }
-      FGC_reportProgress(gc);
     }
     hll_destroy(&nctx.majority_card);
     hll_destroy(&nctx.last_block_card);
@@ -481,7 +470,6 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
         header.tagLen = len;
         // send repaired data
         FGC_childRepairInvidx(gc, sctx, value, sendNumericTagHeader, &header, NULL);
-        FGC_reportProgress(gc);
       }
 
       // we are done with the current field
@@ -510,7 +498,6 @@ static void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
       const char* fieldName = HiddenString_GetUnsafe(hiddenFieldName, &length);
       struct iovec iov = {.iov_base = (void *)fieldName, length};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
-      FGC_reportProgress(gc);
     }
   }
   dictReleaseIterator(iter);
@@ -536,18 +523,15 @@ static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
   const char* indexName = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
   RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", indexName);
-  FGC_setProgress(gc, 0);
   FGC_childCollectTerms(gc, &sctx);
-  FGC_setProgress(gc, 0.2);
   FGC_childCollectNumeric(gc, &sctx);
-  FGC_setProgress(gc, 0.4);
   FGC_childCollectTags(gc, &sctx);
-  FGC_setProgress(gc, 0.6);
   FGC_childCollectMissingDocs(gc, &sctx);
-  FGC_setProgress(gc, 0.8);
   FGC_childCollectExistingDocs(gc, &sctx);
-  FGC_setProgress(gc, 1);
+  RedisModule_SendChildHeartbeat(1.0); // final heartbeat
   RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", indexName);
+  // Let the parent wait for the terminal terminator, so we manage to send the heartbeat before exiting
+  FGC_sendTerminator(gc);
 }
 
 typedef struct {
@@ -1244,6 +1228,13 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   COLLECT_FROM_CHILD(FGC_parentHandleTags(gc));
   COLLECT_FROM_CHILD(FGC_parentHandleMissingDocs(gc));
   COLLECT_FROM_CHILD(FGC_parentHandleExistingDocs(gc));
+
+  // Wait for the final terminator from the child, so it can finish post-processing chores before we kill it
+  size_t terminator_check;
+  int rc = FGC_recvFixed(gc, &terminator_check, sizeof(terminator_check)); // final status from child
+  if (rc != REDISMODULE_OK || terminator_check != SIZE_MAX) {
+    return FGC_CHILD_ERROR;
+  }
   RedisModule_Log(gc->ctx, "debug", "ForkGC - parent ends applying changes");
 
   return status;
