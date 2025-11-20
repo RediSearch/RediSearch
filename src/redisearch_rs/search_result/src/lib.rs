@@ -27,7 +27,7 @@ pub type SearchResultFlags = enumflags2::BitFlags<SearchResultFlag>;
 /// SearchResult - the object all the processing chain is working on.
 /// It holds the [`RSIndexResult`] which is what the index scan brought - scores, vectors, flags, etc,
 /// and a list of fields loaded by the chain
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SearchResult<'index> {
     doc_id: ffi::t_docId,
     // not all results have score - TBD
@@ -56,10 +56,12 @@ pub struct SearchResult<'index> {
 
     flags: SearchResultFlags,
 }
+unsafe_tools::impl_mimic!(SearchResult<'static>);
 
 impl Drop for SearchResult<'_> {
     fn drop(&mut self) {
         self.clear();
+
         // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
         unsafe {
             ffi::RLookupRow_Reset(ptr::from_mut(&mut self.row_data));
@@ -67,7 +69,7 @@ impl Drop for SearchResult<'_> {
     }
 }
 
-impl<'a> Default for SearchResult<'a> {
+impl Default for SearchResult<'_> {
     fn default() -> Self {
         Self::new()
     }

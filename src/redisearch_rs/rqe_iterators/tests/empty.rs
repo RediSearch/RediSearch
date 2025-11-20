@@ -15,6 +15,12 @@ use rqe_iterators::{
 mod c_mocks;
 
 #[test]
+fn current() {
+    let mut it = Empty::default();
+    assert!(it.current().is_none());
+}
+
+#[test]
 fn read() {
     let mut it = Empty::default();
 

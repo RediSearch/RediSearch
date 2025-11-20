@@ -116,18 +116,12 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
 
     // Check if timeout should be applied only in the shard query pipeline
     if (internal_only && isClusterCoord(debug_req)) {
-      if (results_count == 0) {
-        if (!(AREQ_RequestFlags(&debug_req->r) & QEXEC_F_IS_CURSOR)) {
-          QueryError_SetError(
-              status, QUERY_ERROR_CODE_PARSE_ARGS,
-              "INTERNAL_ONLY with TIMEOUT_AFTER_N 0 is not allowed without WITHCURSOR");
-          return REDISMODULE_ERR;
-        } else if (debug_req->r.reqConfig.queryTimeoutMS == 0 && results_count == 0) {
+      if (debug_req->r.reqConfig.queryTimeoutMS == 0 && results_count == 0) {
           RedisModule_Log(RSDummyContext, "debug",
                           "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
                           "to avoid infinite loop");
           debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
-        }
+          SearchCtx_UpdateTime(debug_req->r.sctx, debug_req->r.reqConfig.queryTimeoutMS);
       }
     } else {  // INTERNAL_ONLY was not provided, or we are not in a cluster coordinator
       // Add timeout to the pipeline
