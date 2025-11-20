@@ -109,7 +109,7 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     if (MRReply_Length(warning) > 0) {
       const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
       // Set an error to be later picked up by `getCursorCommand`
-      if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
+      if (!strcmp(warning_str, QueryError_Strerror(QUERY_ETIMEDOUT))) {
         // When a shard returns timeout on RETURN policy, the profile is not returned.
         // We set the timeout here so in the next getCursorCommand we will send CURSOR PROFILE
         MRIteratorCallback_SetTimedOut(MRIteratorCallback_GetCtx(ctx));
