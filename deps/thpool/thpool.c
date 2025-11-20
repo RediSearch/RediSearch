@@ -326,6 +326,11 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
   assert(n_threads_to_add > 0 && "Number of threads to add must be greater than 0");
   size_t n_threads = thpool_p->n_threads + n_threads_to_add;
   thpool_p->n_threads = n_threads;
+  if (thpool_p->state == THPOOL_UNINITIALIZED) {
+    // If the thpool is not initialized, we just set the n_threads and return, so that when workers are added
+    // they will be initialized with the new n_threads.
+    return n_threads;
+  }
   /* Add new threads */
   bool started[n_threads_to_add];
   for (size_t n = 0; n < n_threads_to_add; n++) {
@@ -633,8 +638,6 @@ static int thread_init(redisearch_thpool_t *thpool_p, bool *started) {
 static void *thread_do(void *p) {
   struct thread_do_args *args = (struct thread_do_args *)p;
   redisearch_thpool_t *thpool_p = args->thpool_p;
-  *args->started = true;
-  rm_free(args);
 
   /* Set thread name for profiling and debugging */
   char thread_name[16] = {0};
@@ -658,6 +661,8 @@ static void *thread_do(void *p) {
   /* Mark thread as alive (initialized) */
   thpool_p->num_threads_alive += 1;
   threadCtx thread_ctx = {.thread_state = THREAD_RUNNING};
+  *args->started = true;
+  rm_free(args);
 
   while (true) {
     /** Read job from queue and execute it.
@@ -1085,7 +1090,8 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   // I do not need to verify init since we are actually putting in priority queue, and I do not want to wait on another barrier
   // As per the input, I know i am Initialized, I do not need to verify it (and avoid waiting)
   redisearch_thpool_add_n_work_not_verify_init(thpool_p, jobs, n_threads_to_remove, THPOOL_PRIORITY_ADMIN);
-  if (thpool_p->n_threads == 0) {
+  if (remove_all) {
+    assert(thpool_p->n_threads == 0 && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
     thpool_p->state = THPOOL_UNINITIALIZED;
   }
 }

@@ -602,17 +602,12 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestAddThreadsToEmptyPool) {
     redisearch_thpool_schedule_config_reduce_threads_job(this->pool, RUNTIME_CONFIG_N_THREADS, false);
     ASSERT_EQ(redisearch_thpool_get_num_threads(this->pool), 0);
     // Threadpool is not initialized,
-    ASSERT_FALSE(redisearch_thpool_is_initialized(this->pool));
+    ASSERT_TRUE(redisearch_thpool_is_initialized(this->pool));
     ASSERT_GE(redisearch_thpool_get_stats(this->pool).num_threads_alive, 0);
-
     // Add threads.
     ASSERT_EQ(redisearch_thpool_add_threads(this->pool, RUNTIME_CONFIG_N_THREADS), RUNTIME_CONFIG_N_THREADS);
     ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, RUNTIME_CONFIG_N_THREADS);
-
-    // After removal and readdition, eventually the num_threads_alive will match the config
-    while (redisearch_thpool_get_stats(this->pool).num_threads_alive != RUNTIME_CONFIG_N_THREADS) {
-        usleep(1);
-    }
+    ASSERT_TRUE(redisearch_thpool_is_initialized(this->pool));
 
     // Validate the thpool functionality.
     redisearch_thpool_add_work(this->pool, sleep_job_us, &time_us, THPOOL_PRIORITY_HIGH);

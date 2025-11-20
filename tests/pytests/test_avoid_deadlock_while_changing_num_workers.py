@@ -3,13 +3,12 @@ from common import *
 import threading
 import time
 import random
-import os
 
 def check_threads(env, expected_num_threads_alive, expected_n_threads):
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1, message='numThreadsAlive should match num_threads_alive')
     env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
 
-def test_MOD_11658_workers_reduction_under_load():
+def test_workers_reduction_under_load():
     """
     Test that changing WORKERS from high to 0 under load doesn't cause unresponsiveness.
     This test:
@@ -147,11 +146,10 @@ def test_MOD_11658_workers_reduction_under_load():
     final_search = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
     env.assertTrue(final_search[0] > 0, message="Search should return results at end of test")
 
-    env.debugPrint(f"Test completed. Total successful queries: {query_success_count[0]}", force=True)
     check_threads(env, 0, 0)
 
 
-def test_MOD_11658_workers_reduction_sequence():
+def test_workers_reduction_sequence():
     """
     Test gradual reduction of workers to see if the issue is specific to large deltas.
     This test reduces workers gradually: 8 -> 4 -> 2 -> 1 -> 0
@@ -197,10 +195,8 @@ def test_MOD_11658_workers_reduction_sequence():
     time.sleep(5)
     check_threads(env, 0, 0)
 
-    env.debugPrint("Gradual reduction test completed successfully", force=True)
 
-
-def test_MOD_11658_workers_zero_to_nonzero():
+def test_workers_zero_to_nonzero():
     """
     Test that increasing workers from 0 to a higher value also works correctly.
     This tests the reverse direction to ensure the connection pool expansion works.
@@ -229,6 +225,9 @@ def test_MOD_11658_workers_zero_to_nonzero():
     # Increase workers to 8
     env.expect(config_cmd(), 'SET', 'WORKERS', '8').ok()
     env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '8']])
+    # Lazy initialization of threads
+    check_threads(env, 0, 8)
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
     check_threads(env, 8, 8)
 
     # Verify still responsive
@@ -239,10 +238,7 @@ def test_MOD_11658_workers_zero_to_nonzero():
     result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
     env.assertTrue(result[0] > 0)
 
-    env.debugPrint("Workers increase test completed successfully", force=True)
-
-
-def test_MOD_11658_workers_increase_from_nonzero():
+def test_workers_increase_from_nonzero():
     """
     Test that increasing workers from 0 to a higher value also works correctly.
     This tests the reverse direction to ensure the connection pool expansion works.
@@ -281,5 +277,3 @@ def test_MOD_11658_workers_increase_from_nonzero():
     # Query should still work
     result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
     env.assertTrue(result[0] > 0)
-
-    env.debugPrint("Workers increase test completed successfully", force=True)

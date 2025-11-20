@@ -507,9 +507,10 @@ def test_change_workers_number():
     # Increase number of threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
     # After the first increase, since no queries arrived yet
-    check_threads(expected_num_threads_alive=1, expected_n_threads=2)
+    check_threads(expected_num_threads_alive=0, expected_n_threads=2)
     # Decrease number of threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
+    check_threads(expected_num_threads_alive=0, expected_n_threads=1)
     # If I send many queries, we know one of the threads will take the ADMIN job and terminate
     num_query_threads = 100
     query_threads = []
@@ -537,7 +538,7 @@ def test_change_workers_number():
     # Enable threadpool
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
     # Since additioning workers after initialization is not lazy anymore, this would indeed create the thread
-    check_threads(expected_num_threads_alive=1, expected_n_threads=1)
+    check_threads(expected_num_threads_alive=0, expected_n_threads=1)
     env.expect('ft.search', 'idx', '*').equal([0])
     # Keep initialized
     check_threads(expected_num_threads_alive=1, expected_n_threads=1)
