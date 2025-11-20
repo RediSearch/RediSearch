@@ -1066,6 +1066,7 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   assert((!remove_all || n_threads_to_remove == n_threads) && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
   assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
   assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
+  assert(thpool_p->num_threads_alive >= n_threads_to_remove && "Not enough alive threads to remove");
 
   ThreadState new_state = remove_all ? THREAD_TERMINATE_WHEN_EMPTY : THREAD_TERMINATE_ASAP;
 
