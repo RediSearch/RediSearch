@@ -135,7 +135,7 @@ jobs:
       needs.get-config.result == 'success' &&
       (inputs.standalone || inputs.coordinator)
     runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ needs.build-image.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container || null }}
+    container: ${{ needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -147,7 +147,7 @@ jobs:
           echo "build-image.outputs.succeeded: ${{ needs.build-image.outputs.succeeded }}"
           echo "build-image.outputs.image: ${{ needs.build-image.outputs.image }}"
       - name: Fix HOME Directory
-        if: ${{ needs.build-image.succeeded == 'true' && needs.get-config.outputs.container }}
+        if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
         shell: bash
         run: |
           # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
@@ -165,7 +165,7 @@ jobs:
       # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Setup Dependencies (Alpine)
-        if: needs.build-image.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
         shell: sh -l -eo pipefail {0}
         run: |
           SUCCESS=0
@@ -183,7 +183,7 @@ jobs:
           done
           [ $SUCCESS -eq 1 ] || exit 1
       - name: Setup Dependencies (Non-Alpine)
-        if: needs.build-image.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3'
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3'
         run: |
           SUCCESS=0
           for i in {1..5}; do
@@ -291,7 +291,7 @@ jobs:
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup
-        if: needs.build-image.succeeded != 'true'
+        if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
         run: |
           SUCCESS=0
@@ -312,7 +312,7 @@ jobs:
             exit 1
           fi
       - name: Setup Rust test dependencies
-        if: needs.build-image.succeeded != 'true' # Only run if NOT using custom container
+        if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
         run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
 
       - name: Setup Python test dependencies
