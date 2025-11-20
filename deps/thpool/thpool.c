@@ -1089,7 +1089,6 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   // As per the input, I know i am Initialized, I do not need to verify it (and avoid waiting)
   redisearch_thpool_add_n_work_not_verify_init(thpool_p, jobs, n_threads_to_remove, THPOOL_PRIORITY_ADMIN);
   if (remove_all) {
-    assert(thpool_p->n_threads == 0 && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
     thpool_p->state = THPOOL_UNINITIALIZED;
   }
 }
