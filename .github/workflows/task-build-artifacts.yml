@@ -8,14 +8,14 @@ permissions:
 on:
   workflow_call:
     inputs:
-      env:
-        default: ubuntu-latest
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, rockylinux:8)'
         type: string
-      container:
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
         type: string
-      pre-steps-script:
-        type: string
-        description: 'Script to run before any other steps (extremely basic dependency needs only)'
+        required: true
       ref:
         type: string
         description: 'RediSearch reference to checkout (defaults to the ref of the triggering event)'
@@ -33,10 +33,18 @@ env:
   AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
 
 jobs:
+  # Get configuration for this specific platform and architecture
+  get-config:
+    uses: ./.github/workflows/task-get-config.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
   build:
-    name: Build ${{ inputs.container || inputs.env }}
-    runs-on: ${{ inputs.env }}
-    container: ${{ inputs.container || null }}
+    name: Build ${{ needs.get-config.outputs.name }}
+    needs: [get-config]
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{ needs.get-config.outputs.container || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -48,17 +56,18 @@ jobs:
     steps:
       # Setup
       - name: Pre-steps Dependencies
-        if: inputs.pre-steps-script
-        run: ${{ inputs.pre-steps-script }}
+        if: needs.get-config.outputs.setup_script
+        run: ${{ needs.get-config.outputs.setup_script }}
       - name: Get Installation Mode
         id: mode
         run: |
-          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           for platform in amazonlinux:2; do
-            if [[ "${{ inputs.container }}" == "$platform" ]]; then
+            if [[ "${{ needs.get-config.outputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
             fi
@@ -75,7 +84,7 @@ jobs:
         run: |
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
-          case "${{ inputs.container }}" in
+          case "${{ needs.get-config.outputs.container }}" in
             amazonlinux:2)
 
               # Configure the safe directory
@@ -99,7 +108,7 @@ jobs:
               git submodule update --init --recursive
               ;;
             *)
-              echo "Unsupported platform: '${{ inputs.container }}'"
+              echo "Unsupported platform: '$CONTAINER'"
               exit 1
               ;;
           esac
