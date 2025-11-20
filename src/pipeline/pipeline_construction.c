@@ -255,10 +255,11 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
       if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
-        // pipeline->qctx.resultLimit = UINT32_MAX;
         // In non-optimized aggregate queries, we need to add a synchronous depleter
-        rp = RPDepleter_NewSync(DepleterSync_New(1, false), params->common.sctx);
-        up = pushRP(&pipeline->qctx, rp, up);
+        if (IsInternal(&params->common)) {
+          rp = RPDepleter_NewSync(DepleterSync_New(1, false), params->common.sctx);
+          up = pushRP(&pipeline->qctx, rp, up);
+        }
 
         rp = RPSorter_NewByFields(UINT32_MAX, sortkeys, nkeys, astp->sortAscMap);
         up = pushRP(&pipeline->qctx, rp, up);
@@ -274,8 +275,6 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       rp = RPSorter_NewByScore(maxResults);
       up = pushRP(&pipeline->qctx, rp, up);
     } else if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
-      // No LIMIT specified, consume everything
-      // pipeline->qctx.resultLimit = UINT32_MAX;
       // In non-optimized aggregate queries, we need to add a synchronous depleter
       // Use RPDepleter_NewSync to run synchronously (no background thread)
       rp = RPDepleter_NewSync(DepleterSync_New(1, false), params->common.sctx);

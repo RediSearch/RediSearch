@@ -395,8 +395,8 @@ def _test_profile(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
          ['Index', 'Depleter', 'Sorter', 'Pager/Limiter'],
          ['Index', 'Depleter', 'Sorter', 'Pager/Limiter'],
-         [['Index', 'Depleter', 'Sorter', 'Loader'], ['Network', 'Depleter', 'Sorter', 'Pager/Limiter']],
-         [['Index', 'Depleter', 'Sorter', 'Loader'], ['Network', 'Depleter', 'Sorter', 'Pager/Limiter']]),
+         [['Index', 'Depleter', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']],
+         [['Index', 'Depleter', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]),
 
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'],
