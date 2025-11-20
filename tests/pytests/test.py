@@ -3789,7 +3789,7 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
     env.expect('HSET doc2 t foo').equal(1)
 
     res, cursor = env.cmd('FT.AGGREGATE idx foo WITHCURSOR COUNT 1')
-    env.assertEqual(res, [1, []])
+    env.assertEqual(res, [2, []])
 
     # delete both documents and run the GC to clean 'foo' inverted index
     env.expect('DEL doc1').equal(1)
@@ -3803,7 +3803,7 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
     # read from the cursor
     res, cursor = env.cmd('FT.CURSOR READ idx %d' % cursor)
 
-    env.assertEqual(res, [0])
+    env.assertEqual(res, [2])
     env.assertEqual(cursor, 0)
 
 def testNegativeOnly(env):

@@ -58,6 +58,15 @@ typedef struct Cursor {
   /** If true, a call to `Cursor_Pause` should drop it instead.
    *  Should only be accessed under cursor list lock */
   bool delete_mark;
+
+  /** Pre-calculated total results for WITHCOUNT + WITHCURSOR queries.
+   *  This is calculated once when the cursor is created and used for all
+   *  subsequent cursor reads to provide accurate total_results. */
+  uint32_t precalculated_total;
+
+  /** Flag indicating whether precalculated_total has been set.
+   *  If false, precalculated_total should not be used. */
+  bool has_precalculated_total;
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);

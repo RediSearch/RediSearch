@@ -266,6 +266,11 @@ typedef struct AREQ {
   // Cursor id, if this is a cursor
   uint64_t cursor_id;
 
+  // Pre-calculated total results for WITHCOUNT + WITHCURSOR queries
+  // This is set when the cursor is created and used for all cursor reads
+  uint32_t cursor_precalculated_total;
+  bool cursor_has_precalculated_total;
+
   // Profiling function
   profiler_func profile;
 

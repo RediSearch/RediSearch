@@ -712,20 +712,21 @@ def test_mod_4255(env):
 
   conn.execute_command('HSET', 'doc1', 'test', '1')
   conn.execute_command('HSET', 'doc2', 'test', '2')
+  n_docs = 2
 
   # test normal case
   # get first result
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
-  env.assertEqual(res[0] ,[1, ['test', '1']])
+  env.assertEqual(res[0] ,[n_docs, ['test', '1']])
   cursor = res[1]
   env.assertNotEqual(cursor ,0)
   # get second result
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-  env.assertEqual(res[0] ,[1, ['test', '2']])
+  env.assertEqual(res[0] ,[n_docs, ['test', '2']])
   cursor = res[1]
   env.assertNotEqual(cursor ,0)
   # get empty results after cursor was exhausted
-  env.expect('FT.CURSOR', 'READ', 'idx', cursor).equal([[0], 0])
+  env.expect('FT.CURSOR', 'READ', 'idx', cursor).equal([[n_docs], 0])
 
 
   # Test cursor after data structure that has changed due to insert
@@ -734,12 +735,13 @@ def test_mod_4255(env):
   for i in range(3, 1001, 1):
       conn.execute_command('HSET', f'doc{i}', 'test', str(i))
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-  env.assertEqual(res[0] ,[1, ['test', '2']])
+  env.assertEqual(res[0] ,[n_docs, ['test', '2']])
   env.assertNotEqual(cursor ,0)
 
   # Test cursor after data structure that has changed due to insert
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
-  env.assertEqual(res[0] ,[1, ['test', '1']])
+  n_docs = 1000 # 2 original + 998 new
+  env.assertEqual(res[0] ,[n_docs, ['test', '1']])
   cursor = res[1]
   env.assertNotEqual(cursor ,0)
   for i in range(3, 1001, 1):
@@ -747,7 +749,7 @@ def test_mod_4255(env):
   forceInvokeGC(env, 'idx')
 
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-  env.assertEqual(res[0] ,[1, ['test', '2']])
+  env.assertEqual(res[0] ,[n_docs, ['test', '2']])
   cursor = res[1]
   env.assertNotEqual(cursor ,0)
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)

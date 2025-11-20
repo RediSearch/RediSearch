@@ -163,7 +163,8 @@ def testNumericCursor(env):
     idx = 'foo'
     ff = 'ff'
     env.expect('FT.CREATE', idx, 'ON', 'HASH', 'SCHEMA', ff, 'NUMERIC').ok()
-    for x in range(1000):
+    docs = 1000
+    for x in range(docs):
         conn.execute_command('HSET', f'{idx}_{x}', ff, x)
 
     # res = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'SORTBY', 2, '@ff', 'ASC', 'LIMIT', 0, 1000)
@@ -174,13 +175,14 @@ def testNumericCursor(env):
     env.assertNotEqual(res, [0])
     env.assertNotEqual(cursor, 0)
 
-    for x in range(1, 1000):
+    for x in range(1, docs):
         res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
-        env.assertNotEqual(res, [0])
+        env.assertEqual(res[0], docs)
+        env.assertEqual(len(res), 2)
         env.assertNotEqual(cursor, 0)
 
     res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
-    env.assertEqual(res, [0])
+    env.assertEqual(res, [docs])
     env.assertEqual(cursor, 0)
 
 @skip(cluster=False)
@@ -270,7 +272,7 @@ def CursorOnCoordinator(env: Env):
     conn.execute_command('HSET', 0 ,'n', 0)
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
     env.assertEqual(res, [1, ['n', '0']])
-    env.expect(f'FT.CURSOR READ idx {cursor}').equal([[0], 0]) # empty reply from shard - 0 results and depleted cursor
+    env.expect(f'FT.CURSOR READ idx {cursor}').equal([[1], 0]) # empty reply from shard - 0 results and depleted cursor
 
     env.expect(
         'FT.AGGREGATE', 'non-existing', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1
@@ -323,7 +325,8 @@ def CursorOnCoordinator(env: Env):
                             return command
 
                 # Generate the cursor and read all the results
-                res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', count)
+                res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+                                      'LOAD', '*', 'WITHCURSOR', 'COUNT', count)
                 add_results(res)
                 while cursor:
                     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
@@ -590,6 +593,7 @@ def testCountArgValidation(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
 
     # Populate the index
+    docs = 5
     for i in range(5):
         conn.execute_command('HSET', f'h{i}', 't', f'foo{i}')
 
@@ -600,6 +604,7 @@ def testCountArgValidation(env):
 
     # Create a cursor
     res, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '1')
+    env.assertEqual(res[0], docs)
     env.assertEqual(len(res), 2)
 
     # Query the cursor with a bad `COUNT` argument
@@ -623,13 +628,15 @@ def testCountArgValidation(env):
 
     # Query with lowercase `COUNT`
     res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'count', '2')
+    env.assertEqual(res[0], 5)
     env.assertEqual(len(res), 3)
 
     # Query with uppercase `COUNT`
     res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2')
+    env.assertEqual(res[0], 5)
     env.assertEqual(len(res), 3)
 
     # Make sure cursor is depleted
     res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2')
     env.assertEqual(cid, 0)
-    env.assertEqual(res, [0])
+    env.assertEqual(res[0], 5)

@@ -355,10 +355,131 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   return REDISMODULE_OK;
 }
 
-static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply, QueryError *status) {
+// Execute a LIMIT 0 0 counting query by building a separate AREQ and consuming all results
+static uint32_t executeCountingQuery(RedisModuleString **argv, int argc, IndexSpec *sp,
+                                      RedisModuleCtx *ctx) {
+  RedisModule_Log(RSDummyContext, "notice",
+                  "executeCountingQuery: Starting cluster-wide count");
+
+  // Build argv for LIMIT 0 0 query (without WITHCURSOR)
+  RedisModuleString **countArgv = rm_malloc(sizeof(RedisModuleString *) * (argc + 3));
+  int countArgc = 0;
+  bool hasLimit = false;
+  int skipNext = 0;
+
+  for (int i = 0; i < argc; i++) {
+    if (skipNext > 0) {
+      skipNext--;
+      continue;
+    }
+
+    size_t len;
+    const char *arg = RedisModule_StringPtrLen(argv[i], &len);
+
+    // Skip WITHCURSOR and its arguments
+    if (len == 10 && strncasecmp(arg, "WITHCURSOR", 10) == 0) {
+      // Check next arguments for COUNT and MAXIDLE
+      for (int j = i + 1; j < argc && j < i + 5; j++) {
+        size_t nextLen;
+        const char *nextArg = RedisModule_StringPtrLen(argv[j], &nextLen);
+        if ((nextLen == 5 && strncasecmp(nextArg, "COUNT", 5) == 0) ||
+            (nextLen == 7 && strncasecmp(nextArg, "MAXIDLE", 7) == 0)) {
+          skipNext++;  // Skip the keyword
+          skipNext++;  // Skip the value
+        } else {
+          break;
+        }
+      }
+      continue;
+    }
+
+    // Replace LIMIT with LIMIT 0 0
+    if (len == 5 && strncasecmp(arg, "LIMIT", 5) == 0) {
+      countArgv[countArgc++] = RedisModule_CreateString(ctx, "LIMIT", 5);
+      countArgv[countArgc++] = RedisModule_CreateString(ctx, "0", 1);
+      countArgv[countArgc++] = RedisModule_CreateString(ctx, "0", 1);
+      hasLimit = true;
+      skipNext = 2;
+      continue;
+    }
+
+    countArgv[countArgc++] = argv[i];
+  }
+
+  if (!hasLimit) {
+    countArgv[countArgc++] = RedisModule_CreateString(ctx, "LIMIT", 5);
+    countArgv[countArgc++] = RedisModule_CreateString(ctx, "0", 1);
+    countArgv[countArgc++] = RedisModule_CreateString(ctx, "0", 1);
+  }
+
+  // Create and execute the counting query
+  QueryError countStatus = QueryError_Default();
+  AREQ *countReq = AREQ_New();
+  specialCaseCtx *knnCtx = NULL;
+
+  int rc = prepareForExecution(countReq, ctx, countArgv, countArgc, sp, &knnCtx, &countStatus);
+
+  if (rc != REDISMODULE_OK) {
+    AREQ_Free(countReq);
+    QueryError_ClearError(&countStatus);
+    if (knnCtx) rm_free(knnCtx);
+    goto cleanup;
+  }
+
+  // Add RPCounter to the pipeline to count results efficiently
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(countReq);
+  ResultProcessor *counter = RPCounter_New();
+  counter->upstream = qctx->endProc;
+  counter->parent = qctx;
+  qctx->endProc = counter;
+
+  // Call Next() once - RPCounter will internally loop through all upstream results
+  // and return EOF immediately after counting them all
+  SearchResult r = {0};
+  int result_rc = counter->Next(counter, &r);
+
+  uint32_t total = qctx->totalResults;
+
+  SearchResult_Destroy(&r);
+  AREQ_Free(countReq);
+  QueryError_ClearError(&countStatus);
+  if (knnCtx) rm_free(knnCtx);
+
+cleanup:
+  // Free created strings
+  for (int i = 0; i < countArgc; i++) {
+    bool found = false;
+    for (int j = 0; j < argc; j++) {
+      if (countArgv[i] == argv[j]) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      RedisModule_FreeString(ctx, countArgv[i]);
+    }
+  }
+  rm_free(countArgv);
+
+  return total;
+}
+
+static int executePlan(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                       IndexSpec *sp, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply, QueryError *status) {
   if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
     // Keep the original concurrent context
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+
+    // Pre-calculate total for FT.AGGREGATE + WITHCOUNT + WITHCURSOR in cluster
+    if (IsAggregate(r) && !IsOptimized(r) && IsCursor(r)) {
+      uint32_t total = executeCountingQuery(argv, argc, sp, ctx);
+      r->cursor_precalculated_total = total;
+      r->cursor_has_precalculated_total = true;
+
+      RedisModule_Log(RSDummyContext, "notice",
+                      "executePlan: Pre-calculated cluster-wide total=%u for cursor",
+                      total);
+    }
 
     StrongRef dummy_spec_ref = {.rm = NULL};
 
@@ -408,7 +529,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto err;
   }
 
-  if (executePlan(r, cmdCtx, reply, &status) != REDISMODULE_OK) {
+  if (executePlan(r, ctx, argv, argc, sp, cmdCtx, reply, &status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -471,7 +592,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
     goto err;
   }
 
-  if (executePlan(r, cmdCtx, reply, &status) != REDISMODULE_OK) {
+  if (executePlan(r, ctx, argv, argc - debug_argv_count, sp, cmdCtx, reply, &status) != REDISMODULE_OK) {
     goto err;
   }
 
