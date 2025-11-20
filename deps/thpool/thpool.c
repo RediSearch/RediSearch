@@ -1063,7 +1063,7 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
     return;
 
   size_t n_threads = thpool_p->n_threads;
-  size_t jobs_count = priority_queue_len_unsafe(&thpool_p->jobqueues);
+  size_t jobs_count = priority_queue_len(&thpool_p->jobqueues);
   if (n_threads == 0 && jobs_count > 0) {
     LOG_IF_EXISTS("warning",
                   "redisearch_thpool_schedule_config_reduce_threads_job(): "
