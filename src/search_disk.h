@@ -33,9 +33,11 @@ void SearchDisk_Close();
  * @brief Open an index
  *
  * @param indexName Name of the index to open
+ * @param indexNameLen Length of the index name
+ * @param type Document type
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, DocumentType type);
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type);
 
 /**
  * @brief Close an index
@@ -51,11 +53,12 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
  *
  * @param index Pointer to the index
  * @param term Term to associate the document with
+ * @param termLen Length of the term
  * @param docId Document ID to index
  * @param fieldMask Field mask indicating which fields are present
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, t_docId docId, t_fieldMask fieldMask);
+bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -65,11 +68,12 @@ bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term,
  *
  * @param index Pointer to the index
  * @param term Term to iterate over
+ * @param termLen Length of the term
  * @param fieldMask Field mask indicating which fields are present
  * @param weight Weight for the term (used in scoring)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, t_fieldMask fieldMask, double weight);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_fieldMask fieldMask, double weight);
 
 /**
  * @brief Create an IndexIterator for all the existing documents
@@ -90,12 +94,13 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
  *
  * @param handle Handle to the document table
  * @param key Document key
+ * @param keyLen Length of the document key
  * @param score Document score (for ranking)
  * @param flags Document flags
  * @param maxFreq Maximum term frequency in the document
  * @return New document ID, or 0 on error/duplicate
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, double score, uint32_t flags, uint32_t maxFreq);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxFreq);
 
 /**
  * @brief Get document metadata by document ID
