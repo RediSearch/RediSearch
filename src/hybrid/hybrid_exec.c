@@ -287,6 +287,7 @@ done:
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
       // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
       // because this warning is not related to subqueries or post-processing terminology
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
@@ -325,6 +326,7 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
     // warning
     RedisModule_Reply_SimpleString(reply, "warnings");
     if (QueryError_HasQueryOOMWarning(err)) {
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
         RedisModule_Reply_Array(reply);
         // This function is called by Coordinator or SA
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
@@ -590,6 +592,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, GetNumShards_UnSafe() == 1);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail

@@ -47,10 +47,12 @@ typedef struct {
   size_t syntax; // Number of syntax errors
   size_t arguments; // Number of parse arguments errors
   size_t timeout; // Number of timeout errors
+  size_t oom; // Number of OOM errors
 } QueryErrorsGlobalStats;
 
 typedef struct {
   size_t timeout;
+  size_t oom;
 } QueryWarningGlobalStats;
 
 typedef struct {
