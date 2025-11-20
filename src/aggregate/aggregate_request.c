@@ -24,6 +24,7 @@
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
+#include "slots_tracker.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -372,9 +373,13 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
       return ARG_ERROR;
     }
-    // TODO ASM: check if the requested slots are available
+    OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
+    if (!version.is_some) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
+      return REDISMODULE_ERR;
+    }
+    *papCtx->slotsVersion = version.version;
     *papCtx->querySlots = slot_array;
-    *papCtx->slotsVersion = 0;
   } else {
     return ARG_UNKNOWN;
   }
@@ -1289,8 +1294,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     StopWordList_Ref(sctx->spec->stopwords);
   }
 
-  req->slotRanges = Slots_GetLocalSlots();
-
   SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
 
@@ -1369,7 +1372,6 @@ void AREQ_Free(AREQ *req) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
 
-  Slots_FreeLocalSlots(req->slotRanges);
   rm_free((void *)req->querySlots);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
@@ -1436,12 +1438,13 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,
-      .slotRanges = req->slotRanges,
+      .querySlots = req->querySlots,
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
+      .slotsVersion = req->slotsVersion,
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
-    req->slotRanges = NULL; // Ownership of the slot ranges is now with the params.
+    req->querySlots = NULL; // Ownership of the slot ranges is now with the params.
     Pipeline_BuildQueryPart(&req->pipeline, &params);
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;

@@ -204,7 +204,6 @@ typedef struct AREQ {
   RedisSearchCtx *sctx;
 
   /** Local slots info for this request */
-  const SharedSlotRangeArray *slotRanges;
   const RedisModuleSlotRangeArray *querySlots;
   uint32_t slotsVersion;
 

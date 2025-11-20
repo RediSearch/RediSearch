@@ -313,6 +313,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
       if (errCode == QUERY_ERROR_CODE_GENERIC ||
+          errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
           ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
           ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
         // We need to pass the reply string as the error message, since the error code might be generic
