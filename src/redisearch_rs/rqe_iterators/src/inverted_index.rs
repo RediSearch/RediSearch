@@ -52,6 +52,11 @@ impl<'index, R> RQEIterator<'index> for FullIterator<'index, R>
 where
     R: IndexReader<'index>,
 {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        Some(&mut self.result)
+    }
+
     // TODO: this a port of InvIndIterator_Read_Default, the simplest read version.
     // The more complex ones will be implemented as part of the next iterators:
     // - InvIndIterator_Read_SkipMulti_CheckExpiration
@@ -177,10 +182,17 @@ impl<'index, R> RQEIterator<'index> for NumericFull<'index, R>
 where
     R: NumericReader<'index>,
 {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.it.current()
+    }
+
+    #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         self.it.read()
     }
 
+    #[inline(always)]
     fn skip_to(
         &mut self,
         doc_id: t_docId,
@@ -188,22 +200,27 @@ where
         self.it.skip_to(doc_id)
     }
 
+    #[inline(always)]
     fn rewind(&mut self) {
         self.it.rewind()
     }
 
+    #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.it.num_estimated()
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         self.it.last_doc_id()
     }
 
+    #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
     }
 
+    #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.it.revalidate()
     }
@@ -241,10 +258,17 @@ impl<'index, R> RQEIterator<'index> for TermFull<'index, R>
 where
     R: TermReader<'index>,
 {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.it.current()
+    }
+
+    #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         self.it.read()
     }
 
+    #[inline(always)]
     fn skip_to(
         &mut self,
         doc_id: t_docId,
@@ -252,22 +276,27 @@ where
         self.it.skip_to(doc_id)
     }
 
+    #[inline(always)]
     fn rewind(&mut self) {
         self.it.rewind()
     }
 
+    #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.it.num_estimated()
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         self.it.last_doc_id()
     }
 
+    #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
     }
 
+    #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.it.revalidate()
     }

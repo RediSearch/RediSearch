@@ -1,0 +1,19 @@
+[package]
+name = "search_result_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+search_result.workspace = true
+inverted_index.workspace = true
+ffi.workspace = true
+
+unsafe-tools.workspace = true
+
+[build-dependencies]
+build_utils = { path = "../../build_utils" }
+
+[lints]
+workspace = true

@@ -15,6 +15,10 @@
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 
+// Coord/Shard error or warning
+#define COORD_ERR_WARN true
+#define SHARD_ERR_WARN !COORD_ERR_WARN
+
 typedef struct {
   size_t numTextFields;
   size_t numTextFieldsSortable;
@@ -40,9 +44,18 @@ typedef struct {
 } FieldsGlobalStats;
 
 typedef struct {
+  size_t syntax; // Number of syntax errors
+  size_t arguments; // Number of parse arguments errors
+} QueryErrorsGlobalStats;
+
+
+typedef struct {
   size_t total_queries_processed;       // Number of successful queries. If using cursors, not counting reading from the cursor
   size_t total_query_commands;          // Number of successful query commands, including `FT.CURSOR READ`
   rs_wall_clock_ns_t total_query_execution_time;   // Total time spent on queries, aggregated in ns and reported in ms
+
+  QueryErrorsGlobalStats shard_errors;        // Shard query errors statistics
+  QueryErrorsGlobalStats coord_errors;  // Coordinator query errors statistics
 } QueriesGlobalStats;
 
 typedef struct {
@@ -98,3 +111,13 @@ void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd);
  * Get the number of logically deleted documents in all indices.
  */
 size_t IndexesGlobalStats_GetLogicallyDeletedDocs();
+
+/**
+* Updates the global query errors statistics.
+* `coord` indicates whether the error occurred on the coordinator or on a shard.
+* Standalone shards are considered as shards.
+* Will ignore not supported error codes.
+* Currently supports : syntax, parse_args
+* `toAdd` can be negative to decrease the counter.
+*/
+void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool coord);

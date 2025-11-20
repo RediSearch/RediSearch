@@ -114,13 +114,6 @@ typedef struct HybridPipelineParams {
      *  will be applied to the merged hybrid search results. */
     AggregationPipelineParams aggregationParams;
 
-    /** Whether to synchronize read locks between depleter result processors.
-     *  When true, ensures that all depleter processors coordinate their read
-     *  operations to prevent race conditions and maintain consistency when
-     *  multiple search threads are accessing shared index data concurrently.
-     *  Set to false for better performance when thread safety is not required. */
-    bool synchronize_read_locks;
-
     /** Hybrid scoring context containing algorithms and parameters for result merging.
      *  This context defines how results from different search modalities (vector, text, etc.)
      *  are combined and scored. The pipeline takes ownership of this pointer and will

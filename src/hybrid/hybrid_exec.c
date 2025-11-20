@@ -284,7 +284,7 @@ done:
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
       // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
       // because this warning is not related to subqueries or post-processing terminology
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     }
 
     replyWarningsWithSuffixes(reply, hreq, qctx, rc);
@@ -321,7 +321,8 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
     RedisModule_Reply_SimpleString(reply, "warnings");
     if (QueryError_HasQueryOOMWarning(err)) {
         RedisModule_Reply_Array(reply);
-        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+        // This function is called by Coordinator or SA
+        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
         RedisModule_Reply_ArrayEnd(reply);
     } else {
         RedisModule_Reply_EmptyArray(reply);
@@ -413,7 +414,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       return REDISMODULE_ERR;
     }
     // helper array to collect depleters so in async we can deplete them all at once before returning the cursors
-    arrayof(ResultProcessor*) depleters = NULL; 
+    arrayof(ResultProcessor*) depleters = NULL;
     if (backgroundDepletion) {
       depleters = array_new(ResultProcessor *, req->nrequests);
     }
@@ -562,6 +563,8 @@ static inline void DefaultCleanup(StrongRef hybrid_ref) {
 static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_ref, HybridPipelineParams *hybridParams, QueryError *status) {
     freeHybridParams(hybridParams);
     DefaultCleanup(hybrid_ref);
+    // Update global query errors, this path is only used for SA and internal, both are considered shards.
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, SHARD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, status);
 }
 
