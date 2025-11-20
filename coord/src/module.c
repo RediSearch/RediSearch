@@ -1346,9 +1346,9 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
 
     // print profile of shards & coordinator
     if (has_map) {
-      RedisModule_ReplyKV_Map(reply, "Shards"); // >Shards
+      RedisModule_ReplyKV_Map(reply, "shards"); // >shards
     } else {
-      RedisModule_Reply_Map(reply); // >Shards
+      RedisModule_Reply_Map(reply); // >shards
     }
 
     if (has_map) {
