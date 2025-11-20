@@ -337,10 +337,7 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
     thread_init(thpool_p, &started[n]);
   }
 
-  /* Wait until `num_threads_alive` == `n_threads` .
-    It could be that we have already them alive because they are in TERMINATE_WHEN_EMPTY state.
-  */
-
+  /* Wait for threads to initialize */
   size_t n_started = 0;
   while (n_started < n_threads_to_add) {
     for (size_t n = 0; n < n_threads_to_add; n++) {
@@ -661,6 +658,7 @@ static void *thread_do(void *p) {
   /* Mark thread as alive (initialized) */
   thpool_p->num_threads_alive += 1;
   threadCtx thread_ctx = {.thread_state = THREAD_RUNNING};
+  // Set to true after accounting num_threads_alive, useful for testing
   *args->started = true;
   rm_free(args);
 
