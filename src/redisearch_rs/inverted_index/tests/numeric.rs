@@ -9,7 +9,7 @@
 
 use inverted_index::{
     Decoder, Encoder, IdDelta, RSIndexResult,
-    numeric::{Numeric, NumericDelta},
+    numeric::{Numeric, NumericDelta, NumericFloatCompression},
 };
 use pretty_assertions::assert_eq;
 use std::io::Cursor;
@@ -380,9 +380,7 @@ fn test_numeric_encode_decode(
     let mut buf = Cursor::new(Vec::new());
     let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
 
-    let numeric = Numeric::new();
-    let bytes_written = numeric
-        .encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record)
+    let bytes_written = Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record)
         .expect("to encode numeric record");
 
     assert_eq!(
@@ -414,10 +412,9 @@ fn encode_f64_with_compression() {
     let mut buf = Cursor::new(Vec::new());
     let record = RSIndexResult::numeric(3.124);
 
-    let numeric = Numeric::new().with_float_compression();
-    let _bytes_written = numeric
-        .encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
-        .expect("to encode numeric record");
+    let _bytes_written =
+        NumericFloatCompression::encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
+            .expect("to encode numeric record");
 
     assert_eq!(
         buf.get_ref(),
@@ -461,7 +458,7 @@ fn encoding_non_numeric_record() {
     let mut buffer = Cursor::new(Vec::new());
     let record = RSIndexResult::virt().doc_id(10);
 
-    let _result = Numeric::new().encode(&mut buffer, NumericDelta::from_u64(0).unwrap(), &record);
+    let _result = Numeric::encode(&mut buffer, NumericDelta::from_u64(0).unwrap(), &record);
 }
 
 #[test]
@@ -469,7 +466,7 @@ fn encoding_to_fixed_buffer() {
     let mut buffer = Cursor::new([0; 2]);
     let record = RSIndexResult::numeric(100.0).doc_id(1);
 
-    let result = Numeric::new().encode(&mut buffer, NumericDelta::from_u64(1).unwrap(), &record);
+    let result = Numeric::encode(&mut buffer, NumericDelta::from_u64(1).unwrap(), &record);
 
     assert!(result.is_err());
     assert_eq!(
@@ -537,8 +534,7 @@ fn encoding_to_slow_writer() {
     let mut buffer = SlowWriter::new(Vec::new());
     let record = RSIndexResult::numeric(3.124).doc_id(10);
 
-    let result = Numeric::new()
-        .encode(&mut buffer, NumericDelta::from_u64(0).unwrap(), &record)
+    let result = Numeric::encode(&mut buffer, NumericDelta::from_u64(0).unwrap(), &record)
         .expect("to encode the complete record");
 
     assert_eq!(result, 9);
@@ -597,9 +593,8 @@ mod property_based {
             let mut buf = Cursor::new(Vec::new());
             let record = RSIndexResult::numeric(value as _).doc_id(u64::MAX);
 
-            let numeric = Numeric::new();
             let _bytes_written =
-                numeric.encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
+                Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
 
             buf.set_position(0);
             let prev_doc_id = u64::MAX - delta;
@@ -620,9 +615,8 @@ mod property_based {
             let mut buf = Cursor::new(Vec::new());
             let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
 
-            let numeric = Numeric::new();
             let _bytes_written =
-                numeric.encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
+                Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
 
             buf.set_position(0);
             let prev_doc_id = u64::MAX - delta;

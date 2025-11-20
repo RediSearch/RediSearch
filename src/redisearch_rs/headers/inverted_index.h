@@ -360,8 +360,8 @@ struct InvertedIndexGcDelta *InvertedIndex_GcDelta_Read(struct II_GCReader *rd);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `deltas` must be a valid, non NULL, pointer to a `GcScanDelta` instance created using
- *   [`InvertedIndex_GcDelta_Read`].
+ * - `deltas` must be a valid pointer to a `GcScanDelta` instance created using
+ *   [`InvertedIndex_GcDelta_Read`], or NULL.
  */
 void InvertedIndex_GcDelta_Free(struct InvertedIndexGcDelta *deltas);
 

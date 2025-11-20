@@ -3476,6 +3476,7 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 
 static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(clientCtx, status);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
@@ -3884,7 +3885,7 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfiguration, int isClusterEnabled) {
   // register the module configuration with redis, use loaded values from command line as defaults
   if (registerConfiguration) {
-    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+    if (RegisterModuleConfig_Local(ctx) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Error registering module configuration");
       return REDISMODULE_ERR;
     }
