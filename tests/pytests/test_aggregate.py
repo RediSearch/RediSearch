@@ -1460,3 +1460,31 @@ def testeAggregateBadApplyFunction(env):
         .contains("Unknown function name 'unexisting_function'")
     env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', '!!unexisting_function(@title)').error() \
         .contains("Unknown function name 'unexisting_function'")
+
+
+def testWithoutCountWithSortBy(env):
+    """Tests that we sort correctly when using WITHOUTCOUNT and SORTBY"""
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'TEXT')
+    env.expect('CONFIG', 'SET', 'search-default-dialect', 2).ok()
+    conn = getConnectionByEnv(env)
+
+    n_docs = 1000
+    # Add documents
+    for i in range(1, n_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', f'{chr(i%26 + 97)}', 'n', str(n_docs - i))
+
+    queries = [
+        ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@t', 'ASC', '@n', 'ASC', 'LOAD', '2', 't', 'n', 'LIMIT', '0', '4'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@t', 'ASC', '@n', 'ASC', 'LOAD', '2', 't', 'n'],
+        # ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', '2', 't', 'n', 'SORTBY', '4', '@n', 'ASC', '@t', 'DESC'],
+        # ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', '2', 't', 'n', 'SORTBY', '4', '@n', 'DESC', '@t', 'DESC'],
+    ]
+
+    for query in queries:
+        res_withoutcount = conn.execute_command(*query)
+        query_withcount = query.copy()
+        query_withcount.remove('WITHOUTCOUNT')
+        res_withcount = conn.execute_command(*query_withcount)
+
+        env.assertNotEqual(res_withoutcount[0], res_withcount[0])
+        env.assertEqual(res_withoutcount[1:], res_withcount[1:])

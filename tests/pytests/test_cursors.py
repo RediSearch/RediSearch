@@ -640,3 +640,4 @@ def testCountArgValidation(env):
     res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2')
     env.assertEqual(cid, 0)
     env.assertEqual(res[0], 5)
+    env.assertEqual(len(res), 1)

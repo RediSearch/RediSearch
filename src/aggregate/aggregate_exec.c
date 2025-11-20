@@ -1254,24 +1254,6 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 
   // Pre-calculate total for FT.AGGREGATE + WITHCOUNT + WITHCURSOR
   precalculateCursorTotal(r, cursor, coord);
-  // cursor->has_precalculated_total = false;
-  // cursor->precalculated_total = 0;
-
-  // if (IsAggregate(r) && !IsOptimized(r) && IsCursor(r) && !IsInternal(r)) {
-  //   if (coord) {
-  //     // Coordinator mode: use the total collected from all shards
-  //     cursor->precalculated_total = r->cursor_precalculated_total;
-  //     cursor->has_precalculated_total = true;
-  //     r->cursor_has_precalculated_total = true;
-  //   } else {
-  //     // Shard or standalone mode: count local results
-  //     uint32_t total = countTotalResults(r);
-  //     cursor->precalculated_total = total;
-  //     cursor->has_precalculated_total = true;
-  //     r->cursor_precalculated_total = total;
-  //     r->cursor_has_precalculated_total = true;
-  //   }
-  // }
 
   runCursor(reply, cursor, 0);
   return REDISMODULE_OK;
