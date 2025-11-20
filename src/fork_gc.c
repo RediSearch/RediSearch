@@ -490,7 +490,7 @@ static int recvRegisters(ForkGC *fgc, NumGcInfo *ninfo) {
 
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
   if (FGC_recvFixed(gc, &ninfo->node, sizeof(ninfo->node)) != REDISMODULE_OK) {
-    goto error;
+    return FGC_CHILD_ERROR;
   }
   if (ninfo->node == NULL) {
     return FGC_DONE;

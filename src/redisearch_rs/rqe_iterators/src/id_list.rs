@@ -13,7 +13,7 @@ use std::cmp::min;
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// An iterator that yields results according to a sorted IDs list, specified on construction.
 pub type SortedIdList<'index> = IdList<'index, true>;
@@ -131,6 +131,11 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SORTED_BY_ID> {
     #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        Some(&mut self.result)
+    }
+
+    #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         Ok(self.read_and_get_offset()?.map(|t| t.0))
     }
@@ -145,6 +150,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
 
     fn rewind(&mut self) {
         self.offset = 0;
+        self.result.doc_id = 0;
     }
 
     fn num_estimated(&self) -> usize {
@@ -162,5 +168,10 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.get_current().is_none()
+    }
+
+    #[inline(always)]
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        Ok(RQEValidateStatus::Ok)
     }
 }

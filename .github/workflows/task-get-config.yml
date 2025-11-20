@@ -1,0 +1,271 @@
+name: Get Single Configuration
+
+# This workflow gets configuration for a single instance
+# Used by task-test and task-build-artifact to get their specific configuration
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, macos, sanitizer, coverage)'
+        type: string
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
+        type: string
+        required: true
+    outputs:
+      env:
+        description: "Environment/runner to use"
+        value: ${{ jobs.get-config.outputs.env }}
+      container:
+        description: "Container image to use"
+        value: ${{ jobs.get-config.outputs.container }}
+      setup_script:
+        description: "Setup script to run before tests"
+        value: ${{ jobs.get-config.outputs.setup_script }}
+      post_setup_script:
+        description: "Post-setup script to run after setup"
+        value: ${{ jobs.get-config.outputs.post_setup_script }}
+      name:
+        description: "Configuration name"
+        value: ${{ jobs.get-config.outputs.name }}
+
+jobs:
+  get-config:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    outputs:
+      env: ${{ steps.get-config.outputs.env }}
+      container: ${{ steps.get-config.outputs.container }}
+      setup_script: ${{ steps.get-config.outputs.setup_script }}
+      post_setup_script: ${{ steps.get-config.outputs.post_setup_script }}
+      name: ${{ steps.get-config.outputs.name }}
+    steps:
+      - name: Get configuration for platform and architecture
+        id: get-config
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+
+          platform = "${{ inputs.platform }}"
+          architecture = "${{ inputs.architecture }}"
+
+          print(f"Getting configuration for platform: {platform}, architecture: {architecture}")
+
+          # Default environment per architecture
+          # Use GitHub variables if available, otherwise use fallback values
+          runs_on = "${{ vars.RUNS_ON || 'ubuntu-latest' }}"
+          runs_on_arm = "${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}"
+
+          default_env = {
+              'x86_64': runs_on,
+              'aarch64': runs_on_arm
+          }
+
+          # Initialize default values
+          config = {
+              'env': default_env.get(architecture, runs_on),
+              'container': '',
+              'setup_script': '',
+              'post_setup_script': '',
+              'name': ''
+          }
+
+          # Platform configurations
+          platform_configs = {
+              "macos": {
+                  "x86_64": {
+                      'env': 'macos-15-intel',
+                      'name': 'macOS x86_64'
+                  },
+                  "aarch64": {
+                      'env': 'macos-latest',
+                      'name': 'macOS ARM64'
+                  }
+              },
+              "intel": {
+                  "x86_64": {
+                      'setup_script': 'echo "HOME=/home/ubuntu" >> $GITHUB_ENV',
+                      'name': 'Intel x86_64',
+                      'env': '',
+                      'container': '' 
+                  }
+              },
+              "ubuntu:default": {
+                  "x86_64": {
+                      'name': 'Ubuntu Latest x86_64'
+                  },
+                  "aarch64": {
+                      'name': 'Ubuntu Latest ARM64'
+                  }
+              },
+              "ubuntu:noble": {
+                  "x86_64": {
+                      'container': 'ubuntu:noble',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Ubuntu Noble x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'ubuntu:noble',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Ubuntu Noble ARM64'
+                  }
+              },
+              "ubuntu:jammy": {
+                  "x86_64": {
+                      'container': 'ubuntu:jammy',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Ubuntu Jammy x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'ubuntu:jammy',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Ubuntu Jammy ARM64'
+                  }
+              },
+              "ubuntu:focal": {
+                  "x86_64": {
+                      'container': 'ubuntu:focal',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Ubuntu Focal x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'ubuntu:focal',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Ubuntu Focal ARM64'
+                  }
+              },
+              "rockylinux:8": {
+                  "x86_64": {
+                      'container': 'rockylinux:8',
+                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'name': 'Rocky Linux 8 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'rockylinux:8',
+                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'name': 'Rocky Linux 8 ARM64'
+                  }
+              },
+              "rockylinux:9": {
+                  "x86_64": {
+                      'container': 'rockylinux:9',
+                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'name': 'Rocky Linux 9 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'rockylinux:9',
+                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'name': 'Rocky Linux 9 ARM64'
+                  }
+              },
+              "amazonlinux:2": {
+                  "x86_64": {
+                      'container': 'amazonlinux:2',
+                      'setup_script': 'yum install -y tar gzip git',
+                      'name': 'Amazon Linux 2 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'amazonlinux:2',
+                      'setup_script': 'yum install -y tar gzip git',
+                      'name': 'Amazon Linux 2 ARM64'
+                  }
+              },
+              "alpine:3": {
+                  "x86_64": {
+                      'container': 'alpine:3',
+                      'setup_script': 'apk add bash git',
+                      'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
+                      'name': 'Alpine 3 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'alpine:3',
+                      'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
+                      'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV',
+                      'name': 'Alpine 3 ARM64'
+                  }
+              },
+              "debian:bullseye": {
+                  "x86_64": {
+                      'container': 'gcc:11-bullseye',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Debian Bullseye x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'gcc:11-bullseye',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Debian Bullseye ARM64'
+                  }
+              },
+              "debian:bookworm": {
+                  "x86_64": {
+                      'container': 'gcc:12-bookworm',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Debian Bookworm x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'gcc:12-bookworm',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Debian Bookworm ARM64'
+                  }
+              },
+              "amazonlinux:2023": {
+                  "x86_64": {
+                      'container': 'amazonlinux:2023',
+                      'setup_script': 'dnf install -y tar gzip git',
+                      'name': 'Amazon Linux 2023 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'amazonlinux:2023',
+                      'setup_script': 'dnf install -y tar gzip git',
+                      'name': 'Amazon Linux 2023 ARM64'
+                  }
+              },
+              "mariner:2": {
+                  "x86_64": {
+                      'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+                      'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
+                      'name': 'Mariner 2 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+                      'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
+                      'name': 'Mariner 2 ARM64'
+                  }
+              },
+              "azurelinux:3": {
+                  "x86_64": {
+                      'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
+                      'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
+                      'name': 'Azure Linux 3 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
+                      'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
+                      'name': 'Azure Linux 3 ARM64'
+                  }
+              }
+          }
+
+          if platform in platform_configs:
+              if architecture in platform_configs[platform]:
+                  config.update(platform_configs[platform][architecture])
+              else:
+                  print(f"Error: Unsupported architecture '{architecture}' for {platform}")
+                  sys.exit(1)
+          else:
+              print(f"Error: Unsupported platform '{platform}'")
+              sys.exit(1)
+
+          # Output individual configuration values
+          print(f"Generated configuration: {config}")
+
+          # Write to GitHub output
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'env={config["env"]}\n')
+              f.write(f'container={config["container"]}\n')
+              f.write(f'setup_script={config["setup_script"]}\n')
+              f.write(f'post_setup_script={config["post_setup_script"]}\n')
+              f.write(f'name={config["name"]}\n')

@@ -975,6 +975,7 @@ AREQ *AREQ_New(void) {
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
+  req->has_timedout = false;
   return req;
 }
 

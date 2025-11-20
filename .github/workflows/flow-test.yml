@@ -1,4 +1,4 @@
-name: Build on Linux Platforms
+name: Build on Platforms
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -53,7 +53,8 @@ on:
           - mariner:2
           - azurelinux:3
           - alpine:3
-        description: 'Platform to build on. Use "all" to build on all'
+          - macos
+        description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
       architecture:
         type: choice
@@ -61,7 +62,7 @@ on:
           - all
           - x86_64
           - aarch64
-        description: 'Architecture to build on. Use "all" to build on all'
+        description: 'Architecture to test on. Use "all" to test on all architectures'
         default: all
       coordinator:
         description: 'Whether to run coordinator tests'
@@ -91,49 +92,27 @@ on:
         default: false # Default to false on manual trigger
 
 jobs:
-  get-required-envs:
-    uses: ./.github/workflows/task-get-linux-configurations.yml
+  generate-matrix:
+    uses: ./.github/workflows/generate-matrix.yml
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
 
-  linux-matrix-x86_64:
-    if: inputs.architecture == 'all' || inputs.architecture == 'x86_64'
-    needs: get-required-envs
+  # Unified test matrix - includes Linux and macOS platforms
+  test-matrix:
+    name: ${{ matrix.platform }} (${{ matrix.architecture }})
+    needs: [generate-matrix]
     strategy:
-      matrix:
-        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_x86) }}
-        include: ${{ fromJson(needs.get-required-envs.outputs.include_x86) }}
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
       fail-fast: ${{ inputs.fail-fast }}
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
       get-redis: ${{ inputs.redis-ref }}
       rejson: ${{ inputs.rejson }}
       rejson-branch: ${{ inputs.rejson-branch }}
-      container: ${{ matrix.OS }}
-      pre-steps-script: ${{ matrix.pre-deps }}
-      coordinator: ${{ inputs.coordinator }}
-      standalone: ${{ inputs.standalone }}
-      test-config: ${{ inputs.test-config }}
-
-  linux-matrix-aarch64:
-    if: inputs.architecture == 'all' || inputs.architecture == 'aarch64'
-    needs: get-required-envs
-    strategy:
-      matrix:
-        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_arm) }}
-        include: ${{ fromJson(needs.get-required-envs.outputs.include_arm) }}
-      fail-fast: ${{ inputs.fail-fast }}
-    uses:  ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      env: ${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}
-      get-redis: ${{ inputs.redis-ref }}
-      rejson: ${{ inputs.rejson }}
-      rejson-branch: ${{ inputs.rejson-branch }}
-      container: ${{ matrix.OS }}
-      pre-steps-script: ${{ matrix.pre-deps }}
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}

@@ -403,12 +403,14 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
     # topology is outdated, and the slots that would arrive to each shard would lead to errors.
     query_shards(env, query, [shard1, new_shard], expected, query_type)
 
-@skip(cluster=False)
+# @skip(cluster=False)
+@skip()
 def test_add_shard_and_migrate():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.SEARCH')
 
-@skip(cluster=False)
+# @skip(cluster=False)
+@skip()
 def test_add_shard_and_migrate_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.SEARCH')

@@ -25,10 +25,13 @@ fn test_metric_creation_panic() {
 fn test_metric_creation() {
     let ids = vec![1, 3, 5, 7, 9];
     let metric_data = vec![0.1, 0.3, 0.5, 0.7, 0.9];
-    let metric = MetricIteratorSortedById::new(ids.clone(), metric_data.clone());
+    let mut metric = MetricIteratorSortedById::new(ids.clone(), metric_data.clone());
 
     // Test that the metric was created with correct data
     assert_eq!(metric.num_estimated(), ids.len());
+
+    // test current is correctly init based on child (idList)
+    assert_eq!(metric.current().unwrap().doc_id, 0);
 }
 
 #[test]
@@ -150,6 +153,7 @@ mod not_miri {
             };
             assert_eq!(metric_val.as_num().unwrap(), metric_data[0]);
             assert_eq!(it.last_doc_id(), first_id, "Case {ci}");
+            assert_eq!(it.current().unwrap().doc_id, first_id, "Case {ci}");
             assert_eq!(it.at_eof(), Some(&first_id) == case.last(), "Case {ci}");
 
             // Skip to higher than last doc id: expect EOF, last_doc_id unchanged
@@ -200,6 +204,11 @@ mod not_miri {
                         id,
                         "Case {ci} probe {probe} expected landing on {id}"
                     );
+                    assert_eq!(
+                        it.current().unwrap().doc_id,
+                        id,
+                        "Case {ci} probe {probe} expected current on {id}",
+                    );
                     probe += 1;
                 }
                 // Exact match
@@ -229,6 +238,11 @@ mod not_miri {
                     "Case {ci} exact {id} unexpected EOF"
                 );
                 assert_eq!(it.last_doc_id(), id, "Case {ci} exact {id}");
+                assert_eq!(
+                    it.current().unwrap().doc_id,
+                    id,
+                    "Case {ci}'s current exact {id}",
+                );
                 probe += 1;
             }
 
@@ -244,6 +258,11 @@ mod not_miri {
                 };
                 assert_eq!(res.doc_id, id, "Case {ci} second pass skip_to {id}");
                 assert_eq!(it.last_doc_id(), id, "Case {ci} second pass skip_to {id}");
+                assert_eq!(
+                    it.current().unwrap().doc_id,
+                    id,
+                    "Case {ci} second pass skip_to resulting result {id}",
+                );
                 assert_eq!(
                     it.at_eof(),
                     Some(&id) == case.last(),
@@ -268,6 +287,11 @@ mod not_miri {
                         0,
                         "Case {ci} pair ({from_idx},{to_idx}) last_doc_id not reset after rewind"
                     );
+                    assert_eq!(
+                        it.current().unwrap().doc_id,
+                        0,
+                        "Case {ci} pair ({from_idx},{to_idx}) result's doc_id not reset after rewind",
+                    );
                     assert!(
                         !it.at_eof(),
                         "Case {ci} pair ({from_idx},{to_idx}) at EOF after rewind"
@@ -291,6 +315,11 @@ mod not_miri {
                         from_id,
                         "Case {ci} pair ({from_idx},{to_idx}) last_doc_id after from_id"
                     );
+                    assert_eq!(
+                        it.current().unwrap().doc_id,
+                        from_id,
+                        "Case {ci} pair ({from_idx},{to_idx}) result's doc_id after from_id",
+                    );
                     assert!(
                         !it.at_eof(),
                         "Case {ci} pair ({from_idx},{to_idx}) EOF after from_id"
@@ -310,6 +339,11 @@ mod not_miri {
                         it.last_doc_id(),
                         to_id,
                         "Case {ci} pair ({from_idx},{to_idx}) last_doc_id after to_id"
+                    );
+                    assert_eq!(
+                        it.current().unwrap().doc_id,
+                        to_id,
+                        "Case {ci} pair ({from_idx},{to_idx}) result's doc_id after to_id",
                     );
                     assert_eq!(
                         it.at_eof(),
