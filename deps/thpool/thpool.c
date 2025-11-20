@@ -396,17 +396,6 @@ int redisearch_thpool_add_n_work(redisearch_thpool_t * thpool_p,
       thpool_p, first_newjob, last_newjob, n_jobs, priority);
 
   return 0;
-fail:
-  LOG_IF_EXISTS("warning",
-                  "redisearch_thpool_add_n_work(): Could not allocate memory for "
-                  "%zu new jobs",
-                  n_jobs);
-  while (first_newjob) {
-    job *tmp = first_newjob->prev;
-    rm_free(first_newjob);
-    first_newjob = tmp;
-  }
-  return -1;
 }
 
 /* Add n work to the thread pool */
@@ -642,6 +631,8 @@ static int thread_init(redisearch_thpool_t *thpool_p, bool *started) {
 static void *thread_do(void *p) {
   struct thread_do_args *args = (struct thread_do_args *)p;
   redisearch_thpool_t *thpool_p = args->thpool_p;
+  *args->started = true;
+  rm_free(args);
 
   /* Set thread name for profiling and debugging */
   char thread_name[16] = {0};
@@ -664,7 +655,6 @@ static void *thread_do(void *p) {
 
   /* Mark thread as alive (initialized) */
   thpool_p->num_threads_alive += 1;
-  *args->started = true;
   threadCtx thread_ctx = {.thread_state = THREAD_RUNNING};
 
   while (true) {
@@ -1066,13 +1056,6 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   }
 
   size_t n_threads = thpool_p->n_threads;
-  size_t jobs_count = priority_queue_len(&thpool_p->jobqueues);
-  if (n_threads == 0 && jobs_count > 0) {
-    LOG_IF_EXISTS("warning",
-                  "redisearch_thpool_schedule_config_reduce_threads_job(): "
-                  "Attempt to kill all threads while jobqueue contains %zu jobs",
-                  jobs_count);
-  }
   LOG_IF_EXISTS("verbose", "Scheduling from main thread to remove %zu threads", n_threads_to_remove);
   assert((!remove_all || n_threads_to_remove == n_threads) && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
   assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
