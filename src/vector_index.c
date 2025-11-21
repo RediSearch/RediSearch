@@ -101,9 +101,9 @@ QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
   // Move ownership on the arrays to the iterator.
   if (yields_metric) {
       if (sorted_by_id) {
-          return NewMetricIteratorSortedById(docIdsList, metricList, res_num, VectorDistance);
+          return NewMetricIteratorSortedById(docIdsList, metricList, res_num, VECTOR_DISTANCE);
       } else {
-          return NewMetricIteratorSortedByScore(docIdsList, metricList, res_num, VectorDistance);
+          return NewMetricIteratorSortedByScore(docIdsList, metricList, res_num, VECTOR_DISTANCE);
       }
   } else {
       if (sorted_by_id) {

@@ -11,7 +11,6 @@
 
 use std::time::Duration;
 
-use crate::ffi;
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
