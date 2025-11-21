@@ -98,48 +98,53 @@ static void FGC_sendTerminator(ForkGC *fgc) {
 
 static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
   // poll the pipe, so that we don't block while read, with timeout of 3 minutes
-  while (poll(fgc->pollfd_read, 1, 180000) == 1) {
+  int poll_rc;
+  while ((poll_rc = poll(fgc->pollfd_read, 1, 180000)) == 1) {
     ssize_t nrecvd = read(fgc->pipe_read_fd, buf, len);
     if (nrecvd > 0) {
       buf += nrecvd;
       len -= nrecvd;
     } else if (nrecvd <= 0 && errno != EINTR) {
-      RedisModule_Log(fgc->ctx, "warning", "ForkGC - got error while reading from pipe (%s)", strerror(errno));
-      return REDISMODULE_ERR;
+      break;
     }
     if (len == 0) {
       return REDISMODULE_OK;
     }
   }
-  RedisModule_Log(fgc->ctx, "warning", "ForkGC - got timeout while reading from pipe (%s)", strerror(errno));
+  short revents = fgc->pollfd_read[0].revents;
+  const char *what = (poll_rc == 0) ? "timeout" : "error";
+  RedisModule_Log(fgc->ctx, "warning", "ForkGC - got %s while reading from pipe. errno: %s, revents: 0x%x (POLLIN=%x POLLERR=%x POLLHUP=%x POLLNVAL=%x)",
+                  what, strerror(errno), revents, (revents & POLLIN), (revents & POLLERR), (revents & POLLHUP), (revents & POLLNVAL));
   return REDISMODULE_ERR;
 }
-
-#define TRY_RECV_FIXED(gc, obj, len)                   \
-  if (FGC_recvFixed(gc, obj, len) != REDISMODULE_OK) { \
-    return REDISMODULE_ERR;                            \
-  }
 
 static void *RECV_BUFFER_EMPTY = (void *)0x0deadbeef;
 
 static int __attribute__((warn_unused_result))
 FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
-  TRY_RECV_FIXED(fgc, len, sizeof *len);
-  if (*len == SIZE_MAX) {
+  size_t temp_len;
+  if (FGC_recvFixed(fgc, &temp_len, sizeof temp_len) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  if (temp_len == SIZE_MAX) {
+    *len = temp_len;
     *buf = RECV_BUFFER_EMPTY;
     return REDISMODULE_OK;
   }
-  if (*len == 0) {
+  if (temp_len == 0) {
+    *len = temp_len;
     *buf = NULL;
     return REDISMODULE_OK;
   }
 
-  *buf = rm_malloc(*len + 1);
-  ((char *)(*buf))[*len] = 0;
-  if (FGC_recvFixed(fgc, *buf, *len) != REDISMODULE_OK) {
-    rm_free(buf);
+  char *buf_data = rm_malloc(temp_len + 1);
+  buf_data[temp_len] = 0;
+  if (FGC_recvFixed(fgc, buf_data, temp_len) != REDISMODULE_OK) {
+    rm_free(buf_data);
     return REDISMODULE_ERR;
   }
+  *len = temp_len;
+  *buf = buf_data;
   return REDISMODULE_OK;
 }
 
@@ -725,7 +730,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
 static FGCError FGC_parentHandleTags(ForkGC *gc) {
   size_t fieldNameLen;
-  char *fieldName;
+  char *fieldName = NULL;
   uint64_t tagUniqueId;
   InvertedIndex *value = NULL;
   FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &tagUniqueId);
@@ -1027,8 +1032,6 @@ static int periodicCb(void *privdata) {
     // spin or sleep
     usleep(500);
   }
-
-  pid_t ppid_before_fork = getpid();
 
   TimeSampler_Start(&ts);
   int pipefd[2];
