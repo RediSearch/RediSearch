@@ -7,135 +7,72 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! This module contains mock implementations of C functions that are used in tests. Linking to a
-//! C static file with these implementations would have been a overkill.
+//! Mock implementations of C symbol definitions that aren't provided
+//! by the static C libraries we are linking in build.rs.
 //!
-//! The integration tests can use these as is if they don't add anything to the metrics or set
-//! any of the term record type's internals. Using these only requires the following:
+//! Add
 //!
 //! ```rust
 //! mod c_mocks;
 //! ```
+//!
+//! to use them.
 
-use ffi::{
-    RLookupKey, RSQueryTerm, RSValueType_RSValueType_Number, RSYieldableMetric,
-    array_ensure_append_n_func,
-};
-use ffi::{array_clear_func, array_free, array_len_func};
-use inverted_index::{RSIndexResult, RSTermRecord};
+use ffi::{NewQueryTerm, RSQueryTerm, RSToken};
 use std::ffi::c_void;
-use value::{RSValueFFI, RSValueTrait};
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
-fn free_rs_values(metrics: *mut ffi::RSYieldableMetric) {
-    let len = unsafe { array_len_func(metrics as *mut c_void) };
-    let mut metric = metrics;
-    unsafe {
-        for _ in 0..len {
-            RSValue_Free((*metric).value);
-            metric = metric.add(1);
+// symbols required by the C code we need to redefine
+#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
+pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
+
+pub(crate) struct QueryTermBuilder<'a> {
+    pub(crate) token: &'a str,
+    pub(crate) idf: f64,
+    pub(crate) id: i32,
+    pub(crate) flags: u32,
+    pub(crate) bm25_idf: f64,
+}
+
+impl<'a> QueryTermBuilder<'a> {
+    pub(crate) fn allocate(self) -> *mut RSQueryTerm {
+        let Self {
+            token,
+            idf,
+            id,
+            flags,
+            bm25_idf,
+        } = self;
+        let token = RSToken {
+            str_: token.as_ptr() as *mut _,
+            len: token.len(),
+            _bitfield_align_1: Default::default(),
+            _bitfield_1: Default::default(),
+            __bindgen_padding_0: Default::default(),
+        };
+        let token_ptr = Box::into_raw(Box::new(token));
+        let query_term = unsafe { NewQueryTerm(token_ptr as *mut _, id) };
+
+        // Now that NewQueryTerm copied tok->str into ret->str,
+        // the temporary token struct is no longer needed.
+        unsafe {
+            drop(Box::from_raw(token_ptr));
         }
-    }
-}
 
-fn reset_metrics(result: *mut ffi::RSIndexResult) {
-    let metrics: *mut ffi::RSYieldableMetric = unsafe { (*result).metrics };
-    if metrics.is_null() {
-        return;
-    }
-    free_rs_values(metrics);
-    unsafe {
-        array_clear_func(
-            metrics as *mut c_void,
-            std::mem::size_of::<ffi::RSYieldableMetric>() as u16,
-        );
+        // Patch the fields we can't set via the constructor
+        unsafe { (*query_term).idf = idf };
+        unsafe { (*query_term).bm25_idf = bm25_idf };
+        unsafe { (*query_term).flags = flags };
+
+        query_term
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResetAndPushMetricData(
-    result: *mut ffi::RSIndexResult,
-    val: f64,
-    key: *mut RLookupKey,
-) {
-    reset_metrics(result);
-
-    let value = RSValueFFI::create_num(val);
-    let new_metrics: *const RSYieldableMetric = &RSYieldableMetric {
-        key,
-        value: value.as_ptr(),
-    };
-    // Prevent value::drop() from being called to avoid use-after-free as the C code now owns this value.
-    std::mem::forget(value);
-    // SAFETY: calling a C function to append a new metric to the result's metrics array
-    unsafe {
-        (*result).metrics = array_ensure_append_n_func(
-            (*result).metrics as *mut _,
-            new_metrics as *mut _,
-            1,
-            std::mem::size_of::<RSYieldableMetric>() as u16,
-        ) as *mut RSYieldableMetric;
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
-    if metrics.is_null() {
-        return;
-    }
-    free_rs_values(metrics);
-    unsafe {
-        array_free(metrics as *mut c_void);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn IndexResult_ConcatMetrics(
-    _parent: *mut RSIndexResult,
-    _child: *const RSIndexResult,
-) {
-    // Do nothing since the code will call this
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn Term_Offset_Data_Free(_tr: *mut RSTermRecord) {
-    panic!("Nothing should have copied the term record to require this call");
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn Term_Free(_t: *mut RSQueryTerm) {
-    // The terms used in tests are managed using Rust memory by the tests directly.
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn RSValue_Number(val: f64) -> ffi::RSValue {
-    ffi::RSValue {
-        __bindgen_anon_1: ffi::RSValue__bindgen_ty_1 {
-            _numval: val, // Store the number value in the union
-        },
-        _refcount: 1,
-        _bitfield_align_1: [0u8; 0],
-        _bitfield_1: ffi::__BindgenBitfieldUnit::new([RSValueType_RSValueType_Number as u8; 1]),
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn RSValue_NewNumber(val: f64) -> *mut ffi::RSValue {
-    let rs_val = RSValue_Number(val);
-    Box::into_raw(Box::new(rs_val))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn RSValue_DecrRef() {}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn RSValue_Free(val: *mut ffi::RSValue) {
-    if val.is_null() {
-        return;
-    }
-    unsafe { drop(Box::from_raw(val)) }
-}
+#[allow(non_upper_case_globals)]
+pub static mut RSDummyContext: *const c_void = std::ptr::null();
 
 /// Define an empty stub function for each given symbols.
 /// This is used to define C functions the linker requires but which are not actually used by the tests.

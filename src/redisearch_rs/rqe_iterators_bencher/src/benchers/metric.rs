@@ -39,7 +39,7 @@ fn sparse_input() -> BenchInput {
 }
 
 impl Bencher {
-    const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
+    const MEASUREMENT_TIME: Duration = Duration::from_millis(3000);
     const WARMUP_TIME: Duration = Duration::from_millis(200);
 
     fn benchmark_group<'a>(
