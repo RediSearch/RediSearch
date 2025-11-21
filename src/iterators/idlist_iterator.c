@@ -9,6 +9,7 @@
 
 #include "idlist_iterator.h"
 #include "query.h"
+#include "value.h"
 
 static inline void setEof(QueryIterator *base, bool value) {
   base->atEOF = value;
@@ -182,4 +183,9 @@ QueryIterator *NewMetricIterator(t_docId *docIds, double *metric_list, size_t nu
   ret->NumEstimated = IL_NumEstimated;
   ret->Revalidate = Default_Revalidate;
   return ret;
+}
+
+void ResetAndPushMetricData(RSIndexResult *result, double val, RLookupKey *key) {
+    ResultMetrics_Reset(result);
+    ResultMetrics_Add(result, key, RSValue_NewNumber(val));
 }

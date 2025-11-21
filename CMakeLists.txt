@@ -241,6 +241,9 @@ add_subdirectory(src/geometry)
 add_subdirectory(src/buffer)
 add_subdirectory(src/iterators)
 add_subdirectory(src/wildcard)
+add_subdirectory(src/index_result)
+add_subdirectory(src/value)
+add_subdirectory(src/util/mempool)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
@@ -286,6 +289,9 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:buffer>
     $<TARGET_OBJECTS:iterators>
     $<TARGET_OBJECTS:wildcard>
+    $<TARGET_OBJECTS:index_result>
+    $<TARGET_OBJECTS:mempool>
+    $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
@@ -340,6 +346,9 @@ target_link_libraries(redisearch
         arr
         buffer
         iterators
+        index_result
+        value
+        mempool
         wildcard
         uv_a
         redisearch_rs
