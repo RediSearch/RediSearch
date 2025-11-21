@@ -285,10 +285,9 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
 * thread.
 * Unlike RPDepleter_New, this does not spawn a background thread and depletes
 * all results on the first call to Next().
-* @param sync_ref Reference to shared synchronization object
 * @param sctx Search context
 */
-ResultProcessor *RPDepleter_NewSync(StrongRef sync_ref, RedisSearchCtx *sctx);
+ResultProcessor *RPDepleter_NewSync(RedisSearchCtx *sctx);
 
 /**
 * Starts the depletion for all the depleters in the array, waits until all finished depleting, and returns.
@@ -318,7 +317,7 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
  * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
  * @param scoreKey Optional key for writing scores as fields when no LOAD step is provided
  */
-ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx, 
+ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
