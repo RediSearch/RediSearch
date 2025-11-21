@@ -133,12 +133,6 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
 
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted);
 
-typedef struct {
-  FieldMaskOrIndex field;
-  // our field expiration predicate
-  enum FieldExpirationPredicate predicate;
-} FieldFilterContext;
-
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 
 // Will return true if the document passed the predicate

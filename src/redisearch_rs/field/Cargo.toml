@@ -1,0 +1,12 @@
+[package]
+name = "field"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+ffi.workspace = true
+
+[lints]
+workspace = true

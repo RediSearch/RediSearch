@@ -922,7 +922,7 @@ static QueryIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
 
   const FieldSpec *fs = node->nn.nf->fieldSpec;
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   return NewNumericFilterIterator(q->sctx, node->nn.nf, INDEXFLD_T_NUMERIC, q->config, &filterCtx);
 }
 
@@ -949,7 +949,7 @@ static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   const GeometryApi *api = GeometryApi_Get(index);
   const GeometryQuery *gq = node->gmn.geomq;
   RedisModuleString *errMsg;
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   QueryIterator *ret = api->query(q->sctx, &filterCtx, index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
   if (ret == NULL) {
     QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_BAD_VAL, "Error querying geoshape index", ": %s",
