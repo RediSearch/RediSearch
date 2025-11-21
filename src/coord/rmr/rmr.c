@@ -783,8 +783,7 @@ void MRIterator_Release(MRIterator *it) {
         RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %d", cmd->strs[1], cmd->targetShard);
         RS_LOG_ASSERT_FMT(cmd->rootCommand != C_DEL, "DEL command should be sent only once to a shard. pending = %d", it->ctx.pending);
         cmd->rootCommand = C_DEL;
-        strcpy(cmd->strs[1], "DEL");
-        cmd->lens[1] = 3;
+        MRCommand_ReplaceArg(cmd, 1, "DEL", 3);
       }
     }
     // Take a reference to the iterator for the next batch of commands.

@@ -181,11 +181,6 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
     RS_ASSERT(atoll(cmd->strs[3]) == cursorId);
 
     if (timedout) {
-      // We are going to modify the command, so we need to free the cached sds
-      if (cmd->cmd) {
-        sdsfree(cmd->cmd);
-        cmd->cmd = NULL;
-      }
       // If we timed out and it's a profile command, we want to get the profile data
       if (cmd->forProfiling) {
         RS_LOG_ASSERT(!cmd->forCursor, "profile is not supported on a cursor command");
