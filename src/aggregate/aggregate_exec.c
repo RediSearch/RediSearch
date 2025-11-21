@@ -592,7 +592,8 @@ done_3:
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      // We use the cluster warning since shard level warning sent via empty reply bailout
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     }
     if (rc == RS_RESULT_TIMEDOUT) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
@@ -731,7 +732,10 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
     // warning
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
     if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      // Shards should use SHARD warning
+      // SA and Coordinator should use COORD warning
+      const char *warning = !IsInternal(req) ? QUERY_WOOM_COORD : QUERY_WOOM_SHARD;
+      RedisModule_Reply_SimpleString(reply, warning);
     }
     RedisModule_Reply_ArrayEnd(reply);
 
