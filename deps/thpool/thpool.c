@@ -604,7 +604,7 @@ void redisearch_thpool_resume_threads(redisearch_thpool_t *thpool_p) {
 /* ============================ THREAD ============================== */
 struct thread_do_args {
   redisearch_thpool_t *thpool_p;
-  bool *started; // Signal the start of the thread to the initializer, so it can wait for all threads to start. This is more robust than relying on num_threads_alive,
+  volatile bool *started; // Signal the start of the thread to the initializer, so it can wait for all threads to start. This is more robust than relying on num_threads_alive,
                 // since this may change due to other threads terminating (TERMINATE_WITH_EMPTY, etc ...)
 };
 /* Initialize a thread in the thread pool
@@ -660,7 +660,10 @@ static void *thread_do(void *p) {
   threadCtx thread_ctx = {.thread_state = THREAD_RUNNING};
   // Set to true after accounting num_threads_alive, useful for testing
   *args->started = true;
+  // Set it to NULL so no reference to dangling pointer in caller stack is kept
+  args->started = NULL;
   rm_free(args);
+  args = NULL;
 
   while (true) {
     /** Read job from queue and execute it.
