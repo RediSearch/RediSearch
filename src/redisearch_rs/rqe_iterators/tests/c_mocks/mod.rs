@@ -17,10 +17,14 @@
 //! mod c_mocks;
 //! ```
 
-use ffi::{RSQueryTerm, RSValueType_RSValueType_Number};
+use ffi::{
+    RLookupKey, RSQueryTerm, RSValueType_RSValueType_Number, RSYieldableMetric,
+    array_ensure_append_n_func,
+};
 use ffi::{array_clear_func, array_free, array_len_func};
 use inverted_index::{RSIndexResult, RSTermRecord};
 use std::ffi::c_void;
+use value::{RSValueFFI, RSValueTrait};
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
@@ -35,19 +39,7 @@ fn free_rs_values(metrics: *mut ffi::RSYieldableMetric) {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
-    if metrics.is_null() {
-        return;
-    }
-    free_rs_values(metrics);
-    unsafe {
-        array_free(metrics as *mut c_void);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Reset_func(result: *mut ffi::RSIndexResult) {
+fn reset_metrics(result: *mut ffi::RSIndexResult) {
     let metrics: *mut ffi::RSYieldableMetric = unsafe { (*result).metrics };
     if metrics.is_null() {
         return;
@@ -58,6 +50,43 @@ pub extern "C" fn ResultMetrics_Reset_func(result: *mut ffi::RSIndexResult) {
             metrics as *mut c_void,
             std::mem::size_of::<ffi::RSYieldableMetric>() as u16,
         );
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ResetAndPushMetricData(
+    result: *mut ffi::RSIndexResult,
+    val: f64,
+    key: *mut RLookupKey,
+) {
+    reset_metrics(result);
+
+    let value = RSValueFFI::create_num(val);
+    let new_metrics: *const RSYieldableMetric = &RSYieldableMetric {
+        key,
+        value: value.as_ptr(),
+    };
+    // Prevent value::drop() from being called to avoid use-after-free as the C code now owns this value.
+    std::mem::forget(value);
+    // SAFETY: calling a C function to append a new metric to the result's metrics array
+    unsafe {
+        (*result).metrics = array_ensure_append_n_func(
+            (*result).metrics as *mut _,
+            new_metrics as *mut _,
+            1,
+            std::mem::size_of::<RSYieldableMetric>() as u16,
+        ) as *mut RSYieldableMetric;
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
+    if metrics.is_null() {
+        return;
+    }
+    free_rs_values(metrics);
+    unsafe {
+        array_free(metrics as *mut c_void);
     }
 }
 

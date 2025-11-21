@@ -13,8 +13,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Always link the static libraries, independent of bindgen
     link_static_libraries(&[
         ("src/util/arr", "arr"),
+        ("src/util/mempool", "mempool"),
         ("src/iterators", "iterators"),
         ("src/buffer", "buffer"),
+        ("src/index_result", "index_result"),
+        ("src/value", "value"),
     ]);
 
     // Compile the wildcard iterator benchmark C file
