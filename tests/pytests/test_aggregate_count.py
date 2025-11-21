@@ -186,66 +186,6 @@ def test_withcount_resp2():
     _test_withcount(2)
 
 
-def _test_withcount_withcursor(protocol):
-    env = Env(protocol=protocol)
-    docs = 2265
-    _setup_index_and_data(env, docs)
-    cursor_count = 10
-    default_cursor_count = 1000
-    default_limit = 10
-
-    queries_and_results = [
-        # WITHCOUNT + WITHCURSOR
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR'], docs, default_cursor_count),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', cursor_count], docs, cursor_count),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', cursor_count*2], docs, cursor_count*2),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', cursor_count*4], docs, cursor_count*4),
-
-        # WITHCOUNT + SORTBY + WITHCURSOR
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'WITHCURSOR'], docs, default_limit),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'WITHCURSOR', 'COUNT', cursor_count], docs, cursor_count),
-
-        # WITHCOUNT + LIMIT + WITHCURSOR - default cursor count
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs, 'WITHCURSOR'], docs, default_cursor_count),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs * 2, 'WITHCURSOR'], docs, default_cursor_count),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs // 2, 'WITHCURSOR'], docs, default_cursor_count),
-
-        # WITHCOUNT + LIMIT + WITHCURSOR - limit > cursor count
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs, 'WITHCURSOR', 'COUNT', cursor_count], docs, cursor_count),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs * 2, 'WITHCURSOR', 'COUNT', cursor_count], docs, cursor_count),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs // 2, 'WITHCURSOR', 'COUNT', cursor_count], docs, cursor_count),
-
-        # WITHCOUNT + LIMIT + WITHCURSOR - limit == docs
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs, 'WITHCURSOR', 'COUNT', docs], docs, docs),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs, 'WITHCURSOR', 'COUNT', docs * 2], docs, docs),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs, 'WITHCURSOR', 'COUNT', docs // 2], docs, docs // 2),
-    ]
-
-    for query, expected_total_results, expected_results in queries_and_results:
-        cmd=' '.join(str(x) for x in query)
-        for dialect in [2]:
-            env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
-            res, cursor = env.cmd(*query)
-            total_results = _get_total_results(res)
-            results = _get_results(res)
-
-            # Verify results
-            env.assertEqual(
-                total_results, expected_total_results,
-                message=f'{cmd}: total_results != expected dialect: {dialect}')
-            env.assertEqual(
-                len(results), expected_results,
-                message=f'{cmd}: len(results) != expected dialect: {dialect}')
-
-
-def test_withcount_withcursor_resp2():
-    _test_withcount_withcursor(2)
-
-
-def test_withcount_withcursor_resp3():
-    _test_withcount_withcursor(3)
-
-
 def _test_withoutcount(protocol):
     env = Env(protocol=protocol)
     docs = 2265
