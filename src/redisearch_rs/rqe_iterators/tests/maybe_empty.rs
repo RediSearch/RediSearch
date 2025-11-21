@@ -17,6 +17,10 @@ mod c_mocks;
 struct Infinite<'index>(inverted_index::RSIndexResult<'index>);
 
 impl<'index> RQEIterator<'index> for Infinite<'index> {
+    fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
+        Some(&mut self.0)
+    }
+
     fn read(
         &mut self,
     ) -> Result<Option<&mut inverted_index::RSIndexResult<'index>>, RQEIteratorError> {

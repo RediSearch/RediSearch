@@ -66,6 +66,14 @@ where
     I: RQEIterator<'index>,
 {
     #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        match &mut self.0 {
+            MaybeEmptyOption::None(empty) => empty.current(),
+            MaybeEmptyOption::Some(it) => it.current(),
+        }
+    }
+
+    #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         match &mut self.0 {
             MaybeEmptyOption::None(empty) => empty.read(),
