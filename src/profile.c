@@ -409,7 +409,7 @@ PRINT_PROFILE_FUNC(printMetricIt) {
 
   printProfileCounters(counters);
 
-  if (it->type == VECTOR_DISTANCE) {
+  if (type == VectorDistance) {
     printProfileVectorSearchMode(VECSIM_RANGE_QUERY);
   }
 
