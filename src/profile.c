@@ -94,6 +94,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_MAX_SCORE_NORMALIZER:
       case RP_NETWORK:
       case RP_DEPLETER:
+      case RP_SYNC_DEPLETER:
         printProfileType(RPTypeToString(rp->type));
         break;
 
