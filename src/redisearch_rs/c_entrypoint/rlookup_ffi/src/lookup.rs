@@ -8,8 +8,9 @@
 */
 
 use libc::size_t;
-use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags};
+use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
 use std::{
+    borrow::Cow,
     ffi::{CStr, c_char},
     ptr::NonNull,
     slice,
@@ -132,6 +133,11 @@ pub unsafe extern "C" fn RLookup_GetKey_Write<'a>(
     let name = unsafe { CStr::from_ptr(name) };
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+    let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
+        Cow::Owned(name.to_owned())
+    } else {
+        Cow::Borrowed(name)
+    };
 
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
@@ -177,6 +183,11 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx<'a>(
     };
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+    let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
+        Cow::Owned(name.to_owned())
+    } else {
+        Cow::Borrowed(name)
+    };
 
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
@@ -220,6 +231,11 @@ pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
     let field_name = unsafe { CStr::from_ptr(field_name) };
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+    let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
+        Cow::Owned(name.to_owned())
+    } else {
+        Cow::Borrowed(name)
+    };
 
     lookup
         .get_key_load(name, field_name, flags)
@@ -273,6 +289,11 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
     let field_name = unsafe { CStr::from_ptr(field_name) };
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+    let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
+        Cow::Owned(name.to_owned())
+    } else {
+        Cow::Borrowed(name)
+    };
 
     lookup
         .get_key_load(name, field_name, flags)
