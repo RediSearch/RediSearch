@@ -93,8 +93,9 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    ffi::QueryIterator::new_id_list(data)
+                    let data: Vec<_> = (1..1_000_000).map(|x| x * 1000).collect();
+                    let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
+                    ffi::QueryIterator::new_metric(data, metric_data)
                 },
                 |it| {
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
