@@ -8,8 +8,6 @@
 */
 #include "index_result.h"
 #include "types_rs.h"
-#include "varint.h"
-#include "types_rs.h"
 #include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>
@@ -342,4 +340,9 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
     iters[i].Free(iters[i].ctx);
   }
   return rc;
+}
+
+void ResetAndPushMetricData(RSIndexResult *result, double val, RLookupKey *key) {
+    ResultMetrics_Reset(result);
+    ResultMetrics_Add(result, key, RSValue_NewNumber(val));
 }

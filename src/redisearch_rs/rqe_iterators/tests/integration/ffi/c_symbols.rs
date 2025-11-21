@@ -7,19 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(
-    clippy::undocumented_unsafe_blocks,
-    clippy::missing_safety_doc,
-    clippy::multiple_unsafe_ops_per_block
-)]
-
+//! Mock implementations of C symbol definitions that aren't provided
+//! by the static C libraries we are linking in build.rs.
 use std::ffi::c_void;
-
-pub mod benchers;
-pub mod ffi;
-
-// Need these symbols to be defined for the benchers to run
-pub use types_ffi::NewVirtualResult;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
@@ -33,13 +23,13 @@ pub static mut RSGlobalConfig: *const c_void = std::ptr::null();
 pub static mut RSDummyContext: *const c_void = std::ptr::null();
 
 /// Define an empty stub function for each given symbols.
-/// This is used to define C functions the linker requires but which are not actually used by the benchers.
+/// This is used to define C functions the linker requires but which are not actually used by the tests.
 macro_rules! stub_c_fn {
     ($($fn_name:ident),* $(,)?) => {
         $(
             #[unsafe(no_mangle)]
             pub extern "C" fn $fn_name() {
-                panic!(concat!(stringify!($fn_name), " should not be called by any of the benchmarks"));
+                panic!(concat!(stringify!($fn_name), " should not be called by any of the tests"));
             }
         )*
     };
@@ -51,8 +41,27 @@ stub_c_fn! {
     DocTable_Exists,
     IndexSpec_GetFormattedKey,
     RS_dictFetchValue,
+    RedisModule_ClusterCanAccessKeysInSlot,
+    RedisModule_ClusterFreeSlotRanges,
+    RedisModule_ClusterGetLocalSlotRanges,
+    RedisModule_ClusterKeySlotC,
+    RedisModule_ClusterPropagateForSlotMigration,
+    RedisModule_ConfigGet,
+    RedisModule_ConfigGetBool,
+    RedisModule_ConfigGetEnum,
+    RedisModule_ConfigGetNumeric,
+    RedisModule_ConfigGetType,
+    RedisModule_ConfigSet,
+    RedisModule_ConfigSetBool,
+    RedisModule_ConfigSetEnum,
+    RedisModule_ConfigSetNumeric,
+    RedisModule_ConfigIteratorCreate,
+    RedisModule_ConfigIteratorNext,
+    RedisModule_ConfigIteratorRelease,
     RedisModule_CreateStringFromLongDouble,
+    RedisModule_DefragRedisModuleDict,
     RedisModule_GetSwapKeyMetadata,
+    RedisModule_RegisterDefragFunc2,
     RedisModule_IsKeyInRam,
     RedisModule_LoadDefaultConfigs,
     RedisModule_LoadLongDouble,
@@ -64,6 +73,7 @@ stub_c_fn! {
     RedisModule_ShardingGetSlotRange,
     RedisModule_StringToLongDouble,
     RedisModule_SwapPrefetchKey,
+    RedisModule_UnsubscribeFromKeyspaceEvents,
     Redis_OpenInvertedIndex,
     TagIndex_OpenIndex,
     TimeToLiveTable_VerifyDocAndField,
