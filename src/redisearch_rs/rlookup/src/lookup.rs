@@ -481,7 +481,6 @@ impl<'a> RLookupKey<'a> {
     pub fn is_overridden(&self) -> bool {
         self.name.is_null()
             && self.name_len == usize::MAX
-            && self.path.is_null()
             && self.flags.contains(RLookupKeyFlag::Hidden)
     }
 
@@ -915,13 +914,11 @@ impl<'list, 'a> CursorMut<'list, 'a> {
             old.header.name = ptr::null();
             old.header.name_len = usize::MAX;
             let name = mem::take(old._name.deref_mut());
-
-            old.header.path = ptr::null();
-            let path = mem::take(old._path.deref_mut());
+            //let path = old._path.take();
 
             let new = RLookupKey::from_parts(
                 name,
-                path,
+                None,
                 old.header.dstidx,
                 // NAME_ALLOC is a transient flag in Rust and must not be copied over,
                 // thus we can safely just set the provided flags here.
