@@ -54,7 +54,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
  */
 static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
   const RSSortingVector* sv = RLookupRow_GetSortingVector(SearchResult_GetRowData(r));
-  if ((kk->flags & RLOOKUP_F_SVSRC) && (sv && RSSortingVector_Length(sv) > kk->svidx)) {
+  if ((kk->flags & RLOOKUPKEYFLAG_SVSRC) && (sv && RSSortingVector_Length(sv) > kk->svidx)) {
     return RSSortingVector_Get(sv, kk->svidx);
   } else {
     return RLookup_GetItem(kk, SearchResult_GetRowData(r));
@@ -202,7 +202,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         v = RSValue_Trio_GetLeft(v);
       }
       RSValue rsv;
-      if (rlk && (rlk->flags & RLOOKUP_T_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
+      if (rlk && (rlk->flags & RLOOKUPKEYFLAG_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
         double d;
         RSValue_ToNumber(v, &d);
         RSValue_SetNumber(&rsv, d);
@@ -231,15 +231,16 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       // Excludes hidden fields, fields not included in RETURN and, score and language fields.
       RedisSearchCtx *sctx = AREQ_SearchCtx(req);
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
-      int excludeFlags = RLOOKUP_F_HIDDEN;
-      int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-      int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
-      memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
+      int excludeFlags = RLOOKUPKEYFLAG_HIDDEN;
+      int requiredFlags = (req->outFields.explicitReturn ? RLOOKUPKEYFLAG_EXPLICITRETURN : 0);
+      int skipFieldIndex[lk->header.keys.rowlen]; // Array has `0` for fields which will be skipped
+      memset(skipFieldIndex, 0, lk->header.keys.rowlen * sizeof(*skipFieldIndex));
+
       size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
 
       RedisModule_Reply_Map(reply);
         int i = 0;
-        for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+        for (const RLookupKey *kk = lk->header.keys.head; kk; kk = kk->next) {
           if (!kk->name || !skipFieldIndex[i++]) {
             continue;
           }

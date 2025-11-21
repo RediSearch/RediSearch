@@ -88,6 +88,7 @@ void AGPLN_Init(AGGPlan *plan) {
   plan->firstStep_s.base.type = PLN_T_ROOT;
   plan->firstStep_s.base.dtor = rootStepDtor;
   plan->firstStep_s.base.getLookup = rootStepLookup;
+  plan->firstStep_s.lookup = RLookup_New_Value();
 }
 
 static RLookup *lookupFromNode(const DLLIST_node *nn) {
@@ -284,7 +285,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
     const RLookup *lk = lookupFromNode(nn);
     if (lk) {
       printf("  NEW LOOKUP: %p\n", lk);
-      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+      for (const RLookupKey *kk = lk->header.keys.head; kk; kk = kk->next) {
         printf("    %s @%p: FLAGS=0x%x\n", kk->name, kk, kk->flags);
       }
     }

@@ -8,19 +8,25 @@ typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
 
 // forward declarations for types that are only used as a pointer
-typedef struct RLookupRow RLookupRow;
 typedef struct RSValue RSValue;
+
+#define RLOOKUP_F_NOFLAGS 0
 """
 
 [parse]
 parse_deps = true
 include = ["rlookup"]
 
+[enum]
+rename_variants = "UpperCase"
+prefix_with_name = true
+
 [export]
-include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey"]
+include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey", "RLookupWithCanary", "RLookupCoerceType", "RLookupLoadMode"]
 exclude = ["Option_IndexSpecCache", "Option_Cow_CStr", "RLookupId"]
 
 [export.rename]
-"RLookupRow_RSValueFFI" = "RLookupRow"
-"RLookupHeader" = "RLookup"
+RLookupId = "uint64_t"
+Option_IndexSpecCache = "IndexSpecCache*"
+#"RLookupHeader" = "RLookup"
 "RLookupKeyHeader" = "RLookupKey"

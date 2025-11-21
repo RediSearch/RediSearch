@@ -28,7 +28,7 @@ use std::{
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
 pub enum RLookupLoadMode {
-    /// Use keylist to load a number of [RLookupLoadOptions::n_keys] from [RLookupLoadOptions::keys]
+    /// Use keylist to load a number of `RLookupLoadOptions::n_keys` from `RLookupLoadOptions::keys`
     KeyList = 0,
 
     /// Load only cached keys from the [sorting_vector::RSSortingVector] and do not load from [crate::row::RLookupRow]
@@ -40,7 +40,6 @@ pub enum RLookupLoadMode {
 
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
-#[expect(unused, reason = "Used by followup PRs")]
 pub enum DocumentType {
     Hash = 0,
     Json = 1,
@@ -49,7 +48,6 @@ pub enum DocumentType {
 
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
-#[expect(unused, reason = "Used by followup PRs")]
 pub enum RLookupCoerceType {
     Str = 0,
     Int = 1,

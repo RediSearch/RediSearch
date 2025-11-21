@@ -879,11 +879,11 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     goto done;
   }
 
-  RLookup lookup_s;
+  RLookup lookup_s = RLookup_New_Value();
   RLookupRow row = {0};
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);
-  lookup_s.options |= RLOOKUP_OPT_ALL_LOADED; // Setting this option will cause creating keys of non-sortable fields possible
+  lookup_s.options |= RLOOKUPOPTION_ALLLOADED; // Setting this option will cause creating keys of non-sortable fields possible
   if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
     goto CleanUp;
   }

@@ -201,7 +201,6 @@ pub struct RLookupKeyHeader<'a> {
 /// An append-only list of [`RLookupKey`]s.
 ///
 /// This type maintains a mapping from string names to [`RLookupKey`]s.
-/// cbindgen:no-export
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookup<'a> {
@@ -482,7 +481,6 @@ impl<'a> RLookupKey<'a> {
     pub fn is_overridden(&self) -> bool {
         self.name.is_null()
             && self.name_len == usize::MAX
-            && self.path.is_null()
             && self.flags.contains(RLookupKeyFlag::Hidden)
     }
 
@@ -780,6 +778,8 @@ impl<'a> KeyList<'a> {
 
 impl Drop for KeyList<'_> {
     fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::drop");
         // drop all keys in this list
         // note that we are very defensive here and continually keep the head ptr correct, so
         // that if we happen to panic during drop, we don't leave the list in a bad state.
@@ -914,13 +914,11 @@ impl<'list, 'a> CursorMut<'list, 'a> {
             old.header.name = ptr::null();
             old.header.name_len = usize::MAX;
             let name = mem::take(old._name.deref_mut());
-
-            old.header.path = ptr::null();
-            let path = mem::take(old._path.deref_mut());
+            //let path = old._path.take();
 
             let new = RLookupKey::from_parts(
                 name,
-                path,
+                None,
                 old.header.dstidx,
                 // NAME_ALLOC is a transient flag in Rust and must not be copied over,
                 // thus we can safely just set the provided flags here.

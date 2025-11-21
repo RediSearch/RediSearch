@@ -112,9 +112,9 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       return NULL;
     }
 
-    tailLookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
+    tailLookup->options |= RLOOKUPOPTION_ALLOWUNRESOLVED;
     rc = HybridRequest_BuildMergePipeline(hreq, scoreKey, hybridParams);
-    tailLookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
+    tailLookup->options &= ~RLOOKUPOPTION_ALLOWUNRESOLVED;
     if (rc != REDISMODULE_OK) {
       // The error is set at the tail, copy it into status
       QueryError_CloneFrom(&hreq->tailPipelineError, status);
@@ -123,8 +123,8 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     }
 
     std::vector<const RLookupKey *> unresolvedKeys;
-    for (RLookupKey *kk = tailLookup->head; kk; kk = kk->next) {
-      if (kk->flags & RLOOKUP_F_UNRESOLVED) {
+    for (RLookupKey *kk = tailLookup->header.keys.head; kk; kk = kk->next) {
+      if (kk->flags & RLOOKUPKEYFLAG_UNRESOLVED) {
         unresolvedKeys.push_back(kk);
       }
     }
@@ -136,7 +136,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       RS_ASSERT(dstp);
       for (const RLookupKey *kk : unresolvedKeys) {
         // Add the unresolved keys to the upstream lookup since we will add them to the LOAD clause
-        RLookup_GetKey_Write(&dstp->lk, kk->name, kk->flags & ~RLOOKUP_F_UNRESOLVED);
+        RLookup_GetKey_Write(&dstp->lk, kk->name, kk->flags & ~RLOOKUPKEYFLAG_UNRESOLVED);
       }
       serializeUnresolvedKeys(&dstp->serialized, unresolvedKeys);
       lookups[i] = &dstp->lk;

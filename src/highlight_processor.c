@@ -51,7 +51,7 @@ static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, cons
                               size_t fieldLen, const RSIndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
                               int options) {
-  const FieldSpec *fs = findFieldInSpecCache(lookup, fieldName);
+  const FieldSpec *fs = RLookup_FindFieldInSpecCache(lookup, fieldName);
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
     return 0;
   }
@@ -336,8 +336,8 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
       processField(hlp, &docParams, &combinedSpec);
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
-    for (const RLookupKey *k = hlp->lookup->head; k; k = k->next) {
-      if (k->flags & RLOOKUP_F_HIDDEN) {
+    for (const RLookupKey *k = hlp->lookup->header.keys.head; k; k = k->next) {
+      if (k->flags & RLOOKUPKEYFLAG_HIDDEN) {
         continue;
       }
       ReturnedField spec = {0};

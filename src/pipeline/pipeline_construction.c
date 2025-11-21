@@ -28,7 +28,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       }
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
-      if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
+      if (!loadKeys || !(srckeys[ii]->flags & RLOOKUPKEYFLAG_SCHEMASRC)) {
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", fldname);
         return NULL;
       }
@@ -61,7 +61,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
 
     // Set the destination key for the grouper!
-    uint32_t flags = pr->isHidden ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
+    uint32_t flags = pr->isHidden ? RLOOKUPKEYFLAG_HIDDEN : RLOOKUP_F_NOFLAGS;
     RLookupKey *dstkey = RLookup_GetKey_Write(&gstp->lookup, pr->alias, flags);
     // Adding the reducer before validating the key, so we free the reducer if the key is invalid
     Grouper_AddReducer(grp, rr, dstkey);
@@ -93,7 +93,7 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
   RLookup *lookup = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
   const RLookupKey **loadKeys = NULL;
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && firstLk->spcache) ? &loadKeys : NULL, status);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && firstLk->index_spec_cache) ? &loadKeys : NULL, status);
 
   if (!groupRP) {
     array_free(loadKeys);
@@ -121,7 +121,7 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
       return NULL;
     }
     // Set HIDDEN flag for internal metrics
-    uint32_t flags = requests[i].isInternal ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
+    uint32_t flags = requests[i].isInternal ? RLOOKUPKEYFLAG_HIDDEN : RLOOKUP_F_NOFLAGS;
 
     RLookupKey *key = RLookup_GetKey_WriteEx(rl, name, name_len, flags);
     if (!key) {
@@ -187,7 +187,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
           sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
-          if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
+          if (!(sortkey->flags & RLOOKUPKEYFLAG_SCHEMASRC)) {
             QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in schema", keystr);
             goto end;
           }
@@ -325,7 +325,7 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
     // Handle JSON spec case
     if (isSpecJson(sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
-      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+      lookup->options &= ~RLOOKUPOPTION_ALLLOADED;
     }
 
     return rp;
@@ -402,7 +402,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
           return;
         }
       } else {
-        scoreKey = RLookup_GetKey_Write(first, UNDERSCORE_SCORE, RLOOKUP_F_OVERRIDE);
+        scoreKey = RLookup_GetKey_Write(first, UNDERSCORE_SCORE, RLOOKUPKEYFLAG_OVERRIDE);
       }
     }
 
@@ -429,7 +429,7 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
   const RLookupKey **loadkeys = NULL;
   if (params->outFields->explicitReturn) {
     // Go through all the fields and ensure that each one exists in the lookup stage
-    loadFlags |= RLOOKUP_F_EXPLICITRETURN;
+    loadFlags |= RLOOKUPKEYFLAG_EXPLICITRETURN;
     for (size_t ii = 0; ii < params->outFields->numFields; ++ii) {
       const ReturnedField *rf = params->outFields->fields + ii;
       RLookupKey *lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, loadFlags);
@@ -445,7 +445,7 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
     rp = RPLoader_New(params->common.sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys), forceLoad, outStateFlags);
     if (isSpecJson(params->common.sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
-      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+      lookup->options &= ~RLOOKUPOPTION_ALLLOADED;
     }
     array_free(loadkeys);
     PUSH_RP();
@@ -464,7 +464,7 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
       if (!kk) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", ff->name);
         goto error;
-      } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
+      } else if (!(kk->flags & RLOOKUPKEYFLAG_SCHEMASRC)) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Property", " `%s` is not in schema", ff->name);
         goto error;
       }
@@ -489,7 +489,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
   bool forceLoad = sctx && isSpecJson(sctx->spec) && (sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
-  uint32_t loadFlags = forceLoad ? RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NOFLAGS;
+  uint32_t loadFlags = forceLoad ? RLOOKUPKEYFLAG_FORCELOAD : RLOOKUP_F_NOFLAGS;
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
@@ -533,7 +533,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         }
 
         if (stp->type == PLN_T_APPLY) {
-          uint32_t flags = mstp->noOverride ? RLOOKUP_F_NOFLAGS : RLOOKUP_F_OVERRIDE;
+          uint32_t flags = mstp->noOverride ? RLOOKUP_F_NOFLAGS : RLOOKUPKEYFLAG_OVERRIDE;
           RLookupKey *dstkey = RLookup_GetKey_Write(curLookup, stp->alias, flags);
           if (!dstkey) {
             // Can only happen if we're in noOverride mode

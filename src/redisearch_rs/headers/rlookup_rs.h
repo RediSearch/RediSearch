@@ -11,9 +11,24 @@ typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
 
 // forward declarations for types that are only used as a pointer
-typedef struct RLookupRow RLookupRow;
 typedef struct RSValue RSValue;
 
+#define RLOOKUP_F_NOFLAGS 0
+
+
+enum RLookupCoerceType
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  RLOOKUPCOERCETYPE_STR = 0,
+  RLOOKUPCOERCETYPE_INT = 1,
+  RLOOKUPCOERCETYPE_DBL = 2,
+  RLOOKUPCOERCETYPE_BOOL = 3,
+};
+#ifndef __cplusplus
+typedef uint32_t RLookupCoerceType;
+#endif // __cplusplus
 
 enum RLookupKeyFlag
 #ifdef __cplusplus
@@ -24,63 +39,88 @@ enum RLookupKeyFlag
    * This field is (or assumed to be) part of the document itself.
    * This is a basic flag for a loaded key.
    */
-  DocSrc = 1,
+  RLOOKUPKEYFLAG_DOCSRC = 1,
   /**
    * This field is part of the index schema.
    */
-  SchemaSrc = 2,
+  RLOOKUPKEYFLAG_SCHEMASRC = 2,
   /**
    * Check the sorting table, if necessary, for the index of the key.
    */
-  SvSrc = 4,
+  RLOOKUPKEYFLAG_SVSRC = 4,
   /**
    * This key was created by the query itself (not in the document)
    */
-  QuerySrc = 8,
+  RLOOKUPKEYFLAG_QUERYSRC = 8,
   /**
    * Copy the key string via strdup. `name` may be freed
    */
-  NameAlloc = 16,
+  RLOOKUPKEYFLAG_NAMEALLOC = 16,
   /**
    * If the key is already present, then overwrite it (relevant only for LOAD or WRITE modes)
    */
-  Override = 32,
+  RLOOKUPKEYFLAG_OVERRIDE = 32,
   /**
    * Request that the key is returned for loading even if it is already loaded.
    */
-  ForceLoad = 64,
+  RLOOKUPKEYFLAG_FORCELOAD = 64,
   /**
    * This key is unresolved. Its source needs to be derived from elsewhere
    */
-  Unresolved = 128,
+  RLOOKUPKEYFLAG_UNRESOLVED = 128,
   /**
    * This field is hidden within the document and is only used as a transient
    * field for another consumer. Don't output this field.
    */
-  Hidden = 256,
+  RLOOKUPKEYFLAG_HIDDEN = 256,
   /**
    * The opposite of [`RLookupKeyFlag::Hidden`]. This field is specified as an explicit return in
    * the RETURN list, so ensure that this gets emitted. Only set if
    * explicitReturn is true in the aggregation request.
    */
-  ExplicitReturn = 512,
+  RLOOKUPKEYFLAG_EXPLICITRETURN = 512,
   /**
    * This key's value is already available in the RLookup table,
    * if it was opened for read but the field is sortable and not normalized,
    * so the data should be exactly the same as in the doc.
    */
-  ValAvailable = 1024,
+  RLOOKUPKEYFLAG_VALAVAILABLE = 1024,
   /**
    * This key's value was loaded (by a loader) from the document itself.
    */
-  IsLoaded = 2048,
+  RLOOKUPKEYFLAG_ISLOADED = 2048,
   /**
    * This key type is numeric
    */
-  Numeric = 4096,
+  RLOOKUPKEYFLAG_NUMERIC = 4096,
 };
 #ifndef __cplusplus
 typedef uint32_t RLookupKeyFlag;
+#endif // __cplusplus
+
+/**
+ * Three Loading modes for RLookup
+ */
+enum RLookupLoadMode
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  /**
+   * Use keylist to load a number of `RLookupLoadOptions::n_keys` from `RLookupLoadOptions::keys`
+   */
+  RLOOKUPLOADMODE_KEYLIST = 0,
+  /**
+   * Load only cached keys from the [sorting_vector::RSSortingVector] and do not load from [crate::row::RLookupRow]
+   */
+  RLOOKUPLOADMODE_SORTINGVECTORKEYS = 1,
+  /**
+   * Load all keys from both the [sorting_vector::RSSortingVector] and from the [crate::row::RLookupRow]
+   */
+  RLOOKUPLOADMODE_ALLKEYS = 2,
+};
+#ifndef __cplusplus
+typedef uint32_t RLookupLoadMode;
 #endif // __cplusplus
 
 enum RLookupOption
@@ -92,32 +132,18 @@ enum RLookupOption
    * If the key cannot be found, do not mark it as an error, but create it and
    * mark it as F_UNRESOLVED
    */
-  AllowUnresolved = 1,
+  RLOOKUPOPTION_ALLOWUNRESOLVED = 1,
   /**
    * If a loader was added to load the entire document, this flag will allow
    * later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
    */
-  AllLoaded = 2,
+  RLOOKUPOPTION_ALLLOADED = 2,
 };
 #ifndef __cplusplus
 typedef uint32_t RLookupOption;
 #endif // __cplusplus
 
 typedef struct IndexSpecCache IndexSpecCache;
-
-/**
- * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
- * or from dynamic values stored in the row during processing.
- *
- * The type itself exposes the dynamic values, [`RLookupRow::dyn_values`], as a vector of `Option<T>`, where `T` is the type
- * of the value and it also provides methods to get the length of the dynamic values and check if they are empty.
- *
- * The type `T` is the type of the value stored in the row, which must implement the [`RSValueTrait`].
- * [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
- *
- * The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
- */
-typedef struct RLookupRow RLookupRow;
 
 typedef struct RLookupKey {
   /**
@@ -163,8 +189,28 @@ typedef struct KeyList {
   uint32_t rowlen;
 } KeyList;
 
-typedef struct RLookup {
+typedef struct RLookupHeader {
   struct KeyList keys;
+} RLookupHeader;
+
+/**
+ * An append-only list of [`RLookupKey`]s.
+ *
+ * This type maintains a mapping from string names to [`RLookupKey`]s.
+ */
+typedef struct RLookup {
+  /**
+   * This is a temporary field that should not be accessed. It ensures correct
+   * initialization in case of FFI usage.
+   */
+  uint64_t _canary;
+  /**
+   * RLookup fields exposed to C.
+   */
+  struct RLookupHeader header;
+  RLookupOptions options;
+  IndexSpecCache* index_spec_cache;
+  uint64_t id;
 } RLookup;
 
 #ifdef __cplusplus
@@ -476,48 +522,6 @@ void RLookup_Free_Heap(struct RLookup *lookup);
  */
 void RLookup_KeySetPath(struct RLookupKey *rlk,
                         const char *path);
-
-/**
- * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
- *
- * Safety:
- * 1. `key` must be a valid pointer to an [`RLookupKey`].
- * 2. `row` must be a valid pointer to an [`RLookupRow`].
- * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
- */
-void RLookup_WriteKey(const struct RLookupKey *key,
-                      struct RLookupRow *row,
-                      RSValue *value);
-
-/**
- * Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.
- *
- * Safety:
- * 1. `key` must be a valid pointer to an [`RLookupKey`].
- * 2. `row` must be a valid pointer to an [`RLookupRow`].
- * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
- */
-void RLookup_WriteOwnKey(const struct RLookupKey *key,
-                         struct RLookupRow *row,
-                         RSValue *value);
-
-/**
- * Wipes a RLookupRow by decrementing all values and resetting the row.
- *
- * Safety:
- * 1. The pointer must be a valid pointer to an [`RLookupRow`].
- */
-void RLookupRow_Wipe(struct RLookupRow *row);
-
-/**
- * Resets a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory of the dynamic values.
- *
- * This does not affect the sorting vector.
- *
- * Safety:
- * 1. The pointer must be a valid pointer to an [`RLookupRow`].
- */
-void RLookupRow_Reset(struct RLookupRow *row);
 
 #ifdef __cplusplus
 }  // extern "C"

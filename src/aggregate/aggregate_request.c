@@ -800,6 +800,7 @@ arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp) {
 
 PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, bool strictPrefix) {
   PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
+  gstp->lookup = RLookup_New_Value();
   gstp->properties_ref = properties_ref;
   gstp->base.dtor = groupStepFree;
   gstp->base.getLookup = groupStepGetLookup;

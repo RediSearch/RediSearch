@@ -54,7 +54,7 @@ class ResultProcessorTest : public ::testing::Test {};
 
 TEST_F(ResultProcessorTest, testProcessorChain) {
   QueryProcessingCtx qitr = {0};
-  RLookup lk = {0};
+  RLookup lk = RLookup_New_Value();
   processor1Ctx *p = new processor1Ctx();
   p->counter = 0;
   p->Next = p1_Next;
