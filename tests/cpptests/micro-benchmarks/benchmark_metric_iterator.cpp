@@ -77,7 +77,7 @@ public:
     memcpy(scoresArray, scores.data(), numDocuments * sizeof(double));
 
     if (yield_metric) {
-      iterator_base = NewMetricIteratorSortedById(docIdsArray, scoresArray, numDocuments, VectorDistance);
+      iterator_base = NewMetricIteratorSortedById(docIdsArray, scoresArray, numDocuments, VECTOR_DISTANCE);
     } else {
       iterator_base = NewSortedIdListIterator(docIdsArray, numDocuments, 1.0);
       rm_free(scoresArray);

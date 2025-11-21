@@ -957,7 +957,7 @@ TEST_F(IndexTest, testMetric_SkipTo) {
   double metrics[7] = {1.0};
   memcpy(metrics_arr, metrics, sizeof(double) * results_num);
 
-  QueryIterator *metric_it = NewMetricIteratorSortedById(ids_arr, metrics_arr, results_num, VectorDistance);
+  QueryIterator *metric_it = NewMetricIteratorSortedById(ids_arr, metrics_arr, results_num, VECTOR_DISTANCE);
 
   // Copy the behaviour of INV_IDX_ITERATOR in terms of SkipTo. That is, the iterator will return the
   // next docId whose id is equal or greater than the given id, as if we call Read and returned

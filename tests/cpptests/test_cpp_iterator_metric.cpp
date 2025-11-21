@@ -188,27 +188,27 @@ INSTANTIATE_TEST_SUITE_P(MetricIteratorP, MetricIteratorCommonTest,
   std::make_tuple(
     std::vector<t_docId>{1, 2, 3, 40, 50},
     std::vector<double>{0.1, 0.2, 0.3, 0.4, 0.5},
-    VectorDistance
+    VECTOR_DISTANCE
   ),
   std::make_tuple(
     std::vector<t_docId>{6, 5, 1, 98, 20, 1000, 500, 3, 2},
     std::vector<double>{0.6, 0.5, 0.1, 0.98, 0.2, 1.0, 0.5, 0.3, 0.2},
-    VectorDistance
+    VECTOR_DISTANCE
   ),
   std::make_tuple(
     std::vector<t_docId>{10, 20, 30, 40, 50},
     std::vector<double>{0.9, 0.8, 0.7, 0.6, 0.5},
-    VectorDistance
+    VECTOR_DISTANCE
   ),
   std::make_tuple(
     std::vector<t_docId>{1000000, 2000000, 3000000},
     std::vector<double>{0.1, 0.5, 0.9},
-    VectorDistance
+    VECTOR_DISTANCE
   ),
   std::make_tuple(
     std::vector<t_docId>{42},
     std::vector<double>{1.0},
-    VectorDistance
+    VECTOR_DISTANCE
   )
  )
 );
