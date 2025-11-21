@@ -17,6 +17,8 @@ thiserror.workspace = true
 redis_mock.workspace = true
 redis-module.workspace = true
 
+c_ffi_utils = {path = "../c_entrypoint/c_ffi_utils"}
+
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
 # necessary on Alpine.
