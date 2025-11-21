@@ -21,6 +21,23 @@ use rqe_iterators::{RQEIterator, metric::MetricIteratorSortedById};
 #[derive(Default)]
 pub struct Bencher;
 
+pub struct BenchInput {
+    ids: Vec<u64>,
+    metric_data: Vec<f64>,
+}
+
+fn dense_input() -> BenchInput {
+    let ids = (1..1_000_000).collect::<Vec<_>>();
+    let metric_data = ids.iter().map(|x| *x as f64 * 0.1).collect();
+    BenchInput { ids, metric_data }
+}
+
+fn sparse_input() -> BenchInput {
+    let mut input = dense_input();
+    input.ids = input.ids.into_iter().map(|x| x * 1000).collect();
+    input
+}
+
 impl Bencher {
     const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
     const WARMUP_TIME: Duration = Duration::from_millis(200);
@@ -75,9 +92,8 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).collect::<Vec<_>>();
-                    let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
-                    ffi::QueryIterator::new_metric(data, metric_data)
+                    let BenchInput { ids, metric_data } = dense_input();
+                    ffi::QueryIterator::new_metric(ids, metric_data)
                 },
                 |it| {
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
@@ -93,9 +109,8 @@ impl Bencher {
         group.bench_function("C", |b| {
             b.iter_batched_ref(
                 || {
-                    let data: Vec<_> = (1..1_000_000).map(|x| x * 1000).collect();
-                    let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
-                    ffi::QueryIterator::new_metric(data, metric_data)
+                    let BenchInput { ids, metric_data } = sparse_input();
+                    ffi::QueryIterator::new_metric(ids, metric_data)
                 },
                 |it| {
                     while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
@@ -112,9 +127,8 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).collect::<Vec<_>>();
-                    let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
-                    MetricIteratorSortedById::new(data, metric_data)
+                    let BenchInput { ids, metric_data } = dense_input();
+                    MetricIteratorSortedById::new(ids, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -129,9 +143,8 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect::<Vec<_>>();
-                    let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
-                    MetricIteratorSortedById::new(data, metric_data)
+                    let BenchInput { ids, metric_data } = sparse_input();
+                    MetricIteratorSortedById::new(ids, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -148,8 +161,8 @@ impl Bencher {
             let step = 100;
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).collect();
-                    ffi::QueryIterator::new_id_list(data)
+                    let BenchInput { ids, metric_data } = dense_input();
+                    ffi::QueryIterator::new_metric(ids, metric_data)
                 },
                 |it| {
                     while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
@@ -167,8 +180,8 @@ impl Bencher {
             let step = 100;
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    ffi::QueryIterator::new_id_list(data)
+                    let BenchInput { ids, metric_data } = sparse_input();
+                    ffi::QueryIterator::new_metric(ids, metric_data)
                 },
                 |it| {
                     while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
@@ -187,9 +200,8 @@ impl Bencher {
             let step = 100;
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).collect::<Vec<_>>();
-                    let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
-                    MetricIteratorSortedById::new(data, metric_data)
+                    let BenchInput { ids, metric_data } = dense_input();
+                    MetricIteratorSortedById::new(ids, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
@@ -205,9 +217,8 @@ impl Bencher {
             let step = 100;
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect::<Vec<_>>();
-                    let metric_data = data.iter().map(|x| *x as f64 * 0.1).collect();
-                    MetricIteratorSortedById::new(data, metric_data)
+                    let BenchInput { ids, metric_data } = sparse_input();
+                    MetricIteratorSortedById::new(ids, metric_data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
