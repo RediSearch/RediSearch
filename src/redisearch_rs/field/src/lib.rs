@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{t_fieldIndex, t_fieldMask};
+use ffi::{RS_FIELDMASK_ALL, RS_INVALID_FIELD_INDEX, t_fieldIndex, t_fieldMask};
 
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -18,6 +18,18 @@ pub enum FieldMaskOrIndex {
     Index(t_fieldIndex) = 0,
     /// For the other fields, allows a single field to be referenced.
     Mask(t_fieldMask) = 1,
+}
+
+impl FieldMaskOrIndex {
+    /// Creates a new [`FieldMaskOrIndex::Index`] with an invalid index.
+    pub const fn index_invalid() -> Self {
+        Self::Index(RS_INVALID_FIELD_INDEX)
+    }
+
+    /// Creates a new [`FieldMaskOrIndex::Mask`] covering all masks.
+    pub const fn mask_all() -> Self {
+        Self::Mask(RS_FIELDMASK_ALL)
+    }
 }
 
 /// Field expiration predicate used when checking fields.
