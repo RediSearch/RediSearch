@@ -234,8 +234,7 @@ typedef struct AREQ {
   /** Flags indicating current execution state */
   uint32_t stateflags;
 
-  /** Protocol version RESP2/3 */
-  unsigned char protocol;
+  int protocol; // RESP2/3
 
   /*
   // Dialect version used on this request
