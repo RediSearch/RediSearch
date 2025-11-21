@@ -39,9 +39,9 @@ void SearchDisk_Close() {
 }
 
 // Basic API wrappers
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, DocumentType type) {
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type) {
     RS_ASSERT(disk_db);
-    return disk->basic.openIndexSpec(disk_db, indexName, type);
+    return disk->basic.openIndexSpec(disk_db, indexName, indexNameLen, type);
 }
 
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
@@ -50,14 +50,14 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
 }
 
 // Index API wrappers
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, t_docId docId, t_fieldMask fieldMask) {
+bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask) {
     RS_ASSERT(disk && index);
-    return disk->index.indexDocument(index, term, docId, fieldMask);
+    return disk->index.indexDocument(index, term, termLen, docId, fieldMask);
 }
 
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, t_fieldMask fieldMask, double weight) {
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_fieldMask fieldMask, double weight) {
     RS_ASSERT(disk && index && term);
-    return disk->index.newTermIterator(index, term, fieldMask, weight);
+    return disk->index.newTermIterator(index, term, termLen, fieldMask, weight);
 }
 
 QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
@@ -65,9 +65,9 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
     return disk->index.newWildcardIterator(index, weight);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, double score, uint32_t flags, uint32_t maxFreq) {
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxFreq) {
     RS_ASSERT(disk && handle);
-    return disk->docTable.putDocument(handle, key, score, flags, maxFreq);
+    return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxFreq);
 }
 
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd) {

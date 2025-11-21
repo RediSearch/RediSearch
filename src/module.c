@@ -2628,7 +2628,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
 /************************ Result post processing callbacks ********************/
 
-
 static void noOpPostProcess(searchReducerCtx *rCtx){
   return;
 }
@@ -2700,7 +2699,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     if (rCtx->warning) {
       MR_ReplyWithMRReply(reply, rCtx->warning);
     } else if (req->queryOOM) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      // We use the cluster warning since shard level warning sent via empty reply bailout
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }

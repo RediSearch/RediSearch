@@ -659,7 +659,9 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Read(
     // SAFETY: The caller must ensure `rd` is a valid pointer to a `InvertedIndexGCReader`
     let rt = unsafe { &mut *rd };
 
-    let deltas = GcScanDelta::deserialize(&mut rmp_serde::Deserializer::new(rt)).unwrap();
+    let Ok(deltas) = GcScanDelta::deserialize(&mut rmp_serde::Deserializer::new(rt)) else {
+        return std::ptr::null_mut();
+    };
 
     let deltas = Box::new(deltas);
 
@@ -671,14 +673,14 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Read(
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `deltas` must be a valid, non NULL, pointer to a `GcScanDelta` instance created using
-///   [`InvertedIndex_GcDelta_Read`].
+/// - `deltas` must be a valid pointer to a `GcScanDelta` instance created using
+///   [`InvertedIndex_GcDelta_Read`], or NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_GcDelta_Free(deltas: *mut GcScanDelta) {
-    debug_assert!(!deltas.is_null(), "deltas must not be null");
-
-    // SAFETY: The caller must ensure that `deltas` is a valid pointer to a `GcScanDelta`
-    let _deltas = unsafe { Box::from_raw(deltas) };
+    if !deltas.is_null() {
+        // SAFETY: The caller must ensure that `deltas` is a valid pointer to a `GcScanDelta`
+        let _deltas = unsafe { Box::from_raw(deltas) };
+    }
 }
 
 /// Apply a GC delta to the inverted index. The output parameter `apply_info` will be set to
