@@ -8,8 +8,25 @@
 */
 
 #include "optional_iterator.h"
+#include "iterators_rs.h"
+#include "types_rs.h"
 #include "wildcard_iterator.h"
 #include "empty_iterator.h"
+
+typedef struct {
+  QueryIterator base;     // base index iterator
+  bool isOptimized;       // A flag to distinguish between the Rust and C-based impls
+  QueryIterator *child;   // child index iterator
+  QueryIterator *wcii;    // wildcard child iterator, used for optimization
+  RSIndexResult *virt;
+  t_docId maxDocId;
+  double weight;
+} OptionalIterator;
+
+typedef struct {
+  QueryIterator base;     // base index iterator
+  bool isOptimized;       // A flag to distinguish between the Rust and C-based impls
+} OptionalIteratorHeader;
 
 static void OI_Free(QueryIterator *base) {
   OptionalIterator *oi = (OptionalIterator *)base;
@@ -280,35 +297,65 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
   if (ret != NULL) {
     return ret;
   }
-  OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
   bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   optimized |= q && q->sctx && q->sctx->spec && q->sctx->spec->diskSpec;
+  t_docId maxDocId = q->docTable->maxDocId;
   if (optimized) {
+    OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
+    oi->isOptimized = true;
     oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
-  }
-  oi->child = it;
-  oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
-  oi->virt->freq = 1;
-  oi->maxDocId = q->docTable->maxDocId;
-  oi->weight = weight;
-
-  ret = &oi->base;
-  ret->type = OPTIONAL_ITERATOR;
-  ret->atEOF = false;
-  ret->lastDocId = 0;
-  ret->current = oi->virt;
-  ret->NumEstimated = OI_NumEstimated;
-  ret->Free = OI_Free;
-  ret->Rewind = OI_Rewind;
-  if (optimized) {
+    oi->child = it;
+    oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
+    oi->virt->freq = 1;
+    oi->maxDocId = maxDocId;
+    oi->weight = weight;
+    ret = &oi->base;
+    ret->type = OPTIONAL_ITERATOR;
+    ret->atEOF = false;
+    ret->lastDocId = 0;
+    ret->current = oi->virt;
+    ret->NumEstimated = OI_NumEstimated;
+    ret->Free = OI_Free;
+    ret->Rewind = OI_Rewind;
     ret->Read = OI_Read_Optimized;
     ret->SkipTo = OI_SkipTo_Optimized;
     ret->Revalidate = OI_Revalidate_Optimized;
   } else {
-    ret->Read = OI_Read_NotOptimized;
-    ret->SkipTo = OI_SkipTo_NotOptimized;
-    ret->Revalidate = OI_Revalidate_NotOptimized;
+    ret = NewNonOptimizedOptionalIterator(it, maxDocId, weight);
   }
 
   return ret;
+}
+
+QueryIterator const* GetOptionalIteratorChild(QueryIterator *base) {
+    OptionalIteratorHeader *header = (OptionalIteratorHeader *)base;
+    if (header->isOptimized) {
+        OptionalIterator *it = (OptionalIterator *)base;
+        return it->child;
+    } else {
+        return GetNonOptimizedOptionalIteratorChild(base);
+    }
+}
+
+QueryIterator *TakeOptionalIteratorChild(QueryIterator *base) {
+    OptionalIteratorHeader *header = (OptionalIteratorHeader *)base;
+    QueryIterator *child;
+    if (header->isOptimized) {
+        OptionalIterator *it = (OptionalIterator *)base;
+        child = it->child;
+        it->child = NULL;
+    } else {
+        child = TakeNonOptimizedOptionalIteratorChild(base);
+    }
+    return child;
+}
+
+void SetOptionalIteratorChild(QueryIterator *base, QueryIterator *newChild) {
+    OptionalIteratorHeader *header = (OptionalIteratorHeader *)base;
+    if (header->isOptimized) {
+        OptionalIterator *it = (OptionalIterator *)base;
+        it->child = newChild;
+    } else {
+        SetNonOptimizedOptionalIteratorChild(base, newChild);
+    }
 }
