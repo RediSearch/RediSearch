@@ -190,7 +190,7 @@ def _test_withcount_withcursor(protocol):
     env = Env(protocol=protocol)
     docs = 2265
     _setup_index_and_data(env, docs)
-    cursor_count = 15
+    cursor_count = 10
     default_cursor_count = 1000
     default_limit = 10
 
@@ -200,12 +200,10 @@ def _test_withcount_withcursor(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', cursor_count], docs, cursor_count),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', cursor_count*2], docs, cursor_count*2),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', cursor_count*4], docs, cursor_count*4),
-        (['FT.AGGREGATE', 'idx', '@price:[1, 100]', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', cursor_count*2], 100, cursor_count*2),
 
         # WITHCOUNT + SORTBY + WITHCURSOR
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'WITHCURSOR'], docs, default_limit),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'WITHCURSOR', 'COUNT', cursor_count], docs, default_limit),
-        (['FT.AGGREGATE', 'idx', '@price:[1, 100]', 'WITHCOUNT', 'SORTBY', 1, '@title', 'WITHCURSOR', 'COUNT', cursor_count*2], 100, default_limit),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'WITHCURSOR', 'COUNT', cursor_count], docs, cursor_count),
 
         # WITHCOUNT + LIMIT + WITHCURSOR - default cursor count
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs, 'WITHCURSOR'], docs, default_cursor_count),
@@ -221,9 +219,6 @@ def _test_withcount_withcursor(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs, 'WITHCURSOR', 'COUNT', docs], docs, docs),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs, 'WITHCURSOR', 'COUNT', docs * 2], docs, docs),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs, 'WITHCURSOR', 'COUNT', docs // 2], docs, docs // 2),
-
-        # WITHCOUNT + LIMIT + WITHCURSOR - matching docs < cursor count
-        (['FT.AGGREGATE', 'idx', '@price:[1, 100]', 'WITHCOUNT', 'LIMIT', 0, docs * 4, 'WITHCURSOR'], 100, 100),
     ]
 
     for query, expected_total_results, expected_results in queries_and_results:

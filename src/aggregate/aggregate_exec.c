@@ -30,7 +30,6 @@
 #include "module.h"
 #include "result_processor.h"
 #include "reply_empty.h"
-#include "count_total_results.h"
 
 
 typedef enum {
@@ -430,12 +429,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     RedisModule_Reply_Array(reply);
 
-    // Use pre-calculated total for FT.AGGREGATE + WITHCOUNT + WITHCURSOR
-    uint32_t totalToReport = qctx->totalResults;
-    if (req->cursor_has_precalculated_total) {
-      totalToReport = req->cursor_precalculated_total;
-    }
-    RedisModule_Reply_LongLong(reply, totalToReport);
+    RedisModule_Reply_LongLong(reply, qctx->totalResults);
     nelem++;
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
@@ -589,12 +583,7 @@ done_3:
     }
 
     // <total_results>
-    // Use pre-calculated total for FT.AGGREGATE + WITHCOUNT + WITHCURSOR
-    uint32_t totalToReport = qctx->totalResults;
-    if (req->cursor_has_precalculated_total) {
-      totalToReport = req->cursor_precalculated_total;
-    }
-    RedisModule_ReplyKV_LongLong(reply, "total_results", totalToReport);
+    RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     // <error>
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
@@ -1208,45 +1197,6 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return ret;
 }
 
-// Pre-calculate total for WITHCOUNT + WITHCURSOR
-// This is needed because we can't use depleters with cursors (they would
-//consume all results)
-// Check conditions:
-// 1. IsAggregate: This is an aggregate query
-// 2. !IsOptimized: Not optimized (WITHCOUNT is implied, or WITHOUTCOUNT not
-//    specified)
-// 3. IsCursor: This is a cursor query
-//
-// How it works:
-// - In standalone mode and shards: Creates an independent counting pipeline
-//   with LIMIT 0 0
-// - In cluster mode (coordinator): Executes a separate LIMIT 0 0 query to all
-//   shards before creating the cursor (done in executePlan), and the total is
-//   stored in r->cursor_precalculated_total
-//
-// Note: Users can opt-out by passing WITHOUTCOUNT flag, which sets
-// QEXEC_OPTIMIZE and skips this pre-calculation.
-static void precalculateCursorTotal(AREQ *r, Cursor *cursor, bool coord) {
-  cursor->has_precalculated_total = false;
-  cursor->precalculated_total = 0;
-
-  if (IsAggregate(r) && HasWithCount(r) && IsCursor(r) && !IsInternal(r)) {
-    if (coord) {
-      // Coordinator mode: use the total collected from all shards
-      cursor->precalculated_total = r->cursor_precalculated_total;
-      cursor->has_precalculated_total = true;
-      r->cursor_has_precalculated_total = true;
-    } else {
-      // Shard or standalone mode: count local results
-      uint32_t total = countTotalResults(r);
-      cursor->precalculated_total = total;
-      cursor->has_precalculated_total = true;
-      r->cursor_precalculated_total = total;
-      r->cursor_has_precalculated_total = true;
-    }
-  }
-}
-
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *err, bool coord) {
   Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, r->cursorConfig.maxIdle, err);
@@ -1255,10 +1205,6 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
   }
   cursor->execState = r;
   r->cursor_id = cursor->id;
-
-  // Pre-calculate total for FT.AGGREGATE + WITHCOUNT + WITHCURSOR
-  precalculateCursorTotal(r, cursor, coord);
-
   runCursor(reply, cursor, 0);
   return REDISMODULE_OK;
 }
