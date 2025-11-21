@@ -33,7 +33,7 @@ def _validate_results(env, actual_results: List[Result], expected_results: List[
     """Compare actual vs expected results, allowing for small score variations"""
 
     # Every test case should return at least one result
-    env.assertGreater(len(actual_results), 0, message=comparison_table)
+    env.assertGreater(len(actual_results), 0, message=f"Expected at least one result, got 0.")
 
     # We assume the number of actual result is correct
     env.assertLessEqual(len(actual_results), len(expected_results), message=comparison_table)
@@ -111,17 +111,18 @@ def _process_aggregate_response(aggregate_results):
 
 def _process_hybrid_response(hybrid_results, expected_results: Optional[List[Result]] = None) -> Tuple[List[Result], dict]:
     """
-    Process hybrid response into list of Result objects and ranking info
+    Process hybrid response into list of Result objects and score info
 
     Args:
         hybrid_results: Raw Redis hybrid response like:
-             ['format', 'STRING', 'results', ['attributes', ['__key', 'both_02', 'SEARCH_RANK', '2', 'VECTOR_RANK', '5', '__score', '0.0312805474096']], ...]
+             ['format', 'STRING', 'results', ['attributes', ['__key', 'both_02', '__score', '0.0312805474096', 'search_score', '0.5', 'vector_score', '0.3']], ...]
         expected_results: Optional list of expected Result objects for comparison
 
     Returns:
-        tuple: ([Result(key=doc_id_str, score=score_float), ...], ranking_info_dict)
+        tuple: ([Result(key=doc_id_str, score=score_float), ...], score_info_dict)
 
-    Note: ranking_info_dict contains search_ranks and vector_ranks for each document
+    Note: score_info_dict contains search_scores and vector_scores for each document.
+          Scores are extracted from 'search_score' and 'vector_score' fields if present in the response.
     """
     if not hybrid_results or len(hybrid_results) < 4:
         return [], {}
@@ -133,7 +134,7 @@ def _process_hybrid_response(hybrid_results, expected_results: Optional[List[Res
         return [], {}
 
     processed = []
-    ranking_info = {'search_ranks': {}, 'vector_ranks': {}}
+    score_info = {'search_scores': {}, 'vector_scores': {}}
 
     for result_item in results_data:
         attrs = dict(zip(result_item[::2], result_item[1::2]))
@@ -144,54 +145,54 @@ def _process_hybrid_response(hybrid_results, expected_results: Optional[List[Res
                 score = float(attrs['__score'])
                 doc_id = attrs['__key']
 
-                # Extract ranking information
-                search_rank = attrs.get('SEARCH_RANK', '-')
-                vector_rank = attrs.get('VECTOR_RANK', '-')
+                # Extract score information if present
+                search_score = attrs.get('search_score')
+                vector_score = attrs.get('vector_score')
 
-                # Store ranking info (convert to int if not '-')
-                if search_rank != '-':
+                # Store score info if found
+                if search_score is not None:
                     try:
-                        ranking_info['search_ranks'][doc_id] = int(search_rank)
-                    except ValueError:
+                        score_info['search_scores'][doc_id] = float(search_score)
+                    except (ValueError, TypeError):
                         pass
 
-                if vector_rank != '-':
+                if vector_score is not None:
                     try:
-                        ranking_info['vector_ranks'][doc_id] = int(vector_rank)
-                    except ValueError:
+                        score_info['vector_scores'][doc_id] = float(vector_score)
+                    except (ValueError, TypeError):
                         pass
 
                 processed.append(Result(key=doc_id, score=score))
             except (ValueError, TypeError):
                 pass  # Skip invalid scores
 
-    return processed, ranking_info
+    return processed, score_info
 
 
 def _create_comparison_table(actual_results: List[Result], expected_results: List[Result],
-                           ranking_info: dict = None, original_search_results: List[Result] = None,
+                           score_info: dict = None, original_search_results: List[Result] = None,
                            original_vector_results: List[Result] = None) -> str:
-    """Create side-by-side comparison table of actual vs expected results with search/vector rankings"""
+    """Create side-by-side comparison table of actual vs expected results with search/vector scores"""
     lines = []
     lines.append("="*200)
-    lines.append(f"{'RANK':<6} {'ACTUAL DOC_ID':<20} {'ACTUAL SCORE':<15} {'A_SEARCH':<10} {'A_VECTOR':<10} {'|':<3} {'EXPECTED DOC_ID':<20} {'EXPECTED SCORE':<15} {'E_SEARCH':<10} {'E_VECTOR':<10} {'MATCH':<8}")
+    lines.append(f"{'RANK':<6} {'ACTUAL DOC_ID':<20} {'ACTUAL SCORE':<15} {'A_SEARCH':<15} {'A_VECTOR':<15} {'|':<3} {'EXPECTED DOC_ID':<20} {'EXPECTED SCORE':<15} {'E_SEARCH':<15} {'E_VECTOR':<15} {'MATCH':<8}")
     lines.append("-"*200)
 
-    # Get ranking maps from hybrid results (for actual results)
-    actual_search_rank_map = ranking_info.get('search_ranks', {}) if ranking_info else {}
-    actual_vector_rank_map = ranking_info.get('vector_ranks', {}) if ranking_info else {}
+    # Get score maps from hybrid results (for actual results)
+    actual_search_score_map = score_info.get('search_scores', {}) if score_info else {}
+    actual_vector_score_map = score_info.get('vector_scores', {}) if score_info else {}
 
-    # Create ranking maps from original search and vector results (for expected results)
-    expected_search_rank_map = {}
-    expected_vector_rank_map = {}
+    # Create score maps from original search and vector results (for expected results)
+    expected_search_score_map = {}
+    expected_vector_score_map = {}
 
     if original_search_results:
-        for rank, result in enumerate(original_search_results, 1):
-            expected_search_rank_map[result.key] = rank
+        for result in original_search_results:
+            expected_search_score_map[result.key] = result.score
 
     if original_vector_results:
-        for rank, result in enumerate(original_vector_results, 1):
-            expected_vector_rank_map[result.key] = rank
+        for result in original_vector_results:
+            expected_vector_score_map[result.key] = result.score
 
     max_len = max(len(actual_results), len(expected_results))
 
@@ -202,11 +203,11 @@ def _create_comparison_table(actual_results: List[Result], expected_results: Lis
             actual_doc_str = actual_result.key[:19]  # Truncate if too long
             actual_score_str = f"{actual_result.score:.10f}"
 
-            # Get search and vector rankings for actual doc (from hybrid results)
-            actual_search_rank = actual_search_rank_map.get(actual_result.key, MISSING_VALUE)
-            actual_vector_rank = actual_vector_rank_map.get(actual_result.key, MISSING_VALUE)
-            actual_search_str = str(actual_search_rank) if actual_search_rank != MISSING_VALUE else MISSING_VALUE
-            actual_vector_str = str(actual_vector_rank) if actual_vector_rank != MISSING_VALUE else MISSING_VALUE
+            # Get search and vector scores for actual doc (from hybrid results)
+            actual_search_score = actual_search_score_map.get(actual_result.key, MISSING_VALUE)
+            actual_vector_score = actual_vector_score_map.get(actual_result.key, MISSING_VALUE)
+            actual_search_str = f"{actual_search_score:.10f}" if actual_search_score != MISSING_VALUE else MISSING_VALUE
+            actual_vector_str = f"{actual_vector_score:.10f}" if actual_vector_score != MISSING_VALUE else MISSING_VALUE
         else:
             actual_doc_str = MISSING_VALUE
             actual_score_str = MISSING_VALUE
@@ -219,11 +220,11 @@ def _create_comparison_table(actual_results: List[Result], expected_results: Lis
             expected_doc_str = expected_result.key[:19]  # Truncate if too long
             expected_score_str = f"{expected_result.score:.10f}"
 
-            # Get search and vector rankings for expected doc (from original results)
-            expected_search_rank = expected_search_rank_map.get(expected_result.key, MISSING_VALUE)
-            expected_vector_rank = expected_vector_rank_map.get(expected_result.key, MISSING_VALUE)
-            expected_search_str = str(expected_search_rank) if expected_search_rank != MISSING_VALUE else MISSING_VALUE
-            expected_vector_str = str(expected_vector_rank) if expected_vector_rank != MISSING_VALUE else MISSING_VALUE
+            # Get search and vector scores for expected doc (from original results)
+            expected_search_score = expected_search_score_map.get(expected_result.key, MISSING_VALUE)
+            expected_vector_score = expected_vector_score_map.get(expected_result.key, MISSING_VALUE)
+            expected_search_str = f"{expected_search_score:.10f}" if expected_search_score != MISSING_VALUE else MISSING_VALUE
+            expected_vector_str = f"{expected_vector_score:.10f}" if expected_vector_score != MISSING_VALUE else MISSING_VALUE
         else:
             expected_doc_str = MISSING_VALUE
             expected_score_str = MISSING_VALUE
@@ -237,7 +238,7 @@ def _create_comparison_table(actual_results: List[Result], expected_results: Lis
         else:
             match_str = "✗"
 
-        lines.append(f"{i+1:<6} {actual_doc_str:<20} {actual_score_str:<15} {actual_search_str:<10} {actual_vector_str:<10} {'|':<3} {expected_doc_str:<20} {expected_score_str:<15} {expected_search_str:<10} {expected_vector_str:<10} {match_str:<8}")
+        lines.append(f"{i+1:<6} {actual_doc_str:<20} {actual_score_str:<15} {actual_search_str:<15} {actual_vector_str:<15} {'|':<3} {expected_doc_str:<20} {expected_score_str:<15} {expected_search_str:<15} {expected_vector_str:<15} {match_str:<8}")
 
     lines.append("="*200)
     return "\n" + "\n".join(lines) + "\n"
@@ -355,6 +356,10 @@ def run_test_scenario(env, index_name, scenario, vector_blob):
         scenario: Dict with test scenario
         index_name: Redis index name
         vector_blob: Vector data as bytes
+
+    Note:
+        To get the search_score and vector score of hybrid printed in case of error,
+        add YIELD_SCORE_AS to the search and vector subqueries in the scenario.
     """
 
     conn = getConnectionByEnv(env)
@@ -383,11 +388,11 @@ def run_test_scenario(env, index_name, scenario, vector_blob):
                 scenario['hybrid_query'], vector_blob, index_name)
     hybrid_results_raw = env.cmd(*hybrid_cmd)
 
-    hybrid_results, ranking_info = _process_hybrid_response(hybrid_results_raw)
+    hybrid_results, score_info = _process_hybrid_response(hybrid_results_raw)
     _sort_adjacent_same_scores(hybrid_results)
 
     # Create comparison table for debugging
-    comparison_table = _create_comparison_table(hybrid_results, expected_rrf, ranking_info, search_results, vector_results)
+    comparison_table = _create_comparison_table(hybrid_results, expected_rrf, score_info, search_results, vector_results)
     # print(comparison_table)
 
     # Assert with detailed comparison table on failure

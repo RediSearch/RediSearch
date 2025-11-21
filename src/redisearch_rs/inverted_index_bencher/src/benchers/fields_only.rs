@@ -58,9 +58,9 @@ impl Bencher {
 
                 let mut buffer = Cursor::new(Vec::new());
                 let _grew_size = if wide {
-                    FieldsOnlyWide.encode(&mut buffer, delta, &record).unwrap()
+                    FieldsOnlyWide::encode(&mut buffer, delta, &record).unwrap()
                 } else {
-                    FieldsOnly.encode(&mut buffer, delta, &record).unwrap()
+                    FieldsOnly::encode(&mut buffer, delta, &record).unwrap()
                 };
                 let encoded = buffer.into_inner();
 
@@ -90,11 +90,9 @@ impl Bencher {
                             .field_mask(test.field_mask);
 
                         let grew_size = if self.wide {
-                            FieldsOnlyWide
-                                .encode(&mut buffer, test.delta, &record)
-                                .unwrap()
+                            FieldsOnlyWide::encode(&mut buffer, test.delta, &record).unwrap()
                         } else {
-                            FieldsOnly.encode(&mut buffer, test.delta, &record).unwrap()
+                            FieldsOnly::encode(&mut buffer, test.delta, &record).unwrap()
                         };
 
                         black_box(grew_size);

@@ -99,79 +99,23 @@ jobs:
                     "You can only build all configurations for master or a release branch")
               exit(1)
 
-  decide-linux:
-    if: ${{ inputs.platform != 'macos' }}
-    uses: ./.github/workflows/task-get-linux-configurations.yml
+  generate-matrix:
+    uses: ./.github/workflows/generate-matrix.yml
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
 
-  decide-macos:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
-    outputs:
-      platforms: ${{ steps.decide.outputs.platforms }}
-    steps:
-      - id: decide
-        shell: python
-        run: |
-          import os
-          platforms = []
-
-          if '${{ inputs.architecture }}' in ['all', 'x86_64']:
-            platforms.append('macos-15-intel')
-          if '${{ inputs.architecture }}' in ['all', 'aarch64']:
-            platforms.append('macos-latest')
-
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-            print(f'platforms={platforms}', file=f)
-
-  build-linux-x86:
-    needs: [decide-linux, setup]
-    if: contains(fromJson('["x86_64", "all"]'), inputs.architecture)
+  build-unified:
+    name: ${{ matrix.platform }} (${{ matrix.architecture }})
+    needs: [setup, generate-matrix]
     strategy:
       fail-fast: false
-      matrix:
-        OS: ${{ fromJson(needs.decide-linux.outputs.platforms_x86) }}
-        include: ${{ fromJson(needs.decide-linux.outputs.include_x86) }}
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
     uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:
-      container: ${{ matrix.OS }}
-      pre-steps-script: ${{ matrix.pre-deps }}
-      sha: ${{ needs.setup.outputs.sha }}
-      redis-ref: ${{ needs.setup.outputs.redis-ref }}
-      beta-version: ${{ needs.setup.outputs.beta-version }}
-
-  build-linux-arm:
-    needs: [decide-linux, setup]
-    if: contains(fromJson('["aarch64", "all"]'), inputs.architecture)
-    strategy:
-      fail-fast: false
-      matrix:
-        OS: ${{ fromJson(needs.decide-linux.outputs.platforms_arm) }}
-        include: ${{ fromJson(needs.decide-linux.outputs.include_arm) }}
-    uses: ./.github/workflows/task-build-artifacts.yml
-    secrets: inherit
-    with:
-      env: ${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}
-      container: ${{ matrix.OS }}
-      pre-steps-script: ${{ matrix.pre-deps }}
-      sha: ${{ needs.setup.outputs.sha }}
-      redis-ref: ${{ needs.setup.outputs.redis-ref }}
-      beta-version: ${{ needs.setup.outputs.beta-version }}
-
-  build-macos:
-    needs: [decide-macos, setup]
-    if: contains(fromJson('["macos", "all"]'), inputs.platform)
-    strategy:
-      fail-fast: false
-      matrix:
-        OS: ${{ fromJson(needs.decide-macos.outputs.platforms) }}
-    uses: ./.github/workflows/task-build-artifacts.yml
-    secrets: inherit
-    with:
-      env: ${{ matrix.OS }}
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
       beta-version: ${{ needs.setup.outputs.beta-version }}

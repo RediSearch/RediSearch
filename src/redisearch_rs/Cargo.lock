@@ -837,6 +837,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
+name = "iterators_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "inverted_index",
+ "rqe_iterators",
+]
+
+[[package]]
 name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1420,6 +1431,7 @@ dependencies = [
  "buffer",
  "fnv_ffi",
  "inverted_index_ffi",
+ "iterators_ffi",
  "query_error_ffi",
  "redis-module",
  "result_processor_ffi",
@@ -1681,6 +1693,18 @@ dependencies = [
  "enumflags2",
  "ffi",
  "inverted_index",
+ "unsafe-tools",
+]
+
+[[package]]
+name = "search_result_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "inverted_index",
+ "search_result",
+ "unsafe-tools",
 ]
 
 [[package]]
@@ -2061,6 +2085,28 @@ name = "unicode-xid"
 version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c1f860d7d29cf02cb2f3f359fd35991af3d30bac52c57d265a3c461074cb4dc"
+
+[[package]]
+name = "unsafe-tools"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ae4406a7eaa72970d80d69c25ed0df481ff68c21eae62cb09ca13e27ec2da3a"
+dependencies = [
+ "unsafe-tools-canary",
+ "unsafe-tools-mimic",
+]
+
+[[package]]
+name = "unsafe-tools-canary"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08dbed46104a79e4e32531f87299df16b53214daaffde2a3c488ac3f502f4e4e"
+
+[[package]]
+name = "unsafe-tools-mimic"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c925fa852969cb33845bcb97736763d404ec5cd9210c58ebf3cefe39abbed80a"
 
 [[package]]
 name = "untrusted"

@@ -60,8 +60,7 @@ fn test_encode_offsets_only() {
 
         let record = TestTermRecord::new(doc_id, 0, 1, offsets);
 
-        let bytes_written = OffsetsOnly::default()
-            .encode(&mut buf, delta, &record.record)
+        let bytes_written = OffsetsOnly::encode(&mut buf, delta, &record.record)
             .expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
@@ -90,7 +89,7 @@ fn test_encode_offsets_only_output_too_small() {
     let mut cursor = Cursor::new(buf);
     let record = inverted_index::RSIndexResult::term();
 
-    let res = OffsetsOnly::default().encode(&mut cursor, 0, &record);
+    let res = OffsetsOnly::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);

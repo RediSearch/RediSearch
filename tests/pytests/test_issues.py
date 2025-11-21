@@ -897,10 +897,10 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
     new_shard_id = new_shard_conn.execute_command('CLUSTER MYID')
     source_shard_id = conn.execute_command('CLUSTER MYID')
-    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {source_shard_id}"), "OK")
-    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"), "OK")
-    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
-    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
+    env.assertOk(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {source_shard_id}"))
+    env.assertOk(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"))
+    env.assertOk(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"))
+    env.assertOk(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"))
 
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
@@ -913,11 +913,15 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     #  ['slots', [10924, 16383],  'id', '4e51033405651441a4be6ddfb46cd85d0c54af6f', 'host', '127.0.0.1', 'port', 6383],
     #  ['slots', [0, 0],          'id', '1f834c5c207bbe8d6dab0c6f050ff06292eb333c', 'host', '127.0.0.1', 'port', 6385],
     # ]]
-    env.assertOk(new_shard_conn.execute_command("search.CLUSTERREFRESH"))
     cluster_info = new_shard_conn.execute_command("search.clusterinfo")
     shards_idx = cluster_info.index('shards') + 1
     unique_shards = set(shard[3] for shard in cluster_info[shards_idx])
-    env.assertEqual(len(unique_shards), initial_shards_count+1, message=f"cluster info is {cluster_info}")
+    with TimeLimit(10, f"Failed waiting for new shard to appear in search.clusterinfo: {cluster_info}"):
+      while len(unique_shards) != initial_shards_count+1:
+        time.sleep(0.1)
+        cluster_info = new_shard_conn.execute_command("search.clusterinfo")
+        shards_idx = cluster_info.index('shards') + 1
+        unique_shards = set(shard[3] for shard in cluster_info[shards_idx])
 
 @skip(cluster=True)
 def test_mod5910(env):
@@ -1601,3 +1605,43 @@ def test_mod_8157_RESP3():
 def test_mod_11975(env: Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   env.expect('FT.SEARCH', 'idx', '@t:("*")', 'DIALECT', '2').equal([0])
+
+@skip(cluster=False)
+def test_mod_12493(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+  # Add enough documents so 4 reads are needed from each shard to read all results (chunk size is 1000)
+  n_docs = 3200 * env.shardsCount
+  with env.getClusterConnectionIfNeeded() as conn:
+    for i in range(n_docs):
+      conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+  # Create a cursor
+  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR')
+
+  # Check that there are pending cursors on all shards
+  env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], env.shardsCount)
+
+  # Read another env.shardCount - 1 times. Expecting that each read will read 1000 results from each shard,
+  # so after env.shardsCount reads (including the initial aggregate), we will trigger another read from each shard
+  for _ in range(env.shardsCount - 1):
+    _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+
+  # Check again that there are pending cursors on all shards
+  env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], env.shardsCount)
+  # Check command stats for internal cursors command. We expect a single one (READ) on each shard
+  for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR']
+    env.assertEqual(stats['calls'], 1, message=f'Expected 1 call on shard {i}, got {stats["calls"]}')
+
+  # Delete the cursor. This should delete the internal cursors on all shards.
+  # If we call READ instead, they won't be deleted or depleted (3rd read, and we have 4 chunks), and the test will fail.
+  env.expect('FT.CURSOR', 'DEL', 'idx', cursor).ok()
+
+  # Expect another call on each shard for the DEL command
+  for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR']
+    env.assertEqual(stats['calls'], 2, message=f'Expected 2 calls on shard {i}, got {stats["calls"]}')
+
+  # Check that the internal cursors were deleted on all shards
+  env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], 0)

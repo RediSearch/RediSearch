@@ -16,7 +16,7 @@ mod c_mocks;
 
 #[test]
 fn test_inverted_index_usage() {
-    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, DocIdsOnly);
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
 
     for id in 0..3_200 {
         ii.add_record(&RSIndexResult::default().doc_id(id)).unwrap();
