@@ -6,5 +6,6 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#pragma once
-#include "value/value.h"
+
+mod c_symbols;
+pub(crate) mod query_term;

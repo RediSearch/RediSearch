@@ -9,8 +9,6 @@
 
 use rqe_iterators::{RQEIterator, SkipToOutcome, wildcard::Wildcard};
 
-mod c_mocks;
-
 /// Helper macro to assert skip_to result with expected doc_id
 /// This preserves the call site location in test failures
 macro_rules! assert_skip_to_found {

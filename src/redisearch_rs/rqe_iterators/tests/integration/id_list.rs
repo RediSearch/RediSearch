@@ -13,8 +13,6 @@ use rqe_iterators::{
     id_list::{SortedIdList, UnsortedIdList},
 };
 
-mod c_mocks;
-
 static CASES: &[&[u64]] = &[
     &[1, 3, 5, 7, 9],
     &[2, 4, 6, 8, 10],

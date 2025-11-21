@@ -10,6 +10,8 @@
 #pragma once
 
 #include "iterator_api.h"
+#include "rlookup.h"
+#include "types_rs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,6 +46,17 @@ typedef struct {
 QueryIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight);
 
 QueryIterator *NewMetricIterator(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type);
+
+/**
+ * First clear the metric data stored in the provided result.
+ * Then store the provided metric value in the now-empty array.
+ *
+ * # Rationale
+ *
+ * This is a supporting function used in the Rust implementation of the
+ * metric iterator. It will be removed once RSValue is ported over to Rust.
+ */
+void ResetAndPushMetricData(RSIndexResult *result, double val, RLookupKey* key);
 
 #ifdef __cplusplus
 }

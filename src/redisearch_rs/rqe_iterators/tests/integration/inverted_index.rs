@@ -22,7 +22,7 @@ use rqe_iterators::{
 };
 use std::cell::UnsafeCell;
 
-mod c_mocks;
+use crate::ffi::query_term::QueryTermBuilder;
 
 /// Test basic read and skip_to functionality for a given iterator.
 struct BaseTest<E> {
@@ -493,13 +493,11 @@ impl TermTest {
     // only used within the test's lifetime, making this safe despite the 'static claim.
     fn expected_record(
         doc_id: t_docId,
-        term: &Box<ffi::RSQueryTerm>,
+        term: *mut ffi::RSQueryTerm,
         offsets: &Vec<u8>,
     ) -> RSIndexResult<'static> {
-        let term: *const _ = &*term;
-
         RSIndexResult::term_with_term_ptr(
-            term as _,
+            term,
             RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
             doc_id,
             (doc_id / 2) as t_fieldMask + 1,
@@ -514,23 +512,6 @@ impl TermTest {
             | IndexFlags_Index_StoreByteOffsets;
 
         const TEST_STR: &str = "term";
-        let test_str_ptr = TEST_STR.as_ptr() as *mut _;
-        let term = Box::new(ffi::RSQueryTerm {
-            str_: test_str_ptr,
-            len: TEST_STR.len(),
-            idf: 5.0,
-            id: 1,
-            flags: 0,
-            bm25_idf: 10.0,
-        });
-        let term2 = Box::new(ffi::RSQueryTerm {
-            str_: test_str_ptr,
-            len: TEST_STR.len(),
-            idf: 5.0,
-            id: 1,
-            flags: 0,
-            bm25_idf: 10.0,
-        });
 
         let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         let offsets_clone = offsets.clone();
@@ -538,12 +519,32 @@ impl TermTest {
         Self {
             test: BaseTest::new(
                 flags,
-                Box::new(move |doc_id| Self::expected_record(doc_id, &term, &offsets)),
+                Box::new(move |doc_id| {
+                    let term = QueryTermBuilder {
+                        token: TEST_STR,
+                        idf: 5.0,
+                        id: 1,
+                        flags: 0,
+                        bm25_idf: 10.0,
+                    }
+                    .allocate();
+                    Self::expected_record(doc_id, term, &offsets)
+                }),
                 n_docs,
             ),
             revalidate_test: RevalidateTest::new(
                 IndexFlags_Index_StoreTermOffsets,
-                Box::new(move |doc_id| Self::expected_record(doc_id, &term2, &offsets_clone)),
+                Box::new(move |doc_id| {
+                    let term2 = QueryTermBuilder {
+                        token: TEST_STR,
+                        idf: 5.0,
+                        id: 1,
+                        flags: 0,
+                        bm25_idf: 10.0,
+                    }
+                    .allocate();
+                    Self::expected_record(doc_id, term2, &offsets_clone)
+                }),
                 n_docs,
             ),
         }

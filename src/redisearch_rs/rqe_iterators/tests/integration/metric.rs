@@ -11,7 +11,6 @@ use rqe_iterators::{
     RQEIterator, RQEValidateStatus,
     metric::{MetricIteratorSortedById, MetricIteratorSortedByScore},
 };
-mod c_mocks;
 
 #[test]
 #[should_panic(expected = "assertion failed: ids.len() == metric_data.len()")]
