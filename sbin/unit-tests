@@ -184,7 +184,7 @@ run_single_test() {
 # Run C unit tests
 #------------------------------------------------------------------------------
 run_c_tests() {
-    print_separator    
+    print_separator
     C_TESTS_DIR="$BINDIR/tests/ctests"
     if [[ ! -d "$C_TESTS_DIR" ]]; then
         echo "C tests directory not found: $C_TESTS_DIR"
@@ -270,32 +270,32 @@ run_cpp_tests() {
 #------------------------------------------------------------------------------
 parse_cpp_test_results() {
     local log_file=$1
+    cat "$log_file"
+    # echo "Individual test results:"
 
-    echo "Individual test results:"
+    # # Extract all test results (both passed and failed)
+    # grep -E "\[ *OK *\]|\[ *FAILED *\]" "$log_file" | while read -r line; do
+    #     if [[ $line == *"[       OK ]"* ]]; then
+    #         # Extract test name from passed test
+    #         test_name=$(echo "$line" | sed -e 's/\[ *OK *\] \(.*\) (.* ms)/\1/')
+    #         echo "$test_name ... PASS"
+    #     elif [[ $line == *"[  FAILED  ]"* ]]; then
+    #         # Extract test name from failed test
+    #         test_name=$(echo "$line" | sed -e 's/\[ *FAILED *\] \(.*\)/\1/')
+    #         echo "$test_name ... FAIL"
+    #     fi
+    # done
 
-    # Extract all test results (both passed and failed)
-    grep -E "\[ *OK *\]|\[ *FAILED *\]" "$log_file" | while read -r line; do
-        if [[ $line == *"[       OK ]"* ]]; then
-            # Extract test name from passed test
-            test_name=$(echo "$line" | sed -e 's/\[ *OK *\] \(.*\) (.* ms)/\1/')
-            echo "$test_name ... PASS"
-        elif [[ $line == *"[  FAILED  ]"* ]]; then
-            # Extract test name from failed test
-            test_name=$(echo "$line" | sed -e 's/\[ *FAILED *\] \(.*\)/\1/')
-            echo "$test_name ... FAIL"
-        fi
-    done
+    # # Show the full output for failed tests if any
+    # if grep -q "\[ *FAILED *\]" "$log_file"; then
+    #     printf "\nFailed tests output:\n"
+    #     # Extract sections for failed tests
+    #     awk '/\[ *RUN *\]/{test=$0} /\[ *FAILED *\]/{print test; print $0; print "----- Error details -----"; flag=1; next} flag{print} /\[ *RUN *\]/{flag=0}' "$log_file"
+    # fi
 
-    # Show the full output for failed tests if any
-    if grep -q "\[ *FAILED *\]" "$log_file"; then
-        printf "\nFailed tests output:\n"
-        # Extract sections for failed tests
-        awk '/\[ *RUN *\]/{test=$0} /\[ *FAILED *\]/{print test; print $0; print "----- Error details -----"; flag=1; next} flag{print} /\[ *RUN *\]/{flag=0}' "$log_file"
-    fi
-
-    # Show summary
-    printf "\nTest summary:\n"
-    grep "\[==========\]" "$log_file" | tail -n 2
+    # # Show summary
+    # printf "\nTest summary:\n"
+    # grep "\[==========\]" "$log_file" | tail -n 2
 }
 
 #------------------------------------------------------------------------------
