@@ -223,7 +223,7 @@ void QITR_FreeChain(QueryProcessingCtx *qitr) {
     rp->Free(rp);
     rp = next;
   }
-  RedisModule_Log(NULL, "debug", "QITR_FreeChain: Starting cleanup");
+  RedisModule_Log(NULL, "debug", "QITR_FreeChain: Finished cleanup");
 }
 
 /*******************************************************************************************************************
