@@ -294,10 +294,11 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     const char *firstArg;
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
-    if (isSortby0 && *papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) {
+    if (isSortby0 && ((*papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) || (*papCtx->reqflags & QEXEC_F_IS_AGGREGATE))) {
       AC_Advance(ac);  // Advance without adding SortBy step to the plan
       *papCtx->reqflags |= QEXEC_F_NO_SORT;
     } else {
+      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SORTBY);
       PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
       if (parseSortby(arng, ac, status, papCtx) != REDISMODULE_OK) {
         return ARG_ERROR;
@@ -593,9 +594,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+      AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
       optimization_specified = true;
     } else {
       ParseAggPlanContext papCtx = {
@@ -1070,6 +1073,32 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   if (IsInternal(req) && !req->querySlots) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Internal query missing slots specification");
     goto error;
+  }
+
+  // Define if we need a depleter in the pipeline
+  if (IsAggregate(req) && HasWithCount(req) && !IsCount(req)) {
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
+    bool isLimited = (arng && arng->isLimited && arng->limit > 0);
+
+    if (req->protocol == 2)
+    {
+      if (!HasSortBy(req) || (HasSortBy(req) && isLimited)) {
+        // FT.AGGREGATE idx '*' WITHCOUNT + SORTBY + LIMIT
+        // FT.AGGREGATE idx '*' WITHCOUNT + LIMIT
+        AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+      }
+    } else if (req->protocol == 3) {
+      if (isLimited) {
+        // FT.AGGREGATE idx '*' WITHCOUNT + LIMIT
+        // FT.AGGREGATE idx '*' WITHCOUNT + SORTBY + LIMIT
+        AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+      }
+    }
+
+    // For FT.AGGREGATE with cursor, we can't use depleters.
+    if (IsCursor(req) && !IsInternal(req)) {
+      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+    }
   }
 
   return REDISMODULE_OK;

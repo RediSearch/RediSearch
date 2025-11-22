@@ -537,10 +537,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       Profile_PrepareMapForReply(reply);
     }
 
-    if (IsOptimized(req)) {
-      QOptimizer_UpdateTotalResults(req);
-    }
-
     // <attributes>
     RedisModule_ReplyKV_Array(reply, "attributes");
     RedisModule_Reply_ArrayEnd(reply);
@@ -581,6 +577,10 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
 done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
+
+    if (IsOptimized(req)) {
+      QOptimizer_UpdateTotalResults(req);
+    }
 
     // <total_results>
     RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
@@ -951,12 +951,12 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   AREQ_AddRequestFlags(*r, QEXEC_FORMAT_DEFAULT);
 
+  (*r)->protocol = is_resp3(ctx) ? 3 : 2;
+
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;
   }
-
-  (*r)->protocol = is_resp3(ctx) ? 3 : 2;
 
   // Prepare the query.. this is where the context is applied.
   if (AREQ_RequestFlags(*r) & QEXEC_F_IS_CURSOR) {
