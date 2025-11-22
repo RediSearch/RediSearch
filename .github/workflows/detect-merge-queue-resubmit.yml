@@ -119,44 +119,8 @@ jobs:
         with:
           payload: |
             {
-              "text": "⚠️ Merge Queue Resubmission Without New Commits Detected",
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "⚠️ Merge Queue Resubmission Without New Commits",
-                    "emoji": true
-                  }
-                },
-                {
-                  "type": "section",
-                  "fields": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "*PR:*\n<${{ steps.check.outputs.pr_url }}|#${{ steps.check.outputs.pr_number }} - ${{ steps.check.outputs.pr_title }}>"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Author:*\n${{ steps.check.outputs.pr_author }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*HEAD SHA:*\n`${{ github.event.merge_group.head_sha }}`"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Workflow Run:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
-                    }
-                  ]
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "This PR was re-added to the merge queue after a previous failure/cancellation, but *no new commits* were pushed. This may indicate the PR was re-queued without addressing the failure."
-                  }
-                }
-              ]
+              "PR": "${{ steps.check.outputs.pr_url }}#${{ steps.check.outputs.pr_number }} - ${{ steps.check.outputs.pr_title }}",
+              "Author": "${{ steps.check.outputs.pr_author }}",
+              "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
 
