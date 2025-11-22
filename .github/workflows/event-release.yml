@@ -47,6 +47,8 @@ jobs:
           INPUT_TAG: ${{ env.input_tag }}
         shell: python
         run: |
+          import os
+
           with open("src/version.h", "r") as fp:
             major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
           def valid_tag(tag):
@@ -60,7 +62,6 @@ jobs:
           if not valid_version_branch(version_branch) and os.environ["EVENT_NAME"] == 'release':
             raise Exception(f"Version branch {version_branch} does not match the tag {tag}")
 
-          import os
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
             print(f"cur_version={major}.{minor}.{patch}", file=fp)
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
