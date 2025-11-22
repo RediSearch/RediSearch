@@ -53,13 +53,13 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "/repos/$REPO/actions/runs?event=merge_group&per_page=100" \
-            --jq ".workflow_runs[] | select(.id != $CURRENT_RUN_ID) | {id: .id, head_sha: .head_sha, conclusion: .conclusion, head_ref: .head_branch}")
+            --jq ".workflow_runs[] | select(.id != $CURRENT_RUN_ID) | {id: .id, head_sha: .head_sha, conclusion: .conclusion, head_ref: .head_branch}" | jq -s '.')
 
           echo "Recent merge_group runs:"
-          echo "$ALL_RUNS" | jq -c '.'
+          echo "$ALL_RUNS" | jq -c '.[]'
 
           # Look for previous runs from the same PR (by matching PR number in head_ref)
-          PREVIOUS_RUN_DATA=$(echo "$ALL_RUNS" | jq -r "select(.head_ref | test(\"pr-${PR_NUM}-\")) | select(.conclusion == \"failure\" or .conclusion == \"cancelled\")" | head -1)
+          PREVIOUS_RUN_DATA=$(echo "$ALL_RUNS" | jq -c ".[] | select(.head_ref | test(\"pr-${PR_NUM}-\")) | select(.conclusion == \"failure\" or .conclusion == \"cancelled\")" | head -1)
 
           if [[ -z "$PREVIOUS_RUN_DATA" ]]; then
             echo "No previous failed/cancelled runs found for PR #$PR_NUM"
@@ -67,7 +67,7 @@ jobs:
             exit 0
           fi
 
-          PREVIOUS_RUN_ID=$(echo "$PREVIOUS_RUN_DATA" | jq -r '.id')
+          PREVIOUS_RUN_ID=$(echo "$PREVIOUS_RUN_DATA" | jq -r '.id // empty')
           echo "Found previous failed/cancelled run ID: $PREVIOUS_RUN_ID"
 
           # Now check if the PR's head SHA has changed since that previous run
@@ -119,44 +119,8 @@ jobs:
         with:
           payload: |
             {
-              "text": "⚠️ Merge Queue Resubmission Without New Commits Detected",
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "⚠️ Merge Queue Resubmission Without New Commits",
-                    "emoji": true
-                  }
-                },
-                {
-                  "type": "section",
-                  "fields": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "*PR:*\n<${{ steps.check.outputs.pr_url }}|#${{ steps.check.outputs.pr_number }} - ${{ steps.check.outputs.pr_title }}>"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Author:*\n${{ steps.check.outputs.pr_author }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*HEAD SHA:*\n`${{ github.event.merge_group.head_sha }}`"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Workflow Run:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
-                    }
-                  ]
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "This PR was re-added to the merge queue after a previous failure/cancellation, but *no new commits* were pushed. This may indicate the PR was re-queued without addressing the failure."
-                  }
-                }
-              ]
+              "PR": "${{ steps.check.outputs.pr_url }}#${{ steps.check.outputs.pr_number }} - ${{ steps.check.outputs.pr_title }}",
+              "Author": "${{ steps.check.outputs.pr_author }}",
+              "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
 
