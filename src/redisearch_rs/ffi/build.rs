@@ -61,7 +61,7 @@ fn main() {
         root.join("src").join("config.h"),
         root.join("src").join("result_processor.h"),
         root.join("src").join("sortable.h"),
-        root.join("src").join("value.h"),
+        root.join("src").join("value").join("value.h"),
         root.join("src").join("obfuscation").join("hidden.h"),
         root.join("src").join("spec.h"),
         root.join("src").join("doc_table.h"),
@@ -70,6 +70,7 @@ fn main() {
         root.join("src").join("query.h"),
         root.join("src").join("util").join("arr").join("arr.h"),
         root.join("src").join("search_disk_api.h"),
+        root.join("src").join("iterators/idlist_iterator.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();
