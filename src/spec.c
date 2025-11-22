@@ -3195,9 +3195,6 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
     return;
   }
   Indexes_Free(specDict_g);
-#ifdef MT_BUILD
-  workersThreadPool_Drain(ctx, 0);
-#endif
   Dictionary_Clear();
   RSGlobalStats.totalStats.used_dialects = 0;
 }
