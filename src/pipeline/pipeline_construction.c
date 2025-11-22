@@ -257,6 +257,14 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
       if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
+        // if (IsInternal(&params->common)) {
+        //   // In non-optimized aggregate queries, we sort all results
+        //   rp = RPSorter_NewByFields(UINT32_MAX, sortkeys, nkeys, astp->sortAscMap);
+        //   up = pushRP(&pipeline->qctx, rp, up);
+        // } else {
+        //   rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
+        //   up = pushRP(&pipeline->qctx, rp, up);
+        // }
         // In non-optimized aggregate queries, we sort all results
         rp = RPSorter_NewByFields(UINT32_MAX, sortkeys, nkeys, astp->sortAscMap);
         up = pushRP(&pipeline->qctx, rp, up);
@@ -285,14 +293,14 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
-  } else if (AggregateRequiresPagerAtCoordinator(&params->common, astp)) {
-    if (astp->offset || (astp->limit)) {
-      rp = RPPager_New(astp->offset, astp->limit);
-      up = pushRP(&pipeline->qctx, rp, up);
-    } else {
-      rp = RPPager_New(0, DEFAULT_LIMIT);
-      up = pushRP(&pipeline->qctx, rp, up);
-    }
+  // } else if (AggregateRequiresPagerAtCoordinator(&params->common, astp)) {
+  //   if (astp->offset || (astp->limit)) {
+  //     rp = RPPager_New(astp->offset, astp->limit);
+  //     up = pushRP(&pipeline->qctx, rp, up);
+  //   } else {
+  //     rp = RPPager_New(0, DEFAULT_LIMIT);
+  //     up = pushRP(&pipeline->qctx, rp, up);
+  //   }
   }
 
 
