@@ -105,6 +105,8 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.coord_warnings.timeout = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout);
   stats.shard_warnings.oom = READ(RSGlobalStats.totalStats.queries.shard_warnings.oom);
   stats.coord_warnings.oom = READ(RSGlobalStats.totalStats.queries.coord_warnings.oom);
+  stats.shard_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.shard_warnings.maxPrefixExpansion);
+  stats.coord_warnings.maxPrefixExpansion = READ(RSGlobalStats.totalStats.queries.coord_warnings.maxPrefixExpansion);
   return stats;
 }
 
@@ -157,6 +159,9 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
       break;
     case QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD:
       INCR_BY(queries_warnings->oom, toAdd);
+      break;
+    case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS:
+      INCR_BY(queries_warnings->maxPrefixExpansion, toAdd);
       break;
   }
 }
