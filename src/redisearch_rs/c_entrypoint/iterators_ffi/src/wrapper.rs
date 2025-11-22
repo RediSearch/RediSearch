@@ -70,11 +70,15 @@ where
         base: *mut QueryIterator,
     ) -> &'index mut RQEIteratorWrapper<I> {
         debug_assert!(!base.is_null());
+
         // SAFETY: Guaranteed by 1 + 2.
-        unsafe {
-            base.cast::<RQEIteratorWrapper<I>>()
-                .as_mut()
-                .expect("Null pointer!")
+        let wrapper = unsafe { base.cast::<RQEIteratorWrapper<I>>().as_mut() };
+
+        if cfg!(debug_assertions) {
+            wrapper.expect("Unexpected null pointer!")
+        } else {
+            // SAFETY: Guaranteed by 1.
+            unsafe { wrapper.unwrap_unchecked() }
         }
     }
 }
