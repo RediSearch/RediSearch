@@ -303,15 +303,15 @@ def _test_profile(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'],
          ['Index', 'Sorter', 'Pager/Limiter'],
          ['Index', 'Sorter', 'Pager/Limiter'],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]),
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
 
         # WITHCOUNT + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
          ['Index', 'Sorter', 'Pager/Limiter'],
          ['Index', 'Sorter', 'Pager/Limiter'],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']],
-         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]),
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
 
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'],

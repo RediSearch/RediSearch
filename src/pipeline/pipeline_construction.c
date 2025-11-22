@@ -252,6 +252,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         sortkeys[ii] = sortkey;
       }
       if (loadKeys) {
+        RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:1 loadkeys");
         // If we have keys to load, add a loader step.
         ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, lk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
         up = pushRP(&pipeline->qctx, rpLoader, up);
@@ -285,22 +286,43 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     } else if (IsHybrid(&params->common) ||
                (IsSearch(&params->common) && !IsOptimized(&params->common)) ||
                HasScorer(&params->common)) {
+      RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.3");
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
       up = pushRP(&pipeline->qctx, rp, up);
     } else if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
+      RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.4 IsAggregate && HasDepleter");
       // In non-optimized aggregate queries, we need to add a synchronous depleter
       // Use RPSyncDepleter_New to run synchronously (no background thread)
       rp = RPSyncDepleter_New();
       up = pushRP(&pipeline->qctx, rp, up);
+      if (astp->isLimited && !IsInternal(&params->common)) {
+        RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.4.1 astp->isLimited && !IsInternal");
+        rp = RPPager_New(astp->offset, astp->limit);
+        up = pushRP(&pipeline->qctx, rp, up);
+      }
     }
+  } else {
+    RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:4 No sorter");
   }
 
-  if (astp->offset || (astp->limit && !rp)) {
-    rp = RPPager_New(astp->offset, astp->limit);
-    up = pushRP(&pipeline->qctx, rp, up);
+  if ((astp->offset || (astp->limit && !rp))) {
+    if (IsAggregate(&params->common) && HasWithCount(&params->common) && astp->isLimited && !IsInternal(&params->common) && !HasSortBy(&params->common)) {
+      // FT.AGGREGATE + WITHCOUNT + LIMIT n m (n > 0) NOT SORTED -> Add pager at coordinator
+      rp = RPPager_New(0, astp->limit);
+      up = pushRP(&pipeline->qctx, rp, up);
+    } else {
+      RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:5 astp->offset || (astp->limit && !rp)");
+      RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:5 astp->offset = %lu, astp->limit = %lu", astp->offset, astp->limit);
+      RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:5 rp = %p", rp);
+      RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:5 HasDepleter = %d, HasSortBy = %d, HasWithCount = %d, IsInternal = %d",
+        !!HasDepleter(&params->common), !!HasSortBy(&params->common), !!HasWithCount(&params->common), !!IsInternal(&params->common), up);
+      rp = RPPager_New(astp->offset, astp->limit);
+      up = pushRP(&pipeline->qctx, rp, up);
+    }
   } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
+    RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:6 IsSearch && IsOptimized && !rp");
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
   // } else if (AggregateRequiresPagerAtCoordinator(&params->common, astp)) {
