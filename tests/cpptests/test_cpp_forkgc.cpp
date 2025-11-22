@@ -706,8 +706,10 @@ TEST_F(FGCTestTag, testPipeErrorDuringApply) {
   std::thread closer([this, &should_close, &thread_should_exit, &delay_usec]() {
     while (!thread_should_exit) {
       if (should_close) {
+        int fd = fgc->pipe_read_fd;
         usleep(delay_usec);
-        close(fgc->pipe_read_fd);
+        fgc->pipe_read_fd = -1;  // Invalidate the fd so it's ok to close it
+        close(fd); // Close the read end to simulate pipe error, and to not leak fds
         should_close = false;
       }
     }
