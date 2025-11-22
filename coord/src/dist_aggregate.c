@@ -755,6 +755,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd, knnCtx);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
+  xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
 
   // Build the result processor chain

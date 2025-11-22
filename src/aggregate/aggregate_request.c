@@ -893,6 +893,7 @@ AREQ *AREQ_New(void) {
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   req->optimizer = QOptimizer_New();
   req->profile = Profile_Print;
+  req->has_timedout = false;
   return req;
 }
 
