@@ -146,9 +146,9 @@ def _test_withcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'], docs, 10),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'], docs, 10),
 
-        # # WITHCOUNT + SORTBY + LIMIT
-        # # total_results = number of documents matching the query up to the LIMIT
-        # # length of results = min(total_results, LIMIT)
+        # WITHCOUNT + SORTBY + LIMIT
+        # total_results = number of documents matching the query up to the LIMIT
+        # length of results = min(total_results, LIMIT)
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], docs, 50), # Sanitizer error
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@price', 'LIMIT', 0, 50], docs, 50),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, int(docs/2)], docs, int(docs/2)),

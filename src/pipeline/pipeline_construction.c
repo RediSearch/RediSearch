@@ -176,9 +176,12 @@ static bool AggregateRequiresPagerAtCoordinator(CommonPipelineParams *cpp, PLN_A
         && !astp->isLimited ) {
       // FT.AGGREGATE + WITHCOUNT + SORTBY (no limit, no depleter)
       addPager = true;
-    } else if (HasDepleter(cpp) && astp->isLimited) {
-      // FT.AGGREGATE + depleter + LIMIT
+    } else if (HasDepleter(cpp) && HasWithCount(cpp) && !HasSortBy(cpp) && astp->isLimited) {
+      // FT.AGGREGATE + WITHCOUNT + LIMIT
       addPager = true;
+    // } else if (HasDepleter(cpp) && HasWithCount(cpp) && HasSortBy(cpp) && astp->isLimited) {
+    //   // FT.AGGREGATE + WiTHCOUNT + SORTBY + LIMIT
+    //   addPager = true;
     }
   }
   return addPager;
