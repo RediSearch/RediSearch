@@ -904,6 +904,10 @@ def _common_warnings_errors_cluster_test_scenario(env):
   # Create doc
   conn = getConnectionByEnv(env)
   conn.execute_command('HSET', 'doc:1', 'text', 'hello world')
+  # Needed for timeout tests (TIMEOUT_AFTER_N>1)
+  conn.execute_command('HSET', 'doc:2', 'text', 'hello world')
+
+
 
   # Create vector index for hybrid
   env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
@@ -1105,12 +1109,12 @@ class testWarningsAndErrorsCluster:
 
     # Test timeout error in FT.AGGREGATE (shards only via INTERNAL_ONLY)
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-                    'TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).error().contains('Timeout limit was reached')
+                    'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).error().contains('Timeout limit was reached')
     # Shards: +1 each again (total +2)
     for shardId in range(1, self.env.shardsCount + 1):
       info_dict = info_modules_to_dict(self.env.getConnection(shardId))
-      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 1),
-                           message=f"Shard {shardId} AGG INTERNAL_ONLY timeout error should be +1 total")
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 2),
+                           message=f"Shard {shardId} AGG INTERNAL_ONLY timeout error should be +2 total")
     # Coord: +2
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 2),
@@ -1179,6 +1183,100 @@ class testWarningsAndErrorsCluster:
     # Test other metrics not changed (on shards)
     tested_in_this_test = [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC]
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
+
+  def test_oom_errors_cluster_in_coord(self):
+    # Error/Warnings in Coordinator only
+    # Set OOM policy to fail
+    self.env.expect(config_cmd(), 'SET', 'ON_OOM', 'FAIL').ok()
+    coord_before_err = info_modules_to_dict(self.env)
+    base_err_coord = int(coord_before_err[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC])
+    base_warn_coord = int(coord_before_err[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC])
+    # Set maxmemory to 1 to trigger OOM
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+    # Test OOM error in FT.SEARCH
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').error().contains('Not enough memory available to execute the query')
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 1),
+                         message="Coordinator OOM error should be +1 after FT.SEARCH")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM error should not change after FT.SEARCH")
+
+    # Test OOM error in FT.AGGREGATE
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').error().contains('Not enough memory available to execute the query')
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 2),
+                         message="Coordinator OOM error should be +1 after FT.AGGREGATE")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM error should not change after FT.AGGREGATE")
+
+    # Test OOM error in FT.HYBRID
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).error().contains('Not enough memory available to execute the query')
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_ERROR_COORD_METRIC], str(base_err_coord + 3),
+                         message="Coordinator OOM error should be +1 after FT.HYBRID")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_ERROR_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM error should not change after FT.HYBRID")
+
+    # Test warnings
+    # Set policy to return
+    self.env.expect(config_cmd(), 'SET', 'ON_OOM', 'return').ok()
+    # Test warning in FT.SEARCH
+    self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 1),
+                         message="Coordinator OOM warning should be +1 after FT.SEARCH")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM warning should not change after FT.SEARCH")
+
+    # Test warning in FT.AGGREGATE
+    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 2),
+                         message="Coordinator OOM warning should be +1 after FT.AGGREGATE")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM warning should not change after FT.AGGREGATE")
+
+    # Test warning in FT.HYBRID
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).noError()
+    # Coord: +1
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], str(base_warn_coord + 3),
+                         message="Coordinator OOM warning should be +1 after FT.HYBRID")
+    # Shards: unchanged
+    for shardId in range(1, self.env.shardsCount + 1):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][OOM_WARNING_SHARD_METRIC], '0',
+                           message=f"Shard {shardId} OOM warning should not change after FT.HYBRID")
+
+    self.env.expect('CONFIG', 'SET', 'maxmemory', '0').ok()
+
+    # Test other metrics not changed
+    tested_in_this_test = [OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC]
+    self._verify_metrics_not_changes_all_shards(tested_in_this_test)
+
 
   def test_oom_errors_cluster_in_coord(self):
     # Error/Warnings in Coordinator only
@@ -1367,74 +1465,91 @@ class testWarningsAndErrorsCluster:
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
 
   def test_max_prefix_expansions_cluster(self):
-    pass
     # In cluster mode, maxprefixexpansion warnings are tracked at shard level
     # and propagated to coordinator
 
     # ---------- Max Prefix Expansions Warnings ----------
-    # Save original config for all shards
+    # Save original config for all shards but last
     original_max_prefix_expansions = {}
-    for shardId in range(1, self.env.shardsCount + 1):
+    for shardId in range(1, self.env.shardsCount):
       shard_conn = self.env.getConnection(shardId)
       original_max_prefix_expansions[shardId] = shard_conn.execute_command(config_cmd(), 'GET', 'MAXPREFIXEXPANSIONS')[0][1]
       shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
-      # Add documents to all shards except the last one
-      if shardId != self.env.shardsCount:
-        shard_conn.execute_command('HSET', f'doc:3', 'text', 'helloworld')
-        shard_conn.execute_command('HSET', f'vec:2', 'vector', np.array([0.5, 0.5]).astype(np.float32).tobytes(), 'text', 'helloworld')
 
-    # Test max prefix expansions warning in FT.SEARCH
-    self.env.expect('FT.SEARCH', 'idx', 'hello world').noError()
-    # Shards: +1 each (besides last shard which doesn't have enough documents)
-    shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
-    for i in range(1, self.env.shardsCount + 1):
-      if i == self.env.shardsCount:
-        self.env.assertEqual(shards_metrics[i - 1], '0',
-                           message=f"Shard {i} has wrong max prefix expansions warning count after FT.SEARCH")
-      else:
-        self.env.assertEqual(shards_metrics[i - 1], '1',
-                           message=f"Shard {i} has wrong max prefix expansions warning count after FT.SEARCH")
-    # Coordinator: +1
-    info_dict = info_modules_to_dict(self.env)
-    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], '1')
+    # Insert documents so all shards have enough documents to trigger max prefix expansions warning
+    docs_per_shard = 100
+    total_docs = docs_per_shard * (self.env.shardsCount)
+    conn = getConnectionByEnv(self.env)
+    for i in range(total_docs):
+      conn.execute_command('HSET', f'doc:maxprefix:{i}', 'text', f'helloworld{i}')
+      # For vector index
+      conn.execute_command('HSET', f'vec:maxprefix:{i}', 'text', f'helloworld{i}', 'vector', np.array([0.0, 0.0]).astype(np.float32).tobytes())
 
-    # Test max prefix expansions warning in FT.AGGREGATE
-    self.env.expect('FT.AGGREGATE', 'idx', 'hello world').noError()
-    # Shards: +1 each (besides last shard which doesn't have enough documents)
-    shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
-    for i in range(1, self.env.shardsCount + 1):
-      if i == self.env.shardsCount:
-        self.env.assertEqual(shards_metrics[i - 1], '0',
-                           message=f"Shard {i} has wrong max prefix expansions warning count after FT.AGGREGATE")
-      else:
-        self.env.assertEqual(shards_metrics[i - 1], '2',
-                           message=f"Shard {i} has wrong max prefix expansions warning count after FT.AGGREGATE")
-    # Coordinator: +1
-    info_dict = info_modules_to_dict(self.env)
-    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], '2')
+    # Trigger max prefix expansions warning in FT.SEARCH
+    self.env.expect('FT.SEARCH', 'idx', '@text:hell*').noError()
+    # Shards: +1 each besides last shard (which doesn't have enough docs to trigger warning)
+    for shardId in range(1, self.env.shardsCount):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '1',
+                           message=f"Shard {shardId} max prefix expansions warning should be +1 after FT.SEARCH")
+    # Last shard: unchanged
+    info_dict = info_modules_to_dict(self.env.getConnection(self.env.shardsCount))
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '0',
+                         message=f"Last shard max prefix expansions warning should not change after FT.SEARCH")
 
-    # Test max prefix expansions warning in FT.HYBRID
+    # Coord: Unchanged (Coord doesn't count warnings in ft.search since resp2 doesn't return warnings)
+    info_coord = info_modules_to_dict(self.env)
+    base_warn_coord = int(info_coord[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC])
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn_coord),
+                         message="Coordinator max prefix expansions warning should not change after FT.SEARCH")
+
+    # Trigger max prefix expansions warning in FT.AGGREGATE
+    self.env.expect('FT.AGGREGATE', 'idx', '@text:hell*').noError()
+    # Shards: +1 each besides last shard (which doesn't have enough docs to trigger warning)
+    for shardId in range(1, self.env.shardsCount):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '2',
+                           message=f"Shard {shardId} max prefix expansions warning should be +1 after FT.AGGREGATE")
+    # Last shard: unchanged
+    info_dict = info_modules_to_dict(self.env.getConnection(self.env.shardsCount))
+    self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '0',
+                         message=f"Last shard max prefix expansions warning should not change after FT.AGGREGATE")
+
+    # Coord: unchanged (Coord doesn't count warnings in ft.aggregate since resp2 doesn't return warnings)
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn_coord),
+                          message="Coordinator max prefix expansions warning should not change after FT.AGGREGATE")
+
+    # Trigger max prefix expansions warning in FT.HYBRID is not supported yet in cluster mode
+    # Change test when FT.HYBRID max prefix expansion warnings is supported in cluster mode
     query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-    self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', query_vector).noError()
-    # Shards: +1 each (besides last shard which doesn't have enough documents)
-    shards_metrics = [info_modules_to_dict(self.env.getConnection(i))[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC] for i in range(1, self.env.shardsCount + 1)]
-    for i in range(1, self.env.shardsCount + 1):
-      if i == self.env.shardsCount:
-        self.env.assertEqual(shards_metrics[i - 1], '0',
-                            message=f"Shard {i} has wrong max prefix expansions warning count after FT.HYBRID")
-      else:
-        self.env.assertEqual(shards_metrics[i - 1], '3',
-                          message=f"Shard {i} has wrong max prefix expansions warning count after FT.HYBRID")
-    # Coordinator: +1
-    info_dict = info_modules_to_dict(self.env)
-    self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], '3')
+    res = self.env.cmd('FT.HYBRID', 'idx_vec', 'SEARCH', 'hell*', 'VSIM', '@vector', query_vector)
+    # Verify *no* warning is returned in ft.hybrid response
+    warnings_idx = res.index('warnings') + 1
+    self.env.assertFalse('Max prefix expansions limit was reached' in res[warnings_idx])
 
-    # Clean up: Remove extra documents and restore original config
-    for shardId in range(1, self.env.shardsCount + 1):
+    # Shards: shoudl be +1 each besides last shard (which doesn't have enough docs to trigger warning)
+    # But since we don't support warnings in ft.hybrid in cluster mode, we don't expect any change
+    for shardId in range(1, self.env.shardsCount):
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC], '2',
+                           message=f"Shard {shardId} max prefix expansions warning should not change after FT.HYBRID")
+
+    # Coord: should be +1 since we don't support warnings in ft.hybrid in cluster mode
+    # Change test when FT.HYBRID max prefix expansion warnings is supported in cluster mode
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], str(base_warn_coord),
+                         message="Coordinator max prefix expansions warning should not change after FT.HYBRID")
+
+    # Restore original max prefix expansions
+    for shardId in range(1, self.env.shardsCount):
       shard_conn = self.env.getConnection(shardId)
-      if shardId != self.env.shardsCount:
-        shard_conn.execute_command('DEL', 'doc:4', 'vec:2').equal(2)
-      shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', original_max_prefix_expansions[shardId]).ok()
+      shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', original_max_prefix_expansions[shardId])
+
+    # Remove test data
+    for i in range(total_docs):
+      conn.execute_command('DEL', f'doc:maxprefix:{i}')
+      conn.execute_command('DEL', f'vec:maxprefix:{i}')
 
     # Test other metrics not changed
     tested_in_this_test = [MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC, MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC]
@@ -1522,3 +1637,35 @@ def test_warnings_metric_count_oom_cluster_in_shards_resp3():
   # Coord: +1
   info_coord = info_modules_to_dict(env)
   env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], '1')
+
+@skip(cluster=False)
+def test_warnings_metric_count_maxprefixexpansions_cluster_resp3():
+  # Test max prefix expansions warnings in shards and coord with RESP3
+  env  = Env(protocol=3)
+
+  # Create index and add documents
+  _common_warnings_errors_cluster_test_scenario(env)
+  # Add more documents with different words starting with "hell" to trigger prefix expansion
+  conn = getConnectionByEnv(env)
+  docs_per_shard = 100
+  total_docs = docs_per_shard * (env.shardsCount)
+  for i in range(total_docs):
+    conn.execute_command('HSET', f'doc:maxprefix:{i}', 'text', f'hello{i}')
+
+  # Set max prefix expansions to 1 in all shards
+  for shardId in range(1, env.shardsCount + 1):
+    shard_conn = env.getConnection(shardId)
+    shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+  # Test warning in FT.SEARCH
+  res = env.cmd('FT.SEARCH', 'idx', '@text:hell*')
+  env.assertEqual(res['warning'][0], 'Max prefix expansions limit was reached')
+  # Coord: +1
+  info_coord = info_modules_to_dict(env)
+  env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], '1')
+  # Test warning in FT.AGGREGATE
+  res = env.cmd('FT.AGGREGATE', 'idx', '@text:hell*')
+  env.assertEqual(res['warning'][0], 'Max prefix expansions limit was reached')
+  # Coord: +1
+  info_coord = info_modules_to_dict(env)
+  env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC], '2')
