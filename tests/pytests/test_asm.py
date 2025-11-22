@@ -87,7 +87,7 @@ def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
     with TimeLimit(timeout):
         while not is_migration_complete(conn, task_id):
             time.sleep(0.1)
-            
+
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
 # @skip(cluster=False, min_shards=2)
@@ -203,7 +203,6 @@ def add_shard_and_migrate_test(env: Env):
 
     # Add a new shard
     env.addShardToClusterIfExists()
-    time.sleep(5)  # wait a bit for the cluster to stabilize before migrating
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
     task = import_middle_slot_range(new_shard, shard1)
@@ -212,6 +211,9 @@ def add_shard_and_migrate_test(env: Env):
 
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
+
+    # Make sure all cluster nodes are aware of the new shard (it was ignored until now, as it had no slots)
+    env.waitCluster()
 
     # And expect all shards to return the same results, including the new one
     shards.append(new_shard)
@@ -226,3 +228,12 @@ def test_add_shard_and_migrate():
 def test_add_shard_and_migrate_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env)
+
+@skip(cluster=True)
+def test_slots_info_errors(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
+
+    env.expect('_FT.SEARCH', 'idx', '*').error().contains('Internal query missing slots specification')
+    env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', 'invalid_slots_data').error().contains('Failed to deserialize _SLOTS_INFO data')
+    env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(), '_SLOTS_INFO', generate_slots()).error().contains('_SLOTS_INFO already specified')

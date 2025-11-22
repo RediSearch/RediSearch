@@ -220,7 +220,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
 
   // Set request flags from hybridParams
   hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
-  if (HybridRequest_BuildPipeline(hreq, &hybridParams) != REDISMODULE_OK) {
+  if (HybridRequest_BuildPipeline(hreq, &hybridParams, false) != REDISMODULE_OK) {
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
     }

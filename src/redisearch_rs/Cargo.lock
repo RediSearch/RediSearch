@@ -195,6 +195,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
+name = "c_ffi_utils"
+version = "0.0.1"
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1274,6 +1278,7 @@ dependencies = [
 name = "query_error"
 version = "0.0.1"
 dependencies = [
+ "c_ffi_utils",
  "strum",
 ]
 
@@ -1282,6 +1287,7 @@ name = "query_error_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_ffi_utils",
  "cbindgen",
  "query_error",
 ]
@@ -1368,7 +1374,7 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
 dependencies = [
  "backtrace",
  "bindgen 0.66.1",
@@ -1390,7 +1396,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -1414,6 +1420,7 @@ dependencies = [
  "buffer",
  "fnv_ffi",
  "inverted_index_ffi",
+ "query_error_ffi",
  "redis-module",
  "result_processor_ffi",
  "triemap_ffi",
@@ -1738,6 +1745,19 @@ name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
+name = "slots_tracker"
+version = "0.0.1"
+
+[[package]]
+name = "slots_tracker_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "slots_tracker",
+]
 
 [[package]]
 name = "smallvec"
@@ -2094,6 +2114,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "value"
 version = "0.0.1"
 dependencies = [
+ "c_ffi_utils",
  "ffi",
 ]
 
@@ -2102,6 +2123,7 @@ name = "value_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_ffi_utils",
  "cbindgen",
  "libc",
  "redis-module",

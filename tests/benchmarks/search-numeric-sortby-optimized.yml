@@ -6,6 +6,9 @@ metadata:
 setups:
   - oss-standalone
   - oss-cluster-03-primaries
+  - oss-standalone-threads-6
+  - oss-cluster-04-primaries-threads-6
+
 dbconfig:
   - tool: ftsb_redisearch
   - parameters:

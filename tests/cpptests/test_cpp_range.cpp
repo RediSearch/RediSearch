@@ -121,7 +121,7 @@ void testRangeIteratorHelper(bool isMulti) {
       }
     }
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
-    FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+    FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
     FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
     QueryIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
 
@@ -194,7 +194,7 @@ void testRangeIteratorHelper(bool isMulti) {
   // test loading limited range
   double rangeArray[6][2] = {{0, 1000}, {0, 3000}, {1000, 3000}, {15000, 20000}, {19500, 20000}, {-1000, 21000}};
 
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_DEFAULT};
   for (size_t i = 0; i < 6; i++) {
     for (int j = 0; j < 2; ++j) {
       // j==1 for ascending order, j==0 for descending order

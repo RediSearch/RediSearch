@@ -47,8 +47,6 @@ def setup_basic_index(env):
         )
 
 
-# TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_multithread():
     env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
     setup_basic_index(env)
@@ -69,11 +67,18 @@ def test_hybrid_multithread():
 
     # Trigger thpool initialization.
     run_test_scenario(env, 'idx', scenario, query_vector)
-    # Expect 3 jobs done: 1 for the hybrid search, 1 for the search equivalent,
-    # and 1 for the vector equivalent
     # Drain the thread pool to make sure all jobs are done.
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 3)
+
+    if env.isCluster():
+        # Expect 5 jobs done: 3 for the hybrid search + its depleters,
+        # 1 for the search equivalent, and 1 for the vector equivalent
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 5)
+    else:
+        # Expect 3 jobs done: 1 for the hybrid search, 1 for the search
+        # equivalent, and 1 for the vector equivalent
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 3)
+
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 2)
 
     # Decrease number of threads
@@ -83,6 +88,11 @@ def test_hybrid_multithread():
 
     # Drain the thread pool to make sure all jobs are done.
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-    # Expect 6 jobs done: 3 more once the scenario is run again
-    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 6)
+    if env.isCluster():
+        # Expect 10 jobs done: 5 more once the scenario is run again
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 10)
+    else:
+        # Expect 6 jobs done: 3 more once the scenario is run again
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 6)
+
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 1)

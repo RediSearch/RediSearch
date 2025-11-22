@@ -1,0 +1,11 @@
+[package]
+name = "c_ffi_utils"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

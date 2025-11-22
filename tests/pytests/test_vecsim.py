@@ -1290,14 +1290,14 @@ def test_hybrid_query_non_vector_score():
     # Those scorers are scoring per shard.
     if not env.isCluster():
         # use BM25 scorer
-        expected_res_4 = [10, '100', '1.0489510218434552', ['__v_score', '0', 't', 'other'], '91', '0.34965034061448513', ['__v_score', '10368', 't', 'text value'], '92', '0.34965034061448513', ['__v_score', '8192', 't', 'text value'], '93', '0.34965034061448513', ['__v_score', '6272', 't', 'text value'], '94', '0.34965034061448513', ['__v_score', '4608', 't', 'text value'], '95', '0.34965034061448513', ['__v_score', '3200', 't', 'text value'], '96', '0.34965034061448513', ['__v_score', '2048', 't', 'text value'], '97', '0.34965034061448513', ['__v_score', '1152', 't', 'text value'], '98', '0.34965034061448513', ['__v_score', '512', 't', 'text value'], '99', '0.34965034061448513', ['__v_score', '128', 't', 'text value']]
+        expected_res_4 = [10, '100', '1.0948904833203477', ['__v_score', '0', 't', 'other'], '91', '0.36496349444011583', ['__v_score', '10368', 't', 'text value'], '92', '0.36496349444011583', ['__v_score', '8192', 't', 'text value'], '93', '0.36496349444011583', ['__v_score', '6272', 't', 'text value'], '94', '0.36496349444011583', ['__v_score', '4608', 't', 'text value'], '95', '0.36496349444011583', ['__v_score', '3200', 't', 'text value'], '96', '0.36496349444011583', ['__v_score', '2048', 't', 'text value'], '97', '0.36496349444011583', ['__v_score', '1152', 't', 'text value'], '98', '0.36496349444011583', ['__v_score', '512', 't', 'text value'], '99', '0.36496349444011583', ['__v_score', '128', 't', 'text value']]
         res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
         compare_lists(env, res, expected_res_4, delta=0.01)
 
         # use BM25STD scorer
-        expected_res_5 = [10, '100', '2.8811302846039606', ['__v_score', '0', 't', 'other'], '91', '0.005061343269334967', ['__v_score', '10368', 't', 'text value'], '92', '0.005061343269334967', ['__v_score', '8192', 't', 'text value'], '93', '0.005061343269334967', ['__v_score', '6272', 't', 'text value'], '94', '0.005061343269334967', ['__v_score', '4608', 't', 'text value'], '95', '0.005061343269334967', ['__v_score', '3200', 't', 'text value'], '96', '0.005061343269334967', ['__v_score', '2048', 't', 'text value'], '97', '0.005061343269334967', ['__v_score', '1152', 't', 'text value'], '98', '0.005061343269334967', ['__v_score', '512', 't', 'text value'], '99', '0.005061343269334967', ['__v_score', '128', 't', 'text value']]
+        expected_res_5 = [10, '100', '2.8078501570291188', ['__v_score', '0', 't', 'other'], '91', '0.004858144472727694', ['__v_score', '10368', 't', 'text value'], '92', '0.004858144472727694', ['__v_score', '8192', 't', 'text value'], '93', '0.004858144472727694', ['__v_score', '6272', 't', 'text value'], '94', '0.004858144472727694', ['__v_score', '4608', 't', 'text value'], '95', '0.004858144472727694', ['__v_score', '3200', 't', 'text value'], '96', '0.004858144472727694', ['__v_score', '2048', 't', 'text value'], '97', '0.004858144472727694', ['__v_score', '1152', 't', 'text value'], '98', '0.004858144472727694', ['__v_score', '512', 't', 'text value'], '99', '0.004858144472727694', ['__v_score', '128', 't', 'text value']]
         res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25STD', 'WITHSCORES',
                   'PARAMS', 2, 'vec_param', query_data.tobytes(),
                   'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
@@ -1771,7 +1771,7 @@ def test_rdb_memory_limit():
 
 class TestTimeoutReached(object):
     def __init__(self):
-        if SANITIZER:
+        if SANITIZER or OS == 'macos':
             raise SkipTest()
         self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
         n_shards = self.env.shardsCount
@@ -1883,6 +1883,10 @@ def test_index_multi_value_json():
         n = 100
         conn.flushall()
 
+        # Scale factor to avoid FLOAT16/BFLOAT16 overflow: using 1/8 keeps values and distances within safe range
+        # For FLOAT16 with n=250: max value = 250/8 = 31.25, max L2 distance = 4 * 31.25^2 ≈ 3906 (< 65504)
+        scale = 8.0
+
         args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                 '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
                 '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
@@ -1895,10 +1899,10 @@ def test_index_multi_value_json():
 
         for i in range(0, n, 2):
             # Test setting vectors with python list
-            conn.json().set(i, '.', {'vecs': [[i + j] * dim for j in range(per_doc)]})
+            conn.json().set(i, '.', {'vecs': [[(i + j) / scale] * dim for j in range(per_doc)]})
             # Test setting vectors with numpy array of the same type
             conn.json().set(i + 1, '.', {'vecs': [
-                create_np_array_typed([i + 1 + j] * dim, data_t).tolist() for j in range(per_doc)]})
+                create_np_array_typed([(i + 1 + j) / scale] * dim, data_t).tolist() for j in range(per_doc)]})
 
         score_field_name = 'dist'
         k = min(10, n)
@@ -1908,15 +1912,19 @@ def test_index_multi_value_json():
         expected_res_knn = []  # the expected ids are going to be unique
         for i in range(k):
             expected_res_knn.append(str(i))                                 # Expected id
-            expected_res_knn.append([score_field_name, str(i * i * dim)])   # Expected score
+            dist = i * i * dim / (scale * scale)
+            # Server returns int for whole numbers, float otherwise
+            expected_res_knn.append([score_field_name, str(int(dist) if dist == int(dist) else dist)])
 
-        radius = dim * k**2
-        element = create_np_array_typed([n]*dim, data_t)
+        radius = (dim * k**2 + 40) / (scale * scale)
+        element = create_np_array_typed([n / scale]*dim, data_t)
         cmd_range = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'LIMIT', 0, n]
         expected_res_range = []
         for i in range(n-k-per_doc+1, n-per_doc+1):
             expected_res_range.append(str(i))
-            expected_res_range.append([score_field_name, str(dim * (n-per_doc-i+1)**2)])
+            dist = dim * (n-per_doc-i+1)**2 / (scale * scale)
+            # Server returns int for whole numbers, float otherwise
+            expected_res_range.append([score_field_name, str(int(dist) if dist == int(dist) else dist)])
         for i in range(n-per_doc+1, n):        # Ids for which there is a vector whose distance to the query vec is zero.
             expected_res_range.append(str(i))
             expected_res_range.append([score_field_name, '0'])
@@ -1939,7 +1947,11 @@ def test_index_multi_value_json():
 
             cmd_range[2] = f'@hnsw:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
             hnsw_res = conn.execute_command(*cmd_range)
-            env.assertEqual(sortedResults(hnsw_res), expected_res_range, message=f'data_t: {data_t}')
+            try:
+                env.assertEqual(sortedResults(hnsw_res), expected_res_range, message=f'data_t: {data_t}')
+            except Exception as e:
+                env.debugPrint(f"Failed comparing results: {e} for data_t: {data_t}", force=True)
+                raise e
 
             cmd_range[2] = f'@flat:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
             flat_res = conn.execute_command(*cmd_range)

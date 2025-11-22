@@ -12,6 +12,7 @@ typedef struct RSQueryTerm RSQueryTerm;
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef struct RSYieldableMetric RSYieldableMetric;
 typedef uint64_t t_docId;
+typedef uint16_t t_fieldIndex;
 
 /* Copied from `redisearch.h` */
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
@@ -32,7 +33,7 @@ include = ["enumflags2", "inverted_index", "low_memory_thin_vec"]
 [export]
 # Don't export the `low_memory_thin_vec::Header` again
 exclude = ["Header"]
-include = ["BlockSummary", "Summary", "ReadFilter"]
+include = ["BlockSummary", "Summary", "ReadFilter", "FieldMaskOrIndex"]
 
 [export.rename]
 # For `LowMemoryThinVec<&'index RSIndexResult<'index>>`
