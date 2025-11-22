@@ -1478,6 +1478,7 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     // Log that we're waiting for the workers to finish.
     RedisModule_Log(RSDummyContext, "notice", "Debug workers drain");
 
+    //TODO(Joan): Should we remove this debug (or should we add documentation about the danger?)
     workersThreadPool_Drain(RSDummyContext, 0);
     // After we drained the thread pool and there are no more jobs in the queue, we wait until all
     // threads are idle, so we can be sure that all jobs were executed.
