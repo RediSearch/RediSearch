@@ -221,6 +221,42 @@ impl QueryError {
     }
 }
 
+// Enum for query warnings
+// Unlike QueryErrorCode, this enum is not tied to any API or string mapping.
+// Its current purpose is only to serve as a lightweight identifier that can
+// be passed to functions and easily handled via switch/case logic.
+/// cbindgen:prefix-with-name
+/// cbindgen:rename-all=ScreamingSnakeCase
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum QueryWarningCode {
+    #[default]
+    Ok = 0,
+    TimedOut,
+    ReachedMaxPrefixExpansions,
+    OutOfMemoryShard,
+    OutOfMemoryCoord,
+}
+
+impl QueryWarningCode {
+    pub const fn is_ok(self) -> bool {
+        matches!(self, Self::Ok)
+    }
+    pub const fn to_c_str(self) -> &'static CStr {
+        match self {
+            Self::Ok => c"Success (not a warning)",
+            Self::TimedOut => c"Timeout limit was reached",
+            Self::ReachedMaxPrefixExpansions => c"Max prefix expansions limit was reached",
+            Self::OutOfMemoryShard => {
+                c"Shard failed to execute the query due to insufficient memory"
+            }
+            Self::OutOfMemoryCoord => {
+                c"One or more shards failed to execute the query due to insufficient memory"
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Warnings {
     reached_max_prefix_expansions: bool,
