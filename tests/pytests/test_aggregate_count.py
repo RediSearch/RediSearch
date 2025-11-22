@@ -146,6 +146,13 @@ def _test_withcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'], docs, 10),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'], docs, 10),
 
+        # WITHCOUNT + SORTBY + MAX
+        # total_results = docs, length of results = MAX
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title', 'MAX', 3], docs, 3),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@price', 'MAX', 4], docs, 4),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title', 'MAX', 30], docs, 30),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@price', 'MAX', 40], docs, 40),
+
         # WITHCOUNT + SORTBY + LIMIT
         # total_results = number of documents matching the query up to the LIMIT
         # length of results = min(total_results, LIMIT)
@@ -156,6 +163,11 @@ def _test_withcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 10, 50], docs, 50),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 100, docs], docs, docs - 100),
         (['FT.AGGREGATE', 'idx', '@price:[1, 100]', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, docs], 100, 100),
+
+        # WITHCOUNT + SORTBY + MAX + LIMIT
+        # total_results = docs, length of results = LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title', 'MAX', 3, 'LIMIT', 0, 50], docs, 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title', 'MAX', docs*2, 'LIMIT', 0, 50], docs, 50),
 
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'], docs, docs),
@@ -402,4 +414,3 @@ def test_profile_resp2():
 
 def test_profile_resp3():
     _test_profile(3)
-
