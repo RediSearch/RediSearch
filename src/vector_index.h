@@ -147,6 +147,7 @@ typedef struct VecSimLogCtx {
 } VecSimLogCtx;
 
 VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index);
+// do staff (dummy)
 
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
 
