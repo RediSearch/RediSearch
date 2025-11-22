@@ -30,8 +30,11 @@ typedef struct {
   /* 0 (undetermined), 2, or 3 */
   unsigned char protocol;
 
- /* Whether the user asked for a cursor */
+  /* Whether the user asked for a cursor */
   bool forCursor;
+
+  /* Whether the command is for profiling */
+  bool forProfiling;
 
   /* Whether the command chain is depleted - don't resend */
   bool depleted;
