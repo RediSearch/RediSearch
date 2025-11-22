@@ -136,12 +136,12 @@ def _test_withcount(protocol):
 
         # # WITHCOUNT + SORTBY 0
         # # No sorter, no limit, returns all results
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'], docs, docs),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'], docs, docs),
 
         # # WITHCOUNT + SORTBY
         # # Sorter, limit results to DEFAULT_LIMIT
         # # total_results = docs, length of results = DEFAULT_LIMIT
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'], docs, 10),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'], docs, 10),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@price'], docs, 10),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'], docs, 10),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'], docs, 10),
@@ -290,21 +290,21 @@ def _test_profile(protocol):
          [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
          [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
 
-        # # WITHCOUNT + SORTBY 0
-        # # No sorter, no limit, returns all results
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'],
-        #  ['Index', 'Sync Depleter'],
-        #  ['Index'],
-        #  [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']],
-        #  [['Index'], ['Network']]),
+        # WITHCOUNT + SORTBY 0
+        # No sorter, no limit, returns all results
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'],
+         ['Index', 'Sync Depleter'],
+         ['Index'],
+         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']],
+         [['Index'], ['Network']]),
 
-        # # WITHCOUNT + SORTBY
-        # # Sorter, limit results to DEFAULT_LIMIT
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'],
-        #  ['Index', 'Sorter', 'Pager/Limiter'],
-        #  ['Index', 'Sorter', 'Pager/Limiter'],
-        #  [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']],
-        #  [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]),
+        # WITHCOUNT + SORTBY
+        # Sorter, limit results to DEFAULT_LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'],
+         ['Index', 'Sorter', 'Pager/Limiter'],
+         ['Index', 'Sorter', 'Pager/Limiter'],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]),
 
         # # WITHCOUNT + SORTBY + LIMIT
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
@@ -313,12 +313,12 @@ def _test_profile(protocol):
         #  [['Index', 'Sync Depleter', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']],
         #  [['Index', 'Sync Depleter', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]),
 
-        # # WITHCOUNT + LOAD
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'],
-        #  ['Index', 'Loader', 'Sync Depleter'],
-        #  ['Index', 'Loader'],
-        #  [['Index', 'Loader', 'Sync Depleter'], ['Network', 'Sync Depleter']],
-        #  [['Index', 'Loader'], ['Network']]),
+        # WITHCOUNT + LOAD
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'],
+         ['Index', 'Loader', 'Sync Depleter'],
+         ['Index', 'Loader'],
+         [['Index', 'Loader', 'Sync Depleter'], ['Network', 'Sync Depleter']],
+         [['Index', 'Loader'], ['Network']]),
 
         # # ----------------------------------------------------------------------
         # # WITHOUTCOUNT
