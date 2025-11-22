@@ -19,7 +19,6 @@ on:
 
 env:
   checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.event.release.target_commitish }}
-  input_tag: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   validate-tag:
@@ -103,6 +102,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_ACTOR: ${{ github.actor }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
           gh pr create \
             --title    "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}" \
