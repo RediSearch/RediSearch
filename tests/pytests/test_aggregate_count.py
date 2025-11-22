@@ -118,33 +118,33 @@ def _test_withcount(protocol):
     queries_and_results = [
         # query, total_results, length of results
 
-        # # WITHCOUNT
-        # # No sorter, no limit, returns all results
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT'], docs, docs),
+        # WITHCOUNT
+        # No sorter, no limit, returns all results
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT'], docs, docs),
 
-        # # WITHCOUNT + LIMIT
-        # # No sorter, limit results
-        # # total_results = number of documents matching the query up to the LIMIT
-        # # length of results = min(total_results, LIMIT)
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 50], docs, 50),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, int(docs/2)], docs, int(docs/2)),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs*4], docs, docs),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 10, 50], docs, 50),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 100, docs], docs, docs - 100),
-        # (['FT.AGGREGATE', 'idx', '@price:[1, 100]', 'WITHCOUNT', 'LIMIT', 0, docs], 100, 100),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', docs, docs*2], docs, 0),
+        # WITHCOUNT + LIMIT
+        # No sorter, limit results
+        # total_results = number of documents matching the query up to the LIMIT
+        # length of results = min(total_results, LIMIT)
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 50], docs, 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, int(docs/2)], docs, int(docs/2)),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, docs*4], docs, docs),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 10, 50], docs, 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 100, docs], docs, docs - 100),
+        (['FT.AGGREGATE', 'idx', '@price:[1, 100]', 'WITHCOUNT', 'LIMIT', 0, docs], 100, 100),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', docs, docs*2], docs, 0),
 
-        # # WITHCOUNT + SORTBY 0
-        # # No sorter, no limit, returns all results
+        # WITHCOUNT + SORTBY 0
+        # No sorter, no limit, returns all results
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'], docs, docs),
 
-        # # WITHCOUNT + SORTBY
-        # # Sorter, limit results to DEFAULT_LIMIT
-        # # total_results = docs, length of results = DEFAULT_LIMIT
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'], docs, 10),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@price'], docs, 10),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'], docs, 10),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'], docs, 10),
+        # WITHCOUNT + SORTBY
+        # Sorter, limit results to DEFAULT_LIMIT
+        # total_results = docs, length of results = DEFAULT_LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'], docs, 10),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@price'], docs, 10),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'], docs, 10),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'], docs, 10),
 
         # # WITHCOUNT + SORTBY + LIMIT
         # # total_results = number of documents matching the query up to the LIMIT
@@ -159,7 +159,7 @@ def _test_withcount(protocol):
 
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'], docs, docs),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price'], docs, docs),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price'], docs, docs),
     ]
 
     for query, expected_total_results, expected_results in queries_and_results:
@@ -320,55 +320,55 @@ def _test_profile(protocol):
          [['Index', 'Loader', 'Sync Depleter'], ['Network', 'Sync Depleter']],
          [['Index', 'Loader'], ['Network']]),
 
-        # # ----------------------------------------------------------------------
-        # # WITHOUTCOUNT
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT'],
-        #  ['Index'],
-        #  ['Index'],
-        #  [['Index'], ['Network']],
-        #  [['Index'], ['Network']]),
+        # ----------------------------------------------------------------------
+        # WITHOUTCOUNT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT'],
+         ['Index'],
+         ['Index'],
+         [['Index'], ['Network']],
+         [['Index'], ['Network']]),
 
-        # # WITHOUTCOUNT implicit (by default)
-        # (['FT.AGGREGATE', 'idx', '*'],
-        #  ['Index'],
-        #  ['Index'],
-        #  [['Index'], ['Network']],
-        #  [['Index'], ['Network']]),
+        # WITHOUTCOUNT implicit (by default)
+        (['FT.AGGREGATE', 'idx', '*'],
+         ['Index'],
+         ['Index'],
+         [['Index'], ['Network']],
+         [['Index'], ['Network']]),
 
-        # # WITHOUTCOUNT + LIMIT
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LIMIT', 0, 50],
-        #  ['Index', 'Pager/Limiter'],
-        #  ['Index', 'Pager/Limiter'],
-        #  [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
-        #  [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
+        # WITHOUTCOUNT + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LIMIT', 0, 50],
+         ['Index', 'Pager/Limiter'],
+         ['Index', 'Pager/Limiter'],
+         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
+         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
 
-        #  # WITHOUTCOUNT (implicit) + LIMIT
-        # (['FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 50],
-        #  ['Index', 'Pager/Limiter'],
-        #  ['Index', 'Pager/Limiter'],
-        #  [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
-        #  [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
+         # WITHOUTCOUNT (implicit) + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 50],
+         ['Index', 'Pager/Limiter'],
+         ['Index', 'Pager/Limiter'],
+         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
+         [['Index', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
 
-        # # WITHOUTCOUNT + SORTBY 0
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'],
-        #  ['Index'],
-        #  ['Index'],
-        #  [['Index'], ['Network']],
-        #  [['Index'], ['Network']]),
+        # WITHOUTCOUNT + SORTBY 0
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'],
+         ['Index'],
+         ['Index'],
+         [['Index'], ['Network']],
+         [['Index'], ['Network']]),
 
-        # # WITHOUTCOUNT + SORTBY
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'],
-        #  ['Index', 'Sorter'],
-        #  ['Index', 'Sorter'],
-        #  [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
-        #  [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
+        # WITHOUTCOUNT + SORTBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'],
+         ['Index', 'Sorter'],
+         ['Index', 'Sorter'],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
 
-        # # WITHOUTCOUNT + SORTBY + LIMIT
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
-        #  ['Index', 'Sorter'],
-        #  ['Index', 'Sorter'],
-        #  [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
-        #  [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
+        # WITHOUTCOUNT + SORTBY + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
+         ['Index', 'Sorter'],
+         ['Index', 'Sorter'],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
     ]
 
     for (query, resp2_standalone, resp3_standalone, resp2_cluster,
