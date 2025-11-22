@@ -20,6 +20,7 @@ jobs:
           HEAD_SHA: ${{ github.event.merge_group.head_sha }}
           BASE_SHA: ${{ github.event.merge_group.base_sha }}
           PR_NUMBER: ${{ github.event.merge_group.head_ref }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
         run: |
           # Extract PR number from head_ref (format: refs/pull/NUMBER/merge or gh-readonly-queue/main/pr-NUMBER-...)
           if [[ "$PR_NUMBER" =~ refs/pull/([0-9]+)/merge ]]; then
@@ -34,26 +35,45 @@ jobs:
           
           echo "Checking PR #$PR_NUM"
           echo "Current HEAD SHA: $HEAD_SHA"
-          
+          echo "Current BASE SHA: $BASE_SHA"
+
+          # The issue: merge queue creates a NEW temporary merge commit each time,
+          # so head_sha will be different even for the same PR commits.
+          # Instead, we should check the PR's actual head commit (before merge).
+
+          # Get the PR's actual head SHA (the last commit on the PR branch)
+          PR_HEAD_SHA=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.head.sha')
+          echo "PR's actual HEAD SHA: $PR_HEAD_SHA"
+
           # Get the list of previous workflow runs for this merge queue workflow
-          # Look for runs with the same head SHA that have failed/cancelled
-          PREVIOUS_RUNS=$(gh api \
+          # Look for runs from the same PR that have failed/cancelled
+          # We'll check both the merge group head_sha AND look for runs with the same PR
+          echo "Searching for previous merge_group runs for PR #$PR_NUM..."
+
+          ALL_RUNS=$(gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "/repos/$REPO/actions/runs?event=merge_group&per_page=100" \
-            --jq ".workflow_runs[] | select(.head_sha == \"$HEAD_SHA\" and .id != ${{ github.run_id }} and (.conclusion == \"failure\" or .conclusion == \"cancelled\")) | .id" | head -1)
-          
+            --jq ".workflow_runs[] | select(.id != $CURRENT_RUN_ID) | {id: .id, head_sha: .head_sha, conclusion: .conclusion, head_ref: .head_branch}")
+
+          echo "Recent merge_group runs:"
+          echo "$ALL_RUNS" | jq -c '.'
+
+          # Look for previous runs from the same PR (by matching PR number in head_ref)
+          PREVIOUS_RUNS=$(echo "$ALL_RUNS" | jq -r "select(.head_ref | test(\"pr-${PR_NUM}-\")) | select(.conclusion == \"failure\" or .conclusion == \"cancelled\") | .id" | head -1)
+
           if [[ -z "$PREVIOUS_RUNS" ]]; then
-            echo "No previous failed/cancelled runs found for this SHA"
+            echo "No previous failed/cancelled runs found for PR #$PR_NUM"
             echo "resubmit=false" >> $GITHUB_OUTPUT
             exit 0
           fi
           
-          echo "Found previous failed/cancelled run(s) with the same HEAD SHA"
+          echo "Found previous failed/cancelled run(s) for PR #$PR_NUM"
+          echo "Previous run ID: $PREVIOUS_RUNS"
           echo "This is a resubmission without new commits!"
           echo "resubmit=true" >> $GITHUB_OUTPUT
           echo "pr_number=$PR_NUM" >> $GITHUB_OUTPUT
-          
+
           # Get PR details for the notification
           PR_TITLE=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.title')
           PR_URL=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.html_url')
