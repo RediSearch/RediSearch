@@ -279,7 +279,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
           RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.2.1 IsAggregate && !HasDepleter");
           RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.2.1 astp->offset = %zu, astp->limit = %zu", astp->offset, astp->limit);
           // Support SORTBY + MAX
-          size_t sort_limit = astp->limit ? MIN(astp->limit, DEFAULT_LIMIT) : DEFAULT_LIMIT;
+          size_t sort_limit = astp->limit ? astp->limit : DEFAULT_LIMIT;
           rp = RPSorter_NewByFields(sort_limit, sortkeys, nkeys, astp->sortAscMap);
           up = pushRP(&pipeline->qctx, rp, up);
         } else {
