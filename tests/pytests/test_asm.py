@@ -15,7 +15,6 @@ class SlotRange:
         assert 0 <= start <= end < 2**14
         return SlotRange(start, end)
 
-
 @dataclass
 class ClusterNode:
     id: str
@@ -163,14 +162,12 @@ def import_slot_range_sanity_test(env: Env):
     # And test again after the import is complete
     query_all_shards()
 
-@skip()
-# @skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2)
 def test_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env)
 
-@skip()
-# @skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2)
 def test_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env)
@@ -205,6 +202,8 @@ def add_shard_and_migrate_test(env: Env):
 
     # Add a new shard
     env.addShardToClusterIfExists()
+    #Until https://github.com/redis/redis/pull/14504 we need to wait to avoid some scenario where import could fail because nodes did not yet agree in configs
+    time.sleep(5)
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
     task = import_middle_slot_range(new_shard, shard1)
@@ -221,14 +220,12 @@ def add_shard_and_migrate_test(env: Env):
     shards.append(new_shard)
     query_all_shards()
 
-# @skip(cluster=False)
-@skip()
+@skip(cluster=False)
 def test_add_shard_and_migrate():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env)
 
-# @skip(cluster=False)
-@skip()
+@skip(cluster=False)
 def test_add_shard_and_migrate_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env)
