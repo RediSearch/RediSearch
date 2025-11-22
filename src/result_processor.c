@@ -2328,7 +2328,6 @@ typedef struct {
   size_t cur_idx;                  // Current index for yielding results
   RPStatus last_rc;                // Last return code from upstream
   bool first_call;                 // Whether the first call to Next has been made
-  RedisSearchCtx *sctx;            // Search context
 } RPSyncDepleter;
 
 /**
@@ -2426,13 +2425,12 @@ static void RPSyncDepleter_Free(ResultProcessor *base) {
 /**
  * Constructs a new synchronous depleter processor that runs in the current thread.
  */
-ResultProcessor *RPSyncDepleter_New(RedisSearchCtx *sctx) {
+ResultProcessor *RPSyncDepleter_New() {
   RPSyncDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPSyncDepleter_Next_Sync;
   ret->base.Free = RPSyncDepleter_Free;
   ret->base.type = RP_SYNC_DEPLETER;
   ret->first_call = true;
-  ret->sctx = sctx;
   return &ret->base;
 }

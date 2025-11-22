@@ -283,9 +283,8 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
 
 /**
 * Constructs a new synchronous depleter processor that runs in the current thread.
-* @param sctx Search context
 */
-ResultProcessor *RPSyncDepleter_New(RedisSearchCtx *sctx);
+ResultProcessor *RPSyncDepleter_New();
 
 /**
 * Starts the depletion for all the depleters in the array, waits until all finished depleting, and returns.

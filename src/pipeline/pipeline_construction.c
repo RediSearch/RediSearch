@@ -256,7 +256,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
         // In non-optimized aggregate queries, we need to add a synchronous depleter
         if (IsInternal(&params->common)) {
-          rp = RPSyncDepleter_New(params->common.sctx);
+          rp = RPSyncDepleter_New();
           up = pushRP(&pipeline->qctx, rp, up);
         }
 
@@ -276,7 +276,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     } else if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
       // In non-optimized aggregate queries, we need to add a synchronous depleter
       // Use RPSyncDepleter_New to run synchronously (no background thread)
-      rp = RPSyncDepleter_New(params->common.sctx);
+      rp = RPSyncDepleter_New();
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
