@@ -59,7 +59,8 @@ jobs:
           echo "$ALL_RUNS" | jq -c '.[]'
 
           # Look for previous runs from the same PR (by matching PR number in head_ref)
-          PREVIOUS_RUN_DATA=$(echo "$ALL_RUNS" | jq -c ".[] | select(.head_ref | test(\"pr-${PR_NUM}-\")) | select(.conclusion == \"failure\" or .conclusion == \"cancelled\")" | head -1)
+          # Use regex anchors to ensure exact PR number match (e.g., pr-12- won't match pr-123-)
+          PREVIOUS_RUN_DATA=$(echo "$ALL_RUNS" | jq -c ".[] | select(.head_ref | test(\"(^|/)pr-${PR_NUM}-\")) | select(.conclusion == \"failure\" or .conclusion == \"cancelled\")" | head -1)
 
           if [[ -z "$PREVIOUS_RUN_DATA" ]]; then
             echo "No previous failed/cancelled runs found for PR #$PR_NUM"
