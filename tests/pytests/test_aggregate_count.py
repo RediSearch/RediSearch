@@ -149,7 +149,7 @@ def _test_withcount(protocol):
         # # WITHCOUNT + SORTBY + LIMIT
         # # total_results = number of documents matching the query up to the LIMIT
         # # length of results = min(total_results, LIMIT)
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], docs, 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], docs, 50),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@price', 'LIMIT', 0, 50], docs, 50),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, int(docs/2)], docs, int(docs/2)),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, docs*4], docs, docs),
@@ -275,12 +275,12 @@ def _test_profile(protocol):
          [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']],
          [['Index'], ['Network']]),
 
-        # # WITHCOUNT + LIMIT 0 0
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 0],
-        #  ['Index', 'Counter'],
-        #  ['Index', 'Counter'],
-        #  [['Index', 'Sync Depleter'], ['Network', 'Counter']],
-        #  [['Index'], ['Network', 'Counter']]),
+        # WITHCOUNT + LIMIT 0 0
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 0],
+         ['Index', 'Counter'],
+         ['Index', 'Counter'],
+         [['Index', 'Sync Depleter'], ['Network', 'Counter']],
+         [['Index'], ['Network', 'Counter']]),
 
         # # WITHCOUNT + LIMIT
         # # No sorter, limit results
