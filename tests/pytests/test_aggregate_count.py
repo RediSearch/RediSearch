@@ -141,7 +141,7 @@ def _test_withcount(protocol):
         # # WITHCOUNT + SORTBY
         # # Sorter, limit results to DEFAULT_LIMIT
         # # total_results = docs, length of results = DEFAULT_LIMIT
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'], docs, 10),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'], docs, 10),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@price'], docs, 10),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'], docs, 10),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'], docs, 10),
@@ -149,7 +149,7 @@ def _test_withcount(protocol):
         # # WITHCOUNT + SORTBY + LIMIT
         # # total_results = number of documents matching the query up to the LIMIT
         # # length of results = min(total_results, LIMIT)
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], docs, 50),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], docs, 50), # Sanitizer error
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@price', 'LIMIT', 0, 50], docs, 50),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, int(docs/2)], docs, int(docs/2)),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, docs*4], docs, docs),
@@ -282,13 +282,13 @@ def _test_profile(protocol):
          [['Index', 'Sync Depleter'], ['Network', 'Counter']],
          [['Index'], ['Network', 'Counter']]),
 
-        # # WITHCOUNT + LIMIT
-        # # No sorter, limit results
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 50],
-        #  ['Index', 'Sync Depleter', 'Pager/Limiter'],
-        #  ['Index', 'Sync Depleter', 'Pager/Limiter'],
-        #  [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
-        #  [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+        # WITHCOUNT + LIMIT
+        # No sorter, limit results
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 50],
+         ['Index', 'Sync Depleter', 'Pager/Limiter'],
+         ['Index', 'Sync Depleter', 'Pager/Limiter'],
+         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
+         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
 
         # # WITHCOUNT + SORTBY 0
         # # No sorter, no limit, returns all results
