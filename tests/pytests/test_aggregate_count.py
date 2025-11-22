@@ -149,13 +149,13 @@ def _test_withcount(protocol):
         # # WITHCOUNT + SORTBY + LIMIT
         # # total_results = number of documents matching the query up to the LIMIT
         # # length of results = min(total_results, LIMIT)
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], docs, 50), # Sanitizer error
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@price', 'LIMIT', 0, 50], docs, 50),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, int(docs/2)], docs, int(docs/2)),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, docs*4], docs, docs),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 10, 50], docs, 50),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 100, docs], docs, docs - 100),
-        # (['FT.AGGREGATE', 'idx', '@price:[1, 100]', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, docs], 100, 100),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], docs, 50), # Sanitizer error
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@price', 'LIMIT', 0, 50], docs, 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, int(docs/2)], docs, int(docs/2)),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, docs*4], docs, docs),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 10, 50], docs, 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 100, docs], docs, docs - 100),
+        (['FT.AGGREGATE', 'idx', '@price:[1, 100]', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, docs], 100, 100),
 
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'], docs, docs),
@@ -306,12 +306,12 @@ def _test_profile(protocol):
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]),
 
-        # # WITHCOUNT + SORTBY + LIMIT
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
-        #  ['Index', 'Sorter', 'Pager/Limiter'],
-        #  ['Index', 'Sorter', 'Pager/Limiter'],
-        #  [['Index', 'Sync Depleter', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']],
-        #  [['Index', 'Sync Depleter', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]),
+        # WITHCOUNT + SORTBY + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
+         ['Index', 'Sorter', 'Pager/Limiter'],
+         ['Index', 'Sorter', 'Pager/Limiter'],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']],
+         [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter', 'Pager/Limiter']]),
 
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'],

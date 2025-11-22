@@ -254,12 +254,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
       if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
-        // In non-optimized aggregate queries, we need to add a synchronous depleter
-        if (IsInternal(&params->common)) {
-          rp = RPSyncDepleter_New();
-          up = pushRP(&pipeline->qctx, rp, up);
-        }
-
+        // In non-optimized aggregate queries, we sort all results
         rp = RPSorter_NewByFields(UINT32_MAX, sortkeys, nkeys, astp->sortAscMap);
         up = pushRP(&pipeline->qctx, rp, up);
       } else {
