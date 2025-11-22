@@ -14,16 +14,28 @@ on:
         description: 'Architecture filter (e.g., "x86_64" or "all")'
         type: string
         default: all
+      include-coverage:
+        description: 'Include coverage job in matrix'
+        type: boolean
+        default: false
+      include-sanitize:
+        description: 'Include sanitize job in matrix'
+        type: boolean
+        default: false
     outputs:
       matrix:
         description: "Generated matrix as JSON"
         value: ${{ jobs.generate.outputs.matrix }}
+      has-jobs:
+        description: "Whether there are any jobs to run"
+        value: ${{ jobs.generate.outputs.has-jobs }}
 
 jobs:
   generate:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
+      has-jobs: ${{ steps.generate-matrix.outputs.has-jobs }}
     steps:
       - name: Generate filtered matrix
         id: generate-matrix
@@ -63,21 +75,38 @@ jobs:
 
           platform_filter = "${{ inputs.platform }}"
           architecture_filter = "${{ inputs.architecture }}"
+          include_coverage = "${{ inputs.include-coverage }}" == "true"
+          include_sanitize = "${{ inputs.include-sanitize }}" == "true"
 
           # Filter combinations based on inputs
           matrix_items = [
-              {'platform': platform, 'architecture': architecture}
+              {'platform': platform, 'architecture': architecture, 'job-type': 'test'}
               for platform, architecture in all_combinations
               if (platform == platform_filter or platform_filter == 'all') and
                  (architecture == architecture_filter or architecture_filter == 'all')
           ]
 
-          # Fail if matrix is empty
-          if not matrix_items:
-              print(f"Error: No matching platform/architecture combinations found for platform='{platform_filter}', architecture='{architecture_filter}'")
-              sys.exit(1)
+          # Add coverage job if requested (only on ubuntu:default x86_64)
+          if include_coverage:
+              matrix_items.append({
+                  'platform': 'ubuntu:default',
+                  'architecture': 'x86_64',
+                  'job-type': 'coverage'
+              })
+
+          # Add sanitize job if requested (only on ubuntu:default x86_64)
+          if include_sanitize:
+              matrix_items.append({
+                  'platform': 'ubuntu:default',
+                  'architecture': 'x86_64',
+                  'job-type': 'sanitize'
+              })
+
+          # Check if matrix has any jobs
+          has_jobs = len(matrix_items) > 0
 
           # Write to GitHub output
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
+              f.write(f'has-jobs={str(has_jobs).lower()}\n')
 
