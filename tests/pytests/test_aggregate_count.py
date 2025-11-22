@@ -301,15 +301,15 @@ def _test_profile(protocol):
         # WITHCOUNT + SORTBY
         # Sorter, limit results to DEFAULT_LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'],
-         ['Index', 'Sorter', 'Pager/Limiter'],
-         ['Index', 'Sorter', 'Pager/Limiter'],
+         ['Index', 'Sorter'],
+         ['Index', 'Sorter'],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
 
         # WITHCOUNT + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
-         ['Index', 'Sorter', 'Pager/Limiter'],
-         ['Index', 'Sorter', 'Pager/Limiter'],
+         ['Index', 'Sorter'],
+         ['Index', 'Sorter'],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
 
