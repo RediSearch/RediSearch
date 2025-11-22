@@ -22,10 +22,15 @@
 #define shift_right(arr, len, start, by) \
   memmove((arr) + (start) + (by), (arr) + (start), ((len) - (start)) * sizeof(*(arr)));
 
-void MRCommand_Free(MRCommand *cmd) {
+static inline void dropCachedCmdIfNeeded(MRCommand *cmd) {
   if (cmd->cmd) {
     sdsfree(cmd->cmd);
+    cmd->cmd = NULL;
   }
+}
+
+void MRCommand_Free(MRCommand *cmd) {
+  dropCachedCmdIfNeeded(cmd);
   for (int i = 0; i < cmd->num; i++) {
     rm_free(cmd->strs[i]);
   }
@@ -39,6 +44,8 @@ static void assignStr(MRCommand *cmd, size_t idx, const char *s, size_t n) {
   cmd->lens[idx] = n;
   news[n] = '\0';
   memcpy(news, s, n);
+  // Drop the cached sds command representation if set
+  dropCachedCmdIfNeeded(cmd);
 }
 
 static void assignCstr(MRCommand *cmd, size_t idx, const char *s) {
@@ -176,6 +183,8 @@ void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, char *newArg, size_t l
   rm_free(cmd->strs[index]);
   cmd->strs[index] = newArg;
   cmd->lens[index] = len;
+  // Drop the cached sds command representation if set
+  dropCachedCmdIfNeeded(cmd);
 }
 void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t len) {
   char *news = rm_malloc(len + 1);
@@ -206,6 +215,7 @@ void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t
     memset(oldArg + pos + newLen, ' ', oldSubStringLen - newLen);
 
     // No length change needed - argument stays same size
+    RS_LOG_ASSERT(!cmd->cmd, "Expect MRCommand_ReplaceArgSubstring to be called before `cmd` is used for the first time");
     return;
   }
 
@@ -254,10 +264,4 @@ void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slot
   char *serialized = SlotRangesArray_Serialize(slots);
   size_t serializedLen = SlotRangeArray_SizeOf(slots->num_ranges);
   MRCommand_ReplaceArgNoDup(cmd, cmd->slotsInfoArgIndex, serialized, serializedLen);
-  // This function is expected to be called from an io thread, which means that
-  // the command may have already been used, so we drop the cached sds command representation
-  if (cmd->cmd) {
-    sdsfree(cmd->cmd);
-    cmd->cmd = NULL;
-  }
 }
