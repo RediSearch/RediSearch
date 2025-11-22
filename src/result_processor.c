@@ -2338,18 +2338,31 @@ typedef struct {
 static void RPSyncDepleter_Deplete_Sync(RPSyncDepleter *self) {
   RPStatus rc;
   SearchResult *r = rm_calloc(1, sizeof(*r));
+  size_t count = 0;
+  const size_t MAX_RESULTS = 100000; // Safety limit
 
   // Deplete all results from upstream
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
+
+    // Safety check to prevent infinite loops
+    if (++count > MAX_RESULTS) {
+      RedisModule_Log(NULL, "warning", "SyncDepleter: Hit safety limit, breaking loop");
+      rc = RS_RESULT_ERROR;
+      break;
+    }
+
+    // Log every 1000 results to track progress
+    if (count % 1000 == 0) {
+      RedisModule_Log(NULL, "debug", "SyncDepleter: Processed %zu results", count);
+    }
   }
 
-  // Clean up the last allocated SearchResult that wasn't used
+  RedisModule_Log(NULL, "debug", "SyncDepleter: Finished with %zu results, rc=%d", count, rc);
+
   SearchResult_Destroy(r);
   rm_free(r);
-
-  // Save the last return code from upstream
   self->last_rc = rc;
 }
 
