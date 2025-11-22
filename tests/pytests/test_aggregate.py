@@ -29,6 +29,21 @@ def add_values(env, number_of_iterations=1):
             con.execute_command(*cmd)
         fp.close()
 
+def _test_withcount(env, cmd:list, limit=10000):
+    cmd_withcount = cmd.copy()
+    # Set a limit greater than the number of existing documents
+    if 'LIMIT' in cmd_withcount:
+        limit_index = cmd_withcount.index('LIMIT')
+        cmd_withcount[limit_index + 1] = 0
+        cmd_withcount[limit_index + 2] = limit
+    else:
+        cmd_withcount += ['LIMIT', 0, limit]
+    # insert WITHCOUNT
+    cmd_withcount.insert(3, 'WITHCOUNT')
+    # Run new query
+    res_withcount = env.cmd(*cmd_withcount)
+    # Verify total_results
+    env.assertEqual(res_withcount[0], len(res_withcount[1:]))
 
 class TestAggregate():
     def __init__(self):
@@ -48,6 +63,7 @@ class TestAggregate():
         self.env.assertEqual([292, ['brand', '', 'count', '1518'], ['brand', 'mad catz', 'count', '43'],
                                     ['brand', 'generic', 'count', '40'], ['brand', 'steelseries', 'count', '37'],
                                     ['brand', 'logitech', 'count', '35']], res)
+        _test_withcount(self.env, cmd)
 
     def testMinMax(self):
         cmd = ['ft.aggregate', 'games', 'sony',
@@ -59,6 +75,7 @@ class TestAggregate():
         self.env.assertIsNotNone(res)
         row = to_dict(res[1])
         self.env.assertEqual(88, int(float(row['minPrice'])))
+        _test_withcount(self.env, cmd)
 
         cmd = ['ft.aggregate', 'games', 'sony',
                'GROUPBY', '1', '@brand',
@@ -68,6 +85,7 @@ class TestAggregate():
         res = self.env.cmd(*cmd)
         row = to_dict(res[1])
         self.env.assertEqual(695, int(float(row['maxPrice'])))
+        _test_withcount(self.env, cmd)
 
     def testAvg(self):
         cmd = ['ft.aggregate', 'games', 'sony',
@@ -78,6 +96,7 @@ class TestAggregate():
         res = self.env.cmd(*cmd)
         self.env.assertIsNotNone(res)
         self.env.assertEqual(26, res[0])
+        _test_withcount(self.env, cmd)
         # Ensure the formatting actually exists
 
         first_row = to_dict(res[1])
@@ -93,6 +112,7 @@ class TestAggregate():
         res = self.env.cmd(*cmd)
         first_row = to_dict(res[1])
         self.env.assertEqual(17, int(float(first_row['avgPrice'])))
+        _test_withcount(self.env, cmd)
 
     def testCountDistinct(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
@@ -104,6 +124,7 @@ class TestAggregate():
         # print res
         row = to_dict(res[0])
         self.env.assertEqual(1484, int(row['count_distinct(title)']))
+        _test_withcount(self.env, cmd)
 
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
@@ -114,6 +135,7 @@ class TestAggregate():
         # print res
         row = to_dict(res[0])
         self.env.assertEqual(1461, int(row['count_distinctish(title)']))
+        _test_withcount(self.env, cmd)
 
     def testQuantile(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
@@ -131,6 +153,7 @@ class TestAggregate():
         self.env.assertAlmostEqual(14.99, float(row['q50']), delta=3)
         self.env.assertAlmostEqual(70, float(row['q90']), delta=50)
         self.env.assertAlmostEqual(110, (float(row['q95'])), delta=50)
+        _test_withcount(self.env, cmd)
 
     def testStdDev(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
@@ -148,6 +171,7 @@ class TestAggregate():
             float(row['q50Price'])) <= 20)
         self.env.assertAlmostEqual(53, int(float(row['stddev(price)'])), delta=50)
         self.env.assertEqual(29, int(float(row['avgPrice'])))
+        _test_withcount(self.env, cmd)
 
     def testParseTime(self):
         distro_name = distro.name().lower()
@@ -166,6 +190,7 @@ class TestAggregate():
             res = self.env.cmd(*cmd)
 
             self.env.assertEqual(expected, res[1])
+            _test_withcount(self.env, cmd)
 
         # Test longer date-time format '%Y-%m-%dT%H:%M:%SZ' equivalent to the
         # short format '%FT%TZ' which is not supported on Alpine Linux
@@ -178,6 +203,7 @@ class TestAggregate():
         res = self.env.cmd(*cmd)
 
         self.env.assertEqual(expected, res[1])
+        _test_withcount(self.env, cmd)
 
     def testRandomSample(self):
         cmd = ['FT.AGGREGATE', 'games', '*', 'GROUPBY', '1', '@brand',
@@ -281,6 +307,7 @@ class TestAggregate():
                ]
 
         res = self.env.cmd(*cmd)
+        _test_withcount(self.env, cmd)
         for row in res[1:]:
             row = to_dict(row)
             self.env.assertGreater(int(row['count']), 5)
@@ -293,6 +320,7 @@ class TestAggregate():
                ]
 
         res = self.env.cmd(*cmd)
+        _test_withcount(self.env, cmd)
         for row in res[1:]:
             row = to_dict(row)
             self.env.assertLess(int(row['count']), 5)
@@ -309,6 +337,7 @@ class TestAggregate():
         if self.env.isCluster():
             # On cluster, filter can implicitly load any field
             res = self.env.cmd(*cmd)
+            _test_withcount(self.env, cmd)
             self.env.assertEqual([
                 ['price', '759.12', 'categories', 'Accessories,Controllers,PC,Steering Wheels,Video Games'],
                 ['price', '695.8', 'categories', 'Consoles,Sony PSP,Video Games'],
@@ -328,6 +357,7 @@ class TestAggregate():
 
         # FIXME: should yield the same results in standalone cluster modes (sony vs Sony)
         res = self.env.cmd(*cmd)
+        _test_withcount(self.env, cmd)
         if self.env.isCluster():
             self.env.assertEqual([
                 ['brand', 'Sony', 'categories', 'Accessories,Cables,Cables & Adapters,PlayStation 3,Video Games', 'price', '5.88'],
@@ -693,9 +723,11 @@ class TestAggregateSecondUseCases():
         add_values(self.env, 2)
 
     def testSimpleAggregate(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*')
+        cmd = ['ft.aggregate', 'games', '*' ]
+        res = self.env.cmd(*cmd)
         self.env.assertIsNotNone(res)
         self.env.assertEqual(len(res), 4531)
+        _test_withcount(self.env, cmd)
 
     def testSimpleAggregateWithCursor(self):
         _, cursor = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
@@ -810,9 +842,13 @@ def testMultiSortBy(env):
     res = [9, ['t1', 'a', 't2', 'a'], ['t1', 'a', 't2', 'b'], ['t1', 'a', 't2', 'c'],
                ['t1', 'b', 't2', 'a'], ['t1', 'b', 't2', 'b'], ['t1', 'b', 't2', 'c'],
                ['t1', 'c', 't2', 'a'], ['t1', 'c', 't2', 'b'], ['t1', 'c', 't2', 'c']]
-    env.expect('FT.AGGREGATE', 'sb_idx', '*',
-                'LOAD', '2', '@t1', '@t2',
-                'SORTBY', '4', '@t1', 'ASC', '@t2', 'ASC').equal(res)
+    cmd = ['FT.AGGREGATE', 'sb_idx', '*',
+            'LOAD', '2', '@t1', '@t2',
+            'SORTBY', '4', '@t1', 'ASC', '@t2', 'ASC']
+    env.expect(*cmd).equal(res)
+    cmd_withcount = cmd.copy()
+    cmd_withcount.insert(3, 'WITHCOUNT')
+    env.expect(*cmd).equal(res)
 
     # t1 DESC t2 ASC
     res = [9, ['t1', 'c', 't2', 'a'], ['t1', 'c', 't2', 'b'], ['t1', 'c', 't2', 'c'],
@@ -1265,6 +1301,22 @@ def testWithKNN(env):
     expected_res = [['dist', '4', 'n', '3'], ['dist', '36', 'n', '4']]
     env.assertEqual(res[1:], expected_res)
 
+    # Test WITHCOUNT, removing the MAX 2 limitation.
+    # We got 3 results, and total_results should reflect that.
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as: dist}', 'WITHCOUNT',
+                               'SORTBY', '1', '@n',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    env.assertEqual(res[1:], expected_res + [['dist', '16', 'n', '5']])
+    env.assertEqual(res[0], 3)
+
+    # Test WITHCOUNT, with MAX 2 limitation.
+    # total_results should still reflect the number of documents before the limitation.
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as: dist}', 'WITHCOUNT',
+                               'SORTBY', '1', '@n', 'MAX', '2',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    env.assertEqual(res[1:], expected_res)
+    env.assertEqual(res[0], 3)
+
     # CASE 2 #
     # Run KNN with APPLY - make sure that the pipeline is built correctly - APPLY should be distributed, while
     # KNN is local (and the upcoming SORTBY steps).
@@ -1272,6 +1324,13 @@ def testWithKNN(env):
                                "APPLY", "sqrt(@square_dist)", "AS", "L2_dist", 'SORTBY', '1', '@n', 'MAX', '2',
                                'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
     expected_res = [{'L2_dist': '2', 'square_dist': '4', 'n': '3'}, {'L2_dist': '6', 'square_dist': '36', 'n': '4'}]
+    env.assertEqual([to_dict(res_item) for res_item in res[1:]], expected_res)
+
+    # Test WITHCOUNT to verify total_results is correct.
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as: square_dist}', 'WITHCOUNT',
+                               "APPLY", "sqrt(@square_dist)", "AS", "L2_dist", 'SORTBY', '1', '@n', 'MAX', '2',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    env.assertEqual(res[0], 3)
     env.assertEqual([to_dict(res_item) for res_item in res[1:]], expected_res)
 
     # CASE 3 #
