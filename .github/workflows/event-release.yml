@@ -23,7 +23,7 @@ env:
 jobs:
   validate-tag:
     # Verify that the tag matches the version in src/version.h
-    runs-on: ${{ vars.RUNS_ON }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
@@ -42,22 +42,26 @@ jobs:
         env:
           # Not used, but useful for debugging in case of failure. See https://github.com/actions/runner/issues/2788
           GH_CONTEXT: ${{ toJson(github) }}
+          EVENT_BASE_REF: ${{ github.event.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag || github.event.release.tag_name }}
         shell: python
         run: |
+          import os
+
           with open("src/version.h", "r") as fp:
             major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
           def valid_tag(tag):
             return tag == f"v{major}.{minor}.{patch}"
           def valid_version_branch(branch):
             return branch == f"{major}.{minor}"
-          tag = '${{ inputs.tag || github.event.release.tag_name }}'
+          tag = os.environ["INPUT_TAG"]
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
           version_branch = '${{ env.checkout_target }}'
-          if not valid_version_branch(version_branch) and '${{ github.event_name }}' == 'release':
+          if not valid_version_branch(version_branch) and os.environ["EVENT_NAME"] == 'release':
             raise Exception(f"Version branch {version_branch} does not match the tag {tag}")
 
-          import os
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
             print(f"cur_version={major}.{minor}.{patch}", file=fp)
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
@@ -66,7 +70,7 @@ jobs:
 
   update-version:
     # Generate a PR to bump the version for the next patch (if releasing from a version branch)
-    runs-on: ${{ vars.RUNS_ON }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     needs: validate-tag
     if: needs.validate-tag.outputs.should_bump == 'true'
     env:
@@ -83,10 +87,14 @@ jobs:
         run: sed -i "s/^${{ env.PATCH_LINE_PREFIX }} [0-9]\+$/${{ env.PATCH_LINE_PREFIX }} ${{ env.NEXT_PATCH }}/" src/version.h
 
       - name: Commit and push
+        env:
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          SENDER_ID: ${{ github.event.sender.id }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
         run: |
-          git config --global user.name "${{ github.triggering_actor }}"
-          git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
-          git checkout -b ${{ env.BRANCH }}
+          git config --global user.name "$TRIGGERING_ACTOR"
+          git config --global user.email "$SENDER_ID+$SENDER_LOGIN@users.noreply.github.com"
+          git checkout -b "$BRANCH"
           git add src/version.h
           git commit -m "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}"
           git push origin ${{ env.BRANCH }}
@@ -94,13 +102,15 @@ jobs:
       - name: Create Pull Request
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
           gh pr create \
             --title    "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}" \
-            --body     "This PR was automatically created by the release workflow of ${{ inputs.tag || github.event.release.tag_name }}." \
+            --body     "This PR was automatically created by the release workflow of $RELEASE_TAG." \
             --head     "${{ env.BRANCH }}" \
             --base     "${{ env.checkout_target }}" \
-            --reviewer "${{ vars.TEAM_LEADERS }},${{ vars.ISSUES_SHIFT_ASSIGNEE }},${{ github.actor }}" \
+            --reviewer "${{ vars.TEAM_LEADERS }},${{ vars.ISSUES_SHIFT_ASSIGNEE }},$GITHUB_ACTOR"" \
             --draft
 
       - name: Trigger CI

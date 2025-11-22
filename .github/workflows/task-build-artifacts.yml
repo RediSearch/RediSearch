@@ -45,6 +45,7 @@ jobs:
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
       # Build command
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
+      GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       # Setup
       - name: Pre-steps Dependencies
@@ -79,18 +80,18 @@ jobs:
             amazonlinux:2)
 
               # Configure the safe directory
-              git config --global --add safe.directory /__w/${{ github.repository }}
+              git config --global --add safe.directory "/__w/$GITHUB_REPOSITORY"
 
               # Checkout
-              REPO_URL="https://github.com/${{ github.repository }}.git"
+              REPO_URL="https://github.com/$GITHUB_REPOSITORY.git"
 
               # Initialize a Git repository
               git init
               git remote add origin "$REPO_URL"
 
               # Fetch and checkout ref
-              git fetch origin "${{ env.REF }}" || {
-                echo "Failed to fetch ref: '${{ env.REF }}'";
+              git fetch origin "$REF" || {
+                echo "Failed to fetch ref: '$REF'";
                 exit 1;
               }
               git checkout FETCH_HEAD  # Check out the fetched ref
