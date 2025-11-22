@@ -216,12 +216,14 @@ void QITR_PushRP(QueryProcessingCtx *it, ResultProcessor *rp) {
 }
 
 void QITR_FreeChain(QueryProcessingCtx *qitr) {
+  RedisModule_Log(NULL, "debug", "QITR_FreeChain: Starting cleanup");
   ResultProcessor *rp = qitr->endProc;
   while (rp) {
     ResultProcessor *next = rp->upstream;
     rp->Free(rp);
     rp = next;
   }
+  RedisModule_Log(NULL, "debug", "QITR_FreeChain: Starting cleanup");
 }
 
 /*******************************************************************************************************************
