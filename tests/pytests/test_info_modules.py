@@ -806,6 +806,8 @@ def _common_warnings_errors_cluster_test_scenario(env):
   # Create doc
   conn = getConnectionByEnv(env)
   conn.execute_command('HSET', 'doc:1', 'text', 'hello world')
+  # Need 2 docs for timeout
+  conn.execute_command('HSET', 'doc:2', 'text', 'hello world')
 
   # Create vector index for hybrid
   env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
@@ -1007,10 +1009,11 @@ class testWarningsAndErrorsCluster:
 
     # Test timeout error in FT.AGGREGATE (shards only via INTERNAL_ONLY)
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-                    'TIMEOUT_AFTER_N', 0, 'INTER0NAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).error().contains('Timeout limit was reached')
+                    'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).error().contains('Timeout limit was reached')
+    # Shards: +1 each again (total +2)
     for shardId in range(1, self.env.shardsCount + 1):
       info_dict = info_modules_to_dict(self.env.getConnection(shardId))
-      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] +2),
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 2),
                            message=f"Shard {shardId} AGG INTERNAL_ONLY timeout error should be +2 total")
     # Coord: +2
     info_coord = info_modules_to_dict(self.env)
@@ -1053,7 +1056,7 @@ class testWarningsAndErrorsCluster:
 
     # Test timeout warning in FT.AGGREGATE (shards only via INTERNAL_ONLY)
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-                    'TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).noError()
+                    'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).noError()
     # Shards: +1 each again (total +2)
     for shardId in range(1, self.env.shardsCount + 1):
       info_dict = info_modules_to_dict(self.env.getConnection(shardId))
