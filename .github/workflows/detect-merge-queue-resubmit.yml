@@ -93,6 +93,6 @@ jobs:
             {
               "PR": "${{ steps.check.outputs.pr_url }}#${{ steps.check.outputs.pr_number }} - ${{ steps.check.outputs.pr_title }}",
               "Author": "${{ steps.check.outputs.pr_author }}",
-              "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "Workflow Run": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
 
