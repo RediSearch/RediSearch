@@ -32,6 +32,7 @@ typedef struct RLookupKeyHandle {
   RLookupKey **key_ptr;  // Pointer to the actual RLookupKey* field in the iterator
   bool is_valid;         // Whether the iterator is still alive
 } RLookupKeyHandle;
+// dummy print 2
 
 // Holds a yieldable field name, and the address to write the RLookupKey pointer later.
 typedef struct MetricRequest{
