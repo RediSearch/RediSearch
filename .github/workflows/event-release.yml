@@ -44,7 +44,7 @@ jobs:
           GH_CONTEXT: ${{ toJson(github) }}
           EVENT_BASE_REF: ${{ github.event.base_ref }}
           EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ env.input_tag }}
+          INPUT_TAG: ${{ inputs.tag || github.event.release.tag_name }}
         shell: python
         run: |
           import os
