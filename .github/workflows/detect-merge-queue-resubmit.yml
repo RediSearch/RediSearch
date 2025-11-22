@@ -37,9 +37,9 @@ jobs:
           echo "Current HEAD SHA: $HEAD_SHA"
           echo "Current BASE SHA: $BASE_SHA"
 
-          # The issue: merge queue creates a NEW temporary merge commit each time,
+          # The merge queue creates a NEW temporary merge commit each time,
           # so head_sha will be different even for the same PR commits.
-          # Instead, we should check the PR's actual head commit (before merge).
+          # Hence, we should check the PR's actual head commit (before merge).
 
           # Get the PR's actual head SHA (the last commit on the PR branch)
           PR_HEAD_SHA=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.head.sha')
@@ -119,7 +119,7 @@ jobs:
         with:
           payload: |
             {
-              "PR": "${{ steps.check.outputs.pr_url }}#${{ steps.check.outputs.pr_number }} - ${{ steps.check.outputs.pr_title }}",
+              "PR": "${{ steps.check.outputs.pr_url }} - ${{ steps.check.outputs.pr_title }}",
               "Author": "${{ steps.check.outputs.pr_author }}",
               "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }

@@ -25,7 +25,6 @@ class LinkChecker:
             config = {}
 
         self.timeout = config.get('timeout', 10)
-        # do nothing
         self.max_workers = config.get('max_workers', 10)
         self.delay = config.get('delay', 0.1)
         self.exclude_urls = set(config.get('exclude_urls', []))
