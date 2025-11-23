@@ -537,6 +537,10 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       Profile_PrepareMapForReply(reply);
     }
 
+    if (IsOptimized(req)) {
+      QOptimizer_UpdateTotalResults(req);
+    }
+
     // <attributes>
     RedisModule_ReplyKV_Array(reply, "attributes");
     RedisModule_Reply_ArrayEnd(reply);
@@ -577,10 +581,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
 done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
-
-    if (IsOptimized(req)) {
-      QOptimizer_UpdateTotalResults(req);
-    }
 
     // <total_results>
     RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);

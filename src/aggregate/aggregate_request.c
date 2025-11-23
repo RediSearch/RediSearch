@@ -594,11 +594,15 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
-      AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
+      if IsAggregate(req) {
+        AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
+      }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
-      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
+      if IsAggregate(req) {
+        AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
+      }
       optimization_specified = true;
     } else {
       ParseAggPlanContext papCtx = {

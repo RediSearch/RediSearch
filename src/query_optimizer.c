@@ -334,15 +334,6 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
 
 void QOptimizer_UpdateTotalResults(AREQ *req) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-    // For LIMIT 0 0, we want to return the full count (not cap to 0)
-    // For Implicit LIMIT (no LIMIT provided), we want to return the full count
-    // if (IsAggregate(req) && HasWithCount(req)) {
-    //   if (!(arng && arng->isLimited && arng->limit > 0)) {
-    //     return;
-    //   }
-    // }
-    // FT.AGGREGATE + WITHCOUNT with explicit LIMIT > 0, cap totalResults to the
-    // LIMIT value (similar to optimized FT.SEARCH)
     size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
