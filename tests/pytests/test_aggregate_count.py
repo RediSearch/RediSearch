@@ -1,6 +1,4 @@
 from common import *
-import bz2
-import json
 
 def _setup_index_and_data(env, docs):
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -453,3 +451,24 @@ def test_profile_resp2():
 
 def test_profile_resp3():
     _test_profile(3)
+
+def test_withcursor(env):
+    env = Env()
+    docs = 5
+    _setup_index_and_data(env, docs)
+
+    invalid_queries = [
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', 10],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR'],
+    ]
+    error_message = 'WITHCURSOR is not supported when using FT.AGGREGATE and WITHCOUNT'
+    for query in invalid_queries:
+        env.expect(*query).error().contains(error_message)
+
+    valid_queries = [
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 10],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR'],
+    ]
+    for query in valid_queries:
+        env.expect(*query).notContains(error_message)
+

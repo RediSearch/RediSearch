@@ -314,6 +314,10 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
+    if (((*papCtx->reqflags) & QEXEC_F_IS_AGGREGATE) && ((*papCtx->reqflags) & QEXEC_F_HAS_WITHCOUNT)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "WITHCURSOR is not supported when using FT.AGGREGATE and WITHCOUNT");
+      return ARG_ERROR;
+    }
     if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -1094,11 +1098,6 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       if (isLimited) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       }
-    }
-
-    // For FT.AGGREGATE with cursor, we can't use depleters.
-    if (IsCursor(req) && !IsInternal(req)) {
-      AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
   }
 
