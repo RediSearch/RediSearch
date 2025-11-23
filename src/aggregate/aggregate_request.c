@@ -1094,7 +1094,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       }
     } else if (req->protocol == 3) {
-      if (isLimited) {
+      if (isLimited && !hasGroupBy) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       }
     }

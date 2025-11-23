@@ -307,7 +307,6 @@ class TestAggregate():
                ]
 
         res = self.env.cmd(*cmd)
-        _test_withcount(self.env, cmd)
         for row in res[1:]:
             row = to_dict(row)
             self.env.assertGreater(int(row['count']), 5)
@@ -320,7 +319,6 @@ class TestAggregate():
                ]
 
         res = self.env.cmd(*cmd)
-        _test_withcount(self.env, cmd)
         for row in res[1:]:
             row = to_dict(row)
             self.env.assertLess(int(row['count']), 5)

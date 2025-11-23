@@ -145,7 +145,8 @@ static bool PipelineRequiresSorter(AggregationPipelineParams *params) {
 
   // FT.AGGREGATE + WITHOUTCOUNT + SORTBY
   bool AggregateWithoutCountSortby = (IsAggregate(&params->common) &&
-                 IsOptimized(&params->common) && HasSortBy(&params->common));
+                                      !HasWithCount(&params->common) &&
+                                      HasSortBy(&params->common));
 
   result = IsHybrid(&params->common) ||
           (params->common.optimizer->type != Q_OPT_NO_SORTER) ||

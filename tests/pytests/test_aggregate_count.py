@@ -173,7 +173,19 @@ def _test_withcount(protocol):
 
         # WITHCOUNT + GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand'], 25, 25),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 2, 15], 25, 15),
+
+        # WITHCOUNT + GROUPBY + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 0, 12], 25, 12),
+
+        # WITHCOUNT + GROUPBY + SORTBY + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 11], 25, 11),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50], 25, 25),
+
+        # # WITHCOUNT + ADDSCORES
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES'], docs, 10),
+
+        # # WITHCOUNT + ADDSCORES + LIMIT
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50], docs, 50)
     ]
 
     for query, expected_total_results, expected_results in queries_and_results:
@@ -348,6 +360,27 @@ def _test_profile(protocol):
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
 
+        # WITHCOUNT + GROUPBY + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 0, 50],
+         ['Index', 'Grouper', 'Pager/Limiter'],
+         ['Index', 'Grouper', 'Pager/Limiter'],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']]),
+
+        # WITHCOUNT + GROUPBY + SORTBY + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50],
+         ['Index', 'Grouper', 'Sorter'],
+         ['Index', 'Grouper', 'Sorter'],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
+
+        # # WITHCOUNT + ADDSCORES
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES'],
+        #  ['Index', 'Sync Depleter'],
+        #  ['Index'],
+        #  [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']],
+        #  [['Index'], ['Network']]),
+
         # ----------------------------------------------------------------------
         # WITHOUTCOUNT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT'],
@@ -414,6 +447,20 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + GROUPBY + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand'],
+         ['Index', 'Grouper', 'Sorter'],
+         ['Index', 'Grouper', 'Sorter'],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
+
+        # WITHOUTCOUNT + GROUPBY + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 0, 50],
+         ['Index', 'Grouper', 'Pager/Limiter'],
+         ['Index', 'Grouper', 'Pager/Limiter'],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']]),
+
+        # WITHOUTCOUNT + GROUPBY + SORTBY + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50],
          ['Index', 'Grouper', 'Sorter'],
          ['Index', 'Grouper', 'Sorter'],
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
