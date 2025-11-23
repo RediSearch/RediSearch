@@ -22,58 +22,23 @@ jobs:
       repo: redis/redis
       prefix: '7.4'
 
-  generate-matrix:
-    uses: ./.github/workflows/generate-matrix.yml
-
-  # Run tests on multiple platforms - matrix generated dynamically
-  unified-test-matrix:
-    name: ${{ matrix.platform }} (${{ matrix.architecture }})
-    needs: [get-latest-redis-tag, generate-matrix]
-    strategy:
-      fail-fast: true  # This will cancel ALL matrix jobs on first failure
-      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/task-test.yml
+  test-matrix:
+    needs: [get-latest-redis-tag]
+    uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: ${{ matrix.platform }}
-      architecture: ${{ matrix.architecture }}
-      test-config: QUICK=1
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      platform: all
+      architecture: all
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      job-test-config: '{"test": "QUICK=1", "coverage": "", "sanitize": ""}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'coordinator,standalone,rejson,fail-fast,coverage,sanitize' || 'coordinator,standalone,rejson,fail-fast,sanitize' }}
       rejson-branch: '2.8'
-
-
-  coverage:
-    needs: get-latest-redis-tag
-    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
-    uses: ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      platform: ubuntu:default
-      architecture: x86_64
-      coverage: true
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: '2.8'
-      test-config: '' # run all tests
-
-  sanitize:
-    needs: get-latest-redis-tag
-    uses: ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      platform: ubuntu:default
-      architecture: x86_64
-      san: address
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: '2.8'
-      test-config: '' # run all tests
 
   pr-validation:
     needs:
       - get-latest-redis-tag
-      - unified-test-matrix
-      - coverage
-      - sanitize
-    runs-on: ubuntu-latest
+      - test-matrix
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
