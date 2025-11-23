@@ -234,8 +234,6 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   }
 }
 
-static void reopenCb(void *arg) {}
-
 // Routines for the merged hash table
 #define ACTX_IS_INDEXED(actx)                                           \
   (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
@@ -369,27 +367,6 @@ int IndexDocument(RSAddDocumentCtx *aCtx) {
  * or folding indexing and document ID assignment, as it can be assumed that
  * every item within the document ID belongs to the same index.
  */
-
-// Creates a new DocumentIndexer. This initializes the structure and starts the
-// thread. This does not insert it into the list of threads, though
-// todo: remove the withIndexThread var once we switch to threadpool
-DocumentIndexer *NewIndexer(IndexSpec *spec) {
-  DocumentIndexer *indexer = rm_calloc(1, sizeof(*indexer));
-
-  indexer->redisCtx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
-  indexer->specKeyName =
-      RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, spec->name);
-
-  ConcurrentSearchCtx_InitSingle(&indexer->concCtx, indexer->redisCtx, reopenCb);
-  return indexer;
-}
-
-void Indexer_Free(DocumentIndexer *indexer) {
-  rm_free(indexer->concCtx.openKeys);
-  RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
-  RedisModule_FreeThreadSafeContext(indexer->redisCtx);
-  rm_free(indexer);
-}
 
 bool g_isLoading = false;
 

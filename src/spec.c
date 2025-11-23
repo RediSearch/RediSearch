@@ -470,18 +470,6 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   return overhead;
 }
 
-const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
-    return obfuscate ? sp->obfuscatedName : sp->name;
-}
-
-char *IndexSpec_FormatObfuscatedName(const char *value, size_t len) {
-  Sha1 sha1;
-  Sha1_Compute(value, len, &sha1);
-  char buffer[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(&sha1, buffer);
-  return rm_strdup(buffer);
-}
-
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead, size_t vector_overhead) {
   size_t res = 0;
   res += sp->docs.memsize;
