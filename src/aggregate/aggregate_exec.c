@@ -750,8 +750,10 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
 
     // results (empty array)
     RedisModule_ReplyKV_Array(reply, "results");
-    // ADD DUMMY RESULT so getNextReply won't discard it
-    RedisModule_ReplyKV_StringBuffer(reply, "id", "-1", 2);
+    if (IsProfile(req)) {
+      // ADD a dummy result so getNextReply won't discard the reply
+      RedisModule_ReplyKV_StringBuffer(reply, "id", "-1", 2);
+    }
     RedisModule_Reply_ArrayEnd(reply); // >results
 
     // total_results
@@ -785,8 +787,10 @@ static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
     // First element is always the total count
     RedisModule_Reply_LongLong(reply, 1);
 
-    // Add a dummy result so getNextReply won't discard it
-    RedisModule_Reply_StringBuffer(reply, "-1", 2);
+    if (IsProfile(req)) {
+      // ADD a dummy result so getNextReply won't discard the reply
+      RedisModule_Reply_StringBuffer(reply, "-1", 2);
+    }
     RedisModule_Reply_ArrayEnd(reply); // </results>
 
     ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
