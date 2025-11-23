@@ -1297,17 +1297,6 @@ int CreateSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *command, const Su
 // Also sets the command info if setCommandInfo is not NULL
 static RedisModuleCommand *CreateCommandWithAcl(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc handler,
                                                 const char *flags, CommandKeys position, const char *aclCategories, bool internalCommand) {
-  if (RedisModule_CreateCommand(ctx, name, handler, flags, position.firstkey, position.lastkey, position.keystep) == REDISMODULE_ERR) {
-    RedisModule_Log(ctx, "warning", "Could not create command: %s", name);
-    return NULL;
-  }
-
-  RedisModuleCommand *command = RedisModule_GetCommand(ctx, name);
-  if (!command) {
-    RedisModule_Log(ctx, "warning", "Could not find command: %s", name);
-    return NULL;
-  }
-
   char *categories;
   char *internalFlags = NULL;
   if (internalCommand) {
@@ -1321,7 +1310,21 @@ static RedisModuleCommand *CreateCommandWithAcl(RedisModuleCtx *ctx, const char 
         rm_asprintf(&internalFlags, "%s %s", flags, CMD_INTERNAL);
     }
   } else {
+    // Flags are not enhanced.
+    internalFlags = (char *)flags;
+    // Register non-internal commands to the `search` ACL category.
     rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_CATEGORY);
+  }
+
+  if (RedisModule_CreateCommand(ctx, name, handler, internalFlags, position.firstkey, position.lastkey, position.keystep) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Could not create command: %s", name);
+    return NULL;
+  }
+
+  RedisModuleCommand *command = RedisModule_GetCommand(ctx, name);
+  if (!command) {
+    RedisModule_Log(ctx, "warning", "Could not find command: %s", name);
+    return NULL;
   }
 
   if (RedisModule_SetCommandACLCategories(command, categories) == REDISMODULE_ERR) {
@@ -1402,7 +1405,7 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
     {.name = "HELP", .fullName = command_ "|HELP", .flags = readonly_, .handler = func_, .setCommandInfo = SetFtConfigHelpInfo, .position = {0, 0, 0}}, \
   }
 
-#define RS_READ_ONLY_FLAGS_DEFAULT IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly"
+#define RS_READ_ONLY_FLAGS_DEFAULT IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly"
 static int RegisterConfigSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *configCommand) {
   CONFIG_SUBCOMMANDS(RS_CONFIG, ConfigCommand, RS_READ_ONLY_FLAGS_DEFAULT);
   return CreateSubCommands(ctx, configCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
@@ -1424,7 +1427,7 @@ static int RegisterAllDebugCommands(RedisModuleCtx* ctx, RedisModuleCommand *deb
 
 static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand);
 
-#define RS_WRITE_FLAGS_DEFAULT(flags) IsEnterprise() ? flags " " PROXY_FILTERED : flags
+#define RS_WRITE_FLAGS_DEFAULT(flags) IsEnterprise() ? flags " " CMD_PROXY_FILTERED : flags
 
 static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *commands, size_t count) {
   for (size_t i = 0; i < count; i++) {
@@ -1532,7 +1535,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
     // write commands (on enterprise we do not define them, the dmc take care of them)
     // search write slow dangerous
-    DEFINE_COMMAND(RS_CREATE_CMD,          CreateIndexCommand,            "write deny-oom",                      SetFtCreateInfo,      SET_COMMAND_INFO,  "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_CREATE_CMD,          CreateIndexCommand,            "write deny-oom",                      NULL,                 NONE,              "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_CREATE_IF_NX_CMD,    CreateIndexIfNotExistsCommand, "write deny-oom",                      NULL,                 NONE,              "write",                      true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_DROP_CMD,            DropIndexCommand,              "write touches-arbitrary-keys",        NULL,                 NONE,              "write slow dangerous admin", true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_DROP_INDEX_CMD,      DropIndexCommand,              "write touches-arbitrary-keys",        NULL,                 NONE,              "write slow dangerous",       true, indexOnlyCmdArgs, !IsEnterprise()),

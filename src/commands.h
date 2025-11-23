@@ -17,12 +17,9 @@
 #define RS_CMD_READ_PREFIX "_FT"
 #endif
 
-#define PROXY_FILTERED "_proxy-filtered"
-
 // write commands
 #define RS_CREATE_CMD RS_CMD_WRITE_PREFIX ".CREATE"
 #define RS_CREATE_IF_NX_CMD RS_CMD_WRITE_PREFIX "._CREATEIFNX"        // for replica of support
-// Itzik - check if RS_SETPAYLOAD_CMD is used or defined somewhere else and can be removed
 #define RS_SETPAYLOAD_CMD RS_CMD_WRITE_PREFIX ".SETPAYLOAD"
 #define RS_DROP_CMD RS_CMD_WRITE_PREFIX ".DROP"
 #define RS_DROP_INDEX_CMD RS_CMD_WRITE_PREFIX ".DROPINDEX"

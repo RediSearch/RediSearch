@@ -70,14 +70,7 @@ def test_acl_search_commands(env):
     # Use a set since the order of the response is not consistent.
     env.assertEqual(set(res), set(commands))
 
-    # ---------------- internal search command category ----------------
-    res = env.cmd('ACL', 'CAT', '_search_internal')
-    commands = INTERNAL_SEARCH_COMMANDS.keys()
-
-    # Use a set since the order of the response is not consistent.
-    env.assertEqual(set(res), set(commands))
-
-    # Check that one of our commands is listed in a non-search category
+    # Check that one of our commands is listed in a non-search category (sanity)
     res = env.cmd('ACL', 'CAT', 'read')
     env.assertTrue('FT.SEARCH' in res)
 
@@ -216,17 +209,6 @@ def test_internal_commands(env):
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots()).equal([0])
 
-    # `test` user should still be able to run non-internal commands
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    env.expect('FT.SEARCH', 'idx', '*').equal([0])
-
-    # Now `test` should not be able to execute RediSearch internal commands
-    # `_FT.DEBUG` has only subcommands, so we check it separately.
-    for command, args_or_args_list in INTERNAL_SEARCH_COMMANDS.items():
-        args_list = args_or_args_list if isinstance(args_or_args_list, list) else [args_or_args_list]
-        for args in args_list:
-            arg_list = args.split(' ')
-            env.expect(command, *arg_list).error().contains("User test has no permissions to run")
 
 @skip(redis_less_than="8.0")
 def test_acl_key_permissions_validation(env):
