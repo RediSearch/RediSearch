@@ -43,9 +43,15 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
   // AGGREGATE commands has the index name at position 1
   // while CURSOR READ/DEL commands has it at position 2
   const char *idx = MRCommand_ArgStringPtrLen(cmd, cmd->rootCommand == C_AGG ? 1 : 2, NULL);
+  // If we timed out and it's a profile command, we want to get the profile data
+  if (timedout && cmd->forProfiling) {
+    RS_LOG_ASSERT(!cmd->forCursor, "profile is not supported on a cursor command");
+    newCmd = MR_NewCommand(4, "_FT.CURSOR", "PROFILE", idx, buf);
+    // Internally we delete the cursor
+    newCmd.rootCommand = C_PROFILE;
   // If we timed out and not in cursor mode, we want to send the shard a DEL
   // command instead of a READ command (here we know it has more results)
-  if (timedout && !cmd->forCursor) {
+  } else if (timedout && !cmd->forCursor) {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
     // Mark that the last command was a DEL command
     newCmd.rootCommand = C_DEL;
@@ -63,6 +69,7 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
   newCmd.targetSlot = cmd->targetSlot;
   newCmd.protocol = cmd->protocol;
   newCmd.forCursor = cmd->forCursor;
+  newCmd.forProfiling = cmd->forProfiling;
   MRCommand_Free(cmd);
   *cmd = newCmd;
 
@@ -121,6 +128,24 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRReply* cursor = MRReply_ArrayElement(rep, 1);
   if (!MRReply_ToInteger(cursor, &cursorId)) {
     cursorId = 0;
+  }
+
+  if (cmd->forProfiling && cmd->protocol == 3) {
+    RS_LOG_ASSERT(!cmd->forCursor, "Profiling is not supported on a cursor command");
+    MRReply *rows = NULL, *meta = NULL;
+    rows = MRReply_ArrayElement(rep, 0);
+
+    // Check if we got timeout
+    MRReply *warning = MRReply_MapElement(rows, "warning");
+    if (MRReply_Length(warning) > 0) {
+      const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
+      // Set an error to be later picked up by `getCursorCommand`
+      if (!strcmp(warning_str, QueryError_Strerror(QUERY_ETIMEDOUT))) {
+        // When a shard returns timeout on RETURN policy, the profile is not returned.
+        // We set the timeout here so in the next getCursorCommand we will send CURSOR PROFILE
+        MRIteratorCallback_SetTimedOut(MRIteratorCallback_GetCtx(ctx));
+      }
+    }
   }
 
   // Push the reply down the chain
@@ -667,6 +692,38 @@ void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
 
   // profileRP replace netRP as end PR
   RPNet *rpnet = (RPNet *)req->qiter.rootProc;
+  // Calling getNextReply alone is insufficient here, as we might have already encountered EOF from the shards,
+  // which caused the call to getNextReply from RPNet to set cond->wait to true.
+  // We can't also set cond->wait to false because we might still be waiting for shards' replies containing profile information.
+
+  // Therefore, we loop to drain all remaining replies from the channel.
+  // Pending might be zero, but there might still be replies in the channel to read.
+  // We may have pulled all the replies from the channel and arrived here due to a timeout,
+  // and now we're waiting for the profile results.
+  if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    while (getNextReply(rpnet)) {
+      MRReply *root = rpnet->current.root;
+      // skip if we get an empty result.
+      // This is a bug because we discard the profile results as well
+      if (root == NULL) {
+        continue;
+      }
+      long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
+      if (cursorId == 0 && rpnet->shardsProfile) {
+          array_ensure_append_1(rpnet->shardsProfile, root);
+        } else {
+          MRReply_Free(root);
+        }
+    }
+  }
+
+  size_t num_shards = MRIterator_GetNumShards(rpnet->it);
+  size_t profile_count = array_len(rpnet->shardsProfile);
+
+  if (profile_count != num_shards) {
+    RedisModule_Log(RSDummyContext, "warning", "Profile data received from %zu out of %zu shards",
+                    profile_count, num_shards);
+  }
 
   // Print shards profile
   if (reply->resp3) {
