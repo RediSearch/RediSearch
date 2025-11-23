@@ -246,6 +246,21 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
+  benchmark-hybrid-oss-standalone:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        member_id: [1]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "hybrid*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
   notify-failure:
     needs:
       - benchmark-search-oss-standalone
@@ -261,6 +276,7 @@ jobs:
       - benchmark-search-oss-cluster-24-primaries
       - benchmark-search-oss-standalone-profiler
       - benchmark-vecsim-oss-standalone-profiler
+      - benchmark-hybrid-oss-standalone
     if: ${{ failure() && inputs.notify_failure }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
