@@ -260,7 +260,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         rp = RPSorter_NewByScore(maxResults);
         up = pushRP(&pipeline->qctx, rp, up);
       }
-    } else if (IsAggregate(&params->common) && HasWithCount(&params->common) && !HasSortBy(&params->common)) {
+    } else if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
       // In non-optimized aggregate queries, we need to add a synchronous depleter
       // Use RPSyncDepleter_New to run synchronously (no background thread)
       rp = RPSyncDepleter_New();
