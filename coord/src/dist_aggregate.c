@@ -692,6 +692,17 @@ void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
 
   // profileRP replace netRP as end PR
   RPNet *rpnet = (RPNet *)req->qiter.rootProc;
+  MRReply *root = rpnet->current.root;
+  // The current reply might have profile info in it
+  // (For example if the pager stops the query before we deplete the current reply)
+  if (root) {
+    long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
+    if (cursorId == 0 && rpnet->shardsProfile) {
+      array_ensure_append_1(rpnet->shardsProfile, root);
+    } else {
+      MRReply_Free(root);
+    }
+  }
   // Calling getNextReply alone is insufficient here, as we might have already encountered EOF from the shards,
   // which caused the call to getNextReply from RPNet to set cond->wait to true.
   // We can't also set cond->wait to false because we might still be waiting for shards' replies containing profile information.
@@ -704,16 +715,16 @@ void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
     while (getNextReply(rpnet)) {
       MRReply *root = rpnet->current.root;
       // skip if we get an empty result.
-      // This is a bug because we discard the profile results as well
+      // This is a bug because we discard the profile info as well
       if (root == NULL) {
         continue;
       }
       long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
       if (cursorId == 0 && rpnet->shardsProfile) {
-          array_ensure_append_1(rpnet->shardsProfile, root);
-        } else {
-          MRReply_Free(root);
-        }
+        array_ensure_append_1(rpnet->shardsProfile, root);
+      } else {
+        MRReply_Free(root);
+      }
     }
   }
 
