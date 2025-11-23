@@ -2700,7 +2700,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       RedisModule_Reply_Array(reply);
       // Iterate over warning array and track warnings
       size_t len = MRReply_Length(rCtx->warning);
-      for (int i = 0; i < len; ++i) {
+      for (size_t i = 0; i < len; ++i) {
         // Extract warning string and track it
         MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
         const char *warning_str = MRReply_String(currentWarning, NULL);

@@ -130,7 +130,7 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool co
 
 // Updates the global query warnings statistics.
 // `coord` indicates whether the warning occurred on the coordinator or on a shard.
-// Standalone shards are considered as shards.
+// Standalone shards are considered as coords
 // Will ignore not supported warning codes.
 // Currently supports : timeout
 // `toAdd` can be negative to decrease the counter.

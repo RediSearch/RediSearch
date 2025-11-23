@@ -114,7 +114,7 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
 
 // Updates the global query errors statistics.
 // `coord` indicates whether the error occurred on the coordinator or on a shard.
-// Standalone shards are considered as shards.
+// Standalone shards are considered as coords
 // Will ignore not supported error codes.
 // Currently supports : syntax, parse_args, timeout
 // `toAdd` can be negative to decrease the counter.
@@ -135,7 +135,7 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coo
 
 // Updates the global query warnings statistics.
 // `coord` indicates whether the warning occurred on the coordinator or on a shard.
-// Standalone shards are considered as shards.
+// Standalone shards are considered as coords
 // Will ignore not supported warning codes.
 // Currently supports : timeout
 // `toAdd` can be negative to decrease the counter.
