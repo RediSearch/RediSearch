@@ -43,12 +43,10 @@ on:
           - ubuntu:jammy
           - ubuntu:focal
           - rockylinux:8
-          - rockylinux:9
           - debian:bullseye
           - amazonlinux:2
           - mariner:2
           - azurelinux:3
-          - alpine:3
           - macos
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
