@@ -140,22 +140,6 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
   return RPMetricsLoader_New();
 }
 
-static bool AggregateConsumeAll(CommonPipelineParams *cpp, PLN_ArrangeStep *astp) {
-  bool unlimited = false;
-
-  if (IsAggregate(cpp))
-    if (HasDepleter(cpp)) {
-    // FT.AGGREGATE + depleter
-    unlimited = true;
-    } else if (!HasDepleter(cpp) && HasWithCount(cpp) && HasSortBy(cpp) &&
-                !astp->isLimited) {
-      // FT.AGGREGATE + WITHCOUNT + SORTBY (no limit, no depleter)
-      unlimited = true;
-    }
-  return unlimited;
-}
-
-
 static bool PipelineRequiresSorter(AggregationPipelineParams *params) {
   bool result = false;
 
@@ -167,24 +151,6 @@ static bool PipelineRequiresSorter(AggregationPipelineParams *params) {
           (params->common.optimizer->type != Q_OPT_NO_SORTER) ||
           AggregateWithoutCountSortby;
   return result;
-}
-
-static bool AggregateRequiresPagerAtCoordinator(CommonPipelineParams *cpp, PLN_ArrangeStep *astp) {
-  bool addPager = false;
-  if (IsAggregate(cpp) && !IsInternal(cpp)) {
-    if (!HasDepleter(cpp) && HasWithCount(cpp) && HasSortBy(cpp)
-        && !astp->isLimited ) {
-      // FT.AGGREGATE + WITHCOUNT + SORTBY (no limit, no depleter)
-      addPager = true;
-    } else if (HasDepleter(cpp) && HasWithCount(cpp) && !HasSortBy(cpp) && astp->isLimited) {
-      // FT.AGGREGATE + WITHCOUNT + LIMIT
-      addPager = true;
-    // } else if (HasDepleter(cpp) && HasWithCount(cpp) && HasSortBy(cpp) && astp->isLimited) {
-    //   // FT.AGGREGATE + WiTHCOUNT + SORTBY + LIMIT
-    //   addPager = true;
-    }
-  }
-  return addPager;
 }
 
 static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
@@ -202,23 +168,27 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
 
   size_t maxResults = astp->offset + astp->limit;
   if (!maxResults) {
-    if (AggregateConsumeAll(&params->common, astp)) {
+    if (HasWithCount(&params->common)) {
       // No LIMIT specified, consume everything
       maxResults = UINT32_MAX;
     } else {
       // No LIMIT specified, consume DEFAULT_LIMIT
       maxResults = DEFAULT_LIMIT;
-      // add default offset and limit
-      astp->offset = 0;
       astp->limit = DEFAULT_LIMIT;
     }
   }
+
+  RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:-1 HasDepleter=%d, HasWithCount=%d, HasSortBy=%d, astp->isLimited=%d, IsInternal=%d, IsCount=%d",
+          !!HasDepleter(&params->common), !!HasWithCount(&params->common), !!HasSortBy(&params->common), astp->isLimited, !!IsInternal(&params->common), !!IsCount(&params->common));
 
   // TODO: unify if when req holds only maxResults according to the query type.
   //(SEARCH / AGGREGATE)
   maxResults = MIN(maxResults, params->maxResultsLimit);
 
   if (IsCount(&params->common) || !maxResults) {
+    RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:0 RPCounter_New");
+    RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:0 HasDepleter=%d, HasWithCount=%d, HasSortBy=%d, astp->isLimited=%d, IsInternal=%d",
+          !!HasDepleter(&params->common), !!HasWithCount(&params->common), !!HasSortBy(&params->common), astp->isLimited, !!IsInternal(&params->common));
     rp = RPCounter_New();
     up = pushRP(&pipeline->qctx, rp, up);
     return up;
@@ -258,8 +228,11 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
       RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2");
-      if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
-        RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.1 IsAggregate && HasDepleter");
+      if (IsAggregate(&params->common) && HasWithCount(&params->common) && HasSortBy(&params->common) && astp->isLimited) {
+        RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.1 IsAggregate && HasWithCount");
+        RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.1 HasDepleter = %d, HasWithCount = %d, HasSortBy = %d, astp->isLimited=%d, IsInternal = %d",
+          !!HasDepleter(&params->common), !!HasWithCount(&params->common), !!HasSortBy(&params->common), astp->isLimited, !!IsInternal(&params->common));
+
         if (IsInternal(&params->common)) {
           RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.1.1 IsInternal");
           // In non-optimized aggregate queries, we sort maxResultsLimit results
@@ -272,21 +245,22 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
           rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
           up = pushRP(&pipeline->qctx, rp, up);
         }
+      } else if (IsAggregate(&params->common) && HasWithCount(&params->common) && HasSortBy(&params->common) && !IsInternal(&params->common)) {
+        // FT.AGGREGATE + WITHCOUNT + SORTBY (no limit, no depleter) -> Add default limit at coordinator
+        RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.2.1 IsAggregate && !HasDepleter");
+        RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.2.1 astp->offset = %zu, astp->limit = %zu", astp->offset, astp->limit);
+        RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.2.1 HasDepleter=%d, HasWithCount=%d, HasSortBy=%d, astp->isLimited=%d, IsInternal=%d",
+          !!HasDepleter(&params->common), !!HasWithCount(&params->common), !!HasSortBy(&params->common), astp->isLimited, !!IsInternal(&params->common));
+        // Support SORTBY + MAX
+        size_t sort_limit = astp->limit ? astp->limit : DEFAULT_LIMIT;
+        rp = RPSorter_NewByFields(sort_limit, sortkeys, nkeys, astp->sortAscMap);
+        up = pushRP(&pipeline->qctx, rp, up);
       } else {
-        RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.2 !IsAggregate || !HasDepleter");
-        if (IsAggregate(&params->common) && HasWithCount(&params->common) && HasSortBy(&params->common) && !IsInternal(&params->common)) {
-          // FT.AGGREGATE + WITHCOUNT + SORTBY (no limit, no depleter) -> Add default limit at coordinator
-          RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.2.1 IsAggregate && !HasDepleter");
-          RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.2.1 astp->offset = %zu, astp->limit = %zu", astp->offset, astp->limit);
-          // Support SORTBY + MAX
-          size_t sort_limit = astp->limit ? astp->limit : DEFAULT_LIMIT;
-          rp = RPSorter_NewByFields(sort_limit, sortkeys, nkeys, astp->sortAscMap);
-          up = pushRP(&pipeline->qctx, rp, up);
-        } else {
-          RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.2.2 !IsAggregate || !HasDepleter");
-          rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
-          up = pushRP(&pipeline->qctx, rp, up);
-        }
+        RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.2.2 !IsAggregate || !HasDepleter");
+        RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.2.2 HasDepleter=%d, HasWithCount=%d, HasSortBy=%d, astp->isLimited=%d, IsInternal=%d",
+          !!HasDepleter(&params->common), !!HasWithCount(&params->common), !!HasSortBy(&params->common), astp->isLimited, !!IsInternal(&params->common));
+        rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
+        up = pushRP(&pipeline->qctx, rp, up);
       }
     } else if (IsHybrid(&params->common) ||
                (IsSearch(&params->common) && !IsOptimized(&params->common)) ||
@@ -296,8 +270,10 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
+    } else if (IsAggregate(&params->common) && HasWithCount(&params->common) && !HasSortBy(&params->common)) {
       RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.4 IsAggregate && HasDepleter");
+      RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:2.4 HasDepleter=%d, HasWithCount=%d, HasSortBy=%d, astp->isLimited=%d, IsInternal=%d",
+          !!HasDepleter(&params->common), !!HasWithCount(&params->common), !!HasSortBy(&params->common), astp->isLimited, !!IsInternal(&params->common));
       // In non-optimized aggregate queries, we need to add a synchronous depleter
       // Use RPSyncDepleter_New to run synchronously (no background thread)
       rp = RPSyncDepleter_New();
@@ -330,14 +306,6 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:6 IsSearch && IsOptimized && !rp");
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
-  // } else if (AggregateRequiresPagerAtCoordinator(&params->common, astp)) {
-  //   if (astp->offset || (astp->limit)) {
-  //     rp = RPPager_New(astp->offset, astp->limit);
-  //     up = pushRP(&pipeline->qctx, rp, up);
-  //   } else {
-  //     rp = RPPager_New(0, DEFAULT_LIMIT);
-  //     up = pushRP(&pipeline->qctx, rp, up);
-  //   }
   }
 
 

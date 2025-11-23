@@ -12,7 +12,7 @@ def _setup_index_and_data(env, docs):
 
     for i in range(docs):
         title = f'Game {i}'
-        brand = f'Brand {i % 10}'
+        brand = f'Brand {i % 25}'
         description = f'Description for game {i}'
         price = i
         category = f'Category {i % 5}'
@@ -172,6 +172,10 @@ def _test_withcount(protocol):
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'], docs, docs),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price'], docs, docs),
+
+        # WITHCOUNT + GROUPBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand'], 25, 25),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 2, 15], 25, 15),
     ]
 
     for query, expected_total_results, expected_results in queries_and_results:
@@ -332,6 +336,20 @@ def _test_profile(protocol):
          [['Index', 'Loader', 'Sync Depleter'], ['Network', 'Sync Depleter']],
          [['Index', 'Loader'], ['Network']]),
 
+        # WITHCOUNT + GROUPBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand'],
+         ['Index', 'Grouper'],
+         ['Index', 'Grouper'],
+         [['Index', 'Grouper'], ['Network', 'Grouper']],
+         [['Index', 'Grouper'], ['Network', 'Grouper']]),
+
+        # WITHCOUNT + GROUPBY + SORTBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand'],
+         ['Index', 'Grouper', 'Sorter'],
+         ['Index', 'Grouper', 'Sorter'],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
+
         # ----------------------------------------------------------------------
         # WITHOUTCOUNT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT'],
@@ -381,6 +399,27 @@ def _test_profile(protocol):
          ['Index', 'Sorter'],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
+
+         # WITHOUTCOUNT + LOAD
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@title'],
+         ['Index', 'Loader',],
+         ['Index', 'Loader'],
+         [['Index', 'Loader',], ['Network']],
+         [['Index', 'Loader'], ['Network']]),
+
+         # WITHOUTCOUNT + GROUPBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand'],
+         ['Index', 'Grouper'],
+         ['Index', 'Grouper'],
+         [['Index', 'Grouper'], ['Network', 'Grouper']],
+         [['Index', 'Grouper'], ['Network', 'Grouper']]),
+
+        # WITHOUTCOUNT + GROUPBY + SORTBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand'],
+         ['Index', 'Grouper', 'Sorter'],
+         ['Index', 'Grouper', 'Sorter'],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
     ]
 
     for (query, resp2_standalone, resp3_standalone, resp2_cluster,
