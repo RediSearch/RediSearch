@@ -185,18 +185,6 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   return merged;
 }
 
-void TrieNode_Print(TrieNode *n, int idx, int depth) {
-  for (int i = 0; i < depth; i++) {
-    printf("  ");
-  }
-  printf("%d) '", idx);
-  printfRune(n->str, n->len);
-  printf("' Score %f, max ChildScore %f\n", n->score, n->maxChildScore);
-  for (int i = 0; i < n->numChildren; i++) {
-    TrieNode_Print(__trieNode_children(n)[i], i, depth + 1);
-  }
-}
-
 int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
                  TrieAddOp op, TrieFreeCallback freecb) {
   if (score == 0 || len == 0) {
@@ -317,11 +305,8 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
 TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut) {
   t_len offset = 0;
   while (n && offset < len) {
-    // printf("n %.*s offset %d, len %d\n", n->len, n->str, offset,
-    // len);
     t_len localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
-      // printf("%d %c %d %c\n", offset, str[offset], localOffset, n->str[localOffset]);
       if (str[offset] != n->str[localOffset]) {
         break;
       }
@@ -588,12 +573,6 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
   stackNode *current = __ti_current(it);
 
   int matched = 0;
-  // printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child
-  // offset %d/%d\n",
-  //        it->bufOffset, it->buf, current, current->n->len, current->n->str,
-  //        current->n->score, current->state, current->stringOffset,
-  //        current->n->len,
-  //        current->childOffset, current->n->numChildren);
   switch (current->state) {
     case ITERSTATE_MATCH:
       __ti_Pop(it);
@@ -821,7 +800,6 @@ static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
   TrieNode **arr = __trieNode_children(n);
 
   for (size_t ii = 0; ii < n->numChildren; ++ii) {
-    // printf("Descending to index %lu\n", ii);
     if (rangeIterateSubTree(arr[ii], r) != REDISEARCH_OK) {
       return REDISEARCH_ERR;
     }
@@ -1082,8 +1060,6 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
     if (globalOffset + 1 == r->lenOrigStr) {
       if (r->prefix) { // contains mode
         array_trimm_len(r->buf, localOffset + 1);
-        //char *str = runesToStr(r->buf, array_len(r->buf), &len);
-        //printf("%s %d %d %d\n", str, array_len(r->buf), localOffset + 1, globalOffset + 1);
         rangeIterateSubTree(n, r);
         r->buf = array_ensure_append(r->buf, &n->str[0], localOffset, rune);
         return;
@@ -1169,8 +1145,6 @@ void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
       .prefix = str[nstr - 1] == (rune)'*',
       .containsStars = !!runenchr(str, nstr, '*'),
   };
-
-  // printfRuneNL(str, nstr);
 
   wildcardIterate(n, &r);
 

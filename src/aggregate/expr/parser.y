@@ -84,13 +84,21 @@ number(A) ::= MINUS NUMBER(B). { A = -B.numval; }
 
 expr(A) ::= PROPERTY(B). { A = RS_NewProp(B.s, B.len); }
 expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
+    bool error = true; // Assume syntax error until proven otherwise
     RSFunction cb = RSFunctionRegistry_Get(B.s, B.len);
     if (!cb) {
         rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
-        ctx->ok = 0;
-        A = NULL;
     } else {
+        // No syntax error
+        error = false;
+    }
+
+    if (!error) {
         A = RS_NewFunc(B.s, B.len, C, cb);
+    } else { // Syntax error
+        A = NULL;
+        ctx->ok = 0;
+        RSArgList_Free(C);
     }
 }
 

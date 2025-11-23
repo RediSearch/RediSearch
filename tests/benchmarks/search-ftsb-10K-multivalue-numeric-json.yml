@@ -30,6 +30,7 @@ clientconfig:
     - workers: 8
     - requests: 100000
     - reporting-period: 1s
+    - duration: 120s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/10K-multivalue-numeric-json/10K-multivalue-numeric-json.redisjson.commands.BENCH.csv"
 exporter:
   redistimeseries:

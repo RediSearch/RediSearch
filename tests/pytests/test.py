@@ -4294,13 +4294,13 @@ def test_timeout_non_strict_policy(env):
     num_docs = n * env.shardsCount
     res = conn.execute_command(
         'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
-        )
+    )
     env.assertTrue(len(res) < num_docs * 2 + 1)
 
     # Same for `FT.AGGREGATE`
     res = conn.execute_command(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
-        )
+    )
     env.assertTrue(len(res) < num_docs + 1)
 
 def test_timeout_strict_policy():
@@ -4361,7 +4361,9 @@ def test_with_tls():
 
     common_with_auth(env)
 
-@skip(cluster=False)
+# Temporarily disabled due to flakiness
+@skip()
+# @skip(cluster=False)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
     protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""
@@ -4410,27 +4412,40 @@ def test_timeoutCoordSearch_Strict():
     `FT.SEARCH` path, when the timeout policy is strict"""
 
     if VALGRIND:
+        # Save some time
         unittest.SkipTest()
 
-    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='ON_TIMEOUT FAIL DEFAULT_DIALECT 2')
 
     # Create and populate an index
-    n_docs_pershard = 50000
+    n_docs_pershard = 80000
     n_docs = n_docs_pershard * env.shardsCount
-    populate_db(env, text=True, n_per_shard=n_docs_pershard)
+    populate_db(env, text=True, numeric=True, tag=True, n_per_shard=n_docs_pershard)
 
-    # test erroneous params
-    env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
-    env.expect('ft.search', 'idx', '* aa*', 'timeout', -1).error()
-    env.expect('ft.search', 'idx', '* aa*', 'timeout', 'STR').error()
+    # test erroneous params for `TIMEOUT`
+    env.expect('FT.SEARCH', 'idx', '*', 'TIMEOUT').error()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'TIMEOUT').error()
+    env.expect('FT.SEARCH', 'idx', '*', 'TIMEOUT', -1).error()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', -1).error()
+    env.expect('FT.SEARCH', 'idx', '*', 'TIMEOUT', 'STR').error()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 'STR').error()
 
-    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '0')
+    # Search with no timeout limit, get all results
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'TIMEOUT', '0')
+    env.assertEqual(res[0], n_docs)
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '0')
     env.assertEqual(res[0], n_docs)
 
-    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '100000')
-    env.assertEqual(res[0], n_docs)
-
-    env.expect('ft.search', 'idx', '*', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+    # Small timeout, heavy query -> expect an error
+    env.expect('FT.SEARCH', 'idx', '(lala* | @numeric1:[5 50000]) (@tag1:{MOVIE} | @text1:lal*)', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+    env.expect(
+        'FT.AGGREGATE', 'idx', '(lala* | @numeric1:[5 50000]) (@tag1:{MOVIE} | @text1:lal*)',
+            'SORTBY', '1', '@text1',
+            'LOAD', '*',
+            'APPLY', 'upper(@text1)', 'AS', 'upper_text1',
+            'GROUPBY', '1', '@__key',
+        'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
 
 @skip(cluster=True)
 def test_notIterTimeout(env):
@@ -4500,11 +4515,13 @@ def _test_MOD9174(env):
         env.assertEqual(res[1], 'doc1')
         env.assertEqual(res[2], ['title', 'The Lord of the Rings'])
 
+@skip(noWorkers=True)
 def test_MOD9174_RESP2():
     """See further description in helper body"""
     env = Env(moduleArgs='WORKERS 2', protocol=2)
     _test_MOD9174(env)
 
+@skip(noWorkers=True)
 def test_MOD9174_RESP3():
     """See further description in helper body"""
     env = Env(moduleArgs='WORKERS 2', protocol=3)

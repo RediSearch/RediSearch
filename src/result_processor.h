@@ -56,6 +56,8 @@ typedef enum {
   RP_PROFILE,
   RP_NETWORK,
   RP_METRICS,
+  RP_KEY_NAME_LOADER,
+  RP_MAX_SCORE_NORMALIZER,
   RP_TIMEOUT, // DEBUG ONLY
   RP_MAX,
 } ResultProcessorType;
@@ -92,6 +94,9 @@ typedef struct {
 
   // Object which contains the error
   QueryError *err;
+
+  // Background indexing OOM warning
+  bool bgScanOOM;
 
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
@@ -211,7 +216,6 @@ ResultProcessor *RPMetricsLoader_New();
 #define SORTASCMAP_SETASC(mm, pos) ((mm) |= (1LLU << (pos)))
 #define SORTASCMAP_SETDESC(mm, pos) ((mm) &= ~(1LLU << (pos)))
 #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
-void SortAscMap_Dump(uint64_t v, size_t n);
 
 /**
  * Creates a sorter result processor.
@@ -249,8 +253,6 @@ void SetLoadersForMainThread(struct AREQ *r);
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
                                    const RLookup *lookup);
 
-void RP_DumpChain(const ResultProcessor *rp);
-
 /*******************************************************************************************************************
  *  Profiling Processor
  *
@@ -268,7 +270,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
  *******************************************************************************************************************/
 ResultProcessor *RPCounter_New();
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
+rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryIterator *qiter);
@@ -283,6 +285,16 @@ const char *RPTypeToString(ResultProcessorType type);
  *******************************************************************************************************************/
 ResultProcessor *RPTimeoutAfterCount_New(size_t count);
 void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+
+
+
+ /*******************************************************************************************************************
+  *  Normalizer Result Processor
+  *
+  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
+  * First accumulates all results from the upstream, then normalizes and yields them.
+  *******************************************************************************************************************/
+ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
 
 #ifdef __cplusplus
 }

@@ -605,7 +605,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   }
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
-  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
+  const char *defaultScorer = RSGlobalConfig.defaultScorer;
+  RS_LOG_ASSERT(defaultScorer, "No default scorer");
+  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
   RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;
@@ -682,8 +684,6 @@ double RediSearch_ResultsIteratorGetScore(const RS_ApiIter* it) {
 void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->internal) {
     iter->internal->Free(iter->internal);
-  } else {
-    printf("Not freeing internal iterator. internal iterator is null\n");
   }
   if (iter->scorerFree) {
     iter->scorerFree(iter->scargs.extdata);
@@ -893,7 +893,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
 size_t RediSearch_MemUsage(RSIndex* rm) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  return IndexSpec_TotalMemUsage(sp, 0, 0, 0);
+  return IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0);
 }
 
 // Collect statistics of all the currently existing indexes

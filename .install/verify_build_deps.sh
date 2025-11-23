@@ -180,7 +180,6 @@ declare -A common_dependencies=(
   ["g++"]="command"        # Verify using command -v
   ["python3"]="command"    # Verify using command -v
   ["cmake"]="command"      # Verify using command -v
-  ["cargo"]="command"      # Verify using command -v
 )
 
 # Define OS-specific dependencies

@@ -67,9 +67,7 @@ static void *vvwAlloc(void) {
 }
 
 static void vvwFree(void *p) {
-  // printf("Releasing VVW=%p\n", p);
-  VVW_Cleanup(p);
-  rm_free(p);
+  VVW_Free(p);
 }
 
 static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
@@ -177,7 +175,6 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
 static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t tokLen,
                                      uint32_t pos, float fieldScore, t_fieldId fieldId,
                                      int options) {
-  // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
   int isNew = 0;
   uint32_t hash = hashKey(tok, tokLen); // NULL for ""
@@ -185,7 +182,6 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
   h = &kh->ent;
 
   if (isNew) {
-    // printf("New token %.*s\n", (int)t->len, t->s);
     h->fieldMask = 0;
     h->hash = hash;
     h->next = NULL;
@@ -200,14 +196,10 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 
     if (hasOffsets(idx)) {
       h->vw = mempool_get(idx->vvwPool);
-      // printf("Got VVW=%p\n", h->vw);
       VVW_Reset(h->vw);
     } else {
       h->vw = NULL;
     }
-
-  } else {
-    // printf("Existing token %.*s\n", (int)t->len, t->s);
   }
 
   h->fieldMask |= ((t_fieldMask)1) << fieldId;
@@ -227,15 +219,27 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     VVW_Write(h->vw, pos);
   }
 
-  // LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos, t.s, h->freq, idx->totalFreq);
 }
 
-// void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
-//   e->freq = e->freq / idx->maxFreq;
-// }
-int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
+/**
+ * Token processing function for forward index construction.
+ *
+ * This function is called for each token during the tokenization process
+ * when building or updating a forward index. It processes individual tokens
+ * and integrates them into the forward index data structure.
+ *
+ * @param tokCtx    Pointer to the forward index tokenizer context containing
+ *                  state information and configuration for the tokenization process
+ * @param tokInfo   Pointer to the token information structure containing
+ *                  the token text, position, attributes, and other metadata
+ *
+ * @return int      Status code indicating success (0) or error condition:
+ *                  - 0: Token processed successfully
+ *                  - Non-zero: Error occurred during token processing
+ *
+ */
+int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
-  const ForwardIndexTokenizerCtx *tokCtx = ctx;
   int options = TOKOPT_F_RAW;  // this is the actual word given in the query
   if (tokInfo->flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
@@ -243,10 +247,6 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   }
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, options);
-
-  if (tokCtx->allOffsets) {
-    VVW_Write(tokCtx->allOffsets, tokInfo->raw - tokCtx->doc);
-  }
 
   if (tokInfo->stem) {
     int stemopts = TOKOPT_F_STEM;
@@ -309,8 +309,6 @@ ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter) {
 
   KHTableEntry *ret = iter->curEnt;
   iter->curEnt = ret->next;
-  // printf("Yielding entry: %.*s. Next=%p -- (%p)\n", (int)ret->self.ent.len, ret->self.ent.term,
-  //  ret->next, iter->curEnt);
   khIdxEntry *bEnt = (khIdxEntry *)ret;
   return &bEnt->ent;
 }

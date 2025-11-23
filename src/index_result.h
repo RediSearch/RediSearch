@@ -102,9 +102,6 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
  * caution */
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);
 
-/* Debug print a result */
-void IndexResult_Print(RSIndexResult *r, int depth);
-
 /* Free an index result's internal allocations, does not free the result itself */
 void IndexResult_Free(RSIndexResult *r);
 

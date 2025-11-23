@@ -73,15 +73,25 @@ void MRCommand_SetPrefix(MRCommand *cmd, const char *newPrefix);
 void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t len);
 void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, const char *newArg, size_t len);
 
+/** Replace a substring within an argument at a specific position
+ * OPTIMIZATION: Avoids reallocation when new string is same/shorter length.
+ * Instead, pads with spaces.
+ *
+ * @param cmd - Command structure containing the arguments
+ * @param index - Index of the argument to modify
+ * @param pos - Starting position within the argument string
+ * @param oldSubStringLen - Length of the substring to replace
+ * @param newStr - New string to insert
+ * @param newLen - Length of the new string
+ */
+void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t oldSubStringLen, const char *newStr, size_t newLen);
+
 void MRCommand_WriteTaggedKey(MRCommand *cmd, int index, const char *newarg, const char *part,
                               size_t n);
 
 int MRCommand_GetShardingKey(const MRCommand *cmd);
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx);
-
-void MRCommand_Print(MRCommand *cmd);
-void MRCommand_FPrint(FILE *fd, MRCommand *cmd);
 
 /* Create a copy of a command by duplicating all strings */
 MRCommand MRCommand_Copy(const MRCommand *cmd);

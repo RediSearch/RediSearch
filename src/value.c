@@ -823,14 +823,6 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
   }
 }
 
-#ifdef _DEBUG
-void print_rsvalue(RSValue *v) {
-  sds s = RSValue_DumpSds(v, sdsempty(), true);
-  fprintf(stderr, "%s\n", s);
-  sdsfree(s);
-}
-#endif // _DEBUG
-
 /*
  *  - s: will be parsed as a string
  *  - l: Will be parsed as a long integer

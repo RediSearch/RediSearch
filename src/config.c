@@ -16,9 +16,11 @@
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
+#include "extension.h"
 #include "util/dict.h"
 #include "resp3.h"
 #include "util/workers.h"
+#include "module.h"
 
 #include "util/config_macros.h"
 
@@ -354,6 +356,41 @@ CONFIG_GETTER(getFrisoINI) {
   return config->frisoIni ? sdsnew(config->frisoIni) : NULL;
 }
 
+// DEFAULT_SCORER
+CONFIG_SETTER(setDefaultScorer) {
+  if (!config->enableUnstableFeatures) {
+    QueryError_SetError(status, QUERY_EBADVAL, "`DEFAULT_SCORER` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`");
+    return REDISMODULE_ERR;
+  }
+  const char *scorerName;
+  int acrc = AC_GetString(ac, &scorerName, NULL, 0);
+  if (acrc == AC_OK) {
+    // Validate scorer name against registered scorers
+    if (Extensions_InitDone()) {
+      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, scorerName);
+      if (scoreCtx == NULL) {
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid default scorer value");
+        return REDISMODULE_ERR;
+      }
+    }
+    // Free the old scorer name before assigning the new one
+    if (config->defaultScorer) {
+      rm_free((void *)config->defaultScorer);
+    }
+    config->defaultScorer = rm_strdup(scorerName);
+  }
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getDefaultScorer) {
+  RS_ASSERT(config->defaultScorer != NULL);
+  if (config->defaultScorer && strlen(config->defaultScorer) > 0) {
+    return sdsnew(config->defaultScorer);
+  } else {
+    return NULL;
+  }
+}
+
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {
   size_t len;
@@ -682,6 +719,50 @@ CONFIG_GETTER(getBM25StdTanhFactor) {
   return sdscatprintf(ss, "%lu", config->requestConfigParams.BM25STD_TanhFactor);
 }
 
+// INDEXER_YIELD_EVERY_OPS
+CONFIG_SETTER(setIndexerYieldEveryOps) {
+  unsigned int yieldEveryOps;
+  int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
+  config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getIndexerYieldEveryOps) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
+}
+
+// SET MEMORY LIMIT PERCENTAGE
+CONFIG_SETTER(setIndexingMemoryLimit) {
+  uint8_t newLimit;
+  int acrc = AC_GetU8(ac, &newLimit, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newLimit > 100) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Memory limit for indexing cannot be greater then 100%%");
+    return REDISMODULE_ERR;
+  }
+  config->indexingMemoryLimit = newLimit;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getIndexingMemoryLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->indexingMemoryLimit);
+}
+
+CONFIG_SETTER(setBgOOMpauseTimeForRetry) {
+  uint32_t newPauseTime;
+  int acrc = AC_GetU32(ac, &newPauseTime, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->bgIndexingOomPauseTimeBeforeRetry = newPauseTime;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBgOOMpauseTimeForRetry) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->bgIndexingOomPauseTimeBeforeRetry);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -841,6 +922,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setFrisoINI,
          .getValue = getFrisoINI,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "DEFAULT_SCORER",
+         .helpText = "Default scorer to use when no scorer is specified in queries",
+         .setValue = setDefaultScorer,
+         .getValue = getDefaultScorer},
         {.name = "ON_TIMEOUT",
          .helpText = "Action to perform when search timeout is exceeded (choose RETURN or FAIL)",
          .setValue = setOnTimeout,
@@ -973,6 +1058,19 @@ RSConfigOptions RSGlobalConfigOptions = {
                       "The default value is 4.",
           .setValue = setBM25StdTanhFactor,
           .getValue = getBM25StdTanhFactor},
+        {.name = "INDEXER_YIELD_EVERY_OPS",
+         .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
+         .setValue = setIndexerYieldEveryOps,
+         .getValue = getIndexerYieldEveryOps},
+        {.name = "_BG_INDEX_MEM_PCT_THR",
+        .helpText = "Set the percentage of memory usage threshold (out of maxmemory) at which background indexing will stop. The default is 100 percent.",
+        .setValue = setIndexingMemoryLimit,
+        .getValue = getIndexingMemoryLimit},
+        {.name = "_BG_INDEX_OOM_PAUSE_TIME",
+          .helpText = "Set the time (in seconds) given to the background indexing thread to sleep when it reaches the memory limit, giving time to reallocate memory."
+                      "The default value is 5 seconds in Redis Enterprise, 0 in Redis OS.",
+          .setValue = setBgOOMpauseTimeForRetry,
+          .getValue = getBgOOMpauseTimeForRetry},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1073,6 +1171,10 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
 
   if (config->frisoIni) {
     ss = sdscatprintf(ss, "friso ini: %s, ", config->frisoIni);
+  }
+
+  if (config->defaultScorer && strlen(config->defaultScorer) > 0) {
+    ss = sdscatprintf(ss, "default scorer: %s, ", config->defaultScorer);
   }
   return ss;
 }

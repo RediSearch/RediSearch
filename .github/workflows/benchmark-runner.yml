@@ -33,7 +33,10 @@ on:
         type: string
         description: 'if empty allows all setups. if not, will only trigger for a specific setup'
         default: ""
-
+      notify_failure:
+        type: boolean
+        default: false
+        description: 'if true, will notify failure on slack'
 jobs:
   benchmark-search-oss-standalone:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
@@ -60,6 +63,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-02-primaries:
+    needs: benchmark-search-oss-standalone
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
     strategy:
       matrix:
@@ -202,7 +206,7 @@ jobs:
       - benchmark-search-oss-cluster-24-primaries
       - benchmark-search-oss-standalone-profiler
       - benchmark-vecsim-oss-standalone-profiler
-    if: failure()
+    if: ${{ failure() && inputs.notify_failure }}
     runs-on: ${{ vars.RUNS_ON }}
     steps:
       - name: Notify Failure

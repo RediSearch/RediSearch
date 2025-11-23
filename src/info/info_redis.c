@@ -5,11 +5,13 @@
  */
 
 #include "info_redis.h"
+#include "module.h"
 #include "version.h"
 #include "global_stats.h"
 #include "cursor.h"
 #include "indexes_info.h"
 #include "util/units.h"
+#include "rs_wall_clock.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -178,21 +180,21 @@ void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
 void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "memory");
 
-	// Total
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes", total_info->total_mem);
+  // Total
+  RedisModule_InfoAddFieldULongLong(ctx, "used_memory_indexes", total_info->total_mem);
   RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", MEMORY_MB(total_info->total_mem));
-	// Min
-  RedisModule_InfoAddFieldDouble(ctx, "smallest_memory_index", total_info->min_mem);
+  // Min
+  RedisModule_InfoAddFieldULongLong(ctx, "smallest_memory_index", total_info->min_mem);
   RedisModule_InfoAddFieldDouble(ctx, "smallest_memory_index_human", MEMORY_MB(total_info->min_mem));
-	// Max
-  RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index", total_info->max_mem);
+  // Max
+  RedisModule_InfoAddFieldULongLong(ctx, "largest_memory_index", total_info->max_mem);
   RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index_human", MEMORY_MB(total_info->max_mem));
 
 	// Indexing time
-  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", total_info->indexing_time / (float)CLOCKS_PER_MILLISEC);
+  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", rs_wall_clock_convert_ns_to_ms_d(total_info->indexing_time));
 
 	// Vector memory
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
+  RedisModule_InfoAddFieldULongLong(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
 }
 
 void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
@@ -205,9 +207,9 @@ void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
 void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "gc");
   InfoGCStats stats = total_info->gc_stats;
-  RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
-  RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
-  RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
+  RedisModule_InfoAddFieldULongLong(ctx, "bytes_collected", stats.totalCollectedBytes);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_cycles", stats.totalCycles);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_ms_run", stats.totalTime);
   RedisModule_InfoAddFieldULongLong(ctx, "total_docs_not_collected_by_gc", IndexesGlobalStats_GetLogicallyDeletedDocs());
   RedisModule_InfoAddFieldULongLong(ctx, "marked_deleted_vectors", total_info->fields_stats.total_mark_deleted_vectors);
 }
@@ -223,9 +225,10 @@ void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
 
 void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "warnings_and_errors");
-  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures", total_info->indexing_failures);
+  RedisModule_InfoAddFieldULongLong(ctx, "errors_indexing_failures", total_info->indexing_failures);
   // highest number of failures out of all specs
-  RedisModule_InfoAddFieldDouble(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
+  RedisModule_InfoAddFieldULongLong(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
+  RedisModule_InfoAddFieldULongLong(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
@@ -246,6 +249,9 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
   }
   if (RSGlobalConfig.frisoIni != NULL) {
     RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char *)RSGlobalConfig.frisoIni);
+  }
+  if (RSGlobalConfig.defaultScorer != NULL) {
+    RedisModule_InfoAddFieldCString(ctx, "default_scorer", (char *)RSGlobalConfig.defaultScorer);
   }
   RedisModule_InfoAddFieldCString(ctx, "enableGC",
                                   RSGlobalConfig.gcConfigParams.enableGC ? "ON" : "OFF");

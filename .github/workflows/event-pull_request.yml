@@ -21,21 +21,24 @@ jobs:
     needs: [get-latest-redis-tag]
     uses: ./.github/workflows/task-test.yml
     with:
-      env: ubuntu-latest
       test-config: QUICK=1
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '2.8'
     secrets: inherit
 
   coverage:
+    needs: [get-latest-redis-tag]
     if: >
       (
         vars.ENABLE_CODE_COVERAGE != 'false' &&
         (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:coverage'))
       )
-    uses: ./.github/workflows/flow-coverage.yml
+    uses: ./.github/workflows/task-test.yml
     with:
+      coverage: true
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '2.8'
+      test-config: QUICK=1
     secrets: inherit
 
   sanitize:
@@ -47,11 +50,10 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      test-config: QUICK=1
       san: address
-      env: ubuntu-latest
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '2.8'
+      test-config: QUICK=1
 
   pr-validation:
     needs:

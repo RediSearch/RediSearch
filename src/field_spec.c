@@ -27,8 +27,6 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
   if (fs->types & INDEXFLD_T_VECTOR) {
     VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
   }
-
-  IndexError_Clear(fs->indexError);
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {

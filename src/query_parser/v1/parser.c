@@ -16,7 +16,7 @@
 **
 ** The "lemon" program processes an LALR(1) input grammar file, then uses
 ** this template to construct a parser.  The "lemon" program inserts text
-** at each "%%" line.  Also, any "P-a-r-s-e" identifer prefix (without the
+** at each "%%" line.  Also, any "P-a-r-s-e" identifier prefix (without the
 ** interstitial "-" characters) contained in this template is changed into
 ** the value of the %name directive from the grammar.  Otherwise, the content
 ** of this template is copied straight through into the generate parser
@@ -134,7 +134,7 @@ static int one_not_null(void *a, void *b, void *out) {
 **                       the minor type might be the name of the identifier.
 **                       Each non-terminal can have a different minor type.
 **                       Terminal symbols all have the same minor type, though.
-**                       This macros defines the minor type for terminal 
+**                       This macros defines the minor type for terminal
 **                       symbols.
 **    YYMINORTYPE        is the data type used for all minor types.
 **                       This is typically a union of many types, one of
@@ -184,8 +184,8 @@ typedef union {
 #define YYSTACKDEPTH 100
 #endif
 #define RSQueryParser_v1_ARG_SDECL  QueryParseCtx *ctx ;
-#define RSQueryParser_v1_ARG_PDECL , QueryParseCtx *ctx 
-#define RSQueryParser_v1_ARG_PARAM ,ctx 
+#define RSQueryParser_v1_ARG_PDECL , QueryParseCtx *ctx
+#define RSQueryParser_v1_ARG_PARAM ,ctx
 #define RSQueryParser_v1_ARG_FETCH  QueryParseCtx *ctx =yypParser->ctx ;
 #define RSQueryParser_v1_ARG_STORE yypParser->ctx =ctx ;
 #define RSQueryParser_v1_CTX_SDECL
@@ -224,7 +224,7 @@ typedef union {
 /* Next are the tables used to determine what action to take based on the
 ** current state and lookahead token.  These tables are used to implement
 ** functions that take a state number and lookahead value and return an
-** action integer.  
+** action integer.
 **
 ** Suppose the action integer is N.  Then the action is determined as
 ** follows
@@ -368,9 +368,9 @@ static const YYACTIONTYPE yy_default[] = {
 };
 /********** End of lemon-generated parsing tables *****************************/
 
-/* The next table maps tokens (terminal symbols) into fallback tokens.  
+/* The next table maps tokens (terminal symbols) into fallback tokens.
 ** If a construct like the following:
-** 
+**
 **      %fallback ID X Y Z.
 **
 ** appears in the grammar, then ID becomes a fallback token for X, Y,
@@ -443,10 +443,10 @@ static char *yyTracePrompt = 0;
 #endif /* NDEBUG */
 
 #ifndef NDEBUG
-/* 
+/*
 ** Turn parser tracing on by giving a stream to which to write the trace
 ** and a prompt to preface each trace message.  Tracing is turned off
-** by making either argument NULL 
+** by making either argument NULL
 **
 ** Inputs:
 ** <ul>
@@ -471,7 +471,7 @@ void RSQueryParser_v1_Trace(FILE *TraceFILE, char *zTracePrompt){
 #if defined(YYCOVERAGE) || !defined(NDEBUG)
 /* For tracing shifts, the names of all terminals and nonterminals
 ** are required.  The following table supplies these names */
-static const char *const yyTokenName[] = { 
+static const char *const yyTokenName[] = {
   /*    0 */ "$",
   /*    1 */ "LOWEST",
   /*    2 */ "TILDE",
@@ -614,7 +614,7 @@ static int yyGrowStack(yyParser *p){
 #endif
     p->yystksz = newSize;
   }
-  return pNew==0; 
+  return pNew==0;
 }
 #endif
 
@@ -656,7 +656,7 @@ void RSQueryParser_v1_Init(void *yypRawParser RSQueryParser_v1_CTX_PDECL){
 }
 
 #ifndef RSQueryParser_v1__ENGINEALWAYSONSTACK
-/* 
+/*
 ** This function allocates a new parser.
 ** The only argument is a pointer to a function which works like
 ** malloc.
@@ -683,7 +683,7 @@ void *RSQueryParser_v1_Alloc(void *(*mallocProc)(YYMALLOCARGTYPE) RSQueryParser_
 /* The following function deletes the "minor type" or semantic value
 ** associated with a symbol.  The symbol can be either a terminal
 ** or nonterminal. "yymajor" is the symbol code, and "yypminor" is
-** a pointer to the value to be deleted.  The code used to do the 
+** a pointer to the value to be deleted.  The code used to do the
 ** deletions is derived from the %destructor and/or %token_destructor
 ** directives of the input grammar.
 */
@@ -698,7 +698,7 @@ static void yy_destructor(
     /* Here is inserted the actions which take place when a
     ** terminal or non-terminal is destroyed.  This can happen
     ** when the symbol is popped from the stack during a
-    ** reduce or during error processing or when a parser is 
+    ** reduce or during error processing or when a parser is
     ** being destroyed before it is finished parsing.
     **
     ** Note: during a reduce, the only symbols destroyed are those
@@ -712,7 +712,7 @@ static void yy_destructor(
     case 42: /* modifier */
     case 43: /* term */
 {
- 
+
 }
       break;
     case 29: /* expr */
@@ -722,23 +722,23 @@ static void yy_destructor(
     case 35: /* fuzzy */
     case 36: /* tag_list */
 {
- QueryNode_Free((yypminor->yy75)); 
+ QueryNode_Free((yypminor->yy75));
 }
       break;
     case 30: /* attribute */
 {
- rm_free((char*)(yypminor->yy87).value); 
+ rm_free((char*)(yypminor->yy87).value);
 }
       break;
     case 31: /* attribute_list */
 {
- array_free_ex((yypminor->yy1), rm_free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy1), rm_free((char*)((QueryAttribute*)ptr )->value));
 }
       break;
     case 37: /* geo_filter */
     case 40: /* numeric_range */
 {
- QueryParam_Free((yypminor->yy62)); 
+ QueryParam_Free((yypminor->yy62));
 }
       break;
     case 38: /* modifierlist */
@@ -791,7 +791,7 @@ void RSQueryParser_v1_Finalize(void *p){
 }
 
 #ifndef RSQueryParser_v1__ENGINEALWAYSONSTACK
-/* 
+/*
 ** Deallocate and destroy a parser.  Destructors are called for
 ** all stack elements before shutting the parser down.
 **
@@ -1011,7 +1011,7 @@ static void yy_shift(
     assert( yypParser->yyhwm == (int)(yypParser->yytos - yypParser->yystack) );
   }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
   if( yypParser->yytos>yypParser->yystackEnd ){
     yypParser->yytos--;
     yyStackOverflow(yypParser);
@@ -1783,7 +1783,7 @@ void RSQueryParser_v1_(
                   (int)(yypParser->yytos - yypParser->yystack));
         }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
         if( yypParser->yytos>=yypParser->yystackEnd ){
           yyStackOverflow(yypParser);
           break;
@@ -1822,7 +1822,7 @@ void RSQueryParser_v1_(
 #ifdef YYERRORSYMBOL
       /* A syntax error has occurred.
       ** The response to an error depends upon whether or not the
-      ** grammar defines an error token "ERROR".  
+      ** grammar defines an error token "ERROR".
       **
       ** This is what we do if the grammar does define ERROR:
       **

@@ -12,6 +12,7 @@
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "redismodule.h"
+#include "module.h"
 #include "reply_macros.h"
 #include "info/global_stats.h"
 #include "util/units.h"
@@ -97,6 +98,10 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   // Safe to access the spec directly since it is was already validated as a strong reference by the caller
   const IndexSpec *sp = sctx->spec;
+
+  // Lock the spec
+  RedisSearchCtx_LockSpecRead(sctx);
+
   IndexSpec *specForOpeningIndexes = sctx->spec;
   const char* specName = IndexSpec_FormatName(sp, obfuscate);
   REPLY_KVSTR_SAFE("index_name", specName);
@@ -106,6 +111,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_ReplyKV_Array(reply, "attributes"); // >attrbutes
   size_t geom_idx_sz = 0;
+
 
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
@@ -219,15 +225,13 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
-  // Lock the spec
-  RedisSearchCtx_LockSpecRead(sctx);
-
   REPLY_KVINT("num_docs", sp->stats.numDocuments);
   REPLY_KVINT("max_doc_id", sp->docs.maxDocId);
   REPLY_KVINT("num_terms", sp->stats.numTerms);
   REPLY_KVINT("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(specForOpeningIndexes) / (float)0x100000);
+  size_t vector_indexes_size = IndexSpec_VectorIndexSize(specForOpeningIndexes);
+  REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
   REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks);
 
   REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
@@ -242,7 +246,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
   REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
   REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size,
-    tags_overhead, text_overhead) / (float)0x100000);
+    tags_overhead, text_overhead, vector_indexes_size) / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
@@ -255,7 +259,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
   REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);
-  REPLY_KVNUM("total_indexing_time", (float)(sp->stats.totalIndexTime / (float)CLOCKS_PER_MILLISEC));
+  REPLY_KVNUM("total_indexing_time", rs_wall_clock_convert_ns_to_ms_d(sp->stats.totalIndexTime));
   REPLY_KVINT("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
@@ -292,7 +296,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   // Global index error stats
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&sp->stats.indexError, reply, withTimes, obfuscate);
+  IndexError_Reply(&sp->stats.indexError, reply, withTimes, obfuscate, INDEX_ERROR_WITH_OOM_STATUS);
 
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {

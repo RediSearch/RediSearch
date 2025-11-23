@@ -13,11 +13,16 @@
 #include "index.h"
 #include "redis_index.h"
 #include "suffix.h"
+#include "config.h"
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
 #include "obfuscation/obfuscation_api.h"
+#include "redismodule.h"
+#include "debug_commands.h"
 
 extern RedisModuleCtx *RSDummyContext;
+
+extern void IncrementYieldCounter(void);
 
 #include <unistd.h>
 
@@ -218,7 +223,6 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
-
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
         FieldSpec_AddQueryError(&cur->spec->fields[fs->index], &cur->status, doc->docKey);
@@ -347,4 +351,67 @@ int IndexDocument(RSAddDocumentCtx *aCtx) {
   Indexer_Process(aCtx);
   AddDocumentCtx_Finish(aCtx);
   return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+/// Multiple Indexers                                                        ///
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Each index (i.e. IndexSpec) will have its own dedicated indexing thread.
+ * This is because documents only need to be indexed in order with respect
+ * to their document IDs, and the ID namespace is only unique among a given
+ * index.
+ *
+ * Separating background threads also greatly simplifies the work of merging
+ * or folding indexing and document ID assignment, as it can be assumed that
+ * every item within the document ID belongs to the same index.
+ */
+
+// Creates a new DocumentIndexer. This initializes the structure and starts the
+// thread. This does not insert it into the list of threads, though
+// todo: remove the withIndexThread var once we switch to threadpool
+DocumentIndexer *NewIndexer(IndexSpec *spec) {
+  DocumentIndexer *indexer = rm_calloc(1, sizeof(*indexer));
+
+  indexer->redisCtx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
+  indexer->specKeyName =
+      RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, spec->name);
+
+  ConcurrentSearchCtx_InitSingle(&indexer->concCtx, indexer->redisCtx, reopenCb);
+  return indexer;
+}
+
+void Indexer_Free(DocumentIndexer *indexer) {
+  rm_free(indexer->concCtx.openKeys);
+  RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
+  RedisModule_FreeThreadSafeContext(indexer->redisCtx);
+  rm_free(indexer);
+}
+
+bool g_isLoading = false;
+
+/**
+ * Yield to Redis after a certain number of operations during indexing.
+ * This helps keep Redis responsive during long indexing operations.
+ * @param ctx The Redis context
+ * @param numOps Tue number of operations to count in the counter before considering RSGlobalConfig.indexerYieldEveryOpsWhileLoading. These are related to the number of fields in the document
+ * @param flags The flags to pass to RedisModule_Yield
+ */
+void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags) {
+  static size_t opCounter = 0;
+
+  // If server is loading, Yield to Redis if the number of operations is greater than the yieldEveryOps
+  opCounter += numOps;
+  if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+    opCounter = opCounter % RSGlobalConfig.indexerYieldEveryOpsWhileLoading;
+    IncrementYieldCounter(); // Track that we called yield
+    unsigned int sleepMicros = GetIndexerSleepBeforeYieldMicros();
+    if (sleepMicros > 0) {
+      usleep(sleepMicros);
+    }
+    RedisModule_Yield(ctx, flags, NULL);
+  }
 }

@@ -5,16 +5,13 @@ name: Get Linux Configurations
 env:
   ALL_X86_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
-                    'ubuntu:bionic',
                     'rockylinux:8',
-                    'rockylinux:9',
                     'debian:bullseye',
                     'amazonlinux:2',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0',
                     'mcr.microsoft.com/azurelinux/base/core:3.0']"
   ALL_ARM_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
-                    'ubuntu:bionic',
                     'mcr.microsoft.com/azurelinux/base/core:3.0']"
 
 on:
@@ -126,7 +123,7 @@ jobs:
               'pre-deps': "tdnf install -y --noplugins tar git ca-certificates"})
 
           # Ubuntu and Debian distributions need git pre-checkout dependencies
-          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'ubuntu:bionic', 'debian:bullseye', 'gcc:12-bookworm']
+          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'debian:bullseye', 'gcc:12-bookworm']
           for os_name in debian_based_os:
             if os_name in x86_platforms:
               x86_include.append({
@@ -142,11 +139,11 @@ jobs:
             if rocky_version in x86_platforms:
               x86_include.append({
                 'OS': rocky_version,
-                'pre-deps': "yum update -y && yum install -y git"})
+                'pre-deps': "dnf update -y && dnf install -y git"})
             if rocky_version in arm_platforms:
               arm_include.append({
                 'OS': rocky_version,
-                'pre-deps': "yum update -y && yum install -y git"})
+                'pre-deps': "dnf update -y && dnf install -y git"})
 
 
 

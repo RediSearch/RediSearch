@@ -419,7 +419,7 @@ def test_numeric_range(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min (-$max]', 'NOCONTENT',
                    'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '-inf')
     env.assertEqual(res2, res1)
-    
+
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf (105]', 'NOCONTENT',
                    'WITHCOUNT')
     env.assertEqual(res1, [5, 'key1', 'key2', 'key3', 'key4', 'key6neg'])
@@ -494,7 +494,7 @@ def test_numeric_range(env):
     # env.expect('FT.SEARCH', 'idx', '@n:[++($n 9]', 'PARAMS', 2, 'n', 1).error()
 
     # invalid syntax - multiple signs before parameters are not allowed
-    # Syntax errors with '+' are not raised in dialect 2, because the '+' is 
+    # Syntax errors with '+' are not raised in dialect 2, because the '+' is
     # consumed by the lexer
     # env.expect('FT.SEARCH', 'idx', '@n:[+-$n 100]', 'PARAMS', 2, 'n', 1).error()
     # env.expect('FT.SEARCH', 'idx', '@n:[-+$n 100]', 'PARAMS', 2, 'n', 1).error()
@@ -666,22 +666,26 @@ def aliasing(env, is_sortable, is_sortable_unf):
     res = env.cmd('FT.SEARCH', 'idx', '*',
                               'RETURN', 4,'numval',
                                           'numval_name', 'AS', 'numval_new_name')
-    env.assertEqual(res, [docs_num, 'key1', ['numval', '110', 'numval_new_name', '110'],
-                                    'key2', ['numval', '109', 'numval_new_name', '109'],
-                                    'key3', [],
-                                    'key4', [],
-                                    'key5', []])
+    env.assertEqual(res, [docs_num,
+        'key5', [],
+        'key1', ['numval', '110', 'numval_new_name', '110'],
+        'key2', ['numval', '109', 'numval_new_name', '109'],
+        'key3', [],
+        'key4', [],
+    ])
 
     # `RETURN b as x
     #         x as y` is allowed and yields: title = x, val = b title = y, val = x
     res = env.cmd('FT.SEARCH', 'idx', '*',
                               'RETURN', 6,'numval_name','AS', 'x',
                                           'x', 'AS', 'y')
-    env.assertEqual(res, [docs_num, 'key1', ['x', '110'],
-                                    'key2', ['x', '109'],
-                                    'key3', [],
-                                    'key4', ['y', '107'],
-                                    'key5', []])
+    env.assertEqual(res, [docs_num,
+        'key5', [],
+        'key1', ['x', '110'],
+        'key2', ['x', '109'],
+        'key3', [],
+        'key4', ['y', '107'],
+    ])
 
     # Test order of return - shouldn't change the result.
     res2 = env.cmd('FT.SEARCH', 'idx', '*',

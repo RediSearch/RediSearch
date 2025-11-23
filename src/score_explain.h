@@ -31,6 +31,16 @@ void SEReply(RedisModule_Reply *reply, RSScoreExplain *scrExp);
  */
 void SEDestroy(RSScoreExplain *scrExp);
 
+
+#define EXPLAIN(exp, fmt, args...) \
+  {                                \
+    if (exp) {                     \
+      explain(exp, fmt, ##args);   \
+    }                              \
+  }
+
+void explain(RSScoreExplain *scrExp, char *fmt, ...);
+
 #ifdef __cplusplus
 }
 #endif

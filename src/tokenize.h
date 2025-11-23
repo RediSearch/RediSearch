@@ -50,9 +50,15 @@ typedef struct {
 
   // position in the document - this is written to the inverted index
   uint32_t pos;
+
+  // Pointer to allocated memory that needs to be freed (if any)
+  char *allocatedTok;
 } Token;
 
-#define Token_Destroy(t) rm_free((t)->phoneticsPrimary)
+#define Token_Destroy(t) do { \
+  rm_free((t)->phoneticsPrimary); \
+  rm_free((t)->allocatedTok); \
+} while(0)
 
 // A NormalizeFunc converts a raw token to the normalized form in which it will be stored
 typedef char *(*NormalizeFunc)(char *, size_t *);

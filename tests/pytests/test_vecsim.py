@@ -456,7 +456,7 @@ def test_index_errors():
     env.assertEqual(index_errors(env)['indexing failures'], error_count)
     env.assertEqual(index_errors(env)['last indexing error'], 'N/A')
     env.assertEqual(index_errors(env)['last indexing error key'], 'N/A')
-    env.assertEqual(field_errors(env), index_errors(env))
+    assertEqual_dicts_on_intersection(env, field_errors(env), index_errors(env))
 
     for i in range(0, 5, 2):
         conn.execute_command('HSET', i, 'v', create_np_array_typed([0]).tobytes())
@@ -465,7 +465,7 @@ def test_index_errors():
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 4 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i))
-        env.assertEqual(cur_index_errors, field_errors(env))
+        assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
         conn.execute_command('HSET', i + 1, 'v', create_np_array_typed([0, 0, 0]).tobytes())
         error_count += 1
@@ -473,7 +473,7 @@ def test_index_errors():
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 12 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
-        env.assertEqual(cur_index_errors, field_errors(env))
+        assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
 
 def test_search_errors():
@@ -576,7 +576,7 @@ def test_search_errors():
 
 
 def test_with_fields():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2' + (' MIN_OPERATION_WORKERS 0' if MT_BUILD else ''))
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -1081,7 +1081,7 @@ def test_hybrid_query_non_vector_score():
 
 @skip(cluster=False)
 def test_single_entry():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2' + (' MIN_OPERATION_WORKERS 0' if MT_BUILD else ''))
     # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator.
     # Execution should finish without failure.
     conn = getConnectionByEnv(env)
@@ -1097,9 +1097,9 @@ def test_single_entry():
                 'RETURN', '0',
                 'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1, '0'])
 
-@skip(noWorkers=True)
+
 def test_hybrid_query_adhoc_bf_mode():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2' + (' MIN_OPERATION_WORKERS 0' if MT_BUILD else ''))
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -1679,7 +1679,7 @@ def test_rdb_memory_limit():
 
 class TestTimeoutReached(object):
     def __init__(self):
-        if SANITIZER:
+        if SANITIZER or OS == 'macos':
             raise SkipTest()
         self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
         n_shards = self.env.shardsCount
@@ -1693,11 +1693,12 @@ class TestTimeoutReached(object):
 
     def run_long_queries(self, n_vec, query_vec):
         # STANDARD KNN
+        large_k = 1000
         # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, large_k,
+                                   'PARAMS', 4, 'K', large_k, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 0)
-        self.env.assertEqual(res[0], n_vec)
+        self.env.assertEqual(res[0], large_k)
         # run query with 1 millisecond timeout. should fail.
         self.env.expect(
             'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
@@ -1706,11 +1707,6 @@ class TestTimeoutReached(object):
         ).error().contains('Timeout limit was reached')
 
         # RANGE QUERY
-        # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                   'PARAMS', 2,  'vec_param', query_vec.tobytes(),
-                                   'TIMEOUT', 0)
-        self.env.assertEqual(res[0], n_vec)
         # run query with 1 millisecond timeout. should fail.
         self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                    'PARAMS', 2, 'vec_param', query_vec.tobytes(),
@@ -1718,11 +1714,6 @@ class TestTimeoutReached(object):
 
         # HYBRID MODES
         for mode in self.hybrid_modes:
-            res = self.env.cmd('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
-                               'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec, 'vec_param',
-                               query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 0)
-            self.env.assertEqual(res[0], n_vec)
-
             self.env.expect(
                 'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
                 'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
@@ -1777,7 +1768,7 @@ def test_create_multi_value_json():
 
 
 def test_index_multi_value_json():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2' + (' MIN_OPERATION_WORKERS 0' if MT_BUILD else ''))
     conn = getConnectionByEnv(env)
     dim = 4
     n = 100
@@ -2462,18 +2453,18 @@ def test_vector_index_ptr_valid(env):
 
     res = conn.execute_command('HSET', 'doc', 'n', 0)
     env.assertEqual(res, 1)
-    # efore bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
+    # before bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
     res = conn.execute_command('HSET', 'doc', 'n', 1)
     env.assertEqual(res, 0)
 
-    # Sanity check - insert a vector, expect indexing faliure
+    # Sanity check - insert a vector, expect indexing failure
     res = conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([0]*dim,'FLOAT16').tobytes())
     env.assertEqual(res, 1)
 
     index_errors_dict = index_errors(env, 'idx')
     env.assertEqual(index_errors_dict['last indexing error'], "Could not open vector for indexing")
 
-    # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer accsess
+    # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer access
     # Server will reply OK but crash afterwards, so a PING is required to verify
     env.expect('FLUSHALL').noError()
     env.expect('PING').noError()

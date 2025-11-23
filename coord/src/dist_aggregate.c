@@ -18,6 +18,9 @@
 #include "util/misc.h"
 #include "aggregate/aggregate_debug.h"
 #include "util/units.h"
+#include "config.h"
+#include "shard_window_ratio.h"
+#include "rs_wall_clock.h"
 
 #include <err.h>
 
@@ -127,7 +130,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     MRReply *results = NULL;
     if (map && MRReply_Type(map) == MR_REPLY_MAP) {
       results = MRReply_MapElement(map, "results");
-      if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
+      if (results && MRReply_Type(results) == MR_REPLY_ARRAY) {
         MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
         // User code now owns the reply, so we can't free it here ourselves!
         rep = NULL;
@@ -137,7 +140,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   else // RESP2
   {
     MRReply *results = MRReply_ArrayElement(rep, 0);
-    if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 1) {
+    if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) >= 1) {
       MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
       // User code now owns the reply, so we can't free it here ourselves!
       rep = NULL;
@@ -262,13 +265,20 @@ static int getNextReply(RPNet *nc) {
   }
 
   MRReply *rows = MRReply_ArrayElement(root, 0);
-  if (   rows == NULL
-      || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
-      || MRReply_Length(rows) == 0) {
+  // Perform sanity check to avoid processing empty replies
+  bool is_empty;
+  if (nc->cmd.protocol == 3) { // RESP3
+    MRReply *results = MRReply_MapElement(rows, "results");
+    is_empty = MRReply_Length(results) == 0;
+  } else { // RESP2
+    is_empty = MRReply_Length(rows) == 1;
+  }
+
+  if (is_empty) {
     MRReply_Free(root);
     root = NULL;
     rows = NULL;
-    RedisModule_Log(RSDummyContext, "warning", "An empty reply was received from a shard");
+    RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
   }
 
   // invariant: either rows == NULL or least one row exists
@@ -345,6 +355,9 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
           } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
             nc->areq->qiter.err->reachedMaxPrefixExpansions = true;
           }
+          if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
+              nc->areq->qiter.bgScanOOM = true;
+          }
         }
 
         long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
@@ -393,6 +406,9 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
           || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
         QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, strErr);
         return RS_RESULT_ERROR;
+      } else {
+        MRReply_Free(nc->current.root);
+        RPNet_resetCurrent(nc);
       }
     }
 
@@ -499,7 +515,7 @@ static RPNet *RPNet_New(const MRCommand *cmd) {
 }
 
 static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
-                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd) {
+                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, specialCaseCtx *knnCtx) {
   // We need to prepend the array with the command, index, and query that
   // we want to use.
   const char **tmparr = array_new(const char *, us->nserialized);
@@ -566,6 +582,22 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     }
   }
 
+  // Handle KNN with shard ratio optimization for both multi-shard and standalone
+  if (knnCtx) {
+    KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+    double ratio = knn_query->shardWindowRatio;
+
+    if (ratio < MAX_SHARD_WINDOW_RATIO) {
+      // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
+      // Calculate effective K based on deployment mode
+      size_t numShards = GetNumShards_UnSafe();
+      size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, numShards);
+
+      // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
+      modifyKNNCommand(xcmd, 2 + profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
+    }
+  }
+
   // check for timeout argument and append it to the command.
   // If TIMEOUT exists, it was already validated at AREQ_Compile.
   int timeout_index = RMUtil_ArgIndex("TIMEOUT", argv + 3 + profileArgs, argc - 4 - profileArgs);
@@ -628,8 +660,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
 void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
 
-void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
-  clock_t finishTime = clock();
+void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
+  AREQ *req = ctx->req;
 
   RedisModule_ReplyKV_Map(reply, "Shards"); // >Shards
 
@@ -649,10 +681,10 @@ void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout, bool re
   RedisModule_ReplyKV_Map(reply, "Coordinator"); // >coordinator
 
   RedisModule_ReplyKV_Map(reply, "Result processors profile");
-  Profile_Print(reply, req, timedout, reachedMaxPrefixExpansions);
+  Profile_Print(reply, ctx);
   RedisModule_Reply_MapEnd(reply);
 
-  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(&req->initClock)));
 
   RedisModule_Reply_MapEnd(reply); // >coordinator
 }
@@ -679,7 +711,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
                          specialCaseCtx **knnCtx_ptr, QueryError *status) {
   r->qiter.err = status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
-  r->initClock = clock();
+  rs_wall_clock_init(&r->initClock);
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) return REDISMODULE_ERR;
@@ -688,11 +720,14 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   r->profile = printAggProfile;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
+  specialCaseCtx *knnCtx = NULL;
+
   if(dialect >= 2) {
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
     if(strcasestr(r->query, "KNN")) {
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(r->query, argv, argc, status);
+      // For distributed aggregation, command type detection is automatic
+      knnCtx = prepareOptionalTopKCase(r->query, argv, argc, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;
@@ -717,7 +752,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   // Construct the command string
   MRCommand xcmd;
-  buildMRCommand(argv , argc, profileArgs, &us, &xcmd);
+  buildMRCommand(argv , argc, profileArgs, &us, &xcmd, knnCtx);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
@@ -725,7 +760,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, &us);
 
-  if (IsProfile(r)) r->parseTime = clock() - r->initClock;
+  if (IsProfile(r)) r->profileParseTime = rs_wall_clock_elapsed_ns(&r->initClock);
 
   // Create the Search context
   // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)

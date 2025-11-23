@@ -438,7 +438,6 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
   if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \
-    printf("could not initialize RediSearch_" #name "\r\n");                   \
     rv__ = REDISMODULE_ERR;                                                    \
     goto rsfunc_init_end__;                                                    \
   }

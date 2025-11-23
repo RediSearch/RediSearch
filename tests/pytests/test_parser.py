@@ -294,7 +294,7 @@ INTERSECT {
     env.expect('FT.EXPLAIN', 'idx', '@t1:hello world=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '@t1:(hello world)=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').error().contains('Syntax error')
 
-def test_modifier_v2(env):
+def test_modifier_v2():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'NOSTEM', 't2', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
@@ -617,3 +617,35 @@ def testModifierList(env):
   }
 }
 '''[1:])
+
+def test_intersection_v2():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'NOSTEM', 'tag', 'TAG').ok()
+
+    expected = r'''
+INTERSECT {
+  foo
+  bar
+  baz
+}
+'''[1:]
+
+    # Test text intersection
+    env.expect('FT.EXPLAIN', 'idx', 'foo bar baz', 'VERBATIM').equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', '(foo bar) baz', 'VERBATIM').equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', 'baz (foo bar)', 'VERBATIM').equal(expected)
+
+    expected = r'''
+INTERSECT {
+  @text:foo
+  bar
+  TAG:@tag {
+    baz
+  }
+}
+'''[1:]
+    # Test combination of text and tag intersection (not text-only)
+    env.expect('FT.EXPLAIN', 'idx', '@text:foo bar @tag:{baz}', 'VERBATIM').equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', '(@text:foo bar) @tag:{baz}', 'VERBATIM').equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', '@tag:{baz} (@text:foo bar)', 'VERBATIM').equal(expected)

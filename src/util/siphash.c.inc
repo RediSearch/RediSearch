@@ -324,7 +324,6 @@ int siphash_test(void) {
         const uint8_t *v = NULL;
         v = (uint8_t *)vectors_sip64;
         if (memcmp(&hash, v + (i * 8), 8)) {
-            /* printf("fail for %d bytes\n", i); */
             fails++;
         }
     }

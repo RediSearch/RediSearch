@@ -5,20 +5,33 @@
  */
 
 #pragma once
-
-
 #include "value.h"
 #include "aggregate/aggregate.h"
 
+
 #define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
 #define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
-#define printProfileCounter(vcounter) RedisModule_ReplyKV_LongLong(reply, "Counter", (vcounter))
+#define printProfileIteratorCounter(vcount) RedisModule_ReplyKV_LongLong(reply, "Number of reading operations", (vcount))
+#define printProfileRPCounter(vcount) RedisModule_ReplyKV_LongLong(reply, "Results processed", (vcount))
 #define printProfileNumBatches(hybrid_reader) \
   RedisModule_ReplyKV_LongLong(reply, "Batches number", (hybrid_reader)->numIterations)
+#define printProfileMaxBatchSize(hybrid_reader) \
+  RedisModule_ReplyKV_LongLong(reply, "Largest batch size", (hybrid_reader)->maxBatchSize)
+#define printProfileMaxBatchIteration(hybrid_reader) \
+  RedisModule_ReplyKV_LongLong(reply, "Largest batch iteration (zero based)", (hybrid_reader)->maxBatchIteration)
 #define printProfileOptimizationType(oi) \
   RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", QOptimizer_PrintType((oi)->optim))
+#define printProfileVectorSearchMode(searchMode) \
+  RedisModule_ReplyKV_SimpleString(reply, "Vector search mode", VecSimSearchMode_ToString(searchMode))
 
-void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions);
+typedef struct ProfilePrinterCtx {
+  AREQ *req;
+  bool timedout;
+  bool reachedMaxPrefixExpansions;
+  bool bgScanOOM;
+} ProfilePrinterCtx; // Context for the profile printing callback
+
+void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx);
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
                  double cpuTime, PrintProfileConfig *config);

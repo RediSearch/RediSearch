@@ -14,6 +14,7 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 #include "reply.h"
+#include "rs_wall_clock.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -114,8 +115,9 @@ typedef enum {
 #define RunInThread() (RSGlobalConfig.numWorkerThreads)
 #endif
 
-typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req,
-                              bool has_timedout, bool reachedMaxPrefixExpansions);
+// Forward declaration of ProfilePrinterCtx
+typedef struct ProfilePrinterCtx ProfilePrinterCtx;
+typedef void (*profiler_func)(RedisModule_Reply *reply, ProfilePrinterCtx *ctx);
 
 typedef enum {
   /* Pipeline has a loader */
@@ -185,10 +187,10 @@ typedef struct AREQ {
 
 
   /** Profile variables */
-  clock_t initClock;         // Time of start. Reset for each cursor call
-  clock_t totalTime;         // Total time. Used to accumulate cursors times
-  clock_t parseTime;         // Time for parsing the query
-  clock_t pipelineBuildTime; // Time for creating the pipeline
+  rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
+  rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
+  rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
+  rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
 
   const char** requiredFields;
 

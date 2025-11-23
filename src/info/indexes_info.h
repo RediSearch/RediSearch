@@ -7,6 +7,7 @@
 #pragma once
 #include <stddef.h>
 #include "fork_gc.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,7 +26,7 @@ typedef struct {
   size_t max_mem;    // Memory used by the largest (local) index
 
   // Indexing
-  size_t indexing_time;  // Time spent on indexing
+  rs_wall_clock_ns_t indexing_time;  // Time spent on indexing
 
   // GC
   InfoGCStats gc_stats;  // Garbage collection statistics
@@ -35,6 +36,7 @@ typedef struct {
   // Indexing Errors
   size_t indexing_failures;      // Total count of indexing errors
   size_t max_indexing_failures;  // Maximum number of indexing errors among all specs
+  size_t background_indexing_failures_OOM;  // Total count of background indexing errors due to OOM
 
   // Index
   size_t num_active_indexes;           // Number of active indexes

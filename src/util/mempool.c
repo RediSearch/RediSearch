@@ -47,7 +47,7 @@ mempool_t *mempool_new(const mempool_options *options) {
   p->top = 0;
   if (mempoolDisable_g == -1) {
     if (getenv("REDISEARCH_NO_MEMPOOL")) {
-      fprintf(stderr, "[redisearch]: REDISEARCH_NO_MEMPOOL in environment. Disabling\n");
+      RedisModule_Log(NULL, "warning", "[redisearch]: REDISEARCH_NO_MEMPOOL in environment. Disabling");
       mempoolDisable_g = 1;
     } else {
       mempoolDisable_g = 0;

@@ -128,11 +128,6 @@ void KHTable_FreeEx(KHTable *table, void *arg,
  */
 KHTableEntry *KHTable_GetEntry(KHTable *table, const void *s, size_t n, uint32_t hash, int *isNew);
 
-/**
- * Dumps a textual representation of the hash table to the given output stream
- */
-void KHTable_Dump(const KHTable *table, FILE *fp);
-
 typedef struct {
   KHTable *ht;
   size_t curBucket;

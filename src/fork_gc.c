@@ -18,6 +18,7 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
+#include <poll.h>
 #include "rwlock.h"
 #include "util/khash.h"
 #include <float.h>
@@ -58,7 +59,7 @@ static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
 // Buff shouldn't be NULL.
 static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
   RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
-  ssize_t size = write(fgc->pipefd[GC_WRITERFD], buff, len);
+  ssize_t size = write(fgc->pipe_write_fd, buff, len);
   if (size != len) {
     perror("broken pipe, exiting GC fork: write() failed");
     // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
@@ -87,17 +88,22 @@ static void FGC_sendTerminator(ForkGC *fgc) {
 }
 
 static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
-  while (len) {
-    ssize_t nrecvd = read(fgc->pipefd[GC_READERFD], buf, len);
+  // poll the pipe, so that we don't block while read, with timeout of 3 minutes
+  while (poll(fgc->pollfd_read, 1, 180000) == 1) {
+    ssize_t nrecvd = read(fgc->pipe_read_fd, buf, len);
     if (nrecvd > 0) {
       buf += nrecvd;
       len -= nrecvd;
-    } else if (nrecvd < 0 && errno != EINTR) {
-      RedisModule_Log(fgc->ctx, "verbose", "ForkGC - got error while reading from pipe (%s)", strerror(errno));
+    } else if (nrecvd <= 0 && errno != EINTR) {
+      RedisModule_Log(fgc->ctx, "warning", "ForkGC - got error while reading from pipe (%s)", strerror(errno));
       return REDISMODULE_ERR;
     }
+    if (len == 0) {
+      return REDISMODULE_OK;
+    }
   }
-  return REDISMODULE_OK;
+  RedisModule_Log(fgc->ctx, "warning", "ForkGC - got timeout while reading from pipe (%s)", strerror(errno));
+  return REDISMODULE_ERR;
 }
 
 #define TRY_RECV_FIXED(gc, obj, len)                   \
@@ -841,17 +847,14 @@ typedef struct {
   double uniqueSum;
 } NumGcInfo;
 
+// Assumes pointers are valid and their targets are zeroed
 static int recvCardvals(ForkGC *fgc, arrayof(CardinalityValue) *tgt, size_t *len, double *uniqueSum) {
   // len = CardinalityValue count
   if (FGC_recvFixed(fgc, len, sizeof(*len)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
   if (!*len) {
-    *tgt = NULL;
     return REDISMODULE_OK;
-  }
-  if (*tgt) {
-    rm_free(*tgt);
   }
 
   // We use array_newlen since we read the cardinality values entries directly to the memory in tgt.
@@ -870,6 +873,7 @@ static int recvCardvals(ForkGC *fgc, arrayof(CardinalityValue) *tgt, size_t *len
   return REDISMODULE_OK;
 }
 
+// Assumes that ninfo is zeroed
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
   if (FGC_recvFixed(gc, &ninfo->node, sizeof(ninfo->node)) != REDISMODULE_OK) {
     goto error;
@@ -891,6 +895,7 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
 error:
   printf("Error receiving numeric index!\n");
   freeInvIdx(&ninfo->idxbufs, &ninfo->info);
+  array_free(ninfo->cardValsArr);
   memset(ninfo, 0, sizeof(*ninfo));
   return FGC_CHILD_ERROR;
 }
@@ -1195,6 +1200,25 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   return status;
 }
 
+// GIL must be held before calling this function
+static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
+  #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
+  RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+
+  size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+  size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL); // Enterprise limit
+  maxmemory = MIN_NOT_0(maxmemory, max_process_mem);
+
+  size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
+  maxmemory = MIN_NOT_0(maxmemory, total_system_memory);
+
+  size_t used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
+
+  RedisModule_FreeServerInfo(ctx, info);
+
+  return used_memory > maxmemory;
+}
+
 static int periodicCb(void *privdata) {
   ForkGC *gc = privdata;
   RedisModuleCtx *ctx = gc->ctx;
@@ -1232,15 +1256,32 @@ static int periodicCb(void *privdata) {
   pid_t ppid_before_fork = getpid();
 
   TimeSampler_Start(&ts);
-  int rc = pipe(gc->pipefd);  // create the pipe
+  int pipefd[2];
+  int rc = pipe(pipefd);  // create the pipe
   if (rc == -1) {
     RedisModule_Log(ctx, "warning", "Couldn't create pipe - got errno %d, aborting fork GC", errno);
     StrongRef_Release(early_check);
     return 1;
   }
+  gc->pipe_read_fd = pipefd[GC_READERFD];
+  gc->pipe_write_fd = pipefd[GC_WRITERFD];
+  // initialize the pollfd for the read pipe
+  gc->pollfd_read[0].fd = gc->pipe_read_fd;
+  gc->pollfd_read[0].events = POLLIN;
 
   // We need to acquire the GIL to use the fork api
   RedisModule_ThreadSafeContextLock(ctx);
+
+  // Check if we are out of memory before even trying to fork
+  if (isOutOfMemory(ctx)) {
+    RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
+    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
+    StrongRef_Release(early_check);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    close(gc->pipe_read_fd);
+    close(gc->pipe_write_fd);
+    return 1;
+  }
 
   gc->execState = FGC_STATE_SCANNING;
 
@@ -1253,8 +1294,8 @@ static int periodicCb(void *privdata) {
 
     RedisModule_ThreadSafeContextUnlock(ctx);
 
-    close(gc->pipefd[GC_READERFD]);
-    close(gc->pipefd[GC_WRITERFD]);
+    close(gc->pipe_read_fd);
+    close(gc->pipe_write_fd);
 
     return 1;
   }
@@ -1272,17 +1313,17 @@ static int periodicCb(void *privdata) {
   if (cpid == 0) {
     // fork process
     setpriority(PRIO_PROCESS, getpid(), 19);
-    close(gc->pipefd[GC_READERFD]);
+    close(gc->pipe_read_fd);
     // Pass the index to the child process
     FGC_childScanIndexes(gc, StrongRef_Get(early_check));
-    close(gc->pipefd[GC_WRITERFD]);
+    close(gc->pipe_write_fd);
     sleep(RSGlobalConfig.gcConfigParams.forkGc.forkGcSleepBeforeExit);
     RedisModule_ExitFromChild(EXIT_SUCCESS);
   } else {
     // main process
     // release the strong reference to the index for the main process (see comment above)
     StrongRef_Release(early_check);
-    close(gc->pipefd[GC_WRITERFD]);
+    close(gc->pipe_write_fd);
     while (gc->pauseState == FGC_PAUSED_PARENT) {
       gc->execState = FGC_STATE_WAIT_APPLY;
       // spin
@@ -1294,7 +1335,7 @@ static int periodicCb(void *privdata) {
     if (FGC_parentHandleFromChild(gc) == FGC_SPEC_DELETED) {
       gcrv = 0;
     }
-    close(gc->pipefd[GC_READERFD]);
+    close(gc->pipe_read_fd);
     // KillForkChild must be called when holding the GIL
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor

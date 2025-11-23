@@ -288,7 +288,7 @@ def test_async_updates_sanity():
     local_marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
     env.assertEqual(local_marked_deleted_vectors, n_local_vectors_before_update)
 
-    # Get the updated numer of local vectors after the update, and validate that all of them are in the frontend
+    # Get the updated number of local vectors after the update, and validate that all of them are in the frontend
     # index (hadn't been ingested already).
     n_local_vectors = get_vecsim_debug_dict(env, 'idx', 'vector')['INDEX_LABEL_COUNT']
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
@@ -476,6 +476,12 @@ def test_change_workers_number():
     # without actually creating the threads.
     env = initEnv(moduleArgs='WORKERS 1')
     check_threads(expected_num_threads_alive=0, expected_n_threads=1)
+
+    # Before starting the test, set the number of connections per shard to 2 to avoid flakiness
+    # due to connections being rapidly opened/closed when changing the number of workers.
+    if env.isCluster():
+        env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '2').ok()
+
     # Increase number of threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
     check_threads(expected_num_threads_alive=0, expected_n_threads=2)
@@ -519,3 +525,67 @@ def test_change_workers_number():
     # Query should not be executed by the threadpool
     env.expect('ft.search', 'idx', '*').equal([0])
     env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
+
+
+def testNameLoader(env: Env):
+    def get_RP_name(profile_res):
+        if not env.isCluster():
+            return profile_res[1][5][-1][1]
+        if isinstance(profile_res[0], list):
+            return profile_res[2][6][-1][1] # 2.10 aggregate
+        else:
+            return profile_res[-1][6][4][1] # 2.10 search
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sortable', 'TEXT', 'SORTABLE', 'UNF', 'not-sortable', 'TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(10):
+            con.execute_command('HSET', f'doc:{i}', 'sortable', f'S{i}', 'not-sortable', f'NS{i}')
+
+    normal_search = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable', 'RETURN', 1, '__key')
+    normal_aggregate = env.cmd('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@sortable', 'LOAD', 3, '@__key', 'AS', 'doc_id')
+
+    # enable unstable features so we have the special loader
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+
+    # Run the search and aggregate commands again, expecting the same results
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable', 'RETURN', 1, '__key').equal(normal_search)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@sortable', 'LOAD', 3, '@__key', 'AS', 'doc_id').equal(normal_aggregate)
+
+    # Check that the right loader is used
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'RETURN', 1, '__key')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader')
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 3, '@__key', 'AS', 'doc_id')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader')
+
+    # Check that the right loader is used in the aggregate command when loading multiple fields
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@sortable', '@__key')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@sortable')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@not-sortable', '@__key')
+    env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@not-sortable')
+    env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@not-sortable')
+    env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@__key', 'SORTBY', '1', '@__key').equal(
+        [10] + [['__key', f'doc:{i}'] for i in range(10)])
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 3, '@__key', 'AS', 'key',
+                                           'GROUPBY', '1', '@key', 'REDUCE', 'COUNT', '0', 'AS', 'count',
+                                           'SORTBY', '1', '@key').equal(
+        [10] + [['key', f'doc:{i}', 'count', '1'] for i in range(10)])
+
+    # Check that the right loader is used in the aggregate command when loading multiple fields with BG query
+    if MT_BUILD:
+        verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '1')
+        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@sortable', '@__key')
+        env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@sortable')
+        env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@not-sortable', '@__key')
+        env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@not-sortable')
+        env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@not-sortable')
+        env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")

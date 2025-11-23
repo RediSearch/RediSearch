@@ -14,6 +14,10 @@
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct CursorList;
 
 typedef struct Cursor {
@@ -36,11 +40,16 @@ typedef struct Cursor {
   /** Initial timeout interval */
   unsigned timeoutIntervalMs;
 
-  /** Position within idle list */
+  /** Position within idle list.
+   * Should only be accessed under cursor list lock */
   int pos;
 
   /** Is it an internal coordinator cursor or a user cursor*/
   bool is_coord;
+
+  /** If true, a call to `Cursor_Pause` should drop it instead.
+   *  Should only be accessed under cursor list lock */
+  bool delete_mark;
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -120,14 +129,10 @@ static inline CursorList *GetGlobalCursor(uint64_t cid) {
 void CursorList_Init(CursorList *cl, bool is_coord);
 
 /**
- * Clear the cursor list
- */
-void CursorList_Destroy(CursorList *cl);
-
-/**
  * Empty the cursor list.
- * It is assumed that this function is called from the main thread, and that
- * are are no cursors that run in the background.
+ * This function is thread-safe and handles both idle and active cursors.
+ * Idle cursors are freed immediately, while active cursors are marked for
+ * deletion and will be freed when they are next accessed.
  */
 void CursorList_Empty(CursorList *cl);
 
@@ -170,7 +175,8 @@ int Cursor_Pause(Cursor *cur);
 int Cursor_Free(Cursor *cl);
 
 /**
- * Locate and free the cursor with the given ID
+ * Locate and free the cursor with the given ID.
+ * If the cursor is found but not idle, it is marked for deletion.
  */
 int Cursors_Purge(CursorList *cl, uint64_t cid);
 
@@ -196,4 +202,8 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
 #endif
 
 #define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)
+
+#ifdef __cplusplus
+}
+#endif
 #endif // CURSOR_H

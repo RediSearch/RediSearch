@@ -9,6 +9,8 @@
 #include "rlookup.h"
 #include "profile.h"
 
+extern RSConfig RSGlobalConfig;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res);
@@ -18,9 +20,48 @@ static void setReferenceValue(RSValue *dst, RSValue *src) {
 }
 
 extern int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err);
+extern int func_case(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err);
+
+static int evalFuncCase(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
+  if (f->args->len != 3) {
+    QueryError_SetError(eval->err, QUERY_EPARSEARGS,
+      "Function `case()` requires exactly 3 arguments");
+    return EXPR_EVAL_ERR;
+  }
+
+  // Evaluate the condition
+  RSValue condVal = RSVALUE_STATIC;
+  int rc = evalInternal(eval, f->args->args[0], &condVal);
+  if (rc != EXPR_EVAL_OK) {
+    RSValue_Clear(&condVal);
+    return rc;
+  }
+
+  // Determine which branch to evaluate based on the condition
+  int condition = RSValue_BoolTest(&condVal);
+  RSValue_Clear(&condVal);
+
+  // Evaluate only the branch we need
+  int branchIndex = condition ? 1 : 2;
+  rc = evalInternal(eval, f->args->args[branchIndex], result);
+  return rc;
+}
 
 static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   int rc = EXPR_EVAL_ERR;
+
+  // Special handling for func_case. The condition is evaluated to determine
+  // which branch to take and only that branch is evaluated.
+  // For other functions, we evaluate all arguments first.
+  if (f->Call == func_case) {
+    if (RSGlobalConfig.enableUnstableFeatures) {
+      return evalFuncCase(eval, f, result);
+    } else {
+      QueryError_SetError(eval->err, QUERY_EEXPR,
+        "Function `case()` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`");
+      return EXPR_EVAL_ERR;
+    }
+  }
 
   /** First, evaluate every argument */
   size_t nusedargs = 0;
@@ -28,10 +69,15 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   RSValue *argspp[nargs];
   RSValue args[nargs];
 
+  // Normal function evaluation
   for (size_t ii = 0; ii < nargs; ii++) {
     args[ii] = (RSValue)RSVALUE_STATIC;
     argspp[ii] = &args[ii];
     int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
+
+    // Handle NULL values:
+    // 1. For func_exists, always allow NULL values
+    // 2. For all other functions, NULL values are errors
     if (internalRes == EXPR_EVAL_ERR ||
         (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
       // TODO: Free other results

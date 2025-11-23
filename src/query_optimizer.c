@@ -45,15 +45,15 @@ void QOptimizer_Parse(AREQ *req) {
     opt->scorerType = SCORER_TYPE_NONE;
   } else {
     const char *scorer = req->searchopts.scorerName;
-    if (!scorer) {      // default is TFIDF
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DEFAULT_SCORER_NAME)) {  // TFIDF
+    if (!scorer || !strcmp(scorer, DEFAULT_SCORER_NAME)) {      // default is TFIDF
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, TFIDF_DOCNORM_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, DISMAX_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, BM25_SCORER_NAME)) {
+      opt->scorerType = SCORER_TYPE_TERM;
+    } else if (!strcmp(scorer, BM25_STD_SCORER_NAME)) {
       opt->scorerType = SCORER_TYPE_TERM;
     } else if (!strcmp(scorer, DOCSCORE_SCORER)) {
       opt->scorerType = SCORER_TYPE_DOC;
@@ -135,7 +135,6 @@ size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
 
   double ratio = (double)estimate / (double)numDocs;
   size_t newEstimate = (limit / ratio) + 1;
-  // printf("numDocs %ld childEstimate %ld limit %ld required: %ld\n", numDocs, estimate, limit, newEstimate);
 
   return newEstimate;
 }

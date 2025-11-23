@@ -26,7 +26,6 @@ mm_heap_t* mmh_init_with_size(size_t size, mmh_cmp_func cmp, void* cmp_ctx, mmh_
 void mmh_free(mm_heap_t* h);
 void mmh_clear(mm_heap_t* h);
 
-// void mmh_dump(mm_heap_t* h);
 void mmh_insert(mm_heap_t* h, void* value);
 void* mmh_pop_min(mm_heap_t* h);
 void* mmh_pop_max(mm_heap_t* h);

@@ -23,6 +23,8 @@ from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
+import subprocess
+import math
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -310,12 +312,18 @@ def collectKeys(env, pattern='*'):
 def debug_cmd():
     return '_ft.debug' if COORD else 'ft.debug'
 
+def enable_unstable_features(env):
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
 def config_cmd():
     return '_ft.config' if COORD else 'ft.config'
 
+def verify_command_OK_on_all_shards(env, *args):
+    res = run_command_on_all_shards(env, *args)
+    env.assertEqual(res, ['OK'] * env.shardsCount)
 
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
@@ -448,6 +456,10 @@ def create_np_array_typed(data, data_type='FLOAT32'):
     if data_type.upper() == 'BFLOAT16':
         return Bfloat16Array(data)
     return np.array(data, dtype=data_type.lower())
+
+def create_random_np_array_typed(dim, data_type='FLOAT32', seed=10):
+    np.random.seed(seed)
+    return create_np_array_typed(np.random.rand(dim), data_type)
 
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
@@ -723,6 +735,72 @@ def check_index_info_empty(env, idx, fields, msg="after delete all and gc", dept
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
 
+def recursive_index(lst, target):
+    for i, element in enumerate(lst):
+        if isinstance(element, list):
+            sublist_index = recursive_index(element, target)
+            if sublist_index != -1:
+                return [i] + sublist_index
+        elif element == target:
+            return [i]
+    return -1
+
+def recursive_contains(lst, target):
+    return recursive_index(lst, target) != -1
+
+def downloadFile(env, file_name, depth=0, max_retries=3):
+    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
+    path_dir = os.path.dirname(path)
+    os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
+    if not os.path.exists(path):
+        env.debugPrint(f"downloading {file_name}", force=True)
+        try:
+            subprocess.run(
+                [
+                "wget",
+                "--no-check-certificate",
+                "--tries", str(max_retries + 1),  # wget tries
+                "--waitretry", "2",  # wait 2 seconds between retries
+                "--retry-connrefused",  # retry on connection refused
+                BASE_RDBS_URL + file_name,
+                "-O",
+                path,
+                "-v"  # verbose to get better error info
+            ], check=True, capture_output=True, text=True)
+
+        except subprocess.CalledProcessError as e:
+            env.assertTrue(False,
+                message=f"Failed to download {BASE_RDBS_URL + file_name} after {max_retries + 1} attempts. "
+                       f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}",
+                depth=depth + 1)
+
+            # Clean up partial download
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+                    env.debugPrint(f"Removed partially downloaded file {path}", force=True)
+            except OSError:
+                env.debugPrint(f"Failed to remove {path}", force=True)
+                pass
+            return False
+    if not os.path.exists(path):
+        env.assertTrue(
+            False,
+            message=f"{path} does not exist after download",
+            depth=depth + 1,
+        )
+        return False
+    return True
+
+def downloadFiles(env, rdbs=None, depth=0):
+    if rdbs is None:
+        return False
+
+    for f in rdbs:
+        if not downloadFile(env, f, depth=depth + 1):
+            return False
+    return True
+
 def index_errors(env, idx = 'idx'):
     return to_dict(index_info(env, idx)['Index Errors'])
 def field_errors(env, idx = 'idx', fld_index = 0):
@@ -741,3 +819,104 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
     if internal_only:
         debug_params.append("INTERNAL_ONLY")
     return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def waitForIndexFinishScan(env, idx = 'idx'):
+    with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
+        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+            time.sleep(0.1)
+
+def bgScanCommand():
+    return debug_cmd() + ' BG_SCAN_CONTROLLER'
+
+def getDebugScannerStatus(env, idx = 'idx'):
+    return env.cmd(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
+
+def checkDebugScannerStatusError(env, idx = 'idx', expected_error = ''):
+    env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
+        .contains(expected_error)
+
+def checkDebugScannerUpdateError(env, idx = 'idx', expected_error = ''):
+    env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG', idx).error() \
+        .contains(expected_error)
+
+def waitForIndexPauseScan(env, idx = 'idx'):
+    while getDebugScannerStatus(env, idx)!='PAUSED':
+        time.sleep(0.1)
+
+def set_tight_maxmemory_for_oom(env, memory_limit_per = 1):
+    # Get current memory consumption value
+    memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
+    # Set memory limit to less then memory limit
+    required_memory = memory_usage * (1/memory_limit_per)
+    # Round up and add 1
+    new_memory = math.ceil(required_memory) + 1
+
+    env.expect('config', 'set', 'maxmemory',new_memory).ok()
+
+def set_unlimited_maxmemory_for_oom(env):
+    env.expect('config', 'set', 'maxmemory', 0).ok()
+
+
+def waitForIndexStatus(env, status, idx='idx'):
+    with TimeLimit(60, 'Timeout while waiting for index status'):
+        while getDebugScannerStatus(env, idx) != status:
+            time.sleep(0.1)
+
+def waitForIndexPauseScan(env,idx = 'idx'):
+    waitForIndexStatus(env,'PAUSED', idx)
+
+def shard_getDebugScannerStatus(env, shardId, idx = 'idx'):
+    return env.getConnection(shardId).execute_command(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
+
+def shard_waitForIndexStatus(env, shardId, status, idx='idx'):
+    with TimeLimit(60, 'Timeout while waiting for index status'):
+        while shard_getDebugScannerStatus(env, shardId, idx) != status:
+            time.sleep(0.1)
+
+def shard_waitForIndexPauseScan(env, shardId, idx = 'idx'):
+    shard_waitForIndexStatus(env, shardId, 'PAUSED', idx)
+
+def allShards_waitForIndexPauseScan(env, idx = 'idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexPauseScan(env, shardId, idx)
+
+def allShards_waitForIndexStatus(env, status, idx='idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexStatus(env, shardId, status, idx)
+
+def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
+    with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
+        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+            time.sleep(0.1)
+
+
+def allShards_waitForIndexFinishScan(env, idx = 'idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexFinishScan(env, shardId, idx)
+
+def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 1):
+    # Get current memory consumption value
+    memory_usage = env.getConnection(shardId).execute_command('INFO', 'MEMORY')['used_memory']
+    # Set memory limit to less then memory limit
+    required_memory = memory_usage * (1/memory_limit_per)
+    # Round up and add 1
+    new_memory = math.ceil(required_memory) + 1
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', new_memory)
+    env.assertEqual(res, 'OK')
+
+def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 1):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per)
+
+def shard_set_unlimited_maxmemory_for_oom(env, shardId):
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 0)
+    env.assertEqual(res, 'OK')
+
+def allShards_set_unlimited_maxmemory_for_oom(env):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_set_unlimited_maxmemory_for_oom(env, shardId)
+
+def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
+    for k in d1:
+        if k in d2:
+            env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)

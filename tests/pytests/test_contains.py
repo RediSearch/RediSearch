@@ -127,14 +127,8 @@ def testSanity(env: Env):
         pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
         pl.execute()
 
-    env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+    env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
     env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
@@ -198,14 +192,8 @@ def testSanityTags(env):
         pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
         pl.execute()
 
-    env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+    env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
     env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0).error() \
@@ -216,24 +204,24 @@ def testEscape(env):
   conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
   conn.execute_command('HSET', 'doc1', 't', '1foo1')
-  conn.execute_command('HSET', 'doc2', 't', '\*foo2')
-  conn.execute_command('HSET', 'doc3', 't', '3\*foo3')
-  conn.execute_command('HSET', 'doc4', 't', '4foo\*')
-  conn.execute_command('HSET', 'doc5', 't', '5foo\*5')
-  all_docs = [5, 'doc1', ['t', '1foo1'], 'doc2', ['t', '\\*foo2'], 'doc3', ['t', '3\\*foo3'],
-                 'doc4', ['t', '4foo\\*'], 'doc5', ['t', '5foo\\*5']]
+  conn.execute_command('HSET', 'doc2', 't', r'\*foo2')
+  conn.execute_command('HSET', 'doc3', 't', r'3\*foo3')
+  conn.execute_command('HSET', 'doc4', 't', r'4foo\*')
+  conn.execute_command('HSET', 'doc5', 't', r'5foo\*5')
+  all_docs = [5, 'doc1', ['t', '1foo1'], 'doc2', ['t', r'\*foo2'], 'doc3', ['t', r'3\*foo3'],
+                 'doc4', ['t', r'4foo\*'], 'doc5', ['t', r'5foo\*5']]
   # contains
   res = env.cmd('ft.search', 'idx', '*foo*')
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(all_docs))
 
   # prefix only
-  env.expect('ft.search', 'idx', '\*foo*').equal([1, 'doc2', ['t', '\\*foo2']])
+  env.expect('ft.search', 'idx', r'\*foo*').equal([1, 'doc2', ['t', r'\*foo2']])
   # suffix only
-  env.expect('ft.search', 'idx', '*foo\*').equal([1, 'doc4', ['t', '4foo\\*']])
+  env.expect('ft.search', 'idx', r'*foo\*').equal([1, 'doc4', ['t', r'4foo\*']])
   # none
-  env.expect('ft.search', 'idx', '\*foo\*').equal([0])
+  env.expect('ft.search', 'idx', r'\*foo\*').equal([0])
 
-  env.expect('ft.search', 'idx', '*\*foo\**').equal([0])
+  env.expect('ft.search', 'idx', r'*\*foo\**').equal([0])
 
 
 def test_misc1(env):

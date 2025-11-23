@@ -7,6 +7,7 @@
 #include "profile.h"
 #include "reply_macros.h"
 #include "util/units.h"
+#include "rs_wall_clock.h"
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
@@ -41,9 +42,9 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
     printProfileTime(cpuTime);
   }
 
-  printProfileCounter(counter);
+  printProfileIteratorCounter(counter);
 
-  RedisModule_ReplyKV_LongLong(reply, "Size", root->NumEstimated(ir));
+  RedisModule_ReplyKV_LongLong(reply, "Estimated number of matches", root->NumEstimated(ir));
 
   RedisModule_Reply_MapEnd(reply);
 }
@@ -63,12 +64,14 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_METRICS:
       case RP_LOADER:
       case RP_SAFE_LOADER:
+      case RP_KEY_NAME_LOADER:
       case RP_SCORER:
       case RP_SORTER:
       case RP_COUNTER:
       case RP_PAGER_LIMITER:
       case RP_HIGHLIGHTER:
       case RP_GROUP:
+      case RP_MAX_SCORE_NORMALIZER:
       case RP_NETWORK:
         printProfileType(RPTypeToString(rp->type));
         break;
@@ -87,12 +90,12 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     return upstreamTime;
   }
 
-  double totalRPTime = (double)(RPProfile_GetClock(rp) / CLOCKS_PER_MILLISEC);
+  double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
   }
-  printProfileCounter(RPProfile_GetCount(rp) - 1);
-  RedisModule_Reply_MapEnd(reply); // end of resursive map
+  printProfileRPCounter(RPProfile_GetCount(rp) - 1);
+  RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }
 
@@ -100,9 +103,10 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
   return _recursiveProfilePrint(reply, rp, printProfileClock);
 }
 
-void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
+void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
   bool has_map = RedisModule_HasMap(reply);
-  req->totalTime += clock() - req->initClock;
+  AREQ *req = ctx->req;
+  req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
 
   //-------------------------------------------------------------------------------------------
   if (has_map) { // RESP3 variant
@@ -112,22 +116,25 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reac
       // Print total time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Total profile time",
-          (double)(req->totalTime / CLOCKS_PER_MILLISEC));
+          rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
 
       // Print query parsing time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Parsing time",
-          (double)(req->parseTime / CLOCKS_PER_MILLISEC));
+          rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
 
       // Print iterators creation time
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-            (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
+            rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
 
       // Print whether a warning was raised throughout command execution
-      if (timedout) {
+      if (ctx->bgScanOOM) {
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
+      }
+      if (ctx->timedout) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
-      } else if (reachedMaxPrefixExpansions) {
+      } else if (ctx->reachedMaxPrefixExpansions) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
       } else {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
@@ -164,29 +171,31 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reac
     RedisModule_Reply_Array(reply);
       RedisModule_Reply_SimpleString(reply, "Total profile time");
       if (profile_verbose)
-        RedisModule_Reply_Double(reply, (double)(req->totalTime / CLOCKS_PER_MILLISEC));
+        RedisModule_Reply_Double(reply, rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
     RedisModule_Reply_ArrayEnd(reply);
 
     // Print query parsing time
     RedisModule_Reply_Array(reply);
       RedisModule_Reply_SimpleString(reply, "Parsing time");
       if (profile_verbose)
-        RedisModule_Reply_Double(reply, (double)(req->parseTime / CLOCKS_PER_MILLISEC));
+        RedisModule_Reply_Double(reply, rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
     RedisModule_Reply_ArrayEnd(reply);
 
     // Print iterators creation time
     RedisModule_Reply_Array(reply);
     RedisModule_Reply_SimpleString(reply, "Pipeline creation time");
     if (profile_verbose)
-      RedisModule_Reply_Double(reply, (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
+      RedisModule_Reply_Double(reply, rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
     RedisModule_Reply_ArrayEnd(reply);
 
     // Print whether a warning was raised throughout command execution
     RedisModule_Reply_Array(reply);
     RedisModule_Reply_SimpleString(reply, "Warning");
-    if (timedout) {
+    if (ctx->bgScanOOM) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    } else if (ctx->timedout) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-    } else if (reachedMaxPrefixExpansions) {
+    } else if (ctx->reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply);

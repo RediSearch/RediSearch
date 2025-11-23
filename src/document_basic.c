@@ -169,8 +169,14 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   size_t nitems = sctx->spec->numFields;
   JSONResultsIterator jsonIter = NULL;
 
-  RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, REDISMODULE_OPEN_KEY_NOEFFECTS);
+  RedisJSON jsonRoot = NULL;
+  if (japi_ver >= 5) {
+    jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, REDISMODULE_OPEN_KEY_NOEFFECTS);
+  } else {
+    jsonRoot = japi->openKey(ctx, doc->docKey);
+  }
   if (!jsonRoot) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
   Document_MakeStringsOwner(doc); // TODO: necessary??

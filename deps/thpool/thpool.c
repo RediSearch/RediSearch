@@ -425,18 +425,6 @@ int redisearch_thpool_add_n_work(redisearch_thpool_t * thpool_p,
       thpool_p, first_newjob, last_newjob, n_jobs, priority);
 
   return 0;
-
-fail:
-  LOG_IF_EXISTS("warning",
-                "redisearch_thpool_add_n_work(): Could not allocate memory for "
-                "%zu new jobs",
-                n_jobs);
-  while (first_newjob) {
-    job *tmp = first_newjob->prev;
-    rm_free(first_newjob);
-    first_newjob = tmp;
-  }
-  return -1;
 }
 
 static void redisearch_thpool_push_chain_verify_init_threads(
@@ -537,6 +525,9 @@ void redisearch_thpool_destroy(redisearch_thpool_t *thpool_p) {
   /* No need to destroy if it's NULL */
   if (!thpool_p)
     return;
+
+  // Wait for all jobs to finish
+  redisearch_thpool_wait(thpool_p);
 
   redisearch_thpool_terminate_threads(thpool_p);
 

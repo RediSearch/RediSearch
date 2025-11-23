@@ -36,11 +36,11 @@ def testTagIndex(env):
             env.assertEqual(1, res[0])
             env.assertEqual('doc%d' % n, res[1])
             res = env.cmd(
-                'ft.search', 'idx', '@tags:{tag\\ %d}' % n, 'nocontent')
+                'ft.search', 'idx', r'@tags:{tag\ %d}' % n, 'nocontent')
             env.assertEqual(1, res[0])
 
             res = env.cmd(
-                'ft.search', 'idx', 'hello world @tags:{tag\\ %d|tag %d}' % (n, n + 1), 'nocontent')
+                'ft.search', 'idx', r'hello world @tags:{tag\ %d|tag %d}' % (n, n + 1), 'nocontent')
             env.assertEqual(2, res[0])
             res = py2sorted(res[1:])
             env.assertEqual('doc%d' % n, res[0])
@@ -60,7 +60,7 @@ def testSeparator(env):
                                    'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR').ok()
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
-        for q in ('@tags:{hello world}', '@tags:{fooz bar}', '@tags:{foo\\,bar}', '@tags:{boo\\ far}', '@tags:{x}'):
+        for q in ('@tags:{hello world}', '@tags:{fooz bar}', r'@tags:{foo\,bar}', r'@tags:{boo\ far}', '@tags:{x}'):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(1, res[0])
 
@@ -77,7 +77,7 @@ def testTagPrefix(env):
 
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
-        for q in ('@tags:{hello world}', '@tags:{hel*}', '@tags:{hello\\-*}', '@tags:{he*}'):
+        for q in ('@tags:{hello world}', '@tags:{hel*}', r'@tags:{hello\-*}', '@tags:{he*}'):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(res[0], 1)
 
@@ -156,8 +156,8 @@ def testIssue1305(env):
     env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "hello"').error()
     env.expect('FT.ADD myIdx doc3 1.0 FIELDS title "hello"').ok()
     env.expect('FT.ADD myIdx doc1 1.0 FIELDS title "hello,work"').ok()
-    expectedRes = {'doc2': ['nan', ['title', '"work"']], 'doc3' : ['nan', ['title', '"hello"']],
-                   'doc1' : ['nan', ['title', '"hello,work"']]}
+    expectedRes = {'doc2': ['0', ['title', '"work"']], 'doc3' : ['0', ['title', '"hello"']],
+                   'doc1' : ['0', ['title', '"hello,work"']]}
     res = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')[1:]
     res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
     env.assertEqual(res, expectedRes)
@@ -235,39 +235,39 @@ def testTagCaseSensitive(env):
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
 
     # not casesensitive
-    env.expect('FT.SEARCH', 'idx1', '@t:{F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx1', r'@t:{F\ O}')         \
         .equal([3, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
-    env.expect('FT.SEARCH', 'idx1', '@t:{f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx1', r'@t:{f\ o}')         \
         .equal([3, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
 
     # casesensitive
-    env.expect('FT.SEARCH', 'idx2', '@t:{F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx2', r'@t:{F\ O}')         \
         .equal([2, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O']])
-    env.expect('FT.SEARCH', 'idx2', '@t:{f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx2', r'@t:{f\ o}')         \
         .equal([2, 'doc1', ['t', 'f o,F O'], 'doc3', ['t', 'f o']])
 
     # not casesensitive
-    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o\\,f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx3', r'@t:{f\ o\,f\ o}')         \
         .equal([1, 'doc1', ['t', 'f o,F O']])
-    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o\\,F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx3', r'@t:{f\ o\,F\ O}')         \
         .equal([1, 'doc1', ['t', 'f o,F O']])
-    env.expect('FT.SEARCH', 'idx3', '@t:{F\\ O\\,F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx3', r'@t:{F\ O\,F\ O}')         \
         .equal([1, 'doc1', ['t', 'f o,F O']])
-    env.expect('FT.SEARCH', 'idx3', '@t:{F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx3', r'@t:{F\ O}')         \
         .equal([2, 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
-    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx3', r'@t:{f\ o}')         \
         .equal([2, 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
 
     # casesensitive
-    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o\\,f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx4', r'@t:{f\ o\,f\ o}')         \
         .equal([0])
-    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o\\,F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx4', r'@t:{f\ o\,F\ O}')         \
         .equal([1, 'doc1', ['t', 'f o,F O']])
-    env.expect('FT.SEARCH', 'idx4', '@t:{F\\ O\\,F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx4', r'@t:{F\ O\,F\ O}')         \
         .equal([0])
-    env.expect('FT.SEARCH', 'idx4', '@t:{F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx4', r'@t:{F\ O}')         \
         .equal([1, 'doc2', ['t', 'F O']])
-    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx4', r'@t:{f\ o}')         \
         .equal([1, 'doc3', ['t', 'f o']])
 
 @skip(cluster=True)
@@ -425,7 +425,7 @@ def testDialect2TagExact():
     env.cmd('HSET', '{doc}:10', 'tag', 'ab(12)', 'id', '10')
     env.cmd('HSET', '{doc}:11', 'tag', 'a|b-c d', 'id', '11')
     # this test generates the tag: '_@12\\345'
-    env.cmd('HSET', '{doc}:12', 'tag', '_@12\\345', 'id', '12')
+    env.cmd('HSET', '{doc}:12', 'tag', r'_@12\345', 'id', '12')
     env.cmd('HSET', '{doc}:13', 'tag', '$literal', 'id', '13')
     env.cmd('HSET', '{doc}:14', 'tag', '*literal', 'id', '14')
     # tags with leading and trailing spaces
@@ -455,13 +455,13 @@ def testDialect2TagExact():
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{"$literal"}', 'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:13'])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{\*literal}', 'NOCONTENT')
+    res = env.cmd('FT.SEARCH', 'idx', r'@tag:{\*literal}', 'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:14'])
 
     # with dialect < 5, the pipe is an OR operator
     expected_result = [3, '{doc}:1', '{doc}:2', '{doc}:3']
     for dialect in [1, 2, 3, 4]:
-        res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc\:1|xyz\:2}', 'NOCONTENT',
+        res = env.cmd('FT.SEARCH', 'idx', r'@tag:{abc\:1|xyz\:2}', 'NOCONTENT',
                       'SORTBY', 'id', 'ASC', 'DIALECT', dialect)
         env.assertEqual(res, expected_result)
 
@@ -469,8 +469,8 @@ def testDialect2TagExact():
     env.assertEqual(res, [1, '{doc}:8'])
 
     # escape character (backslash '\')
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"_@12\\345"}')
-    env.assertEqual(res, [1, '{doc}:12', ['tag', '_@12\\345', 'id', '12']])
+    res = env.cmd('FT.SEARCH', 'idx', r'@tag:{"_@12\345"}')
+    env.assertEqual(res, [1, '{doc}:12', ['tag', r'_@12\345', 'id', '12']])
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{"ab(12)"}', 'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:10'])
@@ -553,7 +553,7 @@ def testDialect2TagExact():
                   'NOCONTENT', 'SORTBY', 'id', 'ASC')
     env.assertEqual(res, [3, '{doc}:1', '{doc}:2', '{doc}:3'])
 
-    res = env.cmd('FT.SEARCH', 'idx', 
+    res = env.cmd('FT.SEARCH', 'idx',
                   '((@tag:{"xyz:2"}  @tag:{"abc:1"}) | @tag1:{"val:3"} (@tag2:{"joe@mail.com"} => { $weight:0.3 } )) => { $weight:0.2 }',
                   'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:3'])
@@ -632,11 +632,11 @@ def testDialect2TagExact():
 
     # if '$' is escaped, it is treated as a regular character, and the parameter
     # is not replaced
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\$param*}=>{$weight:3.4}',
-                  'PARAMS', '2', 'param', '@mail.', 'NOCONTENT')
+    res = env.cmd('FT.SEARCH', 'idx', r'@tag:{*\$param*}=>{$weight:3.4}',
+                'PARAMS', '2', 'param', '@mail.', 'NOCONTENT')
     env.assertEqual(res, [0])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\$literal*}',
+    res = env.cmd('FT.SEARCH', 'idx', r'@tag:{*\$literal*}',
                   'PARAMS', '2', 'literal', '@mail.', 'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:13'])
 
@@ -658,13 +658,13 @@ def testDialect2TagExact():
     env.assertEqual(res, [2, '{doc}:4', '{doc}:7'])
 
     # wildcard including single quote
-    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'a\\'bc'}")
+    res = env.cmd('FT.EXPLAIN', 'idx', r"@tag:{w'a\'bc'}")
     env.assertEqual(res, "TAG:@tag {\n  WILDCARD{a'bc}\n}\n")
 
     # wildcard with leading and trailing spaces are valid, spaces are ignored
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'}")
     env.assertEqual(res, "TAG:@tag {\n  WILDCARD{?*1}\n}\n")
-    
+
     res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{  w'?*1'}")
     env.assertEqual(res, res2)
 
@@ -675,15 +675,15 @@ def testDialect2TagExact():
     env.assertEqual(res, res2)
 
     # Test escaped wildcards which become tags
-    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{"w\'?*1\'"}')
+    res = env.cmd('FT.EXPLAIN', 'idx', r'@tag:{"w\'?*1\'"}')
     env.assertEqual(res, "TAG:@tag {\n  w'?*1'\n}\n")
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"w\'?*1\'"}', 'NOCONTENT')
+    res = env.cmd('FT.SEARCH', 'idx', r'@tag:{"w\'?*1\'"}', 'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:22'])
 
-    res = env.cmd('FT.EXPLAIN', 'idx', '(@tag:{"w\'-abc"})')
+    res = env.cmd('FT.EXPLAIN', 'idx', r'(@tag:{"w\'-abc"})')
     env.assertEqual(res, "TAG:@tag {\n  w'-abc\n}\n")
 
-    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{"w\'???1a"}')
+    res = env.cmd('FT.EXPLAIN', 'idx', r'@tag:{"w\'???1a"}')
     env.assertEqual(res, "TAG:@tag {\n  w'???1a\n}\n")
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'?'}", 'SORTBY', 'id', 'ASC',
@@ -692,10 +692,10 @@ def testDialect2TagExact():
 
     # This is a tag, not a wildcard, because there is no text enclosed
     # in the quotes
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"w\'\'"}')
+    res = env.cmd('FT.SEARCH', 'idx', r'@tag:{"w\'\'"}')
     env.assertEqual(res, [1, '{doc}:21', ['tag', "w''", 'id', '21']])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"w\'"}')
+    res = env.cmd('FT.SEARCH', 'idx', r'@tag:{"w\'"}')
     env.assertEqual(res, [1, '{doc}:20', ['tag', "w'", 'id', '20']])
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'?'} -@tag:{w'w'}")
@@ -788,10 +788,10 @@ def testDialect2InvalidSyntax():
                'NUMERIC', 'SORTABLE').ok()
 
     with env.assertResponseError(contained='Syntax error'):
-        env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'?*1'}")
+        env.cmd('FT.EXPLAIN', 'idx', r"@tag:{w\'?*1'}")
 
     with env.assertResponseError(contained='Syntax error'):
-        env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1\\}')
+        env.cmd('FT.SEARCH', 'idx', r'@tag:{abc:1\}')
 
     # wildcard and prefix
     with env.assertResponseError(contained='Syntax error'):
@@ -810,23 +810,23 @@ def testDialect2InvalidSyntax():
         env.cmd('FT.SEARCH', 'idx', "@tag:{*w'1?'*}")
 
     with env.assertResponseError(contained='Syntax error'):
-        env.cmd('FT.SEARCH', 'idx', "@tag:{*\\w'abc'\\*}")
-    
+        env.cmd('FT.SEARCH', 'idx', r"@tag:{*\w'abc'\*}")
+
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx @tag:{w'-abc*}")
 
     with env.assertResponseError(contained='Syntax error'):
-        env.cmd('FT.SEARCH', 'idx', "(@tag:{\\w'-abc*})")
-         
+        env.cmd('FT.SEARCH', 'idx', r"(@tag:{\w'-abc*})")
+
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx '@tag:{*w'-abc*}'")
 
     # escaping an invalid wildcard
     with env.assertResponseError(contained='Syntax error'):
-        env.cmd("FT.SEARCH idx '@tag:{\\w-:abc}")
-    
+        env.cmd(r"FT.SEARCH idx '@tag:{\w-:abc}")
+
     with env.assertResponseError(contained='Syntax error'):
-        env.cmd("FT.SEARCH idx '@tag:{\\w'-:abc}")
+        env.cmd(r"FT.SEARCH idx '@tag:{\w'-:abc}")
 
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx @t1:(%)")
@@ -863,7 +863,7 @@ def testDialect2SpecialChars():
 
     # Create docs with a text containing the punct characters
     for c in punct:
-        conn.execute_command("HSET", f"doc{ord(chr(c))}", "text", 
+        conn.execute_command("HSET", f"doc{ord(chr(c))}", "text",
                              f"single\\{chr(c)}term")
 
     # Create docs without special characters
@@ -956,7 +956,7 @@ def testTagUNF():
     # Create index without UNF
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
                'SCHEMA', 'tag', 'TAG', 'SORTABLE').ok()
-    
+
     # Create index with UNF
     env.expect('FT.CREATE', 'idx_unf', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
                'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'UNF').ok()

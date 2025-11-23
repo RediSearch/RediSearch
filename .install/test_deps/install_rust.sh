@@ -11,5 +11,18 @@ echo $PATH
 
 rustup update
 rustup update nightly
-# for RedisJSON build with address sanitizer
-rustup component add rust-src --toolchain nightly
+
+# Pin a specific working version of nightly to prevent breaking the CI because
+# regressions in a nightly build.
+# Make sure to synchronize updates across all modules: Redis and RedisJSON.
+NIGHTLY_VERSION="nightly-2025-07-30"
+
+# --allow-downgrade:
+#   Allow `rustup` to install an older `nightly` if the latest one
+#   is missing one of the components we need.
+# rust-src:
+#   Required to build RedisJSON with address sanitizer
+rustup toolchain install $NIGHTLY_VERSION \
+    --allow-downgrade \
+    --component rust-src
+

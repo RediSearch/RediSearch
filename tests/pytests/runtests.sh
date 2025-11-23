@@ -151,8 +151,8 @@ setup_clang_sanitizer() {
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
 	if [[ $SAN == addr || $SAN == address ]]; then
 		# RLTest places log file details in ASAN_OPTIONS
-		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=1:log_thread=1"
-		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=1:log_thread=1"
+		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=0"
+		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=0"
 		# :use_tls=0
 
 	fi
@@ -380,10 +380,12 @@ if [[ $RLEC != 1 ]]; then
 
 	if [[ -z $MODULE ]]; then
 		if [[ -n $BINROOT ]]; then
-			if [[ -z $COORD ]]; then
+			if [[ -z $COORD || $COORD == "0" ]]; then
 				MODULE=$BINROOT/search/redisearch.so
 			elif [[ $COORD == oss ]]; then
 				MODULE=$BINROOT/oss-coord/module-oss.so
+			elif [[ $COORD == rlec ]]; then
+				MODULE=$BINROOT/coord-enterprise/module-enterprise.so
 			fi
 		fi
 		if [[ -z $MODULE || ! -f $MODULE ]]; then
@@ -471,7 +473,7 @@ fi
 
 # Prepare RedisJSON module to be loaded into testing environment if required.
 if [[ $REJSON != 0 ]]; then
-  ROOT=$ROOT REJSON_BRANCH=$REJSON_BRANCH source $ROOT/tests/deps/setup_rejson.sh
+  ROOT="$ROOT" BINROOT="${BINROOT}/${FULL_VARIANT}" REJSON_BRANCH="$REJSON_BRANCH" source $ROOT/tests/deps/setup_rejson.sh
   echo "Using RedisJSON module at $JSON_BIN_PATH, with the following args: $REJSON_ARGS"
   RLTEST_REJSON_ARGS="--module ${JSON_BIN_PATH} --module-args $REJSON_ARGS"
 else
@@ -521,7 +523,7 @@ if [[ $GC == 0 ]]; then
 fi
 
 echo "Running tests in parallel using $parallel Python processes"
-if [[ -z $COORD ]]; then
+if [[ -z $COORD || $COORD == 0 ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi

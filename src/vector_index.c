@@ -241,6 +241,23 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
   }
   return NULL;
 }
+const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode) {
+    switch (vecsimSearchMode) {
+    case EMPTY_MODE:
+        return "EMPTY_MODE";
+    case STANDARD_KNN:
+        return "STANDARD_KNN";
+    case HYBRID_ADHOC_BF:
+        return "HYBRID_ADHOC_BF";
+    case HYBRID_BATCHES:
+        return "HYBRID_BATCHES";
+    case HYBRID_BATCHES_TO_ADHOC_BF:
+        return "HYBRID_BATCHES_TO_ADHOC_BF";
+    case RANGE_QUERY:
+        return "RANGE_QUERY";
+    }
+    return NULL;
+}
 
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   RedisModule_SaveUnsigned(rdb, vecsimParams->algo);

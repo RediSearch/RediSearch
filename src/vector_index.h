@@ -34,6 +34,7 @@
 #define VECSIM_EPSILON "EPSILON"
 #define VECSIM_HYBRID_POLICY "HYBRID_POLICY"
 #define VECSIM_BATCH_SIZE "BATCH_SIZE"
+#define VECSIM_SHARD_WINDOW_RATIO "SHARD_WINDOW_RATIO"
 #define VECSIM_TYPE "TYPE"
 #define VECSIM_DIM "DIM"
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
@@ -66,6 +67,13 @@ typedef struct {
   size_t vecLen;                 // vector length
   size_t k;                      // number of vectors to return
   VecSimQueryReply_Order order;  // specify the result order.
+  double shardWindowRatio;       // shard window ratio for distributed queries
+
+  // Position tracking for K value modification (shard ratio optimization)
+  // For literal K (e.g., "KNN 10"): stores position and length of numeric value
+  // For parameter K (e.g., "KNN $k"): stores position and length INCLUDING the '$' prefix
+  size_t k_token_pos;            // Byte offset where K token starts in original query
+  size_t k_token_len;            // Length of K token
 } KNNVectorQuery;
 
 typedef struct {
@@ -125,6 +133,7 @@ size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
+const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode);
 
 void VecSimParams_Cleanup(VecSimParams *params);
 

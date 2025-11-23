@@ -394,6 +394,19 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
       QueryNode_InitParams(ret, 2);
       QueryNode_SetParam(q, &ret->params[0], &vq->knn.vector, &vq->knn.vecLen, vec);
       QueryNode_SetParam(q, &ret->params[1], &vq->knn.k, NULL, value);
+      vq->knn.shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
+
+      // Save K position so it can be modified later in the shard command.
+      // NOTE: If k is given as a *parameter*:
+      // 1. value->pos: position of "$"
+      vq->knn.k_token_pos = value->pos;
+      // 2. value->len: length of the parameter name (e.g. $k -> len=1, $k_meow -> len=6)
+      // So we need to include the '$' in the token length.
+      if (value->type == QT_PARAM_SIZE) {
+        vq->knn.k_token_len = value->len + 1;
+      } else { // k is literal
+        vq->knn.k_token_len = value->len;
+      }
       break;
     case VECSIM_QT_RANGE:
       QueryNode_InitParams(ret, 2);
@@ -512,10 +525,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   // we can just use the optimized score index
   int isSingleWord = q->numTokens == 1 && q->opts->fieldmask == RS_FIELDMASK_ALL;
 
-  const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
-
-  // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
 
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
                                      EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
@@ -591,7 +601,6 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   }
 
   TrieIterator_Free(it);
-  // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
     rm_free(its);
     return NULL;
@@ -645,7 +654,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   size_t nstr;
-  rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, &nstr) : NULL;
+  rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, qn->pfx.tok.len, &nstr) : NULL;
   if (!str) {
     QueryError_SetWithoutUserDataFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
     return NULL;
@@ -710,7 +719,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
 
   token->len = Wildcard_RemoveEscape(token->str, token->len);
   size_t nstr;
-  rune *str = strToLowerRunes(token->str, &nstr);
+  rune *str = strToLowerRunes(token->str, token->len, &nstr);
   if (!str) {
     QueryError_SetError(q->status, QUERY_ELIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
     return NULL;
@@ -850,10 +859,10 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   rune *begin = NULL, *end = NULL;
   size_t nbegin, nend;
   if (lx->lxrng.begin) {
-    begin = strToLowerRunes(lx->lxrng.begin, &nbegin);
+    begin = strToLowerRunes(lx->lxrng.begin, strlen(lx->lxrng.begin), &nbegin);
   }
   if (lx->lxrng.end) {
-    end = strToLowerRunes(lx->lxrng.end, &nend);
+    end = strToLowerRunes(lx->lxrng.end, strlen(lx->lxrng.end), &nend);
   }
 
   TrieNode_IterateRange(t->root, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
@@ -875,7 +884,7 @@ static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, qn->pfx.tok.len, qn->fz.maxDist, 0, &qn->opts);
+  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, strlen(qn->pfx.tok.str), qn->fz.maxDist, 0, &qn->opts);
 }
 
 static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -1100,38 +1109,47 @@ typedef IndexIterator **IndexIteratorArray;
 /**
  * Converts a given string to lowercase and handles escape sequences.
  *
- * This function processes the input string `str` and converts it to lowercase
+ * This function processes the input string and converts it to lowercase
  * if `caseSensitive` is false.
+ * If no memory allocation is needed for lowerconversion, the string is modified
+ * in place.
+ * If memory allocation is needed, the original string is freed and replaced
+ * with the new lowercase string.
  * It also handles escape sequences by removing the backslash character if it
  * precedes a punctuation or whitespace character.
  *
- * @param str The input string to be processed. The string is modified in place.
+ * @param pstr A pointer to the input string.
  * @param len A pointer to the length of the input string. The length is updated
  * to reflect any changes made to the string.
  * @param caseSensitive A flag indicating whether the conversion to lowercase
  * should be performed. If true, the string remains case-sensitive.
  */
-static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
-  size_t origLen = *len;
+static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
+  size_t length = *len;
+  char *str = *pstr;
   char *origStr = str;
   char *p = str;
 
   while (*p) {
     if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
       ++p;
-      --*len;
+      --length;
     }
     *str++ = *p++;
   }
   *str = '\0';
 
   if (!caseSensitive) {
-    size_t newLen = unicode_tolower(origStr, origLen);
-    if (newLen) {
-      origStr[newLen] = '\0';
-      *len = newLen;
+    char *dst = unicode_tolower(origStr, &length);
+    if (dst) {
+        rm_free(origStr);
+        *pstr = dst;
+    } else {
+      // No memory allocation, just ensure null termination
+      origStr[length] = '\0';
     }
   }
+  *len = length;
 }
 
 static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
@@ -1145,11 +1163,11 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
 
   if(qn->lxrng.begin) {
     size_t beginLen = strlen(qn->lxrng.begin);
-    tag_strtolower(qn->lxrng.begin, &beginLen, caseSensitive);
+    tag_strtolower(&(qn->lxrng.begin), &beginLen, caseSensitive);
   }
   if(qn->lxrng.end) {
     size_t endLen = strlen(qn->lxrng.end);
-    tag_strtolower(qn->lxrng.end, &endLen, caseSensitive);
+    tag_strtolower(&(qn->lxrng.end), &endLen, caseSensitive);
   }
 
   ctx.cap = 8;
@@ -1179,7 +1197,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
   RSToken *tok = &qn->pfx.tok;
 
-  tag_strtolower(tok->str, &tok->len, caseSensitive);
+  tag_strtolower(&(tok->str), &tok->len, caseSensitive);
 
   // we allow a minimum of 2 letters in the prefix by default (configurable)
   if (tok->len < q->config->minTermPrefix) {
@@ -1283,7 +1301,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
 
   RSToken *tok = &qn->verb.tok;
 
-  tag_strtolower(tok->str, &tok->len, caseSensitive);
+  tag_strtolower(&(tok->str), &tok->len, caseSensitive);
 
   tok->len = Wildcard_RemoveEscape(tok->str, tok->len);
 
@@ -1378,7 +1396,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   switch (n->type) {
     case QN_TOKEN: {
-      tag_strtolower(n->tn.str, &n->tn.len, caseSensitive);
+      tag_strtolower(&(n->tn.str), &n->tn.len, caseSensitive);
       ret = TagIndex_OpenReader(idx, q->sctx->spec, n->tn.str, n->tn.len, weight);
       break;
     }
@@ -1397,7 +1415,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       char *terms[QueryNode_NumChildren(n)];
       for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
         if (n->children[i]->type == QN_TOKEN) {
-          tag_strtolower(n->children[i]->tn.str, &n->children[i]->tn.len, caseSensitive);
+          tag_strtolower(&(n->children[i]->tn.str), &n->children[i]->tn.len, caseSensitive);
           terms[i] = n->children[i]->tn.str;
         } else {
           terms[i] = "";
@@ -1578,8 +1596,6 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
     fclose(qpCtx.trace_log);
   }
 #endif
-  // printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, QueryError_HasError(status),
-  //  dst->root);
   if (!dst->root) {
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;
@@ -2137,13 +2153,42 @@ int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ct
   return retVal;
 }
 
+static int ValidateShardKRatio(const char *value, double *ratio, QueryError *status) {
+  if (!ParseDouble(value, ratio, 1)) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL,
+      "Invalid shard k ratio value", " '%s'", value);
+    return 0;
+  }
+
+  if (*ratio <= MIN_SHARD_WINDOW_RATIO || *ratio > MAX_SHARD_WINDOW_RATIO) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+      "Invalid shard k ratio value: Shard k ratio must be greater than %g and at most %g (got %g)",
+      MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, *ratio);
+    return 0;
+  }
+
+  return 1;
+}
+
 // Convert the query attribute into a raw vector param to be resolved by the vector iterator
 // down the road. return 0 in case of an unrecognized parameter.
-static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr) {
-  if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
-      STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
-      STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
-      STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
+static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr, QueryError *status) {
+  if (STR_EQCASE(attr->name, attr->namelen, SHARD_K_RATIO_ATTR)) {
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+        "Shard k ratio is unavailable when `ENABLE_UNSTABLE_FEATURES` is off.");
+      return 0;
+    }
+    double ratio;
+    if (!ValidateShardKRatio(attr->value, &ratio, status)) {
+      return 0;
+    }
+    vq->knn.shardWindowRatio = ratio;
+    return 1;
+  } else if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
     // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
     // The name string was not copied by the parser (unlike the value) - so we copy and save it.
     VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),
@@ -2227,7 +2272,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     res = 1;
 
   } else if (qn->type == QN_VECTOR) {
-    res = QueryVectorNode_ApplyAttribute(qn->vn.vq, attr);
+    res = QueryVectorNode_ApplyAttribute(qn->vn.vq, attr, status);
   }
 
   if (!res) {

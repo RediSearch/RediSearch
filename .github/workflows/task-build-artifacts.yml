@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       env:
-        default: "ubuntu-latest"
+        default: ubuntu-latest
         type: string
       container:
         type: string
@@ -57,7 +57,7 @@ jobs:
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
-          for platform in ubuntu:bionic amazonlinux:2; do
+          for platform in amazonlinux:2; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
@@ -76,7 +76,7 @@ jobs:
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
-            ubuntu:bionic | amazonlinux:2)
+            amazonlinux:2)
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
@@ -143,6 +143,11 @@ jobs:
       - name: Build and Pack RediSearch OSS
         env:
           REDISEARCH_MT_BUILD: 0
+        run: ${{ env.BUILD_CMD }} && make pack
+      - name: Build and Pack COORD=oss
+        env:
+          REDISEARCH_MT_BUILD: 0
+          COORD: oss
         run: ${{ env.BUILD_CMD }} && make pack
       - name: Build and Pack RediSearch Lite
         env:

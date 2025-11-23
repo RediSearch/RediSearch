@@ -33,6 +33,9 @@ typedef struct {
 // The maximum size we allow converting to at once
 #define MAX_RUNESTR_LEN 1024
 
+// Threshold for Small String Optimization (SSO)
+#define SSO_MAX_LENGTH 128
+
 /* A callback for a rune transformation function */
 typedef rune (*runeTransform)(rune r);
 
@@ -47,7 +50,16 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen);
 
 /* Convert a string to runes, lowercase them and return the transformed runes.
  * This function supports lowercasing of multi-codepoint runes. */
-rune *strToLowerRunes(const char *str, size_t *len);
+
+/* This function reads a UTF-8 encoded string, transforms it to lowercase,
+ * and returns a dynamically allocated array of runes (32-bit integers).
+ * Parameters:
+ * - str: The input UTF-8 encoded string.
+ * - utf8_len: The length of the input string in bytes.
+ * - unicode_len: A pointer to a size_t variable where the length of the
+ *   resulting array of runes will be stored. Must be non-NULL.
+ */
+rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len);
 
 /* Convert a string to runes, fold them and return the folded runes.
  * If a folded runes contains more than one codepoint, only the first
@@ -68,11 +80,10 @@ static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *l
    * Assumption: the number of bytes in a utf8 string is always greater than the
    * number of codepoints it can produce.
    */
-  *len = n;
   rune *target;
-  if (*len > RUNE_STATIC_ALLOC_SIZE) {
+  if (n > RUNE_STATIC_ALLOC_SIZE) {
     buf->isDynamic = 1;
-    target = buf->u.p = (rune *)rm_malloc(((*len) + 1) * sizeof(rune));
+    target = buf->u.p = (rune *)rm_malloc((n + 1) * sizeof(rune));
   } else {
     buf->isDynamic = 0;
     target = buf->u.s;
@@ -86,19 +97,6 @@ static inline void runeBufFree(runeBuf *buf) {
   if (buf->isDynamic) {
     rm_free(buf->u.p);
   }
-}
-
-/* used for debug */
-static inline void printfRune(const rune *rune, size_t len) {
-  size_t newlen;
-  char *str = runesToStr(rune, len, &newlen);
-  printf("%s", str);
-  rm_free(str);
-}
-
-static inline void printfRuneNL(const rune *rune, size_t len) {
-  printfRune(rune, len);
-  puts("");
 }
 
 #ifdef __cplusplus

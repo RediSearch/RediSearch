@@ -7,6 +7,7 @@
 #include "global_stats.h"
 #include "aggregate/aggregate.h"
 #include "util/units.h"
+#include "rs_wall_clock.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define INCR(x) INCR_BY(x, 1)
@@ -64,10 +65,12 @@ size_t FieldsGlobalStats_GetIndexErrorCount(FieldType field_type) {
   return FieldIndexErrorCounter[INDEXTYPE_TO_POS(field_type)];
 }
 
-void TotalGlobalStats_CountQuery(uint32_t reqflags, clock_t duration) {
+void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ns_t duration) {
   if (reqflags & QEXEC_F_INTERNAL) return; // internal queries are not counted
 
   INCR(RSGlobalStats.totalStats.queries.total_query_commands);
+
+  // Implicit conversion from ns type to ms type, but it is the same type (uint64_t)
   INCR_BY(RSGlobalStats.totalStats.queries.total_query_execution_time, duration);
 
   if (!(QEXEC_F_IS_CURSOR & reqflags) || (QEXEC_F_IS_AGGREGATE & reqflags)) {
@@ -80,7 +83,7 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   QueriesGlobalStats stats = {0};
   stats.total_queries_processed = READ(RSGlobalStats.totalStats.queries.total_queries_processed);
   stats.total_query_commands = READ(RSGlobalStats.totalStats.queries.total_query_commands);
-  stats.total_query_execution_time = READ(RSGlobalStats.totalStats.queries.total_query_execution_time) / CLOCKS_PER_MILLISEC;
+  stats.total_query_execution_time = rs_wall_clock_convert_ns_to_ms(READ(RSGlobalStats.totalStats.queries.total_query_execution_time));
   return stats;
 }
 

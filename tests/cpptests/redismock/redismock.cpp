@@ -1,6 +1,7 @@
 #include "internal.h"
 #include "util.h"
 #include "redismock.h"
+#include "config.h"
 
 #include <string>
 #include <map>
@@ -832,13 +833,32 @@ static int RMCK_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent eve
   return REDISMODULE_OK;
 }
 
+void RMCK_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
+  return;
+}
+
+int RMCK_GetContextFlags(RedisModuleCtx *ctx) {
+  return 0;
+}
+
+
 /** Fork */
 static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
   return fork();
 }
 
+// like in Redis' `exitFromChild`, we exit from children using _exit() instead of
+// exit(), because the latter may interact with the same file objects used by
+// the parent process (may yield errors when testing with sanitizer).
+// However if we are testing the coverage normal exit() is
+// used in order to obtain the right coverage information.
 static int RMCK_ExitFromChild(int retcode) {
+#if defined(COV) || defined(COVERAGE)
+  exit(retcode);
+#else
   _exit(retcode);
+#endif
+  return REDISMODULE_OK; // never reached, but following the API "behavior"
 }
 
 static int RMCK_KillForkChild(int child_pid) {
@@ -877,6 +897,25 @@ void KVDB::debugDump() const {
     std::cerr << "  Type: " << Value::typecodeToString(ii.second->typecode()) << std::endl;
     ii.second->debugDump("  ");
   }
+}
+
+/*
+Server Info
+*/
+
+struct ServerInfo {
+};
+
+static RedisModuleServerInfoData* RMCK_GetServerInfo(RedisModuleCtx *, const char *section) {
+  return reinterpret_cast<RedisModuleServerInfoData*>(new ServerInfo());
+}
+
+static void RMCK_FreeServerInfo(RedisModuleCtx *, RedisModuleServerInfoData *si) {
+  delete reinterpret_cast<ServerInfo*>(si);
+}
+
+static unsigned long long RMCK_ServerInfoGetFieldUnsigned(RedisModuleServerInfoData *data, const char* field, int *out_err) {
+  return 0;
 }
 
 /**
@@ -966,6 +1005,13 @@ static void registerApis() {
   REGISTER_API(KillForkChild);
   REGISTER_API(ExitFromChild);
   REGISTER_API(Fork);
+  REGISTER_API(Yield);
+  REGISTER_API(GetContextFlags);
+
+  REGISTER_API(GetServerInfo);
+  REGISTER_API(ServerInfoGetFieldUnsigned);
+  REGISTER_API(FreeServerInfo);
+
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
@@ -1005,5 +1051,7 @@ void RMCK_Shutdown(void) {
   Datatype::typemap.clear();
 
   RedisModuleCommand::commands.clear();
+  rm_free((void *)RSGlobalConfig.defaultScorer);
+  RSGlobalConfig.defaultScorer = NULL;
 }
 }

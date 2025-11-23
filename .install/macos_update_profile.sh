@@ -5,9 +5,9 @@ update_profile() {
     local profile_file=$1
     shift
     local paths=("$@")
-
-    echo "Updating $profile_file with PATH additions"
-
+    
+    echo "Updating $profile_file with PATH additions: ${paths[*]}"
+    
     # Check if the profile exists
     if [[ ! -f $profile_file ]]; then
         touch "$profile_file"

@@ -8,7 +8,9 @@
 #define RS_MODULE_H_
 
 #include "redismodule.h"
-#include "rmutil/rm_assert.h"
+
+// Module-level dummy context for certain dummy RM_XXX operations
+extern RedisModuleCtx *RSDummyContext;
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,16 +29,12 @@ void RediSearch_CleanupModule(void);
 // Local spellcheck command
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-/** Indicates that RediSearch_Init was called */
-extern int RS_Initialized;
-/** Module-level dummy context for certain dummy RM_XXX operations */
-extern RedisModuleCtx *RSDummyContext;
-/** Indicates that RediSearch_Init was called */
+// Indicates that RediSearch_Init was called
 extern int RS_Initialized;
 
 #define RS_AutoMemory(ctx)                      \
 do {                                            \
-  RS_LOG_ASSERT(ctx != RSDummyContext, "");     \
+  RedisModule_Assert(ctx != RSDummyContext);    \
   RedisModule_AutoMemory(ctx);                  \
 } while (0)
 

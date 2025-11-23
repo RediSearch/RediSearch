@@ -55,19 +55,21 @@ jobs:
         run: .install/test_deps/common_installations.sh sudo
 
       - name: Build RediSearch
-        run: make build
-            COORD=${{ inputs.cluster_env }}
-            PROFILE=${{ inputs.profile_env }}
-            REDISEARCH_MT_BUILD=0
-            SHOW=1
-      - name: Prepare automation
+        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
+          COORD=${{ inputs.cluster_env }}
+          PROFILE=${{ inputs.profile_env }}
+          REDISEARCH_MT_BUILD=0
+      - name: Install Python dependencies
         run: |
-          ./deps/readies/bin/getpy3
           python3 -m pip install -r tests/benchmarks/requirements.txt
-          VERSION=1.11.1 sudo ./deps/readies/bin/getterraform
       - name: Prepare ReJSON Module
         run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
-
+      # it is best to install terraform last because it may cause issues with env.PATH
+      - name: install terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.11.1
+          terraform_wrapper: false
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 240 # timeout for the step
         working-directory: tests/benchmarks

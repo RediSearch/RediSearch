@@ -9,6 +9,7 @@ file(GLOB RMR_SRC
 include_directories(
 	${PROJECT_SOURCE_DIR}/src
 	${root}/src
+	${root}/src/coord
 	${root}/deps/libuv
 	${root}/deps/libuv/include)
 
@@ -17,3 +18,6 @@ if (APPLE)
 endif()
 
 add_library(rmr OBJECT ${RMR_SRC})
+
+# Add dependency to ensure libuv is built before rmr
+add_dependencies(rmr uv_a)
