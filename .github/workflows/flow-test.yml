@@ -15,6 +15,7 @@ on:
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         type: string
+        default: ''
       coordinator:
         type: boolean
         default: true
@@ -69,6 +70,7 @@ on:
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         type: string
+        default: ''
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
         type: string
