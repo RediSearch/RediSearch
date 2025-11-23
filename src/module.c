@@ -1131,7 +1131,7 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-int RegisterRestoreIfNxCommands(RedisModuleCommand *restoreCmd) {
+int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restoreCmd) {
   int rc;
 
   const char *schema_flags = IsEnterprise() ? "write "CMD_PROXY_FILTERED : "write "CMD_INTERNAL;
@@ -1535,22 +1535,23 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
     // write commands (on enterprise we do not define them, the dmc take care of them)
     // search write slow dangerous
-    DEFINE_COMMAND(RS_CREATE_CMD,          CreateIndexCommand,            "write deny-oom",                      NULL,                 NONE,              "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_CREATE_IF_NX_CMD,    CreateIndexIfNotExistsCommand, "write deny-oom",                      NULL,                 NONE,              "write",                      true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DROP_CMD,            DropIndexCommand,              "write touches-arbitrary-keys",        NULL,                 NONE,              "write slow dangerous admin", true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DROP_INDEX_CMD,      DropIndexCommand,              "write touches-arbitrary-keys",        NULL,                 NONE,              "write slow dangerous",       true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DROP_IF_X_CMD,       DropIfExistsIndexCommand,      "write touches-arbitrary-keys",        NULL,                 NONE,              "write slow dangerous admin", true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand,      "write touches-arbitrary-keys",        NULL,                 NONE,              "write slow dangerous",       true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_SYNUPDATE_CMD,       SynUpdateCommand,              "write",                               SetFtSynupdateInfo,   SET_COMMAND_INFO,  "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_ALTER_CMD,           AlterIndexCommand,             "write",                               SetFtAlterInfo,       SET_COMMAND_INFO,  "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_ALTER_IF_NX_CMD,     AlterIndexIfNXCommand,         "write",                               SetFtAlterInfo,       SET_COMMAND_INFO,  "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DICT_ADD,            DictAddCommand,                "write deny-oom",                      SetFtDictaddInfo,     SET_COMMAND_INFO,  "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_DICT_DEL,            DictDelCommand,                "write",                               SetFtDictdelInfo,     SET_COMMAND_INFO,  "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_ALIASADD,            AliasAddCommand,               "write deny-oom",                      SetFtAliasaddInfo,    SET_COMMAND_INFO,  "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_ALIASADD_IF_NX,      AliasAddCommandIfNX,           "write deny-oom",                      SetFtAliasaddInfo,    SET_COMMAND_INFO,  "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_ALIASUPDATE,         AliasUpdateCommand,            "write deny-oom",                      SetFtAliasupdateInfo, SET_COMMAND_INFO,  "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_ALIASDEL,            AliasDelCommand,               "write",                               SetFtAliasdelInfo,    SET_COMMAND_INFO,  "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_ALIASDEL_IF_EX,      AliasDelIfExCommand,           "write",                               SetFtAliasdelInfo,    SET_COMMAND_INFO,  "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_CREATE_CMD,          CreateIndexCommand,            "write deny-oom",                      NULL,                         NONE,                   "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_CREATE_IF_NX_CMD,    CreateIndexIfNotExistsCommand, "write deny-oom",                      NULL,                         NONE,                   "write",                      true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_RESTORE_IF_NX,       NULL,                          "write",                               RegisterRestoreIfNxCommands,  SUBSCRIBE_SUBCOMMANDS,  "",                           true, indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_DROP_CMD,            DropIndexCommand,              "write touches-arbitrary-keys",        NULL,                         NONE,                   "write slow dangerous admin", true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DROP_INDEX_CMD,      DropIndexCommand,              "write touches-arbitrary-keys",        NULL,                         NONE,                   "write slow dangerous",       true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DROP_IF_X_CMD,       DropIfExistsIndexCommand,      "write touches-arbitrary-keys",        NULL,                         NONE,                   "write slow dangerous admin", true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand,      "write touches-arbitrary-keys",        NULL,                         NONE,                   "write slow dangerous",       true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_SYNUPDATE_CMD,       SynUpdateCommand,              "write",                               SetFtSynupdateInfo,           SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_ALTER_CMD,           AlterIndexCommand,             "write",                               SetFtAlterInfo,               SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_ALTER_IF_NX_CMD,     AlterIndexIfNXCommand,         "write",                               SetFtAlterInfo,               SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DICT_ADD,            DictAddCommand,                "write deny-oom",                      SetFtDictaddInfo,             SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_DICT_DEL,            DictDelCommand,                "write",                               SetFtDictdelInfo,             SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_ALIASADD,            AliasAddCommand,               "write deny-oom",                      SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_ALIASADD_IF_NX,      AliasAddCommandIfNX,           "write deny-oom",                      SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_ALIASUPDATE,         AliasUpdateCommand,            "write deny-oom",                      SetFtAliasupdateInfo,         SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_ALIASDEL,            AliasDelCommand,               "write",                               SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_ALIASDEL_IF_EX,      AliasDelIfExCommand,           "write",                               SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",                           true, indexOnlyCmdArgs, !IsEnterprise()),
 
     // Suggestion commands key specs should be 1, 1, 1
     DEFINE_COMMAND(RS_SUGADD_CMD,     RSSuggestAddCommand,    "write deny-oom", SetFtSugaddInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs, false),
@@ -1583,13 +1584,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
-  /* Itzik - check if there are missing commands e.g hybrid
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_RESTORE_IF_NX, NULL,
-         "write", INDEX_ONLY_CMD_ARGS, "", true))
-  RM_TRY_F(RegisterRestoreIfNxCommands, RedisModule_GetCommand(ctx, RS_RESTORE_IF_NX))
-
-  */
 }
 
 extern dict *legacySpecDict, *legacySpecRules;
