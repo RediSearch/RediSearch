@@ -176,6 +176,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->protocol = 0;
   cmd->depleted = false;
   cmd->forCursor = false;
+  cmd->forProfiling = false;
 }
 
 MRCommand MR_NewCommandArgv(int argc, const char **argv) {
@@ -196,6 +197,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   ret.id = cmd->id;
   ret.protocol = cmd->protocol;
   ret.forCursor = cmd->forCursor;
+  ret.forProfiling = cmd->forProfiling;
   ret.rootCommand = cmd->rootCommand;
   ret.depleted = cmd->depleted;
 

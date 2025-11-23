@@ -13,7 +13,7 @@
 #include <assert.h>
 #include <stdbool.h>
 
-typedef enum { C_READ = 0, C_DEL = 1 } MRRootCommand;
+typedef enum { C_READ = 0, C_DEL = 1, C_PROFILE = 3 } MRRootCommand;
 
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
@@ -33,8 +33,11 @@ typedef struct {
   /* 0 (undetermined), 2, or 3 */
   unsigned char protocol;
 
- /* Whether the user asked for a cursor */
+  /* Whether the user asked for a cursor */
   bool forCursor;
+
+  /* Whether the command is for profiling */
+  bool forProfiling;
 
   /* Whether the command chain is depleted - don't resend */
   bool depleted;
