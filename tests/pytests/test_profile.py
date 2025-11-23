@@ -617,6 +617,29 @@ def testTimedOutWarningCoordResp3():
 def testTimedOutWarningCoordResp2():
   TimedOutWarningtestCoord(Env(protocol=2))
 
+def PartialConsumedResCoord(env):
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  conn = getConnectionByEnv(env)
+  for i in range(100):
+      conn.execute_command('hset', 'doc%d' % i, 't', 'foo')
+  # Before the fix the pager RP stops the pipeline before we consumed the current result
+  # After the fix we take the profile data if exists in printAggProfile
+  res = env.cmd('FT.PROFILE', 'idx', 'aggregate', 'query', '*', 'LIMIT', '0', '1')
+  print(res)
+  shards_profile = None
+  if env.protocol == 2:
+    shards_profile = [item for item in res[2] if "Shard #" in item]
+  else:
+    shards_profile = res['Shards']
+
+  env.assertEqual(len(shards_profile), env.shardsCount)
+
+@skip(cluster=False)
+def testPartialConsumedResCoordResp2():
+  PartialConsumedResCoord(Env(protocol=2))
+@skip(cluster=False)
+def testPartialConsumedResCoordResp3():
+  PartialConsumedResCoord(Env(protocol=3))
 # This test is currently skipped due to flaky behavior of some of the machines'
 # timers. MOD-6436
 @skip()
