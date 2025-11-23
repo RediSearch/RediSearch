@@ -598,13 +598,13 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
-      if IsAggregate(req) {
+      if (IsAggregate(req)) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
       }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
-      if IsAggregate(req) {
+      if (IsAggregate(req)) {
         AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
       }
       optimization_specified = true;
@@ -1089,8 +1089,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     bool isLimited = (arng && arng->isLimited && arng->limit > 0);
     bool hasGroupBy = AGPLN_FindStep(AREQ_AGGPlan(req), NULL, NULL, PLN_T_GROUP);
 
-    if (req->protocol == 2)
-    {
+    if (req->protocol == 2){
       if (!HasSortBy(req) && !hasGroupBy) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       }
