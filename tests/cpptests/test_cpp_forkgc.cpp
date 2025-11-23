@@ -658,6 +658,7 @@ TEST_F(FGCTestTag, testPipeErrorDuringGC) {
   // This will cause poll() to immediately return an error (POLLNVAL),
   // simulating a pipe failure scenario without waiting 3 minutes
   close(fgc->pipe_read_fd);
+  fgc->pipe_read_fd = -1;  // Invalidate the fd to prevent accidental use or double-close
 
   // This should handle the error gracefully without crashes or double-frees
   FGC_Apply(fgc);
