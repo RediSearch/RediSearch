@@ -270,20 +270,13 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     }
   }
 
-  if ((astp->offset || (astp->limit && !rp))) {
-    if (IsAggregate(&params->common) && HasWithCount(&params->common) && astp->isLimited && !IsInternal(&params->common) && !HasSortBy(&params->common)) {
-      // FT.AGGREGATE + WITHCOUNT + LIMIT n m (n > 0) NOT SORTED -> Add pager at coordinator
-      rp = RPPager_New(0, astp->limit);
-      up = pushRP(&pipeline->qctx, rp, up);
-    } else {
-      rp = RPPager_New(astp->offset, astp->limit);
-      up = pushRP(&pipeline->qctx, rp, up);
-    }
+  if (astp->offset || (astp->limit && !rp)) {
+    rp = RPPager_New(astp->offset, astp->limit);
+    up = pushRP(&pipeline->qctx, rp, up);
   } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
   }
-
 
 end:
   array_free(loadKeys);
