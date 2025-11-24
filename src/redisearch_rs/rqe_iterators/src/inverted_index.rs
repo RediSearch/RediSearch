@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Inverted index iterator implementation
+//! Supporting types for [`NumericFull`] and [`TermFull`].
 
 use ffi::t_docId;
 use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
