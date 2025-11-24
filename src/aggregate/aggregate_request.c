@@ -1001,6 +1001,7 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
       if (parseGroupby(papCtx->plan, ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
+      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_HAS_GROUPBY);
     } else if (AC_AdvanceIfMatch(ac, "APPLY")) {
       if (handleApplyOrFilter(papCtx->plan, ac, status, 1) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
@@ -1087,14 +1088,13 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   if (IsAggregate(req) && HasWithCount(req) && !IsCount(req)) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
     bool isLimited = (arng && arng->isLimited && arng->limit > 0);
-    bool hasGroupBy = AGPLN_FindStep(AREQ_AGGPlan(req), NULL, NULL, PLN_T_GROUP);
 
     if (req->protocol == 2){
-      if (!HasSortBy(req) && !hasGroupBy) {
+      if (!HasSortBy(req) && !HasGroupBy(req)) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       }
     } else if (req->protocol == 3) {
-      if (isLimited && !hasGroupBy) {
+      if (isLimited && !HasGroupBy(req)) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
       }
     }

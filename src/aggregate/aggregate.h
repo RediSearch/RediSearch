@@ -128,6 +128,9 @@ typedef enum {
   // The query has an explicit WITHCOUNT (for FT.AGGREGATE)
   QEXEC_F_HAS_WITHCOUNT = 0x20000000,
 
+  // The query has an explicit GROUPBY (for FT.AGGREGATE)
+  QEXEC_F_HAS_GROUPBY = 0x40000000,
+
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 
@@ -173,6 +176,7 @@ typedef struct {
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
 #define HasSortBy(r) ((r)->reqflags & QEXEC_F_SORTBY)
+#define HasGroupBy(r) ((r)->reqflags & QEXEC_F_HAS_GROUPBY)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 

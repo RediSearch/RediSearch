@@ -259,18 +259,20 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       up = pushRP(&pipeline->qctx, rp, up);
 
     } else if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
-      // In non-optimized aggregate queries, we need to add a synchronous depleter
-      // Use RPSyncDepleter_New to run synchronously (no background thread)
       rp = RPSyncDepleter_New();
       up = pushRP(&pipeline->qctx, rp, up);
-      if (astp->isLimited && !IsInternal(&params->common)) {
-        rp = RPPager_New(astp->offset, astp->limit);
-        up = pushRP(&pipeline->qctx, rp, up);
-      }
     }
+  } else if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
+    rp = RPSyncDepleter_New();
+    up = pushRP(&pipeline->qctx, rp, up);
   }
 
-  if (astp->offset || (astp->limit && !rp)) {
+  if (IsAggregate(&params->common) && HasDepleter(&params->common) && !HasSortBy(&params->common)) {
+    if (astp->isLimited && !IsInternal(&params->common)) {
+      rp = RPPager_New(astp->offset, astp->limit);
+      up = pushRP(&pipeline->qctx, rp, up);
+    }
+  } else if (astp->offset || (astp->limit && !rp)) {
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);
   } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {

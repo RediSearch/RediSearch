@@ -1510,11 +1510,14 @@ def testWithoutCountWithSortBy(env):
         ['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '4', '@n', 'DESC', '@t', 'DESC', 'LOAD', '2', 't', 'n'],
     ]
 
-    for query in queries:
-        res_withoutcount = conn.execute_command(*query)
-        query_withcount = query.copy()
+    for query_withoutcount in queries:
+        # Replace WITHOUTCOUNT with WITHCOUNT
+        query_withcount = query_withoutcount.copy()
         query_withcount.remove('WITHOUTCOUNT')
+        query_withcount.insert(3, 'WITHCOUNT')
+
         res_withcount = conn.execute_command(*query_withcount)
+        res_withoutcount = conn.execute_command(*query_withoutcount)
 
         env.assertNotEqual(res_withoutcount[0], res_withcount[0])
         env.assertEqual(res_withoutcount[1:], res_withcount[1:])

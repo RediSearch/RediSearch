@@ -1,11 +1,11 @@
 from common import *
 
 def _setup_index_and_data(env, docs):
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                         'SCHEMA', 'title', 'TEXT', 'SORTABLE',
                         'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
                         'description', 'TEXT', 'price', 'NUMERIC',
-                        'categories', 'TAG')
+                        'categories', 'TAG').ok()
     conn = env.getClusterConnectionIfNeeded()
 
     for i in range(docs):
@@ -170,6 +170,10 @@ def _test_withcount(protocol):
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'], docs, docs),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price'], docs, docs),
+
+        # WITHCOUNT + LOAD + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'LIMIT', 0, 50], docs, 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'LIMIT', 100, docs], docs, docs - 100),
 
         # WITHCOUNT + GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand'], 25, 25),
@@ -346,6 +350,13 @@ def _test_profile(protocol):
          [['Index', 'Loader', 'Sync Depleter'], ['Network', 'Sync Depleter']],
          [['Index', 'Loader'], ['Network']]),
 
+        # WITHCOUNT + LOAD + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'LIMIT', 0, 50],
+         ['Index', 'Loader', 'Sync Depleter', 'Pager/Limiter'],
+         ['Index', 'Loader', 'Sync Depleter', 'Pager/Limiter'],
+         [['Index', 'Loader', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
+         [['Index', 'Loader', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+
         # WITHCOUNT + GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand'],
          ['Index', 'Grouper'],
@@ -518,4 +529,43 @@ def test_withcursor(env):
     ]
     for query in valid_queries:
         env.expect(*query).notContains(error_message)
+
+def _test_pagers(protocol):
+    env = Env(protocol=protocol)
+    docs = 10
+    _setup_index_and_data(env, docs)
+
+    queries = [
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'SORTBY', 1, '@title'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'GROUPBY', 1, '@brand'],
+    ]
+    for query in queries:
+        limit = 6
+        offset = 2
+        query1 = query + ['LIMIT', 0, limit]
+        query2 = query + ['LIMIT', offset, limit]
+        res1 = env.cmd(*query1)
+        res2 = env.cmd(*query2)
+
+        # Compare total_results
+        total_results1 = _get_total_results(res1)
+        total_results2 = _get_total_results(res2)
+        env.assertEqual(total_results1, total_results2)
+
+        # Compare length of results
+        results1 = _get_results(res1)
+        results2 = _get_results(res2)
+        env.assertEqual(len(results1), len(results2))
+
+        # Compare common part of the results
+        if any(x in query for x in ('SORTBY', 'GROUPBY')):
+            env.assertEqual(results1[offset:limit + offset + 1],
+                            results2[0:limit - offset], message=query)
+
+def test_pagers_resp2():
+    _test_pagers(2)
+
+def test_pagers_resp3():
+    _test_pagers(3)
 
