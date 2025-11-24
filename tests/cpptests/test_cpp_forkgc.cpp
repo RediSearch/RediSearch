@@ -19,6 +19,8 @@ extern "C" {
 #include <set>
 #include <random>
 #include <unordered_set>
+#include <thread>
+
 /**
  * The following tests purpose is to make sure the garbage collection is working properly,
  * without causing any data corruption or loss.
@@ -634,4 +636,99 @@ TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
   FGC_Apply(fgc);
 
   ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
+}
+
+/**
+ * Test that simulates a pipe error during GC to trigger the error path.
+ * This test verifies that the error handling doesn't cause double-free or other issues.
+ */
+TEST_F(FGCTestTag, testPipeErrorDuringGC) {
+  // Add some documents to create work for the GC
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc3", "f1", "hello"));
+
+  FGC_WaitBeforeFork(fgc);
+
+  // Delete documents to trigger GC work
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc2"));
+
+  FGC_ForkAndWaitBeforeApply(fgc);
+
+  // Close the read end of the pipe from the parent's perspective
+  // This will cause poll() to immediately return an error (POLLNVAL),
+  // simulating a pipe failure scenario without waiting 3 minutes
+  close(fgc->pipe_read_fd);
+  fgc->pipe_read_fd = -1;  // Invalidate the fd to prevent accidental use or double-close
+
+  // This should handle the error gracefully without crashes or double-frees
+  FGC_Apply(fgc);
+
+  // The GC should have failed, so no bytes should be collected
+  // (or at least the operation should complete without crashing)
+  ASSERT_EQ(0, fgc->stats.totalCollected);
+}
+
+/**
+ * Test that closes the pipe while GC is actively applying changes.
+ * This test runs multiple iterations to increase the chance of hitting different
+ * code paths and timing windows during the apply phase.
+ */
+TEST_F(FGCTestTag, testPipeErrorDuringApply) {
+  volatile bool should_close = false;
+  volatile bool thread_should_exit = false;
+  volatile int delay_usec = 0;
+
+  // Create a single closer thread that will be reused across all iterations
+  std::thread closer([this, &should_close, &thread_should_exit, &delay_usec]() {
+    while (!thread_should_exit) {
+      if (should_close) {
+        int fd = fgc->pipe_read_fd;
+        usleep(delay_usec);
+        fgc->pipe_read_fd = -1;  // Invalidate the fd so it's ok to close it
+        close(fd); // Close the read end to simulate pipe error, and to not leak fds
+        should_close = false;
+      }
+    }
+  });
+
+  // Run multiple iterations to increase coverage of different timing scenarios
+  for (int iteration = 0; iteration < 1000; iteration++) {
+    // Add documents to create work for the GC
+    std::string doc1 = "doc1_" + std::to_string(iteration);
+    std::string doc2 = "doc2_" + std::to_string(iteration);
+    std::string doc3 = "doc3_" + std::to_string(iteration);
+
+    ASSERT_TRUE(RS::addDocument(ctx, ism, doc1.c_str(), "f1", "hello"));
+    ASSERT_TRUE(RS::addDocument(ctx, ism, doc2.c_str(), "f1", "hello"));
+    ASSERT_TRUE(RS::addDocument(ctx, ism, doc3.c_str(), "f1", "hello"));
+
+    FGC_WaitBeforeFork(fgc);
+
+    // Delete documents to trigger GC work
+    ASSERT_TRUE(RS::deleteDocument(ctx, ism, doc1.c_str()));
+    ASSERT_TRUE(RS::deleteDocument(ctx, ism, doc2.c_str()));
+
+    FGC_ForkAndWaitBeforeApply(fgc);
+
+    // Signal the closer thread to close the pipe after a variable delay
+    delay_usec = iteration;
+    should_close = true;
+
+    // Apply should handle the pipe closure gracefully without crashing
+    FGC_Apply(fgc);
+
+    // Wait for the closer to finish this iteration
+    while (should_close) {
+      usleep(1);
+    }
+
+    // Don't make any assertions about the state - it's timing dependent
+    // The important thing is that we don't crash or have memory corruption
+  }
+
+  // Clean up the closer thread
+  thread_should_exit = true;
+  closer.join();
 }
