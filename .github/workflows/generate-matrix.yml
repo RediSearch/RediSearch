@@ -40,6 +40,8 @@ jobs:
               ('ubuntu:focal', 'x86_64'),
               ('ubuntu:focal', 'aarch64'),
               ('rockylinux:8', 'x86_64'),
+              ('rockylinux:9', 'x86_64'),
+              ('rockylinux:9', 'aarch64'),
               ('debian:bullseye', 'x86_64'),
               ('amazonlinux:2', 'x86_64'),
               ('mariner:2', 'x86_64'),

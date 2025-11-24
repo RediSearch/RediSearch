@@ -10,6 +10,7 @@ on:
           - ubuntu:jammy
           - ubuntu:focal
           - rockylinux:8
+          - rockylinux:9
           - debian:bullseye
           - amazonlinux:2
           - mariner:2
