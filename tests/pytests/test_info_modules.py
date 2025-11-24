@@ -1119,7 +1119,7 @@ def test_errors_and_warnings_init(env):
 
 @skip(cluster=False)
 def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
-  env = Env(protocol=3, moduleArgs='WORKERS 1')
+  env = Env(protocol=3)
 
   allShards_change_timeout_policy(env, 'RETURN')
 
@@ -1141,7 +1141,7 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
 
   # Test coord metric update after debug ft.search (not tested with resp2)
   env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'LIMIT', 0, 1,
-              'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
+              'TIMEOUT_AFTER_N', 1, 'DEBUG_PARAMS_COUNT', 2).noError()
 
   # Check coord metric + 1
   after_info_dict = info_modules_to_dict(env)
@@ -1154,23 +1154,6 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
   env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 1,
               'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
 
-  # Wait for shards to end by calling WORKERS drain
-  for shardId in range(1, env.shardsCount + 1):
-    shard_conn = env.getConnection(shardId)
-    with TimeLimit(60, 'Timeout while waiting for worker to be created'):
-      while to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))['numThreadsAlive'] == 0:
-          time.sleep(0.1)
-    shard_conn.execute_command(debug_cmd(), 'WORKERS', 'DRAIN')
-
-  # Verify timeout warning was counted on each shard
-  for shardId in range(1, env.shardsCount + 1):
-    shard_conn = env.getConnection(shardId)
-    after_info_dict = info_modules_to_dict(shard_conn)
-    before_warn_err = int(before_info_dicts[shardId][WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
-    after_warn_err = int(after_info_dict[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
-    env.assertEqual(after_warn_err, before_warn_err + 2,
-                     message=f"Shard {shardId} timeout warning should be +2 after FT.AGGREGATE")
-
   # Verify timeout warning was counted on coordinator
   after_info_dict = info_modules_to_dict(env)
   before_warn_err = int(coord_before_info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
@@ -1182,7 +1165,16 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
   env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
               'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).noError()
 
-  # Metrics in the shards will be flaky due to CURSOR READS (read after each shard timeout)
+  # Since the cursor is not depleted after 1 read, the coord might sent another read to the shards
+  # which might trigger more metric increments (until reaching EOF)
+  for shardId in range(1, env.shardsCount + 1):
+    shard_conn = env.getConnection(shardId)
+    after_info_dict = info_modules_to_dict(shard_conn)
+    before_warn_err = int(before_info_dicts[shardId][WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
+    after_warn_err = int(after_info_dict[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
+    env.assertGreaterEqual(after_warn_err, before_warn_err + 3,
+                           message=f"Shard {shardId} timeout warning should be at least +1 after FT.AGGREGATE with INTERNAL_ONLY")
+
   # So, we check just the coord's metric
   after_info_dict = info_modules_to_dict(env)
   before_warn_err = int(coord_before_info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
