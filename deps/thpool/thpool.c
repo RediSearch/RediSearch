@@ -21,6 +21,7 @@
 #include "barrier.h"
 #include "rmalloc.h"
 #include "thpool.h"
+#include "rmutil/rm_assert.h"
 
 #define LOG_IF_EXISTS(level, str, ...)                                         \
   if (thpool_p->log) {                                                         \
@@ -322,7 +323,7 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
 size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
                                      size_t n_threads_to_add) {
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
-  RedisModule_Assert(n_threads_to_add > 0 && "Number of threads to add must be greater than 0");
+  RS_ASSERT(n_threads_to_add > 0 && "Number of threads to add must be greater than 0");
   size_t n_threads = thpool_p->n_threads + n_threads_to_add;
   thpool_p->n_threads = n_threads;
   if (thpool_p->state == THPOOL_UNINITIALIZED) {
@@ -462,7 +463,7 @@ void redisearch_thpool_drain(redisearch_thpool_t *thpool_p, long timeout,
 }
 
 void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
-  RedisModule_Assert(thpool_p);
+  RS_ASSERT(thpool_p);
   /** Threads might be in terminate when empty state, we must lock before we
    * read `num_threads_alive` to ensure they don't die (i.e check that jobq is
    * not empty) to read `num_threads_alive` */
@@ -591,7 +592,7 @@ int redisearch_thpool_is_initialized(redisearch_thpool_t *thpool_p) {
 
 void redisearch_thpool_resume_threads(redisearch_thpool_t *thpool_p) {
   redisearch_thpool_lock(thpool_p);
-  RedisModule_Assert(redisearch_thpool_paused(thpool_p));
+  RS_ASSERT(redisearch_thpool_paused(thpool_p));
   thpool_p->jobqueues.state = JOBQ_RUNNING;
   pthread_cond_broadcast(&thpool_p->jobqueues.has_jobs);
   redisearch_thpool_unlock(thpool_p);
@@ -1037,8 +1038,8 @@ static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
 
   /* Wait all threads to get the barrier */
   pthread_barrier_wait(signal_struct->barrier);
-  int num_threads_to_wait_before = atomic_sub_fetch(&signal_struct->num_threads_to_wait, 1);
-  if (num_threads_to_wait_before == 0) {
+  int num_threads_to_wait = atomic_fetch_sub(&signal_struct->num_threads_to_wait, 1) - 1;
+  if (num_threads_to_wait == 0) {
     pthread_barrier_destroy(signal_struct->barrier);
     rm_free(signal_struct->barrier);
     rm_free(signal_struct);
@@ -1054,7 +1055,7 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   if (thpool_p->state == THPOOL_UNINITIALIZED || thpool_p->n_threads == 0) {
     if (thpool_p->n_threads > 0) {
       // If is UNINITIALIZED, at least it would lazily initialize less threads
-      RedisModule_Assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
+      RS_ASSERT(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
       thpool_p->n_threads -= n_threads_to_remove;
     }
     return;
@@ -1062,9 +1063,9 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
 
   size_t n_threads = thpool_p->n_threads;
   LOG_IF_EXISTS("verbose", "Scheduling from main thread to remove %zu threads", n_threads_to_remove);
-  RedisModule_Assert((!terminate_when_empty || n_threads_to_remove == n_threads) && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
-  RedisModule_Assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
-  RedisModule_Assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
+  RS_ASSERT((!terminate_when_empty || n_threads_to_remove == n_threads) && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
+  RS_ASSERT(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
+  RS_ASSERT(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
 
   ThreadState new_state = terminate_when_empty ? THREAD_TERMINATE_WHEN_EMPTY : THREAD_TERMINATE_ASAP;
   thpool_p->n_threads -= n_threads_to_remove;
