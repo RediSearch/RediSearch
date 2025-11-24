@@ -15,7 +15,7 @@
  * At the moment, only vector distance is supported.
  */
 typedef enum MetricType {
-  VectorDistance,
+  VECTOR_DISTANCE,
 } MetricType;
 
 #ifdef __cplusplus
