@@ -101,68 +101,67 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   RedisModule_Reply_Map(reply); // >result
 
   // Reply should have the same structure of an FT.AGGREGATE reply
+  // QEXEC_F_SEND_NOFIELDS is only set when LIMIT 0 0 is used, therefore we should not reach any serialization.
+  // Considering it only complicates logic, we can ignore it.
+  const RLookup *lk = cv->lastLookup;
 
-  if (options & QEXEC_F_SEND_SCORES) {
-    RedisModule_Reply_SimpleString(reply, "score");
-    if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
-      // This will become a string in RESP2
-      RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
-    } else {
-      RedisModule_Reply_Array(reply);
-      RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
-      SEReply(reply, SearchResult_GetScoreExplain(r));
-      RedisModule_Reply_ArrayEnd(reply);
-    }
-  }
-
-  if (!(options & QEXEC_F_SEND_NOFIELDS)) {
-    const RLookup *lk = cv->lastLookup;
-
-    if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
-      RedisModule_Reply_Null(reply);
-    } else {
-      RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
-      // Get the number of fields in the reply.
-      // Excludes hidden fields, fields not included in RETURN and, score and language fields.
-      SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
-      int excludeFlags = RLOOKUP_F_HIDDEN;
-      int requiredFlags = RLOOKUP_F_NOFLAGS;  //Hybrid does not use RETURN fields; it uses LOAD fields instead
-      int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
-      memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
-
-      int i = 0;
-      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        if (!kk->name || !skipFieldIndex[i++]) {
-          continue;
-        }
-        const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
-        RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
-
-        RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
-
-        SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
-        flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
-
-        unsigned int apiVersion = sctx->apiVersion;
-        if (RSValue_IsTrio(v)) {
-          // Which value to use for duo value
-          if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-            // STRING
-            if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
-              // Multi
-              v = RSValue_Trio_GetMiddle(v);
-            } else {
-              // Single
-              v = RSValue_Trio_GetLeft(v);
-            }
-          } else {
-            // EXPAND
-            v = RSValue_Trio_GetRight(v);
-          }
-        }
-        RedisModule_Reply_RSValue(reply, v, flags);
+  if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
+    RedisModule_Reply_Null(reply);
+  } else {
+    if (options & QEXEC_F_SEND_SCORES) {
+      RedisModule_Reply_SimpleString(reply, "score");
+      if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
+        // This will become a string in RESP2
+        RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
+      } else {
+        RedisModule_Reply_Array(reply);
+        RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
+        SEReply(reply, SearchResult_GetScoreExplain(r));
+        RedisModule_Reply_ArrayEnd(reply);
       }
+    }
+
+    RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
+    // Get the number of fields in the reply.
+    // Excludes hidden fields, fields not included in RETURN and, score and language fields.
+    SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
+    int excludeFlags = RLOOKUP_F_HIDDEN;
+    int requiredFlags = RLOOKUP_F_NOFLAGS;  //Hybrid does not use RETURN fields; it uses LOAD fields instead
+    int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
+    memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
+    size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
+
+    int i = 0;
+    for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+      if (!kk->name || !skipFieldIndex[i++]) {
+        continue;
+      }
+      const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
+      RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
+
+      RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
+
+      SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
+      flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
+
+      unsigned int apiVersion = sctx->apiVersion;
+      if (RSValue_IsTrio(v)) {
+        // Which value to use for duo value
+        if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+          // STRING
+          if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+            // Multi
+            v = RSValue_Trio_GetMiddle(v);
+          } else {
+            // Single
+            v = RSValue_Trio_GetLeft(v);
+          }
+        } else {
+          // EXPAND
+          v = RSValue_Trio_GetRight(v);
+        }
+      }
+      RedisModule_Reply_RSValue(reply, v, flags);
     }
   }
   RedisModule_Reply_MapEnd(reply); // >result
