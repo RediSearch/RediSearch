@@ -1452,6 +1452,9 @@ DEBUG_COMMAND(dumpHNSWData) {
 
 /**
  * FT.DEBUG WORKERS [PAUSE / RESUME / DRAIN / STATS / N_THREADS]
+ *
+ * @warning Calling FT.DEBUG WORKERS DRAIN will block the main thread until all workers are idle, this could lead to a deadlock,
+ *          if there are pending jobs that require to acquire the GIL (like when LOAD is called from a worker thread)
  */
 DEBUG_COMMAND(WorkerThreadsSwitch) {
   if (!debugCommandsEnabled(ctx)) {
@@ -1478,7 +1481,6 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     // Log that we're waiting for the workers to finish.
     RedisModule_Log(RSDummyContext, "notice", "Debug workers drain");
 
-    //TODO(Joan): Should we remove this debug (or should we add documentation about the danger?)
     workersThreadPool_Drain(RSDummyContext, 0);
     // After we drained the thread pool and there are no more jobs in the queue, we wait until all
     // threads are idle, so we can be sure that all jobs were executed.
