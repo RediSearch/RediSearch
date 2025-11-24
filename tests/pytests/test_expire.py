@@ -253,6 +253,46 @@ def test_expire_aggregate(env):
     # The result count is not accurate in aggregation, for now we compare res to the expected results with the wrong count
     env.assertEqual(res, [1, ['t', 'arr'], ['t', 'bar']])
 
+
+def test_expire_ft_hybrid(env):
+    conn = env.getClusterConnectionIfNeeded()
+    # Use "lazy" expire (expire only when key is accessed)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    # Create index with text, vector, and numeric fields
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+
+    # Create test vectors (2-dimensional float32)
+    import numpy as np
+    vector1 = np.array([1.0, 0.0]).astype(np.float32).tobytes()
+    vector2 = np.array([0.0, 1.0]).astype(np.float32).tobytes()
+    query_vector = np.array([0.5, 0.5]).astype(np.float32).tobytes()
+
+    conn.execute_command('HSET', 'doc1', 't', 'bar', 'n', '42', 'v', vector1)
+    conn.execute_command('HSET', 'doc2', 't', 'arr', 'n', '24', 'v', vector2)
+
+    # expire doc1
+    conn.execute_command('PEXPIRE', 'doc1', 1)
+    # ensure expiration before search
+    time.sleep(0.01)
+    # Test FT.HYBRID with expired document - load multiple attributes to validate expiration handling
+    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', query_vector, 'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'LOAD', '4', '@__key', '@__score', '@t', '@n')
+    # Extract results from hybrid response format using the common utility function
+    from common import get_results_from_hybrid_response
+    results_dict, total_results = get_results_from_hybrid_response(res)
+
+    env.assertEqual(total_results, 1)  # total_results should be 1
+    # Verify that both documents are present in results with their loaded attributes
+    doc_keys = list(results_dict.keys())
+    env.assertTrue('doc2' in doc_keys)
+
+    # Validate that loaded attributes are present and correct for both documents
+    # doc2 is not expired and should return normally
+    env.assertTrue('__score' in results_dict['doc2'])
+    env.assertEqual(results_dict['doc2']['__key'], 'doc2')
+    env.assertEqual(results_dict['doc2']['t'], 'arr')
+    env.assertEqual(results_dict['doc2']['n'], '24')
+
+
 def createTextualSchema(field_to_additional_schema_keywords):
     schema = []
     for field, additional_schema_words in field_to_additional_schema_keywords.items():
