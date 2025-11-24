@@ -52,6 +52,7 @@ declare -A os_package_checkers=(
   ["alpine"]="check_package_apk"
   ["mariner"]="check_package_tdnf"
   ["azurelinux"]="check_package_tdnf"
+  ["almalinux"]="check_package_rpm"
 )
 
 # Early bailout if the OS is not supported
