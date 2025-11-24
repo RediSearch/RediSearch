@@ -402,7 +402,7 @@ int redisearch_thpool_add_n_work(redisearch_thpool_t * thpool_p,
 }
 
 /* Add n work to the thread pool */
-int redisearch_thpool_add_n_work_not_verify_init(redisearch_thpool_t * thpool_p,
+static int redisearch_thpool_add_n_work_not_verify_init(redisearch_thpool_t * thpool_p,
   redisearch_thpool_work_t *jobs, size_t n_jobs,
   thpool_priority priority) {
   if (n_jobs == 0)
@@ -425,18 +425,6 @@ int redisearch_thpool_add_n_work_not_verify_init(redisearch_thpool_t * thpool_p,
   return 0;
 }
 
-static void redisearch_thpool_push_chain_verify_init_threads(
-    redisearch_thpool_t *thpool_p, job *f_newjob_p, job *l_newjob_p, size_t n,
-    thpool_priority priority) {
-  redisearch_thpool_lock(thpool_p);
-  priority_queue_push_chain_unsafe(&thpool_p->jobqueues, f_newjob_p, l_newjob_p,
-                                   n, priority);
-  redisearch_thpool_unlock(thpool_p);
-
-  /* Initialize threads if needed */
-  redisearch_thpool_verify_init(thpool_p);
-}
-
 static void redisearch_thpool_push_chain(
     redisearch_thpool_t *thpool_p, job *f_newjob_p, job *l_newjob_p, size_t n,
     thpool_priority priority) {
@@ -444,6 +432,15 @@ static void redisearch_thpool_push_chain(
   priority_queue_push_chain_unsafe(&thpool_p->jobqueues, f_newjob_p, l_newjob_p,
                                   n, priority);
   redisearch_thpool_unlock(thpool_p);
+}
+
+static void redisearch_thpool_push_chain_verify_init_threads(
+  redisearch_thpool_t *thpool_p, job *f_newjob_p, job *l_newjob_p, size_t n,
+  thpool_priority priority) {
+redisearch_thpool_push_chain(thpool_p, f_newjob_p, l_newjob_p, n, priority);
+
+/* Initialize threads if needed */
+redisearch_thpool_verify_init(thpool_p);
 }
 
 /* Wait until all jobs have finished */
