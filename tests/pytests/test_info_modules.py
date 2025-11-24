@@ -1140,8 +1140,7 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
   coord_before_info_dict = info_modules_to_dict(env)
 
   # Test coord metric update after debug ft.search (not tested with resp2)
-  env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'LIMIT', 0, 1,
-              'TIMEOUT_AFTER_N', 1, 'DEBUG_PARAMS_COUNT', 2).noError()
+  env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'TIMEOUT_AFTER_N', 1, 'DEBUG_PARAMS_COUNT', 2).noError()
 
   # Check coord metric + 1
   after_info_dict = info_modules_to_dict(env)
@@ -1151,8 +1150,7 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
                    message="Coordinator timeout warning should be +1 after FT.SEARCH")
 
   # Test debug aggregate with and without internal only
-  env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 1,
-              'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
+  env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
 
   # Verify timeout warning was counted on coordinator
   after_info_dict = info_modules_to_dict(env)
@@ -1162,8 +1160,7 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
                    message="Coordinator timeout warning should be +1 after FT.AGGREGATE")
 
   # Test with internal only
-  env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-              'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).noError()
+  env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).noError()
 
   # Since the cursor is not depleted after 1 read, the coord might sent another read to the shards
   # which might trigger more metric increments (until reaching EOF)
