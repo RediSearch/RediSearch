@@ -155,19 +155,24 @@ static bool PipelineRequiresSorter(AggregationPipelineParams *params) {
 }
 
 static size_t getSortLimit(AggregationPipelineParams *params, PLN_ArrangeStep *astp, size_t maxResults) {
-  size_t sort_limit = 0;
-  if (astp->isLimited && IsInternal(&params->common)) {
-    // deplete from shards
-    sort_limit = params->maxResultsLimit;
-  } else if (astp->isLimited && !IsInternal(&params->common)) {
-    // limit at coordinator
-    sort_limit = maxResults;
-  } else if (!astp->isLimited && IsInternal(&params->common)) {
-    // deplete from shards
-    sort_limit = params->maxResultsLimit;
-  } else if (!astp->isLimited && !IsInternal(&params->common)) {
-    // Support SORTBY + MAX
-    sort_limit = astp->limit ? astp->limit : DEFAULT_LIMIT;
+  // Default sort limit is the max results
+  size_t sort_limit = maxResults;
+
+  // For FT.AGGREGATE + WITHCOUNT + SORTBY, we need to update the sort limit
+  // to get accurate total_results
+  if (IsAggregate(&params->common) && HasWithCount(&params->common) && HasSortBy(&params->common)) {
+    if (IsInternal(&params->common)) {
+      // deplete from shards
+      sort_limit = params->maxResultsLimit;
+    } else if (astp->isLimited) {
+      // limit at coordinator
+      sort_limit = maxResults;
+    } else if (!astp->isLimited) {
+      // Support SORTBY + MAX:
+      // Used the default limit in case of no LIMIT, but in case of SORTBY + MAX
+      // use the user provided MAX
+      sort_limit = astp->limit ? astp->limit : DEFAULT_LIMIT;
+    }
   }
   return sort_limit;
 }
@@ -240,27 +245,19 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
 
-      if (IsAggregate(&params->common) && HasWithCount(&params->common) && HasSortBy(&params->common)) {
-        size_t sort_limit = getSortLimit(params, astp, maxResults);
-        rp = RPSorter_NewByFields(sort_limit, sortkeys, nkeys, astp->sortAscMap);
-        up = pushRP(&pipeline->qctx, rp, up);
-      } else {
-        rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
-        up = pushRP(&pipeline->qctx, rp, up);
-      }
+      size_t sort_limit = getSortLimit(params, astp, maxResults);
+      rp = RPSorter_NewByFields(sort_limit, sortkeys, nkeys, astp->sortAscMap);
+      up = pushRP(&pipeline->qctx, rp, up);
+
     } else if (IsHybrid(&params->common) ||
                (IsSearch(&params->common) && !IsOptimized(&params->common)) ||
                HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      if (IsAggregate(&params->common) && HasWithCount(&params->common) && HasSortBy(&params->common)) {
-        size_t sort_limit = getSortLimit(params, astp, maxResults);
-        rp = RPSorter_NewByScore(sort_limit);
-        up = pushRP(&pipeline->qctx, rp, up);
-      } else {
-        rp = RPSorter_NewByScore(maxResults);
-        up = pushRP(&pipeline->qctx, rp, up);
-      }
+      size_t sort_limit = getSortLimit(params, astp, maxResults);
+      rp = RPSorter_NewByScore(sort_limit);
+      up = pushRP(&pipeline->qctx, rp, up);
+
     } else if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
       // In non-optimized aggregate queries, we need to add a synchronous depleter
       // Use RPSyncDepleter_New to run synchronously (no background thread)
