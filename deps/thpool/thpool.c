@@ -296,7 +296,7 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
 
   /* Add new threads if needed */
   if (n_new_threads > 0) {
-    bool started[n_new_threads];
+    volatile bool started[n_new_threads];
     for (size_t n = 0; n < n_new_threads; n++) {
       thread_init(thpool_p, &started[n]);
     }
@@ -331,7 +331,7 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
     return n_threads;
   }
   /* Add new threads */
-  bool started[n_threads_to_add];
+  volatile bool started[n_threads_to_add];
   for (size_t n = 0; n < n_threads_to_add; n++) {
     thread_init(thpool_p, &started[n]);
   }
