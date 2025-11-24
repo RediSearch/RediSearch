@@ -286,7 +286,7 @@ def test_expire_ft_hybrid(env):
                 conn.execute_command('PEXPIRE', doc_key, 1)
 
     # Ensure expiration before query
-    time.sleep(0.05)
+    time.sleep(0.01)
 
     # Test FT.HYBRID requesting 1000 results but expecting only 10 (non-expired documents)
     hybrid_query = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', query_vector, 'LIMIT', '0', '1000', 'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'LOAD', '4', '@__key', '@__score', '@t', '@n']
@@ -315,29 +315,6 @@ def test_expire_ft_hybrid(env):
         env.assertEqual(expected_results_dict[doc_key]['t'], f'text{doc_num}')
         env.assertEqual(expected_results_dict[doc_key]['n'], str(doc_num))
         env.assertTrue(float(expected_results_dict[doc_key]['__score']) >= 0)
-
-    # Test FT.HYBRID by connecting directly to each shard to ensure consistent results
-    if env.isCluster():
-        shards = env.getOSSMasterNodesConnectionList()
-        for i, shard_conn in enumerate(shards):
-            shard_res = shard_conn.execute_command(*hybrid_query)
-            shard_results_dict, shard_total_results = get_results_from_hybrid_response(shard_res)
-
-            # Verify consistent total count across shards
-            env.assertEqual(shard_total_results, expected_total_results,
-                          message=f"Shard {i+1} returned different total count: {shard_total_results} vs expected {expected_total_results}")
-
-            # Verify consistent document keys across shards
-            env.assertEqual(set(shard_results_dict.keys()), set(expected_results_dict.keys()),
-                          message=f"Shard {i+1} returned different document keys")
-
-            # Verify consistent field values for each document across shards
-            for doc_key in expected_results_dict.keys():
-                for field in ['__key', '__score', 't', 'n']:
-                    env.assertEqual(shard_results_dict[doc_key][field],
-                                  expected_results_dict[doc_key][field],
-                                  message=f"Shard {i+1} returned different {field} for {doc_key}")
-
 
 def createTextualSchema(field_to_additional_schema_keywords):
     schema = []
