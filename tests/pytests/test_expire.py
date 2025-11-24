@@ -256,14 +256,10 @@ def test_expire_aggregate(env):
 
 def test_expire_ft_hybrid(env):
     # Use "lazy" expire (expire only when key is accessed) on all shards
-    if env.isCluster():
-        run_command_on_all_shards(env, 'DEBUG', 'SET-ACTIVE-EXPIRE', '0')
-    else:
-        env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
 
     # Create index with text, vector, and numeric fields
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
-    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'not-documents')
 
     # Create test vectors (2-dimensional float32)
     import numpy as np
@@ -292,29 +288,29 @@ def test_expire_ft_hybrid(env):
     hybrid_query = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', query_vector, 'LIMIT', '0', '1000', 'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'LOAD', '4', '@__key', '@__score', '@t', '@n']
 
     # Execute query using cluster-aware command to get expected results
-    expected_res = env.cmd(*hybrid_query)
+    actual_res = env.cmd(*hybrid_query)
     from common import get_results_from_hybrid_response
-    expected_results_dict, expected_total_results = get_results_from_hybrid_response(expected_res)
+    actual_results_dict, actual_total_results = get_results_from_hybrid_response(actual_res)
 
     # Validate that only 10 documents are returned (doc990 to doc999)
-    env.assertEqual(expected_total_results, 10)
+    env.assertEqual(actual_total_results, 10)
 
     # Verify that only non-expired documents are present
     expected_doc_keys = {f'doc{i}' for i in range(990, 1000)}
-    actual_doc_keys = set(expected_results_dict.keys())
+    actual_doc_keys = set(actual_results_dict.keys())
     env.assertEqual(actual_doc_keys, expected_doc_keys)
 
     # Verify that each returned document has the correct attributes
-    for doc_key in expected_results_dict:
+    for doc_key in actual_results_dict:
         doc_num = int(doc_key[3:])  # Extract number from 'docXXX'
-        env.assertTrue('__key' in expected_results_dict[doc_key])
-        env.assertTrue('__score' in expected_results_dict[doc_key])
-        env.assertTrue('t' in expected_results_dict[doc_key])
-        env.assertTrue('n' in expected_results_dict[doc_key])
-        env.assertEqual(expected_results_dict[doc_key]['__key'], doc_key)
-        env.assertEqual(expected_results_dict[doc_key]['t'], f'text{doc_num}')
-        env.assertEqual(expected_results_dict[doc_key]['n'], str(doc_num))
-        env.assertTrue(float(expected_results_dict[doc_key]['__score']) >= 0)
+        env.assertTrue('__key' in actual_results_dict[doc_key])
+        env.assertTrue('__score' in actual_results_dict[doc_key])
+        env.assertTrue('t' in actual_results_dict[doc_key])
+        env.assertTrue('n' in actual_results_dict[doc_key])
+        env.assertEqual(actual_results_dict[doc_key]['__key'], doc_key)
+        env.assertEqual(actual_results_dict[doc_key]['t'], f'text{doc_num}')
+        env.assertEqual(actual_results_dict[doc_key]['n'], str(doc_num))
+        env.assertTrue(float(actual_results_dict[doc_key]['__score']) >= 0)
 
 def createTextualSchema(field_to_additional_schema_keywords):
     schema = []
