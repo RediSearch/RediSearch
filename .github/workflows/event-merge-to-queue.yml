@@ -31,32 +31,17 @@ jobs:
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
-  test-linux:
-    needs: get-latest-redis-tag
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  test-matrix:
+    needs: [get-latest-redis-tag, lint]
+    uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
+      platform: all
+      architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      job-test-config: '{"test": "QUICK=1", "coverage": "", "sanitize": ""}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'coordinator,standalone,rejson,fail-fast,coverage,sanitize' || 'coordinator,standalone,rejson,fail-fast,sanitize' }}
       rejson-branch: master
-
-  test-macos:
-    needs: get-latest-redis-tag
-    uses: ./.github/workflows/flow-macos.yml
-    secrets: inherit
-    with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: master
-
-  coverage:
-    needs: get-latest-redis-tag
-    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false'}}
-    uses: ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      coverage: true
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: master
-      test-config: '' # run all tests
 
   run-on-intel:
     needs: get-latest-redis-tag
@@ -65,26 +50,12 @@ jobs:
     with:
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
 
-  sanitize:
-    needs: get-latest-redis-tag
-    secrets: inherit
-    uses: ./.github/workflows/task-test.yml
-    with:
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: master
-      test-config: '' # run all tests
-      san: address
-      env: ubuntu-latest
-
   pr-validation:
     needs:
       - get-latest-redis-tag
       - lint
-      - test-linux
-      - test-macos
-      - coverage
+      - test-matrix
       - run-on-intel
-      - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
     steps:

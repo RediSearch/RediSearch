@@ -10,6 +10,7 @@ ffi.workspace = true
 inverted_index.workspace = true
 
 enumflags2.workspace = true
+unsafe-tools.workspace = true
 
 [lints]
 workspace = true

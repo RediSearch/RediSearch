@@ -2628,7 +2628,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
 /************************ Result post processing callbacks ********************/
 
-
 static void noOpPostProcess(searchReducerCtx *rCtx){
   return;
 }
@@ -2700,7 +2699,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     if (rCtx->warning) {
       MR_ReplyWithMRReply(reply, rCtx->warning);
     } else if (req->queryOOM) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      // We use the cluster warning since shard level warning sent via empty reply bailout
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -3476,6 +3476,7 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 
 static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(clientCtx, status);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
@@ -3884,7 +3885,7 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfiguration, int isClusterEnabled) {
   // register the module configuration with redis, use loaded values from command line as defaults
   if (registerConfiguration) {
-    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+    if (RegisterModuleConfig_Local(ctx) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Error registering module configuration");
       return REDISMODULE_ERR;
     }

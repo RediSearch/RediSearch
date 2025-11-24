@@ -173,7 +173,8 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
       }
       if (queryOOM) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_CLUSTER);
+        // This function is called by Shard or SA, so always return SHARD warning.
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_SHARD);
       }
       if (timedout) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
@@ -408,6 +409,10 @@ PRINT_PROFILE_FUNC(printMetricIt) {
 
   printProfileCounters(counters);
 
+  if (it->type == VECTOR_DISTANCE) {
+    printProfileVectorSearchMode(VECSIM_RANGE_QUERY);
+  }
+
   RedisModule_Reply_MapEnd(reply);
 }
 
@@ -423,9 +428,12 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, QueryIterator *root, Pr
 
     if (root->type == HYBRID_ITERATOR) {
       HybridIterator *hi = (HybridIterator *)root;
+      printProfileVectorSearchMode(hi->searchMode);
       if (hi->searchMode == VECSIM_HYBRID_BATCHES ||
           hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
         printProfileNumBatches(hi);
+        printProfileMaxBatchSize(hi);
+        printProfileMaxBatchIteration(hi);
       }
     }
 

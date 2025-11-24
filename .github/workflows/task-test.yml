@@ -5,10 +5,16 @@ name: Common Flow for Tests
 on:
   workflow_call:
     inputs:
-      env:
-        default: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, macos, sanitizer, coverage)'
         type: string
-      container:
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
+        type: string
+        required: true
+      custom-env:
+        description: 'Environment/runner to use (overrides env from task-get-config)'
         type: string
       san:
         type: string
@@ -27,90 +33,191 @@ on:
       standalone:
         type: boolean
         default: true
-      pre-steps-script:
-        type: string
-        description: 'Script to run before any other steps (extremely basic dependency needs only)'
       rejson:
         type: boolean
         default: true
-        description: 'Enable tests with RedisJSON'
+        description: "Enable tests with RedisJSON"
       rejson-branch:
         type: string
         default: master
-        description: 'Branch to use when building RedisJSON for tests'
+        description: "Branch to use when building RedisJSON for tests"
       test-timeout:
         type: number
         default: 50
 
 env:
-  REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
+  REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
-  COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
+  COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
   BUILD_INTEL_SVS_OPT: "yes"
 
 jobs:
+  # Get configuration for this specific platform and architecture
+  get-config:
+    uses: ./.github/workflows/task-get-config.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+  build-image:
+    needs: get-config
+    if: ${{ needs.get-config.outputs.container }}
+    continue-on-error: true
+    name: Build container for ${{ needs.get-config.outputs.container  || needs.get-config.outputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    runs-on: ${{ needs.get-config.outputs.env }}
+    permissions:
+      contents: read
+      packages: write # required for GHCR push
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      succeeded: ${{ steps.mark-success.outputs.succeeded }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set image name
+        id: meta
+        run: |
+          # Base image name
+          IMAGE_NAME="ghcr.io/redisearch/redisearch-ci"
+
+          # Append container and sanitizer to make it unique
+          CONTAINER=${{ needs.get-config.outputs.container || 'default' }}
+          SAN=${{ inputs.san || 'none' }}
+          RUN_ID=${{ github.run_id }}
+
+          # Normalize container string (replace : / with -)
+          CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's/[:\/]/-/g')
+
+          # Unique image tag per workflow run and architecture
+          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ needs.get-config.outputs.env }}-${RUN_ID}"
+
+          # Shared cache ref (without run_id)
+          CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ needs.get-config.outputs.env }}-cache"
+
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "cache=$CACHE_REF" >> $GITHUB_OUTPUT
+          echo "Using image tag: $IMAGE_TAG"
+          echo "Using cache ref: $CACHE_REF"
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and push (cached)
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          context: .
+          build-args: |
+            BASE_IMAGE=${{ needs.get-config.outputs.container || 'ubuntu:24.04' }}
+          file: Dockerfile
+          tags: ${{ steps.meta.outputs.image }}
+          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max
+          cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
+      # This step ONLY runs if all previous steps succeeded
+      - name: Mark success
+        id: mark-success
+        run: |
+          echo "succeeded=true" >> $GITHUB_OUTPUT
+
   common-flow:
-    name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
-    runs-on: ${{ inputs.env }}
-    container: ${{ inputs.container || null }}
-    # Nothing to do if both are `false`, skip
-    if: ${{ inputs.standalone || inputs.coordinator }}
+    needs: [get-config, build-image]
+    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    # Run if get-config succeeded and at least one test type is enabled
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success' &&
+      (inputs.standalone || inputs.coordinator)
+    runs-on: ${{ inputs.custom-env || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{ needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-
+      - name: Debug - Check build-image output
+        if: always()
+        run: |
+          echo "build-image.result: ${{ needs.build-image.result }}"
+          echo "build-image.outputs.succeeded: ${{ needs.build-image.outputs.succeeded }}"
+          echo "build-image.outputs.image: ${{ needs.build-image.outputs.image }}"
+      - name: Fix HOME Directory
+        if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
+        shell: bash
+        run: |
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
+          h=$(getent passwd $(id -un) | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld $HOME
+          ls -ld $h
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> $GITHUB_ENV
+      # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
-      - name: Pre-steps Dependencies (Alpine)
-        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
+      - name: Setup Dependencies (Alpine)
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container == 'alpine:3'
         shell: sh -l -eo pipefail {0}
         run: |
           SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if ${{ inputs.pre-steps-script }}; then
-              echo "Pre-steps Dependencies succeeded"
+            if ${{ needs.get-config.outputs.setup_script }}; then
+              echo "Setup Dependencies succeeded"
               SUCCESS=1
               break
             fi
             if [ $i -lt 5 ]; then
-              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
+              echo "Setup Dependencies failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          if [ $SUCCESS -eq 0 ]; then
-            echo "Pre-steps Dependencies failed after 5 attempts"
-            exit 1
-          fi
-      - name: Pre-steps Dependencies (Non-Alpine)
-        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
+          [ $SUCCESS -eq 1 ] || exit 1
+      - name: Setup Dependencies (Non-Alpine)
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script && needs.get-config.outputs.container != 'alpine:3'
         run: |
           SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if ${{ inputs.pre-steps-script }}; then
-              echo "Pre-steps Dependencies succeeded"
+            if ${{ needs.get-config.outputs.setup_script }}; then
+              echo "Setup Dependencies succeeded"
               SUCCESS=1
               break
             fi
             if [ $i -lt 5 ]; then
-              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
+              echo "Setup Dependencies failed, retrying in 30 seconds..."
               sleep 30
             fi
           done
-          if [ $SUCCESS -eq 0 ]; then
-            echo "Pre-steps Dependencies failed after 5 attempts"
-            exit 1
-          fi
-      - name: Enable dynamic linking to C runtime in Alpine
-        if: inputs.container == 'alpine:3'
-        run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
+          [ $SUCCESS -eq 1 ] || exit 1
+      - name: Post-setup
+        if: needs.get-config.outputs.post_setup_script
+        run: ${{ needs.get-config.outputs.post_setup_script }}
       - name: Get Installation Mode
         id: mode
         run: |
-          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+      - name: Check if node20 is Supported
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
+        run: |
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          for platform in amazonlinux:2 alpine:3; do
+            if [[ "$CONTAINER" == "$platform" ]]; then
+              echo "supported=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "supported=true" >> $GITHUB_OUTPUT
       - name: Free up disk space
         run: |
           df -h
@@ -119,16 +226,6 @@ jobs:
           ${{ steps.mode.outputs.mode }} rm -rf /opt/ghc || true
           ${{ steps.mode.outputs.mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
-      - name: Check if node20 is Supported
-        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
-        run: |
-          for platform in amazonlinux:2 alpine:3; do
-            if [[ "${{ inputs.container }}" == "$platform" ]]; then
-              echo "supported=false" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          done
-          echo "supported=true" >> $GITHUB_OUTPUT
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
@@ -141,8 +238,9 @@ jobs:
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
-          echo "Detected platform: ${{ inputs.container }}"
-          case "${{ inputs.container }}" in
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          echo "Detected platform: $CONTAINER"
+          case "$CONTAINER" in
             amazonlinux:2 | alpine:3)
 
               # Configure the safe directory
@@ -166,7 +264,7 @@ jobs:
               git submodule update --init --recursive
               ;;
             *)
-              echo "Unsupported platform: '${{ inputs.container }}'"
+              echo "Unsupported platform: '$CONTAINER'"
               exit 1
               ;;
           esac
@@ -193,6 +291,7 @@ jobs:
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup
+        if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
         run: |
           SUCCESS=0
@@ -212,12 +311,16 @@ jobs:
             echo "Setup failed after 5 attempts"
             exit 1
           fi
-      - name: Setup tests dependencies
+      - name: Setup Rust test dependencies
+        if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
+        run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
+
+      - name: Setup Python test dependencies
         run: |
           SUCCESS=0
           for i in {1..5}; do
             echo "Attempt $i of 5"
-            if .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
+            if .install/test_deps/install_python_deps.sh ${{ steps.mode.outputs.mode }}; then
               echo "Setup tests dependencies succeeded"
               SUCCESS=1
               break
@@ -283,16 +386,18 @@ jobs:
         working-directory: redis
         run:  ${{ steps.mode.outputs.mode }} make install
               BUILD_TLS=yes
+              ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
               SANITIZER=${{ inputs.san }}
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
         id: artifact-names
-        run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
+        run:
+          | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           echo "name=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
                              ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
-                             ${{ inputs.container || inputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
+                             ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
         env:

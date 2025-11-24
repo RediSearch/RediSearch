@@ -66,6 +66,7 @@ fn read_sequential() {
         let doc = result.unwrap();
         assert_eq!(doc.doc_id, expected_id);
         assert_eq!(it.last_doc_id(), expected_id);
+        assert_eq!(it.current().unwrap().doc_id, expected_id);
 
         // Should not be at EOF until we've read all documents
         let expected_eof = expected_id == 5;
@@ -90,12 +91,14 @@ fn skip_to_valid_targets() {
     let result = it.skip_to(5);
     assert_skip_to_found!(result, 5);
     assert_eq!(it.last_doc_id(), 5);
+    assert_eq!(it.current().unwrap().doc_id, 5);
     assert!(!it.at_eof());
 
     // Test skipping to last document
     let result = it.skip_to(10);
     assert_skip_to_found!(result, 10);
     assert_eq!(it.last_doc_id(), 10);
+    assert_eq!(it.current().unwrap().doc_id, 10);
     assert!(it.at_eof());
 }
 
@@ -125,12 +128,14 @@ fn rewind() {
     }
 
     assert_eq!(it.last_doc_id(), 3);
+    assert_eq!(it.current().unwrap().doc_id, 3);
 
     // Rewind
     it.rewind();
 
     // Check state after rewind
     assert_eq!(it.last_doc_id(), 0);
+    assert_eq!(it.current().unwrap().doc_id, 0);
     assert!(!it.at_eof());
 
     // Should be able to read from beginning again
@@ -139,6 +144,7 @@ fn rewind() {
 
     assert_eq!(doc.doc_id, 1);
     assert_eq!(it.last_doc_id(), 1);
+    assert_eq!(it.current().unwrap().doc_id, 1);
 }
 
 #[test]
@@ -149,6 +155,7 @@ fn read_after_skip() {
     let result = it.skip_to(5);
     assert_skip_to_found!(result, 5);
     assert_eq!(it.last_doc_id(), 5);
+    assert_eq!(it.current().unwrap().doc_id, 5);
 
     // Continue reading sequentially from 6 to 10
     for expected_id in 6..=10 {
@@ -157,6 +164,7 @@ fn read_after_skip() {
 
         assert_eq!(doc.doc_id, expected_id);
         assert_eq!(it.last_doc_id(), expected_id);
+        assert_eq!(it.current().unwrap().doc_id, expected_id);
     }
 
     // After reading all remaining docs, should return EOF
@@ -188,6 +196,7 @@ fn zero_documents() {
     // Should immediately be at EOF
     assert!(it.at_eof(), "iterator with top_id=0 should be at EOF");
     assert_eq!(it.last_doc_id(), 0, "last_doc_id should be 0");
+    assert_eq!(it.current().unwrap().doc_id, 0, "current().id should be 0");
     assert_eq!(it.num_estimated(), 0, "num_estimated should be 0");
 
     // Read should return None
@@ -226,6 +235,7 @@ fn skip_to_same_position() {
     let result = it.skip_to(5);
     assert!(result.is_ok());
     assert_eq!(it.last_doc_id(), 5);
+    assert_eq!(it.current().unwrap().doc_id, 5);
 
     // Try to skip backwards to the same position, should panic
     let _ = it.skip_to(5);

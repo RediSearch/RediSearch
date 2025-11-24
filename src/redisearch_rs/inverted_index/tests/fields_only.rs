@@ -46,9 +46,8 @@ fn test_encode_fields_only() {
             .doc_id(doc_id)
             .field_mask(field_mask);
 
-        let bytes_written = FieldsOnly
-            .encode(&mut buf, delta, &record)
-            .expect("to encode freqs only record");
+        let bytes_written =
+            FieldsOnly::encode(&mut buf, delta, &record).expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
         assert_eq!(buf.get_ref(), &expected_encoding);
@@ -110,9 +109,8 @@ fn test_encode_fields_only_wide() {
             .doc_id(doc_id)
             .field_mask(field_mask);
 
-        let bytes_written = FieldsOnlyWide
-            .encode(&mut buf, delta, &record)
-            .expect("to encode freqs only record");
+        let bytes_written =
+            FieldsOnlyWide::encode(&mut buf, delta, &record).expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
         assert_eq!(buf.get_ref(), &expected_encoding);
@@ -135,7 +133,7 @@ fn test_encode_fields_only_output_too_small() {
     let mut cursor = Cursor::new(buf);
 
     let record = RSIndexResult::term();
-    let res = FieldsOnly.encode(&mut cursor, 0, &record);
+    let res = FieldsOnly::encode(&mut cursor, 0, &record);
 
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
