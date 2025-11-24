@@ -1140,7 +1140,7 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
   coord_before_info_dict = info_modules_to_dict(env)
 
   # Test coord metric update after debug ft.search (not tested with resp2)
-  env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
+  env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'LIMIT', 0, 1,
               'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
 
   # Check coord metric + 1
@@ -1151,7 +1151,7 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
                    message="Coordinator timeout warning should be +1 after FT.SEARCH")
 
   # Test debug aggregate with and without internal only
-  env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+  env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 1,
               'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).noError()
 
   # Wait for shards to end by calling WORKERS drain
