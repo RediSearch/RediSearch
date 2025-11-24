@@ -7,6 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+/// Provides [`crate::canary::CanaryProtected`] and [`crate::canary::CanaryGuarded`] types for canary-based memory initialization.
+pub mod canary;
+
 /// Helpers for implementing opaque sized types.
 ///
 /// In order for types defined in Rust to be placed on the

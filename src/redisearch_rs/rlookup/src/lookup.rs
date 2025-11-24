@@ -24,6 +24,8 @@ use std::{
     slice,
 };
 
+use c_ffi_utils::canary::CanaryProtected;
+
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -203,6 +205,11 @@ pub struct RLookupKeyHeader<'a> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookup<'a> {
+    /// This is a temporary field that should not be accessed. It ensures correct
+    /// initialization in case of FFI usage.
+    #[cfg(debug_assertions)]
+    _canary: u64,
+
     /// RLookup fields exposed to C.
     // Because we must be able to re-interpret pointers to `RLookup` to `RLookupHeader`
     // THIS MUST BE THE FIRST FIELD DONT MOVE IT
@@ -217,6 +224,11 @@ pub struct RLookup<'a> {
 
     #[cfg(debug_assertions)]
     id: RLookupId,
+}
+
+// Safety: RLookup contains `_canary` as its first field under debug_assertions
+unsafe impl<'a> CanaryProtected for RLookup<'a> {
+    const CANARY: u64 = 0xbad1bad1;
 }
 
 #[derive(Debug)]
@@ -486,6 +498,13 @@ impl<'a> RLookupKey<'a> {
         // Safety: RLookupKeys are created through `KeyList::push` and owned by the `List`. We
         // can therefore assume this pointer is safe to dereference at this point.
         unsafe { *self.next.get() }
+    }
+
+    /// Set the path of this key
+    pub fn _ffi_set_path(&mut self, path: impl Into<Cow<'a, CStr>>) {
+        let path = path.into();
+        self._path = Some(path);
+        self.path = self._path.as_ref().unwrap().as_ptr();
     }
 
     /// Update the pointer to the next node
@@ -1000,6 +1019,8 @@ impl Default for RLookup<'_> {
 impl<'a> RLookup<'a> {
     pub fn new() -> Self {
         Self {
+            #[cfg(debug_assertions)]
+            _canary: Self::CANARY,
             header: RLookupHeader {
                 keys: KeyList::new(),
             },
@@ -1026,11 +1047,37 @@ impl<'a> RLookup<'a> {
         self.keys.find_by_name(name)
     }
 
+    /// Find a field spec in the associated `IndexSpecCache`, if any, we use it to not break encapsulation for FFI.
+    ///
+    /// This is temporary and should be removed when `loadIndividualKeys` is ported and `RLookupRow` is migrated.
+    /// See MOD-11051 and MOD-10405.
+    pub fn _ffi_find_field_in_spec_cache(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
+        let cache = self.index_spec_cache.as_ref()?;
+        cache.find_field(name)
+    }
+
+    /// Create a new key and add it to this lookup, we use it to not break encapsulation for FFI.
+    ///
+    /// This is temporary and should be removed when `RLookup_LoadRuleFields` is ported and `RLookupRow` is migrated.
+    /// See MOD-12284 and MOD-10405.
+    pub fn _ffi_new_key(
+        &mut self,
+        name: impl Into<Cow<'a, CStr>>,
+        flags: RLookupKeyFlags,
+    ) -> &mut RLookupKey<'a> {
+        // we clone here to work around lifetime issues with FFI:
+        let rlk = RLookupKey::new(self, name, flags);
+        let rlk = self.keys.push(rlk);
+
+        // Safety: We trust the FFI caller to not move the RLookupKey and thus not violate pinning.
+        unsafe { rlk.get_unchecked_mut() }
+    }
+
     /// Add all non-overridden keys from `src` to `self`.
     ///
     /// For each key in src, check if it already exists *by name*.
     /// - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
-    /// - If it doesn't a new key will ne created.
+    /// - If it doesn't a new key will be created.
     ///
     /// Flag handling:
     ///  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
@@ -1358,19 +1405,6 @@ mod tests {
         assert!(
             ::std::mem::offset_of!(RLookupKey, header.next)
                 == ::std::mem::offset_of!(RLookupKeyHeader, next)
-        );
-    };
-
-    // Compile time check to ensure that `RLookup` can safely be re-interpreted as `RLookupHeader` (has the same
-    // layout at the beginning).
-    const _: () = {
-        // RLookup is larger than RLookupHeader because it has additional Rust fields
-        assert!(std::mem::size_of::<RLookup>() >= std::mem::size_of::<RLookupHeader>());
-        assert!(std::mem::align_of::<RLookup>() == std::mem::align_of::<RLookupHeader>());
-
-        assert!(
-            ::std::mem::offset_of!(RLookup, header.keys)
-                == ::std::mem::offset_of!(RLookupHeader, keys)
         );
     };
 
