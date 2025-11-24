@@ -907,8 +907,6 @@ def _common_warnings_errors_cluster_test_scenario(env):
   # Needed for timeout tests (TIMEOUT_AFTER_N>1)
   conn.execute_command('HSET', 'doc:2', 'text', 'hello world')
 
-
-
   # Create vector index for hybrid
   env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   # Create doc for hybrid
