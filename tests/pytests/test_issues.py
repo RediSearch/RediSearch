@@ -1605,3 +1605,43 @@ def test_mod_8157_RESP3():
 def test_mod_11975(env: Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   env.expect('FT.SEARCH', 'idx', '@t:("*")', 'DIALECT', '2').equal([0])
+
+@skip(cluster=False)
+def test_mod_12493(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+  # Add enough documents so 4 reads are needed from each shard to read all results (chunk size is 1000)
+  n_docs = 3200 * env.shardsCount
+  with env.getClusterConnectionIfNeeded() as conn:
+    for i in range(n_docs):
+      conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+  # Create a cursor
+  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR')
+
+  # Check that there are pending cursors on all shards
+  env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], env.shardsCount)
+
+  # Read another env.shardCount - 1 times. Expecting that each read will read 1000 results from each shard,
+  # so after env.shardsCount reads (including the initial aggregate), we will trigger another read from each shard
+  for _ in range(env.shardsCount - 1):
+    _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+
+  # Check again that there are pending cursors on all shards
+  env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], env.shardsCount)
+  # Check command stats for internal cursors command. We expect a single one (READ) on each shard
+  for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR']
+    env.assertEqual(stats['calls'], 1, message=f'Expected 1 call on shard {i}, got {stats["calls"]}')
+
+  # Delete the cursor. This should delete the internal cursors on all shards.
+  # If we call READ instead, they won't be deleted or depleted (3rd read, and we have 4 chunks), and the test will fail.
+  env.expect('FT.CURSOR', 'DEL', 'idx', cursor).ok()
+
+  # Expect another call on each shard for the DEL command
+  for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR']
+    env.assertEqual(stats['calls'], 2, message=f'Expected 2 calls on shard {i}, got {stats["calls"]}')
+
+  # Check that the internal cursors were deleted on all shards
+  env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], 0)
