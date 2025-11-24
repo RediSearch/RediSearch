@@ -2,29 +2,32 @@ from common import *
 import json
 import os
 
-def load_command_expectations():
+def _load_command_expectations():
+    commands_json_path = os.path.join(os.path.dirname(__file__), '..', '..', 'commands.json')
     """Load and parse the command info expectations file."""
-    expectations_path = os.path.join(os.path.dirname(__file__), 'command_info_expectations.json')
     try:
-        with open(expectations_path, 'r') as f:
-            expectations_data = json.load(f)
+        with open(commands_json_path, 'r') as f:
+            commands_data = json.load(f)
     except FileNotFoundError:
-        raise Exception(f"Missing command_info_expectations.json. Run 'make build' to generate test expectations.")
+        raise Exception(f"Missing commands.json.")
     except Exception as e:
-        raise Exception(f"Failed to load command_info_expectations.json: {e}. Run 'make build' to regenerate.")
+        raise Exception(f"Failed to load commands.json: {e}.")
 
-    # Extract commands from the generated structure
-    if '_commands' not in expectations_data:
-        raise Exception(f"Invalid expectations file format. Run 'make build' to regenerate.")
+    return commands_data
 
-    return expectations_data['_commands']
+def _lists_equal_insensitive(a, b):
+    """
+    Compare two lists of strings case-insensitively and order-insensitively.
+    Returns True if they contain the same items (ignoring case and order).
+    """
+    return set(map(str.lower, a)) == set(map(str.lower, b))
 
 def test_command_info_availability(env):
     """Test that command info is available for all RediSearch commands using generated expectations."""
 
     # Load expectations
     try:
-        expectations = load_command_expectations()
+        expectations = _load_command_expectations()
     except Exception as e:
         env.fail(str(e))
     env.assertEqual(len(expectations) > 0, True, message="Should have command expectations")
@@ -44,7 +47,7 @@ def test_command_info_availability(env):
             if not info or not isinstance(info, dict) or cmd_upper not in info:
                 failed_commands.append(f"{cmd_name}: No command info returned")
                 continue
-
+            info = info[cmd_upper]
 
             # Track failures for this specific command
             initial_failure_count = len(failed_commands)
@@ -52,10 +55,6 @@ def test_command_info_availability(env):
             # Validate expected fields (dynamically extract field names from expectations)
             expected_fields = [field for field in expected.keys()
                              if field not in ['name', 'has_info', 'tips']]  # Exclude special fields
-
-            if 'complexity' in expected_fields:
-                expected_fields.remove('complexity')
-
 
             for field in expected_fields:
                 if field not in info:
@@ -98,12 +97,12 @@ def test_command_info_tips_field(env):
 
     # Load expectations to find commands with tips
     try:
-        expectations = load_command_expectations()
+        commands_json = _load_command_expectations()
     except Exception as e:
         env.fail(str(e))
 
     # Find commands that have tips defined
-    commands_with_tips = {cmd: data for cmd, data in expectations.items() if 'tips' in data}
+    commands_with_tips = {cmd: data for cmd, data in commands_json.items() if 'command_tips' in data}
 
     env.assertEqual(len(commands_with_tips) > 0, True, message="Should have at least some commands with tips")
 
@@ -112,29 +111,25 @@ def test_command_info_tips_field(env):
     failed_tips = []
 
     for cmd_name, expected_data in commands_with_tips.items():
-        cmd_upper = cmd_name.upper()
-        expected_tips = expected_data['tips']
+        cmd_upper = cmd_name.upper().replace(' ', '|')
+        expected_tips = expected_data['command_tips']
 
         try:
             # Get command info
             info = conn.execute_command("COMMAND", "INFO", cmd_upper)
-            if not info or len(info) == 0 or info[0] is None:
+            if not info or not isinstance(info, dict) or cmd_upper not in info:
                 failed_tips.append(f"{cmd_name}: No command info returned")
                 continue
 
-            cmd_info = info[0]
-
-            # Command info is returned as a list of key-value pairs
-            # Convert to dict for easier access
-            info_dict = to_dict(cmd_info)
+            info = info[cmd_upper]
 
             # Check if tips field exists and matches
-            if 'tips' not in info_dict:
+            if 'tips' not in info:
                 failed_tips.append(f"{cmd_name}: Missing tips field")
-            elif info_dict['tips'] != expected_tips:
-                failed_tips.append(f"{cmd_name}: Tips mismatch - expected '{expected_tips}', got '{info_dict['tips']}'")
+            elif not _lists_equal_insensitive(info['tips'], expected_tips):
+                failed_tips.append(f"{cmd_name}: Tips mismatch - expected '{expected_tips}', got '{info['tips']}'")
             else:
-                env.debugPrint(f"✓ {cmd_name}: tips = '{info_dict['tips']}'")
+                env.debugPrint(f"✓ {cmd_name}: tips = '{info['tips']}'")
 
         except Exception as e:
             failed_tips.append(f"{cmd_name}: Error testing tips: {e}")
