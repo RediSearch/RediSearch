@@ -486,19 +486,19 @@ def test_change_num_connections():
     # The number of connections should be ceil(100/20) = 5
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(100)))
 
+def check_threads(env, expected_num_threads_alive, expected_n_threads):
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1, message='numThreadsAlive should match num_threads_alive')
+    env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
+
 def test_change_workers_number():
     def send_query():
         env.expect('ft.search', 'idx', '*').equal([0])
-
-    def check_threads(expected_num_threads_alive, expected_n_threads):
-        env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1, message='numThreadsAlive should match num_threads_alive')
-        env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
 
     # On start up the threadpool is not initialized. We can change the value of requested threads
     # without actually creating the threads.
     env = initEnv(moduleArgs='WORKERS 1')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
-    check_threads(expected_num_threads_alive=0, expected_n_threads=1)
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=1)
 
     # Before starting the test, set the number of connections per shard to 2 to avoid flakiness
     # due to connections being rapidly opened/closed when changing the number of workers.
@@ -507,10 +507,10 @@ def test_change_workers_number():
     # Increase number of threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
     # After the first increase, since no queries arrived yet
-    check_threads(expected_num_threads_alive=0, expected_n_threads=2)
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=2)
     # Decrease number of threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
-    check_threads(expected_num_threads_alive=0, expected_n_threads=1)
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=1)
     # If I send many queries, we know one of the threads will take the ADMIN job and terminate
     num_query_threads = 100
     query_threads = []
@@ -523,25 +523,25 @@ def test_change_workers_number():
     for t in query_threads:
         t.join()
 
-    check_threads(expected_num_threads_alive=1, expected_n_threads=1)
+    check_threads(env, expected_num_threads_alive=1, expected_n_threads=1)
     # Set it to 0
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
     time.sleep(1)
-    check_threads(expected_num_threads_alive=0, expected_n_threads=0)
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=0)
 
     # Query should not be executed by the threadpool
 
     env.expect('ft.search', 'idx', '*').equal([0])
-    check_threads(expected_num_threads_alive=0, expected_n_threads=0)
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=0)
     env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], num_query_threads)
 
     # Enable threadpool
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
     # Since additioning workers after initialization is not lazy anymore, this would indeed create the thread
-    check_threads(expected_num_threads_alive=0, expected_n_threads=1)
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=1)
     env.expect('ft.search', 'idx', '*').equal([0])
     # Keep initialized
-    check_threads(expected_num_threads_alive=1, expected_n_threads=1)
+    check_threads(env, expected_num_threads_alive=1, expected_n_threads=1)
     # wait for the job to finish
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
@@ -550,11 +550,11 @@ def test_change_workers_number():
 
     # Add threads to a running pool
     env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
-    check_threads(expected_num_threads_alive=2, expected_n_threads=2)
+    check_threads(env,expected_num_threads_alive=2, expected_n_threads=2)
     # Remove threads from a running pool
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
     time.sleep(1)
-    check_threads(expected_num_threads_alive=1, expected_n_threads=1)
+    check_threads(env, expected_num_threads_alive=1, expected_n_threads=1)
 
     # Terminate all threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
@@ -564,10 +564,6 @@ def test_change_workers_number():
     # Query should not be executed by the threadpool
     env.expect('ft.search', 'idx', '*').equal([0])
     env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], num_query_threads + 1)
-
-def check_threads(env, expected_num_threads_alive, expected_n_threads):
-    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1, message='numThreadsAlive should match num_threads_alive')
-    env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
 
 def test_workers_reduction_sequence():
     """
