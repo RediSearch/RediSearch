@@ -569,9 +569,7 @@ def test_gc():
 
         # Index size should reflect the number vectors + marked deleted
         size_after = tiered_backend_debug_info['INDEX_SIZE']
-        env.assertEqual(size_after, size_before - vecs_to_delete, message=f"{message_prefix}")
-        # TODO: Uncomment this line once we fix the behaviour
-        # env.assertEqual(size_after, size_before, message=f"{message_prefix}")
+        env.assertEqual(size_after, size_before, message=f"{message_prefix}")
 
         # Labels count should reflect the number of valid vectors
         label_count_after = tiered_backend_debug_info['INDEX_LABEL_COUNT']
