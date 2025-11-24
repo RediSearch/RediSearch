@@ -98,16 +98,11 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   const uint32_t options = HREQ_RequestFlags(hreq);
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
-  RedisModule_Reply_Map(reply); // >result
-
   // Reply should have the same structure of an FT.AGGREGATE reply
   // QEXEC_F_SEND_NOFIELDS is only set when LIMIT 0 0 is used, therefore we should not reach any serialization.
   // Considering it only complicates logic, we can ignore it.
-  const RLookup *lk = cv->lastLookup;
-
-  if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
-    RedisModule_Reply_Null(reply);
-  } else {
+  if (!(SearchResult_GetFlags(r) & Result_ExpiredDoc)) {
+    RedisModule_Reply_Map(reply); // >result
     if (options & QEXEC_F_SEND_SCORES) {
       RedisModule_Reply_SimpleString(reply, "score");
       if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
@@ -120,6 +115,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
         RedisModule_Reply_ArrayEnd(reply);
       }
     }
+    const RLookup *lk = cv->lastLookup;
 
     RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
     // Get the number of fields in the reply.
@@ -163,8 +159,8 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       }
       RedisModule_Reply_RSValue(reply, v, flags);
     }
+    RedisModule_Reply_MapEnd(reply); // >result
   }
-  RedisModule_Reply_MapEnd(reply); // >result
 }
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
