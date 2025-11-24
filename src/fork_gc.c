@@ -63,7 +63,7 @@ static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
     perror("broken pipe, exiting GC fork: write() failed");
     // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
     RedisModule_Log(fgc->ctx, "warning", "GC fork: broken pipe, exiting");
-    exit(1);
+    RedisModule_ExitFromChild(EXIT_FAILURE);
   }
 }
 
