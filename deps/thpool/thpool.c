@@ -1037,8 +1037,8 @@ static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
 
   /* Wait all threads to get the barrier */
   pthread_barrier_wait(signal_struct->barrier);
-  int num_threads_to_wait_before = atomic_fetch_sub(&signal_struct->num_threads_to_wait, 1);
-  if (num_threads_to_wait_before - 1 == 0) {
+  int num_threads_to_wait_before = atomic_sub_fetch(&signal_struct->num_threads_to_wait, 1);
+  if (num_threads_to_wait_before == 0) {
     pthread_barrier_destroy(signal_struct->barrier);
     rm_free(signal_struct->barrier);
     rm_free(signal_struct);
