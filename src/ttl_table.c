@@ -107,16 +107,16 @@ bool TimeToLiveTable_VerifyDocAndField(TimeToLiveTable *table, t_docId docId, t_
       const bool expired = DidExpire(&fieldExpiration->point, expirationPoint);
       if (expired) {
         // the document is invalid (should return `false`), unless we look for missing fields
-        return (predicate == FIELD_EXPIRATION_MISSING);
+        return (predicate == FIELD_EXPIRATION_PREDICATE_MISSING);
       } else {
         // the document is valid (should return `true`), unless we look for missing fields
-        return (predicate != FIELD_EXPIRATION_MISSING);
+        return (predicate != FIELD_EXPIRATION_PREDICATE_MISSING);
       }
     }
   }
   // the field was not found in the document's field expirations,
   // which means it is valid unless the predicate is FIELD_EXPIRATION_MISSING
-  return (predicate != FIELD_EXPIRATION_MISSING);
+  return (predicate != FIELD_EXPIRATION_PREDICATE_MISSING);
 }
 
 bool TimeToLiveTable_VerifyDocAndFieldMask(TimeToLiveTable *table, t_docId docId, uint32_t fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
@@ -134,7 +134,7 @@ bool TimeToLiveTable_VerifyDocAndFieldMask(TimeToLiveTable *table, t_docId docId
   if (fieldWithExpirationCount == 0) {
     // the document has no fields with expiration times, there exists at least one valid field
     return true;
-  } else if (fieldWithExpirationCount < fieldCount && predicate == FIELD_EXPIRATION_DEFAULT) {
+  } else if (fieldWithExpirationCount < fieldCount && predicate == FIELD_EXPIRATION_PREDICATE_DEFAULT) {
     // the document has less fields with expiration times than the fields we are checking
     // at least one field is valid
     return true;
@@ -163,14 +163,14 @@ bool TimeToLiveTable_VerifyDocAndFieldMask(TimeToLiveTable *table, t_docId docId
     RS_ASSERT(fieldIndexToCheck == ttlEntry->fieldExpirations[currentFieldIndex].index);
     // Match found - we need to check if it has an expiration time
     const bool expired = DidExpire(&ttlEntry->fieldExpirations[currentFieldIndex].point, expirationPoint);
-    if (!expired && predicate == FIELD_EXPIRATION_DEFAULT) {
+    if (!expired && predicate == FIELD_EXPIRATION_PREDICATE_DEFAULT) {
       return true;
-    } else if (expired && predicate == FIELD_EXPIRATION_MISSING) {
+    } else if (expired && predicate == FIELD_EXPIRATION_PREDICATE_MISSING) {
       return true;
     }
     predicateMisses++; // Count the predicate misses for the current match
   }
-  if (predicate == FIELD_EXPIRATION_DEFAULT) {
+  if (predicate == FIELD_EXPIRATION_PREDICATE_DEFAULT) {
     // If we are checking for the default predicate, we need at least one valid field
     return predicateMisses < fieldCount;
   } else { // if (predicate == FIELD_EXPIRATION_MISSING)
@@ -207,7 +207,7 @@ bool TimeToLiveTable_VerifyDocAndWideFieldMask(TimeToLiveTable *table, t_docId d
   if (fieldWithExpirationCount == 0) {
     // the document has no fields with expiration times, there exists at least one valid field
     return true;
-  } else if (fieldWithExpirationCount < fieldCount && predicate == FIELD_EXPIRATION_DEFAULT) {
+  } else if (fieldWithExpirationCount < fieldCount && predicate == FIELD_EXPIRATION_PREDICATE_DEFAULT) {
     // the document has less fields with expiration times than the fields we are checking
     // at least one field is valid
     return true;
@@ -237,16 +237,16 @@ bool TimeToLiveTable_VerifyDocAndWideFieldMask(TimeToLiveTable *table, t_docId d
       RS_ASSERT(fieldIndexToCheck == ttlEntry->fieldExpirations[currentFieldIndex].index);
       // Match found - we need to check if it has an expiration time
       const bool expired = DidExpire(&ttlEntry->fieldExpirations[currentFieldIndex].point, expirationPoint);
-      if (!expired && predicate == FIELD_EXPIRATION_DEFAULT) {
+      if (!expired && predicate == FIELD_EXPIRATION_PREDICATE_DEFAULT) {
         return true;
-      } else if (expired && predicate == FIELD_EXPIRATION_MISSING) {
+      } else if (expired && predicate == FIELD_EXPIRATION_PREDICATE_MISSING) {
         return true;
       }
       predicateMisses++; // Count the predicate misses for the current match
     }
   }
 end:
-  if (predicate == FIELD_EXPIRATION_DEFAULT) {
+  if (predicate == FIELD_EXPIRATION_PREDICATE_DEFAULT) {
     // If we are checking for the default predicate, we need at least one valid field
     return predicateMisses < fieldCount;
   } else { // if (predicate == FIELD_EXPIRATION_MISSING)
