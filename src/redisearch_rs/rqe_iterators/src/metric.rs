@@ -16,6 +16,7 @@ use value::{RSValueFFI, RSValueTrait};
 /// At the moment, only vector distance is supported.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// cbindgen:rename-all=ScreamingSnakeCase
 pub enum MetricType {
     VectorDistance,
 }

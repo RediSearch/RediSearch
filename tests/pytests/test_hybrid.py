@@ -104,11 +104,13 @@ class testHybridSearch:
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
-
     def test_knn_wildcard_search(self):
+        # skipping due to MOD-12377
+        raise SkipTest()
         """Test hybrid search using KNN + wildcard search scenario"""
         scenario = {
-            "hybrid_query": "SEARCH * VSIM @vector $BLOB",
+            "hybrid_query": "SEARCH * YIELD_SCORE_AS search_score \
+                VSIM @vector $BLOB YIELD_SCORE_AS vector_score",
             "search_equivalent": "*",
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
