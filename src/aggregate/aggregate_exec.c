@@ -1143,7 +1143,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
 error:
   // Update global query errors statistics
-  // If num shards == 1 we are in SA
+  // If num shards == 1 we are in SA, and we count it as a coord error
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, GetNumShards_UnSafe() == 1);
 
   if (r) {

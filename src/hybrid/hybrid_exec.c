@@ -593,7 +593,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail) {
-      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, GetNumShards_UnSafe() == 1);
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, !internal);
       return QueryMemoryGuardFailure_WithReply(ctx);
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
