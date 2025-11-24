@@ -4,7 +4,6 @@
  * or the Server Side Public License v1 (SSPLv1).
  */
 
-#include <assert.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -323,7 +322,7 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
 size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
                                      size_t n_threads_to_add) {
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
-  assert(n_threads_to_add > 0 && "Number of threads to add must be greater than 0");
+  RedisModule_Assert(n_threads_to_add > 0 && "Number of threads to add must be greater than 0");
   size_t n_threads = thpool_p->n_threads + n_threads_to_add;
   thpool_p->n_threads = n_threads;
   if (thpool_p->state == THPOOL_UNINITIALIZED) {
@@ -595,7 +594,7 @@ int redisearch_thpool_is_initialized(redisearch_thpool_t *thpool_p) {
 
 void redisearch_thpool_resume_threads(redisearch_thpool_t *thpool_p) {
   redisearch_thpool_lock(thpool_p);
-  assert(redisearch_thpool_paused(thpool_p));
+  RedisModule_Assert(redisearch_thpool_paused(thpool_p));
   thpool_p->jobqueues.state = JOBQ_RUNNING;
   pthread_cond_broadcast(&thpool_p->jobqueues.has_jobs);
   redisearch_thpool_unlock(thpool_p);
@@ -1058,7 +1057,7 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   if (thpool_p->state == THPOOL_UNINITIALIZED || thpool_p->n_threads == 0) {
     if (thpool_p->n_threads > 0) {
       // If is UNINITIALIZED, at least it would lazily initialize less threads
-      assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
+      RedisModule_Assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
       thpool_p->n_threads -= n_threads_to_remove;
     }
     return;
@@ -1066,15 +1065,12 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
 
   size_t n_threads = thpool_p->n_threads;
   LOG_IF_EXISTS("verbose", "Scheduling from main thread to remove %zu threads", n_threads_to_remove);
-  assert((!remove_all || n_threads_to_remove == n_threads) && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
-  assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
-  assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
-  assert(thpool_p->num_threads_alive >= n_threads_to_remove && "Not enough alive threads to remove");
+  RedisModule_Assert((!remove_all || n_threads_to_remove == n_threads) && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
+  RedisModule_Assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
+  RedisModule_Assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
+  RedisModule_Assert(thpool_p->num_threads_alive >= n_threads_to_remove && "Not enough alive threads to remove");
 
   ThreadState new_state = remove_all ? THREAD_TERMINATE_WHEN_EMPTY : THREAD_TERMINATE_ASAP;
-
-  // If config_reduce_threads_job is not there but the ADMIN jobs are running, if TERMINATE_ASAP we are safe because the admin jobs would be taken by the other threads.
-  // If the old config is TERMINATE_WHEN_EMPTY it means that we were removing all threads, and we should not enter here again
   thpool_p->n_threads -= n_threads_to_remove;
   redisearch_thpool_work_t jobs[n_threads_to_remove];
   /* Create a barrier. */

@@ -275,6 +275,16 @@ thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *);
 
 size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *);
 
+/**
+ * @brief Schedule a job to reduce the number of threads in the threadpool in an asynchronous manner.
+ *
+ * It puts N ADMIN jobs in the queue, one for each thread to be removed. The call will not wait for the jobs to be executed and threads to be removed.
+ *
+ * @param thpool_p the threadpool to reduce the number of threads in
+ * @param n_threads_to_remove the number of threads to remove
+ * @param remove_all A signal to determine that the intention is to remove all the threads, which means that thread should terminate WHEN_EMPTY, so that
+ * no job is left in the queue. This also implies that the threadpool will be left in an UNINITIALIZED state.
+**/
 void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool remove_all);
 
 #ifdef __cplusplus
