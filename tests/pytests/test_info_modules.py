@@ -1356,6 +1356,7 @@ def test_errors_and_warnings_init(env):
     for field in info_dict[metric]:
       env.assertEqual(info_dict[metric][field], '0')
 
+@skip(cluster=False)
 def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
   env = Env(protocol=3)
 
