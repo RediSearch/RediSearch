@@ -83,10 +83,15 @@ def is_migration_complete(conn: Redis, task_id: str) -> bool:
     (migration_status,) = conn.execute_command("CLUSTER", "MIGRATION", "STATUS", "ID", task_id)
     return to_dict(migration_status)["state"] == "completed"
 
-def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
-    with TimeLimit(timeout):
-        while not is_migration_complete(conn, task_id):
-            time.sleep(0.1)
+def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 100.0):
+    iter = 0
+    try:
+        with TimeLimit(timeout):
+            while not is_migration_complete(conn, task_id):
+                time.sleep(0.1)
+                iter += 1
+    except Exception:
+        raise Exception(f"Timeout waiting for slot import to complete after {iter} iterations")
 
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
@@ -163,14 +168,12 @@ def import_slot_range_sanity_test(env: Env):
     # And test again after the import is complete
     query_all_shards()
 
-@skip()
-# @skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2)
 def test_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env)
 
-@skip()
-# @skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2)
 def test_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env)
@@ -221,14 +224,12 @@ def add_shard_and_migrate_test(env: Env):
     shards.append(new_shard)
     query_all_shards()
 
-# @skip(cluster=False)
-@skip()
+@skip(cluster=False)
 def test_add_shard_and_migrate():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env)
 
-# @skip(cluster=False)
-@skip()
+@skip(cluster=False)
 def test_add_shard_and_migrate_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env)
