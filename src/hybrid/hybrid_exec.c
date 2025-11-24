@@ -57,8 +57,9 @@ static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, c
 // Returns true if a timeout occurred and was processed as a warning
 static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *err, int returnCode, const char *suffix, bool ignoreTimeout) {
   bool timeoutOccurred = false;
-
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
+    // Track warnings in global statistics
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT), suffix);
     timeoutOccurred = true;
   } else if (returnCode == RS_RESULT_ERROR) {
@@ -238,9 +239,13 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     HybridRequest_GetError(hreq, &err);
     HybridRequest_ClearErrors(hreq);
     if (ShouldReplyWithError(QueryError_GetCode(&err), hreq->reqConfig.timeoutPolicy, false)) {
+      // Track errors in global statistics
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&err), 1, COORD_ERR_WARN);
       RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
+      // Track timeout error in global statistics
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
       ReplyWithTimeoutError(reply);
       goto done_err;
     }
@@ -560,11 +565,11 @@ static inline void DefaultCleanup(StrongRef hybrid_ref) {
 }
 
 // We only want to free the hybrid params in case an error happened
-static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_ref, HybridPipelineParams *hybridParams, QueryError *status) {
+static inline int CleanupAndReplyStatus(RedisModuleCtx *ctx, StrongRef hybrid_ref, HybridPipelineParams *hybridParams, QueryError *status, bool internal) {
     freeHybridParams(hybridParams);
     DefaultCleanup(hybrid_ref);
-    // Update global query errors, this path is only used for SA and internal, both are considered shards.
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, SHARD_ERR_WARN);
+    // Update global query errors, this path is only used for SA and internal
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !internal);
     return QueryError_ReplyAndClear(ctx, status);
 }
 
@@ -618,7 +623,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
 
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal) != REDISMODULE_OK) {
-    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
+    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
 
   for (int i = 0; i < hybridRequest->nrequests; i++) {
@@ -630,7 +635,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     HybridRequest_ClearErrors(hybridRequest);
-    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
+    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
 
   // Update dialect statistics only after successful execution
