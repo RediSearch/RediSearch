@@ -668,7 +668,7 @@ void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
   if (root) {
     long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
     if (cursorId == 0 && rpnet->shardsProfile) {
-      array_ensure_append_1(rpnet->shardsProfile, root);
+      rpnet->shardsProfile[rpnet->shardsProfileIdx++] = root;
     } else {
       MRReply_Free(root);
     }
@@ -691,7 +691,7 @@ void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
       }
       long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
       if (cursorId == 0 && rpnet->shardsProfile) {
-        array_ensure_append_1(rpnet->shardsProfile, root);
+        rpnet->shardsProfile[rpnet->shardsProfileIdx++] = root;
       } else {
         MRReply_Free(root);
       }
@@ -699,7 +699,7 @@ void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
   }
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);
-  size_t profile_count = array_len(rpnet->shardsProfile);
+  size_t profile_count = rpnet->shardsProfileIdx;
 
   if (profile_count != num_shards) {
     RedisModule_Log(RSDummyContext, "warning", "Profile data received from %zu out of %zu shards",
