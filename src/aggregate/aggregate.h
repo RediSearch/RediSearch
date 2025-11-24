@@ -205,6 +205,9 @@ typedef struct AREQ {
   // Profiling function
   profiler_func profile;
 
+  // Indicates whether the query has timed out.
+  // Useful for query with cursor and RETURN policy
+  bool has_timedout;
 } AREQ;
 
 /**
