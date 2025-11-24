@@ -391,7 +391,7 @@ PRINT_PROFILE_FUNC(printMetricIt) {
   MetricType type = GetMetricType(root);
 
   switch (type) {
-    case VectorDistance: {
+    case VECTOR_DISTANCE: {
       printProfileType("METRIC - VECTOR DISTANCE");
       break;
     }
@@ -409,7 +409,7 @@ PRINT_PROFILE_FUNC(printMetricIt) {
 
   printProfileCounters(counters);
 
-  if (type == VectorDistance) {
+  if (type == VECTOR_DISTANCE) {
     printProfileVectorSearchMode(VECSIM_RANGE_QUERY);
   }
 

@@ -108,6 +108,7 @@ jobs:
   build-unified:
     name: ${{ matrix.platform }} (${{ matrix.architecture }})
     needs: [setup, generate-matrix]
+    if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
