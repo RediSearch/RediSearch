@@ -255,11 +255,15 @@ def test_expire_aggregate(env):
 
 
 def test_expire_ft_hybrid(env):
-    conn = env.getClusterConnectionIfNeeded()
-    # Use "lazy" expire (expire only when key is accessed)
-    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    # Use "lazy" expire (expire only when key is accessed) on all shards
+    if env.isCluster():
+        run_command_on_all_shards(env, 'DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    else:
+        env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
     # Create index with text, vector, and numeric fields
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'not-documents')
 
     # Create test vectors (2-dimensional float32)
     import numpy as np
@@ -267,30 +271,55 @@ def test_expire_ft_hybrid(env):
     vector2 = np.array([0.0, 1.0]).astype(np.float32).tobytes()
     query_vector = np.array([0.5, 0.5]).astype(np.float32).tobytes()
 
-    conn.execute_command('HSET', 'doc1', 't', 'bar', 'n', '42', 'v', vector1)
-    conn.execute_command('HSET', 'doc2', 't', 'arr', 'n', '24', 'v', vector2)
-
-    # expire doc1
-    conn.execute_command('PEXPIRE', 'doc1', 1)
-    # ensure expiration before search
+    # Use cluster-aware connection for data insertion
+    with env.getClusterConnectionIfNeeded() as conn:
+        conn.execute_command('HSET', 'doc1', 't', 'bar', 'n', '42', 'v', vector1)
+        conn.execute_command('HSET', 'doc2', 't', 'arr', 'n', '24', 'v', vector2)
+        # expire doc1
+        conn.execute_command('PEXPIRE', 'doc1', 1)
+    # ensure expiration before query
     time.sleep(0.01)
-    # Test FT.HYBRID with expired document - load multiple attributes to validate expiration handling
-    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', query_vector, 'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'LOAD', '4', '@__key', '@__score', '@t', '@n')
-    # Extract results from hybrid response format using the common utility function
+    # Test FT.HYBRID with expired document - load multiple attributes
+    hybrid_query = ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', query_vector, 'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'LOAD', '4', '@__key', '@__score', '@t', '@n']
+
+    # Execute query using cluster-aware command to get expected results
+    expected_res = env.cmd(*hybrid_query)
     from common import get_results_from_hybrid_response
-    results_dict, total_results = get_results_from_hybrid_response(res)
+    expected_results_dict, expected_total_results = get_results_from_hybrid_response(expected_res)
+    # Validate the expected results structure
+    # We expect at least one document (doc2 should not be expired)
+    env.assertEqual(expected_total_results, 1)
+    # Verify that non-expired document is present with correct attributes
+    env.assertTrue('__key' in expected_results_dict['doc2'])
+    env.assertTrue('__score' in expected_results_dict['doc2'])
+    env.assertTrue('t' in expected_results_dict['doc2'])
+    env.assertTrue('n' in expected_results_dict['doc2'])
+    env.assertEqual(expected_results_dict['doc2']['__key'], 'doc2')
+    env.assertEqual(expected_results_dict['doc2']['t'], 'arr')
+    env.assertEqual(expected_results_dict['doc2']['n'], '24')
+    env.assertTrue(float(expected_results_dict['doc2']['__score']) >= 0)
 
-    env.assertEqual(total_results, 1)  # total_results should be 1
-    # Verify that both documents are present in results with their loaded attributes
-    doc_keys = list(results_dict.keys())
-    env.assertTrue('doc2' in doc_keys)
+    # Test FT.HYBRID by connecting directly to each shard to ensure consistent results
+    if env.isCluster():
+        shards = env.getOSSMasterNodesConnectionList()
+        for i, shard_conn in enumerate(shards):
+            shard_res = shard_conn.execute_command(*hybrid_query)
+            shard_results_dict, shard_total_results = get_results_from_hybrid_response(shard_res)
 
-    # Validate that loaded attributes are present and correct for both documents
-    # doc2 is not expired and should return normally
-    env.assertTrue('__score' in results_dict['doc2'])
-    env.assertEqual(results_dict['doc2']['__key'], 'doc2')
-    env.assertEqual(results_dict['doc2']['t'], 'arr')
-    env.assertEqual(results_dict['doc2']['n'], '24')
+            # Verify consistent total count across shards
+            env.assertEqual(shard_total_results, expected_total_results,
+                          message=f"Shard {i+1} returned different total count: {shard_total_results} vs expected {expected_total_results}")
+
+            # Verify consistent document keys across shards
+            env.assertEqual(set(shard_results_dict.keys()), set(expected_results_dict.keys()),
+                          message=f"Shard {i+1} returned different document keys")
+
+            # Verify consistent field values for each document across shards
+            for doc_key in expected_results_dict.keys():
+                for field in ['__key', '__score', 't', 'n']:
+                    env.assertEqual(shard_results_dict[doc_key][field],
+                                  expected_results_dict[doc_key][field],
+                                  message=f"Shard {i+1} returned different {field} for {doc_key}")
 
 
 def createTextualSchema(field_to_additional_schema_keywords):
