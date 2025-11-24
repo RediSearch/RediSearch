@@ -2702,14 +2702,14 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
       size_t len = MRReply_Length(rCtx->warning);
       for (size_t i = 0; i < len; ++i) {
-          // Track warnings in global statistics
-          MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
-          const char *warning_str = MRReply_String(currentWarning, NULL);
-          QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
-          QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
+        // Track warnings in global statistics
+        MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
+        const char *warning_str = MRReply_String(currentWarning, NULL);
+        QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
+        QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
 
-          // Reply with the warning
-          MR_ReplyWithMRReply(reply, currentWarning);
+        // Reply with the warning
+        MR_ReplyWithMRReply(reply, currentWarning);
       }
 
       RedisModule_Reply_ArrayEnd(reply);
