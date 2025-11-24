@@ -53,3 +53,13 @@ pub struct FieldFilterContext {
     /// our field expiration predicate.
     pub predicate: FieldExpirationPredicate,
 }
+
+impl FieldFilterContext {
+    /// Creates a new [`FieldFilterContext`] with an invalid field index and default expiration predicate.
+    pub const fn index_invalid_default() -> Self {
+        Self {
+            field: FieldMaskOrIndex::index_invalid(),
+            predicate: FieldExpirationPredicate::Default,
+        }
+    }
+}
