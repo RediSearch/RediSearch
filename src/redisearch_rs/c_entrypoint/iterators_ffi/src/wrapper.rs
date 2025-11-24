@@ -25,7 +25,7 @@ use std::ptr;
 ///
 /// # Invariants
 ///
-/// 1. It is always safe to cast a raw [`QueryIterator`] pointer returned by [`RQEIteratorWrapper::new`]
+/// 1. It is always safe to cast a raw [`QueryIterator`] pointer returned by [`RQEIteratorWrapper::boxed_new`]
 ///    to an [`RQEIteratorWrapper`] pointer when invoking one of the callbacks stored in the header.
 pub struct RQEIteratorWrapper<E> {
     // The iterator header.
