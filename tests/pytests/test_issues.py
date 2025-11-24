@@ -1720,6 +1720,9 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
     post_count = query_success_count[0]
     env.debugPrint(f"Query success count after config change: {post_count}", force=True)
     env.assertGreater(post_count, pre_count, message="Queries should continue running after config change")
+    with TimeLimit(10):
+        while (getWorkersThpoolStats(env)['numThreadsAlive'] != 0 or getWorkersThpoolNumThreads(env) != 0):
+            time.sleep(0.1)
     check_threads(env, 0, 0)
 
     # Verify the config change took effect
