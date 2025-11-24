@@ -1687,7 +1687,11 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
 
     # Let queries run for a bit to establish load
     # Increase time to ensure all threads are actively querying
-    time.sleep(2)
+    pre_count = 0
+    with TimeLimit(10):
+      while (pre_count < 100):
+        time.sleep(0.1)
+        pre_count = query_success_count[0]
 
     # Verify queries are running successfully
     initial_success = query_success_count[0]
@@ -1708,7 +1712,11 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
     # Verify the config change is reflected in the getter
     new_workers = env.cmd(config_cmd(), 'GET', 'WORKERS')
     env.assertEqual(new_workers, [['WORKERS', '0']])
-    time.sleep(2)
+    post_count = pre_count
+    with TimeLimit(10):
+      while (post_count == pre_count):
+        time.sleep(0.1)
+        post_count = query_success_count[0]
     post_count = query_success_count[0]
     env.debugPrint(f"Query success count after config change: {post_count}", force=True)
     env.assertGreater(post_count, pre_count, message="Queries should continue running after config change")

@@ -526,10 +526,11 @@ def test_change_workers_number():
     check_threads(env, expected_num_threads_alive=1, expected_n_threads=1)
     # Set it to 0
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
-    time.sleep(1)
-    check_threads(env, expected_num_threads_alive=0, expected_n_threads=0)
+    with TimeLimit(10):
+        while (getWorkersThpoolStats(env)['numThreadsAlive'] != 0 or getWorkersThpoolNumThreads(env) != 0):
+            time.sleep(0.1)
 
-    # Query should not be executed by the threadpool
+    check_threads(env, expected_num_threads_alive=0, expected_n_threads=0)
 
     env.expect('ft.search', 'idx', '*').equal([0])
     check_threads(env, expected_num_threads_alive=0, expected_n_threads=0)
@@ -553,7 +554,9 @@ def test_change_workers_number():
     check_threads(env,expected_num_threads_alive=2, expected_n_threads=2)
     # Remove threads from a running pool
     env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
-    time.sleep(1)
+    with TimeLimit(10):
+        while (getWorkersThpoolStats(env)['numThreadsAlive'] != 1 or getWorkersThpoolNumThreads(env) != 1):
+            time.sleep(0.1)
     check_threads(env, expected_num_threads_alive=1, expected_n_threads=1)
 
     # Terminate all threads
