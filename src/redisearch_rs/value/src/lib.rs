@@ -370,6 +370,15 @@ pub trait Value: Sized {
         }
     }
 
+    /// Get a reference to [`RsValueTrio`] being
+    /// wrapped by this value if so, or `None` otherwise.
+    fn as_trio(&self) -> Option<&RsValueTrio> {
+        match self.internal()? {
+            RsValueInternal::Trio(trio) => Some(trio),
+            _ => None,
+        }
+    }
+
     /// Get the string value as a slice of bytes.
     /// Note: not all string variants guarantee UTF-8 encoding.
     /// Returns `None` if the value is not of one of the string types.

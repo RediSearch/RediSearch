@@ -438,6 +438,42 @@ void RsValue_Map_GetEntry(struct RsValuePtr v,
                           struct RsValue *value);
 
 /**
+ * Get the left value of a trio value.
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+ * - (2) The `RsValue` `v` points to must be of type [`RsValueType::Trio`]
+ *
+ * @param v A reference to the trio value to extract the left value from
+ * @return The left value of the trio
+ */
+struct RsValue RsValue_Trio_GetLeft(struct RsValuePtr v);
+
+/**
+ * Get the middle value of a trio value.
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+ * - (2) The `RsValue` `v` points to must be of type [`RsValueType::Trio`]
+ *
+ * @param v A reference to the trio value to extract the middle value from
+ * @return The middle value of the trio
+ */
+struct RsValue RsValue_Trio_GetMiddle(struct RsValuePtr v);
+
+/**
+ * Get the right value of a trio value.
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+ * - (2) The `RsValue` `v` points to must be of type [`RsValueType::Trio`]
+ *
+ * @param v A reference to the trio value to extract the right value from
+ * @return The right value of the trio
+ */
+struct RsValue RsValue_Trio_GetRight(struct RsValuePtr v);
+
+/**
  * Repeatedly dereference self until ending up at a non-reference value.
  *
  * # Safety

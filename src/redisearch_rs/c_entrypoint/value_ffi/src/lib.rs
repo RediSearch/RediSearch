@@ -564,6 +564,90 @@ pub unsafe extern "C" fn RsValue_Map_GetEntry(
     }
 }
 
+/// Get the left value of a trio value.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+/// - (2) The `RsValue` `v` points to must be of type [`RsValueType::Trio`]
+///
+/// @param v A reference to the trio value to extract the left value from
+/// @return The left value of the trio
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Trio_GetLeft(v: OpaqueDynRsValuePtr) -> OpaqueDynRsValue {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    #[allow(unused_unsafe)]
+    // Safety: caller must ensure (1)
+    unsafe {
+        apply_with_dyn_ptr!(v, |v| {
+            // Safety: caller must ensure (2)
+            let trio = unsafe { expect_unchecked!(v.as_trio(), "Value is not a trio") };
+
+            let left = trio.left().clone();
+
+            DynRsValue::from(left).into_opaque()
+        })
+    }
+}
+
+/// Get the middle value of a trio value.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+/// - (2) The `RsValue` `v` points to must be of type [`RsValueType::Trio`]
+///
+/// @param v A reference to the trio value to extract the middle value from
+/// @return The middle value of the trio
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Trio_GetMiddle(v: OpaqueDynRsValuePtr) -> OpaqueDynRsValue {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    #[allow(unused_unsafe)]
+    // Safety: caller must ensure (1)
+    unsafe {
+        apply_with_dyn_ptr!(v, |v| {
+            // Safety: caller must ensure (2)
+            let trio = unsafe { expect_unchecked!(v.as_trio(), "Value is not a trio") };
+
+            let middle = trio.middle().clone();
+
+            DynRsValue::from(middle).into_opaque()
+        })
+    }
+}
+
+/// Get the right value of a trio value.
+///
+/// # Safety
+/// - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+/// - (2) The `RsValue` `v` points to must be of type [`RsValueType::Trio`]
+///
+/// @param v A reference to the trio value to extract the right value from
+/// @return The right value of the trio
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_Trio_GetRight(v: OpaqueDynRsValuePtr) -> OpaqueDynRsValue {
+    // Safety: caller must ensure (1)
+    let v = unsafe { DynRsValuePtr::from_opaque(v) };
+
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    #[allow(unused_unsafe)]
+    // Safety: caller must ensure (1)
+    unsafe {
+        apply_with_dyn_ptr!(v, |v| {
+            // Safety: caller must ensure (2)
+            let trio = unsafe { expect_unchecked!(v.as_trio(), "Value is not a trio") };
+
+            let right = trio.right().clone();
+
+            DynRsValue::from(right).into_opaque()
+        })
+    }
+}
+
 /// Repeatedly dereference self until ending up at a non-reference value.
 ///
 /// # Safety
