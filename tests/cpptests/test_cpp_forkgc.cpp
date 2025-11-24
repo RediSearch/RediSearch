@@ -717,7 +717,7 @@ TEST_F(FGCTestTag, testPipeErrorDuringApply) {
   });
 
   // Run multiple iterations to increase coverage of different timing scenarios
-  for (int iteration = 0; iteration < 1000; iteration += 5) {
+  for (int iteration = 0; iteration < 1000; iteration++) {
     // Add documents to create work for the GC
     std::string doc1 = "doc1_" + std::to_string(iteration);
     std::string doc2 = "doc2_" + std::to_string(iteration);
