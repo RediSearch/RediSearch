@@ -10,3 +10,5 @@
 pub mod id_list;
 pub mod metric;
 mod wrapper;
+
+pub use wrapper::RQEIteratorWrapper;

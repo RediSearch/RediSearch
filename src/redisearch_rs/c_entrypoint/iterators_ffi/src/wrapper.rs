@@ -41,7 +41,7 @@ where
     /// Create a new C-compatible wrapper around a Rust iterator.
     ///
     /// The wrapper is placed on the heap.
-    pub(crate) fn boxed_new(type_: ffi::IteratorType, inner: I) -> *mut QueryIterator {
+    pub fn boxed_new(type_: ffi::IteratorType, inner: I) -> *mut QueryIterator {
         let wrapper = Box::new(Self {
             header: QueryIterator {
                 type_,
