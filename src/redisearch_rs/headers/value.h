@@ -474,6 +474,25 @@ struct RsValue RsValue_Trio_GetMiddle(struct RsValuePtr v);
 struct RsValue RsValue_Trio_GetRight(struct RsValuePtr v);
 
 /**
+ * Increment the reference count of a shared `RsValue`, ensuring
+ * it doesn't get freed until after `RsValue_DecrRef` is called.
+ * Does nothing when passing an exclusive `RsValue`.
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+ */
+void RsValue_IncrRef(struct RsValuePtr v);
+
+/**
+ * Decrement the reference count of an `RsValue`.
+ * Simply drops the value if it is exclusive.
+ *
+ * # Safety
+ * - (1) `v` must originate from a call to [`RsValue_DynPtr`].
+ */
+void RsValue_DecrRef(struct RsValuePtr v);
+
+/**
  * Repeatedly dereference self until ending up at a non-reference value.
  *
  * # Safety
@@ -499,6 +518,18 @@ struct RsValuePtr RsValue_Dereference(struct RsValuePtr v);
  * @return A reference to the `RsValue` v points to.
  */
 struct RsValuePtr RsValue_DynPtr(struct RsValue *v);
+
+/**
+ * Clear an `RsValue` in-place.
+ * This clears the existing value and replaces it with the given value.
+ *
+ * # Safety
+ * - (1) `v` must be non-null;
+ * - (2) `v` must point to an `RsValue` originating from one of the constructors.
+ *
+ * @param v The value to clear
+ */
+void RsValue_Clear(struct RsValue *v);
 
 /**
  * Free an RsValue.
