@@ -83,15 +83,10 @@ def is_migration_complete(conn: Redis, task_id: str) -> bool:
     (migration_status,) = conn.execute_command("CLUSTER", "MIGRATION", "STATUS", "ID", task_id)
     return to_dict(migration_status)["state"] == "completed"
 
-def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 100.0):
-    iter = 0
-    try:
-        with TimeLimit(timeout):
-            while not is_migration_complete(conn, task_id):
-                time.sleep(0.1)
-                iter += 1
-    except Exception:
-        raise Exception(f"Timeout waiting for slot import to complete after {iter} iterations")
+def wait_for_slot_import(conn: Redis, task_id: str, timeout: float = 20.0):
+    with TimeLimit(timeout):
+        while not is_migration_complete(conn, task_id):
+            time.sleep(0.1)
 
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 

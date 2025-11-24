@@ -930,7 +930,7 @@ def test_hybrid_query_with_text_vamana():
 
     # Expect empty score for the intersection (disjoint sets of results)
     # The hybrid policy changes to ad hoc after the first batch
-    # TODO: Re-enable once MOD-12063 is fixed
+    # This one crashed before MOD-12063 is fixed
     execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]', query_data, 't',
                             hybrid_mode='HYBRID_BATCHES').equal([0])
 
