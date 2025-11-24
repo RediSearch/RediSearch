@@ -1048,7 +1048,7 @@ static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
   }
 }
 
-void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool remove_all) {
+void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool terminate_when_empty) {
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
   /** THPOOL_UNINITIALIZED means either:
    * 1. thpool->n_threads > 0, and there are no threads alive
@@ -1065,12 +1065,12 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
 
   size_t n_threads = thpool_p->n_threads;
   LOG_IF_EXISTS("verbose", "Scheduling from main thread to remove %zu threads", n_threads_to_remove);
-  RedisModule_Assert((!remove_all || n_threads_to_remove == n_threads) && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
+  RedisModule_Assert((!terminate_when_empty || n_threads_to_remove == n_threads) && "If remove_all is set, n_threads_to_remove must be equal to n_threads");
   RedisModule_Assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
   RedisModule_Assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
   RedisModule_Assert(thpool_p->num_threads_alive >= n_threads_to_remove && "Not enough alive threads to remove");
 
-  ThreadState new_state = remove_all ? THREAD_TERMINATE_WHEN_EMPTY : THREAD_TERMINATE_ASAP;
+  ThreadState new_state = terminate_when_empty ? THREAD_TERMINATE_WHEN_EMPTY : THREAD_TERMINATE_ASAP;
   thpool_p->n_threads -= n_threads_to_remove;
   redisearch_thpool_work_t jobs[n_threads_to_remove];
   /* Create a barrier. */
@@ -1088,7 +1088,7 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   // I do not need to verify init since we are actually putting in priority queue, and I do not want to wait on another barrier
   // As per the input, I know i am Initialized, I do not need to verify it (and avoid waiting)
   redisearch_thpool_add_n_work_not_verify_init(thpool_p, jobs, n_threads_to_remove, THPOOL_PRIORITY_ADMIN);
-  if (remove_all) {
+  if (terminate_when_empty) {
     thpool_p->state = THPOOL_UNINITIALIZED;
   }
 }

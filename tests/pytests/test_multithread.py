@@ -565,6 +565,138 @@ def test_change_workers_number():
     env.expect('ft.search', 'idx', '*').equal([0])
     env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], num_query_threads + 1)
 
+def check_threads(env, expected_num_threads_alive, expected_n_threads):
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1, message='numThreadsAlive should match num_threads_alive')
+    env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
+
+def test_workers_reduction_sequence():
+    """
+    Test gradual reduction of workers to see if the issue is specific to large deltas.
+    This test reduces workers gradually: 8 -> 4 -> 2 -> 1 -> 0
+    """
+    env = Env(moduleArgs='WORKERS 8', enableDebugCommand=True)
+
+    # Create simple index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+
+    # Add some documents
+    conn = getConnectionByEnv(env)
+    for i in range(100):
+        conn.execute_command('HSET', f'doc{i}', 'text', f'document {i} with searchable content')
+
+    waitForIndex(env, 'idx')
+
+    # Test gradual reduction
+    worker_sequence = [8, 4, 2, 1, 0]
+    result = env.cmd('FT.SEARCH', 'idx', 'searchable', 'LIMIT', '0', '5')
+    # I can check the thread pool state after the thpool is initialized by the first query
+    check_threads(env, 8, 8)
+
+    for workers in worker_sequence:
+        env.debugPrint(f"Testing with WORKERS={workers}", force=True)
+
+        if workers < 8:  # Skip first iteration (already at 8)
+            env.expect(config_cmd(), 'SET', 'WORKERS', str(workers)).ok()
+
+        # Verify config
+        current = env.cmd(config_cmd(), 'GET', 'WORKERS')
+        env.assertEqual(current, [['WORKERS', str(workers)]])
+
+        # Verify responsiveness
+        ping_result = env.cmd('PING')
+        env.assertTrue(ping_result in ['PONG', True])
+
+        # Run a query
+        result = env.cmd('FT.SEARCH', 'idx', 'searchable', 'LIMIT', '0', '5')
+        env.assertTrue(result[0] > 0, message="Search should work with WORKERS={}".format(workers))
+        # Small delay between changes
+        time.sleep(0.5)
+
+    time.sleep(5)
+    check_threads(env, 0, 0)
+
+
+def test_workers_zero_to_nonzero():
+    """
+    Test that increasing workers from 0 to a higher value also works correctly.
+    This tests the reverse direction to ensure the connection pool expansion works.
+    """
+    # Start with WORKERS=0
+    env = Env(moduleArgs='WORKERS 0', enableDebugCommand=True)
+
+    check_threads(env, 0, 0)
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+
+    # Add documents
+    conn = getConnectionByEnv(env)
+    for i in range(100):
+        conn.execute_command('HSET', f'doc{i}', 'text', f'document {i}')
+
+    waitForIndex(env, 'idx')
+
+    # Verify initial state
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '0']])
+
+    # Query should work with WORKERS=0 (on main thread)
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
+
+    # Increase workers to 8
+    env.expect(config_cmd(), 'SET', 'WORKERS', '8').ok()
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '8']])
+    # Lazy initialization of threads
+    check_threads(env, 0, 8)
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    check_threads(env, 8, 8)
+
+    # Verify still responsive
+    ping_result = env.cmd('PING')
+    env.assertTrue(ping_result in ['PONG', True])
+
+    # Query should still work
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
+
+def test_workers_increase_from_nonzero():
+    """
+    Test that increasing workers from 0 to a higher value also works correctly.
+    This tests the reverse direction to ensure the connection pool expansion works.
+    """
+    # Start with WORKERS=0
+    env = Env(moduleArgs='WORKERS 2', enableDebugCommand=True)
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+
+    # Add documents
+    conn = getConnectionByEnv(env)
+    for i in range(100):
+        conn.execute_command('HSET', f'doc{i}', 'text', f'document {i}')
+
+    waitForIndex(env, 'idx')
+
+    # Verify initial state
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '2']])
+
+    # Query should work with WORKERS=0 (on main thread)
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
+    # I can check the thread pool state after the thpool is initialized by the first query
+    check_threads(env, 2, 2)
+
+    # Increase workers to 8
+    env.expect(config_cmd(), 'SET', 'WORKERS', '8').ok()
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'WORKERS'), [['WORKERS', '8']])
+    check_threads(env, 8, 8)
+
+    # Verify still responsive
+    ping_result = env.cmd('PING')
+    env.assertTrue(ping_result in ['PONG', True])
+
+    # Query should still work
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(result[0] > 0)
 
 def testNameLoader(env: Env):
     def get_RP_name(profile_res):

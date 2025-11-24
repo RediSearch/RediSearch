@@ -372,7 +372,6 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
     jobs_pull_wait(this->pool, n_threads);
 
     // Remove rest of the threads while the threads are waiting for the admin jobs to be pushed to the queue,
-    //redisearch_thpool_schedule_config_reduce_threads_job(this->pool, n_threads, true);
     redisearch_thpool_schedule_config_reduce_threads_job(this->pool, n_threads, false);
     ASSERT_EQ(redisearch_thpool_get_num_threads(this->pool), 0);
 
@@ -601,7 +600,6 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestAddThreadsToEmptyPool) {
     // Remove all threads.
     redisearch_thpool_schedule_config_reduce_threads_job(this->pool, RUNTIME_CONFIG_N_THREADS, false);
     ASSERT_EQ(redisearch_thpool_get_num_threads(this->pool), 0);
-    // Threadpool is not initialized,
     ASSERT_TRUE(redisearch_thpool_is_initialized(this->pool));
     ASSERT_GE(redisearch_thpool_get_stats(this->pool).num_threads_alive, 0);
     // Add threads.

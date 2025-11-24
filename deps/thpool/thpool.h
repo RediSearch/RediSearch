@@ -282,10 +282,10 @@ size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *);
  *
  * @param thpool_p the threadpool to reduce the number of threads in
  * @param n_threads_to_remove the number of threads to remove
- * @param remove_all A signal to determine that the intention is to remove all the threads, which means that thread should terminate WHEN_EMPTY, so that
+ * @param terminate_when_empty A signal to determine that the intention is to remove all the threads, which means that thread should terminate WHEN_EMPTY, so that
  * no job is left in the queue. This also implies that the threadpool will be left in an UNINITIALIZED state.
 **/
-void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool remove_all);
+void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool terminate_when_empty);
 
 #ifdef __cplusplus
 }
