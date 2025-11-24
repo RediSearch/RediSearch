@@ -188,7 +188,11 @@ setup_build_environment() {
       if [[ "$DEBUG" == "1" || -n "$SAN" || "$COV" == "1" ]]; then
         RUST_PROFILE="dev"
       else
-        RUST_PROFILE="release"
+        if [[ "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
+            RUST_PROFILE="profiling"
+        else
+            RUST_PROFILE="optimised_test"
+        fi
       fi
     else
       if [[ "$DEBUG" == "1" ]]; then
