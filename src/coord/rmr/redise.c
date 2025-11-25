@@ -52,24 +52,20 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
 }
 
 /* Error replying macros, in attempt to make the code itself readable */
-#define ERROR_FMT(fmt, ...)                          \
-  ({                                                 \
-    char *err;                                       \
-    __ignore__(rm_asprintf(&err, fmt, __VA_ARGS__)); \
-    RedisModule_ReplyWithError(ctx, err);            \
-    rm_free(err);                                    \
-  })
+#define ERROR_FMT(fmt, ...) RedisModule_ReplyWithErrorFormat(ctx, fmt " at offset %zu", __VA_ARGS__, ac.offset)
 
 #define ERROR_BADVAL(arg, val) ERROR_FMT("Bad value for %s: %s", arg, val)
 #define ERROR_EXPECTED(exp, arg) ERROR_FMT("Expected " exp " but got `%s`", arg)
-#define ERROR_MISSING(arg) RedisModule_ReplyWithError(ctx, "Missing value for " arg)
+#define ERROR_MISSING(arg) ERROR_FMT("Missing value for %s", arg)
 
 #define ERROR_BAD_OR_MISSING(arg, ac_code)          \
   ({                                                \
     if (ac_code == AC_ERR_NOARG) {                  \
       ERROR_MISSING(arg);                           \
     } else {                                        \
+      if (ac_code == AC_OK) ac.offset--;            \
       ERROR_BADVAL(arg, AC_GetStringNC(&ac, NULL)); \
+      if (ac_code == AC_OK) ac.offset++;            \
     }                                               \
   })
 
@@ -158,7 +154,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     while (!AC_IsAtEnd(&ac)) {
       if (AC_AdvanceIfMatch(&ac, "SLOTRANGE")) {
         if (array_len(sh->slotRanges) > 0) {
-          ERROR_FMT("Multiple SLOTRANGE specified for shard `%s` at offset %zu", sh->node.id, ac.offset);
+          ERROR_FMT("Multiple SLOTRANGE specified for shard `%s`", sh->node.id);
           goto error;
         }
         RedisModuleSlotRange slotRange;
@@ -184,7 +180,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
           ERROR_MISSING("ADDR");
           goto error;
         } else if (sh->node.endpoint.host) {
-          ERROR_FMT("Multiple ADDR specified for shard `%s` at offset %zu", sh->node.id, ac.offset);
+          ERROR_FMT("Multiple ADDR specified for shard `%s`", sh->node.id);
           goto error;
         }
         if (MREndpoint_Parse(addr, &sh->node.endpoint) != REDIS_OK) {

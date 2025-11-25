@@ -905,6 +905,19 @@ int RMCK_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
   return REDISMODULE_OK;
 }
 
+int RMCK_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  char *outp = NULL;
+  __ignore__(vasprintf(&outp, fmt, ap));
+  va_end(ap);
+  if (ctx && outp) {
+    ctx->last_error = outp;
+  }
+  free(outp);
+  return REDISMODULE_OK;
+}
+
 int RMCK_ReplySetArrayLength(RedisModuleCtx *, size_t) {
   return REDISMODULE_OK;
 }
@@ -1454,6 +1467,7 @@ static void registerApis() {
   // REGISTER_API(ReplyWithString);
   // REGISTER_API(ReplyWithNull);
   REGISTER_API(ReplyWithError);
+  REGISTER_API(ReplyWithErrorFormat);
 
   REGISTER_API(FreeCallReply);
   REGISTER_API(CallReplyLength);
