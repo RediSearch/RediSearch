@@ -63,7 +63,6 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_INDEX:
       case RP_METRICS:
       case RP_LOADER:
-      case RP_SAFE_LOADER:
       case RP_KEY_NAME_LOADER:
       case RP_SCORER:
       case RP_SORTER:
@@ -79,6 +78,11 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_PROJECTOR:
       case RP_FILTER:
         RPEvaluator_Reply(reply, "Type", rp);
+        break;
+
+      case RP_SAFE_LOADER:
+        printProfileType(RPTypeToString(rp->type));
+        printProfileGILTime(rp->GILTime);
         break;
 
       case RP_PROFILE:
@@ -127,6 +131,17 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
             rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
+
+        //Print total GIL time
+        if (profile_verbose){
+          if (RunInThread()){
+            RedisModule_ReplyKV_Double(reply, "Total GIL time",
+            rs_wall_clock_convert_ns_to_ms_d(req->qiter.GILTime));
+          } else {
+            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
+            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
+          }
+        }
 
       // Print whether a warning was raised throughout command execution
       if (ctx->bgScanOOM) {

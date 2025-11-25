@@ -72,6 +72,9 @@ typedef struct {
   // Last processor
   struct ResultProcessor *endProc;
 
+  rs_wall_clock initTime;  //used with clock_gettime(CLOCK_MONOTONIC, ...)
+  rs_wall_clock_ns_t GILTime;  //Time accumulated in nanoseconds
+
   // Concurrent search context for thread switching
   ConcurrentSearchCtx *conc;
 
@@ -98,6 +101,7 @@ typedef struct {
   // Background indexing OOM warning
   bool bgScanOOM;
 
+  bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
@@ -167,6 +171,7 @@ typedef struct ResultProcessor {
   // Type of result processor
   ResultProcessorType type;
 
+  struct timespec GILTime;
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
    * not read, so it is the responsibility of the caller to ensure that there
