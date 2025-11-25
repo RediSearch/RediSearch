@@ -75,7 +75,8 @@ def _test_limit00(protocol):
     _setup_index_and_data(env, docs)
 
     for on_timeout_policy in ['return', 'fail']:
-        env.expect('CONFIG', 'SET', 'search-on-timeout', on_timeout_policy).ok()
+        config_cmd = ['CONFIG', 'SET', 'search-on-timeout', on_timeout_policy]
+        verify_command_OK_on_all_shards(env, *config_cmd)
         queries_and_results = [
             (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 0], docs),
             (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LIMIT', 0, 0], ANY),
@@ -86,7 +87,8 @@ def _test_limit00(protocol):
         for query, expected_results in queries_and_results:
             cmd=' '.join(str(x) for x in query)
             for dialect in [1, 2, 3, 4]:
-                env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
+                config_cmd = ['CONFIG', 'SET', 'search-default-dialect', dialect]
+                verify_command_OK_on_all_shards(env, *config_cmd)
                 res = env.cmd(*query)
                 total_results = _get_total_results(res)
                 results = _get_results(res)
@@ -207,7 +209,8 @@ def _test_withcount(protocol):
     for query, expected_total_results, expected_results in queries_and_results:
         cmd=' '.join(str(x) for x in query)
         for dialect in [1, 2, 3, 4]:
-            env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
+            config_cmd = ['CONFIG', 'SET', 'search-default-dialect', dialect]
+            verify_command_OK_on_all_shards(env, *config_cmd)
             res = env.cmd(*query)
             total_results = _get_total_results(res)
             results = _get_results(res)
@@ -314,7 +317,8 @@ def _test_withoutcount(protocol):
         res_default = env.cmd(*query_default)
 
         for dialect in [1, 2, 3, 4]:
-            env.expect('CONFIG', 'SET', 'search-default-dialect', dialect).ok()
+            config_cmd = ['CONFIG', 'SET', 'search-default-dialect', dialect]
+            verify_command_OK_on_all_shards(env, *config_cmd)
             res = env.cmd(*query)
 
             results = _get_results(res)

@@ -267,8 +267,12 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     up = pushRP(&pipeline->qctx, rp, up);
   }
 
-  if (IsAggregate(&params->common) && HasDepleter(&params->common) && !HasSortBy(&params->common)) {
-    if (astp->isLimited && !IsInternal(&params->common)) {
+  if (IsAggregate(&params->common) && HasDepleter(&params->common) && rp) {
+    // Add Limiter at the coordinator when a depleter is required:
+    // 1. If there is no SORTBY, otherwise, the LIMIT is managed by the sorter.
+    // 2. If there is a SORTBY, but with offset, the sorter can't handle the offset.
+    if (((astp->isLimited && !IsInternal(&params->common)) &&
+      ((!HasSortBy(&params->common) || HasSortBy(&params->common) && astp->offset )))) {
       rp = RPPager_New(astp->offset, astp->limit);
       up = pushRP(&pipeline->qctx, rp, up);
     }
