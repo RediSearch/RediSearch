@@ -199,6 +199,11 @@ def test_command_info_availability():
     failed_commands = []
 
     for cmd_name, expected in expectations.items():
+
+        if env.isCluster() and cmd_name.startswith('FT.CONFIG'):
+            #we only register this command if we are not in a cluster mode
+            continue
+
         cmd_upper = cmd_name.upper().replace(' ', '|')
 
         try:
