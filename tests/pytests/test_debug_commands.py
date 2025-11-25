@@ -1356,11 +1356,11 @@ class ProfileDebugSA:
         env.assertEqual(debug_data['results_count'], results_count,
                         message=f"{message_prefix}: Debug should return expected number of results")
 
-        # Both should have same number of entires in baseline_iterators
+        # Both should have same number of entries in baseline_iterators
         baseline_iterators = ProfileDebugSA.get_section(baseline_profile, 'Iterators profile')
         debug_iterators = ProfileDebugSA.get_section(debug_profile, 'Iterators profile')
         env.assertEqual(countFlatElements(baseline_iterators), countFlatElements(debug_iterators),
-                        message=f"{message_prefix}: Baseline and debug should have same number of entires. baseline: {countFlatElements(baseline_iterators)}, debug: {countFlatElements(debug_iterators)}")
+                        message=f"{message_prefix}: Baseline and debug should have same number of entries in iterators profile. baseline: {countFlatElements(baseline_iterators)}, debug: {countFlatElements(debug_iterators)}")
 
         # Verify Result processors profile structure matches
         baseline_rp = ProfileDebugSA.get_section(baseline_profile, 'Result processors profile')
