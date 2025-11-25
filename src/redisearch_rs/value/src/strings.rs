@@ -194,6 +194,7 @@ unsafe impl Sync for ConstString {}
 /// - (1) `str` must point to a valid `RedisModuleString`.
 /// - (2) The reference count of the [`RedisModuleString`] `str` points to
 ///   must be at least 1 for the lifetime of the [`RedisStringRef`]
+/// - (3) The Redis Module must be initialized
 #[derive(Debug, Clone)]
 #[repr(transparent)]
 pub struct RedisStringRef {
@@ -208,6 +209,7 @@ impl RedisStringRef {
     /// - (1) The passed pointer must be valid for reads.
     /// - (2) The reference count of the [`RedisModuleString`] `str` points to
     ///   must be at least 1 for the lifetime of the created [`RedisStringRef`]
+    /// - (3) The Redis Module must be initialized
     pub const unsafe fn new_unchecked(str: NonNull<RedisModuleString>) -> Self {
         Self { str }
     }
@@ -218,6 +220,23 @@ impl RedisStringRef {
         // Safety: invariants (1) and (2) uphold
         // the safety requirements of `OwnedRedisString::retain`.
         unsafe { OwnedRedisString::retain(self.str) }
+    }
+
+    // Get the string's bytes as a slice of `u8`'s.
+    pub fn as_bytes(&self) -> &[u8] {
+        let mut len = MaybeUninit::uninit();
+        // Safety: invariant (3).
+        let rm_str_ptr_len = unsafe { RedisModule_StringPtrLen };
+        // Safety: invariant (3).
+        let rm_str_ptr_len = rm_str_ptr_len.expect("Redis module not initialized");
+
+        // Safety: invariant (1).
+        let str_ptr = unsafe { rm_str_ptr_len(self.str.as_ptr(), len.as_mut_ptr()) };
+        // Safety: `len` was initialized by the previous call.
+        let len = unsafe { len.assume_init() };
+
+        // Safety: `str_ptr` is valid for reads of `len` bytes.
+        unsafe { slice::from_raw_parts(str_ptr as *const u8, len) }
     }
 }
 

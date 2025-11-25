@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ptr, sync::Arc};
+use std::{fmt, ptr, sync::Arc};
 
-use crate::{RsValueInternal, Value};
+use crate::{RsValueInternal, Value, dynamic::DynRsValueRef};
 
 /// A heap-allocated and refcounted RedisSearch dynamic value.
 /// This type is backed by [`Arc<RsValueInternal>`], but uses
@@ -21,10 +21,49 @@ use crate::{RsValueInternal, Value};
 /// - A non-null pointer represents one clone of said `Arc`, and as such, as
 ///   long as the [`SharedRsValue`] lives and holds a non-null pointer, the Arc
 ///   is still valid.
-#[repr(C)]
+#[repr(transparent)]
 pub struct SharedRsValue {
     /// Pointer representing the `Arc<RsValueInternal>`.
     ptr: *const RsValueInternal,
+}
+
+impl SharedRsValue {
+    /// Consumes a [`SharedRsValue`] and returns the
+    /// `*const RsValueInternal` it wraps.
+    pub const fn into_raw(self) -> *const RsValueInternal {
+        let ptr = self.ptr;
+        std::mem::forget(self);
+        ptr
+    }
+
+    /// Converts a reference to a [`SharedRsValue`] to a `*const RsValueInternal`.
+    /// Does not increment the reference count, and as such the
+    /// caller must ensure the `SharedRsValue`s reference count
+    /// does not drop to 0 for the lifetime of the returned pointer.
+    ///
+    /// Furthermore, to avoid double freeing, when reconstructuring a
+    /// [`SharedRsValue`] from the pointer obtained from this function,
+    /// the resulting [`SharedRsValue`] must not be dropped, but rather
+    /// [forgotten](std::mem::forget).
+    pub const fn as_raw(&self) -> *const RsValueInternal {
+        self.ptr
+    }
+
+    /// Restructure a [`SharedRsValue`] from a `*const RsValueInternal`,
+    /// originating from either [`Self::into_raw`] or [`Self::as_raw`].
+    ///
+    /// In case the passed pointer originated from `as_raw`, in order
+    /// to prevent
+    ///
+    /// # Safety
+    /// - (1) `raw` must originate from a call to either [`SharedRsValue::into_raw`]
+    ///   or [`SharedRsValue::as_raw`]
+    /// - (2) In case `raw` originates from a call to [`SharedRsValue::as_raw`],
+    ///   the returned [`SharedRsValue`] must not be dropped, but rather
+    ///   [forgotten](std::mem::forget).
+    pub const unsafe fn from_raw(raw: *const RsValueInternal) -> Self {
+        Self { ptr: raw }
+    }
 }
 
 impl Default for SharedRsValue {
@@ -79,12 +118,20 @@ impl Value for SharedRsValue {
         // to be valid by the backing `Arc`.
         Some(unsafe { &*self.ptr })
     }
+
+    fn to_dyn_ref(&self) -> DynRsValueRef<'_> {
+        DynRsValueRef::from(self.clone())
+    }
+
+    fn to_shared(&self) -> SharedRsValue {
+        self.clone()
+    }
 }
 
-impl std::fmt::Debug for SharedRsValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for SharedRsValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.internal() {
-            Some(internal) => f.debug_tuple("Defined").field(internal).finish(),
+            Some(internal) => internal.fmt(f),
             None => f.debug_tuple("Undefined").finish(),
         }
     }

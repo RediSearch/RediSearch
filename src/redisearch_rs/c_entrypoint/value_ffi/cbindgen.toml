@@ -25,4 +25,5 @@ parse_deps = true
 include = ["value", "c_ffi_utils"]
 
 [export.rename]
-"OpaqueRsValue" = "RsValue"
+"OpaqueDynRsValue" = "RsValue"
+"OpaqueDynRsValuePtr" = "RsValuePtr"
