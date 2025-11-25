@@ -204,7 +204,7 @@ jobs:
           payload: |
             {
               "PR": "${{ steps.check.outputs.pr_url }}",
-              "Title": "${{ toJson(steps.check.outputs.pr_title) }}",
+              "PR_title": "${{ toJson(steps.check.outputs.pr_title) }}",
               "Author": "${{ toJson(steps.check.outputs.pr_author) }}",
               "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
