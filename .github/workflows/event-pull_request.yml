@@ -37,8 +37,8 @@ jobs:
       include-sanitize: ${{ (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
 
   test-matrix:
-    needs: [check-what-changed, get-latest-redis-tag, generate-basic-matrix, lint, spellcheck]
-    # Run if there are jobs AND (lint succeeded or was skipped) AND (spellcheck succeeded or was skipped)
+    needs: [check-what-changed, get-latest-redis-tag, generate-basic-matrix, spellcheck]
+    # Run if there are jobs AND (spellcheck succeeded or was skipped)
     if: ${{ needs.generate-basic-matrix.outputs.has-jobs == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     strategy:
       matrix: ${{ fromJson(needs.generate-basic-matrix.outputs.matrix) }}
