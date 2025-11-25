@@ -69,7 +69,7 @@ class TestDebugCommands(object):
             '_FT.SEARCH',
             'FT.HYBRID',
             '_FT.HYBRID',
-            '_FT.PROFILE',
+            'FT.PROFILE',
             '_FT.PROFILE',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
