@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Empty iterator implementation
+//! Supporting types for [`Empty`].
 
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
