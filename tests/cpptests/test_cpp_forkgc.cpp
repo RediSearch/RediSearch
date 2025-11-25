@@ -686,6 +686,7 @@ TEST_F(FGCTestTag, testPipeErrorDuringGC) {
   // This will cause poll() to immediately return an error (POLLNVAL),
   // simulating a pipe failure scenario without waiting 3 minutes
   close(fgc->pipe_read_fd);
+  fgc->pipe_read_fd = -1;  // Invalidate the fd to prevent accidental use or double-close
 
   // This should handle the error gracefully without crashes or double-frees
   FGC_Apply(fgc);
@@ -701,6 +702,23 @@ TEST_F(FGCTestTag, testPipeErrorDuringGC) {
  * code paths and timing windows during the apply phase.
  */
 TEST_F(FGCTestTag, testPipeErrorDuringApply) {
+  volatile bool should_close = false;
+  volatile bool thread_should_exit = false;
+  volatile int delay_usec = 0;
+
+  // Create a single closer thread that will be reused across all iterations
+  std::thread closer([this, &should_close, &thread_should_exit, &delay_usec]() {
+    while (!thread_should_exit) {
+      if (should_close) {
+        int fd = fgc->pipe_read_fd;
+        usleep(delay_usec);
+        fgc->pipe_read_fd = -1;  // Invalidate the fd so it's ok to close it
+        close(fd); // Close the read end to simulate pipe error, and to not leak fds
+        should_close = false;
+      }
+    }
+  });
+
   // Run multiple iterations to increase coverage of different timing scenarios
   for (int iteration = 0; iteration < 1000; iteration++) {
     // Add documents to create work for the GC
@@ -720,23 +738,25 @@ TEST_F(FGCTestTag, testPipeErrorDuringApply) {
 
     FGC_ForkAndWaitBeforeApply(fgc);
 
-    // Start a thread to close the pipe after a brief delay
-    // This creates a race condition where the pipe may be closed at various
-    // points during the apply process
-    std::thread closer([this, iteration]() {
-      // Variable delay to hit different code paths
-      usleep(iteration);
-      close(fgc->pipe_read_fd);
-    });
+    // Signal the closer thread to close the pipe after a variable delay
+    delay_usec = iteration;
+    should_close = true;
 
     // Apply should handle the pipe closure gracefully without crashing
     FGC_Apply(fgc);
 
-    closer.join();
+    // Wait for the closer to finish this iteration
+    while (should_close) {
+      usleep(1);
+    }
 
     // Don't make any assertions about the state - it's timing dependent
     // The important thing is that we don't crash or have memory corruption
   }
+
+  // Clean up the closer thread
+  thread_should_exit = true;
+  closer.join();
 }
 
 TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
