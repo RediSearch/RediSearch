@@ -142,38 +142,6 @@ def generate_c_file(file_name, include_path, commands):
         for name, info in commands.items():
             generate_command_info_definition(name, info, c_file)
 
-def generate_test_expectations(commands, output_file):
-    """Generate a JSON file with expected command info for testing."""
-    expectations = {
-        "_generated_by": "gen_command_info.py",
-        "_description": "This file contains expected command info for testing. Do not edit manually - run 'make build' to regenerate.",
-        "_commands": {}
-    }
-
-    # Fields to copy directly from commands.json to expectations
-    expected_fields = ['summary', 'complexity', 'since', 'arity']
-
-    for cmd_name, cmd_data in commands.items():
-        cmd_expectation = {
-            'name': cmd_name,
-            'has_info': True,  # All commands should have info
-        }
-
-        # Add expected fields that exist in the command data
-        for field in expected_fields:
-            if field in cmd_data:
-                cmd_expectation[field] = cmd_data[field]
-
-        # Handle command_tips (special case - needs transformation)
-        if 'command_tips' in cmd_data and cmd_data['command_tips']:
-            tips = [tip.lower() for tip in cmd_data['command_tips']]
-            cmd_expectation['tips'] = ' '.join(tips)
-
-        expectations['_commands'][cmd_name] = cmd_expectation
-
-    with open(output_file, 'w') as f:
-        json.dump(expectations, f, indent=2, sort_keys=True)
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-j', '--json', help='JSON commands input file', required=True)
@@ -181,7 +149,6 @@ def main():
                         default='command_info', required=True)
     parser.add_argument('-i', '--include', help='Include path to use when generating the c file, default is the same as the output file',
                         required=False)
-    parser.add_argument('-t', '--test-expectations', help='Generate test expectations JSON file')
     args = parser.parse_args()
     if args.include is None:
         args.include = os.path.dirname(args.file)
@@ -190,11 +157,6 @@ def main():
         data = json.load(f)
         generate_header_file(args.file, data.keys())
         generate_c_file(args.file, args.include, data)
-
-        # Generate test expectations if requested
-        if args.test_expectations:
-            print(f"Generating test expectations to {args.test_expectations}")
-            generate_test_expectations(data, args.test_expectations)
 
 
 if __name__ == '__main__':
