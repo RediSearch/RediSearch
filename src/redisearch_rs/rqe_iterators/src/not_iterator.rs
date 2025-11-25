@@ -9,26 +9,13 @@
 
 //! Not iterator implementation
 
-use ffi::{IteratorStatus, RedisModule_RegisterEnumConfig, t_docId};
+use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, wildcard::Wildcard, empty::Empty};
-
-// typedef struct {
-//   QueryIterator base;         // base index iterator
-//   QueryIterator *wcii;        // wildcard index iterator
-//   QueryIterator *child;       // child index iterator
-//   t_docId maxDocId;
-//   TimeoutCtx timeoutCtx;
-// } NotIterator;
-
-// Base - not needed
-// WCII - Wildcard
-// Child - Box<dyn RQEIterator>
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty};
 
 pub struct NotIterator<'index, I> {
-    child: I,
-    // wcii: Option<Box<Wildcard<'index>>>,
+    child: MaybeEmpty<I>,
     max_doc_id: t_docId,
     current_id: t_docId,
     result: RSIndexResult<'index>,
@@ -41,7 +28,7 @@ impl<'index, I> NotIterator<'index, I>
 
     pub const fn new(child: I, max_doc_id: t_docId) -> Self {
         Self {
-            child,
+            child: MaybeEmpty::new(child),
             // wcii,
             max_doc_id,
             current_id: 0,
@@ -53,35 +40,43 @@ impl<'index, I> NotIterator<'index, I>
 impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
     where
     I: RQEIterator<'index> {
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        Some(&mut self.result)
+    }
 
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
         }
 
+        // IdList::at_eof() flips to true as soon as the last child doc is read,
+        // so we must still treat that doc as excluded.
         if self.last_doc_id() == self.child.last_doc_id() {
             self.child.read()?;
             // TODO timeout
         }
 
-        /*
-            base->lastDocId++;
-        if (base->lastDocId < ni->child->lastDocId || ni->child->atEOF) {
-        ni->timeoutCtx.counter = 0;
-        base->current->docId = base->lastDocId;
-        return ITERATOR_OK;
-        }
-         */
         while self.current_id < self.max_doc_id {
             self.current_id += 1;
-            if (self.current_id < self.child.last_doc_id() || self.child.at_eof()) {
+
+            let child_last = self.child.last_doc_id();
+            let child_at_eof = self.child.at_eof();
+
+            // Accept current_id when:
+            //  - child.last_doc_id > current_id, or
+            //  - child is at EOF and current_id > child.last_doc_id().
+            if self.current_id < child_last
+                || (child_at_eof && self.current_id > child_last)
+            {
                 self.result.doc_id = self.current_id;
                 return Ok(Some(&mut self.result));
             }
+
             self.child.read()?;
             // TODO timeout
         }
-        // Comment EOF
+
         Ok(None)
     }
 
@@ -96,6 +91,12 @@ impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
             return Ok(None);
         }
 
+        // Do not skip beyond max_doc_id
+        if doc_id > self.max_doc_id {
+            self.current_id = self.max_doc_id;
+            return Ok(None);
+        }
+
 
         // Case 1: Child is ahead or at EOF - docId is not in child
         if self.child.last_doc_id() > doc_id || self.child.at_eof() {
@@ -106,7 +107,6 @@ impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
         // Case 2: Child is behind docId - need to check if docId is in child
         if self.child.last_doc_id() < doc_id {
             let rc = self.child.skip_to(doc_id)?;
-            // ?
             match rc {
                 Some(SkipToOutcome::Found(_)) => {
                     // Found value - do not return
@@ -123,8 +123,11 @@ impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
         // If we are here, Child has DocID (either already lastDocID == docId or the SkipTo returned OK)
         // We need to return NOTFOUND and set the current result to the next valid docId
         self.current_id = doc_id;
-        let rc: Option<&mut RSIndexResult<'index>> = self.read()?;
-        // ?
+        let rc = self.read()?;
+        match rc {
+            Some(_) => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
+            None => Ok(None),
+        }
     }
 
     fn rewind(&mut self) {
@@ -149,12 +152,17 @@ impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
         // Get child status
         let child_status = self.child.revalidate()?;
         if matches!(child_status, RQEValidateStatus::Aborted) {
-            // Replace aborted child with an empty iterator (drop happens automatically)
-            // self.child = Empty::default()
+            // Replace aborted child with an empty iterator
+            self.child = MaybeEmpty::new_empty();
+            // Return here so we can borrow child after mutating the child
+            return Ok(RQEValidateStatus::Ok);
         }
-        //TODO - debug assert
-        // RS_LOG_ASSERT(child_status != VALIDATE_MOVED || ni->child->atEOF || ni->child->lastDocId > base->lastDocId, "Moved but still not beyond lastDocId");
 
+        debug_assert!(
+            !matches!(child_status, RQEValidateStatus::Moved { .. })
+                || self.child.at_eof()
+                || self.child.last_doc_id() > self.last_doc_id()
+        );
         Ok(RQEValidateStatus::Ok)
     }
 }
