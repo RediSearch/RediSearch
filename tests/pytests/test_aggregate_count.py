@@ -94,10 +94,10 @@ def _test_limit00(protocol):
                 # Verify results
                 env.assertEqual(
                     total_results, expected_results,
-                    message=f'{cmd}: total_results != expected dialect: {dialect}')
+                    message=f'{cmd}: total_results != expected. Dialect: {dialect}')
                 env.assertEqual(
                     len(results), 0,
-                    message=f'{cmd}: len(results) != 0 dialect: {dialect}')
+                    message=f'{cmd}: len(results) != 0. Dialect: {dialect}')
 
 
 def test_limit00_resp3():
@@ -194,6 +194,14 @@ def _test_withcount(protocol):
         # WITHCOUNT + ADDSCORES + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50], docs, 50),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 10, 50], docs, 50),
+
+        # WITHCOUNT + FILTER
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200'], 200, 200),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price >= 0'], docs, docs),
+
+        # WITHCOUNT + FILTER + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 0, 50], 200, 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 20, 50], 200, 50),
     ]
 
     for query, expected_total_results, expected_results in queries_and_results:
@@ -207,10 +215,10 @@ def _test_withcount(protocol):
             # Verify results
             env.assertEqual(
                 total_results, expected_total_results,
-                message=f'{cmd}: total_results != expected dialect: {dialect}')
+                message=f'{cmd}: total_results != expected. Dialect: {dialect}')
             env.assertEqual(
                 len(results), expected_results,
-                message=f'{cmd}: len(results) != expected dialect: {dialect}')
+                message=f'{cmd}: len(results) != expected. Dialect: {dialect}')
 
 def test_withcount_resp3():
     _test_withcount(3)
@@ -315,12 +323,12 @@ def _test_withoutcount(protocol):
             # Verify only the length of results, don't verify total_results
             env.assertEqual(
                 len(results), expected_results,
-                message=f'{cmd}: len(results) != expected - dialect: {dialect}')
+                message=f'{cmd}: len(results) != expected. Dialect: {dialect}')
 
             # Compare with the query without WITHOUTCOUNT
             env.assertEqual(
                 len(results_default), expected_results,
-                message=f'{cmd_default}: len(results) != results_default - dialect: {dialect}')
+                message=f'{cmd_default}: len(results) != results_default. Dialect: {dialect}')
 
 def test_withoutcount_resp3():
     _test_withoutcount(3)
@@ -450,6 +458,20 @@ def _test_profile(protocol):
          [['Index', 'Scorer', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
          [['Index', 'Scorer', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
 
+        # WITHCOUNT + FILTER
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200'],
+         ['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter'],
+         ['Index', 'Loader', 'Filter - Predicate <'],
+         [['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter'], ['Network', 'Sync Depleter']],
+         [['Index', 'Loader', 'Filter - Predicate <'], ['Network']]),
+
+        # WITHCOUNT + FILTER + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 0, 50],
+         ['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter', 'Pager/Limiter'],
+         ['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter', 'Pager/Limiter'],
+         [['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
+         [['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+
         # ----------------------------------------------------------------------
         # WITHOUTCOUNT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT'],
@@ -556,6 +578,19 @@ def _test_profile(protocol):
          [['Index', 'Scorer', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
          [['Index', 'Scorer', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
 
+        # WITHOUTCOUNT + FILTER
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200'],
+         ['Index', 'Loader', 'Filter - Predicate <'],
+         ['Index', 'Loader', 'Filter - Predicate <'],
+         [['Index', 'Loader', 'Filter - Predicate <'], ['Network']],
+         [['Index', 'Loader', 'Filter - Predicate <'], ['Network']]),
+
+        # WITHOUTCOUNT + FILTER + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 0, 50],
+         ['Index', 'Loader', 'Filter - Predicate <', 'Pager/Limiter'],
+         ['Index', 'Loader', 'Filter - Predicate <', 'Pager/Limiter'],
+         [['Index', 'Loader', 'Filter - Predicate <', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
+         [['Index', 'Loader', 'Filter - Predicate <', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
     ]
 
     for (query, resp2_standalone, resp3_standalone, resp2_cluster,

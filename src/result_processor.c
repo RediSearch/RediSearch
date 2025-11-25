@@ -2336,7 +2336,6 @@ typedef struct {
 static void RPSyncDepleter_Deplete(RPSyncDepleter *self) {
   RPStatus rc;
   SearchResult *r = rm_calloc(1, sizeof(*r));
-  size_t count = 0;
 
   // Deplete all results from upstream
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
