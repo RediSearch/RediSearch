@@ -38,7 +38,7 @@ class LinkChecker:
         user_agent = config.get('user_agent', 'Mozilla/5.0 (compatible; RediSearch-LinkChecker/1.0)')
         self.session.headers.update({'User-Agent': user_agent})
         self.checked_urls: Set[str] = set()
-        
+        # do something
     def find_markdown_files(self, directory: str) -> List[Path]:
         """Find all Markdown files in the directory, excluding certain subdirectories."""
         path = Path(directory)
