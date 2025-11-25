@@ -9,6 +9,7 @@
 
 #include "doc_id_meta.h"
 #include "util/arr/arr.h"
+#include "rdb.h"
 
 #define DOCID_META_INVALID 0
 
@@ -45,6 +46,60 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   return 0;
 }
 
+static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
+  REDISMODULE_NOT_USED(encver);
+  struct DocIdMeta *docIdMeta = NULL;
+
+  // Load the size of the docId array
+  size_t size = LoadUnsigned_IOError(rdb, goto cleanup);
+  // Allocate the DocIdMeta structure
+  docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
+  docIdMeta->size = size;
+  if (size == 0) {
+    docIdMeta->docId = NULL;
+  } else {
+    docIdMeta->docId = array_new(uint64_t, size);
+    // Load each docId entry
+    for (size_t i = 0; i < size; i++) {
+      uint64_t docId = LoadUnsigned_IOError(rdb, goto cleanup);
+      docIdMeta->docId[i] = docId;
+    }
+  }
+
+  *meta = (uint64_t)docIdMeta;
+  return REDISMODULE_OK;
+
+cleanup:
+  if (docIdMeta) {
+    if (docIdMeta->docId) {
+      array_free(docIdMeta->docId);
+    }
+    rm_free(docIdMeta);
+  }
+  *meta = 0;
+  return REDISMODULE_ERR;
+}
+
+static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
+  REDISMODULE_NOT_USED(value);
+
+  if (*meta == 0) {
+    // No metadata to save - save size 0
+    RedisModule_SaveUnsigned(rdb, 0);
+    return;
+  }
+
+  struct DocIdMeta *docIdMeta = (struct DocIdMeta *)*meta;
+
+  // Save the size of the docId array
+  RedisModule_SaveUnsigned(rdb, docIdMeta->size);
+
+  // Save each docId entry
+  for (size_t i = 0; i < docIdMeta->size; i++) {
+    RedisModule_SaveUnsigned(rdb, docIdMeta->docId[i]);
+  }
+}
+
 #define INITIAL_DOCID_META_SIZE 10
 
 void DocIdMeta_Init(RedisModuleCtx *ctx) {
@@ -63,8 +118,8 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .free_effort = NULL,
     // Since for now RediSearch indices are rebuilt during persistence, we don't need to consider persistence now.
     // (DocID would be added to key during Notification callbacks and indexing procedures as normal)
-    .rdb_load = NULL, // Callback called in Search on Flex when loading to SST
-    .rdb_save = NULL, // Callback called in Search on Flex when saving to SST
+    .rdb_load = (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad, // Callback called in Search on Flex when loading to SST
+    .rdb_save = (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave, // Callback called in Search on Flex when saving to SST
     .aof_rewrite = NULL, // not used if Preamble RDB. We should not implement and let the KeySpaceNotifications handle it
 };
   docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, "docId", 1, &docIdKeyMetaClassIdConfig);
