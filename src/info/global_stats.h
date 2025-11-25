@@ -46,8 +46,12 @@ typedef struct {
 typedef struct {
   size_t syntax; // Number of syntax errors
   size_t arguments; // Number of parse arguments errors
+  size_t timeout; // Number of timeout errors
 } QueryErrorsGlobalStats;
 
+typedef struct {
+  size_t timeout;
+} QueryWarningGlobalStats;
 
 typedef struct {
   size_t total_queries_processed;       // Number of successful queries. If using cursors, not counting reading from the cursor
@@ -56,6 +60,8 @@ typedef struct {
 
   QueryErrorsGlobalStats shard_errors;        // Shard query errors statistics
   QueryErrorsGlobalStats coord_errors;  // Coordinator query errors statistics
+  QueryWarningGlobalStats shard_warnings;        // Shard query warnings statistics
+  QueryWarningGlobalStats coord_warnings;  // Coordinator query warnings statistics
 } QueriesGlobalStats;
 
 typedef struct {
@@ -115,9 +121,17 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs();
 /**
 * Updates the global query errors statistics.
 * `coord` indicates whether the error occurred on the coordinator or on a shard.
-* Standalone shards are considered as shards.
+* Standalone shards are considered as coords.
 * Will ignore not supported error codes.
 * Currently supports : syntax, parse_args
 * `toAdd` can be negative to decrease the counter.
 */
 void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool coord);
+
+// Updates the global query warnings statistics.
+// `coord` indicates whether the warning occurred on the coordinator or on a shard.
+// Standalone shards are considered as coords
+// Will ignore not supported warning codes.
+// Currently supports : timeout
+// `toAdd` can be negative to decrease the counter.
+void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord);
