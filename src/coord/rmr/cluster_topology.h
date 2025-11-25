@@ -37,6 +37,13 @@ typedef struct MRClusterTopology {
 MRClusterTopology *MR_NewTopology(uint32_t numShards);
 void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh);
 
+// Sort shards by the port of their node
+// We want to sort by some node value and not by slots, as the nodes in the cluster may be
+// stable while slots can migrate between them
+void MRClusterTopology_SortShards(MRClusterTopology *topo);
+
+void MRClusterNode_Free(MRClusterNode *n);
+
 void MRClusterTopology_Free(MRClusterTopology *t);
 
 MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t);
