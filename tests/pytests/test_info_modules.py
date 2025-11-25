@@ -641,11 +641,11 @@ def _common_warnings_errors_test_scenario(env):
   """Common setup for warnings and errors tests"""
   # Create index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
-  # Create doc
-  env.expect('HSET', 'doc:1', 'text', 'hello world').equal(1)
   # Create vector index for hybrid
   env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'text', 'TEXT', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
-  # Create doc for hybrid
+  # Create doc
+  env.expect('HSET', 'doc:1', 'text', 'hello world').equal(1)
+  # Create docs for hybrid
   env.expect('HSET', 'vec:1', 'vector', np.array([1.0, 0.0]).astype(np.float32).tobytes(), 'text', 'hello world1').equal(2)
   env.expect('HSET', 'vec:2', 'vector', np.array([0.0, 1.0]).astype(np.float32).tobytes(), 'text', 'hello world2').equal(2)
 
@@ -858,6 +858,8 @@ def _common_warnings_errors_cluster_test_scenario(env):
   """Common setup for warnings and errors cluster tests"""
   # Create index
   env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc:', 'SCHEMA', 'text', 'TEXT').ok()
+  # Create vector index for hybrid
+  env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   # Create doc
   conn = getConnectionByEnv(env)
   # Insert enough docs s.t each shard will timeout
@@ -865,8 +867,6 @@ def _common_warnings_errors_cluster_test_scenario(env):
   for i in range(docs_per_shard * env.shardsCount):
     conn.execute_command('HSET', f'doc:{i}', 'text', f'hello world {i}')
 
-  # Create vector index for hybrid
-  env.expect('FT.CREATE', 'idx_vec', 'PREFIX', '1', 'vec:', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   # Create doc for hybrid
   conn.execute_command('HSET', 'vec:1', 'vector', np.array([0.0, 0.0]).astype(np.float32).tobytes())
 
