@@ -97,7 +97,9 @@ jobs:
                   'id': run['id'],
                   'head_sha': run['head_sha'],
                   'conclusion': run['conclusion'],
-                  'head_ref': run['head_branch']
+                  'head_ref': run['head_branch'],
+                  'created_at': run['created_at'],
+                  'updated_at': run['updated_at']
               }
               for run in all_runs.get('workflow_runs', [])
               if run['id'] != current_run_id
@@ -105,10 +107,14 @@ jobs:
 
           print("Recent merge_group runs:")
           for run in filtered_runs:
-              print(json.dumps(run, separators=(',', ':')))
+              print(f"  Run {run['id']}: conclusion={run['conclusion']}, "
+                    f"created={run['created_at']}, updated={run['updated_at']}, "
+                    f"ref={run['head_ref']}")
 
           # Look for previous runs from the same PR
           # Use regex to ensure exact PR number match (e.g., pr-12- won't match pr-123-)
+          # Only consider completed runs (conclusion is not None)
+          # Note: conclusion can be None/null if the workflow is still running or queued
           pattern = re.compile(rf'(^|/)pr-{pr_num}-')
           previous_run_data = None
 
@@ -133,18 +139,39 @@ jobs:
           previous_merge_sha = previous_run_data['head_sha']
           print(f"Previous run merge commit SHA: {previous_merge_sha}")
 
+          # Get commit details to check parent structure
+          commit_details = run_gh_api(f"/repos/{repo}/commits/{previous_merge_sha}")
+          commit_data = json.loads(commit_details)
+
+          parents = commit_data.get('parents', [])
+          print(f"Previous merge commit has {len(parents)} parent(s)")
+
+          for i, parent in enumerate(parents):
+              print(f"  Parent[{i}]: {parent['sha']}")
+
           # Get the parent commits of the previous merge commit
           # The second parent is the PR head at the time of the previous run
-          previous_pr_head_sha = run_gh_api(
-              f"/repos/{repo}/commits/{previous_merge_sha}",
-              '.parents[1].sha // empty'
-          )
+          previous_pr_head_sha = None
 
-          if not previous_pr_head_sha:
-              print("Warning: Could not determine previous PR head SHA, assuming no new commits")
-              previous_pr_head_sha = "unknown"
+          if len(parents) >= 2:
+              # Standard merge commit: parent[1] is the PR head
+              previous_pr_head_sha = parents[1]['sha']
+              print(f"Previous PR HEAD SHA (from merge parent[1]): {previous_pr_head_sha}")
+          elif len(parents) == 1:
+              # Not a merge commit - might be a squash or the PR head itself
+              # In this case, the commit itself might be the PR head
+              print("Warning: Previous run commit is not a merge commit (only 1 parent)")
+              print("This might happen with squash merges or if the merge queue behavior changed")
+              # We can't reliably determine the previous PR head, so we'll be conservative
+              # and NOT alert (assume there might be new commits)
+              print("Cannot reliably compare - skipping resubmit detection")
+              set_output('resubmit', 'false')
+              sys.exit(0)
           else:
-              print(f"Previous PR HEAD SHA: {previous_pr_head_sha}")
+              print("Error: Previous run commit has no parents - this is unexpected")
+              print("Cannot reliably compare - skipping resubmit detection")
+              set_output('resubmit', 'false')
+              sys.exit(0)
 
           # Compare the PR head SHAs directly
           if pr_head_sha != previous_pr_head_sha:
@@ -177,7 +204,7 @@ jobs:
           payload: |
             {
               "PR": "${{ steps.check.outputs.pr_url }}",
-              "PR title": "${{ toJson(steps.check.outputs.pr_title) }}",
+              "PR_title": "${{ toJson(steps.check.outputs.pr_title) }}",
               "Author": "${{ toJson(steps.check.outputs.pr_author) }}",
               "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
