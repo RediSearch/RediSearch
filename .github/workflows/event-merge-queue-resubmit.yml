@@ -81,9 +81,20 @@ jobs:
           # so head_sha will be different even for the same PR commits.
           # Hence, we should check the PR's actual head commit (before merge).
 
-          # Get the PR's actual head SHA
+          # Get the PR's actual head SHA from the PR API
           pr_head_sha = run_gh_api(f"/repos/{repo}/pulls/{pr_num}", '.head.sha')
-          print(f"PR's actual HEAD SHA: {pr_head_sha}")
+          print(f"PR's actual HEAD SHA (from PR API): {pr_head_sha}")
+
+          # Also check what the current merge queue run's head_sha is
+          print(f"Current merge queue run's head_sha: {head_sha}")
+
+          # Get the current run's commit details to understand the structure
+          current_commit_details = run_gh_api(f"/repos/{repo}/commits/{head_sha}")
+          current_commit_data = json.loads(current_commit_details)
+          current_parents = current_commit_data.get('parents', [])
+          print(f"Current run's commit has {len(current_parents)} parent(s)")
+          for i, parent in enumerate(current_parents):
+              print(f"  Parent[{i}]: {parent['sha']}")
 
           # Get the list of previous workflow runs for this merge queue workflow
           print(f"Searching for previous merge_group runs for PR #{pr_num}...")
@@ -180,9 +191,23 @@ jobs:
               set_output('resubmit', 'false')
               sys.exit(0)
 
+          # Now we need to determine the current PR head SHA from the current run
+          # Use the same logic: if current run has 1 parent, head_sha IS the PR head
+          if len(current_parents) >= 2:
+              current_pr_head_sha = current_parents[1]['sha']
+              print(f"Current PR HEAD SHA (from current run's parent[1]): {current_pr_head_sha}")
+          elif len(current_parents) == 1:
+              current_pr_head_sha = head_sha
+              print(f"Current PR HEAD SHA (using current run's head_sha): {current_pr_head_sha}")
+          else:
+              # Fallback to PR API
+              current_pr_head_sha = pr_head_sha
+              print(f"Current PR HEAD SHA (from PR API fallback): {current_pr_head_sha}")
+
           # Compare the PR head SHAs directly
-          if pr_head_sha != previous_pr_head_sha:
-              print(f"New commits detected! PR HEAD changed from {previous_pr_head_sha} to {pr_head_sha}")
+          print(f"Comparing: previous={previous_pr_head_sha} vs current={current_pr_head_sha}")
+          if current_pr_head_sha != previous_pr_head_sha:
+              print(f"New commits detected! PR HEAD changed from {previous_pr_head_sha} to {current_pr_head_sha}")
               set_output('resubmit', 'false')
               sys.exit(0)
 
@@ -210,7 +235,7 @@ jobs:
         with:
           payload: |
             {
-              "PR": "${{ steps.check.outputs.pr_url }}",
+              "PR": "${{ toJson(steps.check.outputs.pr_url) }}",
               "Title": "${{ toJson(steps.check.outputs.pr_title) }}",
               "Author": "${{ toJson(steps.check.outputs.pr_author) }}",
               "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
