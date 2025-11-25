@@ -17,11 +17,16 @@ typedef struct {
   MRClusterNode node;
 } RLShard;
 
-static void RLShard_Free(void *priv, void *val) {
-  RLShard *sh = val;
+static void RLShard_Free(RLShard *sh) {
+  if (!sh) return;
   MRClusterNode_Free(&sh->node);
   array_free(sh->slotRanges);
   rm_free(sh);
+}
+
+static void RLShard_Free_(void *priv, void *val) {
+  RLShard *sh = val;
+  RLShard_Free(sh);
 }
 
 dictType staticRIDtoShard = {
@@ -30,7 +35,7 @@ dictType staticRIDtoShard = {
     .valDup = NULL,
     .keyCompare = redisStringsKeyCompare,
     .keyDestructor = NULL,
-    .valDestructor = RLShard_Free,
+    .valDestructor = RLShard_Free_,
 };
 
 static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
@@ -115,7 +120,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
         return NULL;
       }
       break;
-    } else if (AC_AdvanceIfMatch(&ac, "HASREPLICATION")) { // TODO: remove
+    } else if (AC_AdvanceIfMatch(&ac, "HASREPLICATION")) { // ignored
     } else {
       ERROR_FMT("Unexpected argument: `%s`", AC_GetStringNC(&ac, NULL));
       return NULL;
@@ -129,10 +134,14 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
 
   dict *shards = dictCreate(&staticRIDtoShard, NULL);
   MRClusterTopology *topo = NULL;
+  RLShard *sh = NULL;
 
   // Parse shards. We have to free the collected shards if we encounter an error
   for (uint32_t i = 0; i < numRanges; i++) {
-    int rc;
+
+    sh = rm_calloc(1, sizeof(RLShard));
+    sh->slotRanges = array_new(RedisModuleSlotRange, 1);
+
     /* Mandatory: SHARD <shard_id> */
     VERIFY_ARG("SHARD");
     RedisModuleString *shardIDStr;
@@ -141,36 +150,33 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
       goto error;
     }
 
-    dictEntry *cur = dictAddOrFind(shards, shardIDStr);
-    RLShard *sh = dictGetVal(cur);
-    if (!sh) {
-      sh = rm_calloc(1, sizeof(RLShard));
-      size_t len;
-      const char *idstr = RedisModule_StringPtrLen(shardIDStr, &len);
-      sh->node.id = rm_strndup(idstr, len);
-      sh->slotRanges = array_new(RedisModuleSlotRange, 1);
-      dictSetVal(shards, cur, sh);
-    }
+    size_t len;
+    const char *idstr = RedisModule_StringPtrLen(shardIDStr, &len);
+    sh->node.id = rm_strndup(idstr, len);
 
     bool is_master = false;
     while (!AC_IsAtEnd(&ac)) {
       if (AC_AdvanceIfMatch(&ac, "SLOTRANGE")) {
+        if (array_len(sh->slotRanges) > 0) {
+          ERROR_FMT("Multiple SLOTRANGE specified for shard `%s` at offset %zu", sh->node.id, ac.offset);
+          goto error;
+        }
         RedisModuleSlotRange slotRange;
-        rc = AC_GetU16(&ac, &slotRange.start, 0);
+        int rc = AC_GetU16(&ac, &slotRange.start, 0);
         if (rc != AC_OK) {
           ERROR_BAD_OR_MISSING("SLOTRANGE", rc);
           goto error;
         }
         rc = AC_GetU16(&ac, &slotRange.end, 0);
-        if (rc != AC_OK) {
+        if (rc != AC_OK || slotRange.end >= numSlots) {
           ERROR_BAD_OR_MISSING("SLOTRANGE", rc);
           goto error;
         }
-        if (slotRange.start > slotRange.end || slotRange.end >= numSlots) {
+        if (slotRange.start > slotRange.end) {
           ERROR_FMT("Bad values for SLOTRANGE: %d, %d", slotRange.start, slotRange.end);
           goto error;
         }
-        array_append(sh->slotRanges, slotRange);
+        array_ensure_append_1(sh->slotRanges, slotRange);
 
       } else if (AC_AdvanceIfMatch(&ac, "ADDR")) {
         const char *addr;
@@ -178,7 +184,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
           ERROR_MISSING("ADDR");
           goto error;
         } else if (sh->node.endpoint.host) {
-          ERROR_FMT("Multiple ADDR specified for shard `%s`", sh->node.id);
+          ERROR_FMT("Multiple ADDR specified for shard `%s` at offset %zu", sh->node.id, ac.offset);
           goto error;
         }
         if (MREndpoint_Parse(addr, &sh->node.endpoint) != REDIS_OK) {
@@ -209,20 +215,73 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
 
     // We don't care for replicas using this command anymore
     if (!is_master) {
-      dictDelete(shards, shardIDStr);
+      RLShard_Free(sh);
+      sh = NULL;
       continue;
     }
 
     // Ignore shards with no slot ranges (like replicas)
     if (array_len(sh->slotRanges) == 0) {
-      dictDelete(shards, shardIDStr);
+      RLShard_Free(sh);
+      sh = NULL;
       continue;
     }
 
-    // Verify mandatory arguments (at least on first appearance)
-    if (!sh->node.endpoint.host) {
-      ERROR_MISSING("ADDR");
-      goto error;
+
+    dictEntry *entry = dictAddOrFind(shards, shardIDStr);
+    if (!dictGetVal(entry)) {
+      // New shard
+      // Verify mandatory arguments on first appearance
+      if (!sh->node.endpoint.host) {
+        ERROR_MISSING("ADDR");
+        goto error;
+      }
+      // Move ownership of parsed shard into dict
+      dictSetVal(shards, entry, sh);
+      sh = NULL;
+    } else {
+      // Re-appearance of shard ID
+      // We verify that the endpoint is the same
+      // We also verify that slot range is different from previous ones
+      RLShard *existing_shard = dictGetVal(entry);
+
+      // Verify endpoint, if currently specified
+      if (sh->node.endpoint.host) {
+
+        if (strcmp(sh->node.endpoint.host, existing_shard->node.endpoint.host)) {
+          ERROR_FMT("Conflicting ADDR for shard `%s`", sh->node.id);
+          goto error;
+        }
+        if ((sh->node.endpoint.password && !existing_shard->node.endpoint.password) ||
+            (!sh->node.endpoint.password && existing_shard->node.endpoint.password) ||
+            (sh->node.endpoint.password && existing_shard->node.endpoint.password && strcmp(sh->node.endpoint.password, existing_shard->node.endpoint.password))) {
+          ERROR_FMT("Conflicting ADDR for shard `%s`", sh->node.id);
+          goto error;
+        }
+        if (sh->node.endpoint.port != existing_shard->node.endpoint.port) {
+          ERROR_FMT("Conflicting ADDR for shard `%s`", sh->node.id);
+          goto error;
+        }
+      }
+      if (sh->node.endpoint.unixSock) {
+        if (!existing_shard->node.endpoint.unixSock || strcmp(sh->node.endpoint.unixSock, existing_shard->node.endpoint.unixSock)) {
+          ERROR_FMT("Conflicting UNIXADDR for shard `%s`", sh->node.id);
+          goto error;
+        }
+      }
+      RS_ASSERT(array_len(sh->slotRanges) == 1);
+      // Verify slot range starts past existing ones
+      if (array_tail(existing_shard->slotRanges).end + 1 >= sh->slotRanges[0].start) {
+        ERROR_FMT("Duplicate SLOTRANGE for shard `%s`", sh->node.id);
+        goto error;
+      }
+
+      // Append new slot range
+      array_ensure_append_1(existing_shard->slotRanges, sh->slotRanges[0]);
+
+      // Discard parsed shard
+      RLShard_Free(sh);
+      sh = NULL;
     }
   }
 
@@ -238,12 +297,11 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   dictIterator *iter = dictGetIterator(shards);
   dictEntry *de;
   while ((de = dictNext(iter)) != NULL) {
-    RLShard *sh = dictGetVal(de);
-    MRTopology_AddRLShard(topo, sh);
+    MRTopology_AddRLShard(topo, dictGetVal(de));
   }
   dictReleaseIterator(iter);
 
-  // Sort shards by
+  // Sort shards to have a deterministic order
   MRClusterTopology_SortShards(topo);
 
   // Identify my shard index
@@ -263,7 +321,9 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     goto error;
   }
 
-error:
+error: // Also the normal exit point
+
+  RLShard_Free(sh);
   dictRelease(shards);
   return topo;
 }
