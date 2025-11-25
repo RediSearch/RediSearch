@@ -1,10 +1,16 @@
-# Ignore everything, except the scripts required to install dependencies
-# into our CI containers.
-*
-!.install
-!.install/**
-!build.sh
-!.github/workflows/task-get-config.yml
-
-# Make sure we don't include the boost directory in the context.
-.install/boost/*
+**/*.rdb*
+**/*.aof*
+**/*.rdb
+**/*.out
+**/*.md
+**/*.zip
+**/*.gz
+**/*.so
+**/*.o
+**/*.a
+# .git
+/bin/
+/site/
+/deps/RedisJSON/
+/tests/pytests/logs/
+/1/
