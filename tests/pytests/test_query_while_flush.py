@@ -75,7 +75,6 @@ def test_query_while_flush():
         thread = threading.Thread(
             target=query_worker,
             args=(stats, ),
-            daemon=True
         )
         threads.append(thread)
         thread.start()
@@ -103,7 +102,6 @@ def test_query_while_flush():
     # Otherwise I could see successes attributed to before flush that should have been after
     time.sleep(0.5)
     flushall_called.clear()  # Reset the event
-    print(f'Is flag set? {flushall_called.is_set()}')
     # Create index2 and verify it works properly
     env.expect('FT.CREATE', 'index2', 'ON', 'HASH', 'SCHEMA', 'text', 'TEXT').ok()
 
@@ -123,7 +121,7 @@ def test_query_while_flush():
 
     # Wait for all threads to complete
     for thread in threads:
-        thread.join(timeout=2.0)
+        thread.join()
 
     # Verify statistics before flush
     env.assertEqual(stats['before_flush_errors'], 0,
