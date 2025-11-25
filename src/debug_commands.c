@@ -1568,10 +1568,6 @@ DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
     return RedisModule_WrongArity(ctx);
   }
 
-  if (GetNumShards_UnSafe() == 1) {
-    return RSProfileCommandImp(ctx, ++argv, --argc, true);
-  }
-
   return ProfileCommandHandlerImp(ctx, ++argv, --argc, true);
 }
 

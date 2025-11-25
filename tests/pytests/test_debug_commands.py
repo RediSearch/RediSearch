@@ -69,6 +69,8 @@ class TestDebugCommands(object):
             '_FT.SEARCH',
             'FT.HYBRID',
             '_FT.HYBRID',
+            '_FT.PROFILE',
+            '_FT.PROFILE',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
@@ -1336,7 +1338,6 @@ class ProfileDebugSA:
     @staticmethod
     def ProfileDebugTimeout(env, command_type, protocol):
         conn = getConnectionByEnv(env)
-        conn.execute_command("hello", str(protocol))
         message_prefix = f"command_type: {command_type}, protocol: {protocol}"
 
         # Run baseline normal query to get expected structure

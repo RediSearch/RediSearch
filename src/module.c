@@ -3758,7 +3758,7 @@ int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     // There is only one shard in the cluster. We can handle the command locally.
     // We must first check that we don't have a cursor, as the local command handler allows cursors
     // for multi-shard clusters support.
-    return RSProfileCommandImp(ctx, argv, argc, false);
+    return RSProfileCommandImp(ctx, argv, argc, isDebug);
   }
 
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
