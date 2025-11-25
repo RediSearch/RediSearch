@@ -1094,7 +1094,7 @@ def test_query_controller_pause_and_resume(env):
         t_query = threading.Thread(
             target=call_and_store,
             args=(runDebugQueryCommandPauseBeforeRPAfterN,
-                (env, [query_type, 'idx', '*'], 'Index', 0, ['INTERNAL_ONLY'] if query_type == 'FT.AGGREGATE' else None),
+                (env, [query_type, 'idx', '*'], 'Index', 0),
                 query_result),
             daemon=True
         )
@@ -1220,7 +1220,7 @@ def test_cluster_query_controller_pause_and_resume():
         t_query = threading.Thread(
             target=call_and_store,
             args=(runDebugQueryCommandPauseBeforeRPAfterN,
-                (env, query_args, 'Index', 0, ['INTERNAL_ONLY'] if query_type == 'FT.AGGREGATE' else None),
+                (env, query_args, 'Index', 0),
                 query_result),
             daemon=True
         )

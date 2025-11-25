@@ -138,11 +138,9 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   if (AC_IsInitialized(&pauseAfterArgs) || AC_IsInitialized(&pauseBeforeArgs)) {
 
     // In FT.AGGREGATE - Check if INTERNAL_ONLY is set
-    // If it is set - if we are in a cluster coordinator - do nothing
-    // If it is not set - if we are not cluster coordinator - do nothing
-    // This can be checked by comparing isClusterCoord(debug_req) and internal_only
+    // It this is not an internal command (Cluster/SA), and INTERNAL_ONLY is set - do nothing
     if ((debug_req->r.reqflags & QEXEC_F_IS_AGGREGATE) &&
-          isClusterCoord(debug_req) == internal_only) {
+          isClusterCoord(debug_req) && internal_only) {
       return REDISMODULE_OK;
     }
 
