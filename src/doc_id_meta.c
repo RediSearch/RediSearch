@@ -53,7 +53,7 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .flags = 0,
     .copy = (RedisModuleKeyMetaCopyFunc)docIdMetaCopy,
     .rename = NULL, // If NULL, meta is kept during rename
-    .move = NULL, // If NULL, meta is kept during move
+    .move = NULL, // If NULL, meta is kept during move (MOVE between DB, need to make sure it is ignored because docID will not have meaning in other DB)
     .unlink = NULL, // If NULL, meta is ignored during unlink
     .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree, // Will need to free the DocIdMeta struct
     // TODO(Joan): Ask clarification for these callbacks
@@ -62,9 +62,9 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .free_effort = NULL,
     // Since for now RediSearch indices are rebuilt during persistence, we don't need to consider persistence now.
     // (DocID would be added to key during Notification callbacks and indexing procedures as normal)
-    .rdb_load = NULL,
-    .rdb_save = NULL,
-    .aof_rewrite = NULL,
+    .rdb_load = NULL, // Callback called in Search on Flex when loading to SST
+    .rdb_save = NULL, // Callback called in Search on Flex when saving to SST
+    .aof_rewrite = NULL, // not used if Preamble RDB. We should not implement and let the KeySpaceNotifications handle it
 };
   docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, "docId", 1, &docIdKeyMetaClassIdConfig);
 }
