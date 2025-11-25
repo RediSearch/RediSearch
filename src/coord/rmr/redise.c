@@ -202,6 +202,8 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
 
       } else if (AC_AdvanceIfMatch(&ac, "MASTER")) {
         is_master = true;
+      } else {
+        break;
       }
     }
 
