@@ -1,5 +1,5 @@
 [package]
-name = "iterator_wrapper"
+name = "rqe_iterators_interop"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true

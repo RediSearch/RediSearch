@@ -6,7 +6,6 @@ members = [
     "ffi",
     "inverted_index",
     "inverted_index_bencher",
-    "iterator_wrapper",
     "field",
     "fnv",
     "low_memory_thin_vec",
@@ -17,6 +16,7 @@ members = [
     "rlookup",
     "rqe_iterators",
     "rqe_iterators_bencher",
+    "rqe_iterators_interop",
     "search_result",
     "slots_tracker",
     "sorting_vector",
@@ -68,7 +68,6 @@ ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
-iterator_wrapper = { path = "./iterator_wrapper" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }
@@ -76,6 +75,7 @@ redis_mock = { path = "./redis_mock" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
+rqe_iterators_interop = { path = "./rqe_iterators_interop" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector"}

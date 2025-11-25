@@ -9,8 +9,8 @@
 
 use ffi::{IteratorType_ID_LIST_ITERATOR, QueryIterator, RedisModule_Free, t_docId};
 use inverted_index::RSIndexResult;
-use iterator_wrapper::RQEIteratorWrapper;
 use rqe_iterators::id_list::IdList;
+use rqe_iterators_interop::RQEIteratorWrapper;
 
 #[unsafe(no_mangle)]
 /// Creates a new iterator over a list of sorted document IDs.
