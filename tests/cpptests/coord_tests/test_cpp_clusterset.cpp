@@ -862,3 +862,115 @@ TEST_F(ClusterSetTest, EdgeCase_ManyShards) {
 
     MRClusterTopology_Free(topo);
 }
+
+// ============================================================================
+// Error path tests (continued)
+// ============================================================================
+
+TEST_F(ClusterSetTest, Error_MultipleSLOTRANGE_SameBlock) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
+        "MYID", "shard1",
+        "RANGES", "1",
+        "SHARD", "shard1", "SLOTRANGE", "0", "100",
+        "SLOTRANGE", "200", "300",
+        "ADDR", "127.0.0.1:6379", "MASTER"
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Multiple SLOTRANGE specified for shard `shard1` at offset 10");
+}
+
+TEST_F(ClusterSetTest, Error_MultipleADDR_SameBlock) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
+        "MYID", "shard1",
+        "RANGES", "1",
+        "SHARD", "shard1", "SLOTRANGE", "0", "100",
+        "ADDR", "127.0.0.1:6379",
+        "ADDR", "127.0.0.1:6380",
+        "MASTER"
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Multiple ADDR specified for shard `shard1` at offset 13");
+}
+
+TEST_F(ClusterSetTest, Error_MultipleUNIXADDR_SameBlock) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
+        "MYID", "shard1",
+        "RANGES", "1",
+        "SHARD", "shard1", "SLOTRANGE", "0", "100",
+        "ADDR", "127.0.0.1:6379",
+        "UNIXADDR", "/tmp/1",
+        "UNIXADDR", "/tmp/2",
+        "MASTER"
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Multiple UNIXADDR specified for shard `shard1`");
+}
+
+TEST_F(ClusterSetTest, Error_ConflictingADDR_Password) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
+        "MYID", "shard1",
+        "RANGES", "2",
+        "SHARD", "shard1", "SLOTRANGE", "0", "100", "ADDR", "user:pass1@127.0.0.1:6379", "MASTER",
+        "SHARD", "shard1", "SLOTRANGE", "200", "300", "ADDR", "user:pass2@127.0.0.1:6379", "MASTER"
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting ADDR for shard `shard1`");
+}
+
+TEST_F(ClusterSetTest, Error_ConflictingADDR_Port) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
+        "MYID", "shard1",
+        "RANGES", "2",
+        "SHARD", "shard1", "SLOTRANGE", "0", "100", "ADDR", "127.0.0.1:6379", "MASTER",
+        "SHARD", "shard1", "SLOTRANGE", "200", "300", "ADDR", "127.0.0.1:6380", "MASTER"
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting ADDR for shard `shard1`");
+}
+
+TEST_F(ClusterSetTest, Error_SLOTRANGE_OutOfOrder) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
+        "MYID", "shard1",
+        "RANGES", "2",
+        "SHARD", "shard1", "SLOTRANGE", "0", "100", "ADDR", "127.0.0.1:6379", "MASTER",
+        "SHARD", "shard1", "SLOTRANGE", "50", "150", "MASTER"
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "SLOTRANGE out of order for shard `shard1`");
+}

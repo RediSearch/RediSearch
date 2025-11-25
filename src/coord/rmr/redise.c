@@ -272,7 +272,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
       RS_ASSERT(array_len(sh->slotRanges) == 1);
       // Verify slot range starts past existing ones
       if (array_tail(existing_shard->slotRanges).end + 1 >= sh->slotRanges[0].start) {
-        ERROR_FMT("Duplicate SLOTRANGE for shard `%s`", sh->node.id);
+        ERROR_FMT("SLOTRANGE out of order for shard `%s`", sh->node.id);
         goto error;
       }
 
