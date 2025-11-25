@@ -56,4 +56,12 @@ stub_c_fn! {
     sdscat,
     sdscatfmt,
     sdscatlen,
+    isWithinRadius,
+    Redis_OpenInvertedIndex,
+    RS_dictFetchValue,
+    TagIndex_OpenIndex,
+    TimeToLiveTable_VerifyDocAndField,
+    TimeToLiveTable_VerifyDocAndFieldMask,
+    TimeToLiveTable_VerifyDocAndWideFieldMask,
+    TRIEMAP_NOTFOUND
 }
