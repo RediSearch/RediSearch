@@ -552,6 +552,7 @@ int SetFtSugaddInfo(RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "key",
+        .key_spec_index = 1,
         .type = REDISMODULE_ARG_TYPE_KEY,
       },
       {
@@ -602,6 +603,7 @@ int SetFtSuggetInfo(RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "key",
+        .key_spec_index = 1,
         .type = REDISMODULE_ARG_TYPE_KEY,
       },
       {
@@ -651,6 +653,7 @@ int SetFtSugdelInfo(RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "key",
+        .key_spec_index = 1,
         .type = REDISMODULE_ARG_TYPE_KEY,
       },
       {
@@ -674,6 +677,7 @@ int SetFtSuglenInfo(RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "key",
+        .key_spec_index = 1,
         .type = REDISMODULE_ARG_TYPE_KEY,
       },
       {0}

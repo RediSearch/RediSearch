@@ -75,6 +75,8 @@ def generate_arguments(file, member, arguments):
                 for string_arg in ['name', 'token', 'summary', 'since', 'deprecated_since', 'display_text']:
                     if string_arg in arg:
                         arg_scope.write(f'.{string_arg} = "{escape_c_string(arg[string_arg])}",\n')
+                if 'key_spec_index' in arg:
+                    arg_scope.write(f'.key_spec_index = {arg["key_spec_index"]},\n')
                 if 'type' in arg:
                     type_text = arg['type']
                     if type_text == 'function':
