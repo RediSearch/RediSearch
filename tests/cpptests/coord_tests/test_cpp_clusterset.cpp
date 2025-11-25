@@ -362,7 +362,8 @@ TEST_F(ClusterSetTest, Error_MissingMYID) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail without MYID";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Missing value for MYID");
 
 }
 
@@ -377,7 +378,8 @@ TEST_F(ClusterSetTest, Error_MissingRANGES) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail without RANGES";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Unexpected argument: `SHARD`");
 
 }
 
@@ -394,7 +396,8 @@ TEST_F(ClusterSetTest, Error_BadHashFunc) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with invalid HASHFUNC";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for HASHFUNC: INVALID");
 
 }
 
@@ -411,7 +414,8 @@ TEST_F(ClusterSetTest, Error_NumSlotsTooLarge) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with NUMSLOTS > 16384";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for NUMSLOTS: 20000");
 
 }
 
@@ -426,7 +430,8 @@ TEST_F(ClusterSetTest, Error_TooFewRanges) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with NUMSLOTS > 16384";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for RANGES: 0");
 
 }
 
@@ -442,7 +447,8 @@ TEST_F(ClusterSetTest, Error_TooFewRangesGiven) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with NUMSLOTS > 16384";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected `SHARD` but got `(nil)`");
 
 }
 
@@ -458,7 +464,9 @@ TEST_F(ClusterSetTest, Error_TooManyRangesGiven) {
     ArgvList argv(ctx, args);
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
-    EXPECT_EQ(topo, nullptr) << "Should fail with too many ranges given";
+
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected end of command but got `SHARD`");
 
 }
 
@@ -474,7 +482,8 @@ TEST_F(ClusterSetTest, Error_InvalidSlotRange_StartGreaterThanEnd) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with start > end";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad values for SLOTRANGE: 1000, 500");
 
 }
 
@@ -490,7 +499,8 @@ TEST_F(ClusterSetTest, Error_InvalidSlotRange_EndTooLarge) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with end >= numSlots (default 16384)";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for SLOTRANGE end: ADDR");
 
 }
 
@@ -507,7 +517,8 @@ TEST_F(ClusterSetTest, Error_InvalidSlotRange_EndTooLargeCustomNumSlots) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with end >= numSlots (custom 10000)";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for SLOTRANGE end: ADDR");
 
 }
 
@@ -523,7 +534,8 @@ TEST_F(ClusterSetTest, Error_MissingADDR) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail without ADDR";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Missing value for ADDR");
 
 }
 
@@ -539,7 +551,8 @@ TEST_F(ClusterSetTest, Error_InvalidADDR) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with invalid ADDR format";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for ADDR: invalid_address");
 
 }
 
@@ -556,7 +569,8 @@ TEST_F(ClusterSetTest, Error_MultipleADDR) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with multiple ADDR for same shard";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting ADDR for shard `shard1`");
 
 }
 
@@ -575,7 +589,8 @@ TEST_F(ClusterSetTest, Error_MultipleUNIXADDR) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with multiple UNIXADDR for same shard";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting UNIXADDR for shard `shard1`");
 
 }
 
@@ -592,7 +607,8 @@ TEST_F(ClusterSetTest, Error_MYIDNotFound) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail when MYID doesn't match any shard";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "MYID `nonexistent` does not correspond to any shard");
 
 }
 
@@ -609,7 +625,8 @@ TEST_F(ClusterSetTest, Error_UnexpectedArgument) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with unexpected argument";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Unexpected argument: `UNEXPECTED`");
 
 }
 
@@ -625,7 +642,8 @@ TEST_F(ClusterSetTest, Error_MissingSHARD) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail without SHARD keyword";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected `SHARD` but got `SLOTRANGE`");
 
 }
 
@@ -641,7 +659,8 @@ TEST_F(ClusterSetTest, Error_IncompleteSLOTRANGE_MissingEnd) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with incomplete SLOTRANGE";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for SLOTRANGE end: ADDR");
 
 }
 
@@ -657,7 +676,8 @@ TEST_F(ClusterSetTest, Error_RANGESCountMismatch_TooFew) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail when RANGES count doesn't match actual ranges";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected `SHARD` but got `(nil)`");
 
 }
 
@@ -674,7 +694,8 @@ TEST_F(ClusterSetTest, Error_ExtraArgumentsAfterRanges) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with extra arguments after ranges";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected end of command but got `EXTRA`");
 
 }
 
@@ -689,7 +710,8 @@ TEST_F(ClusterSetTest, Error_ZeroRANGES) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with RANGES = 0";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for RANGES: 0");
 
 }
 
@@ -705,7 +727,8 @@ TEST_F(ClusterSetTest, Error_MissingADDRValue) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with ADDR without value";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for ADDR: MASTER");
 
 }
 
@@ -722,7 +745,8 @@ TEST_F(ClusterSetTest, Error_MissingUNIXADDRValue) {
     uint32_t my_shard_idx = UINT32_MAX;
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
-    EXPECT_EQ(topo, nullptr) << "Should fail with UNIXADDR without value";
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "MYID `shard1` does not correspond to any shard");
 
 }
 
