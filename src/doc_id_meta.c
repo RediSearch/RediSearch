@@ -44,6 +44,13 @@ static void docIdMetaFree(const char *keyname, uint64_t meta) {
   rm_free(docIdMeta);
 }
 
+static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
+  REDISMODULE_NOT_USED(ctx);
+  REDISMODULE_NOT_USED(meta);
+  // We do not want to move the meta, as the docID will not have meaning in the destination DB
+  return 0;
+}
+
 #define INITIAL_DOCID_META_SIZE 10
 
 void DocIdMeta_Init(RedisModuleCtx *ctx) {
@@ -53,9 +60,9 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .flags = 0,
     .copy = (RedisModuleKeyMetaCopyFunc)docIdMetaCopy,
     .rename = NULL, // If NULL, meta is kept during rename
-    .move = NULL, // If NULL, meta is kept during move (MOVE between DB, need to make sure it is ignored because docID will not have meaning in other DB)
-    .unlink = NULL, // If NULL, meta is ignored during unlink
-    .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree, // Will need to free the DocIdMeta struct
+    .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove, // If NULL, meta is kept during move (MOVE between DB, need to make sure it is ignored because docID will not have meaning in other DB)
+    .unlink = NULL, // If NULL, meta is ignored during unlink. This is called when deattached before freeing. (While GIL is held)
+    .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree, // Will need to free the DocIdMeta struct (GIL is not held)
     // TODO(Joan): Ask clarification for these callbacks
     .defrag = NULL,
     .mem_usage = NULL,
