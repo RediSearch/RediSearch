@@ -3740,7 +3740,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 }
 
 int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  ProfileCommandHandlerImp(ctx, argv, argc, false);
+  return ProfileCommandHandlerImp(ctx, argv, argc, false);
 }
 
 int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
