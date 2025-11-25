@@ -3253,6 +3253,10 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
                          struct ConcurrentCmdCtx *cmdCtx);
 
 int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return DistAggregateCommandImp(ctx, argv, argc, false);
+}
+
+int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3279,10 +3283,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Coord callback
   ConcurrentCmdHandler dist_callback = RSExecDistAggregate;
 
-  bool isDebug = (RMUtil_ArgIndex("_FT.DEBUG", argv, 1) != -1);
   if (isDebug) {
-    argv++;
-    argc--;
     dist_callback = DEBUG_RSExecDistAggregate;
   }
 
@@ -3662,6 +3663,10 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return DistSearchCommandImp(ctx, argv, argc, false);
+}
+
+int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3687,10 +3692,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Coord callback
   void (*dist_callback)(void *) = DistSearchCommandHandler;
 
-  bool isDebug = (RMUtil_ArgIndex("_FT.DEBUG", argv, 1) != -1);
   if (isDebug) {
-    argv++;
-    argc--;
     dist_callback = DEBUG_DistSearchCommandHandler;
   }
 
@@ -3738,6 +3740,10 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  ProfileCommandHandlerImp(ctx, argv, argc, false);
+}
+
+int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
@@ -3756,10 +3762,10 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
 
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
-    return DistSearchCommand(ctx, argv, argc);
+    return DistSearchCommandImp(ctx, argv, argc, isDebug);
   }
   if (RMUtil_ArgExists("AGGREGATE", argv, 3, 2)) {
-    return DistAggregateCommand(ctx, argv, argc);
+    return DistAggregateCommandImp(ctx, argv, argc, isDebug);
   }
   return RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
 }

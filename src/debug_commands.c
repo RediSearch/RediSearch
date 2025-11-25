@@ -1515,7 +1515,7 @@ DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
     return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
   }
 
-  return DistSearchCommand(ctx, argv, argc);
+  return DistSearchCommandImp(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
@@ -1533,7 +1533,7 @@ DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
     return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
   }
 
-  return DistAggregateCommand(ctx, argv, argc);
+  return DistAggregateCommandImp(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(RSSearchCommandShard) {
@@ -1548,6 +1548,13 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
+}
+
+DEBUG_COMMAND(RSProfileCommandShard) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return RSProfileCommandImp(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
@@ -1565,7 +1572,7 @@ DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
     return RSProfileCommandImp(ctx, ++argv, --argc, true);
   }
 
-  return DistAggregateCommand(ctx, argv, argc);
+  return ProfileCommandHandlerImp(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(HybridCommand_DebugWrapper) {
@@ -2121,6 +2128,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"FT.HYBRID", HybridCommand_DebugWrapper},
                                {"_FT.HYBRID", HybridCommand_DebugWrapper}, // internal use only, in SA use FT.HYBRID
                                {"FT.PROFILE", ProfileCommandCommand_DebugWrapper},
+                               {"_FT.PROFILE", RSProfileCommandShard},
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.
