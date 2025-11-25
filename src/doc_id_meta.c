@@ -24,15 +24,9 @@ struct DocIdMeta {
 
 static int docIdMetaCopy(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   REDISMODULE_NOT_USED(ctx);
-  struct DocIdMeta *docIdMeta = (struct DocIdMeta *)meta;
-  if (docIdMeta) {
-    struct DocIdMeta *newDocIdMeta = rm_malloc(sizeof(struct DocIdMeta));
-    newDocIdMeta->size = docIdMeta->size;
-    newDocIdMeta->docId = array_new(uint64_t, docIdMeta->size);
-    memcpy(newDocIdMeta->docId, docIdMeta->docId, sizeof(uint64_t) * docIdMeta->size);
-    *meta = (uint64_t)newDocIdMeta;
-  }
-  return 1;
+  REDISMODULE_NOT_USED(meta);
+  // We do not want to copy the meta, as the docID will not have meaning in the destination DB, or the new key will get reindexed in KeySpaceNotification
+  return 0;
 }
 
 /* Free callback - called when metadata needs to be freed */
