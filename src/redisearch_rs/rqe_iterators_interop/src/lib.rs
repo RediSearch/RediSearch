@@ -25,7 +25,7 @@ use std::ptr;
 ///
 /// # Invariants
 ///
-/// 1. It is always safe to cast a raw [`QueryIterator`] pointer returned by [`RQEIteratorWrapper::new`]
+/// 1. It is always safe to cast a raw [`QueryIterator`] pointer returned by [`RQEIteratorWrapper::boxed_new`]
 ///    to an [`RQEIteratorWrapper`] pointer when invoking one of the callbacks stored in the header.
 pub struct RQEIteratorWrapper<E> {
     // The iterator header.
@@ -64,7 +64,7 @@ where
     ///
     /// # Safety
     ///
-    /// 1. The caller must ensure that the provided header was produced via [`RQEIteratorWrapper::new`].
+    /// 1. The caller must ensure that the provided header was produced via [`RQEIteratorWrapper::boxed_new`].
     /// 2. The caller must ensure that the provided header matches the expected Rust iterator type.
     pub const unsafe fn from_header(base: *mut QueryIterator) -> &'index mut RQEIteratorWrapper<I> {
         debug_assert!(!base.is_null());
