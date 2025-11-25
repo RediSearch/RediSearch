@@ -12,7 +12,9 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty};
+use crate::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
+};
 
 pub struct NotIterator<'index, I> {
     child: MaybeEmpty<I>,
@@ -23,9 +25,9 @@ pub struct NotIterator<'index, I> {
 }
 
 impl<'index, I> NotIterator<'index, I>
-    where
-    I: RQEIterator<'index> {
-
+where
+    I: RQEIterator<'index>,
+{
     pub const fn new(child: I, max_doc_id: t_docId) -> Self {
         Self {
             child: MaybeEmpty::new(child),
@@ -38,8 +40,9 @@ impl<'index, I> NotIterator<'index, I>
 }
 
 impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
-    where
-    I: RQEIterator<'index> {
+where
+    I: RQEIterator<'index>,
+{
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -66,9 +69,7 @@ impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
             // Accept current_id when:
             //  - child.last_doc_id > current_id, or
             //  - child is at EOF and current_id > child.last_doc_id().
-            if self.current_id < child_last
-                || (child_at_eof && self.current_id > child_last)
-            {
+            if self.current_id < child_last || (child_at_eof && self.current_id > child_last) {
                 self.result.doc_id = self.current_id;
                 return Ok(Some(&mut self.result));
             }
@@ -84,7 +85,6 @@ impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-
         debug_assert!(self.last_doc_id() < doc_id);
 
         if self.at_eof() {
@@ -96,7 +96,6 @@ impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
             self.current_id = self.max_doc_id;
             return Ok(None);
         }
-
 
         // Case 1: Child is ahead or at EOF - docId is not in child
         if self.child.last_doc_id() > doc_id || self.child.at_eof() {
@@ -110,7 +109,7 @@ impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
             match rc {
                 Some(SkipToOutcome::Found(_)) => {
                     // Found value - do not return
-                },
+                }
                 _ => {
                     // Not found - return
                     self.current_id = doc_id;
@@ -148,7 +147,6 @@ impl<'index, I> RQEIterator<'index> for NotIterator<'index, I>
     }
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-
         // Get child status
         let child_status = self.child.revalidate()?;
         if matches!(child_status, RQEValidateStatus::Aborted) {

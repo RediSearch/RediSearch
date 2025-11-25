@@ -9,12 +9,8 @@
 
 use inverted_index::RSIndexResult;
 use rqe_iterators::{
-    id_list::SortedIdList,
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList,
     not_iterator::NotIterator,
-    RQEIterator,
-    RQEIteratorError,
-    RQEValidateStatus,
-    SkipToOutcome,
 };
 
 mod c_mocks;
@@ -94,8 +90,6 @@ fn read_with_child_covering_full_range_yields_no_docs() {
 
     assert!(matches!(it.read(), Ok(None)));
 }
-
-
 
 // skip_to on ids below, between and inside child: Found vs NotFound semantics.
 #[test]
