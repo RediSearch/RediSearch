@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 rqe_iterators = { workspace = true, features = ["disable_sort_checks_in_idlist"] }
 inverted_index.workspace = true
+iterator_wrapper.workspace = true
 ffi.workspace = true
 
 [build-dependencies]

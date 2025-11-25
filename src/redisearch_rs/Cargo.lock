@@ -845,6 +845,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
+name = "iterator_wrapper"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "inverted_index",
+ "rqe_iterators",
+]
+
+[[package]]
 name = "iterators_ffi"
 version = "0.0.1"
 dependencies = [
@@ -852,6 +861,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "inverted_index",
+ "iterator_wrapper",
  "rqe_iterators",
 ]
 

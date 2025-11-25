@@ -7,11 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::wrapper::RQEIteratorWrapper;
 use ffi::{
     IteratorType_METRIC_ITERATOR, QueryIterator, RLookupKey, RLookupKeyHandle, RedisModule_Free,
     t_docId,
 };
+use iterator_wrapper::RQEIteratorWrapper;
 use rqe_iterators::metric::{MetricIterator, MetricIteratorSortedById, MetricType};
 
 #[unsafe(no_mangle)]

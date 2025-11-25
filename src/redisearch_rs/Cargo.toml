@@ -6,6 +6,7 @@ members = [
     "ffi",
     "inverted_index",
     "inverted_index_bencher",
+    "iterator_wrapper",
     "field",
     "fnv",
     "low_memory_thin_vec",
@@ -65,6 +66,7 @@ c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
 ffi = { path = "./ffi", default-features = false }
 fnv = { path = "./fnv" }
 inverted_index = { path = "./inverted_index" }
+iterator_wrapper = { path = "./iterator_wrapper" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }

@@ -41,7 +41,7 @@ where
     /// Create a new C-compatible wrapper around a Rust iterator.
     ///
     /// The wrapper is placed on the heap.
-    pub(crate) fn boxed_new(type_: ffi::IteratorType, inner: I) -> *mut QueryIterator {
+    pub fn boxed_new(type_: ffi::IteratorType, inner: I) -> *mut QueryIterator {
         let wrapper = Box::new(Self {
             header: QueryIterator {
                 type_,
@@ -66,9 +66,7 @@ where
     ///
     /// 1. The caller must ensure that the provided header was produced via [`RQEIteratorWrapper::new`].
     /// 2. The caller must ensure that the provided header matches the expected Rust iterator type.
-    pub(crate) const unsafe fn from_header(
-        base: *mut QueryIterator,
-    ) -> &'index mut RQEIteratorWrapper<I> {
+    pub const unsafe fn from_header(base: *mut QueryIterator) -> &'index mut RQEIteratorWrapper<I> {
         debug_assert!(!base.is_null());
         // SAFETY: Guaranteed by 1 + 2.
         unsafe {
