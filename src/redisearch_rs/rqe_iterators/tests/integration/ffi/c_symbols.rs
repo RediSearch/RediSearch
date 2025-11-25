@@ -68,6 +68,13 @@ macro_rules! stub_c_fn {
 //
 // You add those symbols to the list below... and you're done!
 // Still tedious, but faster.
+//
+// # Caveats
+//
+// The required list of symbols may vary depending on how the linked C libraries are compiled.
+// In particular, coverage runs may require extra symbols!
+// Kick off coverage via `./build.sh COV=1 FORCE RUN_RUST_TESTS` and then repeat the process
+// above using the corresponding test binaries.
 stub_c_fn! {
     fast_float_strtod,
     Obfuscate_Number,
@@ -77,4 +84,42 @@ stub_c_fn! {
     sdscat,
     sdscatfmt,
     sdscatlen,
+    nu_bytenlen,
+    nu_strtransformnlen,
+    nu_tolower,
+    nu_utf8_write,
+    nu_writenstr,
+    RedisModule_ClusterCanAccessKeysInSlot,
+    RedisModule_ClusterFreeSlotRanges,
+    RedisModule_ClusterGetLocalSlotRanges,
+    RedisModule_ClusterKeySlotC,
+    RedisModule_ClusterPropagateForSlotMigration,
+    RedisModule_ConfigGet,
+    RedisModule_ConfigGetBool,
+    RedisModule_ConfigGetEnum,
+    RedisModule_ConfigGetNumeric,
+    RedisModule_ConfigGetType,
+    RedisModule_ConfigIteratorCreate,
+    RedisModule_ConfigIteratorNext,
+    RedisModule_ConfigIteratorRelease,
+    RedisModule_ConfigSet,
+    RedisModule_ConfigSetBool,
+    RedisModule_ConfigSetEnum,
+    RedisModule_ConfigSetNumeric,
+    RedisModule_CreateStringFromLongDouble,
+    RedisModule_DefragRedisModuleDict,
+    RedisModule_GetSwapKeyMetadata,
+    RedisModule_IsKeyInRam,
+    RedisModule_LoadDefaultConfigs,
+    RedisModule_LoadLongDouble,
+    RedisModule_RegisterDefragFunc2,
+    RedisModule_ReplyWithLongDouble,
+    RedisModule_SaveLongDouble,
+    RedisModule_SetDataTypeExtensions,
+    RedisModule_SetSwapKeyMetadata,
+    RedisModule_ShardingGetKeySlot,
+    RedisModule_ShardingGetSlotRange,
+    RedisModule_StringToLongDouble,
+    RedisModule_SwapPrefetchKey,
+    RedisModule_UnsubscribeFromKeyspaceEvents,
 }
