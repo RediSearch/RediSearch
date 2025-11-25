@@ -425,41 +425,6 @@ static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, R
   return &it->base.base;
 }
 
-QueryIterator *NewInvIndIterator_NumericFull(const InvertedIndex *idx) {
-  FieldFilterContext fieldCtx = {
-    .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
-    .predicate = FIELD_EXPIRATION_DEFAULT,
-  };
-  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
-  return NewInvIndIterator_NumericRange(idx, NewNumericResult(), NULL, &fieldCtx, false, NULL, &decoderCtx);
-}
-
-QueryIterator *NewInvIndIterator_TermFull(const InvertedIndex *idx) {
-  FieldFilterContext fieldCtx = {
-    .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
-    .predicate = FIELD_EXPIRATION_DEFAULT,
-  };
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
-  RSIndexResult *res = NewTokenRecord(NULL, 1);
-  res->freq = 1;
-  res->fieldMask = RS_FIELDMASK_ALL;
-  return NewInvIndIterator(idx, res, &fieldCtx, false, NULL, &decoderCtx, TermCheckAbort);
-}
-
-QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagIndex *tagIdx) {
-  FieldFilterContext fieldCtx = {
-    .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
-    .predicate = FIELD_EXPIRATION_DEFAULT,
-  };
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
-  RSIndexResult *res = NewTokenRecord(NULL, 1);
-  res->freq = 1;
-  res->fieldMask = RS_FIELDMASK_ALL;
-  TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
-  it->tagIdx = tagIdx;
-  return InitInvIndIterator(&it->base, idx, res, &fieldCtx, false, NULL, &decoderCtx, TagCheckAbort);
-}
-
 QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
                                               const NumericFilter *flt, const NumericRangeTree *rt, double rangeMin, double rangeMax) {
   IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
@@ -495,7 +460,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
                                            RSQueryTerm *term, double weight) {
   FieldFilterContext fieldCtx = {
     .field = fieldMaskOrIndex,
-    .predicate = FIELD_EXPIRATION_DEFAULT,
+    .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
@@ -522,7 +487,7 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
 
   FieldFilterContext fieldCtx = {
     .field = fieldMaskOrIndex,
-    .predicate = FIELD_EXPIRATION_DEFAULT,
+    .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
@@ -549,7 +514,7 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight) {
   FieldFilterContext fieldCtx = {
     .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
-    .predicate = FIELD_EXPIRATION_DEFAULT,
+    .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
   RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
@@ -564,7 +529,7 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex) {
   FieldFilterContext fieldCtx = {
     .field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex},
-    .predicate = FIELD_EXPIRATION_MISSING, // Missing predicate
+    .predicate = FIELD_EXPIRATION_PREDICATE_MISSING, // Missing predicate
   };
   IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
   RSIndexResult *record = NewVirtualResult(0.0, RS_FIELDMASK_ALL);

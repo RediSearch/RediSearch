@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! ID-list iterator implementation
+//! Supporting types for [`IdList`].
 use std::cmp::min;
 
 use ffi::t_docId;

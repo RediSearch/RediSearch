@@ -2699,19 +2699,17 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     if (rCtx->warning) {
       RedisModule_Reply_Array(reply);
       // Iterate over warning array and track warnings
-
       size_t len = MRReply_Length(rCtx->warning);
       for (size_t i = 0; i < len; ++i) {
-        // Track warnings in global statistics
+        // Extract warning string and track it
         MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
         const char *warning_str = MRReply_String(currentWarning, NULL);
         QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
         QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
 
-        // Reply with the warning
+        // Reply warning
         MR_ReplyWithMRReply(reply, currentWarning);
       }
-
       RedisModule_Reply_ArrayEnd(reply);
     } else if (req->queryOOM) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);

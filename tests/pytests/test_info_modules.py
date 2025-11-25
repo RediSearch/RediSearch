@@ -1423,7 +1423,7 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
   for shardId in range(1, env.shardsCount + 1):
     shard_conn = env.getConnection(shardId)
     _verify_metrics_not_changed(env, shard_conn, before_info_dicts[shardId], tested_in_this_test)
-      
+
 @skip(cluster=False)
 def test_warnings_metric_count_oom_cluster_in_shards_resp3():
   # Test OOM warnings in shards only with RESP3
