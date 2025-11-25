@@ -21,96 +21,152 @@ jobs:
           BASE_SHA: ${{ github.event.merge_group.base_sha }}
           PR_NUMBER: ${{ github.event.merge_group.head_ref }}
           CURRENT_RUN_ID: ${{ github.run_id }}
+        shell: python
         run: |
-          # Extract PR number from head_ref (format: refs/pull/NUMBER/merge or gh-readonly-queue/main/pr-NUMBER-...)
-          if [[ "$PR_NUMBER" =~ refs/pull/([0-9]+)/merge ]]; then
-            PR_NUM="${BASH_REMATCH[1]}"
-          elif [[ "$PR_NUMBER" =~ pr-([0-9]+)- ]]; then
-            PR_NUM="${BASH_REMATCH[1]}"
-          else
-            echo "Could not extract PR number from: $PR_NUMBER"
-            echo "resubmit=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          echo "Checking PR #$PR_NUM"
-          echo "Current HEAD SHA: $HEAD_SHA"
-          echo "Current BASE SHA: $BASE_SHA"
+          import os
+          import re
+          import json
+          import subprocess
+          import sys
+
+          def run_gh_api(endpoint, jq_filter=None):
+              """Run gh api command and return the result."""
+              cmd = [
+                  'gh', 'api',
+                  '-H', 'Accept: application/vnd.github+json',
+                  '-H', 'X-GitHub-Api-Version: 2022-11-28',
+                  endpoint
+              ]
+              if jq_filter:
+                  cmd.extend(['--jq', jq_filter])
+
+              result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+              return result.stdout.strip()
+
+          def set_output(name, value):
+              """Set GitHub Actions output using EOF delimiter format."""
+              github_output = os.getenv('GITHUB_OUTPUT')
+              if not github_output:
+                  print(f"::set-output name={name}::{value}")
+                  return
+              with open(github_output, 'a') as f:
+                  f.write(f"{name}<<EOF\n")
+                  f.write(f"{value}\n")
+                  f.write("EOF\n")
+
+          # Get environment variables
+          repo = os.environ['REPO']
+          head_sha = os.environ['HEAD_SHA']
+          base_sha = os.environ['BASE_SHA']
+          pr_number_ref = os.environ['PR_NUMBER']
+          current_run_id = int(os.environ['CURRENT_RUN_ID'])
+
+          # Extract PR number from head_ref
+          pr_num = None
+          if match := re.search(r'refs/pull/(\d+)/merge', pr_number_ref):
+              pr_num = match.group(1)
+          elif match := re.search(r'pr-(\d+)-', pr_number_ref):
+              pr_num = match.group(1)
+
+          if not pr_num:
+              print(f"Could not extract PR number from: {pr_number_ref}")
+              set_output('resubmit', 'false')
+              sys.exit(0)
+
+          print(f"Checking PR #{pr_num}")
+          print(f"Current HEAD SHA: {head_sha}")
+          print(f"Current BASE SHA: {base_sha}")
 
           # The merge queue creates a NEW temporary merge commit each time,
           # so head_sha will be different even for the same PR commits.
           # Hence, we should check the PR's actual head commit (before merge).
 
-          # Get the PR's actual head SHA (the last commit on the PR branch)
-          PR_HEAD_SHA=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.head.sha')
-          echo "PR's actual HEAD SHA: $PR_HEAD_SHA"
+          # Get the PR's actual head SHA
+          pr_head_sha = run_gh_api(f"/repos/{repo}/pulls/{pr_num}", '.head.sha')
+          print(f"PR's actual HEAD SHA: {pr_head_sha}")
 
           # Get the list of previous workflow runs for this merge queue workflow
-          # Look for runs from the same PR that have failed/cancelled
-          echo "Searching for previous merge_group runs for PR #$PR_NUM..."
+          print(f"Searching for previous merge_group runs for PR #{pr_num}...")
 
-          ALL_RUNS=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/$REPO/actions/runs?event=merge_group&per_page=100" \
-            --jq ".workflow_runs[] | select(.id != $CURRENT_RUN_ID) | {id: .id, head_sha: .head_sha, conclusion: .conclusion, head_ref: .head_branch}" | jq -s '.')
+          runs_data = run_gh_api(f"/repos/{repo}/actions/runs?event=merge_group&per_page=100")
+          all_runs = json.loads(runs_data)
 
-          echo "Recent merge_group runs:"
-          echo "$ALL_RUNS" | jq -c '.[]'
+          # Filter runs: exclude current run, extract relevant fields
+          filtered_runs = [
+              {
+                  'id': run['id'],
+                  'head_sha': run['head_sha'],
+                  'conclusion': run['conclusion'],
+                  'head_ref': run['head_branch']
+              }
+              for run in all_runs.get('workflow_runs', [])
+              if run['id'] != current_run_id
+          ]
 
-          # Look for previous runs from the same PR (by matching PR number in head_ref)
-          # Use regex anchors to ensure exact PR number match (e.g., pr-12- won't match pr-123-)
-          PREVIOUS_RUN_DATA=$(echo "$ALL_RUNS" | jq -c ".[] | select(.head_ref | test(\"(^|/)pr-${PR_NUM}-\")) | select(.conclusion == \"failure\" or .conclusion == \"cancelled\")" | head -1)
+          print("Recent merge_group runs:")
+          for run in filtered_runs:
+              print(json.dumps(run, separators=(',', ':')))
 
-          if [[ -z "$PREVIOUS_RUN_DATA" ]]; then
-            echo "No previous failed/cancelled runs found for PR #$PR_NUM"
-            echo "resubmit=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+          # Look for previous runs from the same PR
+          # Use regex to ensure exact PR number match (e.g., pr-12- won't match pr-123-)
+          pattern = re.compile(rf'(^|/)pr-{pr_num}-')
+          previous_run_data = None
 
-          PREVIOUS_RUN_ID=$(echo "$PREVIOUS_RUN_DATA" | jq -r '.id // empty')
-          echo "Found previous failed/cancelled run ID: $PREVIOUS_RUN_ID"
+          for run in filtered_runs:
+              if pattern.search(run['head_ref']) and run['conclusion'] in ['failure', 'cancelled']:
+                  previous_run_data = run
+                  break
+
+          if not previous_run_data:
+              print(f"No previous failed/cancelled runs found for PR #{pr_num}")
+              set_output('resubmit', 'false')
+              sys.exit(0)
+
+          previous_run_id = previous_run_data['id']
+          print(f"Found previous failed/cancelled run ID: {previous_run_id}")
 
           # Now check if the PR's head SHA has changed since that previous run
-          # Get the PR's head SHA at the time of the previous run by fetching the run details
-          PREVIOUS_RUN_DETAILS=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/$REPO/actions/runs/$PREVIOUS_RUN_ID")
+          # The merge queue creates temporary merge commits (merging PR into base branch)
+          # The merge commit has 2 parents: [0] = base branch, [1] = PR head
+          # We can extract the PR head SHA from the previous run's merge commit parents
 
-          # Extract the PR head SHA from the previous run's jobs
-          # The merge queue creates a merge commit, but we need to check the actual PR commits
-          # We'll get the commit list from the previous run and find the PR's head commit
-          PREVIOUS_RUN_CREATED_AT=$(echo "$PREVIOUS_RUN_DETAILS" | jq -r '.created_at')
-          echo "Previous run was created at: $PREVIOUS_RUN_CREATED_AT"
+          previous_merge_sha = previous_run_data['head_sha']
+          print(f"Previous run merge commit SHA: {previous_merge_sha}")
 
-          # Get the PR's commit history and find what the head SHA was at the time of the previous run
-          # We'll check if the current PR head SHA existed before the previous run
-          COMMIT_DATE=$(gh api "/repos/$REPO/commits/$PR_HEAD_SHA" --jq '.commit.committer.date')
-          echo "Current PR HEAD commit date: $COMMIT_DATE"
+          # Get the parent commits of the previous merge commit
+          # The second parent is the PR head at the time of the previous run
+          previous_pr_head_sha = run_gh_api(
+              f"/repos/{repo}/commits/{previous_merge_sha}",
+              '.parents[1].sha // empty'
+          )
 
-          # Compare dates: if the current PR head commit is newer than the previous run, there were new commits
-          if [[ "$COMMIT_DATE" > "$PREVIOUS_RUN_CREATED_AT" ]]; then
-            echo "New commits detected! Current HEAD ($PR_HEAD_SHA) was committed after the previous run."
-            echo "resubmit=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          echo "Found previous failed/cancelled run for PR #$PR_NUM"
-          echo "Previous run ID: $PREVIOUS_RUN_ID"
-          echo "No new commits detected since the previous run!"
-          echo "This is a resubmission without new commits!"
-          echo "resubmit=true" >> $GITHUB_OUTPUT
-          echo "pr_number=$PR_NUM" >> $GITHUB_OUTPUT
+          if not previous_pr_head_sha:
+              print("Warning: Could not determine previous PR head SHA, assuming no new commits")
+              previous_pr_head_sha = "unknown"
+          else:
+              print(f"Previous PR HEAD SHA: {previous_pr_head_sha}")
+
+          # Compare the PR head SHAs directly
+          if pr_head_sha != previous_pr_head_sha:
+              print(f"New commits detected! PR HEAD changed from {previous_pr_head_sha} to {pr_head_sha}")
+              set_output('resubmit', 'false')
+              sys.exit(0)
+
+          print(f"Found previous failed/cancelled run for PR #{pr_num}")
+          print(f"Previous run ID: {previous_run_id}")
+          print("No new commits detected since the previous run!")
+          print("This is a resubmission without new commits!")
+          set_output('resubmit', 'true')
+          set_output('pr_number', pr_num)
 
           # Get PR details for the notification
-          PR_TITLE=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.title')
-          PR_URL=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.html_url')
-          PR_AUTHOR=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.user.login')
-          
-          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-          echo "pr_author=$PR_AUTHOR" >> $GITHUB_OUTPUT
+          pr_title = run_gh_api(f"/repos/{repo}/pulls/{pr_num}", '.title')
+          pr_url = run_gh_api(f"/repos/{repo}/pulls/{pr_num}", '.html_url')
+          pr_author = run_gh_api(f"/repos/{repo}/pulls/{pr_num}", '.user.login')
+
+          set_output('pr_title', pr_title)
+          set_output('pr_url', pr_url)
+          set_output('pr_author', pr_author)
 
       - name: Notify Slack about resubmission
         if: steps.check.outputs.resubmit == 'true'
@@ -120,7 +176,8 @@ jobs:
         with:
           payload: |
             {
-              "PR": "${{ steps.check.outputs.pr_url }} - ${{ toJson(steps.check.outputs.pr_title) }}",
+              "PR": "${{ steps.check.outputs.pr_url }}",
+              "PR title": "${{ toJson(steps.check.outputs.pr_title) }}",
               "Author": "${{ toJson(steps.check.outputs.pr_author) }}",
               "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
