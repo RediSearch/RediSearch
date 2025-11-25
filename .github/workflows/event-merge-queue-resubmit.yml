@@ -116,11 +116,21 @@ jobs:
           # Only consider completed runs (conclusion is not None)
           # Note: conclusion can be None/null if the workflow is still running or queued
           pattern = re.compile(rf'(^|/)pr-{pr_num}-')
+          print(f"Looking for pattern: (^|/)pr-{pr_num}-")
           previous_run_data = None
 
           for run in filtered_runs:
-              if pattern.search(run['head_ref']) and run['conclusion'] in ['failure', 'cancelled']:
+              # Check if this run matches our PR
+              matches_pr = pattern.search(run['head_ref']) if run['head_ref'] else False
+              is_failed_or_cancelled = run['conclusion'] in ['failure', 'cancelled'] if run['conclusion'] else False
+
+              print(f"  Run {run['id']}: ref='{run['head_ref']}', "
+                    f"matches_pr={bool(matches_pr)}, conclusion='{run['conclusion']}', "
+                    f"is_failed_or_cancelled={is_failed_or_cancelled}")
+
+              if matches_pr and is_failed_or_cancelled:
                   previous_run_data = run
+                  print(f"  ✓ Found matching previous run!")
                   break
 
           if not previous_run_data:
