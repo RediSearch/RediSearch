@@ -40,7 +40,7 @@ void MRClusterTopology_SortShards(MRClusterTopology *topo) {
   for (size_t i = 1; i < topo->numShards; i++) {
     MRClusterShard key = topo->shards[i];
     size_t j = i;
-    while (j > 0 && topo->shards[j - 1].node.endpoint.port > key.node.endpoint.port) {
+    while (j > 0 && strcmp(topo->shards[j - 1].node.id, key.node.id) > 0) {
       topo->shards[j] = topo->shards[j - 1];
       j--;
     }
