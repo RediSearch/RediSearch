@@ -168,16 +168,13 @@ jobs:
               previous_pr_head_sha = parents[1]['sha']
               print(f"Previous PR HEAD SHA (from merge parent[1]): {previous_pr_head_sha}")
           elif len(parents) == 1:
-              # Not a merge commit - might be a squash or the PR head itself
-              # In this case, the commit itself might be the PR head
-              print("Warning: Previous run commit is not a merge commit (only 1 parent)")
-              print("This might happen with squash merges or if the merge queue behavior changed")
-              # We can't reliably determine the previous PR head, so we'll be conservative
-              # and NOT alert (assume there might be new commits)
-              print("Cannot reliably compare - skipping resubmit detection")
-              set_output('resubmit', 'false')
-              sys.exit(0)
+              # Only 1 parent - the head_sha itself IS the PR head commit
+              # This happens when the merge queue uses the PR head directly instead of creating a merge commit
+              print("Previous run commit has only 1 parent - head_sha is the PR head itself")
+              previous_pr_head_sha = previous_merge_sha
+              print(f"Previous PR HEAD SHA (using head_sha directly): {previous_pr_head_sha}")
           else:
+              # No parents - this is unexpected
               print("Error: Previous run commit has no parents - this is unexpected")
               print("Cannot reliably compare - skipping resubmit detection")
               set_output('resubmit', 'false')
