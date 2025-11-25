@@ -245,7 +245,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
       // Track timeout error in global statistics
-      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+      QueryErrorsGlobalStats_UpdateError(QUERY_ETIMEDOUT, 1, COORD_ERR_WARN);
       ReplyWithTimeoutError(reply);
       goto done_err;
     }

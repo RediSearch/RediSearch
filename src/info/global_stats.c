@@ -127,7 +127,7 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coo
     case QUERY_EPARSEARGS:
       INCR_BY(queries_errors->arguments, toAdd);
       break;
-    case QUERY_ERROR_CODE_TIMED_OUT:
+    case QUERY_ETIMEDOUT:
       INCR_BY(queries_errors->timeout, toAdd);
       break;
   }

@@ -176,3 +176,40 @@ bool QueryError_HasQueryOOMWarning(const QueryError *status) {
 void QueryError_SetQueryOOMWarning(QueryError *status) {
   status->_queryOOM = true;
 }
+
+const char *QueryWarningCode_Strerror(QueryWarningCode code) {
+  if (code == QUERY_WARNING_CODE_OK) {
+    return "Success (not an warning)";
+  }
+#define X(N, M)    \
+  if (code == N) { \
+    return M;      \
+  }
+  QUERY_XWARNS(X)
+#undef X
+  return "Unknown warning code";
+}
+
+QueryWarningCode QueryWarningCode_GetCodeFromMessage(const char *message) {
+  if (!message) {
+    return QUERY_WARNING_CODE_OK;
+  }
+
+  if (!strcmp(message, QueryWarningCode_Strerror(QUERY_WARNING_CODE_TIMED_OUT))) {
+    return QUERY_WARNING_CODE_TIMED_OUT;
+  }
+
+  if (!strcmp(message, QueryWarningCode_Strerror(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS))) {
+    return QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS;
+  }
+
+  if (!strcmp(message, QueryWarningCode_Strerror(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD))) {
+    return QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD;
+  }
+
+  if (!strcmp(message, QueryWarningCode_Strerror(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD))) {
+    return QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD;
+  }
+
+  return QUERY_WARNING_CODE_OK;
+}

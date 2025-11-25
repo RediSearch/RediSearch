@@ -3023,7 +3023,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       // If we timed out on strict timeout policy, return a timeout error
       if (should_return_timeout_error(req)) {
         // Track timeout error in global statistics
-        QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+        QueryErrorsGlobalStats_UpdateError(QUERY_ETIMEDOUT, 1, COORD_ERR_WARN);
         RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
         goto cleanup;
       }
@@ -3047,7 +3047,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       // If we timed out on strict timeout policy, return a timeout error
       if (should_return_timeout_error(req)) {
         // Track timeout error in global statistics
-        QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+        QueryErrorsGlobalStats_UpdateError(QUERY_ETIMEDOUT, 1, COORD_ERR_WARN);
         RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
         goto cleanup;
       }
