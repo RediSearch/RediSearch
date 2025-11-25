@@ -185,11 +185,15 @@ def _test_withcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 11], 25, 11),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50], 25, 25),
 
-        # # WITHCOUNT + ADDSCORES
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES'], docs, 10),
+        # WITHCOUNT + ADDSCORES
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES'], docs, docs),
 
-        # # WITHCOUNT + ADDSCORES + LIMIT
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50], docs, 50)
+        # WITHCOUNT + ADDSCORES + SORTBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'], docs, 10),
+
+        # WITHCOUNT + ADDSCORES + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50], docs, 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 10, 50], docs, 50),
     ]
 
     for query, expected_total_results, expected_results in queries_and_results:
@@ -242,7 +246,14 @@ def _test_withoutcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'], 10),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], 10), # crash
 
-        # # WITHOUTCOUNT + SORTBY + LIMIT
+        # WITHOUTCOUNT + SORTBY + MAX
+        # total_results = docs, length of results = MAX
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title', 'MAX', 3], 3),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price', 'MAX', 4], 4),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title', 'MAX', 30], 30),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price', 'MAX', 40], 40),
+
+        # WITHOUTCOUNT + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50], 50),
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@price', 'LIMIT', 0, 50], 50),
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, int(docs/2)], int(docs/2)),
@@ -250,6 +261,39 @@ def _test_withoutcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 10, 50], 50),
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 100, docs], docs - 100),
         (['FT.AGGREGATE', 'idx', '@price:[1, 100]', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, docs], 100),
+
+        # WITHOUTCOUNT + SORTBY + MAX + LIMIT
+        # total_results = docs, length of results = LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title', 'MAX', 3, 'LIMIT', 0, 50], 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title', 'MAX', docs*2, 'LIMIT', 0, 50], 50),
+
+        # WITHOUTCOUNT + LOAD
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@title'], docs),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@price'], docs),
+
+        # WITHOUTCOUNT + LOAD + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@title', 'LIMIT', 0, 50], 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@title', 'LIMIT', 100, docs], docs - 100),
+
+        # WITHOUTCOUNT + GROUPBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand'], 25),
+
+        # WITHOUTCOUNT + GROUPBY + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 0, 12], 12),
+
+        # WITHOUTCOUNT + GROUPBY + SORTBY + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 11], 11),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50], 25),
+
+        # WITHOUTCOUNT + ADDSCORES
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES'], docs),
+
+        # WITHOUTCOUNT + ADDSCORES + SORTBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'], 10),
+
+        # WITHOUTCOUNT + ADDSCORES + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES', 'LIMIT', 0, 50], 50),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES', 'LIMIT', 10, 50], 50),
     ]
 
     for query, expected_results in queries_and_results:
@@ -385,12 +429,26 @@ def _test_profile(protocol):
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
 
-        # # WITHCOUNT + ADDSCORES
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES'],
-        #  ['Index', 'Sync Depleter'],
-        #  ['Index'],
-        #  [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']],
-        #  [['Index'], ['Network']]),
+        # WITHCOUNT + ADDSCORES
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES'],
+         ['Index', 'Scorer', 'Sync Depleter'],
+         ['Index', 'Scorer'],
+         [['Index', 'Scorer', 'Sync Depleter'], ['Network', 'Sync Depleter']],
+         [['Index', 'Scorer'], ['Network']]),
+
+        # WITHCOUNT + ADDSCORES + SORTBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'],
+         ['Index', 'Scorer', 'Sorter'],
+         ['Index', 'Scorer', 'Sorter'],
+         [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']],
+         [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
+
+        # WITHCOUNT + ADDSCORES + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50],
+         ['Index', 'Scorer', 'Sync Depleter', 'Pager/Limiter'],
+         ['Index', 'Scorer', 'Sync Depleter', 'Pager/Limiter'],
+         [['Index', 'Scorer', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
+         [['Index', 'Scorer', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
 
         # ----------------------------------------------------------------------
         # WITHOUTCOUNT
@@ -476,6 +534,28 @@ def _test_profile(protocol):
          ['Index', 'Grouper', 'Sorter'],
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
+
+        # WITHOUTCOUNT + ADDSCORES
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES'],
+         ['Index', 'Scorer'],
+         ['Index', 'Scorer'],
+         [['Index', 'Scorer'], ['Network']],
+         [['Index', 'Scorer'], ['Network']]),
+
+        # WITHOUTCOUNT + ADDSCORES + SORTBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'],
+         ['Index', 'Scorer', 'Sorter'],
+         ['Index', 'Scorer', 'Sorter'],
+         [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']],
+         [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
+
+        # WITHOUTCOUNT + ADDSCORES + LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES', 'LIMIT', 0, 50],
+         ['Index', 'Scorer', 'Pager/Limiter'],
+         ['Index', 'Scorer', 'Pager/Limiter'],
+         [['Index', 'Scorer', 'Pager/Limiter'], ['Network', 'Pager/Limiter']],
+         [['Index', 'Scorer', 'Pager/Limiter'], ['Network', 'Pager/Limiter']]),
+
     ]
 
     for (query, resp2_standalone, resp3_standalone, resp2_cluster,
@@ -518,6 +598,8 @@ def test_withcursor(env):
     invalid_queries = [
         ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', 10],
         ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 10, 'WITHCOUNT'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'WITHCOUNT'],
     ]
     error_message = 'WITHCURSOR is not supported when using FT.AGGREGATE and WITHCOUNT'
     for query in invalid_queries:
@@ -539,6 +621,8 @@ def _test_pagers(protocol):
         ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'],
         ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'SORTBY', 1, '@title'],
         ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'GROUPBY', 1, '@brand'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LOAD', 1, '@title'],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LOAD', 1, '@title', 'SORTBY', 2, '@price', 'DESC'],
     ]
     for query in queries:
         limit = 6
