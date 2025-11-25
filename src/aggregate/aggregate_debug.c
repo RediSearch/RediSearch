@@ -105,7 +105,6 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     PipelineAddCrash(&debug_req->r);
   }
 
-
   // Handle timeout
   if (AC_IsInitialized(&timeoutArgs)) {
     unsigned long long results_count = -1;
@@ -141,8 +140,11 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     // If it is set - if we are in a cluster coordinator - do nothing
     // If it is not set - if we are not cluster coordinator - do nothing
     // This can be checked by comparing isClusterCoord(debug_req) and internal_only
+    // #####
+    // ##### TO DO REVERT FIX MOVE TO Another PR!!!
+    // #######
     if ((debug_req->r.reqflags & QEXEC_F_IS_AGGREGATE) &&
-          isClusterCoord(debug_req) == internal_only) {
+          isClusterCoord(debug_req) && internal_only) {
       return REDISMODULE_OK;
     }
 

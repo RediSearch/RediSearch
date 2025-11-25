@@ -3737,7 +3737,6 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
@@ -3753,7 +3752,7 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     // There is only one shard in the cluster. We can handle the command locally.
     // We must first check that we don't have a cursor, as the local command handler allows cursors
     // for multi-shard clusters support.
-    return RSProfileCommand(ctx, argv, argc);
+    return RSProfileCommandImp(ctx, argv, argc, false);
   }
 
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
