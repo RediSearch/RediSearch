@@ -213,6 +213,12 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
       continue;
     }
 
+    // Ignore shards with no slot ranges (like replicas)
+    if (array_len(sh->slotRanges) == 0) {
+      dictDelete(shards, shardIDStr);
+      continue;
+    }
+
     // Verify mandatory arguments (at least on first appearance)
     if (!sh->node.endpoint.host) {
       ERROR_MISSING("ADDR");

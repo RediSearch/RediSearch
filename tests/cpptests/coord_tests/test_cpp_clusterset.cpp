@@ -324,6 +324,27 @@ TEST_F(RedisEnterpriseTest, ReplicasWithMultipleRanges) {
     MRClusterTopology_Free(topo);
 }
 
+TEST_F(RedisEnterpriseTest, MissingSLOTRANGE) {
+    std::vector<std::string> args = {
+        "FT.CLUSTERSET",
+        "MYID", "shard1",
+        "RANGES", "2",
+        "SHARD", "shard1", "SLOTRANGE", "0", "1000", "ADDR", "127.0.0.1:6379", "MASTER",
+        "SHARD", "shard2", "ADDR", "127.0.0.1:6379", "MASTER"  // Missing SLOTRANGE - should be ignored
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    ASSERT_NE(topo, nullptr);
+    EXPECT_EQ(topo->numShards, 1) << "Should only have 1 valid shard";
+    EXPECT_STREQ(topo->shards[0].node.id, "shard1");
+
+    MRClusterTopology_Free(topo);
+
+}
+
 // ============================================================================
 // Error path tests
 // ============================================================================
@@ -539,22 +560,6 @@ TEST_F(RedisEnterpriseTest, Error_MissingSHARD) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr) << "Should fail without SHARD keyword";
-
-}
-
-TEST_F(RedisEnterpriseTest, Error_MissingSLOTRANGE) {
-    std::vector<std::string> args = {
-        "FT.CLUSTERSET",
-        "MYID", "shard1",
-        "RANGES", "1",
-        "SHARD", "shard1", "ADDR", "127.0.0.1:6379", "MASTER"  // Missing SLOTRANGE
-    };
-
-    ArgvList argv(ctx, args);
-    uint32_t my_shard_idx = UINT32_MAX;
-    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
-
-    EXPECT_EQ(topo, nullptr) << "Should fail without SLOTRANGE";
 
 }
 
