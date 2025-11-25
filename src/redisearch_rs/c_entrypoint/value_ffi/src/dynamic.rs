@@ -227,6 +227,7 @@ pub mod opaque {
         use crate::dynamic::DynRsValuePtr;
 
         #[repr(C, align(8))]
+        #[derive(Clone, Copy)]
         pub struct OpaqueDynRsValuePtr(Size<16>);
 
         // Safety: `OpaqueDynRsValuePtr` is defined as a `MaybeUninit` slice of

@@ -504,6 +504,34 @@ void RsValue_DecrRef(struct RsValuePtr v);
 struct RsValuePtr RsValue_Dereference(struct RsValuePtr v);
 
 /**
+ * Convert `dst` to a reference to `src`. If `src` is exclusive,
+ * it gets converted to a shared value first.
+ *
+ * # Safety
+ * - (1) `dst` must be non-null.
+ * - (2) The `RsValue` `dst` points to must originate from one of the `RsValue` constructors,
+ *   i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
+ *   or [`RsValue_NullStatic`].
+ * - (3) `src` must originate from a call to [`RsValue_DynPtr`].
+ */
+void RsValue_MakeReference(struct RsValue *dst, struct RsValuePtr src);
+
+/**
+ * Convert `dst` to a reference to `src`, *without incrementing the reference count of `src`*.
+ * If `src` is exclusive, it gets converted to a shared value first.
+ *
+ * # Safety
+ * - (1) `dst` must be non-null.
+ * - (2) The `RsValue` `dst` points to must originate from one of the `RsValue` constructors,
+ *   i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
+ *   or [`RsValue_NullStatic`].
+ * - (3) `src` must originate from a call to [`RsValue_DynPtr`].
+ * - (4) `src` is invalid after a call to this function, and must not be used after
+ *   being passed to this function.
+ */
+void RsValue_MakeOwnReference(struct RsValue *dst, struct RsValuePtr src);
+
+/**
  * Obtain a dynamic pointer to the value. This pointer is different from
  * a pointer to an `RsValue`, which in case of a shared value would
  * require dereferencing twice in order to reach the value itself.

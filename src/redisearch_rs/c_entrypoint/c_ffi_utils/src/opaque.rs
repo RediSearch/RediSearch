@@ -11,6 +11,7 @@ use std::ptr::NonNull;
 
 /// A type with size `N`.
 #[repr(transparent)]
+#[derive(Clone, Copy)]
 pub struct Size<const N: usize>(std::mem::MaybeUninit<[u8; N]>);
 
 /// Marker trait that signals a type can be safely transmuted from

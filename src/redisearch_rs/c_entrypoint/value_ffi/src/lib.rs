@@ -716,6 +716,78 @@ pub unsafe extern "C" fn RsValue_Dereference(v: OpaqueDynRsValuePtr) -> OpaqueDy
     v_ptr.into_opaque()
 }
 
+/// Convert `dst` to a reference to `src`. If `src` is exclusive,
+/// it gets converted to a shared value first.
+///
+/// # Safety
+/// - (1) `dst` must be non-null.
+/// - (2) The `RsValue` `dst` points to must originate from one of the `RsValue` constructors,
+///   i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
+///   or [`RsValue_NullStatic`].
+/// - (3) `src` must originate from a call to [`RsValue_DynPtr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_MakeReference(
+    dst: Option<NonNull<OpaqueDynRsValue>>,
+    src: OpaqueDynRsValuePtr,
+) {
+    // Safety: caller must ensure (1)
+    let dst = unsafe { expect_unchecked!(dst) };
+    // Safety: caller must ensure (2)
+    let dst = unsafe { DynRsValue::from_opaque_non_null(dst) };
+
+    // Safety: caller must ensure (3)
+    let src = unsafe { DynRsValuePtr::from_opaque(src) };
+    // Safety: caller must ensure (3)
+    let src = unsafe { apply_with_dyn_ptr!(src, |src| { src.to_shared() }) };
+
+    dst.to_reference(src);
+}
+
+/// Convert `dst` to a reference to `src`, *without incrementing the reference count of `src`*.
+/// If `src` is exclusive, it gets converted to a shared value first.
+///
+/// # Safety
+/// - (1) `dst` must be non-null.
+/// - (2) The `RsValue` `dst` points to must originate from one of the `RsValue` constructors,
+///   i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
+///   or [`RsValue_NullStatic`].
+/// - (3) `src` must originate from a call to [`RsValue_DynPtr`].
+/// - (4) `src` is invalid after a call to this function, and must not be used after
+///   being passed to this function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RsValue_MakeOwnReference(
+    dst: Option<NonNull<OpaqueDynRsValue>>,
+    src: OpaqueDynRsValuePtr,
+) {
+    // Safety: caller must ensure (1)
+    let dst = unsafe { expect_unchecked!(dst) };
+    // Safety: caller must ensure (2)
+    let dst = unsafe { DynRsValue::from_opaque_non_null(dst) };
+
+    // Safety: caller must ensure (3)
+    let src = unsafe { DynRsValuePtr::from_opaque(src) };
+
+    let src = match src {
+        DynRsValuePtr::Exclusive(v) => {
+            // Safety: caller must ensure (3)
+            let v = unsafe { &*v };
+            v.to_shared()
+        }
+        DynRsValuePtr::Shared(v) => {
+            // `v` originates from a call to [`RsValue_DynPtr`],
+            // which calls `SharedRsValue::as_raw` to create the pointer.
+            // This function moves rather than copies the `SharedRsValue`,
+            // and by safety requirement (4), `v` is regarded invalid.
+            // Therefore, in this case it's correct to not `mem::forget`
+            // the value produced below.
+            // Safety: caller must ensure (3) and (4)
+            unsafe { SharedRsValue::from_raw(v) }
+        }
+    };
+
+    dst.to_reference(src);
+}
+
 /// Clone `src` and assign it to `dst`, thereby
 /// dropping the `RsValue`.
 ///
@@ -832,7 +904,7 @@ mod test {
 
     use crate::{
         RsValue_DecrRef, RsValue_DynPtr, RsValue_Free, RsValue_IncrRef, RsValue_IntoNumber,
-        RsValue_Number, RsValue_Replace,
+        RsValue_MakeOwnReference, RsValue_MakeReference, RsValue_Number, RsValue_Replace,
         dynamic::{DynRsValue, opaque::OpaqueDynRsValue},
         shared::{RsValue_NewConstString, RsValue_NewNumber},
     };
@@ -981,35 +1053,78 @@ mod test {
         // Safety: `v_ptr` originates from the previous call to `RsValue_DynPtr`
         unsafe { RsValue_IncrRef(v_ptr) };
 
-        // Safety: `v_src` is nonnull and is correctly initialized.
-        let v_ptr = unsafe { RsValue_DynPtr(&mut v as *mut OpaqueDynRsValue) };
         // Safety: `v_ptr` originates from the previous call to `RsValue_DynPtr`
         unsafe { RsValue_IncrRef(v_ptr) };
 
         let mut v_2 = RsValue_NewNumber(1.23);
-        // Safety: `v_src` is nonnull and is correctly initialized.
-        let v_ptr = unsafe { RsValue_DynPtr(&mut v as *mut OpaqueDynRsValue) };
-        // Safety: `v_ptr` originates from the previous call to `RsValue_DynPtr`
+        // Safety: `v_ptr` originates from the previous call to `RsValue_DynPtr`,
+        // and `v_2` was created using one of the constructors.
         unsafe {
             RsValue_Replace(Some(NonNull::from_mut(&mut v_2)), v_ptr);
         }
 
-        // Safety: `v_src` is nonnull and is correctly initialized.
-        let v_ptr = unsafe { RsValue_DynPtr(&mut v as *mut OpaqueDynRsValue) };
         // Safety: `v_ptr` originates from the previous call to `RsValue_DynPtr`
         unsafe { RsValue_DecrRef(v_ptr) };
 
-        // Safety: `v_src` is nonnull and is correctly initialized.
-        let v_ptr = unsafe { RsValue_DynPtr(&mut v as *mut OpaqueDynRsValue) };
         // Safety: `v_ptr` originates from the previous call to `RsValue_DynPtr`
         unsafe { RsValue_DecrRef(v_ptr) };
 
-        // Safety: `v_src` is nonnull and is correctly initialized.
-        let v_ptr = unsafe { RsValue_DynPtr(&mut v as *mut OpaqueDynRsValue) };
         // Safety: `v_ptr` originates from the previous call to `RsValue_DynPtr`
         unsafe { RsValue_DecrRef(v_ptr) };
 
         // Safety: `v` originates from a call to `RsValue_NewConstString`
         unsafe { RsValue_Free(Some(NonNull::from_mut(&mut v))) }
+    }
+
+    #[test]
+    fn make_ref() {
+        // Safety: `STRPTR` points to const `STR` and its length is `STRLEN`
+        let mut v = unsafe { RsValue_NewConstString(STRPTR, STRLEN) };
+        // Safety: `v` is nonnull and is correctly initialized.
+        let v_ptr = unsafe { RsValue_DynPtr(&mut v as *mut OpaqueDynRsValue) };
+
+        let mut v_ref = RsValue_NewNumber(1.23);
+
+        // Safety: `v_ptr` originates from the previous call to `RsValue_DynPtr`,
+        // and `v_ref` was created using one of the constructors.
+        unsafe {
+            RsValue_MakeReference(Some(NonNull::from_mut(&mut v_ref)), v_ptr);
+        }
+
+        // Free both the reference and the referenced value
+        // Safety: `v` was not freed before and will not be used
+        // after below call
+        unsafe {
+            RsValue_Free(Some(NonNull::from_mut(&mut v)));
+        }
+
+        // Safety: `v_ref` was not freed before and will not be used
+        // after below call
+        unsafe {
+            RsValue_Free(Some(NonNull::from_mut(&mut v_ref)));
+        }
+    }
+
+    #[test]
+    fn make_own_ref() {
+        // Safety: `STRPTR` points to const `STR` and its length is `STRLEN`
+        let mut v = unsafe { RsValue_NewConstString(STRPTR, STRLEN) };
+        // Safety: `v` is nonnull and is correctly initialized.
+        let v_ptr = unsafe { RsValue_DynPtr(&mut v as *mut OpaqueDynRsValue) };
+
+        let mut v_ref = RsValue_NewNumber(1.23);
+
+        // Safety: `v_ptr` originates from the previous call to `RsValue_DynPtr`,
+        // and `v_ref` was created using one of the constructors.
+        unsafe {
+            RsValue_MakeOwnReference(Some(NonNull::from_mut(&mut v_ref)), v_ptr);
+        }
+
+        // Free only the reference
+        // Safety: `v` was not freed before and will not be used
+        // after below call
+        unsafe {
+            RsValue_Free(Some(NonNull::from_mut(&mut v_ref)));
+        }
     }
 }

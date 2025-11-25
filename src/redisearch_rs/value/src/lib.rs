@@ -296,6 +296,12 @@ pub trait Value: Sized {
         self.swap_from_internal(RsValueInternal::Number(n));
     }
 
+    /// Convert the value to a reference to the passed [`SharedRsValue`] in-place,
+    /// dropping the existing value,
+    fn to_reference(&mut self, other: SharedRsValue) {
+        self.swap_from_internal(RsValueInternal::Ref(other));
+    }
+
     /// Get a reference to [`OwnedRmAllocString`] being
     /// wrapped by this value if so, or `None` otherwise.
     fn as_rm_alloc_string(&self) -> Option<&OwnedRmAllocString> {
