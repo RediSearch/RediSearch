@@ -15,6 +15,10 @@
 
 static RedisModuleKeyMetaClassId docIdKeyMetaClassId;
 
+RedisModuleKeyMetaClassId DocIdMeta_GetClassId() {
+  return docIdKeyMetaClassId;
+}
+
 // TODO (Joan): Should we use a hashmap instead of an array, where the key is the index name?
 // Also review the growing policy (Should we care more for speed than space?)
 // Can we rely on the index order to be constant, even considering RDB save/load?
@@ -46,8 +50,7 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   return 0;
 }
 
-//TODO(Joan): Check how can we efficiently unit test this behavior
-static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
+int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   REDISMODULE_NOT_USED(encver);
   // Load the size of the docId array
   size_t size = LoadUnsigned_IOError(rdb, goto cleanup);
@@ -55,7 +58,7 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   // Allocate the DocIdMeta structure
   struct DocIdMeta *docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
   docIdMeta->size = size;
-  docIdMeta->docId = array_new(uint64_t, size);
+  docIdMeta->docId = array_newlen(uint64_t, size);
   // Load each docId entry
   for (size_t i = 0; i < size; i++) {
     uint64_t docId = LoadUnsigned_IOError(rdb, goto cleanup);
@@ -76,7 +79,7 @@ cleanup:
   return REDISMODULE_ERR;
 }
 
-static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
+void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   REDISMODULE_NOT_USED(value);
 
   if (*meta == 0) {
@@ -129,9 +132,14 @@ int DocIdMeta_SetDocIdForIndex(RedisModuleKey *key, size_t idx, uint64_t docId) 
       struct DocIdMeta *docIdMeta = (struct DocIdMeta *)meta;
       if (idx >= docIdMeta->size) {
         // reallocate (review policy of resizing)
-        size_t newSize = docIdMeta->size * 2;
-        docIdMeta->docId = rm_realloc(docIdMeta->docId, sizeof(uint64_t) * newSize);
-        memset(docIdMeta->docId + docIdMeta->size, DOCID_META_INVALID, sizeof(uint64_t) * docIdMeta->size);
+        size_t oldSize = docIdMeta->size;
+        size_t newSize = MAX(docIdMeta->size * 2, idx + 1);
+        size_t elementsToAdd = newSize - array_len(docIdMeta->docId);
+        docIdMeta->docId = (uint64_t*)array_grow(docIdMeta->docId, elementsToAdd);
+        // Initialize new elements to invalid
+        for (size_t i = oldSize; i < newSize; i++) {
+          docIdMeta->docId[i] = DOCID_META_INVALID;
+        }
         docIdMeta->size = newSize;
       }
       docIdMeta->docId[idx] = docId;

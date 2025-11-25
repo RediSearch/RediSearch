@@ -46,6 +46,11 @@ int DocIdMeta_GetDocIdForIndex(RedisModuleKey *key, size_t idx, uint64_t *docId)
 */
 int DocIdMeta_DeleteDocIdForIndex(RedisModuleKey *key, size_t idx);
 
+// Functions exposed to ease unit testing
+int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver);
+void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta);
+RedisModuleKeyMetaClassId DocIdMeta_GetClassId();
+
 #ifdef __cplusplus
 }
 #endif
