@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Inverted index iterator implementation
+//! Supporting types for [`NumericFull`] and [`TermFull`].
 
 use ffi::t_docId;
 use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
@@ -23,7 +23,7 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 ///
 /// * `'index` - The lifetime of the index being iterated over.
 /// * `R` - The reader type used to read the inverted index.
-struct FullIterator<'index, R> {
+pub struct FullIterator<'index, R> {
     /// The reader used to iterate over the inverted index.
     reader: R,
     /// if we reached the end of the index.
@@ -38,7 +38,7 @@ impl<'index, R> FullIterator<'index, R>
 where
     R: IndexReader<'index>,
 {
-    const fn new(reader: R, result: RSIndexResult<'static>) -> Self {
+    pub const fn new(reader: R, result: RSIndexResult<'static>) -> Self {
         Self {
             reader,
             at_eos: false,

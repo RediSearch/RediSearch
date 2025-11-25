@@ -88,3 +88,5 @@ pub const RS_FIELDMASK_ALL: FieldMask = u128::MAX;
 
 #[cfg(target_pointer_width = "32")]
 pub const RS_FIELDMASK_ALL: FieldMask = u64::MAX;
+
+pub const RS_INVALID_FIELD_INDEX: t_fieldIndex = 0xFFFF;

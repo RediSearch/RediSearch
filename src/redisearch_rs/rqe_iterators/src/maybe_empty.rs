@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! Helper wrapping either [`Empty`] or the provided [`RQEIterator`].
+
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
