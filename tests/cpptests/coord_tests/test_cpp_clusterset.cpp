@@ -22,8 +22,10 @@
 using namespace RMCK;
 
 // Helper class to manage test setup and teardown
-class RedisEnterpriseTest : public ::testing::Test {
+class ClusterSetTest : public ::testing::Test {
 protected:
+    RedisModuleCtx *ctx = nullptr;
+
     void SetUp() override {
         ctx = RedisModule_GetThreadSafeContext(NULL);
     }
@@ -47,16 +49,16 @@ protected:
             }
         }
         return true;
-    }    RedisModuleCtx *ctx = nullptr;
+    }
 };
 
 // ============================================================================
 // Test with single range per shard, no replicas
 // ============================================================================
 
-TEST_F(RedisEnterpriseTest, BasicTopologyParsing_SingleRangePerShard) {
+TEST_F(ClusterSetTest, BasicTopologyParsing_SingleRangePerShard) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "HASHFUNC", "CRC16",
         "NUMSLOTS", "16384",
@@ -100,12 +102,12 @@ TEST_F(RedisEnterpriseTest, BasicTopologyParsing_SingleRangePerShard) {
     MRClusterTopology_Free(topo);
 }
 
-TEST_F(RedisEnterpriseTest, SingleShardFullRange) {
+TEST_F(ClusterSetTest, SingleShardFullRange) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
-        "MYID", "onlyshard",
+        "search.CLUSTERSET",
+        "MYID", "only shard",
         "RANGES", "1",
-        "SHARD", "onlyshard", "SLOTRANGE", "0", "16383", "ADDR", "localhost:6379", "MASTER"
+        "SHARD", "only shard", "SLOTRANGE", "0", "16383", "ADDR", "localhost:6379", "MASTER"
     };
 
     ArgvList argv(ctx, args);
@@ -122,9 +124,9 @@ TEST_F(RedisEnterpriseTest, SingleShardFullRange) {
     MRClusterTopology_Free(topo);
 }
 
-TEST_F(RedisEnterpriseTest, WithUnixSocket) {
+TEST_F(ClusterSetTest, WithUnixSocket) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "0", "16383",
@@ -147,9 +149,9 @@ TEST_F(RedisEnterpriseTest, WithUnixSocket) {
 // Test with multiple ranges per shard
 // ============================================================================
 
-TEST_F(RedisEnterpriseTest, MultipleRangesPerShard_TwoRanges) {
+TEST_F(ClusterSetTest, MultipleRangesPerShard_TwoRanges) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "4",
         "SHARD", "shard1", "SLOTRANGE", "0", "1000", "ADDR", "127.0.0.1:6379", "MASTER",
@@ -183,14 +185,14 @@ TEST_F(RedisEnterpriseTest, MultipleRangesPerShard_TwoRanges) {
     MRClusterTopology_Free(topo);
 }
 
-TEST_F(RedisEnterpriseTest, MultipleRangesPerShard_ThreeRanges) {
+TEST_F(ClusterSetTest, MultipleRangesPerShard_ThreeRanges) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
-        "MYID", "multishard",
+        "search.CLUSTERSET",
+        "MYID", "multi shard",
         "RANGES", "3",
-        "SHARD", "multishard", "SLOTRANGE", "0", "100", "ADDR", "127.0.0.1:6379", "MASTER",
-        "SHARD", "multishard", "SLOTRANGE", "500", "600", "MASTER",
-        "SHARD", "multishard", "SLOTRANGE", "1000", "1100", "MASTER"
+        "SHARD", "multi shard", "SLOTRANGE", "0", "100", "ADDR", "127.0.0.1:6379", "MASTER",
+        "SHARD", "multi shard", "SLOTRANGE", "500", "600", "MASTER",
+        "SHARD", "multi shard", "SLOTRANGE", "1000", "1100", "MASTER"
     };
 
     ArgvList argv(ctx, args);
@@ -205,15 +207,15 @@ TEST_F(RedisEnterpriseTest, MultipleRangesPerShard_ThreeRanges) {
     MRClusterTopology_Free(topo);
 }
 
-TEST_F(RedisEnterpriseTest, MultipleRangesPerShard_MixedConfiguration) {
+TEST_F(ClusterSetTest, MultipleRangesPerShard_MixedConfiguration) {
     // Mix of shards with single and multiple ranges
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard2",
         "RANGES", "5",
         "SHARD", "shard1", "SLOTRANGE", "0", "5000", "ADDR", "127.0.0.1:6379", "MASTER",  // Single range
         "SHARD", "shard2", "SLOTRANGE", "5001", "7000", "ADDR", "127.0.0.2:6379", "MASTER",  // Multiple ranges
-        "SHARD", "shard2", "SLOTRANGE", "8000", "9000", "MASTER",
+        "SHARD", "shard2", "SLOTRANGE", "8000", "9000", "ADDR", "127.0.0.2:6379", "MASTER",
         "SHARD", "shard2", "SLOTRANGE", "10000", "11000", "MASTER",
         "SHARD", "shard3", "SLOTRANGE", "11001", "16383", "ADDR", "127.0.0.3:6379", "MASTER"  // Single range
     };
@@ -243,9 +245,9 @@ TEST_F(RedisEnterpriseTest, MultipleRangesPerShard_MixedConfiguration) {
 // Test with replicas (should be ignored)
 // ============================================================================
 
-TEST_F(RedisEnterpriseTest, WithReplicas_ReplicasIgnored) {
+TEST_F(ClusterSetTest, WithReplicas_ReplicasIgnored) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "master1",
         "RANGES", "4",
         "SHARD", "master1", "SLOTRANGE", "0", "8191", "ADDR", "127.0.0.1:6379", "MASTER",
@@ -271,9 +273,9 @@ TEST_F(RedisEnterpriseTest, WithReplicas_ReplicasIgnored) {
     MRClusterTopology_Free(topo);
 }
 
-TEST_F(RedisEnterpriseTest, MultipleReplicasPerMaster) {
+TEST_F(ClusterSetTest, MultipleReplicasPerMaster) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "master1",
         "RANGES", "5",
         "SHARD", "master1", "SLOTRANGE", "0", "16383", "ADDR", "127.0.0.1:6379", "MASTER",
@@ -294,17 +296,17 @@ TEST_F(RedisEnterpriseTest, MultipleReplicasPerMaster) {
     MRClusterTopology_Free(topo);
 }
 
-TEST_F(RedisEnterpriseTest, ReplicasWithMultipleRanges) {
+TEST_F(ClusterSetTest, ReplicasWithMultipleRanges) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "master1",
         "RANGES", "6",
         "SHARD", "master1", "SLOTRANGE", "0", "1000", "ADDR", "127.0.0.1:6379", "MASTER",
         "SHARD", "master1", "SLOTRANGE", "8000", "9000", "MASTER",
         "SHARD", "replica1", "SLOTRANGE", "0", "1000", "ADDR", "127.0.0.1:6380",
-        "SHARD", "replica1", "SLOTRANGE", "8000", "9000",
+        "SHARD", "replica1", "SLOTRANGE", "8000", "9000", "ADDR", "127.0.0.1:6380",
         "SHARD", "master2", "SLOTRANGE", "1001", "16383", "ADDR", "127.0.0.2:6379", "MASTER",
-        "SHARD", "replica2", "SLOTRANGE", "1001", "16383", "ADDR", "127.0.0.2:6380"
+        "SHARD", "replica2", "SLOTRANGE", "1001", "16383", "ADDR", "127.0.0.2:6380",
     };
 
     ArgvList argv(ctx, args);
@@ -324,9 +326,9 @@ TEST_F(RedisEnterpriseTest, ReplicasWithMultipleRanges) {
     MRClusterTopology_Free(topo);
 }
 
-TEST_F(RedisEnterpriseTest, MissingSLOTRANGE) {
+TEST_F(ClusterSetTest, MissingSLOTRANGE) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "2",
         "SHARD", "shard1", "SLOTRANGE", "0", "1000", "ADDR", "127.0.0.1:6379", "MASTER",
@@ -349,9 +351,9 @@ TEST_F(RedisEnterpriseTest, MissingSLOTRANGE) {
 // Error path tests
 // ============================================================================
 
-TEST_F(RedisEnterpriseTest, Error_MissingMYID) {
+TEST_F(ClusterSetTest, Error_MissingMYID) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "0", "16383", "ADDR", "127.0.0.1:6379", "MASTER"
     };
@@ -364,9 +366,9 @@ TEST_F(RedisEnterpriseTest, Error_MissingMYID) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_MissingRANGES) {
+TEST_F(ClusterSetTest, Error_MissingRANGES) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "SHARD", "shard1", "SLOTRANGE", "0", "16383", "ADDR", "127.0.0.1:6379", "MASTER"
     };
@@ -379,9 +381,9 @@ TEST_F(RedisEnterpriseTest, Error_MissingRANGES) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_BadHashFunc) {
+TEST_F(ClusterSetTest, Error_BadHashFunc) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "HASHFUNC", "INVALID",
         "RANGES", "1",
@@ -396,9 +398,9 @@ TEST_F(RedisEnterpriseTest, Error_BadHashFunc) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_NumSlotsTooLarge) {
+TEST_F(ClusterSetTest, Error_NumSlotsTooLarge) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "NUMSLOTS", "20000",
         "RANGES", "1",
@@ -413,9 +415,56 @@ TEST_F(RedisEnterpriseTest, Error_NumSlotsTooLarge) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_InvalidSlotRange_StartGreaterThanEnd) {
+TEST_F(ClusterSetTest, Error_TooFewRanges) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
+        "MYID", "shard1",
+        "RANGES", "0",
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr) << "Should fail with NUMSLOTS > 16384";
+
+}
+
+TEST_F(ClusterSetTest, Error_TooFewRangesGiven) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
+        "MYID", "shard1",
+        "RANGES", "2",
+        "SHARD", "shard1", "SLOTRANGE", "0", "16383", "ADDR", "127.0.0.1:6379", "MASTER"
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr) << "Should fail with NUMSLOTS > 16384";
+
+}
+
+TEST_F(ClusterSetTest, Error_TooManyRangesGiven) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
+        "MYID", "shard1",
+        "RANGES", "1",
+        "SHARD", "shard1", "SLOTRANGE", "0", "8000", "ADDR", "127.0.0.1:6379", "MASTER",
+        "SHARD", "shard2", "SLOTRANGE", "8001", "16383", "ADDR", "127.0.0.2:6379", "MASTER"
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+    EXPECT_EQ(topo, nullptr) << "Should fail with too many ranges given";
+
+}
+
+TEST_F(ClusterSetTest, Error_InvalidSlotRange_StartGreaterThanEnd) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "1000", "500", "ADDR", "127.0.0.1:6379", "MASTER"
@@ -429,9 +478,9 @@ TEST_F(RedisEnterpriseTest, Error_InvalidSlotRange_StartGreaterThanEnd) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_InvalidSlotRange_EndTooLarge) {
+TEST_F(ClusterSetTest, Error_InvalidSlotRange_EndTooLarge) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "0", "16384", "ADDR", "127.0.0.1:6379", "MASTER"
@@ -445,9 +494,26 @@ TEST_F(RedisEnterpriseTest, Error_InvalidSlotRange_EndTooLarge) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_MissingADDR) {
+TEST_F(ClusterSetTest, Error_InvalidSlotRange_EndTooLargeCustomNumSlots) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
+        "MYID", "shard1",
+        "NUMSLOTS", "10000",
+        "RANGES", "1",
+        "SHARD", "shard1", "SLOTRANGE", "0", "10000", "ADDR", "127.0.0.1:6379", "MASTER"
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr) << "Should fail with end >= numSlots (custom 10000)";
+
+}
+
+TEST_F(ClusterSetTest, Error_MissingADDR) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "0", "16383", "MASTER"  // Missing ADDR
@@ -461,9 +527,9 @@ TEST_F(RedisEnterpriseTest, Error_MissingADDR) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_InvalidADDR) {
+TEST_F(ClusterSetTest, Error_InvalidADDR) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "0", "16383", "ADDR", "invalid_address", "MASTER"
@@ -477,9 +543,9 @@ TEST_F(RedisEnterpriseTest, Error_InvalidADDR) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_MultipleADDR) {
+TEST_F(ClusterSetTest, Error_MultipleADDR) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "2",
         "SHARD", "shard1", "SLOTRANGE", "0", "8000", "ADDR", "127.0.0.1:6379", "MASTER",
@@ -494,9 +560,9 @@ TEST_F(RedisEnterpriseTest, Error_MultipleADDR) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_MultipleUNIXADDR) {
+TEST_F(ClusterSetTest, Error_MultipleUNIXADDR) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "2",
         "SHARD", "shard1", "SLOTRANGE", "0", "8000",
@@ -513,9 +579,9 @@ TEST_F(RedisEnterpriseTest, Error_MultipleUNIXADDR) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_MYIDNotFound) {
+TEST_F(ClusterSetTest, Error_MYIDNotFound) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "nonexistent",
         "RANGES", "2",
         "SHARD", "shard1", "SLOTRANGE", "0", "8191", "ADDR", "127.0.0.1:6379", "MASTER",
@@ -530,9 +596,9 @@ TEST_F(RedisEnterpriseTest, Error_MYIDNotFound) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_UnexpectedArgument) {
+TEST_F(ClusterSetTest, Error_UnexpectedArgument) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "UNEXPECTED", "value",
         "RANGES", "1",
@@ -547,9 +613,9 @@ TEST_F(RedisEnterpriseTest, Error_UnexpectedArgument) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_MissingSHARD) {
+TEST_F(ClusterSetTest, Error_MissingSHARD) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SLOTRANGE", "0", "16383", "ADDR", "127.0.0.1:6379", "MASTER"  // Missing SHARD keyword
@@ -563,9 +629,9 @@ TEST_F(RedisEnterpriseTest, Error_MissingSHARD) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_IncompleteSLOTRANGE_MissingEnd) {
+TEST_F(ClusterSetTest, Error_IncompleteSLOTRANGE_MissingEnd) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "0", "ADDR", "127.0.0.1:6379", "MASTER"
@@ -579,9 +645,9 @@ TEST_F(RedisEnterpriseTest, Error_IncompleteSLOTRANGE_MissingEnd) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_RANGESCountMismatch_TooFew) {
+TEST_F(ClusterSetTest, Error_RANGESCountMismatch_TooFew) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "3",  // Declares 3 but only provides 1
         "SHARD", "shard1", "SLOTRANGE", "0", "16383", "ADDR", "127.0.0.1:6379", "MASTER"
@@ -595,9 +661,9 @@ TEST_F(RedisEnterpriseTest, Error_RANGESCountMismatch_TooFew) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_ExtraArgumentsAfterRanges) {
+TEST_F(ClusterSetTest, Error_ExtraArgumentsAfterRanges) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "0", "16383", "ADDR", "127.0.0.1:6379", "MASTER",
@@ -612,9 +678,9 @@ TEST_F(RedisEnterpriseTest, Error_ExtraArgumentsAfterRanges) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_ZeroRANGES) {
+TEST_F(ClusterSetTest, Error_ZeroRANGES) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "0"
     };
@@ -627,9 +693,9 @@ TEST_F(RedisEnterpriseTest, Error_ZeroRANGES) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_MissingADDRValue) {
+TEST_F(ClusterSetTest, Error_MissingADDRValue) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "0", "16383", "ADDR", "MASTER"  // ADDR without value
@@ -643,9 +709,9 @@ TEST_F(RedisEnterpriseTest, Error_MissingADDRValue) {
 
 }
 
-TEST_F(RedisEnterpriseTest, Error_MissingUNIXADDRValue) {
+TEST_F(ClusterSetTest, Error_MissingUNIXADDRValue) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "0", "16383",
@@ -664,9 +730,9 @@ TEST_F(RedisEnterpriseTest, Error_MissingUNIXADDRValue) {
 // Edge case tests
 // ============================================================================
 
-TEST_F(RedisEnterpriseTest, EdgeCase_SingleSlotRange) {
+TEST_F(ClusterSetTest, EdgeCase_SingleSlotRange) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "100", "100", "ADDR", "127.0.0.1:6379", "MASTER"
@@ -683,9 +749,9 @@ TEST_F(RedisEnterpriseTest, EdgeCase_SingleSlotRange) {
     MRClusterTopology_Free(topo);
 }
 
-TEST_F(RedisEnterpriseTest, EdgeCase_CRC12HashFunc) {
+TEST_F(ClusterSetTest, EdgeCase_CRC12HashFunc) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "HASHFUNC", "CRC12",
         "RANGES", "1",
@@ -701,9 +767,9 @@ TEST_F(RedisEnterpriseTest, EdgeCase_CRC12HashFunc) {
     MRClusterTopology_Free(topo);
 }
 
-TEST_F(RedisEnterpriseTest, EdgeCase_CustomNUMSLOTS) {
+TEST_F(ClusterSetTest, EdgeCase_CustomNUMSLOTS) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "NUMSLOTS", "8192",
         "RANGES", "1",
@@ -720,9 +786,9 @@ TEST_F(RedisEnterpriseTest, EdgeCase_CustomNUMSLOTS) {
     MRClusterTopology_Free(topo);
 }
 
-TEST_F(RedisEnterpriseTest, EdgeCase_HostnameWithDomain) {
+TEST_F(ClusterSetTest, EdgeCase_HostnameWithDomain) {
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard1",
         "RANGES", "1",
         "SHARD", "shard1", "SLOTRANGE", "0", "16383",
@@ -740,10 +806,10 @@ TEST_F(RedisEnterpriseTest, EdgeCase_HostnameWithDomain) {
     MRClusterTopology_Free(topo);
 }
 
-TEST_F(RedisEnterpriseTest, EdgeCase_ManyShards) {
+TEST_F(ClusterSetTest, EdgeCase_ManyShards) {
     // Test with 10 shards
     std::vector<std::string> args = {
-        "FT.CLUSTERSET",
+        "search.CLUSTERSET",
         "MYID", "shard5",
         "RANGES", "10"
     };
