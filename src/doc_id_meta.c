@@ -46,24 +46,20 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   return 0;
 }
 
+//TODO(Joan): Check how can we efficiently unit test this behavior
 static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   REDISMODULE_NOT_USED(encver);
-  struct DocIdMeta *docIdMeta = NULL;
-
   // Load the size of the docId array
   size_t size = LoadUnsigned_IOError(rdb, goto cleanup);
+  RS_LOG_ASSERT(size > 0, "DocIDMeta size stored in RDB should be greater than 0");
   // Allocate the DocIdMeta structure
-  docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
+  struct DocIdMeta *docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
   docIdMeta->size = size;
-  if (size == 0) {
-    docIdMeta->docId = NULL;
-  } else {
-    docIdMeta->docId = array_new(uint64_t, size);
-    // Load each docId entry
-    for (size_t i = 0; i < size; i++) {
-      uint64_t docId = LoadUnsigned_IOError(rdb, goto cleanup);
-      docIdMeta->docId[i] = docId;
-    }
+  docIdMeta->docId = array_new(uint64_t, size);
+  // Load each docId entry
+  for (size_t i = 0; i < size; i++) {
+    uint64_t docId = LoadUnsigned_IOError(rdb, goto cleanup);
+    docIdMeta->docId[i] = docId;
   }
 
   *meta = (uint64_t)docIdMeta;
@@ -84,14 +80,13 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   REDISMODULE_NOT_USED(value);
 
   if (*meta == 0) {
-    // No metadata to save - save size 0
-    RedisModule_SaveUnsigned(rdb, 0);
     return;
   }
 
   struct DocIdMeta *docIdMeta = (struct DocIdMeta *)*meta;
 
   // Save the size of the docId array
+  RS_LOG_ASSERT(docIdMeta->size > 0, "DocIDMeta size stored in RDB should be greater than 0");
   RedisModule_SaveUnsigned(rdb, docIdMeta->size);
 
   // Save each docId entry
@@ -112,15 +107,13 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove, // If NULL, meta is kept during move (MOVE between DB, need to make sure it is ignored because docID will not have meaning in other DB)
     .unlink = NULL, // If NULL, meta is ignored during unlink. This is called when deattached before freeing. (While GIL is held)
     .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree, // Will need to free the DocIdMeta struct (GIL is not held)
+    .rdb_load = (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad, // Callback called in Search on Flex when loading to SST
+    .rdb_save = (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave, // Callback called in Search on Flex when saving to SST
+    .aof_rewrite = NULL, // not used if Preamble RDB. We should not implement and let the KeySpaceNotifications handle it
     // TODO(Joan): Ask clarification for these callbacks
     .defrag = NULL,
     .mem_usage = NULL,
     .free_effort = NULL,
-    // Since for now RediSearch indices are rebuilt during persistence, we don't need to consider persistence now.
-    // (DocID would be added to key during Notification callbacks and indexing procedures as normal)
-    .rdb_load = (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad, // Callback called in Search on Flex when loading to SST
-    .rdb_save = (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave, // Callback called in Search on Flex when saving to SST
-    .aof_rewrite = NULL, // not used if Preamble RDB. We should not implement and let the KeySpaceNotifications handle it
 };
   docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, "docId", 1, &docIdKeyMetaClassIdConfig);
 }
