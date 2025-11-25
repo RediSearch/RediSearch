@@ -26,6 +26,9 @@ struct SharedSlotRangeArray {
 static SharedSlotRangeArray *localSlots = NULL;
 
 const SharedSlotRangeArray *Slots_GetLocalSlots(void) {
+  if (RedisModule_ClusterGetLocalSlotRanges == NULL || RedisModule_ClusterFreeSlotRanges == NULL) {
+    return NULL;
+  }
   if (!localSlots) {
     RedisModuleSlotRangeArray *ranges = RedisModule_ClusterGetLocalSlotRanges(RSDummyContext);
     RS_LOG_ASSERT(ranges != NULL, "Expected non-NULL ranges from ClusterGetLocalSlotRanges in any mode");
