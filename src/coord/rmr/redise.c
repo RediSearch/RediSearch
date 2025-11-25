@@ -164,12 +164,12 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
         RedisModuleSlotRange slotRange;
         int rc = AC_GetU16(&ac, &slotRange.start, 0);
         if (rc != AC_OK) {
-          ERROR_BAD_OR_MISSING("SLOTRANGE", rc);
+          ERROR_BAD_OR_MISSING("SLOTRANGE start", rc);
           goto error;
         }
         rc = AC_GetU16(&ac, &slotRange.end, 0);
         if (rc != AC_OK || slotRange.end >= numSlots) {
-          ERROR_BAD_OR_MISSING("SLOTRANGE", rc);
+          ERROR_BAD_OR_MISSING("SLOTRANGE end", rc);
           goto error;
         }
         if (slotRange.start > slotRange.end) {
