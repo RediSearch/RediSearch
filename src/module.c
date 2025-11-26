@@ -3493,10 +3493,13 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   }
 }
 
-static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
+static void bailOut(RedisModuleBlockedClient *bc, QueryError *status, searchRequestCtx *req) {
   RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(clientCtx, status);
+  if (req) {
+    searchRequestCtx_Free(req);
+  }
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
   RedisModule_FreeThreadSafeContext(clientCtx);
@@ -3561,8 +3564,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   if (!sp) {
     MRCommand_Free(cmd);
     QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-
-    bailOut(bc, status);
+    bailOut(bc, status, req);
     return REDISMODULE_ERR;
   }
 
@@ -3596,7 +3598,7 @@ static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModu
   searchRequestCtx *req = rscParseRequest(argv, argc, status);
 
   if (!req) {
-    bailOut(bc, status);
+    bailOut(bc, status, NULL);
     return NULL;
   }
   return req;
@@ -3615,7 +3617,6 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
-    SearchRequestCtx_Free(req);
     return REDISMODULE_OK;
   }
   // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
@@ -4102,7 +4103,7 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
 
   if (debug_params.debug_params_count == 0) {
-    bailOut(bc, &status);
+    bailOut(bc, &status, NULL);
     return REDISMODULE_OK;
   }
 
