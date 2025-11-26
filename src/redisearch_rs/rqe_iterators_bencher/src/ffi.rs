@@ -44,7 +44,6 @@ pub use bindings::{
     IndexFlags_Index_StoreTermOffsets,
 };
 use bindings::{IteratorStatus, ValidateStatus};
-use ffi::RedisModule_Alloc;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{NumericFilter, RSIndexResult};
 use std::ptr;
