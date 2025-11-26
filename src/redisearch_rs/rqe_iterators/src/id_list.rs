@@ -172,7 +172,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         if undershot {
             i += 1;
             // SAFETY: We know that `i` is within bounds because:
-            // - `i` is always greater than `bottom`, and `bottom` is always in range
+            // - `i` is always greater or equal than `bottom`, and `bottom` is always in range
             // - `i` can't be equal to `top`, otherwise the iterator would be at EOF
             //   and we covered that case with an early return at the beginning of the
             //   function
