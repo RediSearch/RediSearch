@@ -131,7 +131,7 @@ static void redisearch_thpool_push_chain(redisearch_thpool_t *thpool_p,
                                         job *last_newjob,
                                         size_t num,
                                         thpool_priority priority);
-static int thread_init(redisearch_thpool_t *thpool_p, bool *started);
+static int thread_init(redisearch_thpool_t *thpool_p, volatile bool *started);
 static void *thread_do(void *p);
 
 static int jobqueue_init(jobqueue *jobqueue_p);
@@ -610,7 +610,7 @@ struct thread_do_args {
  * @param id            id to be given to the thread
  * @return 0 on success, -1 otherwise.
  */
-static int thread_init(redisearch_thpool_t *thpool_p, bool *started) {
+static int thread_init(redisearch_thpool_t *thpool_p, volatile bool *started) {
   pthread_t thread_id;
   *started = false;
   struct thread_do_args *args = rm_malloc(sizeof(struct thread_do_args));
