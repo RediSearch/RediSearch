@@ -466,7 +466,7 @@ TEST_F(IndexTest, testNumericInverted) {
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
   t_docId i = 1;
   while (ITERATOR_EOF != it->Read(it)) {
@@ -499,7 +499,7 @@ TEST_F(IndexTest, testNumericVaried) {
   }
 
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
 
   for (size_t i = 0; i < numCount; i++) {
@@ -563,7 +563,7 @@ void testNumericEncodingHelper(bool isMulti) {
   }
 
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
 
   for (size_t ii = 0; ii < numInfos; ii++) {
@@ -687,7 +687,7 @@ TEST_F(IndexTest, testHybridVector) {
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   // Run simple top k query.
   HybridIteratorParams hParams = {.sctx=NULL,
                                   .index = index,
@@ -1495,7 +1495,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
 
   VecSimQueryParams queryParams = {0};
   KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
 
   // Mock the WILDCARD_ITERATOR consideration
   QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, n, 1.0);

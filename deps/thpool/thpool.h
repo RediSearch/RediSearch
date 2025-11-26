@@ -7,6 +7,7 @@
 #ifndef _THPOOL_
 #define _THPOOL_
 #include <stddef.h>
+#include <stdbool.h>
 
 #define DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD 1
 
@@ -128,21 +129,6 @@ int redisearch_thpool_add_n_work(redisearch_thpool_t *,
                                  thpool_priority priority);
 
 /**
- * @brief Remove threads from a threadpool
- *
- * If the threadpool in initialized, the operation will be performed immediately.
- * Otherwise, the operation will be performed when the threadpool is initialized.
- * @note calling this function after calling terminate when empty, will have no effect
- * on the current running threads.
- *
- *
- * @param threadpool     the threadpool to wait for
- * @param n_threads_to_remove     number of theads to remove
- * @return The new number of threads in the threadpool
- */
-size_t redisearch_thpool_remove_threads(redisearch_thpool_t *, size_t n_threads_to_remove);
-
-/**
  * @brief Add threads to a threadpool
  *
  * If the threadpool in initialized, the operation will be performed immediately.
@@ -220,23 +206,6 @@ void redisearch_thpool_drain(redisearch_thpool_t *, long timeout,
                              size_t threshold);
 
 /**
- * @brief Drain only high-priority jobs from the threadpool
- *
- * This function temporarily sets the high-priority bias threshold to infinity,
- * waits until no more high-priority jobs are running or pending, then restores
- * the original bias threshold. This ensures that all high-priority jobs are
- * completed while allowing low-priority jobs to continue being queued.
- *
- * @param threadpool     the threadpool to drain high-priority jobs from
- * @param timeout        timeout in milliseconds between checks
- * @param yieldCB        callback to call periodically (can be NULL)
- * @param yield_ctx      context to pass to yieldCB (can be NULL)
- */
-void redisearch_thpool_drain_high_priority(redisearch_thpool_t *threadpool,
-                                           long timeout, yieldFunc yieldCB,
-                                           void *yield_ctx);
-
-/**
  * @brief Terminate the working threads (without deallocating the threadpool members).
  */
 void redisearch_thpool_terminate_threads(redisearch_thpool_t *);
@@ -256,13 +225,6 @@ void redisearch_thpool_pause_threads_no_wait(redisearch_thpool_t *);
  * redisearch_thpool_pause_threads.
  */
 void redisearch_thpool_resume_threads(redisearch_thpool_t *);
-
-/**
- * @brief Signal all threads to terminate when there are
- * no more pending jobs in the queue.
- * NOTICE: Jobs added to the jobq after this call might not be executed.
- */
-void redisearch_thpool_terminate_when_empty(redisearch_thpool_t *);
 
 /**
  * @brief Destroy the threadpool
@@ -295,7 +257,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t *);
  *    threadpool thpool1 = thpool_init(2);
  *    threadpool thpool2 = thpool_init(2);
  *    ..
- *    printf("Working threads: %d\n", redisearch_thpool_total_num_jobs_in_progress(thpool1));
+ *    printf("Working threads: %d\n", redisearch_thpool_num_jobs_in_progress(thpool1));
  *    ..
  *    return 0;
  * }
@@ -303,7 +265,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t *);
  * @param threadpool     the threadpool of interest
  * @return integer       number of threads working
  */
-size_t redisearch_thpool_total_num_jobs_in_progress(redisearch_thpool_t *);
+size_t redisearch_thpool_num_jobs_in_progress(redisearch_thpool_t *);
 
 int redisearch_thpool_paused(redisearch_thpool_t *);
 
@@ -312,6 +274,18 @@ int redisearch_thpool_is_initialized(redisearch_thpool_t *);
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *);
 
 size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *);
+
+/**
+ * @brief Schedule a job to reduce the number of threads in the threadpool in an asynchronous manner.
+ *
+ * It puts N ADMIN jobs in the queue, one for each thread to be removed. The call will not wait for the jobs to be executed and threads to be removed.
+ *
+ * @param thpool_p the threadpool to reduce the number of threads in
+ * @param n_threads_to_remove the number of threads to remove
+ * @param terminate_when_empty A signal to determine that the intention is to remove all the threads, which means that thread should terminate WHEN_EMPTY, so that
+ * no job is left in the queue. This also implies that the threadpool will be left in an UNINITIALIZED state.
+**/
+void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool terminate_when_empty);
 
 #ifdef __cplusplus
 }

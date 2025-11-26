@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Wildcard iterator implementation
+//! Supporting types for [`Wildcard`].
 
 use ffi::t_docId;
 use inverted_index::RSIndexResult;

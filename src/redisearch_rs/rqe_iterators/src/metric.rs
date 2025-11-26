@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! Supporting types for [`MetricIterator`].
+
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList};
 use ffi::{RLookupKey, RLookupKeyHandle, RSYieldableMetric, array_ensure_append_n_func, t_docId};
 use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
@@ -16,6 +18,7 @@ use value::{RSValueFFI, RSValueTrait};
 /// At the moment, only vector distance is supported.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// cbindgen:rename-all=ScreamingSnakeCase
 pub enum MetricType {
     VectorDistance,
 }

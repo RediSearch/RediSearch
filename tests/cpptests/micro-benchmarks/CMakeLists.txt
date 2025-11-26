@@ -28,7 +28,3 @@ foreach(benchmark_file ${BENCHMARK_ITER_SOURCES})
   add_executable(${benchmark_name} ${benchmark_file} ../index_utils.cpp ../iterator_util.cpp)
   target_link_libraries(${benchmark_name} redisearch redismock benchmark::benchmark)
 endforeach()
-
-# Add the SharedExclusiveLock vs Mutex benchmark
-add_executable(benchmark_shared_exclusive_lock_vs_regular_lock benchmark_shared_exclusive_lock_vs_regular_lock.cpp)
-target_link_libraries(benchmark_shared_exclusive_lock_vs_regular_lock redisearch redismock benchmark::benchmark)

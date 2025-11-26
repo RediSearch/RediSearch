@@ -823,8 +823,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   // We can only use the scan API from Redis version 6.0.6 and above
   // and when the deployment is not enterprise-crdt
   if(!isFeatureSupported(RM_SCAN_KEY_API_FIX) || isCrdt){
-    // This RedisModule_Call is protected by the SharedExclusiveLock mechanism from the caller.
-    rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
+    rep = RedisModule_Call(ctx, "HGETALL", "s!", krstr);
     if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
       goto done;
     }

@@ -91,10 +91,16 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   stats.total_queries_processed = READ(RSGlobalStats.totalStats.queries.total_queries_processed);
   stats.total_query_commands = READ(RSGlobalStats.totalStats.queries.total_query_commands);
   stats.total_query_execution_time = rs_wall_clock_convert_ns_to_ms(READ(RSGlobalStats.totalStats.queries.total_query_execution_time));
+  // Errors
   stats.shard_errors.syntax = READ(RSGlobalStats.totalStats.queries.shard_errors.syntax);
   stats.shard_errors.arguments = READ(RSGlobalStats.totalStats.queries.shard_errors.arguments);
+  stats.shard_errors.timeout = READ(RSGlobalStats.totalStats.queries.shard_errors.timeout);
   stats.coord_errors.syntax = READ(RSGlobalStats.totalStats.queries.coord_errors.syntax);
   stats.coord_errors.arguments = READ(RSGlobalStats.totalStats.queries.coord_errors.arguments);
+  stats.coord_errors.timeout = READ(RSGlobalStats.totalStats.queries.coord_errors.timeout);
+  // Warnings
+  stats.shard_warnings.timeout = READ(RSGlobalStats.totalStats.queries.shard_warnings.timeout);
+  stats.coord_warnings.timeout = READ(RSGlobalStats.totalStats.queries.coord_warnings.timeout);
   return stats;
 }
 
@@ -108,9 +114,9 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
 
 // Updates the global query errors statistics.
 // `coord` indicates whether the error occurred on the coordinator or on a shard.
-// Standalone shards are considered as shards.
+// Standalone shards are considered as coords
 // Will ignore not supported error codes.
-// Currently supports : syntax, parse_args
+// Currently supports : syntax, parse_args, timeout
 // `toAdd` can be negative to decrease the counter.
 void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coord) {
   QueryErrorsGlobalStats *queries_errors = coord ? &RSGlobalStats.totalStats.queries.coord_errors : &RSGlobalStats.totalStats.queries.shard_errors;
@@ -120,6 +126,24 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coo
       break;
     case QUERY_ERROR_CODE_PARSE_ARGS:
       INCR_BY(queries_errors->arguments, toAdd);
+      break;
+    case QUERY_ERROR_CODE_TIMED_OUT:
+      INCR_BY(queries_errors->timeout, toAdd);
+      break;
+  }
+}
+
+// Updates the global query warnings statistics.
+// `coord` indicates whether the warning occurred on the coordinator or on a shard.
+// Standalone shards are considered as coords
+// Will ignore not supported warning codes.
+// Currently supports : timeout
+// `toAdd` can be negative to decrease the counter.
+void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord) {
+  QueryWarningGlobalStats *queries_warnings = coord ? &RSGlobalStats.totalStats.queries.coord_warnings : &RSGlobalStats.totalStats.queries.shard_warnings;
+  switch (code) {
+    case QUERY_WARNING_CODE_TIMED_OUT:
+      INCR_BY(queries_warnings->timeout, toAdd);
       break;
   }
 }

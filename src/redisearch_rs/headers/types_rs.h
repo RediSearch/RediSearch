@@ -29,6 +29,20 @@ typedef struct FieldSpec FieldSpec;
 
 
 /**
+ * Field expiration predicate used when checking fields.
+ */
+typedef enum FieldExpirationPredicate {
+  /**
+   * one of the fields need to be valid.
+   */
+  FIELD_EXPIRATION_PREDICATE_DEFAULT = 0,
+  /**
+   * one of the fields need to be expired for the entry to be considered missing.
+   */
+  FIELD_EXPIRATION_PREDICATE_MISSING = 1,
+} FieldExpirationPredicate;
+
+/**
  * Filter details to apply to numeric values
  */
 typedef struct NumericFilter {
@@ -525,6 +539,20 @@ typedef union FieldMaskOrIndex {
     t_fieldMask mask;
   };
 } FieldMaskOrIndex;
+
+/**
+ * Field filter context used when querying fields.
+ */
+typedef struct FieldFilterContext {
+  /**
+   * the field mask or index to filter on.
+   */
+  union FieldMaskOrIndex field;
+  /**
+   * our field expiration predicate.
+   */
+  enum FieldExpirationPredicate predicate;
+} FieldFilterContext;
 
 #ifdef __cplusplus
 extern "C" {

@@ -6,6 +6,7 @@ members = [
     "ffi",
     "inverted_index",
     "inverted_index_bencher",
+    "field",
     "fnv",
     "low_memory_thin_vec",
     "qint",
@@ -79,6 +80,7 @@ qint = { path = "./qint" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
 search_result = { path = "./search_result" }
+field = { path = "./field" }
 
 cbindgen = "0.29"
 cc = "1"

@@ -549,6 +549,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "field"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -785,6 +792,7 @@ version = "0.0.1"
 dependencies = [
  "enumflags2",
  "ffi",
+ "field",
  "low_memory_thin_vec",
  "pretty_assertions",
  "proptest",
@@ -1580,6 +1588,7 @@ dependencies = [
  "cc",
  "criterion",
  "ffi",
+ "field",
  "inverted_index",
  "inverted_index_ffi",
  "itertools 0.14.0",
@@ -2066,6 +2075,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "cbindgen",
+ "field",
  "inverted_index",
 ]
 

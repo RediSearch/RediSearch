@@ -14,7 +14,6 @@
 #include "logging.h"
 #include "rmutil/rm_assert.h"
 #include "VecSim/vec_sim.h"
-#include "util/shared_exclusive_lock.h"
 
 #include <pthread.h>
 
@@ -26,11 +25,6 @@ redisearch_thpool_t *_workers_thpool = NULL;
 size_t yield_counter = 0;
 size_t in_event = 0; // event counter, >0 means we should be in event mode (some events can start before others end)
 
-
-/** Yield callback for workersThreadPool_Drain.
- * @param yieldCtx RedisModuleCtx*
- * @warning Should only be called from the main thread, and while the GIL is held.
-*/
 static void yieldCallback(void *yieldCtx) {
   yield_counter++;
   if (yield_counter % 10 == 0 || yield_counter == 1) {
@@ -38,11 +32,7 @@ static void yieldCallback(void *yieldCtx) {
                     " waiting for workers to finish: call number %zu", yield_counter);
   }
   RedisModuleCtx *ctx = yieldCtx;
-  // Guarantee that workers and main thread do not Yield and RedisModule_Call concurrently.
-  SharedExclusiveLockType lockType = SharedExclusiveLock_Acquire(ctx);
-  RS_LOG_ASSERT(lockType == Borrowed, "While draining, We should own the GIL, thus we should have acquired the internal lock, to guarantee that no other thread will try to acquire the GIL.");
   RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
-  SharedExclusiveLock_Release(ctx, lockType);
 }
 
 /* Configure here anything that needs to know it can use the thread pool */
@@ -83,13 +73,10 @@ int workersThreadPool_CreatePool(size_t worker_count) {
  * This function also handles the cases where the thread pool is turned on/off.
  * If new worker count is 0, the current living workers will continue to execute pending jobs and then terminate.
  * No new jobs should be added after setting the number of workers to 0.
- *
- * @warning Should only be called from the main thread
  */
 void workersThreadPool_SetNumWorkers() {
   if (_workers_thpool == NULL) return;
 
-  SharedExclusiveLock_LendGIL();
   size_t worker_count = RSGlobalConfig.numWorkerThreads;
   if (in_event && RSGlobalConfig.minOperationWorkers > worker_count) {
     worker_count = RSGlobalConfig.minOperationWorkers;
@@ -100,30 +87,28 @@ void workersThreadPool_SetNumWorkers() {
     RedisModule_Log(RSDummyContext, "notice", "Changing workers threadpool size from %zu to %zu", curr_workers, worker_count);
   }
 
-  size_t new_num_threads = worker_count;
   if (worker_count == 0 && curr_workers > 0) {
-    redisearch_thpool_terminate_when_empty(_workers_thpool);
-    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
+    // Schedule in the thpool in the config_worker_reducer_job -> a pointer to
+    RedisModule_Log(RSDummyContext, "notice", "Scheduling config_reduce_threads_job to remove all %zu threads when empty", curr_workers);
+    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers, true);
     workersThreadPool_OnDeactivation(curr_workers);
   } else if (worker_count > curr_workers) {
-    new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
+    size_t new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
     if (!curr_workers) workersThreadPool_OnActivation(worker_count);
+    RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
+      "Attempt to change the workers thpool size to %lu "
+      "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
   } else if (worker_count < curr_workers) {
-    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
+    RedisModule_Log(RSDummyContext, "notice", "Scheduling config_reduce_threads_job to remove %zu threads ASAP", curr_workers - worker_count);
+    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers - worker_count, false);
   }
-
-  RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
-    "Attempt to change the workers thpool size to %lu "
-    "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
-
-  SharedExclusiveLock_TakeBackGIL();
 }
 
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void) {
   RS_ASSERT(_workers_thpool != NULL);
 
-  return redisearch_thpool_total_num_jobs_in_progress(_workers_thpool);
+  return redisearch_thpool_num_jobs_in_progress(_workers_thpool);
 }
 
 // return n_threads value.
@@ -145,7 +130,7 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
-  SharedExclusiveLock_LendGIL();
+  RedisModule_Log(RSDummyContext, "notice", "Draining workers thread pool with threshold %zu", threshold);
   if (RedisModule_Yield) {
     // Wait until all the threads in the pool run the jobs until there are no more than <threshold>
     // jobs in the queue. Periodically return and call RedisModule_Yield, so redis can answer PINGs
@@ -156,7 +141,6 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
     // In Redis versions < 7, RedisModule_Yield doesn't exist. Just wait for without yield.
     redisearch_thpool_wait(_workers_thpool);
   }
-  SharedExclusiveLock_TakeBackGIL();
 }
 
 void workersThreadPool_Terminate(void) {
@@ -180,9 +164,7 @@ int workersThreadPool_OnEventEnd(bool wait) {
   // no-op if numWorkerThreads == minOperationWorkers == 0
   if (wait) {
     if (in_event) return REDISMODULE_ERR; // cannot wait while another event is in progress
-    SharedExclusiveLock_LendGIL();
     redisearch_thpool_wait(_workers_thpool);
-    SharedExclusiveLock_TakeBackGIL();
   }
   return REDISMODULE_OK;
 }
@@ -221,19 +203,5 @@ void workersThreadPool_wait() {
   if (!_workers_thpool || workerThreadPool_isPaused()) {
     return;
   }
-  SharedExclusiveLock_LendGIL();
   redisearch_thpool_wait(_workers_thpool);
-  SharedExclusiveLock_TakeBackGIL();
-}
-
-// Drain only high-priority jobs from the workers' threadpool
-void workersThreadPool_DrainHighPriority(RedisModuleCtx *ctx) {
-  if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
-    return;
-  }
-  SharedExclusiveLock_LendGIL();
-
-  redisearch_thpool_drain_high_priority(_workers_thpool, 100, yieldCallback, ctx);
-  yield_counter = 0;  // reset
-  SharedExclusiveLock_TakeBackGIL();
 }
