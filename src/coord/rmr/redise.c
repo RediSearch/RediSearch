@@ -64,7 +64,9 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
       ERROR_MISSING(arg);                           \
     } else {                                        \
       if (ac_code == AC_OK) ac.offset--;            \
-      ERROR_BADVAL(arg, AC_GetStringNC(&ac, NULL)); \
+      const char *val = NULL;                       \
+      AC_GetString(&ac, &val, NULL, AC_F_NOADVANCE);\
+      ERROR_BADVAL(arg, val);                       \
       if (ac_code == AC_OK) ac.offset++;            \
     }                                               \
   })
@@ -72,8 +74,9 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
 #define VERIFY_ARG(arg)                                   \
   ({                                                      \
     if (!AC_AdvanceIfMatch(&ac, arg)) {                   \
-      const char *val = AC_GetStringNC(&ac, NULL);        \
-      ERROR_EXPECTED("`" arg "`", (val ? val : "(nil)")); \
+      const char *val = NULL;                             \
+      AC_GetString(&ac, &val, NULL, AC_F_NOADVANCE);      \
+      ERROR_EXPECTED("`" arg "`", (val ?: "(nil)"));      \
       goto error;                                         \
     }                                                     \
   })
@@ -81,7 +84,8 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
 MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv,
                                                  int argc, uint32_t *my_shard_idx) {
   ArgsCursor ac; // Name is important for error macros, same goes for `ctx`
-  ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
+  ArgsCursor_InitRString(&ac, argv, argc);
+  AC_Advance(&ac); // Skip command name
   const char *myID = NULL;                 // Mandatory. No default.
   uint32_t numRanges = 0;                  // Mandatory. No default.
   uint32_t numSlots = 16384;               // Default.
