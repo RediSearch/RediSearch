@@ -452,7 +452,6 @@ def TimeoutWarningInProfile(env):
 
   # Populate the index
   num_docs = 10000
-  num_docs = 10
   for i in range(num_docs):
       conn.execute_command('HSET', f'doc{i}', 't', str(i))
 
@@ -497,13 +496,11 @@ def TimeoutWarningInProfile(env):
   ]
 
   env.expect(
-    '_FT.DEBUG', 'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT_AFTER_N', '1',
-    'DEBUG_PARAMS_COUNT', '2'
+    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
   ).equal(expected_res_search)
 
   env.expect(
-    '_FT.DEBUG', 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT_AFTER_N', '1',
-    'DEBUG_PARAMS_COUNT', '2'
+    'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
   ).equal(expected_res_aggregate)
 
 @skip(cluster=True)
@@ -525,13 +522,13 @@ def TimedoutTest_resp3(env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
   # Populate the index
-  num_docs = 10
+  num_docs = 10000
   for i in range(num_docs):
       env.cmd('HSET', f'doc{i}', 't', str(i))
 
   # Simple `SEARCH` command
   res = conn.execute_command(
-    '_FT.DEBUG', 'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT_AFTER_N', '0', 'DEBUG_PARAMS_COUNT', '2'
+    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
   )
 
   for shard_profile in res['Profile']['Shards']:
@@ -539,7 +536,7 @@ def TimedoutTest_resp3(env):
 
   # Simple `AGGREGATE` command
   res = conn.execute_command(
-    '_FT.DEBUG', 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT_AFTER_N', '0', 'DEBUG_PARAMS_COUNT', '2'
+    'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', '1'
   )
 
   for shard_profile in res['Profile']['Shards']:
