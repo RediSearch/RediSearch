@@ -22,44 +22,69 @@ def _lists_equal_insensitive(a, b):
     """
     return set(map(str.lower, a)) == set(map(str.lower, b))
 
+def _convert_flags_to_boolean_fields(flags_list):
+    """
+    Convert a flags array to boolean fields in a dictionary.
+
+    Args:
+        flags_list: List of flag strings (e.g., ['optional', 'multiple'])
+
+    Returns:
+        dict: Dictionary with boolean fields (e.g., {'optional': True, 'multiple': True})
+    """
+    if not isinstance(flags_list, list):
+        return {}
+
+    boolean_fields = {}
+    for flag in flags_list:
+        if flag in ['optional', 'multiple']:
+            boolean_fields[flag] = True
+    return boolean_fields
+
+def _normalize_single_argument(arg):
+    """
+    Normalize a single argument dictionary.
+    - Convert flags array to boolean fields
+    - Recursively normalize nested arguments
+
+    Args:
+        arg: Single argument dictionary or non-dict value
+
+    Returns:
+        Normalized argument structure
+    """
+    if not isinstance(arg, dict):
+        return arg
+
+    normalized = {}
+
+    for key, value in arg.items():
+        if key == 'flags':
+            # Convert flags array to boolean fields
+            boolean_fields = _convert_flags_to_boolean_fields(value)
+            normalized.update(boolean_fields)
+        elif key == 'arguments' and isinstance(value, list):
+            # Recursively normalize nested arguments
+            normalized[key] = _normalize_arguments_structure(value)
+        else:
+            normalized[key] = value
+
+    return normalized
+
 def _normalize_arguments_structure(args):
     """
-    Normalize actual arguments structure:
-    - Convert flags array to boolean fields
-    - Recursively process nested arguments
+    Normalize arguments structure by converting flags and processing nested arguments.
+
+    Args:
+        args: List of arguments or non-list value
+
+    Returns:
+        Normalized arguments structure
     """
     if not isinstance(args, list):
         return args
 
-    normalized = []
-    for arg in args:
-        if not isinstance(arg, dict):
-            normalized.append(arg)
-            continue
-
-        # Create a copy of the argument
-        normalized_arg = {}
-
-        for key, value in arg.items():
-            # Handle flags array - convert to boolean fields
-            if key == 'flags':
-                if isinstance(value, list):
-                    for flag in value:
-                        # Convert flags like 'optional', 'multiple' to boolean fields
-                        if flag in ['optional', 'multiple']:
-                            normalized_arg[flag] = True
-                # If flags is not a list or empty, skip it
-                continue
-
-            # Recursively normalize nested arguments
-            if key == 'arguments' and isinstance(value, list):
-                normalized_arg[key] = _normalize_arguments_structure(value)
-            else:
-                normalized_arg[key] = value
-
-        normalized.append(normalized_arg)
-
-    return normalized
+    return [_normalize_single_argument(arg) for arg in args]
 
 def _strip_fields(data, fields_to_strip):
     """
@@ -83,13 +108,144 @@ def _strip_fields(data, fields_to_strip):
     else:
         return data
 
+def _is_function_to_block_transformation(actual, expected):
+    """
+    Check if this is a function->block transformation case.
+
+    When type is 'block' in actual but 'function' in expected, some fields may be omitted.
+    Functions with arguments are transformed to blocks, and the function token is omitted.
+
+    Args:
+        actual: The actual data structure
+        expected: The expected data structure
+
+    Returns:
+        bool: True if this is a function->block transformation
+    """
+    if not isinstance(actual, dict) or not isinstance(expected, dict):
+        return False
+
+    return (actual.get('type') == 'block' and
+            expected.get('type') == 'function')
+
+def _should_skip_field_in_comparison(key, actual, expected, is_function_to_block):
+    """
+    Determine if a field should be skipped during comparison.
+
+    IMPORTANT: Token field is ONLY skipped for function->block transformations.
+    For all other cases, token field must be present and match.
+
+    Args:
+        key: The field name to check
+        actual: The actual data structure
+        expected: The expected data structure
+        is_function_to_block: Whether this is a function->block transformation
+
+    Returns:
+        bool: True if field should be skipped
+    """
+    # Only skip fields in function->block transformation cases
+    if not is_function_to_block:
+        return False
+
+    # Token field is omitted ONLY in function->block transformation
+    # For all other argument types, token must be present
+    if key == 'token' and key not in actual:
+        return True
+
+    # Arguments may be empty or missing in function->block transformation
+    if key == 'arguments':
+        if key not in actual:
+            return True
+        if isinstance(actual[key], list) and len(actual[key]) == 0:
+            return True
+
+    return False
+
+def _compare_type_field(actual_type, expected_type):
+    """
+    Compare type fields with support for function->block transformation.
+
+    Args:
+        actual_type: The actual type value
+        expected_type: The expected type value
+
+    Returns:
+        bool: True if types match (including transformation cases)
+    """
+    if actual_type == expected_type:
+        return True
+
+    # Allow 'block' in actual to match 'function' in expected
+    return actual_type == 'block' and expected_type == 'function'
+
+def _compare_dictionaries(actual, expected):
+    """
+    Compare two dictionaries with lenient matching.
+
+    Lenient means: actual must contain all keys/values from expected,
+    but can have extra fields.
+
+    Note: Token field is only skipped for function->block transformations.
+    For all other argument types, token must be present and match.
+
+    Args:
+        actual: The actual dictionary
+        expected: The expected dictionary
+
+    Returns:
+        bool: True if expected is included in actual
+    """
+    is_function_to_block = _is_function_to_block_transformation(actual, expected)
+
+    # Check that all expected keys exist in actual
+    for key, expected_value in expected.items():
+        # Skip fields that are expected to be missing in transformations
+        # (Only applies to function->block: token and empty arguments)
+        if _should_skip_field_in_comparison(key, actual, expected, is_function_to_block):
+            continue
+
+        if key not in actual:
+            return False
+
+        # Special handling for type field
+        if key == 'type':
+            if not _compare_type_field(actual[key], expected_value):
+                return False
+        else:
+            # Recursively check nested structures
+            if not _is_dict_included(actual[key], expected_value):
+                return False
+
+    return True
+
+def _compare_lists(actual, expected):
+    """
+    Compare two lists element by element in order.
+
+    Args:
+        actual: The actual list
+        expected: The expected list
+
+    Returns:
+        bool: True if lists match element by element
+    """
+    if len(actual) != len(expected):
+        return False
+
+    for i in range(len(expected)):
+        if not _is_dict_included(actual[i], expected[i]):
+            return False
+
+    return True
 
 def _is_dict_included(actual, expected):
     """
-    Check if expected dictionary structure is included in actual (lenient comparison).
+    Check if expected structure is included in actual (lenient comparison).
     Recursively compares nested dictionaries and lists.
 
-    Lenient means: actual must contain all keys/values from expected, but can have extra fields.
+    Lenient means: actual must contain all keys/values from expected,
+    but can have extra fields.
 
     Args:
         actual: The actual data structure
@@ -102,57 +258,13 @@ def _is_dict_included(actual, expected):
     if type(actual) != type(expected):
         return False
 
-    # Handle dictionaries
+    # Route to appropriate comparison function
     if isinstance(expected, dict):
-        # Check if this is a function->block transformation case
-        # When type is 'block' in actual but 'function' in expected, some fields may be omitted
-        # (Functions with arguments are transformed to blocks, and the function token is omitted)
-        is_function_to_block = False
-        if 'type' in expected and 'type' in actual:
-            if actual['type'] == 'block' and expected['type'] == 'function':
-                is_function_to_block = True
-
-        # Check that all expected keys exist in actual
-        for key, expected_value in expected.items():
-            # Special handling for function->block transformation
-            if is_function_to_block:
-                # When transforming function to block, the token field is omitted
-                if key == 'token' and key not in actual:
-                    continue  # Skip token field check - it's expected to be missing
-                # When transforming function to block, arguments may be empty or missing
-                if key == 'arguments':
-                    # If actual has empty arguments or arguments is missing, accept it
-                    if key not in actual:
-                        continue  # Skip arguments check - missing is acceptable for block type
-                    if isinstance(actual[key], list) and len(actual[key]) == 0:
-                        continue  # Skip arguments check - empty is acceptable for block type
-
-            if key not in actual:
-                return False
-
-            # Special case: type field - allow 'block' in actual to match 'function' in expected
-            if key == 'type':
-                if actual[key] == expected_value or (actual[key] == 'block' and expected_value == 'function'):
-                    continue  # Type matches (with function->block transformation)
-                else:
-                    return False
-            else:
-                # Recursively check nested structures
-                if not _is_dict_included(actual[key], expected_value):
-                    return False
-        return True
-
-    # Handle lists - compare element by element in order
+        return _compare_dictionaries(actual, expected)
     elif isinstance(expected, list):
-        if len(actual) != len(expected):
-            return False
-        for i in range(len(expected)):
-            if not _is_dict_included(actual[i], expected[i]):
-                return False
-        return True
-
-    # Handle primitive types - direct comparison
+        return _compare_lists(actual, expected)
     else:
+        # Primitive types - direct comparison
         return actual == expected
 
 def compare_arguments(actual, expected, fields_to_strip=None):
