@@ -1187,7 +1187,6 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
     shard_conn = env.getConnection(shardId)
     _verify_metrics_not_changed(env, shard_conn, before_info_dicts[shardId], tested_in_this_test)
 
-# @skip(cluster=False)
 def test_multi_threading_stats(env):
   """
   Test that multi_threading metrics are tracked correctly in cluster mode.
@@ -1218,3 +1217,122 @@ def test_multi_threading_stats(env):
                  message="active_io_threads should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
   # we test it in unit tests.
+
+# --- Helper Function (to be shared by both SA and Cluster tests) ---
+def _test_active_worker_threads(env, num_queries):
+    """
+    Helper function to test active_worker_threads metric with paused queries.
+
+    Args:
+        env: Test environment
+        num_queries: Number of queries to pause (configurable, should work even when num_queries=1)
+    """
+    conn = getConnectionByEnv(env)
+
+    # Setup: Ensure workers are configured (need at least num_queries workers)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', num_queries)
+
+    # Create index and add test data
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for i in range(10):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    # Verify active_worker_threads starts at 0
+    multi_threading_section = f'{SEARCH_PREFIX}multi_threading'
+    for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+        info_dict = info_modules_to_dict(con)
+        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
+                       message=f"shard {i}: active_worker_threads should be 0 when idle")
+
+    # Define callback for testing a specific query type
+    def _test_query_type(query_type):
+        query_threads = []
+        query_results = []
+
+        # Launch num_queries queries in background threads, paused at Index RP
+        for i in range(num_queries):
+            result_list = []
+            query_results.append(result_list)
+            t = threading.Thread(
+                target=call_and_store,
+                args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                      (env, [query_type, 'idx', '*'], 'Index', 0, ['INTERNAL_ONLY']),
+                      result_list),
+                daemon=True
+            )
+            query_threads.append(t)
+            t.start()
+
+        # Wait for all queries to be paused
+        with TimeLimit(120):
+            while not all(allShards_getIsRPPaused(env)):
+                time.sleep(0.1)
+
+        # Verify active_worker_threads == num_queries
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            info_dict = info_modules_to_dict(con)
+            env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], str(num_queries),
+                           message=f"shard {i}: {query_type}: active_worker_threads should be {num_queries} when {num_queries} queries are paused")
+
+        # Resume all queries
+        allShards_setPauseRPResume(env)
+
+        # Wait for all query threads to complete
+        for t in query_threads:
+            t.join()
+
+        # Drain worker thread pool to ensure all jobs complete
+        run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+
+        # Verify active_worker_threads returns to 0
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            info_dict = info_modules_to_dict(con)
+            env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
+                           message=f"shard {i}: {query_type}: active_worker_threads should return to 0 after queries complete")
+
+    # Test both query types
+    _test_query_type('FT.SEARCH')
+    _test_query_type('FT.AGGREGATE')
+
+# --- Test 1: Standalone Mode ---
+@skip(cluster=False)  # Only run in standalone mode
+def test_active_worker_threads_SA(env):
+    """
+    Test active_worker_threads metric in standalone (SA) mode.
+
+    Expected behavior:
+        - When num_queries queries are paused, active_worker_threads should be num_queries
+        - After queries complete and drain, active_worker_threads should return to 0
+        - Test should work even when num_queries=1
+
+    Notes:
+        - Use INTERNAL_ONLY for FT.AGGREGATE even in SA mode (known limitation)
+        - Use PAUSE_BEFORE_RP_N (not PAUSE_AFTER_RP_N)
+    """
+    num_queries = 1
+    _test_active_worker_threads(env, num_queries)
+
+# --- Test 2: Cluster Mode ---
+@skip(cluster=True)  # Only run in cluster mode
+def test_active_worker_threads_cluster(env):
+    """
+    Test active_worker_threads metric in cluster mode.
+
+    Flow:
+        1. Initialize cluster environment with WORKERS configured (e.g., env = Env(moduleArgs='WORKERS 4'))
+        2. Define num_queries = 2 (configurable variable, can be smaller in cluster due to complexity)
+        3. Call _test_active_worker_threads(env, num_queries, is_cluster=True)
+
+    Expected behavior:
+        - When num_queries queries are paused on shards, active_worker_threads should be num_queries per shard
+        - After queries complete and drain, active_worker_threads should return to 0 on all shards
+        - Test should work even when num_queries=1
+
+    Notes:
+        - In cluster mode, need to check metrics on each shard
+        - For FT.AGGREGATE, must use INTERNAL_ONLY flag to pause on shards
+        - Use allShards_getIsRPPaused() and allShards_setPauseRPResume() for cluster operations
+        - Use PAUSE_BEFORE_RP_N (not PAUSE_AFTER_RP_N)
+    """
+    num_queries = 1
+    _test_active_worker_threads(env, num_queries)
