@@ -3433,11 +3433,12 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CursorCommandInternal, ctx, argv, argc,
                                                (WeakRef){0});
 }
-
 #define CURSOR_SUBCOMMANDS(command, func)                                                                                                                           \
-  SubCommand subcommands[] = {                                                                                                                                      \
+  SubCommand subcommands[] = {                                                                                                                         \
+    /* TODO: is FT.CURSOR READ is indeed readonly? it changes the cursor state */                                                                      \
     {.name = "READ", .fullName = command "|READ", .flags = "readonly", .handler = func, .setCommandInfo = SetFtCursorReadInfo, .position = {0, 0, 0}}, \
     {.name = "DEL", .fullName = command "|DEL", .flags = "write", .handler = func, .setCommandInfo = SetFtCursorDelInfo, .position = {0, 0, 0}},       \
+    {.name = "PROFILE", .fullName = command "|PROFILE", .flags = "write", .handler = func, .setCommandInfo = SetFtCursorDelInfo, .position = {0, 0, 0}},       \
     {.name = "GC", .fullName = command "|GC", .flags = "write", .handler = func, .setCommandInfo = NULL, .position = {0, 0, 0}},                       \
   }
 
