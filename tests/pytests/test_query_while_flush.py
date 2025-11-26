@@ -76,7 +76,6 @@ def test_query_while_flush():
         thread = threading.Thread(
             target=query_worker,
             args=(stats, ),
-            daemon=True
         )
         threads.append(thread)
         thread.start()
@@ -123,7 +122,7 @@ def test_query_while_flush():
 
     # Wait for all threads to complete
     for thread in threads:
-        thread.join(timeout=2.0)
+        thread.join()
 
     # Verify statistics before flush
     env.assertEqual(stats['before_flush_errors'], 0,
