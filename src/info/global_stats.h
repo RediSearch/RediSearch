@@ -65,7 +65,7 @@ typedef struct {
 } QueriesGlobalStats;
 
 typedef struct {
-  size_t active_io_threads; // number of io threads currently running
+  size_t active_io_threads; // number of I/O thread callbacks currently executing
 } MultiThreadingStats;
 
 typedef struct {
