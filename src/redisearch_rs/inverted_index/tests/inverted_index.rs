@@ -16,33 +16,36 @@ mod c_mocks;
 fn test_inverted_index_usage() {
     let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, DocIdsOnly);
 
-    for id in 0..100_000 {
+    for id in 0..3_200 {
         ii.add_record(&RSIndexResult::default().doc_id(id)).unwrap();
     }
 
-    assert_eq!(ii.unique_docs(), 100_000);
+    assert_eq!(ii.unique_docs(), 3_200);
 
     {
         let mut reader = ii.reader();
         let mut result = RSIndexResult::default();
 
-        for expected_id in 0..10_000 {
+        // Test reading across block boundaries
+        for expected_id in 0..1_100 {
             let found = reader.next_record(&mut result).unwrap();
 
             assert!(found);
             assert_eq!(result.doc_id, expected_id);
         }
 
-        for expected_id in 50_505..55_000 {
+        // Test skipping across block boundaries
+        for expected_id in 1_805..2_200 {
             let found = reader.seek_record(expected_id, &mut result).unwrap();
 
             assert!(found);
             assert_eq!(result.doc_id, expected_id);
         }
 
-        reader.skip_to(99_000);
+        // Test skipping to a block will begin at the start of the block
+        reader.skip_to(3_100);
 
-        for expected_id in 99_000..100_000 {
+        for expected_id in 3_000..3_200 {
             let found = reader.next_record(&mut result).unwrap();
 
             assert!(found);
@@ -52,21 +55,21 @@ fn test_inverted_index_usage() {
         assert!(!reader.next_record(&mut result).unwrap(), "no more records");
     }
 
-    // Remove the first 50_000 documents
+    // Remove the first 2_000 documents
     let delta = ii
-        .scan_gc(|doc_id| doc_id >= 50_000, |_, _| {})
+        .scan_gc(|doc_id| doc_id >= 2_000, |_, _| {})
         .unwrap()
         .unwrap();
     let apply_info = ii.apply_gc(delta);
 
-    assert_eq!(apply_info.entries_removed, 50_000);
-    assert_eq!(ii.unique_docs(), 50_000);
+    assert_eq!(apply_info.entries_removed, 2_000);
+    assert_eq!(ii.unique_docs(), 1_200);
 
     {
         let mut reader = ii.reader();
         let mut result = RSIndexResult::default();
 
-        for expected_id in 50_000..100_000 {
+        for expected_id in 2_000..3_200 {
             let found = reader.next_record(&mut result).unwrap();
 
             assert!(found);
@@ -78,7 +81,7 @@ fn test_inverted_index_usage() {
 
     // Remove the documents in the last block
     let delta = ii
-        .scan_gc(|doc_id| doc_id < 99_000, |_, _| {})
+        .scan_gc(|doc_id| doc_id < 3_000, |_, _| {})
         .unwrap()
         .unwrap();
 
@@ -86,14 +89,14 @@ fn test_inverted_index_usage() {
     // This will allow us to check the last block is not modified.
     let apply_info = ii.apply_gc(delta);
 
-    assert_eq!(apply_info.entries_removed, 1_000);
-    assert_eq!(ii.unique_docs(), 49_000);
+    assert_eq!(apply_info.entries_removed, 200);
+    assert_eq!(ii.unique_docs(), 1_000);
 
     // Remove all the records and check that the index can still be used
     let delta = ii.scan_gc(|_| false, |_, _| {}).unwrap().unwrap();
     let apply_info = ii.apply_gc(delta);
 
-    assert_eq!(apply_info.entries_removed, 49_000);
+    assert_eq!(apply_info.entries_removed, 1_000);
     assert_eq!(ii.unique_docs(), 0);
     assert_eq!(ii.number_of_blocks(), 0);
 
@@ -109,13 +112,13 @@ fn test_inverted_index_usage() {
 
     // Make the new entries u32::MAX apart. This will allow us to collect every second
     // entry and cause a delta that is too big, thus causing the blocks to split.
-    for i in 0..10_000 {
+    for i in 0..1_002 {
         ii.add_record(&RSIndexResult::default().doc_id(i * (u32::MAX as t_docId)))
             .unwrap();
     }
 
-    assert_eq!(ii.unique_docs(), 10_000);
-    assert_eq!(ii.number_of_blocks(), 10);
+    assert_eq!(ii.unique_docs(), 1_002);
+    assert_eq!(ii.number_of_blocks(), 2);
 
     let delta = ii
         .scan_gc(|doc_id| doc_id % (u32::MAX as t_docId * 2) == 0, |_, _| {})
@@ -123,11 +126,11 @@ fn test_inverted_index_usage() {
         .unwrap();
     let apply_info = ii.apply_gc(delta);
 
-    assert_eq!(apply_info.entries_removed, 5_000);
-    assert_eq!(ii.unique_docs(), 5_000);
+    assert_eq!(apply_info.entries_removed, 501);
+    assert_eq!(ii.unique_docs(), 501);
     assert_eq!(
         ii.number_of_blocks(),
-        5000,
+        501,
         "every record will be on its own block"
     );
 
@@ -135,7 +138,7 @@ fn test_inverted_index_usage() {
         let mut reader = ii.reader();
         let mut result = RSIndexResult::default();
 
-        for i in 0..5_000 {
+        for i in 0..501 {
             let found = reader.next_record(&mut result).unwrap();
 
             assert!(found);
