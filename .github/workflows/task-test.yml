@@ -313,6 +313,7 @@ jobs:
           fi
       # Cache Rust packages
       - uses: Swatinem/rust-cache@v2
+        if: steps.node20.outputs.supported == 'true'
         with:
           # The cargo workspaces and target directory configuration.
           # These entries are separated by newlines and have the form
