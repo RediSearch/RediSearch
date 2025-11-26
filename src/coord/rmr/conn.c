@@ -362,6 +362,7 @@ static void signalCallback(uv_timer_t *tm) {
   redisAsyncContext *ac = conn->conn;
 
   if (conn->state == MRConn_Freeing) {
+    CONN_LOG(conn, "Freeing connection");
     if (ac) {
       ac->data = NULL;
       conn->conn = NULL;
