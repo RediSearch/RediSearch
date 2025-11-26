@@ -3436,8 +3436,7 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                                                (WeakRef){0});
 }
 #define CURSOR_SUBCOMMANDS(command, func)                                                                                                                           \
-  SubCommand subcommands[] = {                                                                                                                         \
-    /* TODO: are FT.CURSOR READ and PROFILE indeed readonly? They both change the cursor state */                                                                      \
+  SubCommand subcommands[] = {                                                                                                                                        \
     {.name = "READ", .fullName = command "|READ", .flags = "readonly", .handler = func, .setCommandInfo = SetFtCursorReadInfo, .position = {0, 0, 0}}, \
     {.name = "DEL", .fullName = command "|DEL", .flags = "write", .handler = func, .setCommandInfo = SetFtCursorDelInfo, .position = {0, 0, 0}},       \
     {.name = "PROFILE", .fullName = command "|PROFILE", .flags = "readonly", .handler = func, .setCommandInfo = NULL, .position = {0, 0, 0}},       \
