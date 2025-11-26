@@ -25,7 +25,8 @@ impl<'a> QueryTermBuilder<'a> {
     /// Creates a new instance of `RSQueryTerm` on the heap.
     /// It returns a raw pointer to the allocated `RSQueryTerm`.
     ///
-    /// The caller is responsible for freeing the allocated memory.
+    /// The caller is responsible for freeing the allocated memory
+    /// using [`Term_Free`](ffi::Term_Free).
     pub(crate) fn allocate(self) -> *mut RSQueryTerm {
         let Self {
             token,
