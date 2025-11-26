@@ -65,10 +65,15 @@ typedef struct {
 } QueriesGlobalStats;
 
 typedef struct {
+  size_t active_io_threads; // number of io threads currently running
+} MultiThreadingStats;
+
+typedef struct {
   QueriesGlobalStats queries;   // Queries statistics. values should be fetched by calling `TotalGlobalStats_GetQueryStats`, otherwise not safe.
   uint_least8_t used_dialects;  // bitarray of dialects used by all indices
   size_t logically_deleted;     // Number of logically deleted documents in all indices
                                 // (i.e., marked with DELETED flag but their memory was not yet cleaned by the GC)
+  MultiThreadingStats multi_threading;
 } TotalGlobalStats;
 
 // The global stats object type
@@ -135,3 +140,9 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool co
 // Currently supports : timeout
 // `toAdd` can be negative to decrease the counter.
 void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord);
+
+// Update the number of active io threads.
+void GlobalStats_UpdateActiveIoThreads(int toAdd);
+
+// Get multiThreadingStats
+MultiThreadingStats GlobalStats_GetMultiThreadingStats();

@@ -147,3 +147,16 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
       break;
   }
 }
+
+// Update the number of active io threads.
+void GlobalStats_UpdateActiveIoThreads(int toAdd) {
+  INCR_BY(RSGlobalStats.totalStats.multi_threading.active_io_threads, toAdd);
+}
+
+// Get the number of active io threads.
+// Get multiThreadingStats
+MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
+  MultiThreadingStats stats;
+  stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+  return stats;
+}
