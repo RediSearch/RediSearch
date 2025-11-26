@@ -3,7 +3,7 @@
 *
 !.install
 !.install/**
-!build.sh
+!.rust-nightly
 !.github/workflows/task-get-config.yml
 
 # Make sure we don't include the boost directory in the context.
