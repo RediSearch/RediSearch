@@ -57,8 +57,9 @@ def test_yield_while_bg_indexing_mod4745(env):
     # Validate that we yielded at least once (we should after every 100 bg indexing iterations).
     # The background scan in Redis may scan keys more than once (see RM_Scan() docs), so we assert that each shard
     # yields *at least* once for each 100 documents.
-    env.assertGreaterEqual(run_command_on_all_shards(env, debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX'),
-                        [(n/env.shardsCount) // 100]*env.shardsCount)
+    for shard in env.getOSSMasterNodesConnectionList():
+        env.assertGreaterEqual(shard.execute_command(debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX'),
+                               int((n/env.shardsCount) // 100))
     # The yield mechanism was introduced is to make sure cluster will not mark itself as fail since the server is not
     # responsive and fail to send cluster PING on time before we reach cluster-node-timeout. Every time we yield, we
     # give the main thread a chance to reply to PINGs.
