@@ -93,10 +93,6 @@ static void MRConnPool_Free(void *privdata, void *p) {
   UNUSED(privdata);
   MRConnPool *pool = p;
   if (!pool) return;
-  for (size_t i = 0; i < pool->num; i++) {
-    /* We stop the connections from the main thread because we assume this is called after the uv loop and thread has been closed */
-    freeConn(pool->conns[i]);
-  }
   rm_free(pool->conns);
   rm_free(pool);
 }
@@ -133,7 +129,20 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
   mgr->nodeConns = nodeConns;
 }
 
-/* Free the entire connection manager */
+void MRConnManager_Stop(MRConnManager *mgr) {
+  dictIterator *it = dictGetIterator(mgr->map);
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    MRConnPool *pool = dictGetVal(entry);
+    for (size_t i = 0; i < pool->num; i++) {
+      MRConn *conn = pool->conns[i];
+      MRConn_Stop(conn);
+    }
+  }
+  dictReleaseIterator(it);
+}
+
+/* Free the entire connection manager. The MRConnManager_Stop function should be called before this function */
 void MRConnManager_Free(MRConnManager *mgr) {
   dictRelease(mgr->map);
 }
