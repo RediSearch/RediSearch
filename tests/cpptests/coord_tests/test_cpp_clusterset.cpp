@@ -363,7 +363,7 @@ TEST_F(ClusterSetTest, Error_MissingMYID) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Missing value for MYID at offset 2");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Missing value for MYID at offset 3");
 
 }
 
@@ -379,7 +379,7 @@ TEST_F(ClusterSetTest, Error_MissingRANGES) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Unexpected argument: `SHARD` at offset 2");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Unexpected argument: `SHARD` at offset 3");
 
 }
 
@@ -397,7 +397,7 @@ TEST_F(ClusterSetTest, Error_BadHashFunc) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for HASHFUNC: INVALID at offset 4");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for HASHFUNC: INVALID at offset 5");
 
 }
 
@@ -415,7 +415,7 @@ TEST_F(ClusterSetTest, Error_NumSlotsTooLarge) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for NUMSLOTS: 20000 at offset 4");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for NUMSLOTS: 20000 at offset 5");
 
 }
 
@@ -431,7 +431,7 @@ TEST_F(ClusterSetTest, Error_TooFewRanges) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for RANGES: 0 at offset 3");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for RANGES: 0 at offset 4");
 
 }
 
@@ -448,7 +448,7 @@ TEST_F(ClusterSetTest, Error_TooFewRangesGiven) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected `SHARD` but got `(nil)` at offset 12");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected `SHARD` but got `(nil)` at offset 13");
 
 }
 
@@ -466,7 +466,7 @@ TEST_F(ClusterSetTest, Error_TooManyRangesGiven) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected end of command but got `SHARD` at offset 12");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected end of command but got `SHARD` at offset 13");
 
 }
 
@@ -483,7 +483,7 @@ TEST_F(ClusterSetTest, Error_InvalidSlotRange_StartGreaterThanEnd) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad values for SLOTRANGE: 1000, 500 at offset 9");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad values for SLOTRANGE: 1000, 500 at offset 10");
 
 }
 
@@ -500,7 +500,7 @@ TEST_F(ClusterSetTest, Error_InvalidSlotRange_EndTooLarge) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for SLOTRANGE end: 16384 at offset 8");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for SLOTRANGE end: 16384 at offset 9");
 
 }
 
@@ -518,7 +518,7 @@ TEST_F(ClusterSetTest, Error_InvalidSlotRange_EndTooLargeCustomNumSlots) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for SLOTRANGE end: 10000 at offset 10");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for SLOTRANGE end: 10000 at offset 11");
 
 }
 
@@ -535,7 +535,7 @@ TEST_F(ClusterSetTest, Error_MissingADDR) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Missing value for ADDR at offset 10");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Missing value for ADDR at offset 11");
 
 }
 
@@ -552,7 +552,7 @@ TEST_F(ClusterSetTest, Error_InvalidADDR) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for ADDR: invalid_address at offset 11");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for ADDR: invalid_address at offset 12");
 
 }
 
@@ -570,7 +570,7 @@ TEST_F(ClusterSetTest, Error_MultipleADDR) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting ADDR for shard `shard1` at offset 20");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting ADDR for shard `shard1` at offset 21");
 
 }
 
@@ -590,7 +590,7 @@ TEST_F(ClusterSetTest, Error_MultipleUNIXADDR) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting UNIXADDR for shard `shard1` at offset 22");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting UNIXADDR for shard `shard1` at offset 23");
 
 }
 
@@ -608,7 +608,7 @@ TEST_F(ClusterSetTest, Error_MYIDNotFound) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "MYID `nonexistent` does not correspond to any shard at offset 20");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "MYID `nonexistent` does not correspond to any shard at offset 21");
 
 }
 
@@ -626,7 +626,7 @@ TEST_F(ClusterSetTest, Error_UnexpectedArgument) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Unexpected argument: `UNEXPECTED` at offset 2");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Unexpected argument: `UNEXPECTED` at offset 3");
 
 }
 
@@ -660,7 +660,7 @@ TEST_F(ClusterSetTest, Error_IncompleteSLOTRANGE_MissingEnd) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for SLOTRANGE end: ADDR at offset 8");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for SLOTRANGE end: ADDR at offset 9");
 
 }
 
@@ -677,7 +677,7 @@ TEST_F(ClusterSetTest, Error_RANGESCountMismatch_TooFew) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected `SHARD` but got `(nil)` at offset 12");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected `SHARD` but got `(nil)` at offset 13");
 
 }
 
@@ -695,7 +695,7 @@ TEST_F(ClusterSetTest, Error_ExtraArgumentsAfterRanges) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected end of command but got `EXTRA` at offset 12");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected end of command but got `EXTRA` at offset 13");
 
 }
 
@@ -711,7 +711,7 @@ TEST_F(ClusterSetTest, Error_ZeroRANGES) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for RANGES: 0 at offset 3");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for RANGES: 0 at offset 4");
 
 }
 
@@ -728,7 +728,7 @@ TEST_F(ClusterSetTest, Error_MissingADDRValue) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for ADDR: MASTER at offset 11");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Bad value for ADDR: MASTER at offset 12");
 
 }
 
@@ -746,7 +746,7 @@ TEST_F(ClusterSetTest, Error_MissingUNIXADDRValue) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "MYID `shard1` does not correspond to any shard at offset 13");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "MYID `shard1` does not correspond to any shard at offset 14");
 
 }
 
@@ -765,7 +765,7 @@ TEST_F(ClusterSetTest, Error_MultipleSLOTRANGE_SameBlock) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Multiple SLOTRANGE specified for shard `shard1` at offset 10");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Multiple SLOTRANGE specified for shard `shard1` at offset 11");
 
 }
 
@@ -785,7 +785,7 @@ TEST_F(ClusterSetTest, Error_MultipleADDR_SameBlock) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Multiple ADDR specified for shard `shard1` at offset 13");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Multiple ADDR specified for shard `shard1` at offset 14");
 
 }
 
@@ -806,7 +806,7 @@ TEST_F(ClusterSetTest, Error_MultipleUNIXADDR_SameBlock) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Multiple UNIXADDR specified for shard `shard1` at offset 15");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Multiple UNIXADDR specified for shard `shard1` at offset 16");
 
 }
 
@@ -824,7 +824,7 @@ TEST_F(ClusterSetTest, Error_ConflictingADDR_Password) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting ADDR for shard `shard1` at offset 20");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting ADDR for shard `shard1` at offset 21");
 
 }
 
@@ -842,7 +842,7 @@ TEST_F(ClusterSetTest, Error_ConflictingADDR_Port) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting ADDR for shard `shard1` at offset 20");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Conflicting ADDR for shard `shard1` at offset 21");
 
 }
 
@@ -860,7 +860,7 @@ TEST_F(ClusterSetTest, Error_SLOTRANGE_OutOfOrder) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "SLOTRANGE out of order for shard `shard1` at offset 18");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "SLOTRANGE out of order for shard `shard1` at offset 19");
 
 }
 
@@ -878,7 +878,7 @@ TEST_F(ClusterSetTest, Error_SLOTRANGE_Consecutive) {
     MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
 
     EXPECT_EQ(topo, nullptr);
-    EXPECT_EQ(RMCK_GetLastError(ctx), "SLOTRANGE out of order for shard `shard1` at offset 18");
+    EXPECT_EQ(RMCK_GetLastError(ctx), "SLOTRANGE out of order for shard `shard1` at offset 19");
 
 }
 
