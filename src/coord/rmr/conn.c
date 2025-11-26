@@ -35,7 +35,6 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
 static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
 static int MRConn_Connect(MRConn *conn);
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
-static void MRConn_Free(void *ptr);
 static void MRConn_Stop(MRConn *conn);
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop);
 static int MRConn_StartNewConnection(MRConn *conn);
@@ -91,12 +90,12 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) 
 }
 
 static void MRConnPool_Free(void *privdata, void *p) {
-  uv_loop_t *loop = (uv_loop_t *)privdata;
+  UNUSED(privdata);
   MRConnPool *pool = p;
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
-    /* We stop the connections and the disconnect callback frees them */
-    MRConn_Stop(pool->conns[i]);
+    /* We stop the connections from the main thread because we assume this is called after the uv loop and thread has been closed */
+    freeConn(pool->conns[i]);
   }
   rm_free(pool->conns);
   rm_free(pool);
@@ -195,7 +194,6 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
 
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
-
   dictEntry *ptr = dictFind(mgr->map, id);
   if (ptr) {
     MRConnPool *pool = dictGetVal(ptr);
@@ -350,7 +348,6 @@ static void freeConn(MRConn *conn) {
   }
   rm_free(conn);
 }
-
 
 static void signalCallback(uv_timer_t *tm) {
   MRConn *conn = tm->data;

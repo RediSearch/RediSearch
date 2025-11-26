@@ -267,7 +267,6 @@ void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
 
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   // In order to properly release the connections, we need the event loop to be running
-  MRConnManager_Free(&io_runtime_ctx->conn_mgr);
   if (CheckIoRuntimeStarted(io_runtime_ctx)) {
     // Here we know that at least the thread will be created
     uv_mutex_lock(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
@@ -282,6 +281,7 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   } else {
     UV_Close(io_runtime_ctx);
   }
+  MRConnManager_Free(&io_runtime_ctx->conn_mgr);
   RQ_Free(io_runtime_ctx->queue);
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
   if (task) {
