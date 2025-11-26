@@ -43,6 +43,9 @@ jobs:
   benchmark-steps:
     runs-on: ubuntu-latest
     container: ${{ inputs.container }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
     steps:
 
       - name: Checkout
