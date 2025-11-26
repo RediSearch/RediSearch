@@ -9,6 +9,7 @@ on:
           - all
           - ubuntu:jammy
           - ubuntu:focal
+          - centos:7
           - rockylinux:8
           # - rockylinux:9
           - debian:bullseye
