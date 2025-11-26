@@ -131,6 +131,10 @@ debug = true
 [profile.optimised_test]
 # Like `release`, but:
 inherits = "release"
+# - Lose a bit of perf in exchange for compilation parallelism,
+#   thus speeding up test compilation in CI.
+lto = "thin"
+codegen-units = 8
 # - Emit debug symbols
 debug = true
 # - Enable debug assertions
