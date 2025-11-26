@@ -31,6 +31,7 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+  IGNORE_MISSING_DEPS: 1
 
 jobs:
   build:
@@ -44,7 +45,7 @@ jobs:
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
       # Build command
-      BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
+      BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH IGNORE_MISSING_DEPS=1 && echo '::endgroup::'
     steps:
       # Setup
       - name: Pre-steps Dependencies
