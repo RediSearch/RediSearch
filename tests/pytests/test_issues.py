@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from common import *
 import random
+import threading
 
 def test_1282(env):
   conn = getConnectionByEnv(env)
