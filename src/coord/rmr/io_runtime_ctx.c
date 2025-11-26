@@ -117,6 +117,8 @@ void shutdown_cb(uv_async_t* handle) {
   IORuntimeCtx* io_runtime_ctx = (IORuntimeCtx*)handle->data;
   // Stop the event loop first
   RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Stopping event loop", io_runtime_ctx->queue->id);
+  // Go through all the connections and stop the timers
+  MRConnManager_Stop(&io_runtime_ctx->conn_mgr);
   uv_stop(&io_runtime_ctx->uv_runtime.loop);
 }
 
