@@ -26,7 +26,7 @@ on:
         type: string
 
 env:
-  REF: v2.6.32  # Define fallbacks for ref to checkout
+  REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
   BRANCH: ${{ inputs.ref || github.ref_name }}        # Define "branch" name for pack name (used in `make pack`)
   AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
@@ -126,6 +126,9 @@ jobs:
         run: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
         run: pip install -q -r .install/build_package_requirments.txt
+
+      - name: Checkout v2.6.32
+        run: git checkout v2.6.32
 
       # Get Redis
       - name: Get Redis (node20)
