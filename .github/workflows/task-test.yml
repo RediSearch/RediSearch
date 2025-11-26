@@ -6,15 +6,15 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform name (e.g., ubuntu:noble, macos, sanitizer, coverage)'
+        description: "Platform name (e.g., ubuntu:noble, macos, sanitizer, coverage)"
         type: string
         required: true
       architecture:
-        description: 'Architecture (x86_64, aarch64)'
+        description: "Architecture (x86_64, aarch64)"
         type: string
         required: true
       custom-env:
-        description: 'Environment/runner to use (overrides env from task-get-config)'
+        description: "Environment/runner to use (overrides env from task-get-config)"
         type: string
       san:
         type: string
@@ -118,7 +118,7 @@ jobs:
             BASE_IMAGE=${{ needs.get-config.outputs.container || 'ubuntu:24.04' }}
           file: Dockerfile
           tags: ${{ steps.meta.outputs.image }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max
+          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max,compression=zstd
           cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
       # This step ONLY runs if all previous steps succeeded
       - name: Mark success
@@ -384,10 +384,10 @@ jobs:
 
       - name: Build Redis
         working-directory: redis
-        run:  ${{ steps.mode.outputs.mode }} make install
-              BUILD_TLS=yes
-              ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
-              SANITIZER=${{ inputs.san }}
+        run: ${{ steps.mode.outputs.mode }} make install
+          BUILD_TLS=yes
+          ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
+          SANITIZER=${{ inputs.san }}
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
