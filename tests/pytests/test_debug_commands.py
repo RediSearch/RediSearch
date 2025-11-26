@@ -1301,6 +1301,7 @@ def test_cluster_query_controller_pause_and_resume_coord(env):
 class ProfileDebugSA:
     @staticmethod
     def createIndex(env):
+        skipTest(cluster=True)
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
         env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
         conn = getConnectionByEnv(env)
@@ -1411,6 +1412,7 @@ class TestProfileDebugSAResp3(object):
 class ProfileDebugCluster:
     @staticmethod
     def createIndex(env):
+        skipTest(cluster=False)
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
         run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
         conn = getConnectionByEnv(env)
