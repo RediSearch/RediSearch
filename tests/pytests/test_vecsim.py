@@ -1773,9 +1773,9 @@ class TestTimeoutReached(object):
     def __init__(self):
         if SANITIZER or OS == 'macos':
             raise SkipTest()
-        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+        self.env = Env(enableDebugCommand=True, moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
         n_shards = self.env.shardsCount
-        self.index_sizes = {'FLAT': 80000 * n_shards, 'HNSW': 10000 * n_shards, 'SVS-VAMANA': 10000 * n_shards}
+        self.index_sizes = {'FLAT': 100 * n_shards, 'HNSW': 100 * n_shards, 'SVS-VAMANA': 100 * n_shards}
         self.hybrid_modes = ['BATCHES', 'ADHOC_BF']
         self.dim = 10
         self.type = 'FLOAT32'
@@ -1783,26 +1783,27 @@ class TestTimeoutReached(object):
     def tearDown(self): # cleanup after each test
         self.env.flush()
 
-    def run_long_queries(self, n_vec, query_vec):
+    def run_timeout_tests(self, n_vec, query_vec):
         # STANDARD KNN
-        large_k = 1000
         # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, large_k,
-                                   'PARAMS', 4, 'K', large_k, 'vec_param', query_vec.tobytes(),
+        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 0)
-        self.env.assertEqual(res[0], large_k)
-        # run query with 1 millisecond timeout. should fail.
+        self.env.assertEqual(res[0], n_vec)
+
+        # run query with timeout using FT.DEBUG TIMEOUT_AFTER_N. should fail.
+        timeout_res_count = 1
         self.env.expect(
-            'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
+            '_FT.DEBUG', 'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
             'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', n_vec,
-            'vec_param', query_vec.tobytes(), 'TIMEOUT', 1
+            'vec_param', query_vec.tobytes(), 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2
         ).error().contains('Timeout limit was reached')
 
         # RANGE QUERY
-        # run query with 1 millisecond timeout. should fail.
-        self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+        # run query with timeout using FT.DEBUG TIMEOUT_AFTER_N. should fail.
+        self.env.expect('_FT.DEBUG', 'FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                    'PARAMS', 2, 'vec_param', query_vec.tobytes(),
-                   'TIMEOUT', 1).error().contains('Timeout limit was reached')
+                   'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
 
         # HYBRID MODES
         # Add some dummy documents so `-dummy` won't be empty and optimized away.
@@ -1811,9 +1812,9 @@ class TestTimeoutReached(object):
                 conn.execute_command('HSET', i, 't', 'dummy')
         for mode in self.hybrid_modes:
             self.env.expect(
-                'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
+                '_FT.DEBUG', 'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
                 'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
-                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 1
+                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2
             ).error().contains('Timeout limit was reached')
 
     def test_flat(self):
@@ -1824,7 +1825,7 @@ class TestTimeoutReached(object):
                     'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
-        self.run_long_queries(n_vec, query_vec)
+        self.run_timeout_tests(n_vec, query_vec)
 
     def test_hnsw(self):
         # Create index and load vectors.
@@ -1834,7 +1835,7 @@ class TestTimeoutReached(object):
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
-        self.run_long_queries(n_vec, query_vec)
+        self.run_timeout_tests(n_vec, query_vec)
 
     def test_svs(self):
         # Create index and load vectors.
@@ -1844,7 +1845,7 @@ class TestTimeoutReached(object):
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2').ok()
         waitForIndex(self.env, 'idx')
 
-        self.run_long_queries(n_vec, query_vec)
+        self.run_timeout_tests(n_vec, query_vec)
 
 @skip(no_json=True)
 def test_create_multi_value_json():
