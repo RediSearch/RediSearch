@@ -254,8 +254,9 @@ def test_expire_aggregate(env):
     env.assertEqual(res, [1, ['t', 'arr'], ['t', 'bar']])
 
 
-def test_expire_ft_hybrid(env):
-    # Use "lazy" expire (expire only when key is accessed) on all shards
+def expire_ft_hybrid_test(protocol):
+    env = Env(protocol=protocol)
+        # Use "lazy" expire (expire only when key is accessed) on all shards
     env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
 
     # Create index with text, vector, and numeric fields
@@ -311,6 +312,12 @@ def test_expire_ft_hybrid(env):
         env.assertEqual(actual_results_dict[doc_key]['t'], f'text{doc_num}')
         env.assertEqual(actual_results_dict[doc_key]['n'], str(doc_num))
         env.assertTrue(float(actual_results_dict[doc_key]['__score']) >= 0)
+
+def test_expire_ft_hybrid_resp2():
+    expire_ft_hybrid_test(protocol=2)
+
+def test_expire_ft_hybrid_resp3():
+    expire_ft_hybrid_test(protocol=3)
 
 def createTextualSchema(field_to_additional_schema_keywords):
     schema = []

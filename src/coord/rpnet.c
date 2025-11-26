@@ -347,7 +347,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   MRReply *score = NULL;
   MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
-  bool has_fields = true;
+  bool has_fields = false;
   if (resp3) {
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
     // extract score if it exists, WITHSCORES was specified
@@ -357,8 +357,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // we do not have keys to return.
     has_fields = fields && MRReply_Type(fields) == MR_REPLY_MAP;
   } else {
-    RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_ARRAY, "invalid result record");
-    RS_LOG_ASSERT(MRReply_Length(fields) % 2 == 0, "invalid fields record");
+    has_fields = fields && MRReply_Type(fields) == MR_REPLY_ARRAY;
+    RS_LOG_ASSERT(!has_fields || has_fields && MRReply_Length(fields) % 2 == 0, "invalid fields record");
   }
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger
