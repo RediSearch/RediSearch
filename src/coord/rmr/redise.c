@@ -287,7 +287,9 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   }
 
   if (!AC_IsAtEnd(&ac)) {
-    ERROR_EXPECTED("end of command", AC_GetStringNC(&ac, NULL));
+    const char *extra;
+    AC_GetString(&ac, &extra, NULL, AC_F_NOADVANCE);
+    ERROR_EXPECTED("end of command", extra);
     goto error;
   }
 
