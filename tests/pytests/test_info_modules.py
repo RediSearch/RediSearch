@@ -3,6 +3,8 @@ from RLTest import Env
 import redis
 from inspect import currentframe
 import numpy as np
+import threading
+import time
 
 
 def info_modules_to_dict(conn):
@@ -1184,3 +1186,35 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
   for shardId in range(1, env.shardsCount + 1):
     shard_conn = env.getConnection(shardId)
     _verify_metrics_not_changed(env, shard_conn, before_info_dicts[shardId], tested_in_this_test)
+
+# @skip(cluster=False)
+def test_multi_threading_stats(env):
+  """
+  Test that multi_threading metrics are tracked correctly in cluster mode.
+  This test verifies the multi_threading section in INFO MODULES, specifically
+  the active_io_threads metric. The test is designed to be general enough to
+  accommodate future multi-threading metrics.
+  """
+  conn = getConnectionByEnv(env)
+  # Setup: Create index with some data
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'age', 'NUMERIC').ok()
+  for i in range(10):
+    conn.execute_command('HSET', f'doc{i}', 'name', f'name{i}', 'age', i)
+
+  # Phase 1: Verify multi_threading section exists and active_io_threads starts at 0
+  info_dict = info_modules_to_dict(env)
+
+  # Verify multi_threading section exists
+  multi_threading_section = f'{SEARCH_PREFIX}multi_threading'
+  env.assertTrue(multi_threading_section in info_dict,
+                 message="multi_threading section should exist in INFO MODULES")
+
+  # Verify all epxected fields exist
+  env.assertTrue(f'{SEARCH_PREFIX}active_io_threads' in info_dict[multi_threading_section],
+                 message="active_io_threads field should exist in multi_threading section")
+
+  # Verify all fields initialized to 0.
+  env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_io_threads'], '0',
+                 message="active_io_threads should be 0 when idle")
+  # There's no deterministic way to test active_io_threads increases while a query is running,
+  # we test it in unit tests.
