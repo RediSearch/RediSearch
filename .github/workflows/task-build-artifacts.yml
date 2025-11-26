@@ -128,7 +128,7 @@ jobs:
         run: pip install -q -r .install/build_package_requirments.txt
 
       - name: Checkout v2.6.32
-        run: git checkout v2.6.32
+        run: git fetch && git checkout v2.6.32
 
       # Get Redis
       - name: Get Redis (node20)
