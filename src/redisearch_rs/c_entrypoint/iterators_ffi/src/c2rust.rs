@@ -53,7 +53,8 @@ pub(crate) struct CRQEIterator {
     ///    and can be converted to a reference.
     /// 2. [`Self::header`] is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
-    /// 3. All callbacks are defined (i.e. the function pointers are not NULL)
+    /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
+    ///    with the exception of `SkipTo`, which is optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
@@ -129,7 +130,8 @@ impl CRQEIterator {
     ///    and can be converted to a reference.
     /// 2. `header` is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
-    /// 3. All callbacks are defined (i.e. the function pointers are not NULL)
+    /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
+    ///    with the exception of `SkipTo`, which is optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     #[allow(unused)]
@@ -143,10 +145,6 @@ impl CRQEIterator {
         debug_assert!(
             self_.Read.is_some(),
             "The `Read` callback is a NULL function pointer"
-        );
-        debug_assert!(
-            self_.SkipTo.is_some(),
-            "The `SkipTo` callback is a NULL function pointer"
         );
         debug_assert!(
             self_.Revalidate.is_some(),
@@ -212,8 +210,9 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
-        let callback = unsafe { self.SkipTo.unwrap_unchecked() };
+        let callback = self
+            .SkipTo
+            .expect("The `SkipTo` callback is a NULL function pointer");
         // SAFETY:
         // - We have a unique handle over this iterator.
         // - The C code must guarantee, by constructor, that callbacks
