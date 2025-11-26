@@ -1460,7 +1460,7 @@ int RSClientHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
-  char *err;
+  GetRedisVersion(ctx);
 
   // Prepare thread local storage for storing active queries/cursors
   int error = MainThread_InitBlockedQueries();
