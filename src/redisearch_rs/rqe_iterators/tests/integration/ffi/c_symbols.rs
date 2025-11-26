@@ -7,12 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Mock implementations of C symbol definitions that aren't provided
-//! by the static C libraries we are linking in build.rs.
+//! Mock implementations or stubs of C symbol that aren't provided
+//! by the static C libraries we are linking against in build.rs.
 use std::ffi::c_void;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
-#[allow(unused)]
+
+// `types_ffi` brings in some of the C symbols we need, even if it
+// isn't used directly.
+#[expect(unused_imports)]
 pub use types_ffi;
 
 // symbols required by the C code we need to redefine
