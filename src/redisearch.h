@@ -97,11 +97,6 @@ typedef enum {
                                 // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
-enum FieldExpirationPredicate {
-  FIELD_EXPIRATION_DEFAULT, // one of the fields need to be valid
-  FIELD_EXPIRATION_MISSING // one of the fields need to be expired for the entry to be considered missing
-};
-
 #define hasPayload(x) (x & Document_HasPayload)
 #define hasExpirationTimeInformation(x) (x & Document_HasExpiration)
 

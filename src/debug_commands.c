@@ -335,7 +335,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
         ARRAY_LEN_VAR(numericHeader) += InvertedIndexSummaryHeader(sctx->redisCtx, invidx);
         END_POSTPONED_LEN_ARRAY(numericHeader);
       }
-      FieldFilterContext fieldCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_DEFAULT};
+      FieldFilterContext fieldCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
       QueryIterator *iter = NewInvIndIterator_NumericQuery(range->entries, sctx, &fieldCtx, NULL, NULL, range->minVal, range->maxVal);
       ReplyIteratorResultsIDs(iter, sctx->redisCtx);
       ++ARRAY_LEN_VAR(numericInvertedIndex); // end (1)Header 2)entries (header is optional)
@@ -1452,6 +1452,9 @@ DEBUG_COMMAND(dumpHNSWData) {
 
 /**
  * FT.DEBUG WORKERS [PAUSE / RESUME / DRAIN / STATS / N_THREADS]
+ *
+ * @warning Calling FT.DEBUG WORKERS DRAIN will block the main thread until all workers are idle, this could lead to a deadlock,
+ *          if there are pending jobs that require to acquire the GIL (like when LOAD is called from a worker thread)
  */
 DEBUG_COMMAND(WorkerThreadsSwitch) {
   if (!debugCommandsEnabled(ctx)) {

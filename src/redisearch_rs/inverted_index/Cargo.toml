@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 enumflags2.workspace = true
 ffi.workspace = true
+field.workspace = true
 low_memory_thin_vec.workspace = true
 qint.workspace = true
 smallvec = { workspace = true, features = ["serde", "union"] }
@@ -20,4 +21,3 @@ proptest = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true
-

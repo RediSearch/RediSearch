@@ -19,7 +19,8 @@ mod bindings {
     #![allow(clippy::missing_const_for_fn)]
 
     use ffi::{NumericFilter, t_fieldIndex, t_fieldMask};
-    use inverted_index::{FieldMaskOrIndex, t_docId};
+    use field::{FieldFilterContext, FieldMaskOrIndex};
+    use inverted_index::t_docId;
 
     // Type aliases for C bindings - types without lifetimes for C interop
     pub type RSIndexResult = inverted_index::RSIndexResult<'static>;
@@ -44,7 +45,9 @@ pub use bindings::{
 };
 use bindings::{IteratorStatus, ValidateStatus};
 use ffi::RedisModule_Alloc;
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::RSIndexResult;
+use std::ptr;
 
 use crate::ffi::bindings::Metric_VECTOR_DISTANCE;
 
@@ -109,13 +112,36 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub unsafe fn new_numeric_full(ii: *mut bindings::InvertedIndex) -> Self {
-        Self(unsafe { bindings::NewInvIndIterator_NumericFull(ii) })
+    pub unsafe fn new_numeric(ii: *mut bindings::InvertedIndex) -> Self {
+        let field_ctx = FieldFilterContext {
+            field: FieldMaskOrIndex::index_invalid(),
+            predicate: FieldExpirationPredicate::Default,
+        };
+
+        Self(unsafe {
+            bindings::NewInvIndIterator_NumericQuery(
+                ii,
+                ptr::null(),
+                &field_ctx as _,
+                ptr::null(),
+                ptr::null(),
+                0.0,
+                std::f64::MAX,
+            )
+        })
     }
 
     #[inline(always)]
-    pub unsafe fn new_term_full(ii: *mut bindings::InvertedIndex) -> Self {
-        Self(unsafe { bindings::NewInvIndIterator_TermFull(ii) })
+    pub unsafe fn new_term(ii: *mut bindings::InvertedIndex) -> Self {
+        Self(unsafe {
+            bindings::NewInvIndIterator_TermQuery(
+                ii,
+                ptr::null(),
+                FieldMaskOrIndex::mask_all(),
+                ptr::null_mut(),
+                1.0,
+            )
+        })
     }
 
     #[inline(always)]
@@ -241,13 +267,13 @@ impl InvertedIndex {
     }
 
     #[inline(always)]
-    pub fn iterator_numeric_full(&self) -> QueryIterator {
-        unsafe { QueryIterator::new_numeric_full(self.0) }
+    pub fn iterator_numeric(&self) -> QueryIterator {
+        unsafe { QueryIterator::new_numeric(self.0) }
     }
 
     #[inline(always)]
-    pub fn iterator_term_full(&self) -> QueryIterator {
-        unsafe { QueryIterator::new_term_full(self.0) }
+    pub fn iterator_term(&self) -> QueryIterator {
+        unsafe { QueryIterator::new_term(self.0) }
     }
 }
 
@@ -287,13 +313,13 @@ mod tests {
     }
 
     #[test]
-    fn numeric_full_iterator() {
+    fn numeric_iterator_full() {
         let ii = InvertedIndex::new(IndexFlags_Index_StoreNumeric);
         ii.write_numeric_entry(1, 1.0);
         ii.write_numeric_entry(10, 10.0);
         ii.write_numeric_entry(100, 100.0);
 
-        let it = unsafe { QueryIterator::new_numeric_full(ii.0) };
+        let it = unsafe { QueryIterator::new_numeric(ii.0) };
         assert_eq!(it.num_estimated(), 3);
 
         assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
@@ -338,7 +364,7 @@ mod tests {
         ii.write_term_entry(10, 1, 1, term, &offsets);
         ii.write_term_entry(100, 1, 1, term, &offsets);
 
-        let it = unsafe { QueryIterator::new_term_full(ii.0) };
+        let it = unsafe { QueryIterator::new_term(ii.0) };
         assert_eq!(it.num_estimated(), 3);
 
         assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);

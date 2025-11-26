@@ -35,9 +35,6 @@ int workersThreadPool_AddWork(redisearch_thpool_proc, void *arg_p);
 // Wait until the workers job queue contains no more than <threshold> jobs.
 void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold);
 
-// Drain only high-priority jobs from the workers' threadpool
-void workersThreadPool_DrainHighPriority(RedisModuleCtx *ctx);
-
 // Terminate threads, allows threads to exit gracefully (without deallocating).
 void workersThreadPool_Terminate(void);
 

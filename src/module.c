@@ -73,7 +73,6 @@
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
-#include "util/shared_exclusive_lock.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1585,7 +1584,6 @@ void RediSearch_CleanupModule(void) {
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(SchemaPrefixes_g);
-  SharedExclusiveLock_Destroy();
   // GeometryApi_Free();
 
   Dictionary_Free();
@@ -2630,7 +2628,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
 /************************ Result post processing callbacks ********************/
 
-
 static void noOpPostProcess(searchReducerCtx *rCtx){
   return;
 }
@@ -2700,9 +2697,23 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_Reply_SimpleString(reply, "warning"); // >warning
     if (rCtx->warning) {
-      MR_ReplyWithMRReply(reply, rCtx->warning);
+      RedisModule_Reply_Array(reply);
+      // Iterate over warning array and track warnings
+      size_t len = MRReply_Length(rCtx->warning);
+      for (size_t i = 0; i < len; ++i) {
+        // Extract warning string and track it
+        MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
+        const char *warning_str = MRReply_String(currentWarning, NULL);
+        QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
+        QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
+
+        // Reply warning
+        MR_ReplyWithMRReply(reply, currentWarning);
+      }
+      RedisModule_Reply_ArrayEnd(reply);
     } else if (req->queryOOM) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      // We use the cluster warning since shard level warning sent via empty reply bailout
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -2968,6 +2979,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       rCtx.lastError = curr_rep;
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(curr_rep, NULL));
       if (should_return_error(errCode)) {
+        // Track error in global statistics
+        QueryErrorsGlobalStats_UpdateError(errCode, 1, COORD_ERR_WARN);
         res = MR_ReplyWithMRReply(reply, curr_rep);
         goto cleanup;
       }
@@ -3013,6 +3026,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
       // If we timed out on strict timeout policy, return a timeout error
       if (should_return_timeout_error(req)) {
+        // Track timeout error in global statistics
+        QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
         RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
         goto cleanup;
       }
@@ -3035,6 +3050,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
       // If we timed out on strict timeout policy, return a timeout error
       if (should_return_timeout_error(req)) {
+        // Track timeout error in global statistics
+        QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
         RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
         goto cleanup;
       }
@@ -3236,7 +3253,6 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
                          struct ConcurrentCmdCtx *cmdCtx);
 
 int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3279,6 +3295,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // Reply with error
     return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
   }
+
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
   // Check the ACL key permissions of the user w.r.t the queried index (only if
@@ -3716,6 +3733,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_BlockedClientMeasureTimeStart(bc);
 
   ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_THREADPOOL);
+
   return REDISMODULE_OK;
 }
 
