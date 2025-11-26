@@ -25,6 +25,7 @@ pub mod string;
 use std::ffi::CString;
 
 use call::*;
+pub use ffi;
 use key::*;
 use redis_module::KeyType;
 use scan_key_cursor::*;
@@ -172,45 +173,55 @@ pub fn init_redis_module_mock() {
 macro_rules! bind_redis_alloc_symbols_to_mock_impl {
     () => {
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_alloc_impl(size: usize) -> *mut c_void {
+        unsafe extern "C" fn rm_alloc_impl(size: usize) -> *mut std::ffi::c_void {
             // $crate::__libc::malloc(size)
             redis_mock::allocator::alloc_shim(size)
         }
 
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_calloc_impl(nmemb: usize, size: usize) -> *mut c_void {
+        unsafe extern "C" fn rm_calloc_impl(nmemb: usize, size: usize) -> *mut std::ffi::c_void {
             redis_mock::allocator::calloc_shim(nmemb, size)
         }
 
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_realloc_impl(ptr: *mut c_void, size: usize) -> *mut c_void {
+        unsafe extern "C" fn rm_realloc_impl(
+            ptr: *mut std::ffi::c_void,
+            size: usize,
+        ) -> *mut std::ffi::c_void {
             redis_mock::allocator::realloc_shim(ptr, size)
         }
 
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_free_impl(ptr: *mut c_void) {
+        unsafe extern "C" fn rm_free_impl(ptr: *mut std::ffi::c_void) {
             redis_mock::allocator::free_shim(ptr)
         }
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Alloc: unsafe extern "C" fn(usize) -> *mut c_void =
+        pub static mut RedisModule_Alloc: unsafe extern "C" fn(usize) -> *mut std::ffi::c_void =
             rm_alloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Calloc: unsafe extern "C" fn(usize, usize) -> *mut c_void =
-            rm_calloc_impl;
+        pub static mut RedisModule_Calloc: unsafe extern "C" fn(
+            usize,
+            usize,
+        ) -> *mut std::ffi::c_void = rm_calloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
         pub static mut RedisModule_Realloc: unsafe extern "C" fn(
-            *mut c_void,
+            *mut std::ffi::c_void,
             usize,
-        ) -> *mut c_void = rm_realloc_impl;
+        ) -> *mut std::ffi::c_void = rm_realloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Free: unsafe extern "C" fn(*mut c_void) = rm_free_impl;
+        pub static mut RedisModule_Free: unsafe extern "C" fn(*mut std::ffi::c_void) = rm_free_impl;
+
+        #[unsafe(no_mangle)]
+        #[allow(non_upper_case_globals)]
+        pub static mut RSDummyContext: *mut $crate::ffi::RedisModuleCtx =
+            $crate::globals::redis_module_ctx();
     };
 }
