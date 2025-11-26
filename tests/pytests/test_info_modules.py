@@ -1209,7 +1209,7 @@ def test_multi_threading_stats(env):
   env.assertTrue(multi_threading_section in info_dict,
                  message="multi_threading section should exist in INFO MODULES")
 
-  # Verify all epxected fields exist
+  # Verify all expected fields exist
   env.assertTrue(f'{SEARCH_PREFIX}active_io_threads' in info_dict[multi_threading_section],
                  message="active_io_threads field should exist in multi_threading section")
 
