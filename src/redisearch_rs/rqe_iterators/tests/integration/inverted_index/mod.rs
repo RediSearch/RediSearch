@@ -6,7 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-
-mod c_symbols;
+mod numeric;
+// These tests rely on an FFI call to create `RSQueryTerm` instances,
+// thus falling outside of the scope that `miri` can examine.
 #[cfg(not(miri))]
-pub(crate) mod query_term;
+mod term;
+mod utils;
