@@ -1570,7 +1570,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     // read only commands
     DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         RS_READ_ONLY_FLAGS_DEFAULT, SetFtInfoInfo,             SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_SEARCH_CMD,    RSSearchCommand,          RS_READ_ONLY_FLAGS_DEFAULT, SetFtSearchInfo,           SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_GET_CMD,       GetSingleDocumentCommand, "readonly",                 NULL,                      NONE,                  "read",                 !IsEnterprise(),  indexDocCmdArgs,  false),
+    DEFINE_COMMAND(RS_GET_CMD,       GetSingleDocumentCommand, "readonly",                 NULL,                      NONE,                  "read",                 true,             indexDocCmdArgs,  false),
     DEFINE_COMMAND(RS_HYBRID_CMD,    RSShardedHybridCommand,   "readonly",                 NULL,                      NONE,                  "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_AGGREGATE_CMD, RSAggregateCommand,       RS_READ_ONLY_FLAGS_DEFAULT, SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         RS_READ_ONLY_FLAGS_DEFAULT, SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
@@ -4054,7 +4054,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     DEFINE_COMMAND("FT.CREATE",         SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs, false),
     DEFINE_COMMAND("FT._CREATEIFNX",    SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs, false),
     DEFINE_COMMAND("FT.ALTER",          SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs, false),
-    DEFINE_COMMAND("FT._ALTERIFNX",     SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs, false),
+    DEFINE_COMMAND("FT._ALTERIFNX",     SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),                  "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs, false),
     DEFINE_COMMAND("FT.DROPINDEX",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write",          SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", !IsEnterprise(),                      ossCmdArgs, false),
     // TODO: Either make ALL replication commands internal (such that no need for ACL check), or add ACL check.
     DEFINE_COMMAND("FT._DROPINDEXIFX",  SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", !IsEnterprise(),                      ossCmdArgs, false),

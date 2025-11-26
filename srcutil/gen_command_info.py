@@ -75,8 +75,6 @@ def generate_arguments(file, member, arguments):
                 for string_arg in ['name', 'token', 'summary', 'since', 'deprecated_since', 'display_text']:
                     if string_arg in arg:
                         arg_scope.write(f'.{string_arg} = "{escape_c_string(arg[string_arg])}",\n')
-                if 'key_spec_index' in arg:
-                    arg_scope.write(f'.key_spec_index = {arg["key_spec_index"]},\n')
                 if 'type' in arg:
                     type_text = arg['type']
                     if type_text == 'function':
@@ -122,7 +120,8 @@ def generate_redis_module_command_info(cmd_info, file):
                 generate_history(file, value)
             elif key == 'arguments':
                 min_arity = generate_arguments(file, 'args', value)
-                info.write(f'.arity = -{min_arity},\n')
+                # arity includes the command name itself, so we add 1
+                info.write(f'.arity = -{min_arity + 1},\n')
 
 def generate_command_info_definition(name, info, file):
     signature = get_function_signature(name)

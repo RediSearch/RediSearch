@@ -108,7 +108,7 @@ def test_acl_non_default_user(env):
         # `test` should not be able to run `search` commands that are not `read`,
         # like `FT.CREATE`
         try:
-            conn.execute_command('FT.CREATE', 'idx', '*')
+            conn.execute_command('FT.CREATE', 'idx', '*', "hello")
             env.assertTrue(False)
         except Exception as e:
             env.assertContains("User test has no permissions to run the 'FT.CREATE' command", str(e))
