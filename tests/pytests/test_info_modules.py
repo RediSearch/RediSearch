@@ -3,9 +3,6 @@ from RLTest import Env
 import redis
 from inspect import currentframe
 import numpy as np
-import threading
-import time
-
 
 def info_modules_to_dict(conn):
   res = conn.execute_command('INFO MODULES')
@@ -1188,13 +1185,7 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
     _verify_metrics_not_changed(env, shard_conn, before_info_dicts[shardId], tested_in_this_test)
 
 # @skip(cluster=False)
-def test_multi_threading_stats(env):
-  """
-  Test that multi_threading metrics are tracked correctly in cluster mode.
-  This test verifies the multi_threading section in INFO MODULES, specifically
-  the active_io_threads metric. The test is designed to be general enough to
-  accommodate future multi-threading metrics.
-  """
+def test_active_io_threads_stats(env):
   conn = getConnectionByEnv(env)
   # Setup: Create index with some data
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'age', 'NUMERIC').ok()
