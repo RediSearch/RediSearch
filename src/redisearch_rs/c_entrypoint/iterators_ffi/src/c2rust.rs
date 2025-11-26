@@ -53,6 +53,9 @@ pub(crate) struct CRQEIterator {
     ///    and can be converted to a reference.
     /// 2. [`Self::header`] is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
+    /// 3. All callbacks are defined (i.e. the function pointers are not NULL)
+    /// 4. All callbacks can be safely called, when the right aliasing conditions are
+    ///    in place
     header: NonNull<QueryIterator>,
 }
 
@@ -120,21 +123,15 @@ impl CRQEIterator {
     /// Convert a C-style iterator into an instance of [`CRQEIterator`], in order to
     /// interoperate with Rust iterators via the [`RQEIterator`] trait.
     ///
-    /// # Panics
-    ///
-    /// [`CRQEIterator`] assumes that the underlying [`QueryIterator`] is well-constructed:
-    /// - All its callbacks are defined (i.e. the function pointers are not NULL)
-    /// - All its callbacks can be safely called, when the right aliasing conditions are
-    ///   in place
-    ///
-    /// Failure to uphold the two requirements above will result in runtime panics.
-    ///
     /// # Safety
     ///
     /// 1. `header` is a valid pointer to a [`QueryIterator`] instance,
     ///    and can be converted to a reference.
     /// 2. `header` is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
+    /// 3. All callbacks are defined (i.e. the function pointers are not NULL)
+    /// 4. All callbacks can be safely called, when the right aliasing conditions are
+    ///    in place
     #[allow(unused)]
     pub(crate) unsafe fn new(header: NonNull<QueryIterator>) -> Self {
         // SAFETY: the caller is required to uphold `Self::header` field invariants.
@@ -179,9 +176,8 @@ impl CRQEIterator {
 
 impl<'index> RQEIterator<'index> for CRQEIterator {
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        let callback = self
-            .Read
-            .expect("The `Read` callback is a NULL function pointer");
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.Read.unwrap_unchecked() };
         // SAFETY:
         // - We have a unique handle over this iterator.
         // - The C code must guarantee, by constructor, that callbacks
@@ -216,9 +212,8 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        let callback = self
-            .SkipTo
-            .expect("The `SkipTo` callback is a NULL function pointer");
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.SkipTo.unwrap_unchecked() };
         // SAFETY:
         // - We have a unique handle over this iterator.
         // - The C code must guarantee, by constructor, that callbacks
@@ -255,9 +250,8 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
     }
 
     fn rewind(&mut self) {
-        let callback = self
-            .Rewind
-            .expect("The `Rewind` callback is a NULL function pointer");
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.Rewind.unwrap_unchecked() };
         // SAFETY:
         // - We have a unique handle over this iterator.
         // - The C code must guarantee, by constructor, that callbacks
@@ -268,9 +262,8 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
     fn revalidate(
         &mut self,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let callback = self
-            .Revalidate
-            .expect("The `Revalidate` callback is a NULL function pointer");
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.Revalidate.unwrap_unchecked() };
         // SAFETY:
         // - We have a unique handle over this iterator.
         // - The C code must guarantee, by constructor, that callbacks
@@ -291,9 +284,8 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
     }
 
     fn num_estimated(&self) -> usize {
-        let callback = self
-            .NumEstimated
-            .expect("The `NumEstimated` callback is a NULL function pointer");
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.NumEstimated.unwrap_unchecked() };
         // SAFETY:
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
