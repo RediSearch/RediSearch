@@ -864,6 +864,24 @@ TEST_F(ClusterSetTest, Error_SLOTRANGE_OutOfOrder) {
 
 }
 
+TEST_F(ClusterSetTest, Error_SLOTRANGE_Consecutive) {
+    std::vector<std::string> args = {
+        "search.CLUSTERSET",
+        "MYID", "shard1",
+        "RANGES", "2",
+        "SHARD", "shard1", "SLOTRANGE", "0", "100", "ADDR", "127.0.0.1:6379", "MASTER",
+        "SHARD", "shard1", "SLOTRANGE", "101", "150", "MASTER" // should be a gap, or a single continuous range 0-150
+    };
+
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "SLOTRANGE out of order for shard `shard1` at offset 18");
+
+}
+
 // ============================================================================
 // Edge case tests
 // ============================================================================

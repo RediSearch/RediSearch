@@ -223,7 +223,6 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
       continue;
     }
 
-
     dictEntry *entry = dictAddOrFind(shards, shardIDStr);
     if (!dictGetVal(entry)) {
       // New shard
