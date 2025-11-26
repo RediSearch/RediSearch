@@ -1210,13 +1210,16 @@ def test_active_io_threads_stats(env):
   # we test it in unit tests.
 
 # --- Helper Function (to be shared by both SA and Cluster tests) ---
+# NOTE: Currently query debug pause mechanism only supports pausing one query at a time.
 def _test_active_worker_threads(env, num_queries):
+    env.assertEqual(num_queries, 1, message="Currently only supports pausing one query at a time")
     """
     Helper function to test active_worker_threads metric with paused queries.
 
     Args:
         env: Test environment
-        num_queries: Number of queries to pause (configurable, should work even when num_queries=1)
+        num_queries: Number of queries to pause. 
+                     NOTE: Currently query debug pause mechanism only supports pausing one query at a time.
     """
     conn = getConnectionByEnv(env)
 
@@ -1288,42 +1291,11 @@ def _test_active_worker_threads(env, num_queries):
 # --- Test 1: Standalone Mode ---
 @skip(cluster=False)  # Only run in standalone mode
 def test_active_worker_threads_SA(env):
-    """
-    Test active_worker_threads metric in standalone (SA) mode.
-
-    Expected behavior:
-        - When num_queries queries are paused, active_worker_threads should be num_queries
-        - After queries complete and drain, active_worker_threads should return to 0
-        - Test should work even when num_queries=1
-
-    Notes:
-        - Use INTERNAL_ONLY for FT.AGGREGATE even in SA mode (known limitation)
-        - Use PAUSE_BEFORE_RP_N (not PAUSE_AFTER_RP_N)
-    """
     num_queries = 1
     _test_active_worker_threads(env, num_queries)
 
 # --- Test 2: Cluster Mode ---
 @skip(cluster=True)  # Only run in cluster mode
 def test_active_worker_threads_cluster(env):
-    """
-    Test active_worker_threads metric in cluster mode.
-
-    Flow:
-        1. Initialize cluster environment with WORKERS configured (e.g., env = Env(moduleArgs='WORKERS 4'))
-        2. Define num_queries = 2 (configurable variable, can be smaller in cluster due to complexity)
-        3. Call _test_active_worker_threads(env, num_queries, is_cluster=True)
-
-    Expected behavior:
-        - When num_queries queries are paused on shards, active_worker_threads should be num_queries per shard
-        - After queries complete and drain, active_worker_threads should return to 0 on all shards
-        - Test should work even when num_queries=1
-
-    Notes:
-        - In cluster mode, need to check metrics on each shard
-        - For FT.AGGREGATE, must use INTERNAL_ONLY flag to pause on shards
-        - Use allShards_getIsRPPaused() and allShards_setPauseRPResume() for cluster operations
-        - Use PAUSE_BEFORE_RP_N (not PAUSE_AFTER_RP_N)
-    """
     num_queries = 1
     _test_active_worker_threads(env, num_queries)
