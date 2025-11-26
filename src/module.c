@@ -3615,6 +3615,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
+    SearchRequestCtx_Free(req);
     return REDISMODULE_OK;
   }
   // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
