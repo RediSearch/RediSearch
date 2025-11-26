@@ -846,7 +846,7 @@ def testMultiSortBy(env):
     env.expect(*cmd).equal(res)
     cmd_withcount = cmd.copy()
     cmd_withcount.insert(3, 'WITHCOUNT')
-    env.expect(*cmd).equal(res)
+    env.expect(*cmd_withcount).equal(res)
 
     # t1 DESC t2 ASC
     res = [9, ['t1', 'c', 't2', 'a'], ['t1', 'c', 't2', 'b'], ['t1', 'c', 't2', 'c'],
