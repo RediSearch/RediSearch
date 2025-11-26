@@ -43,3 +43,11 @@ cd Python-3.9.6
 ./configure --enable-optimizations
 $MODE make altinstall
 update-alternatives --install /usr/bin/python3 python3 `which python3.9` 2
+
+version=3.25.1
+filename=cmake-${version}-linux-x86_64.sh
+
+wget https://github.com/Kitware/CMake/releases/download/v${version}/${filename}
+chmod u+x ./${filename}
+$MODE ./${filename} --skip-license --prefix=/usr/local --exclude-subdir
+cmake --version
