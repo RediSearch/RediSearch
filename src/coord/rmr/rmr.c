@@ -754,6 +754,14 @@ MRReply *MRIterator_Next(MRIterator *it) {
   return MRChannel_Pop(it->ctx.chan);
 }
 
+size_t MRIterator_GetChannelSize(const MRIterator *it) {
+  return MRChannel_Size(it->ctx.chan);
+}
+
+size_t MRIterator_GetNumShards(const MRIterator *it) {
+  return it->len;
+}
+
 // Assumes no other thread is using the iterator, the channel, or any of the commands and contexts
 static void MRIterator_Free(MRIterator *it) {
   for (size_t i = 0; i < it->len; i++) {
@@ -785,8 +793,7 @@ void MRIterator_Release(MRIterator *it) {
         RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %d", cmd->strs[1], cmd->targetShard);
         RS_LOG_ASSERT_FMT(cmd->rootCommand != C_DEL, "DEL command should be sent only once to a shard. pending = %d", it->ctx.pending);
         cmd->rootCommand = C_DEL;
-        strcpy(cmd->strs[1], "DEL");
-        cmd->lens[1] = 3;
+        MRCommand_ReplaceArg(cmd, 1, "DEL", 3);
       }
     }
     // Take a reference to the iterator for the next batch of commands.

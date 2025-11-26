@@ -152,40 +152,24 @@ trait ToBytes<const N: usize> {
     fn pack(self) -> [u8; N];
 }
 
-#[derive(Clone)]
-pub struct Numeric {
-    /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
-    /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)
-    compress_floats: bool,
-}
+/// The base numeric decoder/encoder which follows the encoding format described in the module
+/// documentation.
+pub struct Numeric;
 
 impl Numeric {
     const TINY_TYPE: u8 = 0b00;
     const FLOAT_TYPE: u8 = 0b01;
     const INT_POS_TYPE: u8 = 0b10;
     const INT_NEG_TYPE: u8 = 0b11;
-
-    pub const FLOAT_COMPRESSION_THRESHOLD: f64 = 0.01;
-
-    pub const fn new() -> Self {
-        Self {
-            compress_floats: false,
-        }
-    }
-
-    /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
-    /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)
-    pub const fn with_float_compression(mut self) -> Self {
-        self.compress_floats = true;
-
-        self
-    }
 }
 
-impl Default for Numeric {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Like the base [`Numeric`] encoder, but attempts to compress float values to f32 when possible.
+/// This is done by checking if the float value can be represented as f32 without loss of precision,
+/// or if the difference between the f64 and f32 representation is below a certain threshold.
+pub struct NumericFloatCompression;
+
+impl NumericFloatCompression {
+    const FLOAT_COMPRESSION_THRESHOLD: f64 = 0.01;
 }
 
 /// The [`Numeric`] encoder only supports encoding deltas that fit within 7 bytes
@@ -227,170 +211,192 @@ impl Encoder for Numeric {
     const ALLOW_DUPLICATES: bool = true;
 
     fn encode<W: Write + std::io::Seek>(
-        &self,
-        mut writer: W,
+        writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        let num_record = record
-            .as_numeric()
-            .expect("numeric encoder will only be called for numeric records");
-
-        let delta = delta.pack();
-
-        // Trim trailing zeros from delta so that we store as little as possible
-        let end = delta.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
-        let delta = &delta[..end];
-        let delta_bytes = delta.len() as _;
-
-        let bytes_written = match Value::from(num_record, self.compress_floats) {
-            Value::TinyInteger(i) => {
-                let header = Header {
-                    delta_bytes,
-                    typ: HeaderType::Tiny(i),
-                };
-
-                write_all_vectored(
-                    &mut writer,
-                    [IoSlice::new(&header.pack()), IoSlice::new(delta)],
-                )?
-            }
-            Value::IntegerPositive(i) => {
-                let bytes = i.to_le_bytes();
-
-                // Trim trailing zeros from bytes to store as little as possible
-                let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
-                let bytes = &bytes[..end];
-
-                let header = Header {
-                    delta_bytes,
-                    typ: HeaderType::IntegerPositive((end - 1) as _),
-                };
-
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(bytes),
-                    ],
-                )?
-            }
-            Value::IntegerNegative(i) => {
-                let bytes = i.to_le_bytes();
-
-                // Trim trailing zeros from bytes to store as little as possible
-                let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
-                let bytes = &bytes[..end];
-
-                let header = Header {
-                    delta_bytes,
-                    typ: HeaderType::IntegerNegative((end - 1) as _),
-                };
-
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(bytes),
-                    ],
-                )?
-            }
-            Value::Float32Positive(value) => {
-                let bytes = value.to_le_bytes();
-
-                let header = Header {
-                    delta_bytes,
-                    typ: HeaderType::Float32Positive,
-                };
-
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(&bytes),
-                    ],
-                )?
-            }
-            Value::Float32Negative(value) => {
-                let bytes = value.to_le_bytes();
-
-                let header = Header {
-                    delta_bytes,
-                    typ: HeaderType::Float32Negative,
-                };
-
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(&bytes),
-                    ],
-                )?
-            }
-            Value::Float64Positive(value) => {
-                let bytes = value.to_le_bytes();
-
-                let header = Header {
-                    delta_bytes,
-                    typ: HeaderType::Float64Positive,
-                };
-
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(&bytes),
-                    ],
-                )?
-            }
-            Value::Float64Negative(value) => {
-                let bytes = value.to_le_bytes();
-
-                let header = Header {
-                    delta_bytes,
-                    typ: HeaderType::Float64Negative,
-                };
-
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(&bytes),
-                    ],
-                )?
-            }
-            Value::FloatInfinity => {
-                let header = Header {
-                    delta_bytes,
-                    typ: HeaderType::FloatInfinite,
-                };
-
-                write_all_vectored(
-                    &mut writer,
-                    [IoSlice::new(&header.pack()), IoSlice::new(delta)],
-                )?
-            }
-            Value::FloatNegInfinity => {
-                let header = Header {
-                    delta_bytes,
-                    typ: HeaderType::FloatNegInfinite,
-                };
-
-                write_all_vectored(
-                    &mut writer,
-                    [IoSlice::new(&header.pack()), IoSlice::new(delta)],
-                )?
-            }
-        };
-
-        Ok(bytes_written)
+        encode(writer, delta, record, false)
     }
+}
+
+impl Encoder for NumericFloatCompression {
+    type Delta = NumericDelta;
+
+    const ALLOW_DUPLICATES: bool = true;
+
+    fn encode<W: Write + std::io::Seek>(
+        writer: W,
+        delta: Self::Delta,
+        record: &RSIndexResult,
+    ) -> std::io::Result<usize> {
+        encode(writer, delta, record, true)
+    }
+}
+
+fn encode<W: Write + std::io::Seek>(
+    mut writer: W,
+    delta: NumericDelta,
+    record: &RSIndexResult,
+    compress_floats: bool,
+) -> std::io::Result<usize> {
+    let num_record = record
+        .as_numeric()
+        .expect("numeric encoder will only be called for numeric records");
+
+    let delta = delta.pack();
+
+    // Trim trailing zeros from delta so that we store as little as possible
+    let end = delta.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
+    let delta = &delta[..end];
+    let delta_bytes = delta.len() as _;
+
+    let bytes_written = match Value::from(num_record, compress_floats) {
+        Value::TinyInteger(i) => {
+            let header = Header {
+                delta_bytes,
+                typ: HeaderType::Tiny(i),
+            };
+
+            write_all_vectored(
+                &mut writer,
+                [IoSlice::new(&header.pack()), IoSlice::new(delta)],
+            )?
+        }
+        Value::IntegerPositive(i) => {
+            let bytes = i.to_le_bytes();
+
+            // Trim trailing zeros from bytes to store as little as possible
+            let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
+            let bytes = &bytes[..end];
+
+            let header = Header {
+                delta_bytes,
+                typ: HeaderType::IntegerPositive((end - 1) as _),
+            };
+
+            write_all_vectored(
+                &mut writer,
+                [
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(bytes),
+                ],
+            )?
+        }
+        Value::IntegerNegative(i) => {
+            let bytes = i.to_le_bytes();
+
+            // Trim trailing zeros from bytes to store as little as possible
+            let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
+            let bytes = &bytes[..end];
+
+            let header = Header {
+                delta_bytes,
+                typ: HeaderType::IntegerNegative((end - 1) as _),
+            };
+
+            write_all_vectored(
+                &mut writer,
+                [
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(bytes),
+                ],
+            )?
+        }
+        Value::Float32Positive(value) => {
+            let bytes = value.to_le_bytes();
+
+            let header = Header {
+                delta_bytes,
+                typ: HeaderType::Float32Positive,
+            };
+
+            write_all_vectored(
+                &mut writer,
+                [
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(&bytes),
+                ],
+            )?
+        }
+        Value::Float32Negative(value) => {
+            let bytes = value.to_le_bytes();
+
+            let header = Header {
+                delta_bytes,
+                typ: HeaderType::Float32Negative,
+            };
+
+            write_all_vectored(
+                &mut writer,
+                [
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(&bytes),
+                ],
+            )?
+        }
+        Value::Float64Positive(value) => {
+            let bytes = value.to_le_bytes();
+
+            let header = Header {
+                delta_bytes,
+                typ: HeaderType::Float64Positive,
+            };
+
+            write_all_vectored(
+                &mut writer,
+                [
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(&bytes),
+                ],
+            )?
+        }
+        Value::Float64Negative(value) => {
+            let bytes = value.to_le_bytes();
+
+            let header = Header {
+                delta_bytes,
+                typ: HeaderType::Float64Negative,
+            };
+
+            write_all_vectored(
+                &mut writer,
+                [
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(&bytes),
+                ],
+            )?
+        }
+        Value::FloatInfinity => {
+            let header = Header {
+                delta_bytes,
+                typ: HeaderType::FloatInfinite,
+            };
+
+            write_all_vectored(
+                &mut writer,
+                [IoSlice::new(&header.pack()), IoSlice::new(delta)],
+            )?
+        }
+        Value::FloatNegInfinity => {
+            let header = Header {
+                delta_bytes,
+                typ: HeaderType::FloatNegInfinite,
+            };
+
+            write_all_vectored(
+                &mut writer,
+                [IoSlice::new(&header.pack()), IoSlice::new(delta)],
+            )?
+        }
+    };
+
+    Ok(bytes_written)
 }
 
 impl Decoder for Numeric {
@@ -406,81 +412,110 @@ impl Decoder for Numeric {
         base: t_docId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
-        let mut header = [0; 1];
-        cursor.read_exact(&mut header)?;
-
-        let header = header[0];
-        let delta_bytes = (header & 0b111) as usize;
-        let type_bits = (header >> 3) & 0b11;
-        let upper_bits = header >> 5;
-
-        let (delta, num) = match type_bits {
-            Self::TINY_TYPE => {
-                let delta = read_only_u64(cursor, delta_bytes)?;
-                let num = upper_bits;
-
-                (delta, num as f64)
-            }
-            Self::INT_POS_TYPE => {
-                let (delta, num) = read_u64_and_u64(cursor, delta_bytes, upper_bits as usize + 1)?;
-
-                (delta, num as f64)
-            }
-            Self::INT_NEG_TYPE => {
-                let (delta, num) = read_u64_and_u64(cursor, delta_bytes, upper_bits as usize + 1)?;
-
-                (delta, (num as f64).copysign(-1.0))
-            }
-            Self::FLOAT_TYPE => match upper_bits {
-                FLOAT32_POSITIVE => {
-                    let (delta, num) = read_u64_and_f32(cursor, delta_bytes)?;
-
-                    (delta, num as f64)
-                }
-                FLOAT32_NEGATIVE => {
-                    let (delta, num) = read_u64_and_f32(cursor, delta_bytes)?;
-
-                    (delta, num.copysign(-1.0) as f64)
-                }
-                FLOAT64_POSITIVE => {
-                    let (delta, num) = read_u64_and_f64(cursor, delta_bytes)?;
-
-                    (delta, num)
-                }
-                FLOAT64_NEGATIVE => {
-                    let (delta, num) = read_u64_and_f64(cursor, delta_bytes)?;
-
-                    (delta, num.copysign(-1.0))
-                }
-                0b101 | FLOAT_INFINITE => {
-                    let delta = read_only_u64(cursor, delta_bytes)?;
-
-                    (delta, f64::INFINITY)
-                }
-                0b111 | FLOAT_NEGATIVE_INFINITE => {
-                    let delta = read_only_u64(cursor, delta_bytes)?;
-
-                    (delta, f64::NEG_INFINITY)
-                }
-                _ => unreachable!("All upper bits combinations are covered"),
-            },
-            _ => unreachable!("All four possible combinations are covered"),
-        };
-
-        let doc_id = base + delta;
-
-        result.doc_id = doc_id;
-        // SAFETY: Caller must ensure `result` is numeric
-        unsafe {
-            *result.as_numeric_unchecked_mut() = num;
-        }
-
-        Ok(())
+        decode(cursor, base, result)
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
         RSIndexResult::numeric(0.0)
     }
+}
+
+impl Decoder for NumericFloatCompression {
+    /// Decode a numeric record from the given cursor, using the provided base document ID.
+    /// The result is written into the provided `RSIndexResult` instance.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true to ensure `result` is holding numeric data.
+    #[inline(always)]
+    fn decode<'index>(
+        cursor: &mut Cursor<&'index [u8]>,
+        base: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
+        decode(cursor, base, result)
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::numeric(0.0)
+    }
+}
+
+fn decode<'index>(
+    cursor: &mut Cursor<&'index [u8]>,
+    base: t_docId,
+    result: &mut RSIndexResult<'index>,
+) -> Result<(), std::io::Error> {
+    let mut header = [0; 1];
+    cursor.read_exact(&mut header)?;
+
+    let header = header[0];
+    let delta_bytes = (header & 0b111) as usize;
+    let type_bits = (header >> 3) & 0b11;
+    let upper_bits = header >> 5;
+
+    let (delta, num) = match type_bits {
+        Numeric::TINY_TYPE => {
+            let delta = read_only_u64(cursor, delta_bytes)?;
+            let num = upper_bits;
+
+            (delta, num as f64)
+        }
+        Numeric::INT_POS_TYPE => {
+            let (delta, num) = read_u64_and_u64(cursor, delta_bytes, upper_bits as usize + 1)?;
+
+            (delta, num as f64)
+        }
+        Numeric::INT_NEG_TYPE => {
+            let (delta, num) = read_u64_and_u64(cursor, delta_bytes, upper_bits as usize + 1)?;
+
+            (delta, (num as f64).copysign(-1.0))
+        }
+        Numeric::FLOAT_TYPE => match upper_bits {
+            FLOAT32_POSITIVE => {
+                let (delta, num) = read_u64_and_f32(cursor, delta_bytes)?;
+
+                (delta, num as f64)
+            }
+            FLOAT32_NEGATIVE => {
+                let (delta, num) = read_u64_and_f32(cursor, delta_bytes)?;
+
+                (delta, num.copysign(-1.0) as f64)
+            }
+            FLOAT64_POSITIVE => {
+                let (delta, num) = read_u64_and_f64(cursor, delta_bytes)?;
+
+                (delta, num)
+            }
+            FLOAT64_NEGATIVE => {
+                let (delta, num) = read_u64_and_f64(cursor, delta_bytes)?;
+
+                (delta, num.copysign(-1.0))
+            }
+            0b101 | FLOAT_INFINITE => {
+                let delta = read_only_u64(cursor, delta_bytes)?;
+
+                (delta, f64::INFINITY)
+            }
+            0b111 | FLOAT_NEGATIVE_INFINITE => {
+                let delta = read_only_u64(cursor, delta_bytes)?;
+
+                (delta, f64::NEG_INFINITY)
+            }
+            _ => unreachable!("All upper bits combinations are covered"),
+        },
+        _ => unreachable!("All four possible combinations are covered"),
+    };
+
+    let doc_id = base + delta;
+
+    result.doc_id = doc_id;
+    // SAFETY: Caller must ensure `result` is numeric
+    unsafe {
+        *result.as_numeric_unchecked_mut() = num;
+    }
+
+    Ok(())
 }
 
 #[inline(always)]
@@ -611,7 +646,7 @@ impl Value {
                     if back_to_f64 == abs_val
                         || (compress_floats
                             && (abs_val - f32_value as f64).abs()
-                                < Numeric::FLOAT_COMPRESSION_THRESHOLD)
+                                < NumericFloatCompression::FLOAT_COMPRESSION_THRESHOLD)
                     {
                         if v.is_sign_positive() {
                             Value::Float32Positive(f32_value)
@@ -748,3 +783,5 @@ fn write_all_vectored<const N: usize, W: Write>(
 }
 
 impl NumericDecoder for Numeric {}
+
+impl NumericDecoder for NumericFloatCompression {}

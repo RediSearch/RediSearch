@@ -549,6 +549,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "field"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -785,6 +792,7 @@ version = "0.0.1"
 dependencies = [
  "enumflags2",
  "ffi",
+ "field",
  "low_memory_thin_vec",
  "pretty_assertions",
  "proptest",
@@ -835,6 +843,17 @@ name = "is_terminal_polyfill"
 version = "1.70.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
+
+[[package]]
+name = "iterators_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "inverted_index",
+ "rqe_iterators",
+]
 
 [[package]]
 name = "itertools"
@@ -1420,6 +1439,7 @@ dependencies = [
  "buffer",
  "fnv_ffi",
  "inverted_index_ffi",
+ "iterators_ffi",
  "query_error_ffi",
  "redis-module",
  "result_processor_ffi",
@@ -1567,6 +1587,7 @@ dependencies = [
  "cc",
  "criterion",
  "ffi",
+ "field",
  "inverted_index",
  "inverted_index_ffi",
  "itertools 0.14.0",
@@ -2053,6 +2074,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "cbindgen",
+ "field",
  "inverted_index",
 ]
 

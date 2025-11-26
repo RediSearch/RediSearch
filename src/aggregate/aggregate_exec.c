@@ -399,10 +399,14 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
+      // Track errors in global statistics
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_2_err;
     } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+      // Track timeout error in global statistics
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_2_err;
@@ -464,6 +468,12 @@ done_2:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
+    req->has_timedout = has_timedout;
+    if (has_timedout) {
+      // Track warnings in global statistics
+      // Assuming that if we reached here, timeout is not an error.
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+    }
 
     // Prepare profile printer context
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -518,10 +528,14 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &results, &r, &rc);
 
     if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
+      // Track errors in global statistics
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(rp->parent->err), 1, !IsInternal(req));
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_3_err;
     } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+      // Track errors in global statistics
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_3_err;
@@ -592,9 +606,12 @@ done_3:
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     if (QueryError_HasQueryOOMWarning(qctx->err)) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      // We use the cluster warning since shard level warning sent via empty reply bailout
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     }
     if (rc == RS_RESULT_TIMEDOUT) {
+      // Track warnings in global statistics
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
@@ -609,19 +626,19 @@ done_3:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
-
-    // Prepare profile printer context
-    ProfilePrinterCtx profileCtx = {
-      .req = req,
-      .timedout = has_timedout,
-      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
-      .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
-      .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
-    };
+    req->has_timedout = has_timedout;
 
     if (IsProfile(req)) {
       RedisModule_Reply_MapEnd(reply); // >Results
       if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) || cursor_done) {
+        // Prepare profile printer context
+        ProfilePrinterCtx profileCtx = {
+          .req = req,
+          .timedout = has_timedout,
+          .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
+          .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
+          .queryOOM = QueryError_HasQueryOOMWarning(qctx->err),
+        };
         req->profile(reply, &profileCtx);
       }
     }
@@ -675,6 +692,21 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   }
 }
 
+static ProfilePrinterCtx createProfilePrinterCtx(AREQ *req) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+
+  ProfilePrinterCtx profileCtx = {
+      .req = req,
+      .timedout = req->has_timedout,
+      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err),
+      .bgScanOOM = sctx && sctx->spec && sctx->spec->scan_failed_OOM,
+      .queryOOM = QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)
+  };
+
+  return profileCtx;
+}
 
 // Simple version of sendChunk that returns empty results for aggregate queries.
 // Handles both RESP2 and RESP3 protocols with cursor support.
@@ -716,17 +748,16 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     // warning
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
     if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_CLUSTER);
+      // Shards should use SHARD warning
+      // SA and Coordinator should use COORD warning
+      const char *warning = !IsInternal(req) ? QUERY_WOOM_COORD : QUERY_WOOM_SHARD;
+      RedisModule_Reply_SimpleString(reply, warning);
     }
     RedisModule_Reply_ArrayEnd(reply);
 
     if (IsProfile(req)) {
-
-      ProfilePrinterCtx profileCtx = {0};
-      profileCtx.req = req;
-      profileCtx.queryOOM = QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err);
-
-      RedisModule_Reply_MapEnd(reply); // >Results
+      RedisModule_Reply_MapEnd(reply);  // >Results
+      ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
       req->profile(reply, &profileCtx);
     }
 
@@ -755,9 +786,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
     RedisModule_Reply_ArrayEnd(reply);
 
-    ProfilePrinterCtx profileCtx = {0};
-    profileCtx.req = req;
-    profileCtx.queryOOM = QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err);
+    ProfilePrinterCtx profileCtx = createProfilePrinterCtx(req);
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
       // Cursor done
@@ -1098,9 +1127,14 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 
 error:
+  // Update global query errors statistics
+  // If num shards == 1 we are in SA, and we count it as a coord error
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, GetNumShards_UnSafe() == 1);
+
   if (r) {
     AREQ_Free(r);
   }
+
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
@@ -1309,6 +1343,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
 
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
+ * FT.CURSOR PROFILE {index} {CID}
  * FT.CURSOR DEL {index} {CID}
  * FT.CURSOR GC {index}
  */
@@ -1367,6 +1402,38 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else {
       cursorRead(reply, cursor, count, false);
     }
+  } else if (strcasecmp(cmd, "PROFILE") == 0) {
+    // Return profile
+    Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+    if (cursor == NULL) {
+      RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
+
+    AREQ *req = cursor->execState;
+    if (!IsProfile(req)) {
+      RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
+    // We get here only if it's internal (coord) cursor because cursor is not supported with profile,
+    // and we already checked that the cmd is not for profiling.
+    // Since it's an internal cursor, it must be associated with a spec.
+    RS_ASSERT(cursor_HasSpecWeakRef(cursor));
+    // Check if the spec is still valid
+    StrongRef execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
+    if (!StrongRef_Get(execution_ref)) {
+      // The index was dropped while the cursor was idle.
+      // Notify the client that the query was aborted.
+      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
+    } else {
+      sendChunk_ReplyOnly_EmptyResults(reply, req);
+      IndexSpecRef_Release(execution_ref);
+    }
+
+    // Free the cursor
+    Cursor_Free(cursor);
   } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
     if (rc != REDISMODULE_OK) {

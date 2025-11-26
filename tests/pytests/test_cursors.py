@@ -525,6 +525,20 @@ def testCursorDepletionStrictTimeoutPolicy():
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'GROUPBY', '1', '@t', 'WITHCURSOR', 'COUNT', str(num_docs), 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
 
+def test_cursor_profile(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command('HSET', f'doc1', 't', str(1))
+    conn.execute_command('HSET', f'doc2', 't', str(2))
+
+    env.expect('FT.CURSOR', 'PROFILE', 'idx', '123').error().contains('Cursor not found')
+
+    # create a cursor
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1')
+    env.assertNotEqual(cursor, 0)
+    env.expect('FT.CURSOR', 'PROFILE', 'idx', cursor).error().contains('cursor request is not profile')
+
 @skip(cluster=True)
 def test_mod_6597(env):
     """Tests that we update the numeric index appropriately upon deleting

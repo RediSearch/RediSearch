@@ -41,7 +41,7 @@ fn check_record(record: &RSIndexResult, expected: &RSIndexResult) {
     }
 }
 
-impl<E: Encoder + Default> BaseTest<E> {
+impl<E: Encoder> BaseTest<E> {
     fn new(
         ii_flags: IndexFlags,
         expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
@@ -53,7 +53,7 @@ impl<E: Encoder + Default> BaseTest<E> {
             .map(|i| (2 * i + 1) as t_docId)
             .collect::<Vec<_>>();
 
-        let mut ii = InvertedIndex::new(ii_flags, E::default());
+        let mut ii = InvertedIndex::<E>::new(ii_flags);
 
         for doc_id in doc_ids.iter() {
             let record = create_record(*doc_id);
@@ -192,7 +192,7 @@ struct RevalidateTest<E> {
     ii: UnsafeCell<InvertedIndex<E>>,
 }
 
-impl<E: Encoder + DecodedBy + Default> RevalidateTest<E> {
+impl<E: Encoder + DecodedBy> RevalidateTest<E> {
     fn new(
         ii_flags: IndexFlags,
         expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
@@ -204,7 +204,7 @@ impl<E: Encoder + DecodedBy + Default> RevalidateTest<E> {
             .map(|i| (2 * i + 1) as t_docId)
             .collect::<Vec<_>>();
 
-        let mut ii = InvertedIndex::new(ii_flags, E::default());
+        let mut ii = InvertedIndex::<E>::new(ii_flags);
         for doc_id in doc_ids.iter() {
             let record = create_record(*doc_id);
             ii.add_record(&record).expect("failed to add record");
