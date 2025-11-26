@@ -150,6 +150,12 @@ void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bo
 
 // Update the number of active io threads.
 void GlobalStats_UpdateActiveIoThreads(int toAdd) {
+#ifdef ENABLE_ASSERT
+  RS_LOG_ASSERT(toAdd != 0, "Attempt to change active_io_threads by 0");
+  size_t current = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+  RS_LOG_ASSERT_FMT(toAdd > 0 || current > 0,
+    "Cannot decrease active_io_threads below 0. toAdd: %d, current: %zu", toAdd, current);
+#endif
   INCR_BY(RSGlobalStats.totalStats.multi_threading.active_io_threads, toAdd);
 }
 
