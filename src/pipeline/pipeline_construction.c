@@ -193,8 +193,8 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   size_t maxResults = astp->offset + astp->limit;
   if (!maxResults) {
     if (HasWithCount(&params->common)) {
-      // No LIMIT specified, consume everything
-      maxResults = UINT32_MAX;
+      // No LIMIT specified, consume up to maxResultsLimit
+      maxResults = params->maxResultsLimit;
     } else {
       // No LIMIT specified, consume DEFAULT_LIMIT
       maxResults = DEFAULT_LIMIT;
