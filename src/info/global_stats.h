@@ -8,7 +8,6 @@
 */
 #pragma once
 
-
 #include "spec.h"
 #include "rs_wall_clock.h"
 
