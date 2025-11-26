@@ -118,7 +118,9 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
       break;
     } else if (AC_AdvanceIfMatch(&ac, "HASREPLICATION")) { // ignored
     } else {
-      ERROR_FMT("Unexpected argument: `%s`", AC_GetStringNC(&ac, NULL));
+      const char *arg;
+      AC_GetString(&ac, &arg, NULL, AC_F_NOADVANCE);
+      ERROR_FMT("Unexpected argument: `%s`", arg);
       return NULL;
     }
   }
