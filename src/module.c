@@ -1297,8 +1297,9 @@ int CreateSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *command, const Su
 // Also sets the command info if setCommandInfo is not NULL
 static RedisModuleCommand *CreateCommandWithAcl(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc handler,
                                                 const char *flags, CommandKeys position, const char *aclCategories, bool internalCommand) {
-  char *categories;
+  char *categories = NULL;
   char *internalFlags = NULL;
+  RedisModuleCommand *command = NULL;
   if (internalCommand) {
     // Do not register to ANY ACL command category
     categories = "";
@@ -1318,13 +1319,13 @@ static RedisModuleCommand *CreateCommandWithAcl(RedisModuleCtx *ctx, const char 
 
   if (RedisModule_CreateCommand(ctx, name, handler, internalFlags, position.firstkey, position.lastkey, position.keystep) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not create command: %s", name);
-    return NULL;
+    goto cleanup;
   }
 
-  RedisModuleCommand *command = RedisModule_GetCommand(ctx, name);
+  command = RedisModule_GetCommand(ctx, name);
   if (!command) {
     RedisModule_Log(ctx, "warning", "Could not find command: %s", name);
-    return NULL;
+    goto cleanup;
   }
 
   if (RedisModule_SetCommandACLCategories(command, categories) == REDISMODULE_ERR) {
@@ -1332,6 +1333,7 @@ static RedisModuleCommand *CreateCommandWithAcl(RedisModuleCtx *ctx, const char 
     command = NULL;
   }
 
+  cleanup:
   // Free allocated memory for categories (only if not internal command)
   if (!internalCommand) {
     rm_free(categories);
