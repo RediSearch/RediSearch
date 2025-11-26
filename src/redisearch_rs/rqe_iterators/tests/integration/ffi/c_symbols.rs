@@ -42,9 +42,9 @@ macro_rules! stub_c_fn {
 
 // On macOS, we can tell the loader to ignore undefined symbols via `-undefined=dynamic_lookup`.
 // As long as they are not invoked at runtime, everything will work out.
-// On Linux, there is no way equivalent option. We can tell the _linker_ to ignore undefined
-// symbols at link time, but we will still get a runtime error if there *strong* references
-// to undefined symbols.
+// On Linux, there is no equivalent option. We can tell the _linker_ to ignore undefined
+// symbols at link time, but we will still get a runtime error if there are *strong* references
+// in the compiled binary to undefined symbols.
 // The simplest workaround is to provide stubs for those symbols: dummy entries that make the loader
 // happy but are actually going to fail catastrophically if invoked at runtime. You wouldn't want
 // to do it for production builds, but for tests it's fine.
