@@ -601,5 +601,6 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
 void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(RSDummyContext, "debug", "Waiting for background jobs to be executed while loading is in progress (progress is %d)",
   ((RedisModuleLoadingProgress *)data)->progress);
+  // Here draining is safe because no read queries are expected to run while loading is in progress.
   workersThreadPool_Drain(ctx, 100);
 }
