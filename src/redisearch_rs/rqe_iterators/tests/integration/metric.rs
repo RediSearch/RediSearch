@@ -51,13 +51,11 @@ fn score_variant_cannot_skip() {
     let _ = i.skip_to(3);
 }
 
-// unsafe array_ensure_append_n_func is not supported by Miri
-#[cfg(not(miri))]
+// #[cfg(not(miri))]
 mod not_miri {
+    use ffi::RSValue_Number_Get;
     use inverted_index::RSResultKind;
     use rqe_iterators::{RQEIterator, SkipToOutcome, metric::MetricIteratorSortedById};
-    use std::ptr::NonNull;
-    use value::RSValueTrait;
 
     static CASES: &[&[u64]] = &[
         &[1, 3, 5, 7, 9],
@@ -107,12 +105,8 @@ mod not_miri {
                 let metrics = unsafe { *res.metrics };
                 assert!(metrics.key.is_null());
 
-                let metric_val = unsafe {
-                    value::RSValueFFI::from_raw(
-                        NonNull::new(metrics.value).expect("metrics.value is NULL"),
-                    )
-                };
-                assert_eq!(metric_val.as_num().unwrap(), metric_data[j]);
+                let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
+                assert_eq!(metric_val, metric_data[j]);
                 assert_eq!(it.last_doc_id(), expected_id, "Case {i}, element {j}");
             }
 
@@ -145,12 +139,8 @@ mod not_miri {
             let metrics = unsafe { *first_doc.metrics };
             assert!(metrics.key.is_null());
 
-            let metric_val = unsafe {
-                value::RSValueFFI::from_raw(
-                    NonNull::new(metrics.value).expect("metrics.value is NULL"),
-                )
-            };
-            assert_eq!(metric_val.as_num().unwrap(), metric_data[0]);
+            let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
+            assert_eq!(metric_val, metric_data[0]);
             assert_eq!(it.last_doc_id(), first_id, "Case {ci}");
             assert_eq!(it.current().unwrap().doc_id, first_id, "Case {ci}");
             assert_eq!(it.at_eof(), Some(&first_id) == case.last(), "Case {ci}");
@@ -186,12 +176,8 @@ mod not_miri {
                     let metrics = unsafe { *res.metrics };
                     assert!(metrics.key.is_null());
 
-                    let metric_val = unsafe {
-                        value::RSValueFFI::from_raw(
-                            NonNull::new(metrics.value).expect("metrics.value is NULL"),
-                        )
-                    };
-                    assert_eq!(metric_val.as_num().unwrap(), metric_data[j]);
+                    let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
+                    assert_eq!(metric_val, metric_data[j]);
                     // Should land on next existing id
                     assert_eq!(
                         it.at_eof(),
@@ -225,12 +211,8 @@ mod not_miri {
                 let metrics = unsafe { *res.metrics };
                 assert!(metrics.key.is_null());
 
-                let metric_val = unsafe {
-                    value::RSValueFFI::from_raw(
-                        NonNull::new(metrics.value).expect("metrics.value is NULL"),
-                    )
-                };
-                assert_eq!(metric_val.as_num().unwrap(), metric_data[j]);
+                let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
+                assert_eq!(metric_val, metric_data[j]);
                 assert_eq!(
                     it.at_eof(),
                     Some(&id) == case.last(),
