@@ -51,7 +51,7 @@ fn score_variant_cannot_skip() {
     let _ = i.skip_to(3);
 }
 
-// #[cfg(not(miri))]
+#[cfg(not(miri))]
 mod not_miri {
     use ffi::RSValue_Number_Get;
     use inverted_index::RSResultKind;
