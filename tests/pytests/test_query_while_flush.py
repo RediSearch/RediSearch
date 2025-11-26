@@ -104,7 +104,6 @@ def test_query_while_flush():
     # Otherwise I could see successes attributed to before flush that should have been after
     time.sleep(0.5)
     flushall_called.clear()  # Reset the event
-    print(f'Is flag set? {flushall_called.is_set()}')
     # Create index2 and verify it works properly
     env.expect('FT.CREATE', 'index2', 'ON', 'HASH', 'SCHEMA', 'text', 'TEXT').ok()
 
