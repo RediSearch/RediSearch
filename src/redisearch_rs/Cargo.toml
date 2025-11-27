@@ -27,6 +27,7 @@ members = [
     "varint",
     "varint_bencher",
     "wildcard",
+    "tracing_redismodule",
 ]
 
 resolver = "3"
@@ -83,6 +84,7 @@ trie_rs = { path = "./trie_rs" }
 value = { path = "./value" }
 varint = { path = "./varint" }
 wildcard = { path = "./wildcard" }
+tracing_redismodule = { path = "./tracing_redismodule" }
 
 cbindgen = "0.29"
 cc = "1"
@@ -110,6 +112,9 @@ thiserror = "2.0.12"
 unsafe-tools = "0.1.1"
 ureq = "3.0.10"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
+tracing = "0.1.42"
+tracing-core = "0.1"
+tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "fmt", "ansi", "env-filter"] }
 
 [workspace.dependencies.bindgen]
 version = "0.72"
