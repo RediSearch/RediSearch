@@ -36,14 +36,12 @@ fn read_skips_child_docs() {
 
     // Child has [2, 4, 7]; complement in [1..=10] is [1, 3, 5, 6, 8, 9, 10].
     let expected = vec![1, 3, 5, 6, 8, 9, 10];
-    let mut seen = Vec::new();
 
     for &expected_id in &expected {
         let result = it.read();
         let result = result.expect("read() must not error");
         let doc = result.expect("iterator should yield more docs");
 
-        seen.push(doc.doc_id);
         assert_eq!(doc.doc_id, expected_id);
         assert_eq!(it.last_doc_id(), expected_id);
         assert_eq!(it.current().unwrap().doc_id, expected_id);
@@ -53,7 +51,6 @@ fn read_skips_child_docs() {
     let result = it.read().unwrap();
     assert!(result.is_none());
     assert!(it.at_eof());
-    assert_eq!(seen, expected);
 }
 
 // Empty child: NOT behaves like a wildcard over [1, max_doc_id].
@@ -76,6 +73,7 @@ fn read_with_empty_child_behaves_like_wildcard() {
     assert!(result.is_none());
     assert!(it.at_eof());
 }
+
 // Child covers full range: NOT should be empty and report EOF.
 #[test]
 fn read_with_child_covering_full_range_yields_no_docs() {

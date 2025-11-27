@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Not iterator implementation
+//! Supporting types for [`NotIterator`].
 
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
@@ -21,7 +21,7 @@ pub struct NotIterator<'index, I> {
     max_doc_id: t_docId,
     current_id: t_docId,
     result: RSIndexResult<'index>,
-    // Timeout - TBD
+    // TODO: Timeout
 }
 
 impl<'index, I> NotIterator<'index, I>
@@ -31,7 +31,6 @@ where
     pub const fn new(child: I, max_doc_id: t_docId) -> Self {
         Self {
             child: MaybeEmpty::new(child),
-            // wcii,
             max_doc_id,
             current_id: 0,
             result: RSIndexResult::virt(),
@@ -48,6 +47,7 @@ where
         Some(&mut self.result)
     }
 
+    #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
@@ -57,7 +57,7 @@ where
         // so we must still treat that doc as excluded.
         if self.last_doc_id() == self.child.last_doc_id() {
             self.child.read()?;
-            // TODO timeout
+            // TODO: Timeout
         }
 
         while self.current_id < self.max_doc_id {
@@ -75,12 +75,13 @@ where
             }
 
             self.child.read()?;
-            // TODO timeout
+            // TODO: Timeout
         }
 
         Ok(None)
     }
 
+    #[inline(always)]
     fn skip_to(
         &mut self,
         doc_id: t_docId,
@@ -122,30 +123,34 @@ where
         // If we are here, Child has DocID (either already lastDocID == docId or the SkipTo returned OK)
         // We need to return NOTFOUND and set the current result to the next valid docId
         self.current_id = doc_id;
-        let rc = self.read()?;
-        match rc {
+        match self.read()? {
             Some(_) => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
             None => Ok(None),
         }
     }
 
+    #[inline(always)]
     fn rewind(&mut self) {
         self.current_id = 0;
         self.child.rewind();
     }
 
+    #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.max_doc_id as usize
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         self.current_id
     }
 
+    #[inline(always)]
     fn at_eof(&self) -> bool {
         self.current_id >= self.max_doc_id
     }
 
+    #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Get child status
         let child_status = self.child.revalidate()?;
