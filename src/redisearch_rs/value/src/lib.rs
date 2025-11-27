@@ -7,198 +7,160 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
-//! Rust port of the RSValue type.
+#[cfg(feature = "test_utils")]
+mod test_utils;
+#[cfg(feature = "test_utils")]
+pub use test_utils::RSValueMock;
 
-use std::{ffi::c_char, ptr::NonNull};
+use std::fmt::{self, Debug};
 
-/// A trait that defines the behavior of a RediSearch RSValue.
-///
-/// The trait is temporary until we have a proper Rust port of the RSValue type.
-///
-/// This trait is used to create, manipulate, and free RSValue instances. It can be implemented
-/// as a mock type for testing purposes, and by a new-type in the ffi layer to interact with the
-/// C API.
-pub trait RSValueTrait: Clone
-where
-    Self: Sized,
-{
-    /// Creates a new RSValue instance which is null
-    fn create_null() -> Self;
+use crate::{map::RsValueMap, shared::SharedRsValue, trio::RsValueTrio};
 
-    /// Creates a new RSValue instance with a string value.
-    fn create_string(s: String) -> Self;
+#[cfg(feature = "c_ffi_impl")]
+/// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
+/// Rust port of the RSValue type.
+mod rs_value_ffi;
+#[cfg(feature = "c_ffi_impl")]
+pub use rs_value_ffi::*;
 
-    /// Creates a new RSValue instance with a number (double) value.
-    fn create_num(num: f64) -> Self;
+pub mod map;
+pub mod shared;
+pub mod trio;
 
-    /// Creates a new RSValue instance that is a reference to the given value.
-    fn create_ref(value: Self) -> Self;
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct SDS(usize); // TODO bind
 
-    /// Checks if the RSValue is null
-    fn is_null(&self) -> bool;
+/// Internal storage of [`RsValue`] and [`SharedRsValue`]
+// TODO: optimize memory size
+#[derive(Debug, Clone)]
+pub enum RsValueInternal {
+    /// Null value
+    Null,
+    /// Numeric value
+    Number(f64),
+    /// Reference value
+    Ref(SharedRsValue),
+    /// Trio value
+    Trio(RsValueTrio),
+    /// Map value
+    Map(RsValueMap),
+    // TODO add array variant, possibly based on LowMemoryThinVec
+    // TODO add string variants
+}
 
-    /// gets a reference to the RSValue instance, if it is a reference type or None.
-    fn get_ref(&self) -> Option<&Self>;
+/// A stack-allocated RediSearch dynamic value.
+// TODO: optimize memory layout
+/// cbindgen:prefix-with-name
+#[derive(Default, Clone)]
+pub enum RsValue {
+    #[default]
+    /// Undefined, not holding a value.
+    Undef,
+    /// Defined and holding a value.
+    Def(RsValueInternal),
+}
 
-    /// gets a mutable reference to the RSValue instance, if it is a reference type or None.
-    fn get_ref_mut(&mut self) -> Option<&mut Self>;
-
-    /// gets the string slice of the RSValue instance, if it is a string type or None otherwise.
-    fn as_str(&self) -> Option<&str>;
-
-    /// gets the number (double) value of the RSValue instance, if it is a number type or None otherwise.
-    fn as_num(&self) -> Option<f64>;
-
-    /// gets the type of the RSValue instance, it either null, string, number, or reference.
-    fn get_type(&self) -> ffi::RSValueType;
-
-    /// returns true if the RSValue is stored as a pointer on the heap (the C implementation)
-    fn is_ptr_type() -> bool;
-
-    /// Increments the reference count of the RSValue instance.
-    fn increment(&mut self);
-
-    /// Decrements the reference count of the RSValue instance.
-    fn decrement(&mut self);
-
-    /// returns the approximate memory size of the RSValue instance.
-    fn mem_size() -> usize {
-        std::mem::size_of::<Self>()
+impl RsValue {
+    pub const fn null_const() -> Self {
+        Self::Def(RsValueInternal::Null)
     }
 }
 
-/// [RSValueFFI] is a wrapper around the C struct `RSValue` implement as new-type over a [std::ptr::NonNull<ffi::RSValue>].
-///
-/// It implements the [`Clone`] and [`Drop`] traits to manage the reference counting of the underlying C struct.
-///
-/// Safety:
-/// 1. The pointer must be a valid pointer to an `RSValue` created by the C side.
-#[repr(transparent)]
-pub struct RSValueFFI(pub NonNull<ffi::RSValue>);
-
-// Clone is used to increment the reference count of the underlying C struct.
-impl Clone for RSValueFFI {
-    fn clone(&self) -> Self {
-        // Safety: We assume a valid ptr is given by the C side, and we are incrementing the reference count.
-        unsafe { ffi::RSValue_IncrRef(self.0.as_ptr()) };
-        RSValueFFI(self.0)
+impl fmt::Debug for RsValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.internal() {
+            Some(internal) => internal.fmt(f),
+            None => f.debug_tuple("Undefined").finish(),
+        }
     }
 }
 
-// Drop is used to decrement the reference count of the underlying C struct when the RSValueFFI is dropped.
-impl Drop for RSValueFFI {
-    fn drop(&mut self) {
-        self.decrement();
+impl Value for RsValue {
+    fn from_internal(internal: RsValueInternal) -> Self {
+        Self::Def(internal)
+    }
+
+    fn undefined() -> Self {
+        Self::Undef
+    }
+
+    fn internal(&self) -> Option<&RsValueInternal> {
+        match self {
+            Self::Undef => None,
+            Self::Def(internal) => Some(internal),
+        }
     }
 }
 
-impl RSValueTrait for RSValueFFI {
-    fn create_null() -> Self {
-        // Safety: RS_NullVal returns an immutable global ptr
-        let val = unsafe { ffi::RS_NullVal() };
-        RSValueFFI(NonNull::new(val).expect("RS_NullVal returned a null pointer"))
+pub trait Value: Sized {
+    /// Create a new value from an [`RsValueInternal`]
+    fn from_internal(internal: RsValueInternal) -> Self;
+
+    // Create a new, undefined value
+    fn undefined() -> Self;
+
+    // Clear this value
+    fn clear(&mut self) {
+        *self = Self::undefined();
     }
 
-    fn create_string(_: String) -> Self {
-        // This method gets a Rust String which is not directly compatible with the C side
-        // and we don't want to implement the conversion here.
-        panic!("create_string is not implemented for RSValueFFI");
-        // The C side, i.e. the function `RSSortingVector_PutStr`
-        // uses `RSSortingVector::try_insert_val` to insert a pre-created value.
+    /// Get a reference to the [`RsValueInternal`] that is
+    /// held by this value if it is defined. Returns `None` if
+    /// the value is undefined.
+    fn internal(&self) -> Option<&RsValueInternal>;
+
+    /// Create a new, NULL value
+    fn null() -> Self {
+        Self::from_internal(RsValueInternal::Null)
     }
 
-    fn create_num(num: f64) -> Self {
-        // Safety: RSValue_FromDouble expects a valid double value.
-        let num = unsafe { ffi::RS_NumVal(num) };
-        RSValueFFI(NonNull::new(num).expect("RS_NumVal returned a null pointer"))
+    /// Create a new numeric value given the passed number
+    fn number(n: f64) -> Self {
+        Self::from_internal(RsValueInternal::Number(n))
     }
 
-    fn create_ref(value: Self) -> Self {
-        RSValueFFI(value.0)
+    /// Create a new trio value
+    fn trio(left: SharedRsValue, middle: SharedRsValue, right: SharedRsValue) -> Self {
+        Self::from_internal(RsValueInternal::Trio(RsValueTrio::new(left, middle, right)))
     }
 
-    fn is_null(&self) -> bool {
-        // Safety: RS_NullVal returns an immutable global ptr
-        self.0.as_ptr() == unsafe { ffi::RS_NullVal() }
+    /// Create a new map value
+    fn map(map: RsValueMap) -> Self {
+        Self::from_internal(RsValueInternal::Map(map))
     }
 
-    fn get_ref(&self) -> Option<&Self> {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_ref() };
-        if p.t() == ffi::RSValueType_RSValue_Reference {
-            // Safety: We tested that the type is a reference, so we access it over the union safely.
-            let ref_ptr = unsafe { p.__bindgen_anon_1.ref_ };
-
-            // Safety: We assume that a valid pointer is given by the C side
-            Some(unsafe { &*(ref_ptr as *const RSValueFFI) })
-        } else {
-            None
-        }
+    /// Attempt to parse the passed string as an `f64`, and wrap it
+    /// in a [`SharedRsValue`].
+    fn parse_number(s: &str) -> Result<Self, std::num::ParseFloatError> {
+        Ok(Self::number(s.parse()?))
     }
 
-    fn get_ref_mut(&mut self) -> Option<&mut Self> {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_mut() };
-        if p.t() == ffi::RSValueType_RSValue_Reference {
-            // Safety: We tested that the type is a reference, so we access it over the union safely.
-            let ref_ptr = unsafe { p.__bindgen_anon_1.ref_ };
-
-            // Safety: We assume that a valid pointer is given by the C side
-            Some(unsafe { &mut *(ref_ptr as *mut RSValueFFI) })
-        } else {
-            None
-        }
+    /// Get the number value. Returns `None` if the value is not
+    /// a number.
+    fn get_number(&self) -> Option<f64> {
+        let RsValueInternal::Number(number) = self.internal()? else {
+            return None;
+        };
+        Some(*number)
     }
+}
 
-    fn as_str(&self) -> Option<&str> {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_ref() };
-        if p.t() == ffi::RSValueType_RSValue_String {
-            // Safety: We tested that the type is a string, so we access it over the union safely.
-            let c_str: *mut c_char = unsafe { p.__bindgen_anon_1.strval }.str_;
+pub mod opaque {
+    use c_ffi_utils::opaque::{Size, Transmute};
 
-            // Safety: We assume that a valid C string is generated by the C side (valid and null-terminated).
-            Some(unsafe { std::ffi::CStr::from_ptr(c_str).to_str().unwrap() })
-        } else {
-            None
-        }
-    }
+    use super::RsValue;
 
-    fn as_num(&self) -> Option<f64> {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_ref() };
-        if p.t() == ffi::RSValueType_RSValue_Number {
-            // Safety: We tested that the type is a number, so we access it over the union safely.
-            Some(unsafe { p.__bindgen_anon_1.numval })
-        } else {
-            None
-        }
-    }
+    /// Opaque projection of [`RsValue`], allowing the
+    /// non-FFI-safe [`RsValue`] to be passed to C
+    /// and even allow C land to place it on the stack.
+    #[repr(C, align(8))]
+    pub struct OpaqueRsValue(Size<24>);
 
-    fn get_type(&self) -> ffi::RSValueType {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_ref() };
-        p.t()
-    }
+    // Safety: `OpaqueRsValue` is defined as a `MaybeUninit` slice of
+    // bytes with the same size and alignment as `RsValue`, so any valid
+    // `RsValue` has a bit pattern which is a valid `OpaqueRsValue`.
+    unsafe impl Transmute<RsValue> for OpaqueRsValue {}
 
-    fn is_ptr_type() -> bool {
-        // Returns true if the RSValue is stored as a pointer on the heap (the C implementation).
-        true
-    }
-
-    fn mem_size() -> usize {
-        // The size of the RSValue struct in C is fixed, so we can use the size of the FFI struct.
-        std::mem::size_of::<ffi::RSValue>()
-    }
-
-    fn increment(&mut self) {
-        // Safety: We assume a valid ptr is given by the C side, and we are incrementing the reference count.
-        unsafe { ffi::RSValue_IncrRef(self.0.as_ptr()) };
-    }
-
-    fn decrement(&mut self) {
-        // Safety: We assume a valid ptr is given by the C side, and we are decrementing the reference count.
-        unsafe { ffi::RSValue_Decref(self.0.as_ptr()) };
-    }
+    c_ffi_utils::opaque!(RsValue, OpaqueRsValue);
 }

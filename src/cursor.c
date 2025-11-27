@@ -70,7 +70,11 @@ static void Cursor_FreeInternal(Cursor *cur) {
   kh_del(cursors, cl->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
-  if (cur->execState) {
+  if (cur->hybrid_ref.rm) {
+    // The AREQ will be free by the hybrid request free function.
+    StrongRef_Release(cur->hybrid_ref);
+    cur->execState = NULL;
+  } else if (cur->execState) {
     AREQ_Free(cur->execState);
     cur->execState = NULL;
   }
@@ -214,7 +218,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
     /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
     if (spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);
       goto done;
     }
   }

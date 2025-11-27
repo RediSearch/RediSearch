@@ -7,11 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Empty iterator implementation
+//! Supporting types for [`Empty`].
+
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// An iterator that yields no results.
 ///
@@ -19,29 +20,45 @@ use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 #[derive(Default)]
 pub struct Empty;
 
-impl RQEIterator for Empty {
-    fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
+impl<'index> RQEIterator<'index> for Empty {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        None
+    }
+
+    #[inline(always)]
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         Ok(None)
     }
 
+    #[inline(always)]
     fn skip_to(
         &mut self,
         _doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         Ok(None)
     }
 
+    #[inline(always)]
     fn rewind(&mut self) {}
 
+    #[inline(always)]
     fn num_estimated(&self) -> usize {
         0
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         0
     }
 
+    #[inline(always)]
     fn at_eof(&self) -> bool {
         true
+    }
+
+    #[inline(always)]
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        Ok(RQEValidateStatus::Ok)
     }
 }

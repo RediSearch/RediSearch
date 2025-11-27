@@ -23,7 +23,7 @@
 
 redisearch_thpool_t *_workers_thpool = NULL;
 size_t yield_counter = 0;
-bool in_event = false;
+size_t in_event = 0; // event counter, >0 means we should be in event mode (some events can start before others end)
 
 static void yieldCallback(void *yieldCtx) {
   yield_counter++;
@@ -82,22 +82,26 @@ void workersThreadPool_SetNumWorkers() {
     worker_count = RSGlobalConfig.minOperationWorkers;
   }
   size_t curr_workers = redisearch_thpool_get_num_threads(_workers_thpool);
-  size_t new_num_threads = worker_count;
 
-  if (worker_count == 0 && curr_workers > 0) {
-    redisearch_thpool_terminate_when_empty(_workers_thpool);
-    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
-    workersThreadPool_OnDeactivation(curr_workers);
-  } else if (worker_count > curr_workers) {
-    new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
-    if (!curr_workers) workersThreadPool_OnActivation(worker_count);
-  } else if (worker_count < curr_workers) {
-    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
+  if (worker_count != curr_workers) {
+    RedisModule_Log(RSDummyContext, "notice", "Changing workers threadpool size from %zu to %zu", curr_workers, worker_count);
   }
 
-  RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
-    "Attempt to change the workers thpool size to %lu "
-    "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
+  if (worker_count == 0 && curr_workers > 0) {
+    // Schedule in the thpool in the config_worker_reducer_job -> a pointer to
+    RedisModule_Log(RSDummyContext, "notice", "Scheduling config_reduce_threads_job to remove all %zu threads when empty", curr_workers);
+    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers, true);
+    workersThreadPool_OnDeactivation(curr_workers);
+  } else if (worker_count > curr_workers) {
+    size_t new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
+    if (!curr_workers) workersThreadPool_OnActivation(worker_count);
+    RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
+      "Attempt to change the workers thpool size to %lu "
+      "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
+  } else if (worker_count < curr_workers) {
+    RedisModule_Log(RSDummyContext, "notice", "Scheduling config_reduce_threads_job to remove %zu threads ASAP", curr_workers - worker_count);
+    redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers - worker_count, false);
+  }
 }
 
 // return number of currently working threads
@@ -126,6 +130,7 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
   if (!_workers_thpool || redisearch_thpool_paused(_workers_thpool)) {
     return;
   }
+  RedisModule_Log(RSDummyContext, "notice", "Draining workers thread pool with threshold %zu", threshold);
   if (RedisModule_Yield) {
     // Wait until all the threads in the pool run the jobs until there are no more than <threshold>
     // jobs in the queue. Periodically return and call RedisModule_Yield, so redis can answer PINGs
@@ -147,19 +152,21 @@ void workersThreadPool_Destroy(void) {
 }
 
 void workersThreadPool_OnEventStart() {
-  in_event = true;
+  in_event++;
   workersThreadPool_SetNumWorkers();
 }
 
-void workersThreadPool_OnEventEnd(bool wait) {
-  in_event = false;
+int workersThreadPool_OnEventEnd(bool wait) {
+  in_event--;
   workersThreadPool_SetNumWorkers();
   // Wait until all the threads are finished the jobs currently in the queue. Note that we call
   // block main thread while we wait, so we have to make sure that number of jobs isn't too large.
   // no-op if numWorkerThreads == minOperationWorkers == 0
   if (wait) {
+    if (in_event) return REDISMODULE_ERR; // cannot wait while another event is in progress
     redisearch_thpool_wait(_workers_thpool);
   }
+  return REDISMODULE_OK;
 }
 
 /********************************************* for debugging **********************************/

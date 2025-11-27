@@ -35,6 +35,12 @@ unsafe extern "C" {
     /// The caller must ensure that the `metrics` pointer is either `null` or valid and points to a `*mut RSYieldableMetric`.
     unsafe fn ResultMetrics_Free(metrics: *mut RSYieldableMetric);
 
+    /// reset the metrics
+    ///
+    /// # Safety
+    /// The caller must ensure that the `metrics` pointer is either `null` or valid and points to a `*mut RSYieldableMetric`.
+    pub unsafe fn ResultMetrics_Reset_func(result: *mut RSIndexResult);
+
     /// Free a [`RSQueryTerm`]
     ///
     /// # Safety
@@ -52,7 +58,7 @@ unsafe extern "C" {
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct RSOffsetVector<'index> {
     /// At this point the data ownership is still managed by the caller.
     // TODO: switch to a Cow once the caller code has been ported to Rust.
@@ -78,7 +84,7 @@ impl Debug for RSOffsetVector<'_> {
 
 impl RSOffsetVector<'_> {
     /// Create a new, empty offset vector ready to receive data
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self {
             data: ptr::null_mut(),
             len: 0,
@@ -87,7 +93,7 @@ impl RSOffsetVector<'_> {
     }
 
     /// Create a new offset vector with the given data pointer and length.
-    pub fn with_data(data: *mut c_char, len: u32) -> Self {
+    pub const fn with_data(data: *mut c_char, len: u32) -> Self {
         Self {
             data,
             len,
@@ -145,7 +151,7 @@ impl RSOffsetVector<'_> {
 /// Represents a single record of a document inside a term in the inverted index
 /// cbindgen:prefix-with-name=true
 #[repr(u8)]
-#[derive(PartialEq)]
+#[derive(Eq)]
 pub enum RSTermRecord<'index> {
     Borrowed {
         /// The term that brought up this record
@@ -173,6 +179,12 @@ pub enum RSTermRecord<'index> {
     },
 }
 
+impl PartialEq for RSTermRecord<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.query_term() == other.query_term() && self.offsets() == other.offsets()
+    }
+}
+
 impl Drop for RSTermRecord<'_> {
     fn drop(&mut self) {
         match self {
@@ -195,7 +207,7 @@ impl Drop for RSTermRecord<'_> {
 
 impl<'index> RSTermRecord<'index> {
     /// Create a new term record without term pointer and offsets.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self::Borrowed {
             term: ptr::null_mut(),
             offsets: RSOffsetVector::empty(),
@@ -203,7 +215,7 @@ impl<'index> RSTermRecord<'index> {
     }
 
     /// Create a new term with the given term pointer and offsets.
-    pub fn with_term(
+    pub const fn with_term(
         term: *mut RSQueryTerm,
         offsets: RSOffsetVector<'index>,
     ) -> RSTermRecord<'index> {
@@ -211,12 +223,12 @@ impl<'index> RSTermRecord<'index> {
     }
 
     /// Is this term record borrowed or owned?
-    pub fn is_copy(&self) -> bool {
+    pub const fn is_copy(&self) -> bool {
         matches!(self, RSTermRecord::Owned { .. })
     }
 
     /// Get the offsets of this term record.
-    pub fn offsets(&self) -> &[u8] {
+    pub const fn offsets(&self) -> &[u8] {
         let offsets = match self {
             RSTermRecord::Borrowed { offsets, .. } => offsets,
             RSTermRecord::Owned { offsets, .. } => offsets,
@@ -231,7 +243,7 @@ impl<'index> RSTermRecord<'index> {
     }
 
     /// Get the query term pointer of this term record.
-    pub fn query_term(&self) -> *mut RSQueryTerm {
+    pub const fn query_term(&self) -> *mut RSQueryTerm {
         match self {
             RSTermRecord::Borrowed { term, .. } => *term,
             RSTermRecord::Owned { term, .. } => *term,
@@ -249,6 +261,19 @@ impl<'index> RSTermRecord<'index> {
                 term: *term,
                 offsets: offsets.to_owned(),
             },
+        }
+    }
+
+    /// Set the offsets of this term record, replacing any existing offsets.
+    pub fn set_offsets(&mut self, offsets: RSOffsetVector<'index>) {
+        match self {
+            RSTermRecord::Borrowed { offsets: o, .. } => {
+                *o = offsets;
+            }
+            RSTermRecord::Owned { offsets: o, .. } => {
+                o.free_data();
+                *o = offsets.to_owned();
+            }
         }
     }
 }
@@ -376,7 +401,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// The number of results in this aggregate result
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.len(),
             RSAggregateResult::Owned { records, .. } => records.len(),
@@ -384,7 +409,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// Check whether this aggregate result is empty
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.is_empty(),
             RSAggregateResult::Owned { records, .. } => records.is_empty(),
@@ -392,7 +417,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// The capacity of the aggregate result
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.capacity(),
             RSAggregateResult::Owned { records, .. } => records.capacity(),
@@ -400,7 +425,7 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// The current type mask of the aggregate result
-    pub fn kind_mask(&self) -> RSResultKindMask {
+    pub const fn kind_mask(&self) -> RSResultKindMask {
         match self {
             RSAggregateResult::Borrowed { kind_mask, .. } => *kind_mask,
             RSAggregateResult::Owned { kind_mask, .. } => *kind_mask,
@@ -408,17 +433,14 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// Get an iterator over the children of this aggregate result
-    pub fn iter(&'index self) -> RSAggregateResultIter<'index> {
+    pub const fn iter(&'index self) -> RSAggregateResultIter<'index> {
         RSAggregateResultIter {
             agg: self,
             index: 0,
         }
     }
 
-    /// Get the child at the given index, if it exists
-    ///
-    /// # Safety
-    /// The caller must ensure that the memory at the given index is still valid
+    /// Get the child at the given index, if it exists.
     pub fn get(&self, index: usize) -> Option<&RSIndexResult<'index>> {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.get(index).copied(),
@@ -426,10 +448,37 @@ impl<'index> RSAggregateResult<'index> {
         }
     }
 
-    /// Reset the aggregate result, clearing all children and resetting the kind mask.
+    /// Get the child at the given index, if it exists.
     ///
-    /// Note, this does not deallocate the children pointers, it just resets the count and kind
-    /// mask. The owner of the children pointers is responsible for deallocating them when needed.
+    /// # Safety
+    ///
+    /// 1. The index must be within the bounds of the children vector.
+    pub unsafe fn get_unchecked(&self, index: usize) -> &RSIndexResult<'index> {
+        match self {
+            RSAggregateResult::Borrowed { records, .. } => {
+                debug_assert!(
+                    index < records.len(),
+                    "Safety violation: trying to access an aggregate result child at an out-of-bounds index, {index}. Length: {}",
+                    records.len()
+                );
+                // SAFETY:
+                // - Thanks to precondition 1., we know that the index is within bounds.
+                unsafe { records.get_unchecked(index) }
+            }
+            RSAggregateResult::Owned { records, .. } => {
+                debug_assert!(
+                    index < records.len(),
+                    "Safety violation: trying to access an aggregate result child at an out-of-bounds index, {index}. Length: {}",
+                    records.len()
+                );
+                // SAFETY:
+                // - Thanks to precondition 1., we know that the index is within bounds.
+                unsafe { records.get_unchecked(index) }
+            }
+        }
+    }
+
+    /// Reset the aggregate result, clearing the children vector and resetting the kind mask.
     pub fn reset(&mut self) {
         match self {
             RSAggregateResult::Borrowed {
@@ -574,6 +623,21 @@ pub enum RSResultKind {
     HybridMetric = 64,
 }
 
+impl std::fmt::Display for RSResultKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let k = match self {
+            RSResultKind::Union => "Union",
+            RSResultKind::Intersection => "Intersection",
+            RSResultKind::Term => "Term",
+            RSResultKind::Virtual => "Virtual",
+            RSResultKind::Numeric => "Numeric",
+            RSResultKind::Metric => "Metric",
+            RSResultKind::HybridMetric => "HybridMetric",
+        };
+        write!(f, "{k}")
+    }
+}
+
 /// Holds the actual data of an ['IndexResult']
 ///
 /// These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
@@ -594,7 +658,7 @@ pub enum RSResultData<'index> {
 }
 
 impl RSResultData<'_> {
-    pub fn kind(&self) -> RSResultKind {
+    pub const fn kind(&self) -> RSResultKind {
         match self {
             RSResultData::Union(_) => RSResultKind::Union,
             RSResultData::Intersection(_) => RSResultKind::Intersection,
@@ -655,7 +719,7 @@ impl Default for RSIndexResult<'_> {
 
 impl<'index> RSIndexResult<'index> {
     /// Create a new virtual index result
-    pub fn virt() -> Self {
+    pub const fn virt() -> Self {
         Self {
             doc_id: 0,
             dmd: ptr::null(),
@@ -723,7 +787,7 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
-    pub fn term_with_term_ptr(
+    pub const fn term_with_term_ptr(
         term: *mut RSQueryTerm,
         offsets: RSOffsetVector<'index>,
         doc_id: t_docId,
@@ -742,41 +806,96 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// Set the document ID of this record
-    pub fn doc_id(mut self, doc_id: t_docId) -> Self {
+    pub const fn doc_id(mut self, doc_id: t_docId) -> Self {
         self.doc_id = doc_id;
 
         self
     }
 
     /// Set the field mask of this record
-    pub fn field_mask(mut self, field_mask: FieldMask) -> Self {
+    pub const fn field_mask(mut self, field_mask: FieldMask) -> Self {
         self.field_mask = field_mask;
 
         self
     }
 
     /// Set the weight of this record
-    pub fn weight(mut self, weight: f64) -> Self {
+    pub const fn weight(mut self, weight: f64) -> Self {
         self.weight = weight;
 
         self
     }
 
     /// Set the frequency of this record
-    pub fn frequency(mut self, frequency: u32) -> Self {
+    pub const fn frequency(mut self, frequency: u32) -> Self {
         self.freq = frequency;
 
         self
     }
 
     /// Get the kind of this index result
-    pub fn kind(&self) -> RSResultKind {
+    pub const fn kind(&self) -> RSResultKind {
         self.data.kind()
+    }
+
+    /// Get the numeric value of this record without checking its kind. The caller must ensure
+    /// that this is a numeric record, else invoking this method will cause undefined behavior.
+    ///
+    /// # Safety
+    ///
+    /// 1. `Self::is_numeric()` must return `true` for `self`.
+    pub unsafe fn as_numeric_unchecked(&self) -> f64 {
+        debug_assert!(
+            self.is_numeric(),
+            "Invariant violation: `as_numeric_unchecked` was invoked on a non-numeric `RSIndexResult` \
+             instance that didn't actually contain a numeric. It was a {}",
+            self.data.kind()
+        );
+
+        match &self.data {
+            RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => *numeric,
+            RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Term(_)
+            | RSResultData::Virtual
+            | RSResultData::HybridMetric(_) => {
+                // SAFETY: unreachable because of safety condition 1
+                unsafe { std::hint::unreachable_unchecked() }
+            }
+        }
+    }
+
+    /// Get a mutable reference to the numeric value of this record without checking its kind.
+    /// The caller must ensure that this is a numeric record, else invoking this method will cause
+    /// undefined behavior.
+    ///
+    /// # Safety
+    ///
+    /// 1. `Self::is_numeric()` must return `true` for `self`.
+    pub unsafe fn as_numeric_unchecked_mut(&mut self) -> &mut f64 {
+        debug_assert!(
+            self.is_numeric(),
+            "Invariant violation: `as_numeric_unchecked_mut` was invoked on a non-numeric `RSIndexResult` \
+             instance that didn't actually contain a numeric. It was a {}",
+            self.data.kind()
+        );
+
+        match &mut self.data {
+            RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => numeric,
+            RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Term(_)
+            | RSResultData::Virtual
+            | RSResultData::HybridMetric(_) => {
+                // SAFETY: unreachable because of safety condition 1
+                unsafe { std::hint::unreachable_unchecked() }
+            }
+        }
     }
 
     /// Get this record as a numeric record if possible. If the record is not numeric, returns
     /// `None`.
-    pub fn as_numeric(&self) -> Option<f64> {
+    pub const fn as_numeric(&self) -> Option<f64> {
         match &self.data {
             RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => Some(*numeric),
             RSResultData::HybridMetric(_)
@@ -789,7 +908,7 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get this record as a mutable numeric record if possible. If the record is not numeric,
     /// returns `None`.
-    pub fn as_numeric_mut(&mut self) -> Option<&mut f64> {
+    pub const fn as_numeric_mut(&mut self) -> Option<&mut f64> {
         match &mut self.data {
             RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => Some(numeric),
             RSResultData::HybridMetric(_)
@@ -800,9 +919,38 @@ impl<'index> RSIndexResult<'index> {
         }
     }
 
+    /// Get a reference to the term record of this index result without checking its kind. The caller
+    /// must ensure that this is a term record, else invoking this method will cause undefined
+    /// behavior.
+    ///
+    /// # Safety
+    ///
+    /// 1. `Self::is_term()` must return `true` for `self`.
+    pub unsafe fn as_term_unchecked_mut(&mut self) -> &mut RSTermRecord<'index> {
+        debug_assert!(
+            self.is_term(),
+            "Invariant violation: `as_term_unchecked_mut` was invoked on a non-term `RSIndexResult` \
+             instance that didn't actually contain a term. It was a {}",
+            self.data.kind()
+        );
+
+        match &mut self.data {
+            RSResultData::Term(term) => term,
+            RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Virtual
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_)
+            | RSResultData::HybridMetric(_) => {
+                // SAFETY: unreachable because of safety condition 1
+                unsafe { std::hint::unreachable_unchecked() }
+            }
+        }
+    }
+
     /// Get this record as a term record if possible. If the record is not term, returns
     /// `None`.
-    pub fn as_term(&self) -> Option<&RSTermRecord<'index>> {
+    pub const fn as_term(&self) -> Option<&RSTermRecord<'index>> {
         match &self.data {
             RSResultData::Term(term) => Some(term),
             RSResultData::Union(_)
@@ -816,7 +964,7 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get this record as a mutable term record if possible. If the record is not a term,
     /// returns `None`.
-    pub fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'index>> {
+    pub const fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'index>> {
         match &mut self.data {
             RSResultData::Term(term) => Some(term),
             RSResultData::Union(_)
@@ -828,9 +976,37 @@ impl<'index> RSIndexResult<'index> {
         }
     }
 
+    /// Get the aggregate result associated with this record
+    /// **without checking the discriminant**.
+    ///
+    /// # Safety
+    ///
+    /// 1. `Self::is_aggregate` must return `true` for `self`.
+    pub unsafe fn as_aggregate_unchecked(&self) -> Option<&RSAggregateResult<'index>> {
+        debug_assert!(
+            self.is_aggregate(),
+            "Invariant violation: `as_aggregate_unchecked` was invoked on an `IndexResult` \
+            instance that didn't actually contain an aggregate! It was a {}",
+            self.data.kind()
+        );
+        match &self.data {
+            RSResultData::Union(agg)
+            | RSResultData::Intersection(agg)
+            | RSResultData::HybridMetric(agg) => Some(agg),
+            RSResultData::Term(_)
+            | RSResultData::Virtual
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_) => {
+                // SAFETY:
+                // - Thanks to safety precondition 1., we'll never reach this statement.
+                unsafe { std::hint::unreachable_unchecked() }
+            }
+        }
+    }
+
     /// Get this record as an aggregate result if possible. If the record is not an aggregate,
     /// returns `None`.
-    pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'index>> {
+    pub const fn as_aggregate(&self) -> Option<&RSAggregateResult<'index>> {
         match &self.data {
             RSResultData::Union(agg)
             | RSResultData::Intersection(agg)
@@ -844,7 +1020,7 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get this record as a mutable aggregate result if possible. If the record is not an
     /// aggregate, returns `None`.
-    pub fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'index>> {
+    pub const fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'index>> {
         match &mut self.data {
             RSResultData::Union(agg)
             | RSResultData::Intersection(agg)
@@ -857,15 +1033,28 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// True if this is an aggregate kind
-    pub fn is_aggregate(&self) -> bool {
+    pub const fn is_aggregate(&self) -> bool {
         matches!(
             self.data,
             RSResultData::Intersection(_) | RSResultData::Union(_) | RSResultData::HybridMetric(_)
         )
     }
 
+    /// True if this is a numeric kind
+    const fn is_numeric(&self) -> bool {
+        matches!(
+            self.data,
+            RSResultData::Numeric(_) | RSResultData::Metric(_)
+        )
+    }
+
+    /// True if this is a term kind
+    const fn is_term(&self) -> bool {
+        matches!(self.data, RSResultData::Term(_))
+    }
+
     /// Is this result some copy type
-    pub fn is_copy(&self) -> bool {
+    pub const fn is_copy(&self) -> bool {
         match self.data {
             RSResultData::Union(RSAggregateResult::Owned { .. })
             | RSResultData::Intersection(RSAggregateResult::Owned { .. })

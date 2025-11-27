@@ -14,7 +14,7 @@ use super::metadata::{NodeHeader, PtrMetadata};
 impl<Data> Node<Data> {
     /// Returns a reference to the header for this node.
     #[inline]
-    pub(super) fn header(&self) -> &NodeHeader {
+    pub(super) const fn header(&self) -> &NodeHeader {
         // SAFETY:
         // - The header field is dereferenceable thanks to invariant 2. in [`Self::ptr`]'s documentation.
         unsafe { self.ptr.as_ref() }
@@ -22,25 +22,25 @@ impl<Data> Node<Data> {
 
     /// Returns the layout and field offsets for the allocated buffer backing this node.
     #[inline]
-    pub(super) fn metadata(&self) -> PtrMetadata<Data> {
+    pub(super) const fn metadata(&self) -> PtrMetadata<Data> {
         self.header().metadata()
     }
 
     /// Returns the length of the label associated with this node.
     #[inline]
-    pub fn label_len(&self) -> u16 {
+    pub const fn label_len(&self) -> u16 {
         self.header().label_len
     }
 
     /// Returns the number of children for this node.
     #[inline]
-    pub fn n_children(&self) -> u8 {
+    pub const fn n_children(&self) -> u8 {
         self.header().n_children
     }
 
     /// Returns a reference to the label associated with this node.
     #[inline]
-    pub fn label(&self) -> &[u8] {
+    pub const fn label(&self) -> &[u8] {
         // SAFETY:
         // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
         let label_ptr = unsafe { PtrMetadata::<Data>::label_ptr(self.ptr) };
@@ -52,7 +52,7 @@ impl<Data> Node<Data> {
 
     /// Returns a mutable reference to the data associated with this node, if any.
     #[inline]
-    pub fn data_mut(&mut self) -> &mut Option<Data> {
+    pub const fn data_mut(&mut self) -> &mut Option<Data> {
         // SAFETY:
         // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
         let mut data_ptr = unsafe { self.metadata().value_ptr(self.ptr) };
@@ -64,7 +64,7 @@ impl<Data> Node<Data> {
 
     /// Returns a reference to the data associated with this node, if any.
     #[inline]
-    pub fn data(&self) -> Option<&Data> {
+    pub const fn data(&self) -> Option<&Data> {
         // SAFETY:
         // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
         let data_ptr = unsafe { self.metadata().value_ptr(self.ptr) };
@@ -81,7 +81,7 @@ impl<Data> Node<Data> {
     /// The index of a child in this array matches the index of its first byte
     /// in the array returned by [`Self::children_first_bytes`].
     #[inline]
-    pub fn children(&self) -> &[Node<Data>] {
+    pub const fn children(&self) -> &[Node<Data>] {
         // SAFETY:
         // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
         let children_ptr = unsafe { self.metadata().children_ptr(self.ptr) };
@@ -98,7 +98,7 @@ impl<Data> Node<Data> {
     /// The index of a child in this array matches the index of its first byte
     /// in the array returned by [`Self::children_first_bytes`].
     #[inline]
-    pub fn children_mut(&mut self) -> &mut [Node<Data>] {
+    pub const fn children_mut(&mut self) -> &mut [Node<Data>] {
         // SAFETY:
         // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
         let children_ptr = unsafe { self.metadata().children_ptr(self.ptr) };
@@ -117,7 +117,7 @@ impl<Data> Node<Data> {
     /// The index of a byte in this array matches the index of the child
     /// it belongs to in the array returned by [`Self::children`].
     #[inline]
-    pub fn children_first_bytes(&self) -> &[u8] {
+    pub const fn children_first_bytes(&self) -> &[u8] {
         // SAFETY:
         // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
         let ptr = unsafe { self.metadata().child_first_bytes_ptr(self.ptr) };

@@ -267,9 +267,15 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
-    if (DocTable_Delete(&sp->docs, docKey, len)) {
+    RSDocumentMetadata* md = DocTable_Pop(&sp->docs, docKey, len);
+    if (md) {
       // Delete returns true/false, not RM_{OK,ERR}
+      RS_LOG_ASSERT(sp->stats.numDocuments > 0, "numDocuments cannot be negative");
       sp->stats.numDocuments--;
+      RS_LOG_ASSERT(sp->stats.totalDocsLen >= md->len, "totalDocsLen is smaller than dmd->len");
+      sp->stats.totalDocsLen -= md->len;
+      DMD_Return(md);
+
       if (sp->gc) {
         GCContext_OnDelete(sp->gc);
       }
@@ -331,7 +337,7 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
     if (ourErr->s) {
       *ourErr->s = rm_strdup(QueryError_GetUserError(&aCtx->status));
     }
-    ourErr->hasErr = aCtx->status.code;
+    ourErr->hasErr = QueryError_GetCode(&aCtx->status);
   }
 }
 
@@ -340,12 +346,10 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   IndexSpec* sp = __RefManager_Get_Object(rm);
 
   RSError err = {.s = errs};
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
   if (aCtx == NULL) {
-    if (status.detail) {
-      QueryError_ClearError(&status);
-    }
+    QueryError_ClearError(&status);
     RWLOCK_RELEASE();
     return REDISMODULE_ERR;
   }
@@ -596,7 +600,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   dictPauseRehashing(sp->keysDict);
 
   RSSearchOptions options = {0};
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   RSSearchOptions_Init(&options);
   if(sp->rule != NULL && sp->rule->lang_default != DEFAULT_LANGUAGE) {
     options.language = sp->rule->lang_default;
@@ -625,7 +629,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   RS_ASSERT(it->internal);
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
-  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
+  const char *defaultScorer = RSGlobalConfig.defaultScorer;
+  RS_LOG_ASSERT(defaultScorer, "No default scorer");
+  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
   RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;

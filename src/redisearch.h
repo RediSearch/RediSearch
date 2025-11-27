@@ -97,23 +97,6 @@ typedef enum {
                                 // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
-enum FieldExpirationPredicate {
-  FIELD_EXPIRATION_DEFAULT, // one of the fields need to be valid
-  FIELD_EXPIRATION_MISSING // one of the fields need to be expired for the entry to be considered missing
-};
-
-typedef struct {
-  // tells us the actual type of the field member
-  // true - fieldMask, false - fieldIndex
-  bool isFieldMask;
-  union {
-    // For textual fields, allows to host multiple field indices at once
-    t_fieldMask mask;
-    // For the other fields, allows a single field to be referenced
-    t_fieldIndex index;
-  } value;
-} FieldMaskOrIndex;
-
 #define hasPayload(x) (x & Document_HasPayload)
 #define hasExpirationTimeInformation(x) (x & Document_HasExpiration)
 

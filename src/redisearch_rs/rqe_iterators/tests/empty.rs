@@ -15,6 +15,12 @@ use rqe_iterators::{
 mod c_mocks;
 
 #[test]
+fn current() {
+    let mut it = Empty::default();
+    assert!(it.current().is_none());
+}
+
+#[test]
 fn read() {
     let mut it = Empty::default();
 
@@ -55,5 +61,8 @@ fn rewind() {
 #[test]
 fn revalidate() {
     let mut it = Empty::default();
-    assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
+    assert_eq!(
+        it.revalidate().expect("revalidate failed"),
+        RQEValidateStatus::Ok
+    );
 }

@@ -65,7 +65,7 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
   }
 
   printProfileCounters(counters);
-  RedisModule_ReplyKV_LongLong(reply, "Size", root->NumEstimated(root));
+  RedisModule_ReplyKV_LongLong(reply, "Estimated number of matches", root->NumEstimated(root));
 
   RedisModule_Reply_MapEnd(reply);
 }
@@ -119,7 +119,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
   }
-  printProfileCounter(RPProfile_GetCount(rp) - 1);
+  printProfileRPCounter(RPProfile_GetCount(rp) - 1);
   RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }
@@ -134,7 +134,9 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   bool timedout = profileCtx->timedout;
   bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
   bool bgScanOOM = profileCtx->bgScanOOM;
+  bool queryOOM = profileCtx->queryOOM;
   req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
   //-------------------------------------------------------------------------------------------
   RedisModule_Reply_Map(reply);
@@ -158,39 +160,44 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         if (profile_verbose){
           if (RunInThread()){
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
-            rs_wall_clock_convert_ns_to_ms_d(req->qiter.GILTime));
+            rs_wall_clock_convert_ns_to_ms_d(qctx->GILTime));
           } else {
-            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
+            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&qctx->initTime);
             RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
           }
         }
 
       // Print whether a warning was raised throughout command execution
+      bool warningRaised = bgScanOOM || queryOOM || timedout || reachedMaxPrefixExpansions;
       if (bgScanOOM) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
       }
+      if (queryOOM) {
+        // This function is called by Shard or SA, so always return SHARD warning.
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WOOM_SHARD);
+      }
       if (timedout) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
       } else if (reachedMaxPrefixExpansions) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
-      } else {
+      } else if (!warningRaised) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
       }
 
       // print into array with a recursive function over result processors
 
       // Print profile of iterators
-      QueryIterator *root = QITR_GetRootFilter(&req->qiter);
+      QueryIterator *root = QITR_GetRootFilter(qctx);
       // Coordinator does not have iterators
       if (root) {
         RedisModule_Reply_SimpleString(reply, "Iterators profile");
         PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
                                      .printProfileClock = profile_verbose};
-        printIteratorProfile(reply, root, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
+        printIteratorProfile(reply, root, 0, 0, 2, AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED, &config);
       }
 
       // Print profile of result processors
-      ResultProcessor *rp = req->qiter.endProc;
+      ResultProcessor *rp = qctx->endProc;
       RedisModule_ReplyKV_Array(reply, "Result processors profile");
         printProfileRP(reply, rp, req->reqConfig.printProfileClock);
       RedisModule_Reply_ArrayEnd(reply);
@@ -402,6 +409,10 @@ PRINT_PROFILE_FUNC(printMetricIt) {
 
   printProfileCounters(counters);
 
+  if (it->type == VECTOR_DISTANCE) {
+    printProfileVectorSearchMode(VECSIM_RANGE_QUERY);
+  }
+
   RedisModule_Reply_MapEnd(reply);
 }
 
@@ -417,9 +428,12 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, QueryIterator *root, Pr
 
     if (root->type == HYBRID_ITERATOR) {
       HybridIterator *hi = (HybridIterator *)root;
+      printProfileVectorSearchMode(hi->searchMode);
       if (hi->searchMode == VECSIM_HYBRID_BATCHES ||
           hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
         printProfileNumBatches(hi);
+        printProfileMaxBatchSize(hi);
+        printProfileMaxBatchIteration(hi);
       }
     }
 

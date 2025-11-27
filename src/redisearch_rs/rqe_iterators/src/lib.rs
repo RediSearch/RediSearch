@@ -7,47 +7,76 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::t_docId;
+use thiserror::Error;
+
+use ::inverted_index::RSIndexResult;
+
 pub mod empty;
 pub mod id_list;
+pub mod inverted_index;
+pub mod maybe_empty;
+pub mod metric;
+pub mod wildcard;
 
-use ffi::t_docId;
-use inverted_index::RSIndexResult;
+pub use empty::Empty;
+pub use id_list::IdList;
+pub use inverted_index::{Numeric, Term};
+pub use metric::MetricIterator;
+pub use wildcard::Wildcard;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
 pub enum SkipToOutcome<'iterator, 'index> {
     /// The iterator has a valid entry for the requested `doc_id`.
-    Found(&'iterator RSIndexResult<'index>),
+    Found(&'iterator mut RSIndexResult<'index>),
 
     /// The iterator doesn't have an entry for the requested `doc_id`, but there are entries with an id greater than the requested one.
-    NotFound(&'iterator RSIndexResult<'index>),
+    NotFound(&'iterator mut RSIndexResult<'index>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 /// An iterator failure indications
 pub enum RQEIteratorError {
     /// The iterator has reached the time limit for execution.
+    #[error("reached time limit")]
     TimedOut,
+    /// Iterator failed to read from the inverted index.
+    #[error("failed to read from inverted index")]
+    IoError(#[from] std::io::Error),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 /// The status of the iterator after a call to `revalidate`
-pub enum RQEValidateStatus {
+pub enum RQEValidateStatus<'iterator, 'index> {
     /// The iterator is still valid and at the same position.
     Ok,
     /// The iterator is still valid but its internal state has changed.
-    Moved,
+    Moved {
+        /// The new current current document the iterator is at, or `None` if the iterator is at EOF.
+        current: Option<&'iterator mut RSIndexResult<'index>>,
+    },
     /// The iterator is no longer valid, and should not be used or rewound. Should be dropped.
     Aborted,
 }
 
-pub trait RQEIterator {
+/// Trait providing the iterators API.
+pub trait RQEIterator<'index> {
+    /// Return the current [`RSIndexResult`] stored within this [`RQEIterator`].
+    ///
+    /// Calls to `read`, `skip_to` and `revalidate` (moved case) also return this reference.
+    /// Sometimes however, especially in the case of wrapper iterators, you might
+    /// not have an immediate use for the actual result, and would instead want to keep it aside
+    /// for later in time. The child iterator already has that result anyway,
+    /// and it is this method which provides the ability to expose it (for later use).
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>>;
+
     /// Read the next entry from the iterator.
     ///
     /// On a successful read, the iterator must set its `last_doc_id` property to the new current result id
     /// This function returns Ok with the current result for valid results, or None if the iterator is depleted.
     /// The function will return Err(RQEIteratorError) for any error.
-    fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError>;
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>;
 
     /// Skip to the next record in the iterator with an ID greater or equal to the given `docId`.
     ///
@@ -60,15 +89,12 @@ pub trait RQEIterator {
     fn skip_to(
         &mut self,
         doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError>;
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError>;
 
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
     /// The iterator should check if it is still valid.
-    fn revalidate(&mut self) -> RQEValidateStatus {
-        // Default implementation does nothing.
-        RQEValidateStatus::Ok
-    }
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
 
     ///Rewind the iterator to the beginning and reset its properties.
     fn rewind(&mut self);

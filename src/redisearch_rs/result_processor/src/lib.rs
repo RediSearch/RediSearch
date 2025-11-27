@@ -123,6 +123,16 @@ impl Context<'_> {
             _borrow: PhantomData,
         })
     }
+
+    /// Returns the owning [`ffi::QueryProcessingCtx`] of the pipeline.
+    pub const fn parent(&mut self) -> Option<&ffi::QueryProcessingCtx> {
+        // Safety: We trust that this result processor's pointer is valid.
+        let query_processing_context_ptr = unsafe { self.ptr.as_ref() }.parent;
+
+        // Safety: We trust that the pointer to the parent context, if set, is
+        // set to an appropriate structure.
+        unsafe { query_processing_context_ptr.as_ref() }
+    }
 }
 
 /// The previous result processor in the pipeline.
@@ -133,6 +143,11 @@ pub struct Upstream<'a> {
 }
 
 impl Upstream<'_> {
+    pub const fn ty(&self) -> ffi::ResultProcessorType {
+        // Safety: We have to trust the pointer to this upstream result processor was set correctly.
+        unsafe { self.ptr.as_ref().ty }
+    }
+
     /// Pull the next [`ffi::SearchResult`] from this result processor into the provided `res` location.
     ///
     /// Returns `Ok(Some(()))` if a search result was successfully pulled from the processor
@@ -203,8 +218,8 @@ impl Upstream<'_> {
 #[repr(C)]
 #[derive(Debug)]
 struct Header {
-    /// Reference to the parent QueryIterator that owns this result processor
-    parent: *mut ffi::QueryIterator,
+    /// Reference to the parent QueryProcessingCtx that owns this result processor
+    parent: *const ffi::QueryProcessingCtx,
     /// Previous result processor in the chain
     upstream: *mut Header,
     /// Type of result processor
@@ -395,6 +410,7 @@ where
     /// # Safety
     ///
     /// 1. `me` must be a well-aligned, valid pointer to a result processor (struct [`Header`]).
+    #[allow(clippy::missing_const_for_fn)]
     unsafe fn debug_assert_same_type(_me: NonNull<Header>) {
         #[cfg(debug_assertions)]
         {

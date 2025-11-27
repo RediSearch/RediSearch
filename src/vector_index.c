@@ -21,9 +21,9 @@
 #define CPUID_AVAILABLE 1
 #endif
 
-static bool isLVQSupported() {
+bool isLVQSupported() {
 
-#if defined(CPUID_AVAILABLE) && defined(SVS_PRE_COMPILED_LIB)
+#if defined(CPUID_AVAILABLE) && BUILD_INTEL_SVS_OPT
   // Check if the machine is Intel based on the CPU vendor.
   unsigned int eax, ebx, ecx, edx;
   char vendor[13];
@@ -119,11 +119,11 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
   VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = vq->field->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = vq->field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_EINVAL,
+        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
                                       "Error parsing vector similarity query: query vector blob size",
                                       " (%zu) does not match index's expected size (%zu).",
                                       vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
@@ -135,7 +135,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         return NULL;
       }
       if (vq->knn.k > MAX_KNN_K) {
-        QueryError_SetWithoutUserDataFmt(q->status, QUERY_EINVAL,
+        QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
@@ -156,14 +156,14 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_EINVAL,
+        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
                                "Error parsing vector similarity query: query vector blob size",
                                " (%zu) does not match index's expected size (%zu).",
                                vq->range.vecLen, (dim * VecSimType_sizeof(type)));
         return NULL;
       }
       if (vq->range.radius < 0) {
-        QueryError_SetWithoutUserDataFmt(q->status, QUERY_EINVAL,
+        QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
                                "Error parsing vector similarity query: negative radius"
                                " (%g) given in a range query",
                                vq->range.radius);
@@ -179,7 +179,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                  &qParams, vq->range.order);
       if (VecSimQueryReply_GetCode(results) == VecSim_QueryReply_TimedOut) {
         VecSimQueryReply_Free(results);
-        QueryError_SetError(q->status, QUERY_ETIMEDOUT, NULL);
+        QueryError_SetError(q->status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
         return NULL;
       }
       bool yields_metric = vq->scoreField != NULL;
@@ -218,6 +218,20 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
   params.params[index].value = rm_strndup(val, val_len);
   params.params[index].valLen = val_len;
   return 1;
+}
+
+char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen) {
+  // Generate default scoreField name using vector field name
+  char *scoreFieldName = NULL;
+  int n_written = rm_asprintf(&scoreFieldName, "__%.*s_score", (int)fieldNameLen, fieldName);
+  RS_ASSERT(n_written != -1);
+  return scoreFieldName;
+}
+
+void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen) {
+  // Set default scoreField using vector field name
+  char *defaultName = VectorQuery_GetDefaultScoreFieldName(fieldName, fieldNameLen);
+  vq->scoreField = defaultName;
 }
 
 void VectorQuery_Free(VectorQuery *vq) {
@@ -282,11 +296,27 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
   }
   return NULL;
 }
+const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode) {
+    switch (vecsimSearchMode) {
+    case EMPTY_MODE:
+        return "EMPTY_MODE";
+    case STANDARD_KNN:
+        return "STANDARD_KNN";
+    case HYBRID_ADHOC_BF:
+        return "HYBRID_ADHOC_BF";
+    case HYBRID_BATCHES:
+        return "HYBRID_BATCHES";
+    case HYBRID_BATCHES_TO_ADHOC_BF:
+        return "HYBRID_BATCHES_TO_ADHOC_BF";
+    case RANGE_QUERY:
+        return "RANGE_QUERY";
+    }
+    return NULL;
+}
 
 bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits) {
   return quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec;
 }
-
 
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {
   // If quantBits is not NONE, We need to check if we are running on intel machine,  and if not, we
@@ -370,7 +400,7 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
 
 static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  QueryError status = {0};
+  QueryError status = QueryError_Default();
   int rv;
 
   // Checking if the loaded parameters fits the current server limits.
@@ -582,39 +612,39 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
   QueryErrorCode RSErrorCode;
   switch (vecSimCode) {
     case VecSimParamResolverErr_AlreadySet: {
-      RSErrorCode = QUERY_EDUPPARAM;
+      RSErrorCode = QUERY_ERROR_CODE_DUP_PARAM;
       break;
     }
     case VecSimParamResolverErr_UnknownParam: {
-      RSErrorCode = QUERY_ENOOPTION;
+      RSErrorCode = QUERY_ERROR_CODE_NO_OPTION;
       break;
     }
     case VecSimParamResolverErr_BadValue: {
-      RSErrorCode = QUERY_EBADVAL;
+      RSErrorCode = QUERY_ERROR_CODE_BAD_VAL;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_NHybrid: {
-      RSErrorCode = QUERY_ENHYBRID;
+      RSErrorCode = QUERY_ERROR_CODE_NON_HYBRID;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_NExits: {
-      RSErrorCode = QUERY_EHYBRIDNEXIST;
+      RSErrorCode = QUERY_ERROR_CODE_HYBRID_NON_EXIST;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_BatchSize: {
-      RSErrorCode = QUERY_EADHOCWBATCHSIZE;
+      RSErrorCode = QUERY_ERROR_CODE_ADHOC_WITH_BATCH_SIZE;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_EfRuntime: {
-      RSErrorCode = QUERY_EADHOCWEFRUNTIME;
+      RSErrorCode = QUERY_ERROR_CODE_ADHOC_WITH_EF_RUNTIME;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_NRange: {
-      RSErrorCode = QUERY_ENRANGE;
+      RSErrorCode = QUERY_ERROR_CODE_NON_RANGE;
       break;
     }
     default: {
-      RSErrorCode = QUERY_EGENERIC;
+      RSErrorCode = QUERY_ERROR_CODE_GENERIC;
     }
   }
   const char *error_msg = QueryError_Strerror(RSErrorCode);
@@ -665,4 +695,37 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   RedisSearchCtx_UnlockSpec(&sctx);
   StrongRef_Release(strong);
   return 1;
+}
+
+VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
+  RS_ASSERT(FIELD_IS(vectorField, INDEXFLD_T_VECTOR))
+  VecSimParams vec_params = vectorField->vectorOpts.vecSimParams;
+
+  VecSimAlgo field_algo = vec_params.algo;
+  AlgoParams algo_params = vec_params.algoParams;
+
+  switch (field_algo) {
+    case VecSimAlgo_TIERED: {
+      VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
+      if (primary_params->algo == VecSimAlgo_HNSWLIB) {
+        HNSWParams hnsw_params = primary_params->algoParams.hnswParams;
+        return hnsw_params.metric;
+      } else if (primary_params->algo == VecSimAlgo_SVS) {
+        SVSParams svs_params = primary_params->algoParams.svsParams;
+        return svs_params.metric;
+      } else {
+        // Unknown primary algorithm in tiered index
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "Unknown primary algorithm in tiered index: %s",
+                 VecSimAlgorithm_ToString(primary_params->algo));
+        RS_ABORT(error_msg);
+      }
+      break;
+    }
+    case VecSimAlgo_BF:
+      return algo_params.bfParams.metric;
+    default:
+      // Unknown algorithm type
+      RS_ABORT("Unknown algorithm in vector index");
+  }
 }

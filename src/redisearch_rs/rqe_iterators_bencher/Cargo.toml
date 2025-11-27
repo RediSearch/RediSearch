@@ -19,12 +19,18 @@ harness = false
 [build-dependencies]
 bindgen.workspace = true
 build_utils = { path = "../build_utils" }
+cc = "1.0"
 
 [dependencies]
 criterion.workspace = true
 ffi.workspace = true
+field.workspace = true
 inverted_index.workspace = true
+inverted_index_ffi = { version = "0.0.1", path = "../c_entrypoint/inverted_index_ffi" }
 itertools.workspace = true
 redis_mock.workspace = true
 rqe_iterators.workspace = true
 types_ffi = { path = "../c_entrypoint/types_ffi" }
+triemap_ffi = { path = "../c_entrypoint/triemap_ffi" }
+varint_ffi = { path = "../c_entrypoint/varint_ffi" }
+value_ffi = { path = "../c_entrypoint/value_ffi" }

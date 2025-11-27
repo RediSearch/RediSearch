@@ -86,8 +86,8 @@ doc_non_numeric_content = r'''{
     "attr5": null,
     "attr6": [1, 2, null, 131.42, null, "yikes" ],
     "attr7": [1, 2, null, 131.42, null, false ],
-    "attr8": [1, 2, null, 131.42, null, {"obj": "ect"} ],
-    "attr9": [1, 2, null, 131.42, null, ["no", "noo"] ],
+    "attr8": [1, 2, null, 131.42, null, {"obj": "etc"} ],
+    "attr9": [1, 2, null, 131.42, null, ["no", "none"] ],
     "attr10": [1, 2, null, 131.42, null, [7007] ]
 }
 '''
@@ -269,7 +269,7 @@ def testDebugDump(env):
 
 @skip(cluster=True, no_json=True)
 def testInvertedIndexMultipleBlocks(env):
-    """ Test internal addition of new inverted index blocks (beyond INDEX_BLOCK_SIZE entries)"""
+    """ Test internal addition of new inverted index blocks (beyond the size of a block)"""
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'arr', 'NUMERIC', '$.arr2', 'AS', 'arr2', 'NUMERIC').ok()
     overlap = 10
@@ -330,7 +330,7 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
 
     # Cleaned up
     expected_info = { 'num_docs': 0,
-                     'total_inverted_index_blocks': 1, # 1 block might be left
+                     'total_inverted_index_blocks': 0, # All block are removed
                      # an initialized numeric tree alawys contains a range in its root
                      'inverted_sz_mb': getInvertedIndexInitialSize_MB(env, ['NUMERIC'])
                     }
@@ -636,7 +636,7 @@ def testDebugRangeTree(env):
     conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
 
     env.expect(debug_cmd(), 'DUMP_NUMIDXTREE', 'idx', 'val').equal(['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0, 'emptyLeaves', 0,
-        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'invertedIndexSize [bytes]', str(101), 'card', 5,
+        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'invertedIndexSize [bytes]', str(107), 'card', 5,
                 'entries', ['numDocs', 3, 'numEntries', 9, 'lastId', 3, 'size', 1, 'blocks_efficiency (numEntries/size)', str(9), 'values',
                     ['value', str(1), 'docId', 1, 'value', str(2), 'docId', 1, 'value', str(3), 'docId', 1, 'value', str(1), 'docId', 2, 'value', str(2), 'docId', 2, 'value', str(3), 'docId', 2, 'value', str(3), 'docId', 3, 'value', str(4), 'docId', 3, 'value', str(5), 'docId', 3]]]],
             'Tree stats', ['Average memory efficiency (numEntries/size)/numRanges', str(9)]])

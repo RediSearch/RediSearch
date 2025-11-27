@@ -9,9 +9,10 @@ from cmath import inf
 def loadDocs(env, count=100, idx='idx', text='hello world'):
     env.expect('FT.CREATE', idx, 'ON', 'HASH', 'prefix', 1, idx, 'SCHEMA', 'f1', 'TEXT').ok()
     waitForIndex(env, idx)
+    con = env.getClusterConnectionIfNeeded()
     for x in range(count):
         cmd = ['FT.ADD', idx, f'{idx}_doc{x}', 1.0, 'FIELDS', 'f1', text]
-        env.cmd(*cmd)
+        con.execute_command(*cmd)
     r1 = env.cmd('ft.search', idx, text)
     r2 = list(set(map(lambda x: x[1], filter(lambda x: isinstance(x, list), r1))))
     env.assertEqual([text], r2)
@@ -149,13 +150,7 @@ def testTimeout(env):
         if not rv:
             break
     env.assertEqual(0, rv)
-'''
-def testErrors(env):
-    env.expect('ft.create idx schema name text').equal('OK')
-    #env.expect('ft.add idx hotel 1.0 fields name hilton').equal('OK')
-    env.expect('FT.AGGREGATE idx hilton withcursor').error()       \
-        .contains('Index `idx` does not have cursors enabled')
-'''
+
 def testLeaked(env):
     # Ensure that sanitizer doesn't report memory leak for idle cursors.
     n_docs = env.shardsCount * 1100
@@ -400,7 +395,10 @@ def testCursorDepletionNonStrictTimeoutPolicySortby():
     env.assertEqual(cursor, 0, message=f"expected cursor to be depleted after one FT.CURSOR READ.")
     env.assertEqual(len(res['results']), 0, message=f"expected to receive 0 results after one FT.CURSOR READ. First query got {n_received} results, read results:{len(res['results'])}")
 
-    env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
+    # Ensure that the cursors we opened were closed properly (this may happen asynchronously)
+    with TimeLimit(5, "shard cursors were not deleted"):
+        while getCursorStats(env)['index_total'] != starting_cursor_count:
+            sleep(0.1)
 
 def testCursorDepletionNonStrictTimeoutPolicy(env):
     """Tests that the cursor id is returned in case the timeout policy is
@@ -430,8 +428,10 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
         cursor_runs += 1
 
     env.assertEqual(n_received, num_docs, message=f"unexpected results count after {cursor_runs} cursor runs (including the initial query)")
-    # Ensure that the cursors we opened were closed properly
-    env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
+    # Ensure that the cursors we opened were closed properly (this may happen asynchronously)
+    with TimeLimit(5, "shard cursors were not deleted"):
+        while getCursorStats(env)['index_total'] != starting_cursor_count:
+            sleep(0.1)
 
 def testTimeoutPartialWithEmptyResults(env):
     env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
@@ -499,8 +499,10 @@ def testCursorDepletionBM25NORMNonStrictTimeoutPolicy():
 
     # Verify total number of results received
     env.assertEqual(n_received, env.shardsCount * timeout_res_count, message=f"expected to receive 9 results in total. Got {n_received} results")
-
-    env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
+    # Ensure that the cursors we opened were closed properly (this may happen asynchronously)
+    with TimeLimit(5, "shard cursors were not deleted"):
+        while getCursorStats(env)['index_total'] != starting_cursor_count:
+            sleep(0.1)
 
 def testCursorDepletionStrictTimeoutPolicy():
     """Tests that the cursor returns a timeout error in case of a timeout, when
@@ -522,6 +524,20 @@ def testCursorDepletionStrictTimeoutPolicy():
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'GROUPBY', '1', '@t', 'WITHCURSOR', 'COUNT', str(num_docs), 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
+
+def test_cursor_profile(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command('HSET', f'doc1', 't', str(1))
+    conn.execute_command('HSET', f'doc2', 't', str(2))
+
+    env.expect('FT.CURSOR', 'PROFILE', 'idx', '123').error().contains('Cursor not found')
+
+    # create a cursor
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1')
+    env.assertNotEqual(cursor, 0)
+    env.expect('FT.CURSOR', 'PROFILE', 'idx', cursor).error().contains('cursor request is not profile')
 
 @skip(cluster=True)
 def test_mod_6597(env):

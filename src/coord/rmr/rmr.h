@@ -14,9 +14,21 @@
 #include "reply.h"
 #include "cluster.h"
 #include "command.h"
+#include "util/references.h"
+#include <unistd.h>
+
 
 struct MRCtx;
 struct RedisModuleCtx;
+
+typedef struct {
+  int16_t targetShard;
+  long long cursorId;
+} CursorMapping;
+
+void iterStartCb(void *p);
+
+void iterCursorMappingCb(void *p);
 
 /* Prototype for all reduce functions */
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
@@ -25,15 +37,14 @@ typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block);
 
-int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd);
-
-void MR_SetCoordinationStrategy(struct MRCtx *ctx, bool mastersOnly);
-
 /* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
 void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS);
 
-/* Set a new topology for the cluster */
-void MR_UpdateTopology(MRClusterTopology *newTopology);
+/* @brief Set a new topology for the cluster and refresh local slots information.
+ * @param newTopology The new cluster topology, consumed by this function.
+ * @param localSlots The local slots information to refresh. Does NOT take ownership.
+ */
+void MR_UpdateTopology(MRClusterTopology *newTopology, const RedisModuleSlotRangeArray *localSlots);
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
@@ -79,9 +90,13 @@ MRReply *MRIterator_Next(MRIterator *it);
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,StrongRef *iterStartCbPrivateData);
+
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
+
+void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx);
 
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
@@ -99,6 +114,12 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 
+size_t MRIterator_GetChannelSize(const MRIterator *it);
+
+size_t MRIterator_GetNumShards(const MRIterator *it);
+
 short MRIterator_GetPending(MRIterator *it);
 
 void MRIterator_Release(MRIterator *it);
+
+sds MRCommand_SafeToString(const MRCommand *cmd);

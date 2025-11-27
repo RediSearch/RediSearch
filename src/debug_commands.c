@@ -24,6 +24,7 @@
 #include "cursor.h"
 #include "module.h"
 #include "aggregate/aggregate_debug.h"
+#include "hybrid/hybrid_debug.h"
 #include "reply.h"
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
@@ -31,6 +32,27 @@
 #include "iterators/inverted_index_iterator.h"
 
 DebugCTX globalDebugCtx = {0};
+
+// QueryDebugCtx API implementations
+bool QueryDebugCtx_IsPaused(void) {
+  return globalDebugCtx.query.pause;
+}
+
+void QueryDebugCtx_SetPause(bool pause) {
+  globalDebugCtx.query.pause = pause;
+}
+
+ResultProcessor* QueryDebugCtx_GetDebugRP(void) {
+  return globalDebugCtx.query.debugRP;
+}
+
+void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP) {
+  globalDebugCtx.query.debugRP = debugRP;
+}
+
+bool QueryDebugCtx_HasDebugRP(void) {
+  return globalDebugCtx.query.debugRP != NULL;
+}
 
 void validateDebugMode(DebugCTX *debugCtx) {
   // Debug mode is enabled if any of its field is non-default
@@ -83,6 +105,18 @@ static void ReplyIteratorResultsIDs(QueryIterator *iterator, RedisModuleCtx *ctx
   }
   RedisModule_ReplySetArrayLength(ctx, resultSize);
   iterator->Free(iterator);
+}
+
+static void ReplyReaderResultsIDs(IndexReader *reader, RSIndexResult *res, RedisModuleCtx *ctx) {
+  size_t resultSize = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  while (IndexReader_Next(reader, res)) {
+      RedisModule_ReplyWithLongLong(ctx, res->docId);
+      ++resultSize;
+  }
+  RedisModule_ReplySetArrayLength(ctx, resultSize);
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
 }
 
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
@@ -182,7 +216,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
     RedisModule_ReplySetArrayLength(ctx, blockBulkLen);
   }
 
-  InvertedIndex_BlocksSummaryFree(blocksSummary);
+  InvertedIndex_BlocksSummaryFree(blocksSummary, blockCount);
 
   invIdxBulkLen += 2;
 
@@ -208,8 +242,12 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
-  QueryIterator *iter = NewInvIndIterator_TermFull(invidx);
-  ReplyIteratorResultsIDs(iter, sctx->redisCtx);
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+  IndexReader *reader = NewIndexReader(invidx, decoderCtx);
+  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  res->freq = 1;
+  res->fieldMask = RS_FIELDMASK_ALL;
+  ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
 
 end:
   SearchCtx_Free(sctx);
@@ -297,7 +335,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
         ARRAY_LEN_VAR(numericHeader) += InvertedIndexSummaryHeader(sctx->redisCtx, invidx);
         END_POSTPONED_LEN_ARRAY(numericHeader);
       }
-      FieldFilterContext fieldCtx = {.field.isFieldMask = false, .field.value.index = RS_INVALID_FIELD_INDEX, .predicate = FIELD_EXPIRATION_DEFAULT};
+      FieldFilterContext fieldCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
       QueryIterator *iter = NewInvIndIterator_NumericQuery(range->entries, sctx, &fieldCtx, NULL, NULL, range->minVal, range->maxVal);
       ReplyIteratorResultsIDs(iter, sctx->redisCtx);
       ++ARRAY_LEN_VAR(numericInvertedIndex); // end (1)Header 2)entries (header is optional)
@@ -370,12 +408,15 @@ InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *
 
   REPLY_WITH_STR("values", ARRAY_LEN_VAR(invertedIndexDump));
   START_POSTPONED_LEN_ARRAY(invertedIndexValues);
-  QueryIterator *iter = NewInvIndIterator_NumericFull(idx);
-  while (iter->Read(iter) == ITERATOR_OK) {
-    REPLY_WITH_DOUBLE("value", IndexResult_NumValue(iter->current), ARRAY_LEN_VAR(invertedIndexValues));
-    REPLY_WITH_LONG_LONG("docId", iter->current->docId, ARRAY_LEN_VAR(invertedIndexValues));
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
+  IndexReader *reader = NewIndexReader(idx, decoderCtx);
+  RSIndexResult *res = NewNumericResult();
+  while (IndexReader_Next(reader, res)) {
+    REPLY_WITH_DOUBLE("value", IndexResult_NumValue(res), ARRAY_LEN_VAR(invertedIndexValues));
+    REPLY_WITH_LONG_LONG("docId", res->docId, ARRAY_LEN_VAR(invertedIndexValues));
   }
-  iter->Free(iter);
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
   END_POSTPONED_LEN_ARRAY(invertedIndexValues);
   ARRAY_LEN_VAR(invertedIndexDump)++;
 
@@ -559,8 +600,12 @@ DEBUG_COMMAND(DumpTagIndex) {
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
-    QueryIterator *iterator = NewInvIndIterator_TagFull(iv, tagIndex);
-    ReplyIteratorResultsIDs(iterator, sctx->redisCtx);
+    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+    IndexReader *reader = NewIndexReader(iv, decoderCtx);
+    RSIndexResult *res = NewTokenRecord(NULL, 1);
+    res->freq = 1;
+    res->fieldMask = RS_FIELDMASK_ALL;
+    ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
     ++resultSize;
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
@@ -1126,8 +1171,12 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
-      QueryIterator *reader = NewInvIndIterator_TagFull(iv, idx);
-      ReplyIteratorResultsIDs(reader, sctx->redisCtx);
+      IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+      IndexReader *reader = NewIndexReader(iv, decoderCtx);
+      RSIndexResult *res = NewTokenRecord(NULL, 1);
+      res->freq = 1;
+      res->fieldMask = RS_FIELDMASK_ALL;
+      ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
     }
 
     RedisModule_ReplySetArrayLength(ctx, nsubelem);
@@ -1191,7 +1240,7 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
       }
 
       RedisModule_Reply_CString(reply, "value");
-      RSValue_SendReply(reply, sv->values[ii], 0);
+      RedisModule_Reply_RSValue(reply, sv->values[ii], 0);
     RedisModule_Reply_ArrayEnd(reply);
   }
   RedisModule_Reply_ArrayEnd(reply);
@@ -1403,6 +1452,9 @@ DEBUG_COMMAND(dumpHNSWData) {
 
 /**
  * FT.DEBUG WORKERS [PAUSE / RESUME / DRAIN / STATS / N_THREADS]
+ *
+ * @warning Calling FT.DEBUG WORKERS DRAIN will block the main thread until all workers are idle, this could lead to a deadlock,
+ *          if there are pending jobs that require to acquire the GIL (like when LOAD is called from a worker thread)
  */
 DEBUG_COMMAND(WorkerThreadsSwitch) {
   if (!debugCommandsEnabled(ctx)) {
@@ -1426,6 +1478,9 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     if (workerThreadPool_isPaused()) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool is not running");
     }
+    // Log that we're waiting for the workers to finish.
+    RedisModule_Log(RSDummyContext, "notice", "Debug workers drain");
+
     workersThreadPool_Drain(RSDummyContext, 0);
     // After we drained the thread pool and there are no more jobs in the queue, we wait until all
     // threads are idle, so we can be sure that all jobs were executed.
@@ -1496,6 +1551,13 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
+}
+
+DEBUG_COMMAND(HybridCommand_DebugWrapper) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
 }
 
 /**
@@ -1869,6 +1931,132 @@ DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
   return RedisModule_WrongArity(ctx);
 }
 
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME
+ */
+DEBUG_COMMAND(setPauseRPResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!QueryDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Query is not paused");
+  }
+
+  QueryDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_RP_PAUSED
+ */
+DEBUG_COMMAND(getIsRPPaused) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, QueryDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER PRINT_RP_STREAM
+ */
+DEBUG_COMMAND(printRPStream) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!QueryDebugCtx_HasDebugRP()) {
+    return RedisModule_ReplyWithError(ctx, "No debug RP is set");
+  }
+
+  ResultProcessor* root = QueryDebugCtx_GetDebugRP()->parent->endProc;
+  ResultProcessor *cur = root;
+
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+
+  size_t resultSize = 0;
+
+  while (cur) {
+    if (cur->type < RP_MAX) {
+      RedisModule_ReplyWithSimpleString(ctx, RPTypeToString(cur->type));
+    }
+    else {
+      RedisModule_ReplyWithSimpleString(ctx, "DEBUG_RP");
+    }
+    cur = cur->upstream;
+    resultSize++;
+  }
+  RedisModule_ReplySetArrayLength(ctx, resultSize);
+
+  return REDISMODULE_OK;
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER <command> [options]
+ */
+DEBUG_COMMAND(queryController) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  // Check here all background indexing possible commands
+  if (!strcmp("SET_PAUSE_RP_RESUME", op)) {
+    return setPauseRPResume(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_RP_PAUSED", op)) {
+    return getIsRPPaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("PRINT_RP_STREAM", op)) {
+    return printRPStream(ctx, argv + 1, argc - 1);
+  }
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
+}
+
+
+/**
+ * FT.DEBUG DUMP_SCHEMA <index>
+ * Dump the schema of the index in a serialized format.
+ * Returns an array with two elements:
+ * 1. The serialized schema string.
+ * 2. The version of the index at the time of serialization.
+ */
+DEBUG_COMMAND(DumpSchema) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2]);
+
+  RedisModuleString *schemaStr = IndexSpec_Serialize(sctx->spec);
+  SearchCtx_Free(sctx);
+
+  if (!schemaStr) return RedisModule_ReplyWithError(ctx, "Failed to serialize schema");
+
+  RedisModule_ReplyWithArray(ctx, 2);
+  RedisModule_ReplyWithString(ctx, schemaStr);
+  RedisModule_ReplyWithLongLong(ctx, INDEX_CURRENT_VERSION);
+  RedisModule_FreeString(NULL, schemaStr);
+  return REDISMODULE_OK;
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1906,6 +2094,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
+                               {"QUERY_CONTROLLER", queryController},
+                               {"DUMP_SCHEMA", DumpSchema},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
@@ -1913,6 +2103,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"_FT.AGGREGATE", RSAggregateCommandShard}, // internal use only, in SA use FT.AGGREGATE
                                {"FT.SEARCH", DistSearchCommand_DebugWrapper},
                                {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
+                               {"FT.HYBRID", HybridCommand_DebugWrapper},
+                               {"_FT.HYBRID", HybridCommand_DebugWrapper}, // internal use only, in SA use FT.HYBRID
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.

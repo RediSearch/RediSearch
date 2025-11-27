@@ -83,8 +83,8 @@ doc_non_geo_content = r'''{
     "attr6": ["29.725425"],
     "attr7": ["-1.23,-4.56", "7.8,9.0", null, "31,32", null, "yikes" ],
     "attr8": ["-1.23,-4.56", "7.8,9.0", null, "31,32", null, false ],
-    "attr9": ["-1.23,-4.56", "7.8,9.0", null, "31,32", null, {"obj": "ect"} ],
-    "attr10": ["-1.23,-4.56", "7.8,9.0", null, "31,32", null, ["no", "noo"] ],
+    "attr9": ["-1.23,-4.56", "7.8,9.0", null, "31,32", null, {"obj": "etc"} ],
+    "attr10": ["-1.23,-4.56", "7.8,9.0", null, "31,32", null, ["no", "none"] ],
     "attr11": ["-1.23,-4.56", "7.8,9.0", null, "31,32", null, ["31,32"] ]
 }
 '''
@@ -125,39 +125,40 @@ def testBasic(env):
 
     # check stats after insert
 
-    # idx1 contains 24 entries, expected size of inverted index = 394
+    # idx1 contains 24 entries, expected size of inverted index = 413
     # the size is distributed in the left and right children ranges as follows:
 
-    # left range size = 187:
-    #     Size of NewInvertedIndex() structure = 88
-    #         sizeof_InvertedIndex(Index_StoreNumeric) = 40
-    #         sizeof(IndexBlock) = 48
-    #     Buffer grows up to 99 bytes trying to store 11 entries 8 bytes each.
-    #     See Buffer_Grow() in inverted_index.c
+    # left range size = 196:
+    #     Size of NewInvertedIndex() structure = 96
+    #         sizeof InvertedIndex = 40
+    #         bytes to store number of entries = 8
+    #         sizeof IndexBlock = 48
+    #     Buffer grows up to 100 bytes trying to store 11 entries 8 bytes each.
 
-    # right range size = 207:
-    #     Size of NewInvertedIndex() structure = 88
-    #         sizeof_InvertedIndex(Index_StoreNumeric) = 40
-    #         sizeof(IndexBlock) = 48
-    #     Buffer grows up to 119 bytes trying to store 13 entries 8 bytes each.
-    expected_info['inverted_sz_mb'] = 394 / (1024 * 1024)
+    # right range size = 217:
+    #     Size of NewInvertedIndex() structure = 96
+    #         sizeof InvertedIndex = 40
+    #         bytes to store number of entries = 8
+    #         sizeof IndexBlock = 48
+    #     Buffer grows up to 121 bytes trying to store 13 entries 8 bytes each.
+    expected_info['inverted_sz_mb'] = 413 / (1024 * 1024)
     compare_index_info_dict(env, 'idx1', expected_info, "idx1 after insert")
 
-    # Expected size of inverted index for idx2 = 88 + 25 = 113
-    #     Size of NewInvertedIndex() structure = 88
-    #     Buffer grows up to 25 bytes trying to store 3 entries 8 bytes each = 25
-    expected_info['inverted_sz_mb'] = 113 / (1024 * 1024)
+    # Expected size of inverted index for idx2 = 96 + 26 = 122
+    #     Size of NewInvertedIndex() structure = 96
+    #     Buffer grows up to 26 bytes trying to store 3 entries 8 bytes each = 26
+    expected_info['inverted_sz_mb'] = 122 / (1024 * 1024)
     compare_index_info_dict(env, 'idx2', expected_info, "idx2 after insert")
 
-    # Expected size of inverted index for idx2 = 88 + 46 = 134
-    #     Size of NewInvertedIndex() structure = 88
-    #     Buffer grows up to 46 bytes trying to store 5 entries, 8 bytes each = 46
-    expected_info['inverted_sz_mb'] = 134 / (1024 * 1024)
+    # Expected size of inverted index for idx2 = 96 + 47 = 143
+    #     Size of NewInvertedIndex() structure = 96
+    #     Buffer grows up to 47 bytes trying to store 5 entries, 8 bytes each = 47
+    expected_info['inverted_sz_mb'] = 143 / (1024 * 1024)
     compare_index_info_dict(env, 'idx3', expected_info, "idx3 after insert")
 
     # idx4 contains two GEO fields, the expected size of inverted index is
-    # equivalent to the sum of the size of idx2 and idx3 = 113 + 134 = 247
-    expected_info['inverted_sz_mb'] = 247 / (1024 * 1024)
+    # equivalent to the sum of the size of idx2 and idx3 = 122 + 143 = 265
+    expected_info['inverted_sz_mb'] = 265 / (1024 * 1024)
     compare_index_info_dict(env, 'idx4', expected_info, "idx4 after insert")
 
     # Geo range and Not

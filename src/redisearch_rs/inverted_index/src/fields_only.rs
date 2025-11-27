@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
+use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
 
 /// Encode and decode the delta and field mask of a record.
 ///
@@ -23,14 +23,12 @@ use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 /// The delta and field mask are encoded using [qint encoding](qint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
 pub struct FieldsOnly;
 
 impl Encoder for FieldsOnly {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -44,27 +42,23 @@ impl Encoder for FieldsOnly {
     }
 }
 
-impl DecodedBy for FieldsOnly {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FieldsOnly {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, field_mask] = decoded_values;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask as t_fieldMask);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask as t_fieldMask;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }
 
@@ -76,14 +70,12 @@ impl Decoder for FieldsOnly {
 /// The delta and the field mask are encoded using [varint encoding](varint).
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
 pub struct FieldsOnlyWide;
 
 impl Encoder for FieldsOnlyWide {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -94,26 +86,25 @@ impl Encoder for FieldsOnlyWide {
     }
 }
 
-impl DecodedBy for FieldsOnlyWide {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FieldsOnlyWide {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let delta = u32::read_as_varint(cursor)?;
         let field_mask = u128::read_as_varint(cursor)?;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }
+
+impl TermDecoder for FieldsOnly {}
+impl TermDecoder for FieldsOnlyWide {}

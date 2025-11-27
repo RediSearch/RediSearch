@@ -9,7 +9,6 @@
 
 #include "optional_iterator.h"
 #include "wildcard_iterator.h"
-#include "inverted_index_iterator.h"
 #include "empty_iterator.h"
 
 static void OI_Free(QueryIterator *base) {
@@ -283,6 +282,7 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
   }
   OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
   bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  optimized |= q && q->sctx && q->sctx->spec && q->sctx->spec->diskSpec;
   if (optimized) {
     oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
   }

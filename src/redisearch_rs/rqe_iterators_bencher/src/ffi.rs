@@ -14,19 +14,63 @@ mod bindings {
     #![allow(unsafe_op_in_unsafe_fn)]
     #![allow(improper_ctypes)]
     #![allow(dead_code)]
+    #![allow(clippy::ptr_offset_with_cast)]
+    #![allow(clippy::useless_transmute)]
+    #![allow(clippy::missing_const_for_fn)]
 
+    use ffi::{NumericFilter, t_fieldIndex, t_fieldMask};
+    use field::{FieldFilterContext, FieldMaskOrIndex};
     use inverted_index::t_docId;
 
     // Type aliases for C bindings - types without lifetimes for C interop
     pub type RSIndexResult = inverted_index::RSIndexResult<'static>;
     pub type RSOffsetVector = inverted_index::RSOffsetVector<'static>;
+    pub type IndexDecoderCtx = inverted_index::ReadFilter<'static>;
+
+    // Type alias to Rust defined inverted index types
+    pub use inverted_index_ffi::{
+        InvertedIndex_Free, InvertedIndex_WriteEntryGeneric, InvertedIndex_WriteNumericEntry,
+        NewInvertedIndex_Ex,
+    };
+    pub type InvertedIndex = inverted_index_ffi::InvertedIndex;
+    pub type IndexReader = inverted_index_ffi::IndexReader<'static>;
 
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
+pub use bindings::{
+    IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
+    IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
+    IndexFlags_Index_StoreTermOffsets,
+};
 use bindings::{IteratorStatus, ValidateStatus};
 use ffi::RedisModule_Alloc;
-use inverted_index::RSIndexResult;
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use inverted_index::{NumericFilter, RSIndexResult};
+use std::ptr;
+
+use crate::ffi::bindings::Metric_VECTOR_DISTANCE;
+
+// Direct C benchmark functions that eliminate FFI overhead
+// by implementing the benchmark loop entirely in C
+unsafe extern "C" {
+    /// Benchmark wildcard iterator read operations directly in C
+    /// Returns the number of iterations performed and total time in nanoseconds
+    fn benchmark_wildcard_read_direct_c(
+        max_id: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
+
+    /// Benchmark wildcard iterator skip_to operations directly in C
+    /// Returns the number of iterations performed and total time in nanoseconds
+    fn benchmark_wildcard_skip_to_direct_c(
+        max_id: u64,
+        step: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
+}
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -48,6 +92,62 @@ impl QueryIterator {
             std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
         }
         Self(unsafe { bindings::NewIdListIterator(data, len as u64, 1f64) })
+    }
+    #[inline(always)]
+    pub fn new_metric(vec: Vec<u64>, metric_data: Vec<f64>) -> Self {
+        let len = vec.len();
+        let data =
+            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };
+        let m_data =
+            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<f64>()) as *mut f64 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
+            std::ptr::copy_nonoverlapping(metric_data.as_ptr(), m_data, len);
+        }
+        Self(unsafe { bindings::NewMetricIterator(data, m_data, len, Metric_VECTOR_DISTANCE) })
+    }
+    #[inline(always)]
+    pub fn new_wildcard(max_id: u64, num_docs: usize) -> Self {
+        Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, num_docs, 1f64) })
+    }
+
+    #[inline(always)]
+    pub unsafe fn new_numeric(
+        ii: *mut bindings::InvertedIndex,
+        filter: Option<&NumericFilter>,
+    ) -> Self {
+        let field_ctx = FieldFilterContext {
+            field: FieldMaskOrIndex::index_invalid(),
+            predicate: FieldExpirationPredicate::Default,
+        };
+        let flt = filter
+            .map(|filter| filter as *const NumericFilter as *const _)
+            .unwrap_or_default();
+
+        Self(unsafe {
+            bindings::NewInvIndIterator_NumericQuery(
+                ii,
+                ptr::null(),
+                &field_ctx as _,
+                flt,
+                ptr::null(),
+                0.0,
+                std::f64::MAX,
+            )
+        })
+    }
+
+    #[inline(always)]
+    pub unsafe fn new_term(ii: *mut bindings::InvertedIndex) -> Self {
+        Self(unsafe {
+            bindings::NewInvIndIterator_TermQuery(
+                ii,
+                ptr::null(),
+                FieldMaskOrIndex::mask_all(),
+                ptr::null_mut(),
+                1.0,
+            )
+        })
     }
 
     #[inline(always)]
@@ -91,15 +191,115 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub fn current(&self) -> *mut RSIndexResult<'static> {
-        unsafe { (*self.0).current }
+    pub fn current(&self) -> Option<&RSIndexResult<'static>> {
+        let current = unsafe { (*self.0).current };
+        unsafe { current.as_ref() }
+    }
+}
+
+/// Direct C benchmark results
+#[derive(Debug, Clone)]
+pub struct DirectBenchmarkResult {
+    pub iterations: u64,
+    pub time_ns: u64,
+}
+
+impl QueryIterator {
+    /// Run direct C benchmark for wildcard read operations
+    pub fn benchmark_wildcard_read_direct(max_id: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_wildcard_read_direct_c(max_id, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
+    }
+
+    /// Run direct C benchmark for wildcard skip_to operations
+    pub fn benchmark_wildcard_skip_to_direct(max_id: u64, step: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_wildcard_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
+    }
+}
+
+/// Simple wrapper around the C InvertedIndex.
+/// All methods are inlined to avoid the overhead when benchmarking.
+pub struct InvertedIndex(pub *mut bindings::InvertedIndex);
+
+impl InvertedIndex {
+    #[inline(always)]
+    pub fn new(flags: bindings::IndexFlags) -> Self {
+        let mut memsize = 0;
+        let ptr = bindings::NewInvertedIndex_Ex(flags, false, false, &mut memsize);
+        Self(ptr)
+    }
+
+    #[inline(always)]
+    pub fn write_numeric_entry(&self, doc_id: u64, value: f64) {
+        unsafe {
+            bindings::InvertedIndex_WriteNumericEntry(self.0, doc_id, value);
+        }
+    }
+
+    /// `term_ptr` and `offsets` must be valid for the lifetime of the index.
+    #[inline(always)]
+    pub fn write_term_entry(
+        &self,
+        doc_id: u64,
+        freq: u32,
+        field_mask: u32,
+        term_ptr: *mut ::ffi::RSQueryTerm,
+        offsets: &[u8],
+    ) {
+        let record = RSIndexResult::term_with_term_ptr(
+            term_ptr,
+            inverted_index::RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
+            doc_id,
+            field_mask as u128,
+            freq,
+        );
+        unsafe {
+            bindings::InvertedIndex_WriteEntryGeneric(self.0, &record as *const _ as *mut _);
+        }
+    }
+
+    #[inline(always)]
+    pub fn iterator_numeric(&self, filter: Option<&NumericFilter>) -> QueryIterator {
+        unsafe { QueryIterator::new_numeric(self.0, filter) }
+    }
+
+    #[inline(always)]
+    pub fn iterator_term(&self) -> QueryIterator {
+        unsafe { QueryIterator::new_term(self.0) }
+    }
+}
+
+impl Drop for InvertedIndex {
+    #[inline(always)]
+    fn drop(&mut self) {
+        unsafe { bindings::InvertedIndex_Free(self.0) };
     }
 }
 
 #[cfg(test)]
+// `miri` can't handle FFI.
+#[cfg(not(miri))]
 mod tests {
     use super::*;
-    use bindings::{IteratorStatus_ITERATOR_EOF, ValidateStatus_VALIDATE_OK};
+    use bindings::{
+        IndexFlags_Index_StoreNumeric, IteratorStatus_ITERATOR_EOF,
+        IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK, ValidateStatus_VALIDATE_OK,
+    };
 
     #[test]
     fn empty_iterator() {
@@ -117,5 +317,113 @@ mod tests {
         assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
 
         it.free();
+    }
+
+    #[test]
+    fn numeric_iterator_full() {
+        let ii = InvertedIndex::new(IndexFlags_Index_StoreNumeric);
+        ii.write_numeric_entry(1, 1.0);
+        ii.write_numeric_entry(10, 10.0);
+        ii.write_numeric_entry(100, 100.0);
+
+        let it = unsafe { QueryIterator::new_numeric(ii.0, None) };
+        assert_eq!(it.num_estimated(), 3);
+
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
+        assert!(it.at_eof());
+
+        it.rewind();
+        assert_eq!(it.skip_to(10), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.skip_to(20), IteratorStatus_ITERATOR_NOTFOUND);
+
+        it.rewind();
+        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
+
+        it.free();
+    }
+
+    #[test]
+    fn numeric_iterator_filter() {
+        let ii = InvertedIndex::new(IndexFlags_Index_StoreNumeric);
+        for i in 1..=10 {
+            ii.write_numeric_entry(i, i as f64);
+        }
+
+        let filter = NumericFilter {
+            min: 2.0,
+            max: 5.0,
+            min_inclusive: true,
+            max_inclusive: false,
+            ..Default::default()
+        };
+
+        let it = unsafe { QueryIterator::new_numeric(ii.0, Some(&filter)) };
+
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.current().unwrap().doc_id, 2);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.current().unwrap().doc_id, 3);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.current().unwrap().doc_id, 4);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
+
+        it.rewind();
+        assert_eq!(it.skip_to(2), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.skip_to(5), IteratorStatus_ITERATOR_EOF);
+
+        it.rewind();
+        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
+
+        it.free();
+    }
+
+    #[test]
+    fn term_full_iterator() {
+        let ii = InvertedIndex::new(
+            IndexFlags_Index_StoreFreqs
+                | IndexFlags_Index_StoreTermOffsets
+                | IndexFlags_Index_StoreFieldFlags
+                | IndexFlags_Index_StoreByteOffsets,
+        );
+
+        let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        const TEST_STR: &str = "term";
+        let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+        let term = Box::new(ffi::RSQueryTerm {
+            str_: test_str_ptr,
+            len: TEST_STR.len(),
+            idf: 5.0,
+            id: 1,
+            flags: 0,
+            bm25_idf: 10.0,
+        });
+        let term = Box::into_raw(term);
+
+        ii.write_term_entry(1, 1, 1, term, &offsets);
+        ii.write_term_entry(10, 1, 1, term, &offsets);
+        ii.write_term_entry(100, 1, 1, term, &offsets);
+
+        let it = unsafe { QueryIterator::new_term(ii.0) };
+        assert_eq!(it.num_estimated(), 3);
+
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
+        assert!(it.at_eof());
+
+        it.rewind();
+        assert_eq!(it.skip_to(10), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.skip_to(20), IteratorStatus_ITERATOR_NOTFOUND);
+
+        it.rewind();
+        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
+
+        it.free();
+
+        let _ = unsafe { Box::from_raw(term) };
     }
 }

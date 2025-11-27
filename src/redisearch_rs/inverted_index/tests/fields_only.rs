@@ -46,9 +46,8 @@ fn test_encode_fields_only() {
             .doc_id(doc_id)
             .field_mask(field_mask);
 
-        let bytes_written = FieldsOnly
-            .encode(&mut buf, delta, &record)
-            .expect("to encode freqs only record");
+        let bytes_written =
+            FieldsOnly::encode(&mut buf, delta, &record).expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
         assert_eq!(buf.get_ref(), &expected_encoding);
@@ -58,10 +57,8 @@ fn test_encode_fields_only() {
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
 
-        let decoder = FieldsOnly::default();
-        let record_decoded = decoder
-            .decode(&mut buf, prev_doc_id)
-            .expect("to decode freqs only record");
+        let record_decoded =
+            FieldsOnly::decode_new(&mut buf, prev_doc_id).expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
     }
@@ -112,9 +109,8 @@ fn test_encode_fields_only_wide() {
             .doc_id(doc_id)
             .field_mask(field_mask);
 
-        let bytes_written = FieldsOnlyWide
-            .encode(&mut buf, delta, &record)
-            .expect("to encode freqs only record");
+        let bytes_written =
+            FieldsOnlyWide::encode(&mut buf, delta, &record).expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
         assert_eq!(buf.get_ref(), &expected_encoding);
@@ -123,9 +119,8 @@ fn test_encode_fields_only_wide() {
         let prev_doc_id = doc_id - (delta as u64);
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
-        let record_decoded = FieldsOnlyWide
-            .decode(&mut buf, prev_doc_id)
-            .expect("to decode freqs only record");
+        let record_decoded =
+            FieldsOnlyWide::decode_new(&mut buf, prev_doc_id).expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
     }
@@ -138,7 +133,7 @@ fn test_encode_fields_only_output_too_small() {
     let mut cursor = Cursor::new(buf);
 
     let record = RSIndexResult::term();
-    let res = FieldsOnly.encode(&mut cursor, 0, &record);
+    let res = FieldsOnly::encode(&mut cursor, 0, &record);
 
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
@@ -150,7 +145,8 @@ fn test_decode_fields_only_input_too_small() {
     // Encoded data is one byte too short.
     let buf = vec![0, 0];
     let mut buf = Cursor::new(buf.as_ref());
-    let res = FieldsOnly.decode(&mut buf, 100);
+
+    let res = FieldsOnly::decode_new(&mut buf, 100);
 
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
@@ -162,7 +158,8 @@ fn test_decode_fields_only_empty_input() {
     // Try decoding an empty buffer.
     let buf = vec![];
     let mut buf = Cursor::new(buf.as_ref());
-    let res = FieldsOnly.decode(&mut buf, 100);
+
+    let res = FieldsOnly::decode_new(&mut buf, 100);
 
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();

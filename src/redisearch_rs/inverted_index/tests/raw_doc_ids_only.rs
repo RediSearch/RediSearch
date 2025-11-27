@@ -47,8 +47,7 @@ fn test_encode_raw_doc_ids_only() {
         let mut buf = Cursor::new(Vec::new());
         let record = RSIndexResult::term().doc_id(doc_id);
 
-        let bytes_written = RawDocIdsOnly::default()
-            .encode(&mut buf, delta, &record)
+        let bytes_written = RawDocIdsOnly::encode(&mut buf, delta, &record)
             .expect("to encode raw doc ids only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
@@ -60,8 +59,7 @@ fn test_encode_raw_doc_ids_only() {
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
 
-        let record_decoded = RawDocIdsOnly::default()
-            .decode(&mut buf, prev_doc_id)
+        let record_decoded = RawDocIdsOnly::decode_new(&mut buf, prev_doc_id)
             .expect("to decode raw doc ids only record");
 
         assert_eq!(record_decoded, record);
@@ -75,7 +73,7 @@ fn test_encode_raw_doc_ids_only_output_too_small() {
     let mut cursor = Cursor::new(buf);
     let record = inverted_index::RSIndexResult::virt();
 
-    let res = RawDocIdsOnly::default().encode(&mut cursor, 0, &record);
+    let res = RawDocIdsOnly::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
@@ -87,7 +85,7 @@ fn test_decode_raw_doc_ids_only_input_too_small() {
     let buf = vec![0, 0];
     let mut cursor = Cursor::new(buf.as_ref());
 
-    let res = RawDocIdsOnly::default().decode(&mut cursor, 100);
+    let res = RawDocIdsOnly::decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -99,8 +97,40 @@ fn test_decode_raw_doc_ids_only_empty_input() {
     let buf = vec![];
     let mut cursor = Cursor::new(buf.as_ref());
 
-    let res = RawDocIdsOnly::default().decode(&mut cursor, 100);
+    let res = RawDocIdsOnly::decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
+}
+
+#[test]
+fn test_seek_raw_doc_ids_only() {
+    let buf = vec![
+        0, 0, 0, 0, // First delta
+        5, 0, 0, 0, // Second delta
+        6, 0, 0, 0, // Third delta
+        8, 0, 0, 0, // Fourth delta
+        12, 0, 0, 0, // Fifth delta
+        13, 0, 0, 0, // Sixth delta
+    ];
+    let mut buf = Cursor::new(buf.as_ref());
+
+    let mut record_decoded = RSIndexResult::term();
+
+    let found = RawDocIdsOnly::seek(&mut buf, 10, 16, &mut record_decoded)
+        .expect("to decode raw docs ids only record");
+
+    assert!(found);
+    assert_eq!(record_decoded, RSIndexResult::term().doc_id(16));
+
+    let found = RawDocIdsOnly::seek(&mut buf, 10, 20, &mut record_decoded)
+        .expect("to decode raw docs ids only record");
+
+    assert!(found);
+    assert_eq!(record_decoded, RSIndexResult::term().doc_id(22));
+
+    let found = RawDocIdsOnly::seek(&mut buf, 10, 50, &mut record_decoded)
+        .expect("to decode raw docs ids only record");
+
+    assert!(!found);
 }

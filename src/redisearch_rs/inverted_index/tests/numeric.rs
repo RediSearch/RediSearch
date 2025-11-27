@@ -9,7 +9,7 @@
 
 use inverted_index::{
     Decoder, Encoder, IdDelta, RSIndexResult,
-    numeric::{Numeric, NumericDelta},
+    numeric::{Numeric, NumericDelta, NumericFloatCompression},
 };
 use pretty_assertions::assert_eq;
 use std::io::Cursor;
@@ -115,6 +115,15 @@ fn numeric_pos_int() {
 #[test]
 fn numeric_neg_int() {
     let inputs = [
+        (
+            0,
+            -1.0,
+            2,
+            vec![
+                0b000_11_000, // INT_NEG type, value_bytes: 0 (+1), delta_bytes: 0
+                1,            // Value: 1
+            ],
+        ),
         (
             1,
             -16.0,
@@ -371,9 +380,7 @@ fn test_numeric_encode_decode(
     let mut buf = Cursor::new(Vec::new());
     let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
 
-    let numeric = Numeric::new();
-    let bytes_written = numeric
-        .encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record)
+    let bytes_written = Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record)
         .expect("to encode numeric record");
 
     assert_eq!(
@@ -393,9 +400,9 @@ fn test_numeric_encode_decode(
     let prev_doc_id = u64::MAX - delta;
     let buf = buf.into_inner();
     let mut buf = Cursor::new(buf.as_ref());
-    let record_decoded = numeric
-        .decode(&mut buf, prev_doc_id)
-        .expect("to decode numeric record");
+
+    let record_decoded =
+        Numeric::decode_new(&mut buf, prev_doc_id).expect("to decode numeric record");
 
     assert_eq!(record_decoded, record, "failed for value: {}", value);
 }
@@ -405,10 +412,9 @@ fn encode_f64_with_compression() {
     let mut buf = Cursor::new(Vec::new());
     let record = RSIndexResult::numeric(3.124);
 
-    let numeric = Numeric::new().with_float_compression();
-    let _bytes_written = numeric
-        .encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
-        .expect("to encode numeric record");
+    let _bytes_written =
+        NumericFloatCompression::encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
+            .expect("to encode numeric record");
 
     assert_eq!(
         buf.get_ref(),
@@ -426,9 +432,8 @@ fn encode_f64_with_compression() {
 
     let buf = buf.into_inner();
     let mut buf = Cursor::new(buf.as_ref());
-    let record_decoded = numeric
-        .decode(&mut buf, 0)
-        .expect("to decode numeric record");
+
+    let record_decoded = Numeric::decode_new(&mut buf, 0).expect("to decode numeric record");
 
     let diff = record_decoded.as_numeric().unwrap() - record.as_numeric().unwrap();
     let diff = diff.abs();
@@ -440,8 +445,7 @@ fn encode_f64_with_compression() {
 fn test_empty_buffer() {
     let buffer = Vec::new();
     let mut buffer = Cursor::new(buffer.as_ref());
-    let decoder = Numeric::new();
-    let res = decoder.decode(&mut buffer, 0);
+    let res = Numeric::decode_new(&mut buffer, 0);
 
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
@@ -454,7 +458,7 @@ fn encoding_non_numeric_record() {
     let mut buffer = Cursor::new(Vec::new());
     let record = RSIndexResult::virt().doc_id(10);
 
-    let _result = Numeric::new().encode(&mut buffer, NumericDelta::from_u64(0).unwrap(), &record);
+    let _result = Numeric::encode(&mut buffer, NumericDelta::from_u64(0).unwrap(), &record);
 }
 
 #[test]
@@ -462,7 +466,7 @@ fn encoding_to_fixed_buffer() {
     let mut buffer = Cursor::new([0; 2]);
     let record = RSIndexResult::numeric(100.0).doc_id(1);
 
-    let result = Numeric::new().encode(&mut buffer, NumericDelta::from_u64(1).unwrap(), &record);
+    let result = Numeric::encode(&mut buffer, NumericDelta::from_u64(1).unwrap(), &record);
 
     assert!(result.is_err());
     assert_eq!(
@@ -530,8 +534,7 @@ fn encoding_to_slow_writer() {
     let mut buffer = SlowWriter::new(Vec::new());
     let record = RSIndexResult::numeric(3.124).doc_id(10);
 
-    let result = Numeric::new()
-        .encode(&mut buffer, NumericDelta::from_u64(0).unwrap(), &record)
+    let result = Numeric::encode(&mut buffer, NumericDelta::from_u64(0).unwrap(), &record)
         .expect("to encode the complete record");
 
     assert_eq!(result, 9);
@@ -590,17 +593,15 @@ mod property_based {
             let mut buf = Cursor::new(Vec::new());
             let record = RSIndexResult::numeric(value as _).doc_id(u64::MAX);
 
-            let numeric = Numeric::new();
             let _bytes_written =
-                numeric.encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
+                Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
 
             buf.set_position(0);
             let prev_doc_id = u64::MAX - delta;
             let buf = buf.into_inner();
             let mut buf = Cursor::new(buf.as_ref());
 
-            let record_decoded = numeric
-                .decode(&mut buf, prev_doc_id)
+            let record_decoded = Numeric::decode_new(&mut buf, prev_doc_id)
                 .expect("to decode numeric record");
 
             assert_eq!(record_decoded, record, "failed for value: {}", value);
@@ -614,17 +615,15 @@ mod property_based {
             let mut buf = Cursor::new(Vec::new());
             let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
 
-            let numeric = Numeric::new();
             let _bytes_written =
-                numeric.encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
+                Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
 
             buf.set_position(0);
             let prev_doc_id = u64::MAX - delta;
             let buf = buf.into_inner();
             let mut buf = Cursor::new(buf.as_ref());
 
-            let record_decoded = numeric
-                .decode(&mut buf, prev_doc_id)
+            let record_decoded = Numeric::decode_new(&mut buf, prev_doc_id)
                 .expect("to decode numeric record");
 
             assert_eq!(record_decoded, record, "failed for value: {}", value);

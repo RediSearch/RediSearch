@@ -22,7 +22,7 @@ JSON_MODULE_DIR="${TEST_DEPS_DIR}/RedisJSON"
 JSON_BIN_DIR="${BINROOT}/RedisJSON/${JSON_BRANCH}"
 export JSON_BIN_PATH="${JSON_BIN_DIR}/rejson.so"
 # Instruct RedisJSON to use the same pinned nightly version as RediSearch
-export RUST_GOOD_NIGHTLY=$(grep "NIGHTLY_VERSION=" ${ROOT}/build.sh | cut -d'=' -f2 | tr -d '"')
+export RUST_GOOD_NIGHTLY=$(grep "NIGHTLY_VERSION=" ${ROOT}/build.sh | cut -d'=' -f2 | tr -d '"' | head -n1)
 
 # Check if REJSON_PATH is set externally
 if [ -n "$REJSON_PATH" ]; then
@@ -38,6 +38,9 @@ if [ ! -d "${JSON_MODULE_DIR}" ]; then
     echo "Done"
 else
     echo "RedisJSON already exists in ${JSON_MODULE_DIR}"
+    cd ${JSON_MODULE_DIR}
+    run_command git pull --quiet
+    cd -
 fi
 
 # Navigate to the module directory and checkout the specified branch and its submodules

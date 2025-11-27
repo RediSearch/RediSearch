@@ -293,7 +293,7 @@ impl<'pattern> WildcardPattern<'pattern> {
     ///
     /// Returns `None` if the pattern may match inputs of variable length (i.e.
     /// it contains at least one wildcard).
-    pub fn expected_length(&self) -> Option<usize> {
+    pub const fn expected_length(&self) -> Option<usize> {
         self.expected_length
     }
 }

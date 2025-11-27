@@ -9,38 +9,21 @@ on:
 # TODO: Use RedisJSON's `master` branch when testing on nightly
 
 jobs:
-  test-linux:
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  test-all-platforms:
+    uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
+      platform: all
+      architecture: all
       redis-ref: unstable
-      test-config: QUICK=1
-      fail-fast: false
+      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'coordinator,standalone,rejson,coverage,sanitize' || 'coordinator,standalone,rejson,sanitize' }}
 
-  test-macos:
-    uses: ./.github/workflows/flow-macos.yml
+  run-on-intel:
     secrets: inherit
-    with:
-      redis-ref: unstable
-      test-config: QUICK=1
-
-  coverage:
-    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
-    uses: ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      coverage: true
-      test-config: QUICK=1
-      get-redis: unstable
-
-  sanitize:
-    secrets: inherit
-    uses: ./.github/workflows/task-test.yml
+    uses: ./.github/workflows/flow-intel.yml
     with:
       get-redis: unstable
-      test-config: QUICK=1
-      san: address
-      env: ubuntu-latest
 
   micro-benchmarks:
     uses: ./.github/workflows/flow-micro-benchmarks.yml
@@ -48,7 +31,7 @@ jobs:
 
 
   notify-failure:
-    needs: [test-linux, test-macos, coverage, sanitize, micro-benchmarks]
+    needs: [test-all-platforms, run-on-intel, micro-benchmarks]
     if: failure()
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:

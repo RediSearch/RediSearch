@@ -57,12 +57,12 @@
 %stack_size 256
 
 %stack_overflow {
-  QueryError_SetError(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX,
     "Parser stack overflow. Try moving nested parentheses more to the left");
 }
 
 %syntax_error {
-  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ERROR_CODE_SYNTAX,
     "Syntax error", " at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 }
@@ -178,13 +178,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg,
       " at offset %d near %.*s", tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg,
       " at offset %d near %f", tok->pos, tok->numval);
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg, " at offset %d", tok->pos);
   }
 }
 
@@ -1091,8 +1091,7 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->field = C.fs;
-    int n_written = rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.tok.len, C.tok.s);
-    RS_ASSERT(n_written != -1);
+    VectorQuery_SetDefaultScoreField(A->vn.vq, C.tok.s, C.tok.len);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
     A = NULL;

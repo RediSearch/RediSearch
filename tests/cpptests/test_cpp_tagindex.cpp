@@ -40,21 +40,24 @@ TEST_F(TagIndexTest, testCreate) {
   // expectedTotalSZ should include the memory occupied by the inverted index
   // structure and its blocks.
 
-  // Buffer grows up to 1077 bytes trying to store 1000 bytes. See Buffer_Grow()
-  size_t buffer_cap = 1077;
-  size_t num_blocks = N / INDEX_BLOCK_SIZE_DOCID_ONLY;
+  // Buffer grows up to 1106 bytes trying to store 1000 bytes - it doubles each time
+  size_t buffer_cap = 1106;
+  size_t num_blocks = N / 1000;
 
-  // The size of the inverted index structure is 32 bytes
-  size_t iv_index_size = sizeof_InvertedIndex(Index_DocIdsOnly);
+  // The size of the inverted index structure is 40 bytes
+  size_t iv_index_size = 40;
 
-  size_t expectedTotalSZ = v.size() * (iv_index_size + ((buffer_cap + sizeof(IndexBlock)) * num_blocks));
+  // Each index block is 48 bytes + its buffer capacity
+  size_t expectedTotalSZ = v.size() * (iv_index_size + ((buffer_cap + 48) * num_blocks));
   ASSERT_EQ(expectedTotalSZ, totalSZ);
 
   // Add a new entry to and check the last block size
   std::vector<const char *> v2{"bye"};
   size_t sz = TagIndex_Index(idx, &v2[0], v2.size(), ++d);
-  size_t last_block_size = sizeof_InvertedIndex(Index_DocIdsOnly) +
-                            sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  // A base inverted index is 40 bytes
+  // An index block is 48 bytes
+  // And after the first insert the buffer capacity is 1 byte
+  size_t last_block_size = 40 + 48 + 1;
   ASSERT_EQ(expectedTotalSZ + last_block_size, totalSZ + sz);
 
   QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);

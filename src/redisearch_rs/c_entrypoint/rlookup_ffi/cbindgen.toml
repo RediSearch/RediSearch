@@ -6,15 +6,10 @@ after_includes = """
 // forward declarations for bitflags type names
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
- 
+
 // forward declarations for types that are only used as a pointer
 typedef struct RLookupRow RLookupRow;
 typedef struct RSValue RSValue;
-
-typedef struct FatPtr {
-  const char* ptr;
-  size_t len;
-} FatPtr;
 """
 
 [parse]
@@ -23,8 +18,9 @@ include = ["rlookup"]
 
 [export]
 include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey"]
+exclude = ["Option_IndexSpecCache", "Option_Cow_CStr", "RLookupId"]
 
 [export.rename]
-"CStr" = "FatPtr"
-"Owned" = "FatPtr"
 "RLookupRow_RSValueFFI" = "RLookupRow"
+"RLookupHeader" = "RLookup"
+"RLookupKeyHeader" = "RLookupKey"

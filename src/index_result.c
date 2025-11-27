@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "index_result.h"
+#include "types_rs.h"
 #include "varint.h"
 #include "types_rs.h"
 #include "rmalloc.h"
@@ -27,7 +28,11 @@ void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *chi
 /* Free the metrics */
 void ResultMetrics_Free(RSYieldableMetric *metrics) {
   // array_free_ex is NULL safe
-  array_free_ex(metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
+  array_free_ex(metrics, RSValue_DecrRef(((RSYieldableMetric *)ptr)->value));
+}
+
+void ResultMetrics_Reset_func(RSIndexResult *r) {
+  ResultMetrics_Reset(r);
 }
 
 RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src) {
@@ -64,11 +69,14 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
     case RSResultData_Intersection:
     case RSResultData_Union:
     {
-      const RSAggregateResult *agg = IndexResult_AggregateRef(res);
+      // SAFETY: We checked the tag above, so we can safely assume that res is an aggregate result
+      // and skip the tag check on the next line.
+      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(res);
 
+      const uint8_t mask = AggregateResult_KindMask(agg);
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
-      return AggregateResult_KindMask(agg) != RSResultData_Virtual && AggregateResult_KindMask(agg) != RS_RESULT_NUMERIC;
+      return mask != RSResultData_Virtual && mask != RS_RESULT_NUMERIC;
     }
     // a virtual result doesn't have offsets!
     case RSResultData_Virtual:
@@ -88,26 +96,29 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 */
 int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   const RSAggregateResult *agg = IndexResult_AggregateRef(r);
-  if (!agg || AggregateResult_NumChildren(agg) <= 1) {
+  if (!agg) {
     return 1;
   }
 
   int dist = 0;
   size_t num = AggregateResult_NumChildren(agg);
+  if (num <= 1) {
+    return 1;
+  }
 
   RSOffsetIterator v1, v2;
   int i = 0;
   while (i < num) {
     // if either
-    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_Get(agg, i))) {
+    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_GetUnchecked(agg, i))) {
       i++;
       continue;
     }
     if (i == num) break;
-    v1 = RSIndexResult_IterateOffsets(AggregateResult_Get(agg, i));
+    v1 = RSIndexResult_IterateOffsets(AggregateResult_GetUnchecked(agg, i));
     i++;
 
-    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_Get(agg, i))) {
+    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_GetUnchecked(agg, i))) {
       i++;
       continue;
     }
@@ -115,7 +126,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
       v1.Free(v1.ctx);
       break;
     }
-    v2 = RSIndexResult_IterateOffsets(AggregateResult_Get(agg, i));
+    v2 = RSIndexResult_IterateOffsets(AggregateResult_GetUnchecked(agg, i));
 
     uint32_t p1 = v1.Next(v1.ctx, NULL);
     uint32_t p2 = v2.Next(v2.ctx, NULL);
@@ -136,25 +147,23 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   }
 
   // we return 1 if distance could not be calculate, to avoid division by zero
-  return dist ? sqrt(dist) : AggregateResult_NumChildren(agg) - 1;
+  return dist ? sqrt(dist) : num - 1;
 }
 
-void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
+void result_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
   if (*len == cap) return;
 
   switch (r->data.tag) {
     case RSResultData_Intersection:
     case RSResultData_Union:
     {
-      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
-      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
-      RSIndexResult *child = NULL;
-
-      while (AggregateResultIter_Next(iter, &child)) {
-        result_GetMatchedTerms(child, arr, cap, len);
+      // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+      // and skip the tag check on the next line.
+      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+      for (int i = 0; i < children.len; i++) {
+        result_GetMatchedTerms(children.ptr[i], arr, cap, len);
       }
-
-      AggregateResultIter_Free(iter);
 
       break;
     }
@@ -174,7 +183,7 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
   }
 }
 
-size_t IndexResult_GetMatchedTerms(RSIndexResult *r, RSQueryTerm **arr, size_t cap) {
+size_t IndexResult_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm **arr, size_t cap) {
   size_t arrlen = 0;
   result_GetMatchedTerms(r, arr, cap, &arrlen);
   return arrlen;
@@ -294,20 +303,22 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
 int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
   const RSAggregateResult *agg = IndexResult_AggregateRef(ir);
   // check if calculation is even relevant here...
-  if (!agg || AggregateResult_NumChildren(agg) <= 1) {
+  if (!agg) {
     return 1;
   }
   size_t num = AggregateResult_NumChildren(agg);
+  if (num <= 1) {
+      return 1;
+  }
 
   // Fill a list of iterators and the last read positions
   RSOffsetIterator iters[num];
   uint32_t positions[num];
   int n = 0;
 
-  RSAggregateResultIter *iter = AggregateResult_Iter(agg);
-  RSIndexResult *child = NULL;
-
-  while (AggregateResultIter_Next(iter, &child)) {
+  AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+  for (int i = 0; i < children.len; i++) {
+    const RSIndexResult *child = children.ptr[i];
     // collect only iterators for nodes that can have offsets
     if (RSIndexResult_HasOffsets(child)) {
       iters[n] = RSIndexResult_IterateOffsets(child);
@@ -315,8 +326,6 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
       n++;
     }
   }
-
-  AggregateResultIter_Free(iter);
 
   // No applicable offset children - just return 1
   if (n == 0) {

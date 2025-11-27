@@ -121,8 +121,8 @@ void testRangeIteratorHelper(bool isMulti) {
       }
     }
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
-    FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
-    FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+    FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
+    FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
     QueryIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
 
     int xcount = 0;
@@ -194,7 +194,7 @@ void testRangeIteratorHelper(bool isMulti) {
   // test loading limited range
   double rangeArray[6][2] = {{0, 1000}, {0, 3000}, {1000, 3000}, {15000, 20000}, {19500, 20000}, {-1000, 21000}};
 
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   for (size_t i = 0; i < 6; i++) {
     for (int j = 0; j < 2; ++j) {
       // j==1 for ascending order, j==0 for descending order
@@ -232,7 +232,8 @@ TEST_F(RangeTest, EmptyTreeSanity) {
   NumericRangeNode *failed_range = NULL;
 
   NumericRangeTree *rt = NewNumericRangeTree();
-  size_t empty_numeric_mem_size = sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  // The base inverted index is 40 bytes + 8 bytes for the entries count of numeric records
+  size_t empty_numeric_mem_size = 48;
   size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
   if (failed_range) {
     FAIL();
@@ -252,7 +253,6 @@ protected:
   void SetUp() override {
     RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec = 3000000;
     index = createSpec(ctx);
-
   }
 
   void TearDown() override {

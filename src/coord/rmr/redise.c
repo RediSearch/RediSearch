@@ -9,6 +9,7 @@
 #include "redise.h"
 #include "rmalloc.h"
 #include "rmutil/args.h"
+#include "slot_ranges.h"
 #include <strings.h>
 
 typedef struct {
@@ -18,18 +19,14 @@ typedef struct {
 } RLShard;
 
 static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
-
-  for (int i = 0; i < t->numShards; i++) {
-    if (sh->startSlot == t->shards[i].startSlot && sh->endSlot == t->shards[i].endSlot) {
-      // New node in the same shard (slot range)
-      MRClusterShard_AddNode(&t->shards[i], &sh->node);
-      return;
-    }
-  }
-
   // New shard
-  MRClusterShard csh = MR_NewClusterShard(sh->startSlot, sh->endSlot, 2);
-  MRClusterShard_AddNode(&csh, &sh->node);
+  uint32_t num_ranges = 1; // CLUSTERSET only supports a single range per shard
+  size_t total_size = SlotRangeArray_SizeOf(num_ranges);
+  RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)rm_malloc(total_size);
+  array->num_ranges = num_ranges;
+  array->ranges[0].start = sh->startSlot;
+  array->ranges[0].end = sh->endSlot;
+  MRClusterShard csh = MR_NewClusterShard(&sh->node, array);
   MRClusterTopology_AddShard(t, &csh);
 }
 
@@ -65,13 +62,12 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   })
 
 MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv,
-                                                 int argc) {
+                                                 int argc, uint32_t *my_shard_idx) {
   ArgsCursor ac; // Name is important for error macros, same goes for `ctx`
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
   const char *myID = NULL;                 // Mandatory. No default.
-  size_t numShards = 0;                    // Mandatory. No default.
-  size_t numSlots = 16384;                 // Default.
-  MRHashFunc hashFunc = MRHashFunc_CRC16;  // Default.
+  uint32_t numShards = 0;                  // Mandatory. No default.
+  uint32_t numSlots = 16384;               // Default.
 
   // Parse general arguments. No allocation is done here, so we can just return on error
   while (!AC_IsAtEnd(&ac)) {
@@ -83,25 +79,21 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
         ERROR_MISSING("HASHFUNC");
         return NULL;
       }
-      if (!strcasecmp(hashFuncStr, MRHASHFUNC_CRC12_STR)) {
-        hashFunc = MRHashFunc_CRC12;
-      } else if (!strcasecmp(hashFuncStr, MRHASHFUNC_CRC16_STR)) {
-        hashFunc = MRHashFunc_CRC16;
-      } else {
+      if (strcasecmp(hashFuncStr, "CRC12") && strcasecmp(hashFuncStr, "CRC16")) {
         ERROR_BADVAL("HASHFUNC", hashFuncStr);
         return NULL;
       }
     } else if (AC_AdvanceIfMatch(&ac, "NUMSLOTS")) {
-      int rc = AC_GetSize(&ac, &numSlots, AC_F_GE1);
+      int rc = AC_GetU32(&ac, &numSlots, AC_F_GE1);
       if (rc != AC_OK) {
         ERROR_BAD_OR_MISSING("NUMSLOTS", rc);
         return NULL;
       } else if (numSlots > 16384) {
-        ERROR_FMT("Bad value for NUMSLOTS: %zu", numSlots);
+        ERROR_FMT("Bad value for NUMSLOTS: %u", numSlots);
         return NULL;
       }
     } else if (AC_AdvanceIfMatch(&ac, "RANGES")) {  // End of general arguments
-      int rc = AC_GetSize(&ac, &numShards, AC_F_GE1);
+      int rc = AC_GetU32(&ac, &numShards, AC_F_GE1);
       if (rc != AC_OK) {
         ERROR_BAD_OR_MISSING("RANGES", rc);
         return NULL;
@@ -119,10 +111,10 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     return NULL;
   }
 
-  MRClusterTopology *topo = MR_NewTopology(numShards, numSlots, hashFunc);
+  MRClusterTopology *topo = MR_NewTopology(numShards);
 
   // Parse shards. We have to free the topology and previous shards if we encounter an error
-  for (size_t i = 0; i < numShards; i++) {
+  for (uint32_t i = 0; i < numShards; i++) {
     RLShard sh;
     int rc;
     /* Mandatory: SHARD <shard_id> SLOTRANGE <start_slot> <end_slot> ADDR <tcp> */
@@ -131,6 +123,10 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     if (!sh.node.id) {
       ERROR_MISSING("SHARD");
       goto error;
+    }
+
+    if (!strcmp(sh.node.id, myID)) {
+      *my_shard_idx = i;
     }
 
     VERIFY_ARG("SLOTRANGE");
@@ -168,18 +164,16 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
       ERROR_BADVAL("ADDR", addr);
       goto error;
     }
+    /* Optional MASTER */
+    if (!AC_AdvanceIfMatch(&ac, "MASTER")) {
+      // We don't care for replicas using this command anymore
+      MREndpoint_Free(&sh.node.endpoint);
+      continue;
+    }
     // All good. Finish up the node
     sh.node.id = rm_strdup(sh.node.id);  // Take ownership of the string
     if (unixSock) {
       sh.node.endpoint.unixSock = rm_strdup(unixSock);
-    }
-    sh.node.flags = 0;
-    if (!strcmp(sh.node.id, myID)) {
-      sh.node.flags |= MRNode_Self;  // TODO: verify there's only one self?
-    }
-    /* Optional MASTER */
-    if (AC_AdvanceIfMatch(&ac, "MASTER")) {
-      sh.node.flags |= MRNode_Master;
     }
     // Add the shard. This function will take ownership of the node's allocated strings
     MRTopology_AddRLShard(topo, &sh);

@@ -13,8 +13,8 @@ on:
 
 jobs:
 
-  basic-test:
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  run-on-intel:
+    uses: ./.github/workflows/flow-intel.yml
     secrets: inherit
     with:
       rejson-branch: master

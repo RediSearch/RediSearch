@@ -7,14 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::{Cursor, Seek, Write};
+use std::io::{Cursor, Seek, SeekFrom, Write};
 
 use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
 use crate::{
-    DecodedBy, Decoder, Encoder, RSIndexResult, RSResultData,
+    Decoder, Encoder, RSIndexResult, RSResultData, TermDecoder,
     full::{decode_term_record_offsets, offsets},
 };
 
@@ -27,14 +27,12 @@ use crate::{
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
 pub struct FieldsOffsets;
 
 impl Encoder for FieldsOffsets {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -57,32 +55,66 @@ impl Encoder for FieldsOffsets {
     }
 }
 
-impl DecodedBy for FieldsOffsets {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FieldsOffsets {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, field_mask, offsets_sz] = decoded_values;
 
-        let record = decode_term_record_offsets(
+        decode_term_record_offsets(
             cursor,
             base,
             delta,
             field_mask as t_fieldMask,
             1,
             offsets_sz,
+            result,
+        )
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
+    }
+
+    fn seek<'index>(
+        cursor: &mut Cursor<&'index [u8]>,
+        mut base: t_docId,
+        target: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let (field_mask, offsets_sz) = loop {
+            let [delta, field_mask, offsets_sz] = match qint_decode::<3, _>(cursor) {
+                Ok((decoded_values, _bytes_consumed)) => decoded_values,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error),
+            };
+
+            base += delta as t_docId;
+
+            if base >= target {
+                break (field_mask, offsets_sz);
+            }
+
+            // Skip the offsets
+            cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
+        };
+
+        decode_term_record_offsets(
+            cursor,
+            base,
+            0,
+            field_mask as t_fieldMask,
+            1,
+            offsets_sz,
+            result,
         )?;
-        Ok(record)
+        Ok(true)
     }
 }
 
@@ -95,14 +127,12 @@ impl Decoder for FieldsOffsets {
 /// The offsets themselves are then written directly.
 ///
 /// This encoder only supports delta values that fit in a `u32`.
-#[derive(Default)]
 pub struct FieldsOffsetsWide;
 
 impl Encoder for FieldsOffsetsWide {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -121,32 +151,70 @@ impl Encoder for FieldsOffsetsWide {
     }
 }
 
-impl DecodedBy for FieldsOffsetsWide {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for FieldsOffsetsWide {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, offsets_sz] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;
 
-        let record = decode_term_record_offsets(
+        decode_term_record_offsets(
             cursor,
             base,
             delta,
             field_mask as t_fieldMask,
             1,
             offsets_sz,
+            result,
+        )
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
+    }
+
+    fn seek<'index>(
+        cursor: &mut Cursor<&'index [u8]>,
+        mut base: t_docId,
+        target: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let (field_mask, offsets_sz) = loop {
+            let [delta, offsets_sz] = match qint_decode::<2, _>(cursor) {
+                Ok((decoded_values, _bytes_consumed)) => decoded_values,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error),
+            };
+            let field_mask = t_fieldMask::read_as_varint(cursor)?;
+
+            base += delta as t_docId;
+
+            if base >= target {
+                break (field_mask, offsets_sz);
+            }
+
+            // Skip the offsets
+            cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
+        };
+
+        decode_term_record_offsets(
+            cursor,
+            base,
+            0,
+            field_mask as t_fieldMask,
+            1,
+            offsets_sz,
+            result,
         )?;
-        Ok(record)
+        Ok(true)
     }
 }
+
+impl TermDecoder for FieldsOffsets {}
+impl TermDecoder for FieldsOffsetsWide {}

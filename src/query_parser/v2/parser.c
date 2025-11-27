@@ -135,13 +135,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg,
       " at offset %d near %.*s", tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg,
       " at offset %d near %f", tok->pos, tok->numval);
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, msg, " at offset %d", tok->pos);
   }
 }
 
@@ -1391,7 +1391,7 @@ static void yyStackOverflow(yyParser *yypParser){
    ** stack every overflows */
 /******** Begin %stack_overflow code ******************************************/
 
-  QueryError_SetError(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX,
     "Parser stack overflow. Try moving nested parentheses more to the left");
 /******** End %stack_overflow code ********************************************/
    RSQueryParser_v2_ARG_STORE /* Suppress warning about unused %extra_argument var */
@@ -2437,8 +2437,7 @@ static YYACTIONTYPE yy_reduce(
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy3 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     yylhsminor.yy3->vn.vq->field = yymsp[-1].minor.yy150.fs;
-    int n_written = rm_asprintf(&yylhsminor.yy3->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy150.tok.len, yymsp[-1].minor.yy150.tok.s);
-    RS_ASSERT(n_written != -1);
+    VectorQuery_SetDefaultScoreField(yylhsminor.yy3->vn.vq, yymsp[-1].minor.yy150.tok.s, yymsp[-1].minor.yy150.tok.len);
   } else {
     reportSyntaxError(ctx->status, &yymsp[-3].minor.yy0, "Syntax error: Expecting Vector Similarity command");
     yylhsminor.yy3 = NULL;
@@ -2680,7 +2679,7 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ERROR_CODE_SYNTAX,
     "Syntax error", " at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/

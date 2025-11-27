@@ -7,17 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, ptr::NonNull, time::Duration, vec};
+use std::{io::Cursor, vec};
 
-use buffer::Buffer;
-use criterion::{
-    BatchSize, BenchmarkGroup, Criterion, black_box,
-    measurement::{Measurement, WallTime},
+use criterion::{BatchSize, Criterion, black_box};
+use inverted_index::{
+    Decoder, Encoder, RSIndexResult, freqs_offsets::FreqsOffsets, test_utils::TestTermRecord,
 };
-use inverted_index::{Decoder, Encoder, freqs_offsets::FreqsOffsets, test_utils::TestTermRecord};
 use itertools::Itertools;
-
-use crate::ffi::{TestBuffer, encode_freqs_offsets, read_freqs_offsets};
 
 pub struct Bencher {
     test_values: Vec<TestValue>,
@@ -39,9 +35,6 @@ impl Default for Bencher {
 }
 
 impl Bencher {
-    const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
-    const WARMUP_TIME: Duration = Duration::from_millis(200);
-
     fn new() -> Self {
         let deltas = vec![0, u32::MAX];
         let freqs = vec![1, 10, 100, 1000];
@@ -61,9 +54,7 @@ impl Bencher {
                 let record = TestTermRecord::new(100, 0, freq, term_offsets.clone());
                 let mut buffer = Cursor::new(Vec::new());
 
-                let _grew_size = FreqsOffsets::default()
-                    .encode(&mut buffer, delta, &record.record)
-                    .unwrap();
+                let _grew_size = FreqsOffsets::encode(&mut buffer, delta, &record.record).unwrap();
 
                 let encoded = buffer.into_inner();
 
@@ -79,63 +70,11 @@ impl Bencher {
         Self { test_values }
     }
 
-    fn benchmark_group<'a>(
-        &self,
-        c: &'a mut Criterion,
-        label: &str,
-    ) -> BenchmarkGroup<'a, WallTime> {
-        let label = label.to_string();
-        let mut group = c.benchmark_group(label);
-        group.measurement_time(Self::MEASUREMENT_TIME);
-        group.warm_up_time(Self::WARMUP_TIME);
-        group
-    }
-
     pub fn encoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Encode - FreqsOffsets");
-        self.c_encode(&mut group);
-        self.rust_encode(&mut group);
-        group.finish();
-    }
-
-    pub fn decoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Decode - FreqsOffsets");
-        self.c_decode(&mut group);
-        self.rust_decode(&mut group);
-        group.finish();
-    }
-
-    fn c_encode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         // Use a single buffer big enough to hold all encoded values
         let buffer_size = self.test_values.iter().map(|test| test.encoded.len()).sum();
 
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || TestBuffer::with_capacity(buffer_size),
-                |mut buffer| {
-                    for test in &self.test_values {
-                        let mut record =
-                            TestTermRecord::new(100, 0, test.freq, test.term_offsets.clone());
-
-                        let grew_size = encode_freqs_offsets(
-                            &mut buffer,
-                            &mut record.record,
-                            test.delta as u64,
-                        );
-
-                        black_box(grew_size);
-                    }
-                },
-                BatchSize::SmallInput,
-            );
-        });
-    }
-
-    fn rust_encode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        // Use a single buffer big enough to hold all encoded values
-        let buffer_size = self.test_values.iter().map(|test| test.encoded.len()).sum();
-
-        group.bench_function("Rust", |b| {
+        c.bench_function("Encode FreqsOffsets", |b| {
             b.iter_batched_ref(
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
@@ -143,9 +82,8 @@ impl Bencher {
                         let record =
                             TestTermRecord::new(100, 0, test.freq, test.term_offsets.clone());
 
-                        let grew_size = FreqsOffsets::default()
-                            .encode(&mut buffer, test.delta, &record.record)
-                            .unwrap();
+                        let grew_size =
+                            FreqsOffsets::encode(&mut buffer, test.delta, &record.record).unwrap();
 
                         black_box(grew_size);
                     }
@@ -155,34 +93,15 @@ impl Bencher {
         });
     }
 
-    fn c_decode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
+    pub fn decoding(&self, c: &mut Criterion) {
+        c.bench_function("Decode FreqsOffsets", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || {
-                        let buffer_ptr = NonNull::new(test.encoded.as_ptr() as *mut _).unwrap();
-                        unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
-                    },
-                    |mut buffer| {
-                        let (_filtered, result) = read_freqs_offsets(&mut buffer, 100);
+                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    |(cursor, result)| {
+                        let res = FreqsOffsets::decode(cursor, 100, result);
 
-                        black_box(result);
-                    },
-                    BatchSize::SmallInput,
-                );
-            }
-        });
-    }
-
-    fn rust_decode<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("Rust", |b| {
-            for test in &self.test_values {
-                b.iter_batched_ref(
-                    || Cursor::new(test.encoded.as_ref()),
-                    |buffer| {
-                        let result = FreqsOffsets::default().decode(buffer, 100).unwrap();
-
-                        let _ = black_box(result);
+                        let _ = black_box(res);
                     },
                     BatchSize::SmallInput,
                 );

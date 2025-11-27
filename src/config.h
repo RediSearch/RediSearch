@@ -13,30 +13,52 @@
 #include "query_error.h"
 #include "reply.h"
 #include "util/config_macros.h"
+#include "ext/default.h"
 
 typedef enum {
-  FailurePolicy_Return,       // Return what we have on failure (timeout or OOM)
-  FailurePolicy_Fail,         // Just fail without returning anything
-  FailurePolicy_Invalid       // Not a real value
-} RSFailurePolicy;
+  TimeoutPolicy_Return,       // Return what we have on timeout
+  TimeoutPolicy_Fail,         // Just fail without returning anything
+  TimeoutPolicy_Invalid       // Not a real value
+} RSTimeoutPolicy;
 
-static const int on_failure_enums[2] = {
-  FailurePolicy_Return,
-  FailurePolicy_Fail
+static const int on_timeout_enums[2] = {
+  TimeoutPolicy_Return,
+  TimeoutPolicy_Fail
 };
-static const char *on_failure_vals[2] = {
+static const char *on_timeout_vals[2] = {
   "return",
   "fail"
 };
 
+typedef enum {
+  OomPolicy_Return,       // Return what we have on OOM
+  OomPolicy_Fail,         // Just fail without returning anything
+  OomPolicy_Ignore,       // Ignore OOM and continue
+  OomPolicy_Invalid       // Not a real value
+} RSOomPolicy;
+
+static const int on_oom_enums[3] = {
+  OomPolicy_Return,
+  OomPolicy_Fail,
+  OomPolicy_Ignore
+};
+static const char *on_oom_vals[3] = {
+  "return",
+  "fail",
+  "ignore"
+};
+
+
 typedef enum { GCPolicy_Fork = 0 } GCPolicy;
 
-const char *FailurePolicy_ToString(RSFailurePolicy);
+const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
+const char *OomPolicy_ToString(RSOomPolicy);
 
 /**
- * Returns FailurePolicy_Invalid if the string could not be parsed
+ * Returns TimeoutPolicy_Invalid if the string could not be parsed
  */
-RSFailurePolicy FailurePolicy_Parse(const char *s, size_t n);
+RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
+RSOomPolicy OomPolicy_Parse(const char *s, size_t n);
 
 static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
@@ -70,13 +92,13 @@ typedef struct {
   // The maximal amount of time a single query can take before timing out, in milliseconds.
   // 0 means unlimited
   long long queryTimeoutMS;
-  RSFailurePolicy timeoutPolicy;
+  RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   bool printProfileClock;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
   // OOM policy
-  RSFailurePolicy OOMPolicy;
+  RSOomPolicy oomPolicy;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -99,6 +121,8 @@ typedef struct {
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
+  // Default scorer name to use when no scorer is specified (default: BM25STD)
+  const char *defaultScorer;
 
   IteratorsConfig iteratorsConfigParams;
 
@@ -199,6 +223,7 @@ extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
 extern RedisModuleString *config_ext_load;
 extern RedisModuleString *config_friso_ini;
+extern RedisModuleString *config_default_scorer;
 
 /**
  * Add new configuration options to the chain of already recognized options
@@ -220,7 +245,7 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
 int ReadConfig(RedisModuleString **argv, int argc, char **err);
 
 /* Register module configuration parameters using Module Configuration API */
-int RegisterModuleConfig(RedisModuleCtx *ctx);
+int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
 
 /**
  * Writes the retrieval of the configuration value to the network.
@@ -297,12 +322,13 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define RS_DEFAULT_CONFIG {                                                    \
     .extLoad = NULL,                                                           \
     .frisoIni = NULL,                                                          \
+    .defaultScorer = NULL,                                                     \
     .gcConfigParams.enableGC = 1,                                              \
     .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,            \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
     .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
     .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
-    .requestConfigParams.timeoutPolicy = FailurePolicy_Return,                 \
+    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                 \
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
@@ -340,7 +366,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
-    .requestConfigParams.OOMPolicy = FailurePolicy_Return,                     \
+    .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
   }
 
 #define REDIS_ARRAY_LIMIT 7

@@ -12,19 +12,17 @@ use std::io::{Cursor, Seek, Write};
 use ffi::t_docId;
 use varint::VarintEncode;
 
-use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
+use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
 
 /// Encode and decode only the delta document ID of a record, without any other data.
 /// The delta is encoded using [varint encoding](varint).
-#[derive(Default)]
 pub struct DocIdsOnly;
 
 impl Encoder for DocIdsOnly {
     type Delta = u32;
-    const RECOMMENDED_BLOCK_ENTRIES: usize = 1000;
+    const RECOMMENDED_BLOCK_ENTRIES: u16 = 1000;
 
     fn encode<W: Write + Seek>(
-        &self,
         mut writer: W,
         delta: Self::Delta,
         _record: &RSIndexResult,
@@ -34,23 +32,22 @@ impl Encoder for DocIdsOnly {
     }
 }
 
-impl DecodedBy for DocIdsOnly {
-    type Decoder = Self;
-
-    fn decoder() -> Self::Decoder {
-        Self
-    }
-}
-
 impl Decoder for DocIdsOnly {
+    #[inline(always)]
     fn decode<'index>(
-        &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let delta = u32::read_as_varint(cursor)?;
 
-        let record = RSIndexResult::term().doc_id(base + delta as t_docId);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }
+
+impl TermDecoder for DocIdsOnly {}

@@ -200,7 +200,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("compression", VecSimSvsCompression_ToString(svs_params.quantBits));
           if (svs_params.quantBits != VecSimSvsQuant_NONE) {
             REPLY_KVINT("training_threshold", algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
-            if (VecSim_IsLeanVecCompressionType(svs_params.quantBits)) {
+            if (isLVQSupported() && VecSim_IsLeanVecCompressionType(svs_params.quantBits)) {
               REPLY_KVINT("reduced_dim", svs_params.leanvec_dim);
             }
           }
@@ -256,7 +256,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
   REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
-  REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks);
+  REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks());
 
   REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
 

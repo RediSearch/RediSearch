@@ -15,7 +15,7 @@
 #include "version.h"
 
 #include "src/buffer/buffer.h"
-#include "src/inverted_index/inverted_index.h"
+#include "inverted_index.h"
 #include "src/index_result.h"
 #include "src/query_parser/tokenizer.h"
 #include "src/spec.h"
@@ -43,6 +43,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                          REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
+    RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
     return RediSearch_InitModuleInternal(ctx);
 }
 
@@ -64,10 +65,11 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       // based on the current <percent>. Every child iterator of the union contains ids: [i, step+i, 2*step+i , ...]
       InvertedIndex *inv_indices[percent];
       QueryIterator **its = (QueryIterator **)rm_calloc(percent, sizeof(QueryIterator *));
+      FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
       for (size_t i = 0; i < percent; i++) {
         InvertedIndex *w = createPopulateTermsInvIndex(n, step, i);
         inv_indices[i] = w;
-        its[i] = NewInvIndIterator_TermFull(w);
+        its[i] = NewInvIndIterator_TermQuery(w, NULL, f, NULL, 1);
       }
       IteratorsConfig config{};
       iteratorsConfig_init(&config);
@@ -77,8 +79,8 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       float query[NUM_ITERATIONS][d];
       KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
       VecSimQueryParams queryParams = {.hnswRuntimeParams = HNSWRuntimeParams{.efRuntime = 0}};
-      FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = { .index = RS_INVALID_FIELD_INDEX }};
-      FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+      FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
+      FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
       HybridIteratorParams hParams = {.sctx = NULL,
                                       .index = index,
                                       .dim = d,
@@ -91,7 +93,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
                                       .childIt = ui,
                                       .filterCtx = &filterCtx,
       };
-      QueryError err = {QUERY_OK};
+      QueryError err = QueryError_Default();
       QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
       assert(!QueryError_HasError(&err));
 

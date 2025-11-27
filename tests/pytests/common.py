@@ -9,10 +9,11 @@ from functools import wraps
 import signal
 import platform
 import itertools
+import threading
 from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Dict
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
@@ -24,6 +25,7 @@ from unittest import SkipTest
 import inspect
 import subprocess
 import math
+import faker
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -422,9 +424,6 @@ def set_max_dialect(env):
 def get_redisearch_index_memory(env, index_key):
     return float(index_info(env, index_key)["inverted_sz_mb"])
 
-def get_redisearch_vector_index_memory(env, index_key):
-    return float(index_info(env, index_key)["vector_index_sz_mb"])
-
 def module_ver_filter(env, module_name, ver_filter):
     info = env.getConnection().info()
     for module in info['modules']:
@@ -456,10 +455,12 @@ def create_np_array_typed(data, data_type='FLOAT32'):
         return Bfloat16Array(data)
     return np.array(data, dtype=data_type.lower())
 
-def create_random_np_array_typed(dim, data_type='FLOAT32', seed=10):
-    np.random.seed(seed)
-    return create_np_array_typed(np.random.rand(dim), data_type)
-
+np.random.seed(42)
+def create_random_np_array_typed(dim, data_type='FLOAT32', normalize=False):
+    vector = create_np_array_typed(np.random.rand(dim), data_type)
+    if normalize:
+        vector /= np.linalg.norm(vector)
+    return vector
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
         return False
@@ -707,10 +708,9 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
     total_size = 0
     for field in fields:
         if field in ['GEO', 'NUMERIC']:
-            block_size = 48
-            initial_block_cap = 6
-            inverted_index_meta_data = 40
-            total_size += (block_size + initial_block_cap + inverted_index_meta_data)
+            inverted_index_size = 40
+            inverted_index_meta_data = 8
+            total_size += inverted_index_size + inverted_index_meta_data
             continue
         env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR'], message=f"type {field} is not supported", depth=depth+1)
 
@@ -774,7 +774,7 @@ def access_nested_list(lst, index):
         result = result[entry]
     return result
 
-def downloadFile(env, file_name, depth=0):
+def downloadFile(env, file_name, depth=0, max_retries=3):
     path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
     path_dir = os.path.dirname(path)
     os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
@@ -783,24 +783,28 @@ def downloadFile(env, file_name, depth=0):
         try:
             subprocess.run(
                 [
-                    "wget",
-                    "--no-check-certificate",
-                    BASE_RDBS_URL + file_name,
-                    "-O",
-                    path,
-                    "-q",
-                ],
-                check=True,
-            )
+                "wget",
+                "--no-check-certificate",
+                "--tries", str(max_retries + 1),  # wget tries
+                "--waitretry", "2",  # wait 2 seconds between retries
+                "--retry-connrefused",  # retry on connection refused
+                BASE_RDBS_URL + file_name,
+                "-O",
+                path,
+                "-v"  # verbose to get better error info
+            ], check=True, capture_output=True, text=True)
+
         except subprocess.CalledProcessError as e:
-            env.assertTrue(
-                False,
-                message=f"Failed to download {BASE_RDBS_URL + file_name}. Return code: {e.returncode}, output: {e.output}, stderr: {e.stderr}",
-                depth=depth + 1,
-            )
+            env.assertTrue(False,
+                message=f"Failed to download {BASE_RDBS_URL + file_name} after {max_retries + 1} attempts. "
+                       f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}",
+                depth=depth + 1)
+
+            # Clean up partial download
             try:
-                os.remove(path)
-                env.debugPrint(f"Partially downloaded file {path}. Removing it.", force=True)
+                if os.path.exists(path):
+                    os.remove(path)
+                    env.debugPrint(f"Removed partially downloaded file {path}", force=True)
             except OSError:
                 env.debugPrint(f"Failed to remove {path}", force=True)
                 pass
@@ -813,7 +817,6 @@ def downloadFile(env, file_name, depth=0):
         )
         return False
     return True
-
 
 def downloadFiles(env, rdbs=None, depth=0):
     if rdbs is None:
@@ -834,8 +837,14 @@ def VerifyTimeoutWarningResp3(env, res, message="", depth=0):
     if (res['warning']):
         env.assertContains("Timeout", res["warning"][0], message=message + " expected timeout warning", depth=depth+1)
 
+def parseDebugQueryCommandArgs(query_cmd, debug_params):
+    return [*query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)]
+
 def runDebugQueryCommand(env, query_cmd, debug_params):
-    return env.cmd(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params))
+    # Use the helper function to build the argument list
+    args = parseDebugQueryCommandArgs(query_cmd, debug_params)
+    return env.cmd(debug_cmd(), *args)
+
 
 def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, internal_only=False):
     debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
@@ -847,6 +856,38 @@ def runDebugQueryCommandAndCrash(env, query_cmd):
     debug_params = ['CRASH']
     return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
 
+
+
+def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, rp_type, pause_after_n):
+    debug_params = ['PAUSE_AFTER_RP_N', rp_type, pause_after_n]
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def runDebugQueryCommandPauseBeforeRPAfterN(env, query_cmd, rp_type, pause_after_n, extra_args=None):
+    debug_params = ['PAUSE_BEFORE_RP_N', rp_type, pause_after_n]
+    if extra_args:
+        debug_params.extend(extra_args)
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def getIsRPPaused(env):
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED')
+
+def setPauseRPResume(env):
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
+
+def allShards_getIsRPPaused(env):
+    results = []
+    for shardId in range(1, env.shardsCount + 1):
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED')
+        results.append(result)
+    return results
+
+def allShards_setPauseRPResume(env, start_shard=1):
+    results = []
+    for shardId in range(start_shard, env.shardsCount + 1):
+        result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
+        results.append(result)
+    return results
+
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
@@ -854,8 +895,9 @@ def shardsConnections(env):
 def waitForIndexFinishScan(env, idx = 'idx'):
     # Wait for the index to finish scan
     # Check if equals 1 for RESP3 support
-    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
+        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+            time.sleep(0.1)
 
 def bgScanCommand():
     return debug_cmd() + ' BG_SCAN_CONTROLLER'
@@ -884,8 +926,9 @@ def set_unlimited_maxmemory_for_oom(env):
 
 
 def waitForIndexStatus(env, status, idx='idx'):
-    while getDebugScannerStatus(env, idx) != status:
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index status'):
+        while getDebugScannerStatus(env, idx) != status:
+            time.sleep(0.1)
 
 def waitForIndexPauseScan(env,idx = 'idx'):
     waitForIndexStatus(env,'PAUSED', idx)
@@ -894,8 +937,9 @@ def shard_getDebugScannerStatus(env, shardId, idx = 'idx'):
     return env.getConnection(shardId).execute_command(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
 
 def shard_waitForIndexStatus(env, shardId, status, idx='idx'):
-    while shard_getDebugScannerStatus(env, shardId, idx) != status:
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index status'):
+        while shard_getDebugScannerStatus(env, shardId, idx) != status:
+            time.sleep(0.1)
 
 def shard_waitForIndexPauseScan(env, shardId, idx = 'idx'):
     shard_waitForIndexStatus(env, shardId, 'PAUSED', idx)
@@ -911,8 +955,9 @@ def allShards_waitForIndexStatus(env, status, idx='idx'):
 def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
     # Wait for the index to finish scan
     # Check if equals 1 for RESP3 support
-    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
-        time.sleep(0.1)
+    with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
+        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+            time.sleep(0.1)
 
 def allShards_waitForIndexFinishScan(env, idx = 'idx'):
     for shardId in range(1, env.shardsCount + 1):
@@ -944,3 +989,127 @@ def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
     for k in d1:
         if k in d2:
             env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
+
+def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
+    """Extract all fields from hybrid response results
+
+    Args:
+        response: Hybrid search response containing results
+
+    Returns:
+        Dict mapping key -> dict of all fields from the results list
+        Example: {'doc:1': {'__score': '0.5', 'vector_distance': '0.3'}}
+    """
+    # return dict mapping key -> all fields from the results list
+    res_results_index = recursive_index(response, 'results')
+    res_count_index = recursive_index(response, 'total_results')
+    res_results_index[-1] += 1
+    res_count_index[-1] += 1
+
+    results = {}
+    for result in access_nested_list(response, res_results_index):
+        # Each result has structure: ['attributes', [flat_key_value_list]]
+        result = dict(zip(result[::2], result[1::2]))
+        if '__key' in result:
+            key = result['__key']
+            results[key] = result
+    total_results = access_nested_list(response, res_count_index)
+    return results, total_results
+
+def populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345, offset=0):
+    """Populate database with faker-generated text documents
+
+    Args:
+        env: Test environment
+        num_docs: Number of documents to create
+        doc_len: Number of words per document (equivalent to dim parameter)
+        seed: Random seed for reproducibility
+        offset: Starting offset for document IDs (equivalent to ids_offset)
+    """
+    conn = getConnectionByEnv(env)
+    fake = faker.Faker()
+    fake.seed_instance(seed)
+
+    # Use pipeline for better performance
+    pipeline = conn.pipeline(transaction=False)
+    for i in range(num_docs):
+        # Generate sentences with specified number of words
+        text = fake.sentence(nb_words=doc_len, variable_nb_words=False).rstrip('.')
+        pipeline.execute_command('HSET', f'{offset + i}', 'description', text)
+
+        # Execute pipeline every 1000 docs to avoid memory issues
+        if i % 1000 == 0:
+            pipeline.execute()
+            pipeline = conn.pipeline(transaction=False)
+
+    # Execute remaining docs
+    pipeline.execute()
+
+
+def call_and_store(fn, args, out_list):
+    """
+    Helper function for threading: calls a function and stores its return value in a list.
+
+    Args:
+        fn: Function to call
+        args: Tuple of arguments to pass to the function
+        out_list: List to append the function's return value to
+    """
+    out_list.append(fn(*args))
+
+def generate_slots(slots = range(2**14)) -> bytes:
+    """Generate slot ranges in binary format matching RedisModuleSlotRangeArray serialization.
+
+    Args:
+        slots: Iterable of slot numbers (default: 0-16383)
+
+    Returns:
+        bytes: Binary format with:
+            - First 4 bytes: int32 number of ranges (little-endian)
+            - Following bytes: pairs of uint16 (start, end) for each range (little-endian)
+    """
+    slots = set(slots)
+    ranges_list = []
+
+    for slot in range(2**14):
+        if slot in slots:
+            if ranges_list and slot == ranges_list[-1][1] + 1:
+                ranges_list[-1][1] = slot
+            else:
+                ranges_list.append([slot, slot])
+
+    # Convert list to numpy array of uint16 pairs
+    ranges_array = np.array(ranges_list, dtype=np.uint16)
+
+    # Create the output: 4 bytes for count (int32) + flattened uint16 pairs
+    num_ranges = np.int32(len(ranges_list))
+
+    # Use sys.byteorder to handle endianness properly, but force little-endian
+    count_bytes = num_ranges.tobytes() if sys.byteorder == 'little' else num_ranges.byteswap().tobytes()
+    ranges_bytes = ranges_array.tobytes() if sys.byteorder == 'little' else ranges_array.byteswap().tobytes()
+
+    return count_bytes + ranges_bytes
+
+def change_oom_policy(env, policy):
+    env.expect(config_cmd(), 'SET', 'ON_OOM', policy).ok()
+
+def shard_change_oom_policy(env, shardId, policy):
+    res = env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'ON_OOM', policy)
+    env.assertEqual(res, 'OK')
+
+def allShards_change_oom_policy(env, policy):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_change_oom_policy(env, shardId, policy)
+
+def allShards_change_maxmemory_low(env):
+    for shardId in range(1, env.shardsCount + 1):
+        res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 1)
+        env.assertEqual(res, 'OK')
+
+def shard_change_timeout_policy(env, shardId, policy):
+    res = env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'ON_TIMEOUT', policy)
+    env.assertEqual(res, 'OK')
+
+def allShards_change_timeout_policy(env, policy):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_change_timeout_policy(env, shardId, policy)

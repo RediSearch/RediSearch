@@ -39,9 +39,12 @@ static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue 
 }
 
 static inline void ResultMetrics_Reset(RSIndexResult *r) {
-  array_foreach(r->metrics, adtnl, RSValue_Decref(adtnl.value));
+  array_foreach(r->metrics, adtnl, RSValue_DecrRef(adtnl.value));
   array_clear(r->metrics);
 }
+
+// define a function to be used from Rust
+void ResultMetrics_Reset_func(RSIndexResult *r);
 
 /* Reset the aggregate result's child vector */
 static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
@@ -59,7 +62,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r);
 
 /* Fill an array of max capacity cap with all the matching text terms for the result. The number of
  * matching terms is returned */
-size_t IndexResult_GetMatchedTerms(RSIndexResult *r, RSQueryTerm **arr, size_t cap);
+size_t IndexResult_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm **arr, size_t cap);
 
 /* Return 1 if the the result is within a given slop range, inOrder determines whether the tokens
  * need to be ordered as in the query or not */

@@ -20,6 +20,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "redismodule.h"
 #include "debug_commands.h"
+#include "search_disk.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -99,14 +100,20 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
   while (entry != NULL) {
     bool isNew;
-    InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
-    if (isNew && strlen(entry->term) != 0) {
-      IndexSpec_AddTerm(spec, entry->term, entry->len);
-    }
-    if (invidx) {
-      entry->docId = aCtx->doc->docId;
-      RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      writeIndexEntry(spec, invidx, entry);
+    if (spec->diskSpec) {
+      SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask);
+      // assume all terms are new, avoid the disk io to check
+      isNew = true;
+    } else {
+      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
+      if (isNew && strlen(entry->term) != 0) {
+        IndexSpec_AddTerm(spec, entry->term, entry->len);
+      }
+      if (invidx) {
+        entry->docId = aCtx->doc->docId;
+        RS_LOG_ASSERT(entry->docId, "docId should not be 0");
+        writeIndexEntry(spec, invidx, entry);
+      }
     }
 
     if (spec->suffixMask & entry->fieldMask
@@ -129,10 +136,11 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   if (replace) {
     RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
-      // decrease the number of documents in the index stats only if the document was there
+      // Update stats of the index only if the document was there
+      RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
       --spec->stats.numDocuments;
-      DMD_Return(aCtx->oldMd);
-      aCtx->oldMd = dmd;
+      RS_LOG_ASSERT(spec->stats.totalDocsLen >= dmd->len, "totalDocsLen is smaller than dmd->len");
+      spec->stats.totalDocsLen -= dmd->len;
       if (spec->gc) {
         GCContext_OnDelete(spec->gc);
       }
@@ -151,6 +159,8 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       if (spec->flags & Index_HasGeometry) {
         GeometryIndex_RemoveId(spec, dmd->id);
       }
+
+      DMD_Return(dmd);
     }
   }
 
@@ -176,6 +186,18 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   for (; cur; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
+      continue;
+    }
+
+    if (spec->diskSpec) {
+      size_t len;
+      const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
+      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len, cur->doc->score, cur->docFlags, cur->fwIdx->maxFreq);
+      if (docId) {
+        cur->doc->docId = docId;
+      } else {
+        cur->stateFlags |= ACTX_F_ERRORED;
+      }
       continue;
     }
 
@@ -334,7 +356,7 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   }
 
   if (!ctx.spec) {
-    QueryError_SetCode(&aCtx->status, QUERY_ENOINDEX);
+    QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_NO_INDEX);
     aCtx->stateFlags |= ACTX_F_ERRORED;
     return;
   }

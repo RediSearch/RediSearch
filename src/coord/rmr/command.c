@@ -11,6 +11,7 @@
 #include "command.h"
 #include "rmalloc.h"
 #include "resp3.h"
+#include "slot_ranges.h"
 
 #include "version.h"
 
@@ -18,10 +19,18 @@
 #include <string.h>
 #include <stdarg.h>
 
-void MRCommand_Free(MRCommand *cmd) {
+#define shift_right(arr, len, start, by) \
+  memmove((arr) + (start) + (by), (arr) + (start), ((len) - (start)) * sizeof(*(arr)));
+
+static inline void dropCachedCmdIfNeeded(MRCommand *cmd) {
   if (cmd->cmd) {
     sdsfree(cmd->cmd);
+    cmd->cmd = NULL;
   }
+}
+
+void MRCommand_Free(MRCommand *cmd) {
+  dropCachedCmdIfNeeded(cmd);
   for (int i = 0; i < cmd->num; i++) {
     rm_free(cmd->strs[i]);
   }
@@ -35,6 +44,8 @@ static void assignStr(MRCommand *cmd, size_t idx, const char *s, size_t n) {
   cmd->lens[idx] = n;
   news[n] = '\0';
   memcpy(news, s, n);
+  // Drop the cached sds command representation if set
+  dropCachedCmdIfNeeded(cmd);
 }
 
 static void assignCstr(MRCommand *cmd, size_t idx, const char *s) {
@@ -58,7 +69,8 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->num = len;
   cmd->strs = rm_malloc(sizeof(*cmd->strs) * len);
   cmd->lens = rm_malloc(sizeof(*cmd->lens) * len);
-  cmd->targetSlot = -1;
+  cmd->slotsInfoArgIndex = 0;
+  cmd->targetShard = INVALID_SHARD;
   cmd->cmd = NULL;
   cmd->protocol = 0;
   cmd->depleted = false;
@@ -80,12 +92,13 @@ MRCommand MR_NewCommandArgv(int argc, const char **argv) {
 MRCommand MRCommand_Copy(const MRCommand *cmd) {
   MRCommand ret;
   MRCommand_Init(&ret, cmd->num);
+  ret.slotsInfoArgIndex = cmd->slotsInfoArgIndex;
+  ret.targetShard = cmd->targetShard;
   ret.protocol = cmd->protocol;
   ret.forCursor = cmd->forCursor;
   ret.forProfiling = cmd->forProfiling;
   ret.rootCommand = cmd->rootCommand;
   ret.depleted = cmd->depleted;
-
   for (int i = 0; i < cmd->num; i++) {
     copyStr(&ret, i, cmd, i);
   }
@@ -121,12 +134,18 @@ static void extendCommandList(MRCommand *cmd, size_t toAdd) {
 }
 
 void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n) {
+  RS_ASSERT(0 <= pos && pos <= cmd->num);
   int oldNum = cmd->num;
   extendCommandList(cmd, 1);
 
+  RS_LOG_ASSERT(!cmd->slotsInfoArgIndex || cmd->slotsInfoArgIndex != pos, "Cannot insert between "SLOTS_STR" and its data");
+  if (cmd->slotsInfoArgIndex && pos < cmd->slotsInfoArgIndex) {
+    cmd->slotsInfoArgIndex++;
+  }
+
   // shift right all arguments that comes after pos
-  memmove(cmd->strs + pos + 1, cmd->strs + pos, (oldNum - pos) * sizeof(char*));
-  memmove(cmd->lens + pos + 1, cmd->lens + pos, (oldNum - pos) * sizeof(size_t));
+  shift_right(cmd->strs, oldNum, pos, 1);
+  shift_right(cmd->lens, oldNum, pos, 1);
 
   assignStr(cmd, pos, s, n);
 }
@@ -159,14 +178,13 @@ void MRCommand_SetPrefix(MRCommand *cmd, const char *newPrefix) {
   MRCommand_ReplaceArgNoDup(cmd, 0, buf, len);
 }
 
-void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, const char *newArg, size_t len) {
-  if (index < 0 || index >= cmd->num) {
-    return;
-  }
-  char *tmp = cmd->strs[index];
-  cmd->strs[index] = (char *)newArg;
+void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, char *newArg, size_t len) {
+  RS_ASSERT(0 <= index && index < cmd->num);
+  rm_free(cmd->strs[index]);
+  cmd->strs[index] = newArg;
   cmd->lens[index] = len;
-  rm_free(tmp);
+  // Drop the cached sds command representation if set
+  dropCachedCmdIfNeeded(cmd);
 }
 void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t len) {
   char *news = rm_malloc(len + 1);
@@ -197,6 +215,7 @@ void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t
     memset(oldArg + pos + newLen, ' ', oldSubStringLen - newLen);
 
     // No length change needed - argument stays same size
+    RS_LOG_ASSERT(!cmd->cmd, "Expect MRCommand_ReplaceArgSubstring to be called before `cmd` is used for the first time");
     return;
   }
 
@@ -215,15 +234,34 @@ void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t
   MRCommand_ReplaceArgNoDup(cmd, index, newArg, newArgLen);
 }
 
-// Should only be relevant for _FT.ADD, _FT.GET, _FT.DEL,
-// and _FT.SUG* commands
-int MRCommand_GetShardingKey(const MRCommand *cmd) {
-  // for SUGADD, SUGGET, SUGDEL, SUGLEN, the key is the first argument
-  // for ADD, GET, DEL, the key is the second argument.
-  // Differentiate between the two cases by checking the command length
-  return (cmd->lens[0] == 7) ? 2 : 1;
-}
-
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
   cmd->protocol = is_resp3(ctx) ? 3 : 2;
+}
+
+void MRCommand_PrepareForSlotInfo(MRCommand *cmd, uint32_t pos) {
+  RS_ASSERT(0 <= pos && pos <= cmd->num);
+  RS_LOG_ASSERT(cmd->slotsInfoArgIndex == 0, "Slot info already set for this command");
+  uint32_t oldNum = cmd->num;
+  // Make place for SLOTS_STR + <binary data>
+  extendCommandList(cmd, 2);
+
+  // shift right all arguments that comes after pos
+  shift_right(cmd->strs, oldNum, pos, 2);
+  shift_right(cmd->lens, oldNum, pos, 2);
+
+  // Assign the SLOTS_STR marker at pos
+  assignStr(cmd, pos, SLOTS_STR, sizeof(SLOTS_STR) - 1);
+  // Leave space for the binary data at pos + 1 (to be filled later)
+  assignStr(cmd, pos + 1, "", 0);
+  cmd->slotsInfoArgIndex = pos + 1;
+}
+
+void MRCommand_SetSlotInfo(MRCommand *cmd, const RedisModuleSlotRangeArray *slots) {
+  RS_ASSERT(cmd->slotsInfoArgIndex > 0 && cmd->slotsInfoArgIndex < cmd->num);
+  RS_ASSERT(!strcmp(cmd->strs[cmd->slotsInfoArgIndex - 1], SLOTS_STR));
+
+  // Assign the binary data to the command
+  char *serialized = SlotRangesArray_Serialize(slots);
+  size_t serializedLen = SlotRangeArray_SizeOf(slots->num_ranges);
+  MRCommand_ReplaceArgNoDup(cmd, cmd->slotsInfoArgIndex, serialized, serializedLen);
 }

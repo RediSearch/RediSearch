@@ -169,9 +169,9 @@ def test_issue1880(env):
   conn.execute_command('HSET', 'doc1', 't', 'hello world')
   conn.execute_command('HSET', 'doc2', 't', 'hello')
 
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 2]]]
+  excepted_res = ['Type', 'INTERSECT', 'Number of reading operations', 1, 'Child iterators', [
+                    ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 1, 'Estimated number of matches', 1],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 2]]]
   res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
   res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
   # both queries return `world` iterator before `hello`
@@ -179,7 +179,7 @@ def test_issue1880(env):
   env.assertEqual(res2[1][1][0][3], excepted_res)
 
   # test with a term which does not exist
-  excepted_res = ['Type', 'EMPTY', 'Counter', 0]
+  excepted_res = ['Type', 'EMPTY', 'Number of reading operations', 0]
 
   res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
   env.assertEqual(res3[1][1][0][3], excepted_res)
@@ -412,28 +412,28 @@ def test_SkipFieldWithNoMatch(env):
   conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   # bar exists in `t2` only
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'EMPTY', 'Counter', 0])
+  env.assertEqual(res[1][1][0][3], ['Type', 'EMPTY', 'Number of reading operations', 0])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1] )
 
   # Check with NOFIELDS flag
   env.cmd('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   waitForIndex(env, 'idx_nomask')
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
 @skip(cluster=True)
 def test_update_num_terms(env):
@@ -897,32 +897,31 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
     new_shard_id = new_shard_conn.execute_command('CLUSTER MYID')
     source_shard_id = conn.execute_command('CLUSTER MYID')
-    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {source_shard_id}"), "OK")
-    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"), "OK")
-    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
-    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
+    env.assertOk(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {source_shard_id}"))
+    env.assertOk(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"))
+    env.assertOk(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"))
+    env.assertOk(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"))
 
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
-    with TimeLimit(40, "fail to acknowledge topology"):
-        while True:
-            time.sleep(0.5)
-            cluster_info = new_shard_conn.execute_command("search.clusterinfo")
-            if cluster_info[:2] == ['num_partitions', int(initial_shards_count+1)]:
-                break
-    # search.clusterinfo response format is the following:
-    # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'slots',
-    # [0, 0, ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
-    # [1, 5461, ['60cdcb85a8f73f87ac6cc831ee799b75752aace3', '127.0.0.1', 6379, 'master ']],
-    # [5462, 10923, ['6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', '127.0.0.1', 6381, 'master ']],
-    # [10924, 16383, ['4e51033405651441a4be6ddfb46cd85d0c54af6f', '127.0.0.1', 6383, 'master ']]]
-    unique_shards = set(shard[2][0] for shard in cluster_info[9:])
-    env.assertEqual(len(unique_shards), initial_shards_count+1, message=f"cluster info is {cluster_info}")
+    env.waitCluster()
 
-    # Verify that slot 0 moved to the new shard,
-    shards_with_slot_0 = [shard for shard in cluster_info[9:] if shard[0] == 0]
-    env.assertEqual(len(shards_with_slot_0), 1, message=f"cluster info is {cluster_info}")
-    env.assertEqual(shards_with_slot_0[0][2][0], new_shard_id, message=f"cluster info is {cluster_info}")
+    # search.clusterinfo response format is the following:
+    # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'shards', [
+    #  ['slots', [1, 5461],       'id', '60cdcb85a8f73f87ac6cc831ee799b75752aace3', 'host', '127.0.0.1', 'port', 6379],
+    #  ['slots', [5462, 10923],   'id', '6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', 'host', '127.0.0.1', 'port', 6381],
+    #  ['slots', [10924, 16383],  'id', '4e51033405651441a4be6ddfb46cd85d0c54af6f', 'host', '127.0.0.1', 'port', 6383],
+    #  ['slots', [0, 0],          'id', '1f834c5c207bbe8d6dab0c6f050ff06292eb333c', 'host', '127.0.0.1', 'port', 6385],
+    # ]]
+    cluster_info = new_shard_conn.execute_command("search.clusterinfo")
+    shards_idx = cluster_info.index('shards') + 1
+    unique_shards = set(shard[3] for shard in cluster_info[shards_idx])
+    with TimeLimit(10, f"Failed waiting for new shard to appear in search.clusterinfo: {cluster_info}"):
+      while len(unique_shards) != initial_shards_count+1:
+        time.sleep(0.1)
+        cluster_info = new_shard_conn.execute_command("search.clusterinfo")
+        shards_idx = cluster_info.index('shards') + 1
+        unique_shards = set(shard[3] for shard in cluster_info[shards_idx])
 
 @skip(cluster=True)
 def test_mod5910(env):
@@ -1601,3 +1600,199 @@ def test_mod_8157_RESP2():
 @skip(cluster=False, min_shards=2)
 def test_mod_8157_RESP3():
   _mod_8157(Env(protocol=3))
+
+@skip(cluster=True)
+def test_mod_11975(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.SEARCH', 'idx', '@t:("*")', 'DIALECT', '2').equal([0])
+
+def check_threads(env, expected_num_threads_alive, expected_n_threads):
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1, message='numThreadsAlive should match num_threads_alive')
+    env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
+
+def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
+    """
+    Test that changing WORKERS from high to 0 under load doesn't cause unresponsiveness.
+    This test:
+    1. Starts with WORKERS=8 (simulating QPF=8)
+    2. Creates an index and loads data
+    3. Runs concurrent queries in background threads (100 threads, no delays)
+    4. Changes WORKERS to 0 (simulating QPF=0 change)
+    5. Verifies the shard remains responsive
+
+    """
+    # This test requires coordinator mode (OSS cluster)
+
+    # Start with 8 workers (simulating QPF=8)
+    env = Env(moduleArgs='WORKERS 8', enableDebugCommand=True)
+
+    # Create index with multiple field types to make queries more complex
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'title', 'TEXT', 'WEIGHT', '2.0',
+               'body', 'TEXT',
+               'price', 'NUMERIC', 'SORTABLE',
+               'category', 'TAG',
+               'location', 'GEO').ok()
+
+    # Load a significant amount of data to make queries take time
+    conn = getConnectionByEnv(env)
+    n_docs = 1000
+    categories = ['electronics', 'books', 'clothing', 'food', 'toys']
+
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{i}',
+                           'title', f'Product {i} title with searchable text',
+                           'body', f'This is the body of document {i} with more searchable content',
+                           'price', random.randint(10, 1000),
+                           'category', random.choice(categories),
+                           'location', f'{random.uniform(-90, 90)},{random.uniform(-180, 180)}')
+
+    waitForIndex(env, 'idx')
+
+    # Verify initial state
+    initial_workers = env.cmd(config_cmd(), 'GET', 'WORKERS')
+    env.assertEqual(initial_workers, [['WORKERS', '8']])
+    # Flag to control query threads
+    stop_queries = threading.Event()
+    query_success_count = [0]  # Use list to allow modification in thread
+
+    def run_queries():
+        """Run various queries continuously until stopped"""
+        local_conn = env.getConnection()
+        while not stop_queries.is_set():
+            # Mix of different query types
+            queries = [
+                ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'],
+                ['FT.SEARCH', 'idx', 'searchable', 'LIMIT', '0', '10'],
+                ['FT.SEARCH', 'idx', '@category:{electronics}', 'LIMIT', '0', '10'],
+                ['FT.SEARCH', 'idx', '*', 'SORTBY', 'price', 'ASC', 'LIMIT', '0', '10'],
+                ['FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count'],
+            ]
+
+            query = random.choice(queries)
+            _ = local_conn.execute_command(*query)
+            query_success_count[0] += 1
+
+    # Start multiple query threads to simulate concurrent load
+    # Increase thread count to maximize likelihood of hitting the race condition
+    # The bug requires worker threads to be actively processing queries when
+    # the config change happens
+    num_query_threads = 20
+    query_threads = []
+
+    for i in range(num_query_threads):
+        t = threading.Thread(target=run_queries, name=f'QueryThread-{i}')
+        t.start()
+        query_threads.append(t)
+
+    # Let queries run for a bit to establish load
+    # Increase time to ensure all threads are actively querying
+    pre_count = 0
+    with TimeLimit(10):
+      while (pre_count < 100):
+        time.sleep(0.1)
+        pre_count = query_success_count[0]
+
+    # Verify queries are running successfully
+    initial_success = query_success_count[0]
+    env.assertTrue(initial_success > 0, message="Queries should be running successfully before config change")
+    # I can check the thread pool state after the thpool is initialized by the first query
+    check_threads(env, 8, 8)
+
+    # Now change WORKERS to 0 (simulating QPF change from 8 to 0)
+    # This is the critical moment that triggers the bug
+    env.debugPrint("Changing WORKERS from 8 to 0 while queries are running...", force=True)
+    pre_count = query_success_count[0]
+    env.debugPrint(f"Query success count before config change: {pre_count}", force=True)
+
+    # The bug: This command may hang indefinitely if worker threads are blocked
+    # waiting for coordinator connections that were stopped by MRConnManager_Shrink
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
+
+    # Verify the config change is reflected in the getter
+    new_workers = env.cmd(config_cmd(), 'GET', 'WORKERS')
+    env.assertEqual(new_workers, [['WORKERS', '0']])
+    post_count = pre_count
+    with TimeLimit(10):
+      while (post_count == pre_count):
+        time.sleep(0.1)
+        post_count = query_success_count[0]
+    post_count = query_success_count[0]
+    env.debugPrint(f"Query success count after config change: {post_count}", force=True)
+    env.assertGreater(post_count, pre_count, message="Queries should continue running after config change")
+    with TimeLimit(10):
+        while (getWorkersThpoolStats(env)['numThreadsAlive'] != 0 or getWorkersThpoolNumThreads(env) != 0):
+            time.sleep(0.1)
+    check_threads(env, 0, 0)
+
+    # Verify the config change took effect
+    # Critical test: Verify Redis is still responsive
+    # This is where the bug manifests - Redis becomes unresponsive
+    try:
+        # Try to PING - this should work even with WORKERS=0
+        ping_result = env.cmd('PING')
+        env.assertContains(ping_result, ['PONG', True], message="Redis should respond to PING after WORKERS change")
+
+        # Try a simple query - this should work on the main thread
+        search_result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1')
+        env.assertTrue(search_result is not None, message="Search should work after WORKERS change")
+
+        # Try to add a new document
+        add_result = conn.execute_command('HSET', 'newdoc', 'title', 'test', 'price', '100', 'category', 'test')
+        env.assertContains(add_result, [3, True], message="Should be able to add documents after WORKERS change")
+    except Exception as e:
+        env.debugPrint(f"CRITICAL: Redis became unresponsive after WORKERS change: {e}", force=True)
+        raise AssertionError(f"Redis became unresponsive after WORKERS change (MOD-11658 reproduced): {e}")
+
+    # Stop query threads
+    stop_queries.set()
+    for t in query_threads:
+        t.join(timeout=5)
+
+    # Final verification: Redis should still be fully functional
+    final_ping = env.cmd('PING')
+    env.assertTrue(final_ping in ['PONG', True], message="Redis should still respond to PING at end of test")
+
+    final_search = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
+    env.assertTrue(final_search[0] > 0, message="Search should return results at end of test")
+
+    check_threads(env, 0, 0)
+@skip(cluster=False)
+def test_mod_12493(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+  # Add enough documents so 4 reads are needed from each shard to read all results (chunk size is 1000)
+  n_docs = 3200 * env.shardsCount
+  with env.getClusterConnectionIfNeeded() as conn:
+    for i in range(n_docs):
+      conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+  # Create a cursor
+  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR')
+
+  # Check that there are pending cursors on all shards
+  env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], env.shardsCount)
+
+  # Read another env.shardCount - 1 times. Expecting that each read will read 1000 results from each shard,
+  # so after env.shardsCount reads (including the initial aggregate), we will trigger another read from each shard
+  for _ in range(env.shardsCount - 1):
+    _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+
+  # Check again that there are pending cursors on all shards
+  env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], env.shardsCount)
+  # Check command stats for internal cursors command. We expect a single one (READ) on each shard
+  for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR']
+    env.assertEqual(stats['calls'], 1, message=f'Expected 1 call on shard {i}, got {stats["calls"]}')
+
+  # Delete the cursor. This should delete the internal cursors on all shards.
+  # If we call READ instead, they won't be deleted or depleted (3rd read, and we have 4 chunks), and the test will fail.
+  env.expect('FT.CURSOR', 'DEL', 'idx', cursor).ok()
+
+  # Expect another call on each shard for the DEL command
+  for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+    stats = con.execute_command('INFO', 'COMMANDSTATS')['cmdstat__FT.CURSOR']
+    env.assertEqual(stats['calls'], 2, message=f'Expected 2 calls on shard {i}, got {stats["calls"]}')
+
+  # Check that the internal cursors were deleted on all shards
+  env.assertEqual(to_dict(index_info(env)['cursor_stats'])['index_total'], 0)
