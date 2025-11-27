@@ -586,7 +586,6 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
 
   InvertedIndex_ApplyGcDelta(idx, delta, &info);
   delta = NULL;
-  shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
   if (InvertedIndex_NumDocs(idx) == 0) {
 
@@ -625,9 +624,7 @@ cleanup:
   }
   rm_free(term);
 
-  if (shouldFreeDeltas) {
-    InvertedIndex_GcDelta_Free(delta);
-  }
+  InvertedIndex_GcDelta_Free(delta);
   return status;
 }
 
@@ -798,7 +795,6 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
     InvertedIndex_ApplyGcDelta(idx, delta, &info);
     delta = NULL;
-    shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
     // if tag value is empty, let's remove it.
     if (InvertedIndex_NumDocs(idx) == 0) {
@@ -816,10 +812,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
-
-    if (shouldFreeDeltas) {
-      InvertedIndex_GcDelta_Free(delta);
-    }
+    InvertedIndex_GcDelta_Free(delta);
 
     if (tagVal) {
       rm_free(tagVal);
@@ -874,7 +867,6 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
 
   InvertedIndex_ApplyGcDelta(idx, delta, &info);
   delta = NULL;
-  shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
   if (InvertedIndex_NumDocs(idx) == 0) {
     // inverted index was cleaned entirely lets free it
@@ -891,10 +883,7 @@ cleanup:
   }
   HiddenString_Free(fieldName, false);
   rm_free(rawFieldName);
-
-  if (shouldFreeDeltas) {
-    InvertedIndex_GcDelta_Free(delta);
-  }
+  InvertedIndex_GcDelta_Free(delta);
 
   return status;
 }
@@ -939,7 +928,6 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
 
   InvertedIndex_ApplyGcDelta(idx, delta, &info);
   delta = NULL;
-  shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
   // We don't count the records that we removed, because we also don't count
   // their addition (they are duplications so we have no such desire).
@@ -959,9 +947,7 @@ cleanup:
     IndexSpecRef_Release(spec_ref);
   }
 
-  if (shouldFreeDeltas) {
-    InvertedIndex_GcDelta_Free(delta);
-  }
+  InvertedIndex_GcDelta_Free(delta);
 
   return status;
 }
