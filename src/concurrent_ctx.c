@@ -61,6 +61,10 @@ size_t ConcurrentSearchPool_WorkingThreadCount() {
   return redisearch_thpool_num_jobs_in_progress(threadpools_g[0]);
 }
 
+bool ConcurrentSearchPool_IsCreated() {
+  return threadpools_g != NULL;
+}
+
 static void threadHandleCommand(void *p) {
   ConcurrentCmdCtx *ctx = p;
 
