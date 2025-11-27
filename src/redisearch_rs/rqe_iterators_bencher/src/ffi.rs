@@ -44,12 +44,9 @@ pub use bindings::{
     IndexFlags_Index_StoreTermOffsets,
 };
 use bindings::{IteratorStatus, ValidateStatus};
-use ffi::RedisModule_Alloc;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::RSIndexResult;
+use inverted_index::{NumericFilter, RSIndexResult};
 use std::ptr;
-
-use crate::ffi::bindings::Metric_VECTOR_DISTANCE;
 
 // Direct C benchmark functions that eliminate FFI overhead
 // by implementing the benchmark loop entirely in C
@@ -83,47 +80,29 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub fn new_id_list(vec: Vec<u64>) -> Self {
-        // Convert the Rust vector to use C allocation because the C iterator takes ownership of the array
-        let len = vec.len();
-        let data =
-            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
-        }
-        Self(unsafe { bindings::NewIdListIterator(data, len as u64, 1f64) })
-    }
-    #[inline(always)]
-    pub fn new_metric(vec: Vec<u64>, metric_data: Vec<f64>) -> Self {
-        let len = vec.len();
-        let data =
-            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };
-        let m_data =
-            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<f64>()) as *mut f64 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
-            std::ptr::copy_nonoverlapping(metric_data.as_ptr(), m_data, len);
-        }
-        Self(unsafe { bindings::NewMetricIterator(data, m_data, len, Metric_VECTOR_DISTANCE) })
-    }
-    #[inline(always)]
     pub fn new_wildcard(max_id: u64, num_docs: usize) -> Self {
         Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, num_docs, 1f64) })
     }
 
     #[inline(always)]
-    pub unsafe fn new_numeric(ii: *mut bindings::InvertedIndex) -> Self {
+    pub unsafe fn new_numeric(
+        ii: *mut bindings::InvertedIndex,
+        filter: Option<&NumericFilter>,
+    ) -> Self {
         let field_ctx = FieldFilterContext {
             field: FieldMaskOrIndex::index_invalid(),
             predicate: FieldExpirationPredicate::Default,
         };
+        let flt = filter
+            .map(|filter| filter as *const NumericFilter as *const _)
+            .unwrap_or_default();
 
         Self(unsafe {
             bindings::NewInvIndIterator_NumericQuery(
                 ii,
                 ptr::null(),
                 &field_ctx as _,
-                ptr::null(),
+                flt,
                 ptr::null(),
                 0.0,
                 std::f64::MAX,
@@ -185,8 +164,9 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub fn current(&self) -> *mut RSIndexResult<'static> {
-        unsafe { (*self.0).current }
+    pub fn current(&self) -> Option<&RSIndexResult<'static>> {
+        let current = unsafe { (*self.0).current };
+        unsafe { current.as_ref() }
     }
 }
 
@@ -267,8 +247,8 @@ impl InvertedIndex {
     }
 
     #[inline(always)]
-    pub fn iterator_numeric(&self) -> QueryIterator {
-        unsafe { QueryIterator::new_numeric(self.0) }
+    pub fn iterator_numeric(&self, filter: Option<&NumericFilter>) -> QueryIterator {
+        unsafe { QueryIterator::new_numeric(self.0, filter) }
     }
 
     #[inline(always)]
@@ -319,7 +299,7 @@ mod tests {
         ii.write_numeric_entry(10, 10.0);
         ii.write_numeric_entry(100, 100.0);
 
-        let it = unsafe { QueryIterator::new_numeric(ii.0) };
+        let it = unsafe { QueryIterator::new_numeric(ii.0, None) };
         assert_eq!(it.num_estimated(), 3);
 
         assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
@@ -331,6 +311,41 @@ mod tests {
         it.rewind();
         assert_eq!(it.skip_to(10), IteratorStatus_ITERATOR_OK);
         assert_eq!(it.skip_to(20), IteratorStatus_ITERATOR_NOTFOUND);
+
+        it.rewind();
+        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
+
+        it.free();
+    }
+
+    #[test]
+    fn numeric_iterator_filter() {
+        let ii = InvertedIndex::new(IndexFlags_Index_StoreNumeric);
+        for i in 1..=10 {
+            ii.write_numeric_entry(i, i as f64);
+        }
+
+        let filter = NumericFilter {
+            min: 2.0,
+            max: 5.0,
+            min_inclusive: true,
+            max_inclusive: false,
+            ..Default::default()
+        };
+
+        let it = unsafe { QueryIterator::new_numeric(ii.0, Some(&filter)) };
+
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.current().unwrap().doc_id, 2);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.current().unwrap().doc_id, 3);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.current().unwrap().doc_id, 4);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
+
+        it.rewind();
+        assert_eq!(it.skip_to(2), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.skip_to(5), IteratorStatus_ITERATOR_EOF);
 
         it.rewind();
         assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
