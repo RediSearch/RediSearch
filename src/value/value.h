@@ -133,14 +133,6 @@ typedef struct RSValue {
 // Constructors
 ///////////////////////////////////////////////////////////////
 
-/**
- * Creates a heap-allocated RSValue of the specified type.
- * The returned value must be freed when no longer needed.
- * @param t The type of RSValue to create
- * @return A pointer to a heap-allocated RSValue
- */
-RSValue *RSValue_NewWithType(RSValueType t);
-
 #ifndef __cplusplus
 /**
  * Creates a stack-allocated undefined RSValue.
@@ -182,6 +174,12 @@ RSValue RSValue_Number(double n);
  */
 RSValue RSValue_String(char *str, uint32_t len);
 #endif
+
+/**
+ * Creates a heap-allocated Undefined RSValue.
+ * @return A pointer to a heap-allocated RSValue
+ */
+RSValue *RSValue_NewUndefined();
 
 /**
  * Creates a heap-allocated RSValue wrapping a string.

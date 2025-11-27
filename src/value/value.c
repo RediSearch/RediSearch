@@ -158,6 +158,11 @@ RSValue RSValue_String(char *str, uint32_t len) {
   return v;
 }
 
+RSValue *RSValue_NewUndefined() {
+  RSValue *v = RSValue_NewWithType(RSValueType_Undef);
+  return v;
+}
+
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
  * the value needs to be detached */
 inline RSValue *RSValue_NewString(char *str, uint32_t len) {
