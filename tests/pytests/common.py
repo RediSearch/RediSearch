@@ -1001,7 +1001,16 @@ def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
         Dict mapping key -> dict of all fields from the results list
         Example: {'doc:1': {'__score': '0.5', 'vector_distance': '0.3'}}
     """
-    # return dict mapping key -> all fields from the results list
+    # Handle RESP3 format (dict)
+    if isinstance(response, dict):
+        results = {}
+        for result in response.get('results', []):
+            if '__key' in result:
+                key = result['__key']
+                results[key] = result
+        total_results = response.get('total_results', 0)
+        return results, total_results
+
     res_results_index = recursive_index(response, 'results')
     res_count_index = recursive_index(response, 'total_results')
     res_results_index[-1] += 1
