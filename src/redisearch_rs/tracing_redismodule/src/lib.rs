@@ -38,11 +38,22 @@
 //!
 //! For details see the [`tracing_subscriber`] documentation.
 //!
+//! ## Output Styling
+//!
+//! By default the subscriber will style the terminal output to help with legibility.
+//! To manually configure the styling of logging output you can set the `RUST_LOG_STYLE`
+//! environment variable. Supported values are:
+//!
+//! - `auto` (default) will attempt to print style characters, but don’t force the issue. If the console isn’t available on Windows, if TERM=dumb, or a CI environment is detected for example, then don’t print colors.
+//! - `always` will always print style characters even if they aren’t supported by the terminal. This includes emitting ANSI colors on Windows if the console API is unavailable.
+//! - `never` will never print style characters.
+//!
 //! [`level`]: tracing_core::Level
 //! [`Metadata`]: tracing_core::Metadata
 //! [`tracing_subscriber`]: https://docs.rs/tracing-subscriber/0.3.20/tracing_subscriber/filter/struct.EnvFilter.html#directives
 
 use std::cell::RefCell;
+use std::env::{self, VarError};
 use std::error::Error;
 use std::ffi::{CStr, c_char};
 use std::ptr::NonNull;
@@ -85,6 +96,7 @@ pub fn try_init(
         .with_thread_ids(true)
         .with_span_events(FmtSpan::FULL)
         .with_env_filter(env_filter)
+        .with_ansi(should_print_colors())
         .without_time() // redis already prints timestamps
         .with_writer(MakeRedisModuleWriter {
             ctx: ctx.and_then(|ctx| {
@@ -100,6 +112,31 @@ pub fn try_init(
             log: unsafe { ffi::RedisModule_Log.unwrap() },
         })
         .try_init()
+}
+
+fn should_print_colors() -> bool {
+    match env::var("RUST_LOG_STYLE").as_deref() {
+        Ok("never") => false,
+        Ok("always") => true,
+        Ok("auto") | Err(VarError::NotPresent) => {
+            // Attempt a "best guess" based on the terminal configuration and env vars
+            // adapted from https://github.com/rust-cli/anstyle
+
+            let clicolor = anstyle_query::clicolor();
+            let clicolor_enabled = clicolor.unwrap_or(false);
+            let clicolor_disabled = !clicolor.unwrap_or(true);
+            if anstyle_query::no_color() {
+                false
+            } else if anstyle_query::clicolor_force() {
+                true
+            } else if clicolor_disabled {
+                false
+            } else {
+                anstyle_query::term_supports_color() || clicolor_enabled || anstyle_query::is_ci()
+            }
+        }
+        v => panic!("invalid RUST_LOG_STYLE value `{v:?}`"),
+    }
 }
 
 struct MakeRedisModuleWriter {
