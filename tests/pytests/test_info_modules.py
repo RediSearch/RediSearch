@@ -1450,7 +1450,6 @@ def test_warnings_metric_count_oom_cluster_in_shards_resp3():
   info_coord = info_modules_to_dict(env)
   env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC], '1')
 
-# @skip(cluster=False)
 def test_active_io_threads_stats(env):
   conn = getConnectionByEnv(env)
   # Setup: Create index with some data
