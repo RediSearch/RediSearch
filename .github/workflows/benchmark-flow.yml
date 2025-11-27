@@ -91,10 +91,19 @@ jobs:
         with:
           terraform_version: 1.11.1
           terraform_wrapper: false
+      - name: ensure terraform in container
+        run: |
+          if ! command -v terraform >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y wget unzip
+            wget -q https://releases.hashicorp.com/terraform/1.11.1/terraform_1.11.1_linux_amd64.zip
+            unzip -o terraform_1.11.1_linux_amd64.zip
+            mv terraform /usr/local/bin/terraform
+          fi
+          terraform -version
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 240 # timeout for the step
         working-directory: tests/benchmarks
-        continue-on-error: true
         env:
           # Hard-coded
           PERF_CALLGRAPH_MODE: dwarf
@@ -116,7 +125,7 @@ jobs:
               --github_repo ${{ github.event.repository.name }}
               --github_org ${{ github.repository_owner }}
               --module_path ../../${{ inputs.rejson_module_path }}
-              --required-module ReJSON              
+              --required-module ReJSON
               --github_sha ${{ github.sha }}
               --github_branch ${{ github.head_ref || github.ref_name }}
               --upload_results_s3
