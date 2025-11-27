@@ -1298,13 +1298,13 @@ def _test_active_worker_threads(env, num_queries):
     _test_query_type('FT.AGGREGATE')
 
 # --- Test 1: Standalone Mode ---
-@skip(cluster=False)  # Only run in standalone mode
+@skip(cluster=True)  # Only run in standalone mode
 def test_active_worker_threads_SA(env):
     num_queries = 1
     _test_active_worker_threads(env, num_queries)
 
 # --- Test 2: Cluster Mode ---
-@skip(cluster=True)  # Only run in cluster mode
+@skip(cluster=False)  # Only run in cluster mode
 def test_active_worker_threads_cluster(env):
     num_queries = 1
     _test_active_worker_threads(env, num_queries)
