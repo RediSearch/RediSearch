@@ -9,67 +9,6 @@
 #include <stdatomic.h>
 #include "redismodule.h"
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// static definitions in header                                                                             //
-// We want to avoid atomic read access through FFI boundary, so we maintain atomic version counter here.    //
-// This removes any overhead when checking versions from the query execution path.                          //
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Forward declarations for internal functions used by static inline functions
-uint32_t slots_tracker_set_local_slots_internal(const RedisModuleSlotRangeArray *ranges);
-uint32_t slots_tracker_mark_partially_available_slots_internal(const RedisModuleSlotRangeArray *ranges);
-
-// Global version counter for the key space state.
-// Aligned with the definition in result_processor.c
-extern atomic_uint key_space_version;
-
-/**
- * Sets the local slot ranges this shard is responsible for.
- *
- * This function updates the "local slots" set to match the provided ranges.
- * If the ranges differ from the current configuration:
- * - Updates "local slots" to the new ranges
- * - Removes any overlapping slots from "fully available slots" and "partially available slots"
- * - Increments the version counter
- *
- * If the ranges are identical to the current configuration, no changes are made.
- *
- * # Safety
- *
- * This function must be called from the main thread only.
- * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` valid elements.
- * All ranges must be sorted and have start <= end, with values in [0, 16383].
- */
-static void slots_tracker_set_local_slots(const RedisModuleSlotRangeArray *ranges) {
-  uint32_t version_before = atomic_load_explicit(&key_space_version, memory_order_relaxed);
-  uint32_t version_after = slots_tracker_set_local_slots_internal(ranges);
-  if (version_after != version_before) {
-    atomic_store_explicit(&key_space_version, version_after, memory_order_relaxed);
-  }
-}
-
-
-/**
- * Marks the given slot ranges as partially available.
- *
- * This function updates the "partially available slots" set by adding the provided ranges.
- * It also removes the given slots from "local slots" and "fully available slots", and
- * increments the version counter.
- *
- * # Safety
- *
- * This function must be called from the main thread only.
- * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` valid elements.
- * All ranges must be sorted and have start <= end, with values in [0, 16383].
- */
-static void slots_tracker_mark_partially_available_slots(const RedisModuleSlotRangeArray *ranges) {
-  uint32_t version = slots_tracker_mark_partially_available_slots_internal(ranges);
-  atomic_store_explicit(&key_space_version, version, memory_order_relaxed);
-}
-
-
 /**
  * FFI struct representing an optional SlotsTracker version.
  * This is used to return version information from the `slots_tracker_check_availability` function.
