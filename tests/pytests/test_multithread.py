@@ -473,8 +473,8 @@ def check_threads(env, expected_num_threads_alive, expected_n_threads):
     env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1, message='n_threads should match WORKERS')
 
 def test_change_workers_number():
-    def send_query():
-        env.expect('ft.search', 'idx', '*').equal([0])
+    def send_query(environment):
+      environment.expect('ft.search', 'idx', '*').equal([0])
 
     # On start up the threadpool is not initialized. We can change the value of requested threads
     # without actually creating the threads.
@@ -498,7 +498,7 @@ def test_change_workers_number():
     query_threads = []
 
     for i in range(num_query_threads):
-        t = threading.Thread(target=send_query, name=f'QueryThread-{i}')
+        t = threading.Thread(target=send_query, name=f'QueryThread-{i}', args=(env,))
         t.start()
         query_threads.append(t)
 
@@ -543,7 +543,9 @@ def test_change_workers_number():
 
     # Terminate all threads
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
-    time.sleep(1)
+    with TimeLimit(10):
+        while (getWorkersThpoolNumThreads(env) != 0):
+            time.sleep(0.1)
     env.assertEqual(getWorkersThpoolNumThreads(env), 0)
 
     # Query should not be executed by the threadpool
