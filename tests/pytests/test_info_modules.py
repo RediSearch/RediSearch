@@ -1218,7 +1218,7 @@ def _test_active_worker_threads(env, num_queries):
 
     Args:
         env: Test environment
-        num_queries: Number of queries to pause. 
+        num_queries: Number of queries to pause.
                      NOTE: Currently query debug pause mechanism only supports pausing one query at a time.
     """
     conn = getConnectionByEnv(env)
@@ -1235,10 +1235,9 @@ def _test_active_worker_threads(env, num_queries):
     multi_threading_section = f'{SEARCH_PREFIX}multi_threading'
     for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
         info_dict = info_modules_to_dict(con)
-        multi_threading_section = info_dict[f'{SEARCH_PREFIX}multi_threading']
-        env.assertEqual(multi_threading_section[f'{SEARCH_PREFIX}active_worker_threads'], '0',
+        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
                        message=f"shard {i}: active_worker_threads should be 0 when idle")
-        env.assertEqual(multi_threading_section[f'{SEARCH_PREFIX}active_coord_threads'], '0',
+        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_coord_threads'], '0',
                        message=f"shard {i}: active_coord_threads should be 0 when idle")
 
     # Define callback for testing a specific query type

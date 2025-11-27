@@ -5,21 +5,21 @@
 */
 
 #include <algorithm>
-#include "rmutil/alloc.h"
+#include "iterators_rs.h"
 #include "gtest/gtest.h"
-#include "src/iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 
 static bool cmp_docids(const t_docId& d1, const t_docId& d2) {
   return d1 < d2;
 }
 
-class MetricIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<double>, Metric>>  {
+class MetricIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<double>, MetricType>>  {
 protected:
   std::vector<t_docId> docIds;
   std::vector<double> scores;
   std::vector<double> sortedScores;
   std::vector<t_docId> sortedDocIds;
-  Metric metric_type;
+  MetricType metric_type;
   bool yields_metric;
   QueryIterator *iterator_base;
 
@@ -39,7 +39,7 @@ protected:
     double *scores_array = (double*)rm_malloc(sortedScores.size() * sizeof(double));
     std::copy(sortedDocIds.begin(), sortedDocIds.end(), ids_array);
     std::copy(sortedScores.begin(), sortedScores.end(), scores_array);
-    iterator_base = NewMetricIterator(ids_array, scores_array, indices.size(), metric_type);
+    iterator_base = NewMetricIteratorSortedById(ids_array, scores_array, indices.size(), metric_type);
   }
   void TearDown() override {
     iterator_base->Free(iterator_base);

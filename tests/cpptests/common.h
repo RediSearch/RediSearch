@@ -18,6 +18,7 @@
 #include <chrono>
 #include <functional>
 #include <sstream>
+#include <unistd.h>
 #endif
 
 #define __ignore__(X) \
