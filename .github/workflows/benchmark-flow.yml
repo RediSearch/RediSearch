@@ -5,9 +5,6 @@ name: Run a Benchmark Flow
 on:
   workflow_call:
     inputs:
-      container:
-        type: string
-        default: redisfab/rmbuilder:6.2.7-x64-bullseye
       module_path:
         type: string
         default: bin/linux-x64-release/search/redisearch.so
@@ -41,8 +38,8 @@ on:
 
 jobs:
   benchmark-steps:
-    runs-on: ubuntu-latest
-    container: ${{ inputs.container }}
+    name: "Benchmark ${{ inputs.allowed_envs }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
+    runs-on: ubuntu-22.04  # Temporary hard coded until we resolve the issues with ubuntu-latest(24)
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -55,23 +52,15 @@ jobs:
       - name: Setup specific  # assuming node20 supported
         working-directory: .install
         run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }}
+          ./install_script.sh ${{ steps.mode.outputs.mode }} sudo
 
       - name: Setup tests dependencies
         run: |
-          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
-          .install/test_deps/install_rust.sh
-          echo "PATH=$PATH:$HOME/.cargo/bin" >> $GITHUB_ENV
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }} sudo
+      - name: Install Boost
+        working-directory: .install
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
 
-      - name: Get Redis
-        uses: actions/checkout@v4
-        with:
-          repository: redis/redis
-          ref: unstable
-          path: redis
-      - name: Build Redis
-        working-directory: redis
-        run: make install
       - name: Build RediSearch
         run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
           COORD=${{ inputs.cluster_env }}
