@@ -8,6 +8,7 @@
 #include "aggregate/aggregate.h"
 #include "util/units.h"
 #include "rs_wall_clock.h"
+#include "util/workers.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define INCR(x) INCR_BY(x, 1)
@@ -106,10 +107,12 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd) {
   INCR_BY(RSGlobalStats.totalStats.multi_threading.active_io_threads, toAdd);
 }
 
-// Get the number of active io threads.
 // Get multiThreadingStats
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
-  MultiThreadingStats stats;
+  MultiThreadingStats stats = {0};
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
+#ifdef MT_BUILD
+  stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
+#endif
   return stats;
 }
