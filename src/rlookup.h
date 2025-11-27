@@ -267,13 +267,11 @@ void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value)
 
 /**
  * Move data from the source row to the destination row. The source row is cleared.
- * The destination row should be pre-cleared (though its cache may still
- * exist).
  * @param lk lookup common to both rows
  * @param src the source row
  * @param dst the destination row
  */
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
+void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
 
 /**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
