@@ -173,14 +173,6 @@ RSValue *RSValue_NewUndefined();
 RSValue *RSValue_NewString(char *str, uint32_t len);
 
 /**
- * Creates a heap-allocated RSValue wrapping a null-terminated C string.
- * @param s The null-terminated string to wrap (ownership is transferred)
- * @return A pointer to a heap-allocated RSValue
- */
-static inline RSValue *RSValue_NewCString(char *s) {
-  return RSValue_NewString(s, strlen(s));
-}
-/**
  * Creates a heap-allocated RSValue wrapping a const null-terminated C string.
  * @param str The string to wrap (ownership is transferred)
  * @param len The length of the string

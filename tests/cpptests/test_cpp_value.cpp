@@ -27,7 +27,8 @@ TEST_F(ValueTest, testBasic) {
   RSValue_DecrRef(v2);
 
   const char *str = "hello world";
-  v = RSValue_NewCString(strdup(str));
+  char *s = strdup(str);
+  v = RSValue_NewString(s, strlen(s));
   ASSERT_EQ(RSValueType_String, RSValue_Type(v));
   uint32_t v_str_len;
   char *v_str = RSValue_String_Get(v, &v_str_len);
