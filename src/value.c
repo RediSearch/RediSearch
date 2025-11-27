@@ -158,6 +158,11 @@ RSValue RSValue_String(char *str, uint32_t len) {
   return v;
 }
 
+RSValue *RSValue_NewUndefined() {
+  RSValue *v = RSValue_NewWithType(RSValueType_Undef);
+  return v;
+}
+
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
  * the value needs to be detached */
 inline RSValue *RSValue_NewString(char *str, uint32_t len) {
@@ -213,6 +218,8 @@ RSValue *RSValue_NewCopiedString(const char *s, size_t n) {
   return v;
 }
 
+// DAX: I'd probably move number parsing to a utility function instead of it
+// being part of the value module. Separation of concerns and stuff.
 RSValue *RSValue_NewParsedNumber(const char *p, size_t l) {
 
   char *e;
@@ -232,6 +239,7 @@ RSValue *RSValue_NewNumber(double n) {
   return v;
 }
 
+// DAX: WUT? This just stored the int64_t value in a double field?!? What can go wrong?
 RSValue *RSValue_NewNumberFromInt64(int64_t dd) {
   RSValue *v = RSValue_NewWithType(RSValueType_Number);
   v->_numval = dd;
@@ -268,7 +276,7 @@ RSValue *RSValue_NewVStringArray(uint32_t sz, ...) {
   va_start(ap, sz);
   for (uint32_t i = 0; i < sz; i++) {
     char *p = va_arg(ap, char *);
-    arr[i] = RSValue_NewCString(p);
+    arr[i] = RSValue_NewString(p, strlen(p));
   }
   va_end(ap);
   return RSValue_NewArray(arr, sz);
@@ -279,7 +287,7 @@ RSValue *RSValue_NewStringArray(char **strs, uint32_t sz) {
   RSValue **arr = RSValue_AllocateArray(sz);
 
   for (uint32_t i = 0; i < sz; i++) {
-    arr[i] = RSValue_NewCString(strs[i]);
+    arr[i] = RSValue_NewString(strs[i], strlen(strs[i]));
   }
   return RSValue_NewArray(arr, sz);
 }

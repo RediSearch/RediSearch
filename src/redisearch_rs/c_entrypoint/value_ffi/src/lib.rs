@@ -77,6 +77,38 @@ pub unsafe extern "C" fn RsValue_String(
     DynRsValue::from(v).into_opaque()
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_NewUndefined() -> OpaqueDynRsValuePtr {
+    // First try
+    let val = DynRsValue::from(RsValue::undefined());
+    // CRITICAL: val will be freed after this, so DynRsValuePtr will point to a freed value
+    DynRsValuePtr::from_dyn_value(&val).into_opaque();
+
+    // Another try
+    let val = SharedRsValue::undefined(); // which is a null pointer
+    let dyn_val = DynRsValue::Shared(val);
+    let dyn_val_ptr = DynRsValuePtr::from_dyn_value(&val); // will be of type Shared with a null pointer
+    // CRITICAL: Now it contains a null pointer and calls to e.g.
+
+    // We can't use SharedRsValue::undefined() because DynRsValuePtr::Shared points to a
+    // RsValueInternal and RsValueInternal doesn't has an undefined option.
+
+    // How should this be handled?
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_NewString(_str: *const c_char, _len: u32) -> OpaqueDynRsValuePtr {
+    // create a RsValue::String
+    // then wrap that in a DynRsValue::Shared
+    unimplemented!()
+}
+
+// Something similar as the above for RSValue_NewConstString, RSValue_NewBorrowedRedisString, RSValue_NewOwnedRedisString
+// RSValue_NewStolenRedisString, RSValue_NewCopiedString, RSValue_NewParsedNumber, RSValue_NewNumber,
+// RSValue_NewNumberFromInt64, RSValue_NewArray, RSValue_NewMap, RSValue_NewVStringArray, RSValue_NewStringArray,
+// RSValue_NewConstStringArray, RSValue_NewTrio...
+// all returning an OpaqueDynRsValuePtr, right?
+
 /// Returns a pointer to a statically allocated NULL `RsValue`.
 /// This is a singleton - the same pointer is always returned.
 /// DO NOT free or modify this value.
@@ -229,6 +261,11 @@ pub unsafe extern "C" fn RsValue_IsNull(v: OpaqueDynRsValuePtr) -> bool {
     unsafe { RsValue_Type(v).is_null() }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_SetNumber(_v: OpaqueDynRsValuePtr, _n: c_double) {
+    unimplemented!()
+}
+
 /// Gets the `f64` wrapped by the [`OpaqueDynRsValue`]
 ///
 /// # Safety
@@ -256,6 +293,8 @@ pub unsafe extern "C" fn RsValue_Number_Get(v: OpaqueDynRsValuePtr) -> f64 {
 ///
 /// @param v The value to modify
 /// @param n The numeric value to set
+// DAX: Re 1: `RsValue_IntoNumber` is normally called with a *RSValue` which in the new setup is going to be an `OpaqueDynRsValuePtr`.
+// DAX: An `OpaqueDynRsValuePtr` is NOT a `Option<NonNull<OpaqueDynRsValue>>`
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RsValue_IntoNumber(v: Option<NonNull<OpaqueDynRsValue>>, n: f64) {
     // Safety: caller must ensure (1)
@@ -725,6 +764,7 @@ pub unsafe extern "C" fn RsValue_Dereference(v: OpaqueDynRsValuePtr) -> OpaqueDy
 ///   i.e. [`RsValue_Undefined`], [`RsValue_Number`], [`RsValue_String`],
 ///   or [`RsValue_NullStatic`].
 /// - (3) `src` must originate from a call to [`RsValue_DynPtr`].
+// DAX: Re 2: `RsValue_NullStatic` is not the same. It returns a `RsValuePtr` instead of the other three returning a `RsValue`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RsValue_MakeReference(
     dst: Option<NonNull<OpaqueDynRsValue>>,

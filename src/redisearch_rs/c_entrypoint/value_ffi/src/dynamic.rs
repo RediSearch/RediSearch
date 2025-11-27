@@ -172,6 +172,7 @@ impl Value for DynRsValue {
 /// Pointer type that either points to an
 /// exclusive [`RsValue`] or to the inner value
 /// of a [`SharedRsValue`].
+// DAX: Why is DynRsValuePtr an enum and not a `*const DynRsValue` or something similar?
 #[derive(Debug, Clone, Copy)]
 pub enum DynRsValuePtr {
     Exclusive(*const RsValue),

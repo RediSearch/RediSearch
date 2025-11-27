@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+// DAX: Since this module concerns itself with ffi, should it really be placed in this module and not in the ffi module instead?
+
 use std::{ffi::c_char, ptr::NonNull};
 
 /// A trait that defines the behavior of a RediSearch RSValue.

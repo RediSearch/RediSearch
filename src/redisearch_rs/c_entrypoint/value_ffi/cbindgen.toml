@@ -25,5 +25,6 @@ parse_deps = true
 include = ["value", "c_ffi_utils"]
 
 [export.rename]
+# DAX: Shouldn't this be renamed to `RSValue` as it's currently named?
 "OpaqueDynRsValue" = "RsValue"
 "OpaqueDynRsValuePtr" = "RsValuePtr"

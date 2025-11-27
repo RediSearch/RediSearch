@@ -10,6 +10,7 @@
 use crate::{RsValue, Value, shared::SharedRsValue};
 
 /// A reference to either an [`RsValue`] or a [`SharedRsValue`].
+// DAX: Shouldn't this live in the values ffi bridge together with `DynRsValue` and `DynRsValuePtr`?
 #[derive(Debug, Clone)]
 pub enum DynRsValueRef<'v> {
     /// Reference to an exclusive value

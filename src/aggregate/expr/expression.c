@@ -24,7 +24,11 @@ extern int func_case(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result)
 
 static int evalFuncCase(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   // Evaluate the condition
+  // DAX: So in the new code this will be an RsValue, which is a renamed OpaqueDynRsValue,
+  // DAX: which actually is a DynRsValue, an exclusive undefined one.
   RSValue condVal = RSValue_Undefined();
+  // DAX: But calling evalInternal should happen with a RsValuePtr (see why below).
+  // DAX: So how to convert an RsValue to a RsValuePtr? And should we want to?
   int rc = evalInternal(eval, f->args->args[0], &condVal);
   if (rc != EXPR_EVAL_OK) {
     RSValue_Clear(&condVal);
@@ -338,6 +342,9 @@ EvalCtx *EvalCtx_Create() {
   r->ee.srcrow = &r->row;
   r->ee.err = &r->status;
 
+  // DAX: Deferencing `RSValue_NullStatic` gives an `Arc<_>` and not a `RsValue` which it expects.
+  // DAX: This is another example of what I tried to explain with the fact that a `&RsValue` and a `RsValuePr`
+  // DAX: (and thus `RsValue` and `*RsValuePtr`) are not compatible in how the C code needs to use it.
   r->res = *RSValue_NullStatic();
 
   r->_expr = NULL;
@@ -442,9 +449,15 @@ static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
   pc->eval.err = pc->base.parent->err;
 
   if (!pc->val) {
-    pc->val = RSValue_NewWithType(RSValueType_Undef);
+    // DAX: This creates a heap-allocated Undefined RSValue, which in the rust version will be a null pointer.
+    // DAX: Not sure if that is the right approach, as an undefined value should be easily converted to another type,
+    // DAX: and that can't happen when it doesn't point to anything, right?
+    // DAX: Anyways, RSValue_NewUndefined will return a RsValuePtr, which is a renamed OpaqueDynRsValuePtr,
+    // DAX: which actually is a DynRsValuePtr.
+    pc->val = RSValue_NewUndefined();
   }
 
+  // DAX: So ExprEval_Eval (which is just a wrapper to evalInternal) will accept an RsValuePtr argument.
   rc = ExprEval_Eval(&pc->eval, pc->val);
   if (rc != EXPR_EVAL_OK) {
     return RS_RESULT_ERROR;

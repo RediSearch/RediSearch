@@ -21,6 +21,9 @@ use crate::{RsValueInternal, Value, dynamic::DynRsValueRef};
 /// - A non-null pointer represents one clone of said `Arc`, and as such, as
 ///   long as the [`SharedRsValue`] lives and holds a non-null pointer, the Arc
 ///   is still valid.
+// DAX: I don't think we need a raw pointer here. We're in safe rust and should use Arc directly.
+// DAX: Only in the ffi boundary we need to convert to/from a raw pointer to the Arc imo.
+// DAX: To make it nullable, wrap it in an Option. The identical safe type would be `Option<Arc<RsValueInternal>>`.
 #[repr(transparent)]
 pub struct SharedRsValue {
     /// Pointer representing the `Arc<RsValueInternal>`.
@@ -72,6 +75,7 @@ impl Default for SharedRsValue {
     }
 }
 
+// DAX: No need for custom drop implementation when using Arc directly.
 impl Drop for SharedRsValue {
     fn drop(&mut self) {
         if self.ptr.is_null() {
@@ -94,6 +98,7 @@ impl Value for SharedRsValue {
     /// [`SharedRsValue`], which is relied upon in other method
     /// and trait implementations for this type, e.g. [`Drop`] and
     /// [`Clone`].
+    // DAX: Would simply be `Self { inner: Some(Arc::new(internal)) }`
     fn from_internal(internal: RsValueInternal) -> Self {
         let internal = Arc::new(internal);
 
@@ -102,12 +107,14 @@ impl Value for SharedRsValue {
         }
     }
 
+    // DAX: Would simply be `Self { inner: None }`
     fn undefined() -> Self {
         Self {
             ptr: ptr::null_mut(),
         }
     }
 
+    // DAX: Would simply be `self.inner.map(|arc| arc.as_ref())`
     fn internal(&self) -> Option<&RsValueInternal> {
         if self.ptr.is_null() {
             return None;
@@ -137,6 +144,7 @@ impl fmt::Debug for SharedRsValue {
     }
 }
 
+// DAX: Would simply be `#[derive(Clone)]`
 impl Clone for SharedRsValue {
     fn clone(&self) -> Self {
         if self.ptr.is_null() {
@@ -155,11 +163,13 @@ impl Clone for SharedRsValue {
 // Safety: `SharedRsValue` is essentially just a `Arc<RsValueInternal>`.
 // Below static assertion proves that `Arc<RsValueInternal>` is `Send`,
 // and therefore `SharedRsValue` is `Send`
+// DAX: Would not be needed, because Rust's type system automatically makes it `Send`.
 unsafe impl Send for SharedRsValue {}
 
 // Safety: `SharedRsValue` is essentially just a `Arc<RsValueInternal>`.
 // Below static assertion proves that `Arc<RsValueInternal>` is `Sync`,
 // and therefore `SharedRsValue` is `Sync`
+// DAX: Would not be needed, because Rust's type system automatically makes it `Sync`.
 unsafe impl Sync for SharedRsValue {}
 
 const _ASSERT_ARC_RS_VALUE_INTERNAL_IS_SEND_AND_SYNC: () = {

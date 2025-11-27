@@ -134,37 +134,11 @@ typedef struct RSValue {
 ///////////////////////////////////////////////////////////////
 
 /**
- * Creates a heap-allocated RSValue of the specified type.
- * The returned value must be freed when no longer needed.
- * @param t The type of RSValue to create
- * @return A pointer to a heap-allocated RSValue
- */
-RSValue *RSValue_NewWithType(RSValueType t);
-
-/**
  * Creates a stack-allocated undefined RSValue.
  * The returned value is not allocated on the heap and should not be freed.
  * @return A stack-allocated RSValue of type RSValueType_Undef
  */
 RSValue RSValue_Undefined();
-
-#ifndef __cplusplus
-/**
- * Creates a stack-allocated RSValue of the specified type.
- * The returned value is not heap-allocated and should not be freed.
- * This is a generic constructor for stack-allocated RSValues.
- * @param t The type of RSValue to create
- * @return A stack-allocated RSValue
- */
-static RSValue RSValue_WithType(RSValueType t) {
-  RSValue v = (RSValue){
-      ._t = t,
-      ._refcount = 1,
-      ._allocated = 0,
-  };
-  return v;
-}
-#endif
 
 /**
  * Creates a stack-allocated RSValue containing a number.
@@ -184,6 +158,12 @@ RSValue RSValue_Number(double n);
 RSValue RSValue_String(char *str, uint32_t len);
 
 /**
+ * Creates a heap-allocated Undefined RSValue.
+ * @return A pointer to a heap-allocated RSValue
+ */
+RSValue *RSValue_NewUndefined();
+
+/**
  * Creates a heap-allocated RSValue wrapping a string.
  * Doesn't duplicate the string. Use strdup if the value needs to be detached.
  * @param str The string to wrap (ownership is transferred)
@@ -193,27 +173,12 @@ RSValue RSValue_String(char *str, uint32_t len);
 RSValue *RSValue_NewString(char *str, uint32_t len);
 
 /**
- * Creates a heap-allocated RSValue wrapping a null-terminated C string.
- * @param s The null-terminated string to wrap (ownership is transferred)
- * @return A pointer to a heap-allocated RSValue
- */
-static inline RSValue *RSValue_NewCString(char *s) {
-  return RSValue_NewString(s, strlen(s));
-}
-/**
  * Creates a heap-allocated RSValue wrapping a const null-terminated C string.
  * @param str The string to wrap (ownership is transferred)
  * @param len The length of the string
  * @return A pointer to a heap-allocated RSValue wrapping a constant C string
  */
 RSValue *RSValue_NewConstString(const char *str, uint32_t len);
-/**
- * Like RSValue_NewConstString, but uses strlen to determine
- * the length of the passed null-terminated C string.
- */
-static inline RSValue *RSValue_NewConstCString(const char *s) {
-  return RSValue_NewConstString(s, strlen(s));
-}
 
 /**
  * Creates a heap-allocated RSValue wrapping a RedisModuleString.
@@ -403,6 +368,7 @@ bool RSValue_IsOwnRString(const RSValue *v);
  */
 bool RSValue_IsTrio(const RSValue *v);
 
+// DAX: Is it possible to have static inlines in the generated c header from Rust like this one?
 // Returns true if the value contains any type of string
 static inline int RSValue_IsAnyString(const RSValue *value) {
   return value && (value->_t == RSValueType_String || value->_t == RSValueType_RedisString ||
@@ -429,6 +395,7 @@ double RSValue_Number_Get(const RSValue *v);
  * @param v The value to modify
  * @param n The numeric value to set
  */
+// DAX: This is exactly the same as RSValue_SetNumber with an added NULL assert.
 void RSValue_IntoNumber(RSValue *v, double n);
 
 // String getters/setters
@@ -477,6 +444,7 @@ static inline RSValue *RSValue_ArrayItem(const RSValue *arr, uint32_t index) {
   return arr->_arrval.vals[index];
 }
 
+// DAX: Shouldn't this have an assert as well?
 static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
   return arr ? arr->_arrval.len : 0;
 }
@@ -555,6 +523,7 @@ RSValue *RSValue_IncrRef(RSValue *v);
 void RSValue_DecrRef(RSValue *v);
 
 #ifndef __cplusplus
+// DAX: So this lets dst point to src.
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
   RSValue_Clear(dst);
@@ -562,6 +531,8 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   dst->_ref = RSValue_IncrRef(src);
 }
 
+// DAX: Then what does this do? It makes dst point to src but decreases the reference count of src.
+// DAX: Oh wait, it 'moves' src as a reference inside dst. src should not be used after this call.
 static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
   RSValue_DecrRef(src);

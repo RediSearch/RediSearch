@@ -171,6 +171,10 @@ struct RsValue RsValue_Number(double n);
  */
 struct RsValue RsValue_String(char *str, uint32_t len);
 
+struct RsValuePtr RSValue_NewUndefined(void);
+
+struct RsValuePtr RSValue_NewString(const char *_str, uint32_t _len);
+
 /**
  * Returns a pointer to a statically allocated NULL `RsValue`.
  * This is a singleton - the same pointer is always returned.
@@ -289,6 +293,8 @@ bool RsValue_IsAnyString(struct RsValuePtr v);
  * @return true if the value is NULL, false otherwise
  */
 bool RsValue_IsNull(struct RsValuePtr v);
+
+void RSValue_SetNumber(struct RsValuePtr _v, double _n);
 
 /**
  * Gets the `f64` wrapped by the [`OpaqueDynRsValue`]
