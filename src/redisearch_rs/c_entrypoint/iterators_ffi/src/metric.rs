@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::wrapper::RQEIteratorWrapper;
 use ffi::{
     IteratorType_METRIC_ITERATOR, QueryIterator, RLookupKey, RLookupKeyHandle, RedisModule_Free,
     t_docId,
 };
 use rqe_iterators::metric::{MetricIterator, MetricIteratorSortedById, MetricType};
+use rqe_iterators_interop::RQEIteratorWrapper;
 
 #[unsafe(no_mangle)]
 /// Creates a new metric iterator sorted by ID.

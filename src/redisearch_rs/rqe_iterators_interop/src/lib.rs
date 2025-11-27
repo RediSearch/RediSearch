@@ -25,7 +25,7 @@ use std::ptr;
 ///
 /// # Invariants
 ///
-/// 1. It is always safe to cast a raw [`QueryIterator`] pointer returned by [`RQEIteratorWrapper::new`]
+/// 1. It is always safe to cast a raw [`QueryIterator`] pointer returned by [`RQEIteratorWrapper::boxed_new`]
 ///    to an [`RQEIteratorWrapper`] pointer when invoking one of the callbacks stored in the header.
 pub struct RQEIteratorWrapper<E> {
     // The iterator header.
@@ -41,7 +41,7 @@ where
     /// Create a new C-compatible wrapper around a Rust iterator.
     ///
     /// The wrapper is placed on the heap.
-    pub(crate) fn boxed_new(type_: ffi::IteratorType, inner: I) -> *mut QueryIterator {
+    pub fn boxed_new(type_: ffi::IteratorType, inner: I) -> *mut QueryIterator {
         let wrapper = Box::new(Self {
             header: QueryIterator {
                 type_,
@@ -64,11 +64,9 @@ where
     ///
     /// # Safety
     ///
-    /// 1. The caller must ensure that the provided header was produced via [`RQEIteratorWrapper::new`].
+    /// 1. The caller must ensure that the provided header was produced via [`RQEIteratorWrapper::boxed_new`].
     /// 2. The caller must ensure that the provided header matches the expected Rust iterator type.
-    pub(crate) const unsafe fn from_header(
-        base: *mut QueryIterator,
-    ) -> &'index mut RQEIteratorWrapper<I> {
+    pub const unsafe fn from_header(base: *mut QueryIterator) -> &'index mut RQEIteratorWrapper<I> {
         debug_assert!(!base.is_null());
         // SAFETY: Guaranteed by 1 + 2.
         unsafe {
