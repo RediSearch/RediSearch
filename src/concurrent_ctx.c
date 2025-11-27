@@ -56,13 +56,10 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
 
 /* return number of currently working threads */
 size_t ConcurrentSearchPool_WorkingThreadCount() {
+  RS_ASSERT(threadpools_g);
   // Assert we only have 1 pool
   RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
   return redisearch_thpool_num_jobs_in_progress(threadpools_g[0]);
-}
-
-bool ConcurrentSearchPool_IsCreated() {
-  return threadpools_g != NULL;
 }
 
 static void threadHandleCommand(void *p) {

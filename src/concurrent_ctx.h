@@ -31,8 +31,6 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 /* return number of currently working threads */
 size_t ConcurrentSearchPool_WorkingThreadCount();
 
-bool ConcurrentSearchPool_IsCreated();
-
 struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
