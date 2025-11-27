@@ -498,7 +498,7 @@ error:
   return FGC_CHILD_ERROR;
 }
 
-static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocksSinceFork) {
+static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocksSinceFork, size_t gc_delta_last_block_idx) {
   if (info->info.blocks_ignored == 0) {
     hll_set_registers(&range->hll, info->registersWithLastBlock, NR_REG_SIZE);
     if (blocksSinceFork == 0) {
@@ -508,7 +508,7 @@ static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocks
     hll_set_registers(&range->hll, info->registersWithoutLastBlock, NR_REG_SIZE);
   }
   // Add the entries that were added since the fork to the HLL
-  size_t startIdx = GcScanDelta_LastBlockIdx(info->delta);
+  size_t startIdx = gc_delta_last_block_idx;
   const IndexBlock *startBlock = InvertedIndex_BlockRef(range->entries, startIdx);
   t_docId startId = IndexBlock_FirstId(startBlock);
   IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
@@ -531,7 +531,8 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   NumericRangeNode *currNode = ninfo->node;
   InvertedIndexGcDelta *delta = ninfo->delta;
   II_GCScanStats *info = &ninfo->info;
-  size_t blocksSinceFork = InvertedIndex_NumBlocks(currNode->range->entries) - GcScanDelta_LastBlockIdx(delta) - 1; // record before applying changes
+  size_t gc_delta_last_block_idx = GcScanDelta_LastBlockIdx(delta);
+  size_t blocksSinceFork = InvertedIndex_NumBlocks(currNode->range->entries) - gc_delta_last_block_idx - 1; // record before applying changes
   InvertedIndex_ApplyGcDelta(currNode->range->entries, delta, info);
   ninfo->delta = NULL;
   currNode->range->invertedIndexSize += info->bytes_allocated;
@@ -539,7 +540,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
 
   FGC_updateStats(gc, sctx, info->entries_removed, info->bytes_freed, info->bytes_allocated, info->blocks_ignored);
 
-  resetCardinality(ninfo, currNode->range, blocksSinceFork);
+  resetCardinality(ninfo, currNode->range, blocksSinceFork, gc_delta_last_block_idx);
 }
 
 static FGCError FGC_parentHandleTerms(ForkGC *gc) {
