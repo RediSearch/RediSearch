@@ -12,8 +12,6 @@ use rqe_iterators::{
     {RQEIterator, RQEValidateStatus},
 };
 
-mod c_mocks;
-
 #[test]
 fn current() {
     let mut it = Empty::default();
