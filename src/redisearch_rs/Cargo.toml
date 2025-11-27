@@ -119,6 +119,7 @@ wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 tracing = "0.1.42"
 tracing-core = "0.1"
 tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "fmt", "ansi", "env-filter"] }
+anstyle-query = "1.1.5"
 
 [workspace.dependencies.bindgen]
 version = "0.72"
