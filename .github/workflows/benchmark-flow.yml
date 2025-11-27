@@ -44,22 +44,15 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Setup specific  # assuming node20 supported
         working-directory: .install
-        run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }} sudo
-
+        run: ./install_script.sh sudo
       - name: Setup tests dependencies
-        run: |
-          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }} sudo
-      - name: Install Boost
-        working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
+        run: .install/test_deps/common_installations.sh sudo
 
       - name: Build RediSearch
         run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
@@ -70,10 +63,7 @@ jobs:
         run: |
           python3 -m pip install -r tests/benchmarks/requirements.txt
       - name: Prepare ReJSON Module
-        run: |
-          echo $PATH
-          cargo -Vv
-          REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
+        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
       # it is best to install terraform last because it may cause issues with env.PATH
       - name: install terraform
         uses: hashicorp/setup-terraform@v2
