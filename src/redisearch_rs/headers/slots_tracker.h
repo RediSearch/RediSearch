@@ -42,7 +42,7 @@ typedef struct OptionSlotTrackerVersion {
  * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
-uint32_t slots_tracker_set_local_slots_internal(const RedisModuleSlotRangeArray *ranges);
+uint32_t slots_tracker_set_local_slots(const RedisModuleSlotRangeArray *ranges);
 
 /**
  * Marks the given slot ranges as partially available.
@@ -50,9 +50,9 @@ uint32_t slots_tracker_set_local_slots_internal(const RedisModuleSlotRangeArray 
  * This function updates the "partially available slots" set by adding the provided ranges.
  * It also removes the given slots from "local slots" and "fully available slots", and
  * increments the version counter.
- * DO NOT call this function directly, use `slots_tracker_mark_partially_available_slots` in the C header instead.
+ * DO NOT call this function directly, use `ASM API` in the C header instead.
  *
- * Returns the current version after the operation, used by `slots_tracker_mark_partially_available_slots`
+ * Returns the current version after the operation, used by `ASM API`
  * in the C header for atomic version management.
  *
  * # Safety
@@ -62,7 +62,7 @@ uint32_t slots_tracker_set_local_slots_internal(const RedisModuleSlotRangeArray 
  * The ranges array must contain `num_ranges` valid elements.
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
-uint32_t slots_tracker_mark_partially_available_slots_internal(const RedisModuleSlotRangeArray *ranges);
+uint32_t slots_tracker_mark_partially_available_slots(const RedisModuleSlotRangeArray *ranges);
 
 /**
  * Promotes slot ranges to local ownership.

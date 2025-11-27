@@ -18,7 +18,7 @@
 //! multiple threads, you must provide your own synchronization at the C level.
 //!
 //! **Version Tracking**: Functions that may modify the tracker return the current version number
-//! as a u32. These are currently marked as `*_internal`, and wrapped in the C API header
+//! as a u32. These are currently wrapped in the C ASM API header
 //! for atomic management on the C side.
 
 use slots_tracker::{SlotRange, SlotRangeArray, SlotsTracker, Version};
@@ -173,7 +173,7 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_set_local_slots_internal(
+pub unsafe extern "C" fn slots_tracker_set_local_slots(
     ranges: *const SlotRangeArray,
 ) -> u32 {
     // SAFETY: Caller guarantees valid pointer
@@ -194,9 +194,9 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots_internal(
 /// This function updates the "partially available slots" set by adding the provided ranges.
 /// It also removes the given slots from "local slots" and "fully available slots", and
 /// increments the version counter.
-/// DO NOT call this function directly, use `slots_tracker_mark_partially_available_slots` in the C header instead.
+/// DO NOT call this function directly, use `ASM API` in the C header instead.
 ///
-/// Returns the current version after the operation, used by `slots_tracker_mark_partially_available_slots`
+/// Returns the current version after the operation, used by `ASM API`
 /// in the C header for atomic version management.
 ///
 /// # Safety
@@ -206,7 +206,7 @@ pub unsafe extern "C" fn slots_tracker_set_local_slots_internal(
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_mark_partially_available_slots_internal(
+pub unsafe extern "C" fn slots_tracker_mark_partially_available_slots(
     ranges: *const SlotRangeArray,
 ) -> u32 {
     // SAFETY: Caller guarantees valid pointer

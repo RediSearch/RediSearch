@@ -20,56 +20,14 @@ extern "C" {
 extern atomic_uint key_space_version;
 
 /**
- * Sets the local slot ranges this shard is responsible for.
- *
- * This function updates the "local slots" set to match the provided ranges.
- * If the ranges differ from the current configuration:
- * - Updates "local slots" to the new ranges
- * - Removes any overlapping slots from "fully available slots" and "partially available slots"
- * - Increments the version counter
- *
- * If the ranges are identical to the current configuration, no changes are made.
- *
- * # Safety
- *
- * This function must be called from the main thread only.
- * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` valid elements.
- * All ranges must be sorted and have start <= end, with values in [0, 16383].
- */
-static void slots_tracker_set_local_slots(const RedisModuleSlotRangeArray *ranges) {
-  uint32_t version_before = atomic_load_explicit(&key_space_version, memory_order_relaxed);
-  uint32_t version_after = slots_tracker_set_local_slots_internal(ranges);
-  if (version_after != version_before) {
-    atomic_store_explicit(&key_space_version, version_after, memory_order_relaxed);
-  }
-}
-
-
-/**
- * Marks the given slot ranges as partially available.
- *
- * This function updates the "partially available slots" set by adding the provided ranges.
- * It also removes the given slots from "local slots" and "fully available slots", and
- * increments the version counter.
- *
- * # Safety
- *
- * This function must be called from the main thread only.
- * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` valid elements.
- * All ranges must be sorted and have start <= end, with values in [0, 16383].
- */
-static void slots_tracker_mark_partially_available_slots(const RedisModuleSlotRangeArray *ranges) {
-  uint32_t version = slots_tracker_mark_partially_available_slots_internal(ranges);
-  atomic_store_explicit(&key_space_version, version, memory_order_relaxed);
-}
-
-/**
  * Initialize the ASM state machine with the local slots.
  */
 static inline void ASM_StateMachine_SetLocalSlots(const RedisModuleSlotRangeArray *local_slots) {
-  slots_tracker_set_local_slots(local_slots);
+  uint32_t version_before = atomic_load_explicit(&key_space_version, memory_order_relaxed);
+  uint32_t version_after = slots_tracker_set_local_slots(local_slots);
+  if (version_after != version_before) {
+    atomic_store_explicit(&key_space_version, version_after, memory_order_relaxed);
+  }
 }
 
 /**
@@ -77,7 +35,8 @@ static inline void ASM_StateMachine_SetLocalSlots(const RedisModuleSlotRangeArra
  * This means that these slots may exist partially in the key space, but we don't own them.
 */
 static inline void ASM_StateMachine_StartImport(const RedisModuleSlotRangeArray *slots) {
-  slots_tracker_mark_partially_available_slots(slots);
+  uint32_t version = slots_tracker_mark_partially_available_slots(slots);
+  atomic_store_explicit(&key_space_version, version, memory_order_relaxed);
 }
 
 /*
@@ -101,7 +60,8 @@ static inline void ASM_StateMachine_CompleteMigration(const RedisModuleSlotRange
  * The draining function is passed as a parameter to allow for easier unit testing
 */
 static inline void ASM_StateMachine_StartTrim(const RedisModuleSlotRangeArray *slots) {
-  slots_tracker_mark_partially_available_slots(slots);
+  uint32_t version = slots_tracker_mark_partially_available_slots(slots);
+  atomic_store_explicit(&key_space_version, version, memory_order_relaxed);
 }
 
 /**
