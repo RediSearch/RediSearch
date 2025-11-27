@@ -90,7 +90,7 @@ jobs:
                       'setup_script': 'echo "HOME=/home/ubuntu" >> $GITHUB_ENV',
                       'name': 'Intel x86_64',
                       'env': '',
-                      'container': '' 
+                      'container': ''
                   }
               },
               "ubuntu:default": {
@@ -246,7 +246,19 @@ jobs:
                       'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
                       'name': 'Azure Linux 3 ARM64'
                   }
-              }
+              },
+              "silkeh/clang:20": {
+                  "x86_64": {
+                      'container': 'silkeh/clang:20',
+                      'post_setup_script': 'echo CC=clang >> $GITHUB_ENV; echo CXX=clang++ >> $GITHUB_ENV; rm /usr/bin/ld && ln -s /usr/bin/ld.lld /usr/bin/ld',
+                      'name': 'Clang 20 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'silkeh/clang:20',
+                      'post_setup_script': 'echo CC=clang >> $GITHUB_ENV; echo CXX=clang++ >> $GITHUB_ENV; rm /usr/bin/ld && ln -s /usr/bin/ld.lld /usr/bin/ld',
+                      'name': 'Clang 20 ARM64'
+                  }
+              },
           }
 
           if platform in platform_configs:
