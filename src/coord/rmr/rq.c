@@ -277,3 +277,8 @@ void RQ_Debug_ClearPendingTopo() {
     rm_free(topo);
   }
 }
+
+void RQ_Debug_SetLoopReady() {
+  loop_th_ready = true;
+  triggerPendingQueues();  // Process any pending callbacks
+}
