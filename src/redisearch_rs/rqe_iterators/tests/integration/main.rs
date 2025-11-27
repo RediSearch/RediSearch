@@ -6,5 +6,12 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#pragma once
-#include "value/value.h"
+
+pub(crate) mod ffi;
+
+mod empty;
+mod id_list;
+mod inverted_index;
+mod maybe_empty;
+mod metric;
+mod wildcard;
