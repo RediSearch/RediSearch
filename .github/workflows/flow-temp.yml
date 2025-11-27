@@ -17,6 +17,7 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
+      platform: 'silkeh/clang:20'
       rejson-branch: master
       architecture: 'x86_64'
       options: 'coordinator,standalone,rejson'

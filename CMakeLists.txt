@@ -22,14 +22,14 @@ function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
     # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -g -v -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
-    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        message(STATUS "Using libc++ for Clang")
-        set(CMAKE_CXX_FLAGS "-stdlib=libc++ -fPIC -g -v -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
-    else()
-        set(CMAKE_CXX_FLAGS "-fPIC -g -v -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
-    endif()
     set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_C_FLAGS "-fPIC -g -v -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
+    # if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    #     message(STATUS "Using libc++ for Clang")
+    #     set(CMAKE_CXX_FLAGS "-stdlib=libc++ -fPIC -g -v -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    # else()
+        set(CMAKE_CXX_FLAGS "-fPIC -g -v -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    # endif()
 
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
