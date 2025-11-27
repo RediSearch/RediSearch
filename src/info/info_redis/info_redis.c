@@ -276,6 +276,10 @@ void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_i
   RedisModule_InfoAddSection(ctx, "multi_threading");
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
   RedisModule_InfoAddFieldULongLong(ctx, "active_io_threads", stats.active_io_threads);
+  RedisModule_InfoAddFieldULongLong(ctx, "active_worker_threads", stats.active_worker_threads);
+  RedisModule_InfoAddFieldULongLong(ctx, "active_coord_threads", stats.active_coord_threads);
+  RedisModule_InfoAddFieldULongLong(ctx, "background_indexing_pending_jobs", stats.low_priority_pending_jobs);
+  RedisModule_InfoAddFieldULongLong(ctx, "queries_pending_jobs", stats.high_priority_pending_jobs);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
