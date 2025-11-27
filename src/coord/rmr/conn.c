@@ -96,14 +96,19 @@ static void closeTimer(MRConn *conn) {
     }
     // "Multiple calls to uv_close() are ignored. The close callback will be invoked exactly once. No double free"
     uv_close(conn->timer, (uv_close_cb)rm_free);
+    conn->timer = NULL;
   }
 }
 
+/*
+* This is called when the IORuntime is being shut down. This is called from the uv thread.
+*/
 static void MRConn_Disconnect(MRConn *conn) {
+  CONN_LOG(conn, "Disconnecting connection");
   conn->state = MRConn_Freeing; // So that DisconnectCallback will free the connection
   closeTimer(conn);
-  if (conn->conn) {
-    redisAsyncContext *ac = conn->conn;
+  redisAsyncContext *ac = conn->conn;
+  if (ac) {
     ac->data = NULL;
     conn->conn = NULL;
     redisAsyncDisconnect(ac);
@@ -116,6 +121,9 @@ static void freeConn(MRConn *conn) {
   rm_free(conn);
 }
 
+/* Free a connection pool. This is called when the connection pool is removed from the manager
+  This happens in the main thread and while the uv loop has been terminated, so we can safely free the connection
+*/
 static void MRConnPool_Free(void *privdata, void *p) {
   UNUSED(privdata);
   MRConnPool *pool = p;
@@ -160,6 +168,7 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
   mgr->nodeConns = nodeConns;
 }
 
+/* This is called when the IORuntime is being shut down. This is called from the uv thread*/
 void MRConnManager_Stop(MRConnManager *mgr) {
   dictIterator *it = dictGetIterator(mgr->map);
   dictEntry *entry;
@@ -377,7 +386,6 @@ static void MRConn_Stop(MRConn *conn) {
   MRConn_SwitchState(conn, MRConn_Freeing);
 }
 
-
 static void signalCallback(uv_timer_t *tm) {
   MRConn *conn = tm->data;
 
@@ -446,7 +454,7 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
     case MRConn_Connected:
       // "Dummy" states:
       conn->state = nextState;
-      if (uv_is_active(conn->timer)) {
+      if (conn->timer && uv_is_active(conn->timer)) {
         uv_timer_stop(conn->timer);
       }
       return;
@@ -456,7 +464,7 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   }
 
 activate_timer:
-  if (!uv_is_active(conn->timer)) {
+  if (conn->timer && !uv_is_active(conn->timer)) {
     uv_timer_t *tm = conn->timer;
     uv_timer_start(conn->timer, signalCallback, nextTimeout, 0);
   }

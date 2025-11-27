@@ -264,7 +264,6 @@ void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
   if (CheckIoRuntimeStarted(io_runtime_ctx)) {
     // There may be a delay between the thread starting and the loop running, we need to account for it
     // Stop the timers of all the connections before shutting down the loop
-    MRConnManager_Stop(&io_runtime_ctx->conn_mgr);
     uv_async_send(&io_runtime_ctx->uv_runtime.shutdownAsync);
   }
 }
