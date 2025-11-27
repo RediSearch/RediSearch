@@ -120,7 +120,7 @@ typedef enum {
   QEXEC_F_NO_SORT = 0x4000000,
 
   // The query has an explicit SORTBY x - sort by a field
-  QEXEC_F_SORTBY = 0x8000000,
+  QEXEC_F_HAS_SORTBY = 0x8000000,
 
   // The query should use a depleter in the pipeline (for FT.AGGREGATE)
   QEXEC_F_HAS_DEPLETER = 0x10000000,
@@ -175,7 +175,7 @@ typedef struct {
 #define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
-#define HasSortBy(r) ((r)->reqflags & QEXEC_F_SORTBY)
+#define HasSortBy(r) ((r)->reqflags & QEXEC_F_HAS_SORTBY)
 #define HasGroupBy(r) ((r)->reqflags & QEXEC_F_HAS_GROUPBY)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)

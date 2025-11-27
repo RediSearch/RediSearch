@@ -102,7 +102,7 @@ void QOptimizer_Parse(AREQ *req) {
     if (IsSearch(req) && !opt->limit) {
       opt->limit = DEFAULT_LIMIT;
     }
-    if (arng->sortKeys) {
+    if (array_len(arng->sortKeys)) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
       if (field && field->types == INDEXFLD_T_NUMERIC) {

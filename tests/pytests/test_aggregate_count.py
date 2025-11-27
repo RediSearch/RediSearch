@@ -1,5 +1,7 @@
 from common import *
 
+DEFAULT_LIMIT = 10
+
 def _setup_index_and_data(env, docs):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                         'SCHEMA', 'title', 'TEXT', 'SORTABLE',
@@ -135,16 +137,16 @@ def _test_withcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', docs, docs*2], docs, 0),
 
         # WITHCOUNT + SORTBY 0
-        # No sorter, no limit, returns all results
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'], docs, docs),
+        # Sorter without keys, default limit
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'], docs, DEFAULT_LIMIT),
 
         # WITHCOUNT + SORTBY
         # Sorter, limit results to DEFAULT_LIMIT
         # total_results = docs, length of results = DEFAULT_LIMIT
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'], docs, 10),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@price'], docs, 10),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'], docs, 10),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'], docs, 10),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@title'], docs, DEFAULT_LIMIT),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '1', '@price'], docs, DEFAULT_LIMIT),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@title', 'ASC'], docs, DEFAULT_LIMIT),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '2', '@price', 'ASC'], docs, DEFAULT_LIMIT),
 
         # WITHCOUNT + SORTBY + MAX
         # total_results = docs, length of results = MAX
@@ -191,7 +193,7 @@ def _test_withcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES'], docs, docs),
 
         # WITHCOUNT + ADDSCORES + SORTBY
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'], docs, 10),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'], docs, DEFAULT_LIMIT),
 
         # WITHCOUNT + ADDSCORES + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50], docs, 50),
@@ -249,13 +251,13 @@ def _test_withoutcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LIMIT', docs, docs*2], 0),
 
         # WITHOUTCOUNT + SORTBY 0
-        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'], docs),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'], DEFAULT_LIMIT),
 
         # WITHOUTCOUNT + SORTBY - backwards compatible, returns only 10 results
-        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'], 10),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price'], 10), # crash
-        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'], 10),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], 10), # crash
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'], DEFAULT_LIMIT),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price'], DEFAULT_LIMIT), # crash
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'], DEFAULT_LIMIT),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], DEFAULT_LIMIT), # crash
 
         # WITHOUTCOUNT + SORTBY + MAX
         # total_results = docs, length of results = MAX
@@ -377,12 +379,12 @@ def _test_profile(protocol):
          [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
 
         # WITHCOUNT + SORTBY 0
-        # No sorter, no limit, returns all results
+        # Sorter without keys, default limit
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'],
-         ['Index', 'Sync Depleter'],
-         ['Index', 'Sync Depleter'],
-         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']],
-         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']]),
+         ['Index', 'Sorter'],
+         ['Index', 'Sorter'],
+         [['Index', 'Sorter'], ['Network', 'Sorter']],
+         [['Index', 'Sorter'], ['Network', 'Sorter']]),
 
         # WITHCOUNT + SORTBY
         # Sorter, limit results to DEFAULT_LIMIT
@@ -507,15 +509,15 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + SORTBY 0
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'],
-         ['Index'],
-         ['Index'],
-         [['Index'], ['Network']],
-         [['Index'], ['Network']]),
+         ['Index', 'Pager/Limiter'],        # Bug no related to WITHCOUNT change
+         ['Index', 'Pager/Limiter'],        # Bug no related to WITHCOUNT change
+         [['Index', 'Sorter'], ['Network', 'Sorter']],
+         [['Index', 'Sorter'], ['Network', 'Sorter']]),
 
         # WITHOUTCOUNT + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'],
-         ['Index', 'Pager/Limiter'], # Bug in master
-         ['Index', 'Pager/Limiter'], # Bug in master
+         ['Index', 'Pager/Limiter'],        # Bug no related to WITHCOUNT change
+         ['Index', 'Pager/Limiter'],        # Bug no related to WITHCOUNT change
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
 
@@ -691,4 +693,3 @@ def test_pagers_resp2():
 
 def test_pagers_resp3():
     _test_pagers(3)
-
