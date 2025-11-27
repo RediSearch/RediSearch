@@ -14,9 +14,9 @@ on:
 jobs:
 
   run-on-intel:
-    uses: ./.github/workflows/flow-intel.yml
+    uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
       rejson-branch: master
       architecture: 'x86_64'
-      fail-fast: false
+      options: 'coordinator,standalone,rejson'
