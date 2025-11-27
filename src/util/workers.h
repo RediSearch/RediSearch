@@ -58,4 +58,6 @@ thpool_stats workersThreadPool_getStats();
 
 void workersThreadPool_wait();
 
+bool workersThreadPool_isCreated();
+
 #endif // MT_BUILD
