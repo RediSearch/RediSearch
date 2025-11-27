@@ -15,7 +15,7 @@ aligned_n = "ALIGNED"
 
 [parse]
 parse_deps = true
-include = ["mimic"]
+include = ["unsafe-tools", "unsafe-tools-mimic"]
 
 [export.rename]
-"Size72Align8" = "SearchResult"
+"Size80Align8" = "SearchResult"
