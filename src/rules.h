@@ -15,6 +15,7 @@
 #include "spec.h"
 #include "redisearch.h"
 #include "util/references.h"
+#include "obfuscation/hidden_unicode.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,8 +48,8 @@ typedef struct {
 
 typedef struct SchemaRule {
   DocumentType type;
-  arrayof(sds) prefixes;
-  char *filter_exp_str;
+  arrayof(HiddenUnicodeString*) prefixes;
+  HiddenString *filter_exp_str;
   struct RSExpr *filter_exp;
   char **filter_fields;
   int *filter_fields_index;
@@ -92,7 +93,7 @@ extern TrieMap *SchemaPrefixes_g;
 
 void SchemaPrefixes_Create();
 void SchemaPrefixes_Free(TrieMap *t);
-void SchemaPrefixes_Add(const char *prefix, size_t len, StrongRef spec);
+void SchemaPrefixes_Add(HiddenUnicodeString *prefix, StrongRef spec);
 void SchemaPrefixes_RemoveSpec(StrongRef spec);
 
 typedef struct {

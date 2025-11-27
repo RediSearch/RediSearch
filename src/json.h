@@ -50,12 +50,12 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len, FieldSpec *
 /* Checks if JSONType fits the FieldType */
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *status);
 
-JSONPath pathParse(const char *path, RedisModuleString **err_msg);
+JSONPath pathParse(const HiddenString* path, RedisModuleString **err_msg);
 void pathFree(JSONPath jsonpath);
 int pathIsSingle(JSONPath jsonpath);
 int pathHasDefinedOrder(JSONPath jsonpath);
 
-void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const char *path, const char *fieldName, const char *indexName);
+void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName);
 
 #ifdef __cplusplus
 }

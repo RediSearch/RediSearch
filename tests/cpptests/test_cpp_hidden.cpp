@@ -1,5 +1,5 @@
 extern "C" {
-#include "hiredis/sds.h"
+#include "rmutil/sds.h"
 }
 
 #include "gtest/gtest.h"

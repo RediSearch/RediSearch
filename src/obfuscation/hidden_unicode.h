@@ -6,7 +6,7 @@
 
 #pragma once
 #include "redismodule.h"
-#include "hiredis/sds.h"
+#include "rmutil/sds.h"
 
 #ifdef __cplusplus
 extern "C" {

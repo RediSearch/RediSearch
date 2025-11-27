@@ -84,6 +84,11 @@ void IndexError_Clear(IndexError error) {
     }
     if (error.last_error_with_user_data != NA) {
       rm_free(error.last_error_with_user_data);
+      error.last_error_with_user_data = NA;
+    }
+    if (error.key && error.key != NA_rstr) {
+        RedisModule_FreeString(RSDummyContext, error.key);
+        error.key = RedisModule_HoldString(RSDummyContext, NA_rstr);
     }
     RS_ASSERT(error.key);
     RedisModule_FreeString(RSDummyContext, error.key);
