@@ -28,6 +28,7 @@ static inline void AddToInfo_Cursors(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx);
@@ -73,6 +74,9 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Errors statistics
   AddToInfo_ErrorsAndWarnings(ctx, &total_info);
+
+  // Multi threading statistics
+  AddToInfo_MultiThreading(ctx, &total_info);
 
   // Dialect statistics
   AddToInfo_Dialects(ctx);
@@ -248,6 +252,12 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   // highest number of failures out of all specs
   RedisModule_InfoAddFieldULongLong(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
   RedisModule_InfoAddFieldULongLong(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
+}
+
+void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
+  RedisModule_InfoAddSection(ctx, "multi_threading");
+  MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
+  RedisModule_InfoAddFieldULongLong(ctx, "active_io_threads", stats.active_io_threads);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
