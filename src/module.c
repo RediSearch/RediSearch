@@ -3560,8 +3560,8 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
+    searchRequestCtx_Free(req);
     QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-
     bailOut(bc, status);
     return REDISMODULE_ERR;
   }
