@@ -87,14 +87,10 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   array_append(tmparr, "_NUM_SSTRING");
 
   int argOffset = 0;
-  // Preserve WITHCOUNT/WITHOUTCOUNT flag from the original command
+  // Preserve WITHCOUNT flag from the original command
   argOffset  = RMUtil_ArgIndex("WITHCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1) {
     array_append(tmparr, "WITHCOUNT");
-  }
-  argOffset  = RMUtil_ArgIndex("WITHOUTCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
-  if (argOffset != -1) {
-    array_append(tmparr, "WITHOUTCOUNT");
   }
 
   // Add the index prefixes to the command, for validation in the shard

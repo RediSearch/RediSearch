@@ -1090,26 +1090,8 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 
   // Define if we need a depleter in the pipeline to get accurate total results
   if (IsAggregate(req) && HasWithCount(req) && !IsCount(req)) {
-    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-    bool isLimited = (arng && arng->isLimited && arng->limit > 0);
-
-    if (req->protocol == 2){
-      // In RESP2, total_results is returned as the first element in the array,
-      // so we need to deplete the pipeline to count the total number of results.
-      // When sorting or grouping, the depleter is not needed since these
-      // steps already deplete the pipeline.
-      if (!HasSortBy(req) && !HasGroupBy(req)) {
-        AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
-      }
-    } else if (req->protocol == 3) {
-      // In RESP3, total_results is returned after the results, so we don't need
-      // to deplete the pipeline at all. However, if the query is limited, we
-      // need to deplete the pipeline to count the total number of results.
-      // When grouping, the depleter is not needed since this step already
-      // deplete the pipeline.
-      if (isLimited && !HasGroupBy(req)) {
-        AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
-      }
+    if (!HasSortBy(req) && !HasGroupBy(req)) {
+      AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
   }
 

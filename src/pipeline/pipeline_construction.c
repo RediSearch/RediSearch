@@ -142,15 +142,8 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
 
 static bool PipelineRequiresSorter(AggregationPipelineParams *params) {
   bool result = false;
-
-  // FT.AGGREGATE + WITHOUTCOUNT + SORTBY
-  bool AggregateWithoutCountSortby = (IsAggregate(&params->common) &&
-                                      !HasWithCount(&params->common) &&
-                                      HasSortBy(&params->common));
-
   result = IsHybrid(&params->common) ||
-          (params->common.optimizer->type != Q_OPT_NO_SORTER) ||
-          AggregateWithoutCountSortby;
+          (params->common.optimizer->type != Q_OPT_NO_SORTER);
   return result;
 }
 
@@ -160,7 +153,7 @@ static size_t getSortLimit(AggregationPipelineParams *params, PLN_ArrangeStep *a
 
   // For FT.AGGREGATE + WITHCOUNT + SORTBY, we need to update the sort limit
   // to get accurate total_results
-  if (IsAggregate(&params->common) && HasWithCount(&params->common) && HasSortBy(&params->common)) {
+  if (IsAggregate(&params->common) && HasWithCount(&params->common)) {
     if (IsInternal(&params->common)) {
       // deplete from shards
       sort_limit = params->maxResultsLimit;
@@ -169,7 +162,7 @@ static size_t getSortLimit(AggregationPipelineParams *params, PLN_ArrangeStep *a
       sort_limit = maxResults;
     } else if (!astp->isLimited) {
       // Support SORTBY + MAX:
-      // Used the default limit in case of no LIMIT, but in case of SORTBY + MAX
+      // Use the default limit in case of no LIMIT, but in case of SORTBY + MAX
       // use the user provided MAX
       sort_limit = astp->limit ? astp->limit : DEFAULT_LIMIT;
     }
@@ -212,62 +205,66 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     return up;
   }
 
-  if (PipelineRequiresSorter(params)) {
-    if (astp->sortKeys) {
-      size_t nkeys = array_len(astp->sortKeys);
-      astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
+  if (!HasDepleter(&params->common)) {
+    if (PipelineRequiresSorter(params)) {
+      if (astp->sortKeys) {
+        size_t nkeys = array_len(astp->sortKeys);
+        astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
-      const RLookupKey **sortkeys = astp->sortkeysLK;
+        const RLookupKey **sortkeys = astp->sortkeysLK;
 
-      RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
+        RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
 
-      for (size_t ii = 0; ii < nkeys; ++ii) {
-        const char *keystr = astp->sortKeys[ii];
-        RLookupKey *sortkey = RLookup_GetKey_Read(lk, keystr, RLOOKUP_F_NOFLAGS);
-        if (!sortkey) {
-          // if the key is not sortable, and also not loaded by another result processor,
-          // add it to the loadkeys list.
-          // We failed to get the key for reading, so we can't fail to get it for loading.
-          sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
-          // We currently allow implicit loading only for known fields from the schema.
-          // If the key we loaded is not in the schema, we fail.
-          if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
-            QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in schema", keystr);
-            goto end;
+        for (size_t ii = 0; ii < nkeys; ++ii) {
+          const char *keystr = astp->sortKeys[ii];
+          RLookupKey *sortkey = RLookup_GetKey_Read(lk, keystr, RLOOKUP_F_NOFLAGS);
+          if (!sortkey) {
+            // if the key is not sortable, and also not loaded by another result processor,
+            // add it to the loadkeys list.
+            // We failed to get the key for reading, so we can't fail to get it for loading.
+            sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
+            // We currently allow implicit loading only for known fields from the schema.
+            // If the key we loaded is not in the schema, we fail.
+            if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
+              QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in schema", keystr);
+              goto end;
+            }
+            *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
           }
-          *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
+          sortkeys[ii] = sortkey;
         }
-        sortkeys[ii] = sortkey;
+        if (loadKeys) {
+          // If we have keys to load, add a loader step.
+          ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, lk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
+          up = pushRP(&pipeline->qctx, rpLoader, up);
+        }
+
+        size_t sort_limit = getSortLimit(params, astp, maxResults);
+        rp = RPSorter_NewByFields(sort_limit, sortkeys, nkeys, astp->sortAscMap);
+        up = pushRP(&pipeline->qctx, rp, up);
+
+      } else if (IsHybrid(&params->common) ||
+                (IsSearch(&params->common) && !IsOptimized(&params->common)) ||
+                HasScorer(&params->common)) {
+        // No sort? then it must be sort by score, which is the default.
+        // In optimize mode, add sorter for queries with a scorer.
+        rp = RPSorter_NewByScore(maxResults);
+        up = pushRP(&pipeline->qctx, rp, up);
       }
-      if (loadKeys) {
-        // If we have keys to load, add a loader step.
-        ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, lk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
-        up = pushRP(&pipeline->qctx, rpLoader, up);
-      }
+    }
 
-      size_t sort_limit = getSortLimit(params, astp, maxResults);
-      rp = RPSorter_NewByFields(sort_limit, sortkeys, nkeys, astp->sortAscMap);
+    if (astp->offset || (astp->limit && !rp)) {
+      rp = RPPager_New(astp->offset, astp->limit);
       up = pushRP(&pipeline->qctx, rp, up);
-
-    } else if (IsHybrid(&params->common) ||
-               (IsSearch(&params->common) && !IsOptimized(&params->common)) ||
-               HasScorer(&params->common)) {
-      // No sort? then it must be sort by score, which is the default.
-      // In optimize mode, add sorter for queries with a scorer.
-      size_t sort_limit = getSortLimit(params, astp, maxResults);
-      rp = RPSorter_NewByScore(sort_limit);
-      up = pushRP(&pipeline->qctx, rp, up);
-
-    } else if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
-      rp = RPSyncDepleter_New();
+    } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
+      rp = RPPager_New(0, maxResults);
       up = pushRP(&pipeline->qctx, rp, up);
     }
-  } else if (IsAggregate(&params->common) && HasDepleter(&params->common)) {
+
+  } else { // HasDepleter
     rp = RPSyncDepleter_New();
     up = pushRP(&pipeline->qctx, rp, up);
-  }
 
-  if (IsAggregate(&params->common) && HasDepleter(&params->common) && rp) {
     // Add Limiter at the coordinator when a depleter is required:
     // 1. If there is no SORTBY, otherwise, the LIMIT is managed by the sorter.
     // 2. If there is a SORTBY, but with offset, the sorter can't handle the offset.
@@ -276,12 +273,6 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       rp = RPPager_New(astp->offset, astp->limit);
       up = pushRP(&pipeline->qctx, rp, up);
     }
-  } else if (astp->offset || (astp->limit && !rp)) {
-    rp = RPPager_New(astp->offset, astp->limit);
-    up = pushRP(&pipeline->qctx, rp, up);
-  } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
-    rp = RPPager_New(0, maxResults);
-    up = pushRP(&pipeline->qctx, rp, up);
   }
 
 end:
