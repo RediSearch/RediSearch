@@ -9,4 +9,3 @@
 
 pub mod id_list;
 pub mod metric;
-mod wrapper;

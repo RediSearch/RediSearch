@@ -853,6 +853,7 @@ dependencies = [
  "ffi",
  "inverted_index",
  "rqe_iterators",
+ "rqe_iterators_interop",
 ]
 
 [[package]]
@@ -1597,6 +1598,15 @@ dependencies = [
  "types_ffi",
  "value_ffi",
  "varint_ffi",
+]
+
+[[package]]
+name = "rqe_iterators_interop"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "inverted_index",
+ "rqe_iterators",
 ]
 
 [[package]]
