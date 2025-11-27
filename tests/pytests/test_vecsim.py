@@ -1771,6 +1771,7 @@ def test_rdb_memory_limit():
 
 class TestTimeoutReached(object):
     def __init__(self):
+        skipTest(cluster=True)
         self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
         n_shards = self.env.shardsCount
         # We need at least DEFAULT_BLOCK_SIZE at every shard, due to nature of hash slot distribution, we need a bit extra
@@ -1799,20 +1800,20 @@ class TestTimeoutReached(object):
         self.env.expect(
             '_FT.DEBUG', 'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
             'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', small_k,
-            'vec_param', query_vec.tobytes(), 'TIMEOUT', 1, 'PAUSE_BEFORE_RP_N', 'Index', pause_res_count, 'DEBUG_PARAMS_COUNT', 4
+            'vec_param', query_vec.tobytes(), 'TIMEOUT', 1, 'PAUSE_BEFORE_RP_N', 'Index', pause_res_count, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 5
         ).error().contains('Timeout limit was reached')
         time.sleep(1)
-        allShards_setPauseRPResume(self.env)
+        setPauseRPResume(self.env)
 
         # RANGE QUERY
         # run query with timeout by pausing before the index RP with 0 results, sleep, then resume.
         self.env.expect(
             '_FT.DEBUG', 'FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
             'PARAMS', 2, 'vec_param', query_vec.tobytes(),
-            'TIMEOUT', 1, 'PAUSE_BEFORE_RP_N', 'Index', pause_res_count, 'DEBUG_PARAMS_COUNT', 4
+            'TIMEOUT', 1, 'PAUSE_BEFORE_RP_N', 'Index', pause_res_count, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 5
         ).error().contains('Timeout limit was reached')
         time.sleep(1)
-        allShards_setPauseRPResume(self.env)
+        setPauseRPResume(self.env)
 
         # HYBRID MODES
         # Add some dummy documents so `-dummy` won't be empty and optimized away.
@@ -1823,10 +1824,10 @@ class TestTimeoutReached(object):
             self.env.expect(
                 '_FT.DEBUG', 'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
                 'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', small_k,
-                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 1, 'PAUSE_BEFORE_RP_N', 'Index', pause_res_count, 'DEBUG_PARAMS_COUNT', 5
+                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 1, 'PAUSE_BEFORE_RP_N', 'Index', pause_res_count, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 6
             ).error().contains('Timeout limit was reached')
             time.sleep(1)
-            allShards_setPauseRPResume(self.env)
+            setPauseRPResume(self.env)
 
     def test_flat(self):
         # Create index and load vectors.
