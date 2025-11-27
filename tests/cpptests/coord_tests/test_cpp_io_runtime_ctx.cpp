@@ -13,7 +13,10 @@
 #include "rmutil/alloc.h"
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
+#include "info/global_stats.h"
+#include "common.h"
 #include <unistd.h>
+#include <atomic>
 
 // Test callback for queue operations
 static void testCallback(void *privdata) {
@@ -186,4 +189,56 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
 
   // Verify all requests were processed despite shutdown
   ASSERT_EQ(counter, 11);
+}
+
+TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
+  // Test that the active_io_threads metric is tracked correctly
+
+  // Phase 1: Verify metric starts at 0
+  MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
+  ASSERT_EQ(stats.active_io_threads, 0) << "active_io_threads should start at 0";
+
+  // Phase 2: Schedule a callback that sleeps, and verify metric increases
+  struct CallbackFlags {
+    std::atomic<bool> started{false};
+    std::atomic<bool> should_finish{false};
+  };
+
+  CallbackFlags flags;
+
+  auto slowCallback = [](void *privdata) {
+    auto *flags = (CallbackFlags *)privdata;
+    flags->started.store(true);
+
+    // Wait until test tells us to finish
+    while (!flags->should_finish.load()) {
+      usleep(100); // 100us
+    }
+  };
+
+  // Schedule the slow callback - this will start the IO runtime automatically
+  IORuntimeCtx_Schedule(ctx, slowCallback, &flags);
+
+  // Mark the IO runtime as ready to process callbacks
+  ctx->uv_runtime.loop_th_ready = true;
+
+  // Wait for callback to start
+  while (!flags.started.load()) {
+    usleep(100); // 100us
+  }
+
+  // Now the callback is executing - check that active_io_threads > 0
+  stats = GlobalStats_GetMultiThreadingStats();
+  ASSERT_EQ(stats.active_io_threads, 1) << "active_io_threads should be > 0 while callback is executing";
+
+  // Tell callback to finish
+  flags.should_finish.store(true);
+
+  // Phase 3: Wait for metric to return to 0 with timeout
+  bool success = RS::WaitForCondition([&]() {
+    stats = GlobalStats_GetMultiThreadingStats();
+    return stats.active_io_threads == 0;
+  });
+
+  ASSERT_TRUE(success) << "Timeout waiting for active_io_threads to return to 0, current value: " << stats.active_io_threads;
 }
