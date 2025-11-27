@@ -43,6 +43,9 @@ jobs:
   benchmark-steps:
     runs-on: ubuntu-latest
     container: ${{ inputs.container }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
     steps:
 
       - name: Checkout
@@ -58,7 +61,7 @@ jobs:
         run: |
           .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
           .install/test_deps/install_rust.sh
-           echo "PATH=$PATH:$HOME/.cargo/bin" >> $GITHUB_ENV
+          echo "PATH=$PATH:$HOME/.cargo/bin" >> $GITHUB_ENV
 
       - name: Get Redis
         uses: actions/checkout@v4
