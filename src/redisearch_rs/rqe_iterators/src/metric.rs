@@ -154,20 +154,21 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index>
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        let skip_outcome = self.base.skip_to_and_get_offset(doc_id)?;
-        match skip_outcome {
-            Some((SkipToOutcome::Found(result), offset)) => {
-                let val = self.metric_data[offset - 1];
-                set_result_metrics(result, val, self.own_key);
-                Ok(Some(SkipToOutcome::Found(result)))
-            }
-            Some((SkipToOutcome::NotFound(result), offset)) => {
-                let val = self.metric_data[offset - 1];
-                set_result_metrics(result, val, self.own_key);
-                Ok(Some(SkipToOutcome::NotFound(result)))
-            }
-            None => Ok(None),
-        }
+        let Some(found) = self.base._skip_to(doc_id) else {
+            return Ok(None);
+        };
+        let val = self.metric_data[self.base.offset() - 1];
+        let current = self
+            .base
+            .current()
+            .expect("The underlying ID list skipped successfully, so it shouldn't be at EOF");
+        set_result_metrics(current, val, self.own_key);
+        let outcome = if found {
+            SkipToOutcome::Found(current)
+        } else {
+            SkipToOutcome::NotFound(current)
+        };
+        Ok(Some(outcome))
     }
 
     #[inline(always)]
