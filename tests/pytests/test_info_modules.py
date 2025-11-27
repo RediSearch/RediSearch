@@ -605,7 +605,6 @@ def test_indexing_metrics(env: Env):
 
 SEARCH_PREFIX = 'search_'
 
-# @skip(cluster=False)
 def test_active_io_threads_stats(env):
   conn = getConnectionByEnv(env)
   # Setup: Create index with some data
@@ -630,3 +629,94 @@ def test_active_io_threads_stats(env):
                  message="active_io_threads should be 0 when idle")
   # There's no deterministic way to test active_io_threads increases while a query is running,
   # we test it in unit tests.
+
+# --- Helper Function (to be shared by both SA and Cluster tests) ---
+# NOTE: Currently query debug pause mechanism only supports pausing one query at a time.
+def _test_active_worker_threads(env, num_queries):
+    env.assertEqual(num_queries, 1, message="Currently only supports pausing one query at a time")
+    """
+    Helper function to test active_worker_threads metric with paused queries.
+
+    Args:
+        env: Test environment
+        num_queries: Number of queries to pause.
+                     NOTE: Currently query debug pause mechanism only supports pausing one query at a time.
+    """
+    conn = getConnectionByEnv(env)
+
+    # Setup: Ensure workers are configured (need at least num_queries workers)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', num_queries)
+
+    # Create index and add test data
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for i in range(10):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    # Verify active_worker_threads starts at 0
+    multi_threading_section = f'{SEARCH_PREFIX}multi_threading'
+    for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+        info_dict = info_modules_to_dict(con)
+        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
+                       message=f"shard {i}: active_worker_threads should be 0 when idle")
+
+    # Define callback for testing a specific query type
+    def _test_query_type(query_type):
+        query_threads = []
+        query_results = []
+
+        # Launch num_queries queries in background threads, paused at Index RP
+        for i in range(num_queries):
+            result_list = []
+            query_results.append(result_list)
+            t = threading.Thread(
+                target=call_and_store,
+                args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                      (env, [query_type, 'idx', '*'], 'Index', 0, ['INTERNAL_ONLY']),
+                      result_list),
+                daemon=True
+            )
+            query_threads.append(t)
+            t.start()
+
+        # Wait for all queries to be paused
+        with TimeLimit(120):
+            while not all(allShards_getIsRPPaused(env)):
+                time.sleep(0.1)
+
+        # Verify active_worker_threads == num_queries
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            info_dict = info_modules_to_dict(con)
+            env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], str(num_queries),
+                           message=f"shard {i}: {query_type}: active_worker_threads should be {num_queries} when {num_queries} queries are paused")
+
+        # Resume all queries
+        allShards_setPauseRPResume(env)
+
+        # Wait for all query threads to complete
+        for t in query_threads:
+            t.join()
+
+        # Drain worker thread pool to ensure all jobs complete
+        run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+
+        # Verify active_worker_threads returns to 0
+        for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+            info_dict = info_modules_to_dict(con)
+            env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
+                           message=f"shard {i}: {query_type}: active_worker_threads should return to 0 after queries complete")
+
+    # Test both query types
+    _test_query_type('FT.SEARCH')
+    _test_query_type('FT.AGGREGATE')
+
+# --- Test 1: Standalone Mode ---
+@skip(cluster=True)  # Only run in standalone mode
+def test_active_worker_threads_SA(env):
+    num_queries = 1
+    _test_active_worker_threads(env, num_queries)
+
+# --- Test 2: Cluster Mode ---
+@skip(cluster=False)  # Only run in cluster mode
+def test_active_worker_threads_cluster(env):
+    num_queries = 1
+    _test_active_worker_threads(env, num_queries)
