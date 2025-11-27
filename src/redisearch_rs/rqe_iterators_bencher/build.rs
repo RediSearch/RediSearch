@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "empty_iterator.h",
         "inverted_index_iterator.h",
         "wildcard_iterator.h",
+        "optional_iterator.h",
     ]
     .iter()
     .map(|h| root.join("src").join("iterators").join(h))
