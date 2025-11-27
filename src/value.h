@@ -187,13 +187,6 @@ static inline RSValue *RSValue_NewCString(char *s) {
  * @return A pointer to a heap-allocated RSValue wrapping a constant C string
  */
 RSValue *RSValue_NewConstString(const char *str, uint32_t len);
-/**
- * Like RSValue_NewConstString, but uses strlen to determine
- * the length of the passed null-terminated C string.
- */
-static inline RSValue *RSValue_NewConstCString(const char *s) {
-  return RSValue_NewConstString(s, strlen(s));
-}
 
 /**
  * Creates a heap-allocated RSValue wrapping a RedisModuleString.
