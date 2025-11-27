@@ -6,5 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#pragma once
-#include "value/value.h"
+mod numeric;
+// These tests rely on an FFI call to create `RSQueryTerm` instances,
+// thus falling outside of the scope that `miri` can examine.
+#[cfg(not(miri))]
+mod term;
+mod utils;
