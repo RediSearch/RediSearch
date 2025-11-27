@@ -58,10 +58,16 @@ use std::error::Error;
 use std::ffi::{CStr, c_char};
 use std::ptr::NonNull;
 use std::{io, ptr};
+use tracing::Level;
 use tracing_core::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::fmt::format::FmtSpan;
+
+const LOGLEVEL_DEBUG: &CStr = c"debug";
+const LOGLEVEL_VERBOSE: &CStr = c"verbose";
+const LOGLEVEL_NOTICE: &CStr = c"notice";
+const LOGLEVEL_WARNING: &CStr = c"warning";
 
 type LogFunc = unsafe extern "C" fn(
     ctx: *mut ffi::RedisModuleCtx,
@@ -155,6 +161,22 @@ impl<'a> MakeWriter<'a> for MakeRedisModuleWriter {
     fn make_writer(&'a self) -> Self::Writer {
         RedisModuleWriter {
             ctx: self.ctx,
+            level: LOGLEVEL_NOTICE,
+            log: self.log,
+        }
+    }
+
+    fn make_writer_for(&'a self, meta: &tracing::Metadata<'_>) -> Self::Writer {
+        let level = match *meta.level() {
+            Level::TRACE => LOGLEVEL_DEBUG,
+            Level::DEBUG => LOGLEVEL_VERBOSE,
+            Level::INFO => LOGLEVEL_NOTICE,
+            Level::WARN | Level::ERROR => LOGLEVEL_WARNING,
+        };
+
+        RedisModuleWriter {
+            ctx: self.ctx,
+            level,
             log: self.log,
         }
     }
@@ -162,6 +184,7 @@ impl<'a> MakeWriter<'a> for MakeRedisModuleWriter {
 
 struct RedisModuleWriter {
     ctx: Option<NonNull<ffi::RedisModuleCtx>>,
+    level: &'static CStr,
     log: LogFunc,
 }
 
@@ -211,12 +234,11 @@ impl io::Write for RedisModuleWriter {
             let cstr = CStr::from_bytes_with_nul(buf.as_mut()).unwrap();
 
             // <https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#redismodule_log>
-            // Safety: The documentation explicitly allows ctx to be a nullptr, notice is a valid level
-            // and we ensured the C string is valid above.
+            // Safety: The documentation explicitly allows ctx to be a nullptr and we ensured the C string is valid above.
             unsafe {
                 (self.log)(
                     self.ctx.map_or(ptr::null_mut(), |ctx| ctx.as_ptr()),
-                    c"notice".as_ptr(),
+                    self.level.as_ptr(),
                     c"%s".as_ptr(),
                     cstr.as_ptr(),
                 );
