@@ -24,8 +24,6 @@
 
 extern RedisModuleCtx *RSDummyContext;
 
-extern void IncrementYieldCounter(void);
-
 #include <unistd.h>
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
@@ -419,7 +417,7 @@ void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flag
   opCounter += numOps;
   if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
     opCounter = opCounter % RSGlobalConfig.indexerYieldEveryOpsWhileLoading;
-    IncrementYieldCounter(); // Track that we called yield
+    IncrementLoadYieldCounter(); // Track that we called yield
     unsigned int sleepMicros = GetIndexerSleepBeforeYieldMicros();
     if (sleepMicros > 0) {
       usleep(sleepMicros);

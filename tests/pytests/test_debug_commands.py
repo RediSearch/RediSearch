@@ -59,7 +59,7 @@ class TestDebugCommands(object):
             "INDEXES",
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
-            'YIELDS_ON_LOAD_COUNTER',
+            'YIELDS_COUNTER',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',
@@ -76,7 +76,7 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
-                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS', 'YIELDS_ON_LOAD_COUNTER']
+                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -1042,10 +1042,10 @@ def test_update_debug_scanner_config(env):
 @skip(cluster=True)
 def test_yield_counter(env):
     # Giving wrong arity
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER','ExtraARG1','ExtraARG2').error()\
+    env.expect(debug_cmd(), 'YIELDS_COUNTER','ExtraARG1','ExtraARG2').error()\
     .contains('wrong number of arguments')
     # Giving wrong subcommand
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'NOT_A_COMMAND').error()\
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'NOT_A_COMMAND').error()\
     .contains('Unknown subcommand')
 
 @skip(cluster=True)
