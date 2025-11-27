@@ -533,6 +533,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   II_GCScanStats *info = &ninfo->info;
   size_t blocksSinceFork = InvertedIndex_NumBlocks(currNode->range->entries) - GcScanDelta_LastBlockIdx(delta) - 1; // record before applying changes
   InvertedIndex_ApplyGcDelta(currNode->range->entries, delta, info);
+  ninfo->delta = NULL;
   currNode->range->invertedIndexSize += info->bytes_allocated;
   currNode->range->invertedIndexSize -= info->bytes_freed;
 
@@ -584,6 +585,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   }
 
   InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  delta = NULL;
   shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
   if (InvertedIndex_NumDocs(idx) == 0) {
@@ -795,6 +797,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     }
 
     InvertedIndex_ApplyGcDelta(idx, delta, &info);
+    delta = NULL;
     shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
     // if tag value is empty, let's remove it.
@@ -870,6 +873,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   }
 
   InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  delta = NULL;
   shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
   if (InvertedIndex_NumDocs(idx) == 0) {
@@ -934,6 +938,7 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   InvertedIndex *idx = sp->existingDocs;
 
   InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  delta = NULL;
   shouldFreeDeltas = false; // ownership passed to InvertedIndex_ApplyGcDelta
 
   // We don't count the records that we removed, because we also don't count
