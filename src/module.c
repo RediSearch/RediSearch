@@ -3493,13 +3493,10 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   }
 }
 
-static void bailOut(RedisModuleBlockedClient *bc, QueryError *status, searchRequestCtx *req) {
+static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(clientCtx, status);
-  if (req) {
-    searchRequestCtx_Free(req);
-  }
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
   RedisModule_FreeThreadSafeContext(clientCtx);
@@ -3563,8 +3560,9 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
+    searchRequestCtx_Free(req);
     QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    bailOut(bc, status, req);
+    bailOut(bc, status);
     return REDISMODULE_ERR;
   }
 
@@ -3598,7 +3596,7 @@ static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModu
   searchRequestCtx *req = rscParseRequest(argv, argc, status);
 
   if (!req) {
-    bailOut(bc, status, NULL);
+    bailOut(bc, status);
     return NULL;
   }
   return req;
@@ -4103,7 +4101,7 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
 
   if (debug_params.debug_params_count == 0) {
-    bailOut(bc, &status, NULL);
+    bailOut(bc, &status);
     return REDISMODULE_OK;
   }
 
