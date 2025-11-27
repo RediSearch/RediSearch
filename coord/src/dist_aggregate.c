@@ -457,27 +457,25 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
   }
 
-  if (resp3) // RESP3
-  {
+  if (resp3) { // RESP3
     MRReply *results = MRReply_MapElement(rows, "results");
     RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
     MRReply *result = MRReply_ArrayElement(results, nc->curIdx++);
     RS_LOG_ASSERT(result && MRReply_Type(result) == MR_REPLY_MAP, "invalid result record");
     MRReply *fields = MRReply_MapElement(result, "extra_attributes");
-    RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
 
     processResultFormat(&nc->areq->reqflags, rows);
 
-    for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
-      size_t len;
-      const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
-      MRReply *val = MRReply_ArrayElement(fields, i + 1);
-      RSValue *v = MRReply_ToValue(val);
-      RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
+    if (fields && MRReply_Type(fields) == MR_REPLY_MAP) {
+      for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
+        size_t len;
+        const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
+        MRReply *val = MRReply_ArrayElement(fields, i + 1);
+        RSValue *v = MRReply_ToValue(val);
+        RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
+      }
     }
-  }
-  else // RESP2
-  {
+  } else { // RESP2
     MRReply *rep = MRReply_ArrayElement(rows, nc->curIdx++);
     for (size_t i = 0; i < MRReply_Length(rep); i += 2) {
       size_t len;
