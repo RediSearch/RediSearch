@@ -11,6 +11,9 @@
 #include "spec.h"
 #include "rs_wall_clock.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 #define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
@@ -65,10 +68,15 @@ typedef struct {
 } QueriesGlobalStats;
 
 typedef struct {
+  size_t active_io_threads; // number of I/O thread callbacks currently executing
+} MultiThreadingStats;
+
+typedef struct {
   QueriesGlobalStats queries;   // Queries statistics. values should be fetched by calling `TotalGlobalStats_GetQueryStats`, otherwise not safe.
   uint_least8_t used_dialects;  // bitarray of dialects used by all indices
   size_t logically_deleted;     // Number of logically deleted documents in all indices
                                 // (i.e., marked with DELETED flag but their memory was not yet cleaned by the GC)
+  MultiThreadingStats multi_threading;
 } TotalGlobalStats;
 
 // The global stats object type
@@ -135,3 +143,13 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool co
 // Currently supports : timeout
 // `toAdd` can be negative to decrease the counter.
 void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord);
+
+// Update the number of active io threads.
+void GlobalStats_UpdateActiveIoThreads(int toAdd);
+
+// Get multiThreadingStats
+MultiThreadingStats GlobalStats_GetMultiThreadingStats();
+
+#ifdef __cplusplus
+}
+#endif
