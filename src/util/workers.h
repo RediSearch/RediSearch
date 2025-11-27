@@ -64,4 +64,4 @@ thpool_stats workersThreadPool_getStats();
 
 void workersThreadPool_wait();
 
-bool workersThreadPool_isInitialized();
+bool workersThreadPool_isCreated();

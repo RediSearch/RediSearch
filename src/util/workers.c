@@ -206,6 +206,6 @@ void workersThreadPool_wait() {
   redisearch_thpool_wait(_workers_thpool);
 }
 
-bool workersThreadPool_isInitialized() {
+bool workersThreadPool_isCreated() {
   return _workers_thpool != NULL;
 }

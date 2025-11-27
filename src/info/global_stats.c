@@ -164,7 +164,7 @@ void GlobalStats_UpdateActiveIoThreads(int toAdd) {
 MultiThreadingStats GlobalStats_GetMultiThreadingStats() {
   MultiThreadingStats stats;
   stats.active_io_threads = READ(RSGlobalStats.totalStats.multi_threading.active_io_threads);
-  RS_ASSERT(workersThreadPool_isInitialized()); // In production workers threadpool is initialized at startup.
+  RS_ASSERT(workersThreadPool_isCreated()); // In production workers threadpool is created at startup.
   stats.active_worker_threads = workersThreadPool_WorkingThreadCount();
   return stats;
 }
