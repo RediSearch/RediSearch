@@ -27,3 +27,4 @@ jobs:
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-6-tag.outputs.tag }}
       rejson-branch: '2.4'
+      rejson: false
