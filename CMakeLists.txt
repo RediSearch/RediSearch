@@ -364,20 +364,12 @@ add_dependencies(redisearch uv_a)
 add_dependencies(redisearch redisearch_rs)
 
 # Handle C++ standard library linking for Clang on Linux
-# Explicitly configure standard library (libc++ if available, otherwise libstdc++)
-# to ensure consistency between headers and runtime library,
+# Force libstdc++ (GCC standard library) to ensure consistency between headers and runtime library,
 # avoiding header/library mismatches that cause undefined reference errors like std::ios_base_library_init
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT APPLE)
-    find_library(LIBCXX_FOUND c++)
-    if(LIBCXX_FOUND)
-        message(STATUS "Using libc++ for Clang")
-        target_compile_options(redisearch PRIVATE -stdlib=libc++)
-        target_link_options(redisearch PRIVATE -stdlib=libc++)
-    else()
-        message(STATUS "Using libstdc++ for Clang")
-        target_compile_options(redisearch PRIVATE -stdlib=libstdc++)
-        target_link_options(redisearch PRIVATE -stdlib=libstdc++)
-    endif()
+    message(STATUS "Forcing libstdc++ for Clang on Linux")
+    target_compile_options(redisearch PRIVATE -stdlib=libstdc++)
+    target_link_options(redisearch PRIVATE -stdlib=libstdc++)
 endif()
 
 #----------------------------------------------------------------------------------------------
