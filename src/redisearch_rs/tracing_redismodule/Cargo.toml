@@ -6,11 +6,11 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
-tracing-core.workspace = true
-tracing-subscriber.workspace = true
+anstyle-query.workspace = true
 ffi.workspace = true
 tracing.workspace = true
-anstyle-query.workspace = true
+tracing-core.workspace = true
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true
