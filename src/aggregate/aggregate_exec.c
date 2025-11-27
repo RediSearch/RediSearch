@@ -1174,7 +1174,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
     cmdType = COMMAND_AGGREGATE;
   } else {
-    RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
+    RedisModule_ReplyWithError(ctx, "SEARCH_CMD_TYPE_MISSING: No `SEARCH` or `AGGREGATE` provided");
     return REDISMODULE_OK;
   }
 
@@ -1185,7 +1185,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   if (strcasecmp(cmd, "QUERY") != 0) {
-    RedisModule_ReplyWithError(ctx, "The QUERY keyword is expected");
+    RedisModule_ReplyWithError(ctx, "SEARCH_CMD_QUERY_KEYWORD_MISSING: The QUERY keyword is expected");
     return REDISMODULE_OK;
   }
 
@@ -1289,7 +1289,7 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
-      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
+      RedisModule_Reply_Error(reply, "SEARCH_INDEX_DROPPED_DURING_CURSOR: The index was dropped while the cursor was idle");
       return;
     }
 
@@ -1360,7 +1360,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // argv[3] - cursor ID
 
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+    RedisModule_ReplyWithError(ctx, "SEARCH_CURSOR_INVALID_ID: Bad cursor ID");
     return REDISMODULE_OK;
   }
 
@@ -1373,13 +1373,13 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       // Verify that the 4'th argument is `COUNT`.
       const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
       if (strcasecmp(count_str, "count") != 0) {
-        RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
+        RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_ARG_NOT_FOUND: Argument not found: `%s`", count_str);
         RedisModule_EndReply(reply);
         return REDISMODULE_OK;
       }
 
       if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-        RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
+        RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_ARG_COUNT_INVALID: Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
         RedisModule_EndReply(reply);
         return REDISMODULE_OK;
       }
@@ -1387,7 +1387,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
     if (cursor == NULL) {
-      RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+      RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_CURSOR_NOT_FOUND: Cursor not found: %d", cid);
       RedisModule_EndReply(reply);
       return REDISMODULE_OK;
     }
@@ -1437,7 +1437,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
     if (rc != REDISMODULE_OK) {
-      RedisModule_Reply_Error(reply, "Cursor does not exist");
+      RedisModule_Reply_Error(reply, "SEARCH_CURSOR_NOT_FOUND: Cursor not found");
     } else {
       RedisModule_Reply_SimpleString(reply, "OK");
     }
@@ -1446,7 +1446,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     rc += Cursors_CollectIdle(&g_CursorsListCoord);
     RedisModule_Reply_LongLong(reply, rc);
   } else {
-    RedisModule_Reply_Error(reply, "Unknown subcommand");
+    RedisModule_Reply_Error(reply, "SEARCH_SUBCOMMAND_NOT_FOUND: Subcommand not found");
   }
   RedisModule_EndReply(reply);
   return REDISMODULE_OK;
