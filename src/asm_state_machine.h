@@ -49,10 +49,7 @@ static inline void ASM_StateMachine_CompleteMigration(const RedisModuleSlotRange
  * If there is, it means that the trim is consequence of a successful migration, and we need to drain the worker thread pool and bump the key space version.
  * The draining function is passed as a parameter to allow for easier unit testing
 */
-static inline void ASM_StateMachine_StartTrim(const RedisModuleSlotRangeArray *slots, void (*draining_bound_fn)(void)) {
-  if (slots_tracker_has_fully_available_overlap(slots)) {
-    draining_bound_fn();
-  }
+static inline void ASM_StateMachine_StartTrim(const RedisModuleSlotRangeArray *slots) {
   slots_tracker_mark_partially_available_slots(slots);
 }
 

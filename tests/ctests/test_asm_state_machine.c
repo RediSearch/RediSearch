@@ -19,14 +19,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-// Global flag to track if draining was called
-static int draining_called = 0;
-
-// Mock draining function for testing
-static void mock_draining_function() {
-  draining_called = 1;
-}
-
 // Helper function to create slot range arrays
 static RedisModuleSlotRangeArray* createSlotRangeArray(uint16_t start, uint16_t end) {
   size_t array_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange);
@@ -61,7 +53,6 @@ static void freeSlotRangeArray(RedisModuleSlotRangeArray* array) {
 int testInitialization() {
   slots_tracker_reset_for_testing();
   atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
-  draining_called = 0;
   uint32_t initial_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(100, 199);
   ASM_StateMachine_SetLocalSlots(init_slots);
@@ -76,7 +67,6 @@ int testInitialization() {
 
 int testImportWorkflow() {
   slots_tracker_reset_for_testing();
-  draining_called = 0;
   atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
 
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(5, 20);
@@ -124,7 +114,6 @@ int testImportWorkflow() {
 
 int testImportContinuousWorkflow() {
   slots_tracker_reset_for_testing();
-  draining_called = 0;
   atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
 
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(5, 99);
@@ -170,7 +159,6 @@ int testImportContinuousWorkflow() {
 
 int testMigrationTrimmingWorkflow() {
   slots_tracker_reset_for_testing();
-  draining_called = 0;
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(5, 199);
   RedisModuleSlotRangeArray* migration_slots = createSlotRangeArray(100, 199);
   RedisModuleSlotRangeArray* disjoint_slots = createSlotRangeArray(5, 99);
@@ -200,7 +188,7 @@ int testMigrationTrimmingWorkflow() {
   ASSERT_TRUE(version.is_some);
   ASSERT_EQUAL(version.version, 0); // Unstable, Local Covers but not equals (can query, but must filter (there are more slots available than the query requires))
 
-  ASM_StateMachine_StartTrim(migration_slots, mock_draining_function);
+  ASM_StateMachine_StartTrim(migration_slots);
   version = slots_tracker_check_availability(init_slots);
   ASSERT_FALSE(version.is_some);
   version = slots_tracker_check_availability(migration_slots);
