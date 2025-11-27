@@ -82,7 +82,6 @@ jobs:
           python3 -m pip install -r tests/benchmarks/requirements.txt
       - name: Prepare ReJSON Module
         run: |
-          source $HOME/.cargo/env
           echo $PATH
           cargo -Vv
           REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
