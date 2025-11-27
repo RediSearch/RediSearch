@@ -173,9 +173,7 @@ unsafe fn parse_slot_ranges<'a>(ranges: *const SlotRangeArray) -> &'a [SlotRange
 /// The ranges array must contain `num_ranges` valid elements.
 /// All ranges must be sorted and have start <= end, with values in [0, 16383].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_set_local_slots(
-    ranges: *const SlotRangeArray,
-) -> u32 {
+pub unsafe extern "C" fn slots_tracker_set_local_slots(ranges: *const SlotRangeArray) -> u32 {
     // SAFETY: Caller guarantees valid pointer
     let ranges = unsafe { parse_slot_ranges(ranges) };
 
