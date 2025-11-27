@@ -168,6 +168,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
   RSDocumentMetadata *dmd =
       DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
+  //TODO(Joan): Here how we can get the RedisModuleKey from docKey so that we can use DocIdMeta_Set? Should DocIDMeta_Set be changed to accept RedisModuleString?
   if (dmd) {
     doc->docId = dmd->id;
     ++spec->stats.numDocuments;

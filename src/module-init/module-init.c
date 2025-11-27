@@ -33,6 +33,7 @@
 #include "profile.h"
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
+#include "doc_id_meta.h"
 
 #define DEPLETER_POOL_SIZE 4
 
@@ -135,6 +136,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }
 
+  DocIdMeta_Init(RSDummyContext);
   if (mode == REDISEARCH_INIT_MODULE && initAsModule(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   } else if (mode == REDISEARCH_INIT_LIBRARY && initAsLibrary(ctx) != REDISMODULE_OK) {
