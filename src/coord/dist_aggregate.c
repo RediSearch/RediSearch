@@ -291,8 +291,6 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
   rs_wall_clock_init(&r->initClock);
 
-  r->protocol = is_resp3(ctx) ? 3 : 2;
-
   int profileArgs = parseProfileArgs(argv, argc, r);
   if (profileArgs == -1) return REDISMODULE_ERR;
   int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, status);
@@ -330,7 +328,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // Construct the command string
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
-  xcmd.protocol = r->protocol;
+  xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
