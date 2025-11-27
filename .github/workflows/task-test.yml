@@ -47,6 +47,7 @@ env:
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
   COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
+  IGNORE_MISSING_DEPS: 1
 
 jobs:
   common-flow:
