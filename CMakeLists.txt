@@ -370,25 +370,25 @@ add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
 add_dependencies(redisearch redisearch_rs)
 
-# # Handle C++ standard library linking based on compiler
-# if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-#     # For Clang, try to use libc++ if available, otherwise use libstdc++ with explicit version
-#     find_library(LIBCXX_FOUND c++)
-#     if(LIBCXX_FOUND)
-#         message(STATUS "Using libc++ for Clang")
-#         target_compile_options(redisearch PRIVATE -stdlib=libc++)
-#         target_link_options(redisearch PRIVATE -stdlib=libc++)
-#     else()
-#         message(STATUS "Using libstdc++ for Clang")
-#         target_link_libraries(redisearch stdc++)
-#         # Try to link statically to avoid version conflicts
-#         target_link_options(redisearch PRIVATE -static-libstdc++ -static-libgcc)
-#     endif()
-# else()
-#     # For GCC, use standard dynamic linking
-#     target_link_libraries(redisearch stdc++)
-#     target_link_options(redisearch PRIVATE -shared-libgcc)
-# endif()
+# Handle C++ standard library linking based on compiler
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # For Clang, try to use libc++ if available, otherwise use libstdc++ with explicit version
+    find_library(LIBCXX_FOUND c++)
+    if(LIBCXX_FOUND)
+        message(STATUS "Using libc++ for Clang")
+        target_compile_options(redisearch PRIVATE -stdlib=libc++)
+        target_link_options(redisearch PRIVATE -stdlib=libc++)
+    else()
+        message(STATUS "Using libstdc++ for Clang")
+        target_link_libraries(redisearch stdc++)
+        # Try to link statically to avoid version conflicts
+        target_link_options(redisearch PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+else()
+    # For GCC, use standard dynamic linking
+    target_link_libraries(redisearch stdc++)
+    target_link_options(redisearch PRIVATE -shared-libgcc)
+endif()
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration
