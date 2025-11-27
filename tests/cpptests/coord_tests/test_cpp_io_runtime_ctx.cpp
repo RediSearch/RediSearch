@@ -16,7 +16,6 @@
 #include "info/global_stats.h"
 extern "C" {
 #include "concurrent_ctx.h"
-#include "util/workers.h"
 }
 #include "common.h"
 #include <unistd.h>
