@@ -1984,7 +1984,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
  }
 
  /* Create a new Hybrid Merger processor */
-ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx, 
+ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
@@ -2270,7 +2270,12 @@ bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, boo
 
 static void RPPauseAfterCount_Pause(RPPauseAfterCount *self) {
 
-  QueryDebugCtx_SetPause(true);
+  // In multi mode, pause is already set by aggregate_debug
+  // In single mode, set it here
+  // if (!QueryDebugCtx_IsMulti()) {
+  //   QueryDebugCtx_SetPause(true);
+  // }
+
   while (QueryDebugCtx_IsPaused()) { // volatile variable
     usleep(1000);
   }
@@ -2289,16 +2294,18 @@ static int RPPauseAfterCount_Next(ResultProcessor *base, SearchResult *r) {
 }
 
 static void RPPauseAfterCount_Free(ResultProcessor *base) {
-  RS_LOG_ASSERT(QueryDebugCtx_GetDebugRP() == base, "Freed debug RP tried to change DebugCTX debugRP but it's not the current debug RP");
+  // Only assert and clear debugRP if this RP is the registered debug RP
+  if (QueryDebugCtx_GetDebugRP() == base) {
+    QueryDebugCtx_SetDebugRP(NULL);
+  }
   rm_free(base);
-  QueryDebugCtx_SetDebugRP(NULL);
 }
 
 ResultProcessor *RPPauseAfterCount_New(size_t count) {
 
-  // Validate no other debug RP is set
+  // Validate no other debug RP is set (skip if in multi mode)
   // If so, don't set it and return NULL
-  if (QueryDebugCtx_HasDebugRP()) {
+  if (!QueryDebugCtx_IsMulti() && QueryDebugCtx_HasDebugRP()) {
     return NULL;
   }
 
@@ -2309,7 +2316,10 @@ ResultProcessor *RPPauseAfterCount_New(size_t count) {
   ret->base.Next = RPPauseAfterCount_Next;
   ret->base.Free = RPPauseAfterCount_Free;
 
-  QueryDebugCtx_SetDebugRP(&ret->base);
+  // Only set debugRP if not in multi mode
+  if (!QueryDebugCtx_IsMulti()) {
+    QueryDebugCtx_SetDebugRP(&ret->base);
+  }
 
   return &ret->base;
 }

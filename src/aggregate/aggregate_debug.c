@@ -8,6 +8,7 @@
 */
 #include "aggregate_debug.h"
 #include "module.h"
+#include "debug_commands.h"
 
 /*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
    coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely
@@ -54,6 +55,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   ArgsCursor timeoutArgs = {0};
   int crash = 0;
   int internal_only = 0;
+  int pause_multi = 0;
   ArgsCursor pauseBeforeArgs = {0};
   ArgsCursor pauseAfterArgs = {0};
   ACArgSpec debugArgsSpec[] = {
@@ -66,6 +68,8 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       {.name = "CRASH", .type = AC_ARGTYPE_BOOLFLAG, .target = &crash},
       // optional arg for TIMEOUT_AFTER_N
       {.name = "INTERNAL_ONLY", .type = AC_ARGTYPE_BOOLFLAG, .target = &internal_only},
+      // optional arg for PAUSE_AFTER_RP_N and PAUSE_BEFORE_RP_N - allows multiple queries to be paused
+      {.name = "PAUSE_MULTI", .type = AC_ARGTYPE_BOOLFLAG, .target = &pause_multi},
       // pause after specific RP after N results
       {.name = "PAUSE_AFTER_RP_N",
        .type = AC_ARGTYPE_SUBARGS_N,
@@ -172,16 +176,28 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       return REDISMODULE_ERR;
     }
 
+    // Set multi mode and pause flag if PAUSE_MULTI flag is set
+    if (pause_multi) {
+      QueryDebugCtx_SetIsMulti(true);
+    }
+
     if (!PipelineAddPauseRPcount(AREQ_QueryProcessingCtx(&debug_req->r), results_count, before, rp_type, status)) {
       // The query error is handled by each error case
       return REDISMODULE_ERR;
     }
+    QueryDebugCtx_SetPause(true);
     return REDISMODULE_OK;
   }
 
   // Verify internal_only is not used without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N
   if (internal_only) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N");
+    return REDISMODULE_ERR;
+  }
+
+  // Verify pause_multi is not used without PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N
+  if (pause_multi) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "PAUSE_MULTI is not supported without PAUSE_AFTER_RP_N or PAUSE_BEFORE_RP_N");
     return REDISMODULE_ERR;
   }
 

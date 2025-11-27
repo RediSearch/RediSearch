@@ -54,6 +54,17 @@ bool QueryDebugCtx_HasDebugRP(void) {
   return globalDebugCtx.query.debugRP != NULL;
 }
 
+void QueryDebugCtx_SetIsMulti(bool is_multi) {
+  // Assert that no query is currently paused
+  RS_LOG_ASSERT(!QueryDebugCtx_IsPaused(),
+                "Cannot set is_multi when a query is already paused");
+  globalDebugCtx.query.is_multi = is_multi;
+}
+
+bool QueryDebugCtx_IsMulti(void) {
+  return globalDebugCtx.query.is_multi;
+}
+
 void validateDebugMode(DebugCTX *debugCtx) {
   // Debug mode is enabled if any of its field is non-default
   // Should be called after each debug command that changes the debugCtx
@@ -1947,6 +1958,7 @@ DEBUG_COMMAND(setPauseRPResume) {
   }
 
   QueryDebugCtx_SetPause(false);
+  QueryDebugCtx_SetIsMulti(false);  // Clear multi flag on resume
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -1974,6 +1986,10 @@ DEBUG_COMMAND(printRPStream) {
   }
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
+  }
+
+  if (QueryDebugCtx_IsMulti()) {
+    return RedisModule_ReplyWithError(ctx, "PRINT_RP_STREAM is not supported with PAUSE_MULTI");
   }
 
   if (!QueryDebugCtx_HasDebugRP()) {

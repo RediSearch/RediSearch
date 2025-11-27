@@ -39,6 +39,7 @@ typedef struct BgIndexingDebugCtx {
 typedef struct QueryDebugCtx {
   volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
   ResultProcessor *debugRP; // Result processor for debugging, supports debugging one query at a time
+  bool is_multi; // True when using PAUSE_MULTI to pause multiple queries simultaneously
 } QueryDebugCtx;
 
 // General debug context
@@ -58,6 +59,8 @@ void QueryDebugCtx_SetPause(bool pause);
 ResultProcessor* QueryDebugCtx_GetDebugRP(void);
 void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
 bool QueryDebugCtx_HasDebugRP(void);
+void QueryDebugCtx_SetIsMulti(bool is_multi);
+bool QueryDebugCtx_IsMulti(void);
 
 // Yield counter functions
 void IncrementYieldCounter(void);
