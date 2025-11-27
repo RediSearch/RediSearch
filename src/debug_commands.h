@@ -40,7 +40,8 @@ typedef struct DebugCTX {
 void validateDebugMode(DebugCTX *debugCtx);
 
 // Yield counter functions
-void IncrementYieldCounter(void);
+void IncrementLoadYieldCounter(void);
+void IncrementBgIndexYieldCounter(void);
 
 // Indexer sleep before yield functions
 unsigned int GetIndexerSleepBeforeYieldMicros(void);
