@@ -18,7 +18,7 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
-project(RSCoordinator C CXX)
+project(RSCoordinator)
 
 add_compile_definitions(
 	REDISMODULE_SDK_RLEC
