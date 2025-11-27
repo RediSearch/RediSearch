@@ -385,10 +385,11 @@ static void signalCallback(uv_timer_t *tm) {
     return;  // Nothing to do here!
   }
 
+  redisAsyncContext *ac = conn->conn;
+
   if (conn->state == MRConn_Freeing) {
     CONN_LOG(conn, "Freeing connection");
-    if (conn->conn) {
-      redisAsyncContext *ac = conn->conn;
+    if (ac) {
       ac->data = NULL;
       conn->conn = NULL;
       redisAsyncDisconnect(ac);
@@ -396,8 +397,6 @@ static void signalCallback(uv_timer_t *tm) {
     freeConn(conn);
     return;
   }
-
-  redisAsyncContext *ac = conn->conn;
 
   if (conn->state == MRConn_ReAuth) {
     if (MRConn_SendAuth(conn) != REDIS_OK) {
