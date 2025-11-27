@@ -1771,9 +1771,12 @@ def test_rdb_memory_limit():
 
 class TestTimeoutReached(object):
     def __init__(self):
-        self.env = Env(enableDebugCommand=True, moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
         n_shards = self.env.shardsCount
-        self.index_sizes = {'FLAT': 100 * n_shards, 'HNSW': 100 * n_shards, 'SVS-VAMANA': 100 * n_shards}
+        # We need at least DEFAULT_BLOCK_SIZE at every shard, due to nature of hash slot distribution, we need a bit extra
+        # for that reason we multiply by 1.1
+        minimal_svs_index_size = DEFAULT_BLOCK_SIZE * 1.1 * n_shards
+        self.index_sizes = {'FLAT': 100 * n_shards, 'HNSW': 100 * n_shards, 'SVS-VAMANA': minimal_svs_index_size}
         self.hybrid_modes = ['BATCHES', 'ADHOC_BF']
         self.dim = 10
         self.type = 'FLOAT32'
@@ -1782,26 +1785,34 @@ class TestTimeoutReached(object):
         self.env.flush()
 
     def run_timeout_tests(self, n_vec, query_vec):
+        small_k = 10
         # STANDARD KNN
         # run query with no timeout. should succeed.
         res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                   'PARAMS', 4, 'K', small_k, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 0)
         self.env.assertEqual(res[0], n_vec)
 
-        # run query with timeout using FT.DEBUG TIMEOUT_AFTER_N. should fail.
-        timeout_res_count = 1
+        # run query with timeout by pausing before the index RP with 0 results, sleep, then resume.
+        # This simulates a timeout occurring in the vecsim library.
+        pause_res_count = 0
         self.env.expect(
             '_FT.DEBUG', 'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
-            'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', n_vec,
-            'vec_param', query_vec.tobytes(), 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2
+            'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', small_k,
+            'vec_param', query_vec.tobytes(), 'TIMEOUT', 1, 'PAUSE_BEFORE_RP_N', 'Index', pause_res_count, 'DEBUG_PARAMS_COUNT', 4
         ).error().contains('Timeout limit was reached')
+        time.sleep(1)
+        allShards_setPauseRPResume(self.env)
 
         # RANGE QUERY
-        # run query with timeout using FT.DEBUG TIMEOUT_AFTER_N. should fail.
-        self.env.expect('_FT.DEBUG', 'FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                   'PARAMS', 2, 'vec_param', query_vec.tobytes(),
-                   'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
+        # run query with timeout by pausing before the index RP with 0 results, sleep, then resume.
+        self.env.expect(
+            '_FT.DEBUG', 'FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+            'PARAMS', 2, 'vec_param', query_vec.tobytes(),
+            'TIMEOUT', 1, 'PAUSE_BEFORE_RP_N', 'Index', pause_res_count, 'DEBUG_PARAMS_COUNT', 4
+        ).error().contains('Timeout limit was reached')
+        time.sleep(1)
+        allShards_setPauseRPResume(self.env)
 
         # HYBRID MODES
         # Add some dummy documents so `-dummy` won't be empty and optimized away.
@@ -1811,9 +1822,11 @@ class TestTimeoutReached(object):
         for mode in self.hybrid_modes:
             self.env.expect(
                 '_FT.DEBUG', 'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
-                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
-                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2
+                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', small_k,
+                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 1, 'PAUSE_BEFORE_RP_N', 'Index', pause_res_count, 'DEBUG_PARAMS_COUNT', 5
             ).error().contains('Timeout limit was reached')
+            time.sleep(1)
+            allShards_setPauseRPResume(self.env)
 
     def test_flat(self):
         # Create index and load vectors.
