@@ -1231,12 +1231,15 @@ def _test_active_worker_threads(env, num_queries):
     for i in range(10):
         conn.execute_command('HSET', f'doc{i}', 'n', i)
 
-    # Verify active_worker_threads starts at 0
+    # Verify active_worker_threads and coord threads start at 0
     multi_threading_section = f'{SEARCH_PREFIX}multi_threading'
     for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
         info_dict = info_modules_to_dict(con)
-        env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], '0',
+        multi_threading_section = info_dict[f'{SEARCH_PREFIX}multi_threading']
+        env.assertEqual(multi_threading_section[f'{SEARCH_PREFIX}active_worker_threads'], '0',
                        message=f"shard {i}: active_worker_threads should be 0 when idle")
+        env.assertEqual(multi_threading_section[f'{SEARCH_PREFIX}active_coord_threads'], '0',
+                       message=f"shard {i}: active_coord_threads should be 0 when idle")
 
     # Define callback for testing a specific query type
     def _test_query_type(query_type):
@@ -1267,6 +1270,12 @@ def _test_active_worker_threads(env, num_queries):
             info_dict = info_modules_to_dict(con)
             env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_worker_threads'], str(num_queries),
                            message=f"shard {i}: {query_type}: active_worker_threads should be {num_queries} when {num_queries} queries are paused")
+
+        # If this is cluster, and FT.AGGREGATE, verify active_coord_threads == num_queries
+        if env.isCluster() and query_type == 'FT.AGGREGATE':
+          info_dict = info_modules_to_dict(env)
+          env.assertEqual(info_dict[multi_threading_section][f'{SEARCH_PREFIX}active_coord_threads'], str(num_queries),
+                         message=f"coordinator: {query_type}: active_coord_threads should be {num_queries} when {num_queries} queries are paused")
 
         # Resume all queries
         allShards_setPauseRPResume(env)
