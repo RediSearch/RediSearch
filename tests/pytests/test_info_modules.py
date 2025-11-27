@@ -1184,7 +1184,6 @@ def test_warnings_metric_count_timeout_cluster_in_shards_resp3(env):
     shard_conn = env.getConnection(shardId)
     _verify_metrics_not_changed(env, shard_conn, before_info_dicts[shardId], tested_in_this_test)
 
-# @skip(cluster=False)
 def test_active_io_threads_stats(env):
   conn = getConnectionByEnv(env)
   # Setup: Create index with some data
