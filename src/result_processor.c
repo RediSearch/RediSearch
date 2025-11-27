@@ -150,7 +150,7 @@ validate_current:
       }
     }
     // querySlots presence would indicate that is internal command, if querySlots is NULL, we don't need to filter.
-    bool should_filter_slots = self->querySlots && (self->slotsVersion == 0 || atomic_load(&key_space_version) != self->slotsVersion);
+    bool should_filter_slots = self->querySlots && (atomic_load(&key_space_version) != self->slotsVersion);
     if (should_filter_slots) {
       RS_ASSERT(self->querySlots != NULL);
       int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
@@ -1982,7 +1982,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
  }
 
  /* Create a new Hybrid Merger processor */
-ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx, 
+ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
