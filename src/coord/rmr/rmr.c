@@ -458,6 +458,7 @@ struct MRIteratorCallbackCtx {
   MRIterator *it;
   MRCommand cmd;
   void *privateData;
+  size_t targetShard;
 };
 
 struct MRIterator {
@@ -547,8 +548,15 @@ MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx) {
   return &ctx->it->ctx;
 }
 
+struct MRReplyWithTargetShard {
+  MRReply *rep;
+  size_t targetShard;
+};
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  MRChannel_Push(ctx->it->ctx.chan, rep);
+  struct MRReplyWithTargetShard *replyWithTargetShard = rm_malloc(sizeof(*replyWithTargetShard));
+  replyWithTargetShard->rep = rep;
+  replyWithTargetShard->targetShard = ctx->targetShard;
+  MRChannel_Push(ctx->it->ctx.chan, replyWithTargetShard);
 }
 
 void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx) {
@@ -576,6 +584,7 @@ void iterStartCb(void *p) {
     // Set each command to target a different shard
     it->cbxs[targetShard].cmd.targetShard = targetShard;
     MRCommand_SetSlotInfo(&it->cbxs[targetShard].cmd, shards[targetShard].slotRanges);
+    it->cbxs[targetShard].targetShard = targetShard;
 
     it->cbxs[targetShard].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   }
@@ -639,6 +648,7 @@ void iterCursorMappingCb(void *p) {
 
     it->cbxs[i].cmd.targetShard = vsimOrSearch->mappings[i].targetShard;
     it->cbxs[i].cmd.num = 4;
+    it->cbxs[i].targetShard = vsimOrSearch->mappings[i].targetShard;
     char buf[128];
     sprintf(buf, "%lld", vsimOrSearch->mappings[i].cursorId);
     MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, strlen(buf));
@@ -733,6 +743,7 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
     .cmd = MRCommand_Copy(cmd),
     .it = ret,
     .privateData = cbPrivateData,
+    .targetShard = cmd->targetShard,
   };
 
   // Create data structure with iterator and private data (on heap)

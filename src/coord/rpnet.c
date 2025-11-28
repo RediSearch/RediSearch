@@ -84,7 +84,8 @@ int getNextReply(RPNet *nc) {
       return 0;
     }
   }
-  MRReply *root = MRIterator_Next(nc->it);
+  MRReplyWithTargetShard *root = MRIterator_Next(nc->it);
+  MRReply *root = root->rep;
 
   if (root == NULL) {
     // No more replies
