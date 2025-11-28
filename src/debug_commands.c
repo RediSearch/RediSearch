@@ -1452,6 +1452,9 @@ DEBUG_COMMAND(dumpHNSWData) {
 
 /**
  * FT.DEBUG WORKERS [PAUSE / RESUME / DRAIN / STATS / N_THREADS]
+ *
+ * @warning Calling FT.DEBUG WORKERS DRAIN will block the main thread until all workers are idle, this could lead to a deadlock,
+ *          if there are pending jobs that require to acquire the GIL (like when LOAD is called from a worker thread)
  */
 DEBUG_COMMAND(WorkerThreadsSwitch) {
   if (!debugCommandsEnabled(ctx)) {
@@ -1851,54 +1854,62 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
   return RedisModule_ReplyWithLongLong(ctx, value);
 }
 
-// Global counter for tracking yield calls during loading
-static size_t g_yieldCallCounter = 0;
+// Global counter for tracking yield calls
+typedef struct {
+  size_t yieldOnLoadCounter;
+  size_t yieldOnBgIndexCounter;
+  size_t indexerSleepBeforeYieldMicros;
+} YieldCallHandler;
 
-// Global variable for sleep time before yielding (in microseconds)
-static unsigned int g_indexerSleepBeforeYieldMicros = 0;
+static YieldCallHandler g_yieldCallHandler = {0};
 
-// Function to increment the yield counter (to be called from IndexerBulkAdd)
-void IncrementYieldCounter(void) {
-  g_yieldCallCounter++;
+// Function to increment the yield counter upon loading (to be called from IndexerBulkAdd)
+void IncrementLoadYieldCounter(void) {
+  g_yieldCallHandler.yieldOnLoadCounter++;
+}
+
+// Function to increment the yield counter upon bg indexing
+void IncrementBgIndexYieldCounter(void) {
+  g_yieldCallHandler.yieldOnBgIndexCounter++;
 }
 
 // Reset the yield counter
-void ResetYieldCounter(void) {
-  g_yieldCallCounter = 0;
+void ResetYieldCounters(void) {
+  g_yieldCallHandler.yieldOnLoadCounter = 0;
+  g_yieldCallHandler.yieldOnBgIndexCounter = 0;
 }
 
 // Get the current sleep time before yielding (in microseconds)
 unsigned int GetIndexerSleepBeforeYieldMicros(void) {
-  return g_indexerSleepBeforeYieldMicros;
+  return g_yieldCallHandler.indexerSleepBeforeYieldMicros;
 }
 
 /**
- * FT.DEBUG YIELDS_ON_LOAD_COUNTER [RESET]
- * Get or reset the counter for yields during loading operations
+ * FT.DEBUG YIELDS_COUNTER LOAD/BG_INDEX/RESET
+ * Get or reset the counter for yields indexing / loading operations
  */
 DEBUG_COMMAND(YieldCounter) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
 
-  if (argc > 3) {
+  if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
 
-  // Check if we need to reset the counter
-  if (argc == 3) {
-    size_t len;
-    const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
-    if (STR_EQCASE(subCmd, len, "RESET")) {
-      ResetYieldCounter();
-      return RedisModule_ReplyWithSimpleString(ctx, "OK");
-    } else {
-      return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
-    }
+  size_t len;
+  const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+  if (STR_EQCASE(subCmd, len, "RESET")) {
+    ResetYieldCounters();
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-
-  // Return the current counter value
-  return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
+  if (STR_EQCASE(subCmd, len, "BG_INDEX")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_yieldCallHandler.yieldOnBgIndexCounter);
+  }
+  if (STR_EQCASE(subCmd, len, "LOAD")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_yieldCallHandler.yieldOnLoadCounter);
+  }
+  return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
 }
 
 /**
@@ -1921,7 +1932,7 @@ DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
       return RedisModule_ReplyWithError(ctx, "Invalid sleep time. Must be a non-negative integer.");
     }
 
-    g_indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
+    g_yieldCallHandler.indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
@@ -2089,7 +2100,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
-                               {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"YIELDS_COUNTER", YieldCounter},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},

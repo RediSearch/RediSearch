@@ -44,12 +44,9 @@ pub use bindings::{
     IndexFlags_Index_StoreTermOffsets,
 };
 use bindings::{IteratorStatus, ValidateStatus};
-use ffi::RedisModule_Alloc;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::RSIndexResult;
+use inverted_index::{NumericFilter, RSIndexResult};
 use std::ptr;
-
-use crate::ffi::bindings::Metric_VECTOR_DISTANCE;
 
 // Direct C benchmark functions that eliminate FFI overhead
 // by implementing the benchmark loop entirely in C
@@ -83,47 +80,29 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub fn new_id_list(vec: Vec<u64>) -> Self {
-        // Convert the Rust vector to use C allocation because the C iterator takes ownership of the array
-        let len = vec.len();
-        let data =
-            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
-        }
-        Self(unsafe { bindings::NewIdListIterator(data, len as u64, 1f64) })
-    }
-    #[inline(always)]
-    pub fn new_metric(vec: Vec<u64>, metric_data: Vec<f64>) -> Self {
-        let len = vec.len();
-        let data =
-            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };
-        let m_data =
-            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<f64>()) as *mut f64 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
-            std::ptr::copy_nonoverlapping(metric_data.as_ptr(), m_data, len);
-        }
-        Self(unsafe { bindings::NewMetricIterator(data, m_data, len, Metric_VECTOR_DISTANCE) })
-    }
-    #[inline(always)]
     pub fn new_wildcard(max_id: u64, num_docs: usize) -> Self {
         Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, num_docs, 1f64) })
     }
 
     #[inline(always)]
-    pub unsafe fn new_numeric(ii: *mut bindings::InvertedIndex) -> Self {
+    pub unsafe fn new_numeric(
+        ii: *mut bindings::InvertedIndex,
+        filter: Option<&NumericFilter>,
+    ) -> Self {
         let field_ctx = FieldFilterContext {
             field: FieldMaskOrIndex::index_invalid(),
             predicate: FieldExpirationPredicate::Default,
         };
+        let flt = filter
+            .map(|filter| filter as *const NumericFilter as *const _)
+            .unwrap_or_default();
 
         Self(unsafe {
             bindings::NewInvIndIterator_NumericQuery(
                 ii,
                 ptr::null(),
                 &field_ctx as _,
-                ptr::null(),
+                flt,
                 ptr::null(),
                 0.0,
                 std::f64::MAX,
@@ -185,8 +164,9 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub fn current(&self) -> *mut RSIndexResult<'static> {
-        unsafe { (*self.0).current }
+    pub fn current(&self) -> Option<&RSIndexResult<'static>> {
+        let current = unsafe { (*self.0).current };
+        unsafe { current.as_ref() }
     }
 }
 
@@ -267,8 +247,8 @@ impl InvertedIndex {
     }
 
     #[inline(always)]
-    pub fn iterator_numeric(&self) -> QueryIterator {
-        unsafe { QueryIterator::new_numeric(self.0) }
+    pub fn iterator_numeric(&self, filter: Option<&NumericFilter>) -> QueryIterator {
+        unsafe { QueryIterator::new_numeric(self.0, filter) }
     }
 
     #[inline(always)]
@@ -281,6 +261,59 @@ impl Drop for InvertedIndex {
     #[inline(always)]
     fn drop(&mut self) {
         unsafe { bindings::InvertedIndex_Free(self.0) };
+    }
+}
+
+/// A builder for creating `QueryTerm` instances.
+///
+/// Use [`QueryTermBuilder::allocate`] to create a new instance
+/// on the heap.
+#[allow(unused)]
+pub(crate) struct QueryTermBuilder<'a> {
+    pub(crate) token: &'a str,
+    pub(crate) idf: f64,
+    pub(crate) id: i32,
+    pub(crate) flags: u32,
+    pub(crate) bm25_idf: f64,
+}
+
+impl<'a> QueryTermBuilder<'a> {
+    /// Creates a new instance of `RSQueryTerm` on the heap.
+    /// It returns a raw pointer to the allocated `RSQueryTerm`.
+    ///
+    /// The caller is responsible for freeing the allocated memory
+    /// using [`Term_Free`](ffi::Term_Free).
+    #[allow(unused)]
+    pub(crate) fn allocate(self) -> *mut ffi::RSQueryTerm {
+        let Self {
+            token,
+            idf,
+            id,
+            flags,
+            bm25_idf,
+        } = self;
+        let token = ffi::RSToken {
+            str_: token.as_ptr() as *mut _,
+            len: token.len(),
+            _bitfield_align_1: Default::default(),
+            _bitfield_1: Default::default(),
+            __bindgen_padding_0: Default::default(),
+        };
+        let token_ptr = Box::into_raw(Box::new(token));
+        let query_term = unsafe { ffi::NewQueryTerm(token_ptr as *mut _, id) };
+
+        // Now that NewQueryTerm copied tok->str into ret->str,
+        // the temporary token struct is no longer needed.
+        unsafe {
+            drop(Box::from_raw(token_ptr));
+        }
+
+        // Patch the fields we can't set via the constructor
+        unsafe { (*query_term).idf = idf };
+        unsafe { (*query_term).bm25_idf = bm25_idf };
+        unsafe { (*query_term).flags = flags };
+
+        query_term
     }
 }
 
@@ -319,7 +352,7 @@ mod tests {
         ii.write_numeric_entry(10, 10.0);
         ii.write_numeric_entry(100, 100.0);
 
-        let it = unsafe { QueryIterator::new_numeric(ii.0) };
+        let it = unsafe { QueryIterator::new_numeric(ii.0, None) };
         assert_eq!(it.num_estimated(), 3);
 
         assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
@@ -339,6 +372,41 @@ mod tests {
     }
 
     #[test]
+    fn numeric_iterator_filter() {
+        let ii = InvertedIndex::new(IndexFlags_Index_StoreNumeric);
+        for i in 1..=10 {
+            ii.write_numeric_entry(i, i as f64);
+        }
+
+        let filter = NumericFilter {
+            min: 2.0,
+            max: 5.0,
+            min_inclusive: true,
+            max_inclusive: false,
+            ..Default::default()
+        };
+
+        let it = unsafe { QueryIterator::new_numeric(ii.0, Some(&filter)) };
+
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.current().unwrap().doc_id, 2);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.current().unwrap().doc_id, 3);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.current().unwrap().doc_id, 4);
+        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
+
+        it.rewind();
+        assert_eq!(it.skip_to(2), IteratorStatus_ITERATOR_OK);
+        assert_eq!(it.skip_to(5), IteratorStatus_ITERATOR_EOF);
+
+        it.rewind();
+        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
+
+        it.free();
+    }
+
+    #[test]
     fn term_full_iterator() {
         let ii = InvertedIndex::new(
             IndexFlags_Index_StoreFreqs
@@ -349,20 +417,20 @@ mod tests {
 
         let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         const TEST_STR: &str = "term";
-        let test_str_ptr = TEST_STR.as_ptr() as *mut _;
-        let term = Box::new(ffi::RSQueryTerm {
-            str_: test_str_ptr,
-            len: TEST_STR.len(),
-            idf: 5.0,
-            id: 1,
-            flags: 0,
-            bm25_idf: 10.0,
-        });
-        let term = Box::into_raw(term);
+        let term = || {
+            QueryTermBuilder {
+                token: TEST_STR,
+                idf: 5.0,
+                id: 1,
+                flags: 0,
+                bm25_idf: 10.0,
+            }
+            .allocate()
+        };
 
-        ii.write_term_entry(1, 1, 1, term, &offsets);
-        ii.write_term_entry(10, 1, 1, term, &offsets);
-        ii.write_term_entry(100, 1, 1, term, &offsets);
+        ii.write_term_entry(1, 1, 1, term(), &offsets);
+        ii.write_term_entry(10, 1, 1, term(), &offsets);
+        ii.write_term_entry(100, 1, 1, term(), &offsets);
 
         let it = unsafe { QueryIterator::new_term(ii.0) };
         assert_eq!(it.num_estimated(), 3);
@@ -381,7 +449,5 @@ mod tests {
         assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
 
         it.free();
-
-        let _ = unsafe { Box::from_raw(term) };
     }
 }

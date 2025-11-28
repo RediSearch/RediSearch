@@ -10,9 +10,8 @@
 //! Supporting types for [`MetricIterator`].
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList};
-use ffi::{RLookupKey, RLookupKeyHandle, RSYieldableMetric, array_ensure_append_n_func, t_docId};
-use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
-use value::{RSValueFFI, RSValueTrait};
+use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
+use inverted_index::RSIndexResult;
 
 /// The different types of metrics.
 /// At the moment, only vector distance is supported.
@@ -69,27 +68,8 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
         panic!("Result is not numeric");
     }
 
-    // SAFETY: reset the metrics c_array
-    unsafe {
-        ResultMetrics_Reset_func(result);
-    }
-
-    let value = RSValueFFI::create_num(val);
-    let new_metrics: *const RSYieldableMetric = &RSYieldableMetric {
-        key,
-        value: value.as_ptr(),
-    };
-    // Prevent value::drop() from being called to avoid use-after-free as the C code now owns this value.
-    std::mem::forget(value);
-    // SAFETY: calling a C function to append a new metric to the result's metrics array
-    unsafe {
-        result.metrics = array_ensure_append_n_func(
-            result.metrics as *mut _,
-            new_metrics as *mut _,
-            1,
-            std::mem::size_of::<RSYieldableMetric>() as u16,
-        ) as *mut RSYieldableMetric;
-    }
+    // SAFETY: set the C metrics array
+    unsafe { ffi::ResetAndPushMetricData(result as *mut _ as *mut ffi::RSIndexResult, val, key) };
 }
 
 impl<'index, const SORTED_BY_ID: bool> MetricIterator<'index, SORTED_BY_ID> {
@@ -154,20 +134,21 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index>
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        let skip_outcome = self.base.skip_to_and_get_offset(doc_id)?;
-        match skip_outcome {
-            Some((SkipToOutcome::Found(result), offset)) => {
-                let val = self.metric_data[offset - 1];
-                set_result_metrics(result, val, self.own_key);
-                Ok(Some(SkipToOutcome::Found(result)))
-            }
-            Some((SkipToOutcome::NotFound(result), offset)) => {
-                let val = self.metric_data[offset - 1];
-                set_result_metrics(result, val, self.own_key);
-                Ok(Some(SkipToOutcome::NotFound(result)))
-            }
-            None => Ok(None),
-        }
+        let Some(found) = self.base._skip_to(doc_id) else {
+            return Ok(None);
+        };
+        let val = self.metric_data[self.base.offset() - 1];
+        let current = self
+            .base
+            .current()
+            .expect("The underlying ID list skipped successfully, so it shouldn't be at EOF");
+        set_result_metrics(current, val, self.own_key);
+        let outcome = if found {
+            SkipToOutcome::Found(current)
+        } else {
+            SkipToOutcome::NotFound(current)
+        };
+        Ok(Some(outcome))
     }
 
     #[inline(always)]

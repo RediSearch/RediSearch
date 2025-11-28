@@ -39,6 +39,7 @@ fn main() {
         let inverted_index = src.join("inverted_index");
         let vecsim = deps.join("VectorSimilarity").join("src");
         let buffer = src.join("buffer");
+        let ttl_table = src.join("ttl_table");
 
         [
             redis_modules,
@@ -48,6 +49,7 @@ fn main() {
             inverted_index,
             vecsim,
             buffer,
+            ttl_table,
         ]
     };
 
@@ -58,10 +60,11 @@ fn main() {
             .join("redismodule.h"),
         root.join("src").join("buffer/buffer.h"),
         root.join("src").join("search_result.h"),
+        root.join("src").join("index_result").join("index_result.h"),
         root.join("src").join("config.h"),
         root.join("src").join("result_processor.h"),
         root.join("src").join("sortable.h"),
-        root.join("src").join("value.h"),
+        root.join("src").join("value").join("value.h"),
         root.join("src").join("obfuscation").join("hidden.h"),
         root.join("src").join("spec.h"),
         root.join("src").join("doc_table.h"),
@@ -70,6 +73,7 @@ fn main() {
         root.join("src").join("query.h"),
         root.join("src").join("util").join("arr").join("arr.h"),
         root.join("src").join("search_disk_api.h"),
+        root.join("src").join("ttl_table").join("ttl_table.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();

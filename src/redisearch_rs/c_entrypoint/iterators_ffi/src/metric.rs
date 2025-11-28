@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::wrapper::RQEIteratorWrapper;
 use ffi::{
     IteratorType_METRIC_ITERATOR, QueryIterator, RLookupKey, RLookupKeyHandle, RedisModule_Free,
     t_docId,
 };
 use rqe_iterators::metric::{MetricIterator, MetricIteratorSortedById, MetricType};
+use rqe_iterators_interop::RQEIteratorWrapper;
 
 #[unsafe(no_mangle)]
 /// Creates a new metric iterator sorted by ID.
@@ -121,7 +121,8 @@ pub unsafe extern "C" fn SetMetricRLookupHandle(
         "Expected a metric iterator"
     );
     // SAFETY: Safe thanks to 1 + 2.
-    let wrapper = unsafe { RQEIteratorWrapper::<MetricIteratorSortedById>::from_header(header) };
+    let wrapper =
+        unsafe { RQEIteratorWrapper::<MetricIteratorSortedById>::mut_ref_from_header_ptr(header) };
     // SAFETY: Safe thanks to 3.
     unsafe { wrapper.inner.set_handle(key_handle) };
 }
@@ -142,7 +143,8 @@ pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut 
         "Expected a metric iterator"
     );
     // SAFETY: Safe thanks to 1 + 2.
-    let wrapper = unsafe { RQEIteratorWrapper::<MetricIteratorSortedById>::from_header(header) };
+    let wrapper =
+        unsafe { RQEIteratorWrapper::<MetricIteratorSortedById>::mut_ref_from_header_ptr(header) };
     wrapper.inner.key_mut_ref() as *mut _
 }
 
@@ -162,6 +164,7 @@ pub unsafe extern "C" fn GetMetricType(header: *mut QueryIterator) -> MetricType
         "Expected a metric iterator"
     );
     // SAFETY: Safe thanks to 1 + 2.
-    let wrapper = unsafe { RQEIteratorWrapper::<MetricIteratorSortedById>::from_header(header) };
+    let wrapper =
+        unsafe { RQEIteratorWrapper::<MetricIteratorSortedById>::ref_from_header_ptr(header) };
     wrapper.inner.metric_type()
 }
