@@ -271,9 +271,9 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
 
     # Sanity check - all shards should return the same results
-    print("Querying all shards for sanity check")
+    env.debugPrint("Querying all shards for sanity check")
     query_shards(env, query, shards, expected, query_type)
-    print("Sanity check passed")
+    env.debugPrint("Sanity check passed")
 
     # Test searching while importing slots from shard 2 to shard 1
     # TODO ASM: These tests will be flaky, cannot guarantee
@@ -281,24 +281,24 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
         task_id = import_middle_slot_range(shard1, shard2)
         while not is_migration_complete(shard1, task_id):
             try:
-                print("Querying shards while migration is in progress")
+                env.debugPrint("Querying shards while migration is in progress")
                 query_shards(env, query, shards, expected, query_type)
-                print("Query passed")
+                env.debugPrint("Query passed")
                 if is_migration_complete(shard1, task_id):
-                    print("Migration completed")
+                    env.debugPrint("Migration completed")
             except Exception as e:
                 # If Migration has completed and Trimming have started we can accept errors, but if migration did not complete it should work still
                 if not is_migration_complete(shard1, task_id):
-                    print(f"Migration did not complete but query failed: {e}")
+                    env.debugPrint(f"Migration did not complete but query failed: {e}")
                     raise e
             time.sleep(0.1)
 
     # TODO ASM: When Trimming delay is implemented in core, test with all shards
     # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
     # topology is outdated, and the slots that would arrive to each shard would lead to errors.
-    print("Querying shards after migration")
+    env.debugPrint("Querying shards after migration")
     query_shards(env, query, [shard1, shard2], expected, query_type)
-    print("Query after migration passed")
+    env.debugPrint("Query after migration passed")
 
 @skip(cluster=False, min_shards=2)
 def test_ft_search_import_slot_range():
