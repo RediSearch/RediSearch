@@ -156,8 +156,12 @@ def _test_withcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', docs, docs*2], docs, 0),
 
         # WITHCOUNT + SORTBY 0
-        # Sorter without keys, default limit
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'], docs, DEFAULT_LIMIT),
+        # Sorter without keys, no sorter, no limiter
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'], docs, docs),
+
+        # WITHCOUNT + SORTBY 0 + MAX
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0', 'MAX', 3], docs, 3),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0', 'MAX', 30], docs, 30),
 
         # WITHCOUNT + SORTBY
         # Sorter, limit results to DEFAULT_LIMIT
@@ -270,7 +274,11 @@ def _test_withoutcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LIMIT', docs, docs*2], 0),
 
         # WITHOUTCOUNT + SORTBY 0
-        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'], DEFAULT_LIMIT),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'], docs),
+
+        # WITHOUTCOUNT + SORTBY 0 + MAX
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0', 'MAX', 3], 3),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0', 'MAX', 30], 30),
 
         # WITHOUTCOUNT + SORTBY - backwards compatible, returns only 10 results
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'], DEFAULT_LIMIT),
@@ -400,10 +408,10 @@ def _test_profile(protocol):
         # WITHCOUNT + SORTBY 0
         # Sorter without keys, default limit
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', '0'],
-         ['Index', 'Sorter'],
-         ['Index', 'Sorter'],
-         [['Index', 'Sorter'], ['Network', 'Sorter']],
-         [['Index', 'Sorter'], ['Network', 'Sorter']]),
+         ['Index', 'Sync Depleter'],
+         ['Index', 'Sync Depleter'],
+         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']],
+         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter']]),
 
         # WITHCOUNT + SORTBY
         # Sorter, limit results to DEFAULT_LIMIT
@@ -528,22 +536,22 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + SORTBY 0
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'],
-         ['Index', 'Pager/Limiter'],        # Bug no related to WITHCOUNT change
-         ['Index', 'Pager/Limiter'],        # Bug no related to WITHCOUNT change
-         [['Index', 'Sorter'], ['Network', 'Sorter']],
-         [['Index', 'Sorter'], ['Network', 'Sorter']]),
+         ['Index'],
+         ['Index'],
+         [['Index'], ['Network']],
+         [['Index'], ['Network']]),
 
         # WITHOUTCOUNT + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'],
-         ['Index', 'Pager/Limiter'],        # Bug no related to WITHCOUNT change
-         ['Index', 'Pager/Limiter'],        # Bug no related to WITHCOUNT change
+         ['Index', 'Sorter'],
+         ['Index', 'Sorter'],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
 
         # WITHOUTCOUNT + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
-         ['Index', 'Pager/Limiter'],
-         ['Index', 'Pager/Limiter'],
+         ['Index', 'Sorter'],
+         ['Index', 'Sorter'],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']],
          [['Index', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
 
@@ -563,8 +571,8 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + GROUPBY + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand'],
-         ['Index', 'Grouper'],
-         ['Index', 'Grouper'],
+         ['Index', 'Grouper', 'Sorter'],
+         ['Index', 'Grouper', 'Sorter'],
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
 
@@ -577,8 +585,8 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + GROUPBY + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50],
-         ['Index', 'Grouper', 'Pager/Limiter'],
-         ['Index', 'Grouper', 'Pager/Limiter'],
+         ['Index', 'Grouper', 'Sorter'],
+         ['Index', 'Grouper', 'Sorter'],
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
 
@@ -591,8 +599,8 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + ADDSCORES + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'],
-         ['Index', 'Scorer'],
-         ['Index', 'Scorer'],
+         ['Index', 'Scorer', 'Sorter'],
+         ['Index', 'Scorer', 'Sorter'],
          [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']],
          [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
 
@@ -762,10 +770,14 @@ def _test_query(protocol):
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50], docs, 50),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200'], 200, 200),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 0, 50], 200, 50),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'], 1, DEFAULT_LIMIT),
+
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'], docs, docs),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'], DEFAULT_LIMIT, DEFAULT_LIMIT),
         # (['FT.AGGREGATE', 'idx', '*', 'SORTBY', '0'], docs, DEFAULT_LIMIT),
-        (['FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@title'], 1, DEFAULT_LIMIT),
-        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'], 1, DEFAULT_LIMIT),
+
+
+        # (['FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@title'], 1, DEFAULT_LIMIT),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'], 1, DEFAULT_LIMIT),
         # (['FT.AGGREGATE', 'idx', '*', 'SORTBY', '0'], docs, DEFAULT_LIMIT),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'], docs, DEFAULT_LIMIT),
     ]

@@ -221,6 +221,9 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   const char *name = opt->fieldName;
   bool hasOther = false;
 
+  // Remember if type was already set (e.g., Q_OPT_NONE for non-numeric sortby)
+  bool typeAlreadySet = (opt->type != Q_OPT_UNDECIDED);
+
   if (root->type == QN_WILDCARD) {
     opt->scorerType = SCORER_TYPE_NONE;
   }
@@ -244,14 +247,18 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
       opt->nf = numSortbyNode->nn.nf;
     } else {
       // tree has only numeric range. scan range large enough for requested limit
-      opt->type = Q_OPT_PARTIAL_RANGE;
+      if (!typeAlreadySet) {
+        opt->type = Q_OPT_PARTIAL_RANGE;
+      }
       return;
     }
   }
 
   // there is no sorting field and scorer is required - we must check all results
   if ((!isSortby && opt->scorerReq) || (root->type == QN_VECTOR && root->vn.vq->type == VECSIM_QT_KNN)) {
-    opt->type = Q_OPT_NONE;
+    if (!typeAlreadySet) {
+      opt->type = Q_OPT_NONE;
+    }
     return;
   }
 
@@ -260,16 +267,22 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   // else, return after enough result found
   if (!opt->scorerReq) {
     if (isSortby) {
-      opt->type = Q_OPT_PARTIAL_RANGE;
+      if (!typeAlreadySet) {
+        opt->type = Q_OPT_PARTIAL_RANGE;
+      }
       return;
     } else {
-      opt->type = Q_OPT_NO_SORTER;
+      if (!typeAlreadySet) {
+        opt->type = Q_OPT_NO_SORTER;
+      }
       // No need for scorer, and there is no sorter. we can avoid calculating scores
       opt->scorerType = SCORER_TYPE_NONE;
       return;
     }
   }
-  opt->type = Q_OPT_UNDECIDED;
+  if (!typeAlreadySet) {
+    opt->type = Q_OPT_UNDECIDED;
+  }
 }
 
 // creates an intersect from root and numeric

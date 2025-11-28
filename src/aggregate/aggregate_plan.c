@@ -303,7 +303,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
           printf("  OFFSET:%lu LIMIT:%lu\n", (unsigned long)astp->offset,
                  (unsigned long)astp->limit);
         }
-        if (astp->sortKeys) {
+        if (array_len(astp->sortKeys)) {
           printf("  SORT:\n");
           for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
             const char *dir = SORTASCMAP_GETASC(astp->sortAscMap, ii) ? "ASC" : "DESC";

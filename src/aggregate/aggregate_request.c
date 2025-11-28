@@ -303,6 +303,9 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       if (parseSortby(arng, ac, status, papCtx) != REDISMODULE_OK) {
         return ARG_ERROR;
       }
+      if (array_len(arng->sortKeys) == 0) {
+        REQFLAGS_RemoveFlags(papCtx->reqflags, QEXEC_F_HAS_SORTBY);
+      }
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
     if (AC_NumRemaining(ac) < 1) {

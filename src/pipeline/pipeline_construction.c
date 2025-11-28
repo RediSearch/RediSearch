@@ -192,7 +192,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:1 optimizer->type=%s", QOptimizer_PrintType(params->common.optimizer));
   }
   if (PipelineRequiresSorter(params)) {
-    if (astp->sortKeys) {
+    if (array_len(astp->sortKeys)) {
       Nafraf_Log("getArrangeRP:3.1.1 astp->sortKeys", &params->common, astp, rp);
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
@@ -263,6 +263,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     if (!RPSyncDepleterAdded) {
       rp = RPSyncDepleter_New();
       up = pushRP(&pipeline->qctx, rp, up);
+      RPSyncDepleterAdded = true;
     }
 
     Nafraf_Log("getArrangeRP:5.2", &params->common, astp, rp);
@@ -311,7 +312,7 @@ static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const RLook
 bool hasQuerySortby(const AGGPlan *pln) {
   const PLN_BaseStep *bstp = AGPLN_FindStep(pln, NULL, NULL, PLN_T_GROUP);
   const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
-  return arng && arng->sortKeys;
+  return arng && array_len(arng->sortKeys);
 }
 
 static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t loadFlags,
@@ -571,6 +572,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         RedisModule_Log(RSDummyContext, "notice", "Nafraf: Pipeline_BuildAggregationPart: PLN_T_ARRANGE -> getArrangeRP");
         rp = getArrangeRP(pipeline, params, stp, status, rpUpstream, forceLoad, outStateFlags);
         // if (!rp) {
+        //   RedisModule_Log(RSDummyContext, "notice", "Nafraf: Pipeline_BuildAggregationPart: PLN_T_ARRANGE -> getArrangeRP failed");
         //   goto error;
         // }
         if (rp) {
@@ -678,7 +680,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
   // return the entire matching result set!
   if (!hasArrange &&
         (IsSearch(&params->common) || IsHybridSearchSubquery(&params->common) ||
-        (IsAggregate(&params->common) && HasDepleter(&params->common)))) {
+        (IsAggregate(&params->common) && HasWithCount(&params->common)))) {
     rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
     // if (!rp) {
     //   goto error;

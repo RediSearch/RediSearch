@@ -369,6 +369,8 @@ static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
  */
 #define REQFLAGS_AddFlags(reqflags, flags) (*(reqflags) |= (flags))
 
+#define REQFLAGS_RemoveFlags(reqflags, flags) (*(reqflags) &= ~(flags))
+
 static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
   return &req->pipeline.qctx;
 }
