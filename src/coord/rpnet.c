@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdatomic.h>
 #include "rpnet.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
@@ -75,29 +76,88 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 
 
 int getNextReply(RPNet *nc) {
-  if (nc->cmd.forCursor) {
-    // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
-    // TODO: could be replaced with a query specific configuration
-    if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
-      // No more replies
-      RPNet_resetCurrent(nc);
-      return 0;
+  // WITHCOUNT: Wait for all shards' first responses before returning any results
+  // This ensures accurate total_results from the start
+  if (nc->withCountTracker && !nc->waitedForAllShards) {
+    size_t numShards = nc->withCountTracker->numShards;
+
+    // Collect replies until all shards have sent their first response
+    // Also respect the query timeout to avoid blocking indefinitely
+    while (atomic_load(&nc->withCountTracker->numResponded) < numShards) {
+      // Check for timeout to avoid blocking indefinitely
+      if (nc->areq && nc->areq->sctx && TimedOut(&nc->areq->sctx->time.timeout)) {
+        RedisModule_Log(RSDummyContext, "debug",
+                        "WITHCOUNT: Timeout while waiting for all shards' first responses");
+        break;
+      }
+
+      if (nc->cmd.forCursor) {
+        if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
+          break;  // No more replies available
+        }
+      }
+
+      MRReply *reply = MRIterator_Next(nc->it);
+      if (reply == NULL) {
+        break;  // No more replies
+      }
+
+      // Store reply for later processing
+      if (!nc->pendingReplies) {
+        nc->pendingReplies = array_new(MRReply *, numShards);
+      }
+      array_append(nc->pendingReplies, reply);
+    }
+
+    // Mark that we've waited (even if not all shards responded - to avoid infinite loop)
+    nc->waitedForAllShards = true;
+
+    // Set the accumulated total now that all shards have responded
+    size_t numResponded = atomic_load(&nc->withCountTracker->numResponded);
+    if (numResponded >= numShards) {
+      long long accumulatedTotal = atomic_load(&nc->withCountTracker->accumulatedTotal);
+      nc->base.parent->totalResults = accumulatedTotal;
+      RedisModule_Log(RSDummyContext, "debug",
+                      "WITHCOUNT: All %zu shards responded, total_results = %lld",
+                      numShards, accumulatedTotal);
+    } else {
+      RedisModule_Log(RSDummyContext, "warning",
+                      "WITHCOUNT: Only %zu of %zu shards responded before returning results",
+                      numResponded, numShards);
     }
   }
-  MRReply *root = MRIterator_Next(nc->it);
+
+  // First, return any pending replies collected during the wait
+  MRReply *root = NULL;
+  if (nc->pendingReplies && array_len(nc->pendingReplies) > 0) {
+    // Pop the first pending reply
+    root = nc->pendingReplies[0];
+    // Shift array left (remove first element)
+    size_t len = array_len(nc->pendingReplies);
+    for (size_t i = 0; i < len - 1; i++) {
+      nc->pendingReplies[i] = nc->pendingReplies[i + 1];
+    }
+    array_pop(nc->pendingReplies);
+  } else {
+    // No pending replies, get from channel
+    if (nc->cmd.forCursor) {
+      if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
+        RPNet_resetCurrent(nc);
+        return 0;
+      }
+    }
+    root = MRIterator_Next(nc->it);
+  }
 
   if (root == NULL) {
-    // No more replies
     RPNet_resetCurrent(nc);
     return MRIterator_GetPending(nc->it);
   }
 
   // Check if an error was returned
-  if(MRReply_Type(root) == MR_REPLY_ERROR) {
+  if (MRReply_Type(root) == MR_REPLY_ERROR) {
     nc->current.root = root;
-    // If for profiling, clone and append the error
     if (nc->cmd.forProfiling) {
-      // Clone the error and append it to the profile
       MRReply *error = MRReply_Clone(root);
       array_append(nc->shardsProfile, error);
     }
@@ -106,27 +166,13 @@ int getNextReply(RPNet *nc) {
 
   // For profile command, extract the profile data from the reply
   if (nc->cmd.forProfiling) {
-    // if the cursor id is 0, this is the last reply from this shard, and it has the profile data
     if (CURSOR_EOF == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
       MRReply *profile_data;
       if (nc->cmd.protocol == 3) {
-        // [
-        //   {
-        //     "Results": { <FT.AGGREGATE reply> },
-        //     "Profile": { <profile data> }
-        //   },
-        //   cursor_id
-        // ]
         MRReply *data = MRReply_ArrayElement(root, 0);
         profile_data = MRReply_TakeMapElement(data, "profile");
       } else {
-        // RESP2
         RS_ASSERT(nc->cmd.protocol == 2);
-        // [
-        //   <FT.AGGREGATE reply>,
-        //   cursor_id,
-        //   <profile data>
-        // ]
         RS_ASSERT(MRReply_Length(root) == 3);
         profile_data = MRReply_TakeArrayElement(root, 2);
       }
@@ -134,6 +180,7 @@ int getNextReply(RPNet *nc) {
     }
   }
 
+  // Extract rows and meta from reply
   MRReply *rows = NULL, *meta = NULL;
   if (nc->cmd.protocol == 3) { // RESP3
     meta = MRReply_ArrayElement(root, 0);
@@ -225,6 +272,24 @@ void rpnetFree(ResultProcessor *rp) {
   MRReply_Free(nc->current.root);
   MRCommand_Free(&nc->cmd);
 
+  // WITHCOUNT: Free any pending replies that weren't consumed
+  if (nc->pendingReplies) {
+    array_foreach(nc->pendingReplies, reply, MRReply_Free(reply));
+    array_free(nc->pendingReplies);
+    nc->pendingReplies = NULL;
+  }
+
+  // WITHCOUNT: Release tracker reference
+  if (nc->withCountTracker) {
+    int refCount = atomic_fetch_sub(&nc->withCountTracker->refCount, 1) - 1;
+    if (refCount == 0) {
+      // Last reference - free the tracker
+      rm_free(nc->withCountTracker->shardResponded);
+      rm_free(nc->withCountTracker);
+    }
+    nc->withCountTracker = NULL;
+  }
+
   rm_free(rp);
 }
 
@@ -250,7 +315,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
   MRReply *root = nc->current.root, *rows = nc->current.rows;
   const bool resp3 = nc->cmd.protocol == 3;
-
 
   // root (array) has similar structure for RESP2/3:
   // [0] array of results (rows) described right below
@@ -349,18 +413,22 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   if (new_reply) {
     if (resp3) { // RESP3
       nc->curIdx = 0;
-      if (HasWithCount(nc->areq)) {
-        // With WITHCOUNT, use total_results from metadata for accurate count
-        nc->base.parent->totalResults += MRReply_Integer(MRReply_MapElement(nc->current.meta, "total_results"));
-      } else {
+      // Note: For WITHCOUNT in multi-shard aggregate, totalResults is already set
+      // by the waiting logic above. We skip accumulation here to avoid double-counting.
+      // For non-WITHCOUNT or single-shard cases, we still need to count.
+      if (!HasWithCount(nc->areq) || !(nc->areq->reqflags & QEXEC_F_IS_AGGREGATE)) {
         // Without WITHCOUNT, count rows in batch for backward compatibility
         nc->base.parent->totalResults += MRReply_Length(rows);
       }
       processResultFormat(&nc->areq->reqflags, nc->current.meta);
     } else { // RESP2
-      // Get the index from the first
-      nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
       nc->curIdx = 1;
+      // For WITHCOUNT in multi-shard aggregate, totalResults is already set
+      // by the callback accumulation logic. Skip to avoid double-counting.
+      if (!HasWithCount(nc->areq) || !(nc->areq->reqflags & QEXEC_F_IS_AGGREGATE)) {
+        // Without WITHCOUNT, accumulate total_results from each shard reply
+        nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
+      }
     }
   }
 

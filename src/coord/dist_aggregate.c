@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdatomic.h>
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
@@ -50,8 +51,53 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRIterator *it = MR_Iterate(&nc->cmd, netCursorCallback);
+
+  // Initialize WITHCOUNT tracking if needed
+  if (HasWithCount(nc->areq) && (nc->areq->reqflags & QEXEC_F_IS_AGGREGATE)) {
+    size_t numShards = GetNumShards_UnSafe();
+
+    // Allocate reference-counted tracker structure
+    WithCountTracker *tracker = rm_calloc(1, sizeof(WithCountTracker));
+    if (!tracker) {
+      RedisModule_Log(RSDummyContext, "warning",
+                      "WITHCOUNT: Failed to allocate tracker for %zu shards", numShards);
+      return RS_RESULT_ERROR;
+    }
+
+    tracker->magic = WITHCOUNT_TRACKER_MAGIC;
+    tracker->numShards = numShards;
+    tracker->shardResponded = rm_calloc(numShards, sizeof(_Atomic(bool)));
+    if (!tracker->shardResponded) {
+      rm_free(tracker);
+      RedisModule_Log(RSDummyContext, "warning",
+                      "WITHCOUNT: Failed to allocate tracking array for %zu shards", numShards);
+      return RS_RESULT_ERROR;
+    }
+
+    atomic_init(&tracker->numResponded, 0);
+    atomic_init(&tracker->accumulatedTotal, 0);
+    // RefCount: 1 for RPNet, 1 for iterator/callbacks
+    // The iterator holds the reference for all callbacks
+    atomic_init(&tracker->refCount, 2);
+
+    nc->withCountTracker = tracker;
+  }
+
+  // Step 3: Pass tracker as private data to callback (only if WITHCOUNT enabled)
+  MRIterator *it = nc->withCountTracker
+                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->withCountTracker, iterStartCb, NULL)
+                   : MR_Iterate(&nc->cmd, netCursorCallback);
+
   if (!it) {
+    // Clean up on error - release tracker reference
+    if (nc->withCountTracker) {
+      int refCount = atomic_fetch_sub(&nc->withCountTracker->refCount, 1) - 1;
+      if (refCount == 0) {
+        rm_free(nc->withCountTracker->shardResponded);
+        rm_free(nc->withCountTracker);
+      }
+      nc->withCountTracker = NULL;
+    }
     return RS_RESULT_ERROR;
   }
 

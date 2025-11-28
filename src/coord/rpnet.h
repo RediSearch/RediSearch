@@ -20,6 +20,19 @@
 extern "C" {
 #endif
 
+// Separate structure for WITHCOUNT tracking that can be safely shared with I/O threads
+// This structure is allocated separately and can outlive RPNet if callbacks are still running
+typedef struct {
+  uint32_t magic;                  // Magic number for validation (0xWITHC0UN)
+  size_t numShards;                // Total number of shards
+  _Atomic(bool) *shardResponded;   // Array: has each shard sent its first response?
+  _Atomic(size_t) numResponded;    // Count of shards that have responded
+  _Atomic(long long) accumulatedTotal;  // Sum of total_results from all shards
+  _Atomic(int) refCount;           // Reference count for safe cleanup
+} WithCountTracker;
+
+#define WITHCOUNT_TRACKER_MAGIC 0x57495448  // "WITH" in hex
+
 typedef struct {
   ResultProcessor base;
   struct {
@@ -39,6 +52,13 @@ typedef struct {
 
   // profile vars
   arrayof(MRReply *) shardsProfile;
+
+  // For WITHCOUNT: pointer to shared tracking structure (reference-counted)
+  WithCountTracker *withCountTracker;  // NULL if not using WITHCOUNT
+
+  // For WITHCOUNT: pending replies while waiting for all shards' first responses
+  arrayof(MRReply *) pendingReplies;   // Replies accumulated while waiting
+  bool waitedForAllShards;             // True once all shards have sent their first response
 } RPNet;
 
 

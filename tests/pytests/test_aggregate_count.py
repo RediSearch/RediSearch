@@ -752,6 +752,7 @@ def _test_query(protocol):
 
     queries_and_results = [
         # query, total_results, length of results
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 0], docs, 0),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT'], docs, docs),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 60], docs, 60),
         # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 10, 65], docs, 65),
