@@ -387,7 +387,6 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
 
     # Add a new shard
     env.addShardToClusterIfExists()
-    time.sleep(5)
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
     task = import_middle_slot_range(new_shard, shard1)
