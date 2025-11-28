@@ -45,6 +45,7 @@ on:
           - mariner:2
           - azurelinux:3
           - alpine:3
+          - silkeh/clang:20
           - macos
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
