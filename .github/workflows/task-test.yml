@@ -64,7 +64,7 @@ jobs:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     continue-on-error: true
-    name: Build container for ${{ needs.get-config.outputs.container  || needs.get-config.outputs.env }}, Redis ${{ inputs.get-redis || 'trim-delay' }}
+    name: Build container for ${{ needs.get-config.outputs.container  || needs.get-config.outputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ needs.get-config.outputs.env }}
     permissions:
       contents: read
@@ -128,7 +128,7 @@ jobs:
 
   common-flow:
     needs: [get-config, build-image]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'trim-delay' }}
+    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
@@ -371,7 +371,7 @@ jobs:
       - name: Get Redis (node20 not supported)
         if: ${{ steps.node20.outputs.supported == 'false' }}
         run: |
-          REPO_URL="https://github.com/ShooterIT/redis.git"
+          REPO_URL="https://github.com/redis/redis.git"
           DEST_DIR="redis"  # Directory to clone into
 
           # Clone the repository (shallow clone without tags)
@@ -397,7 +397,7 @@ jobs:
           | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           echo "name=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
                              ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
-                             ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'trim-delay' }}" | \
+                             ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
         env:

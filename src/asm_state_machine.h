@@ -9,16 +9,39 @@
 #pragma once
 
 #include "slots_tracker.h"
-
 #ifdef __cplusplus
+#include <atomic>
 extern "C" {
+#else
+#include <stdatomic.h>
+#endif
+
+
+// Global version counter for the key space state.
+// Aligned with the definition in result_processor.c
+#ifdef __cplusplus
+extern std::atomic<uint32_t> key_space_version;
+#else
+extern atomic_uint key_space_version;
 #endif
 
 /**
  * Initialize the ASM state machine with the local slots.
  */
 static inline void ASM_StateMachine_SetLocalSlots(const RedisModuleSlotRangeArray *local_slots) {
-  slots_tracker_set_local_slots(local_slots);
+#ifdef __cplusplus
+  uint32_t version_before = key_space_version.load(std::memory_order_relaxed);
+  uint32_t version_after = slots_tracker_set_local_slots(local_slots);
+  if (version_after != version_before) {
+    key_space_version.store(version_after, std::memory_order_relaxed);
+  }
+#else
+  uint32_t version_before = atomic_load_explicit(&key_space_version, memory_order_relaxed);
+  uint32_t version_after = slots_tracker_set_local_slots(local_slots);
+  if (version_after != version_before) {
+    atomic_store_explicit(&key_space_version, version_after, memory_order_relaxed);
+  }
+#endif
 }
 
 /**
@@ -26,7 +49,13 @@ static inline void ASM_StateMachine_SetLocalSlots(const RedisModuleSlotRangeArra
  * This means that these slots may exist partially in the key space, but we don't own them.
 */
 static inline void ASM_StateMachine_StartImport(const RedisModuleSlotRangeArray *slots) {
-  slots_tracker_mark_partially_available_slots(slots);
+#ifdef __cplusplus
+  uint32_t version = slots_tracker_mark_partially_available_slots(slots);
+  key_space_version.store(version, std::memory_order_relaxed);
+#else
+  uint32_t version = slots_tracker_mark_partially_available_slots(slots);
+  atomic_store_explicit(&key_space_version, version, memory_order_relaxed);
+#endif
 }
 
 /*
@@ -44,16 +73,17 @@ static inline void ASM_StateMachine_CompleteMigration(const RedisModuleSlotRange
   slots_tracker_mark_fully_available_slots(slots);
 }
 
-/**
- * When slots are being trimmed, we need to check if there is a fully available overlap, to detect if they come from a failed import or not.
- * If there is, it means that the trim is consequence of a successful migration, and we need to drain the worker thread pool and bump the key space version.
- * The draining function is passed as a parameter to allow for easier unit testing
+/*
+* When slots are being trimmed, we mark them as partially available.
 */
-static inline void ASM_StateMachine_StartTrim(const RedisModuleSlotRangeArray *slots, void (*draining_bound_fn)(void)) {
-  if (slots_tracker_has_fully_available_overlap(slots)) {
-    draining_bound_fn();
-  }
-  slots_tracker_mark_partially_available_slots(slots);
+static inline void ASM_StateMachine_StartTrim(const RedisModuleSlotRangeArray *slots) {
+  #ifdef __cplusplus
+  uint32_t version = slots_tracker_mark_partially_available_slots(slots);
+  key_space_version.store(version, std::memory_order_relaxed);
+#else
+  uint32_t version = slots_tracker_mark_partially_available_slots(slots);
+  atomic_store_explicit(&key_space_version, version, memory_order_relaxed);
+#endif
 }
 
 /**
@@ -61,6 +91,13 @@ static inline void ASM_StateMachine_StartTrim(const RedisModuleSlotRangeArray *s
 */
 static inline void ASM_StateMachine_CompleteTrim(const RedisModuleSlotRangeArray *slots) {
   slots_tracker_remove_deleted_slots(slots);
+}
+
+/**
+ * Resets the ASM state machine to its initial state. (Only used for testing)
+ */
+static inline void ASM_StateMachine_Reset() {
+  slots_tracker_reset_for_testing();
 }
 
 #ifdef __cplusplus

@@ -52,7 +52,7 @@ class ParseHybridTest : public ::testing::Test {
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(NULL);
-    slots_tracker_reset_for_testing();
+    ASM_StateMachine_Reset();
     local_slots = createSlotRangeArray(0, 16383);
     ASM_StateMachine_SetLocalSlots(local_slots);
     RMCK::flushdb(ctx);
@@ -98,7 +98,7 @@ class ParseHybridTest : public ::testing::Test {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = NULL;
     }
-    slots_tracker_reset_for_testing();
+    ASM_StateMachine_Reset();
     if (local_slots) {
       rm_free(local_slots);
     }
