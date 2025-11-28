@@ -11,8 +11,12 @@
 #include "util/misc.h"
 #include "util/strconv.h"
 
+struct MRIteratorCallbackCtx;
+
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
+  // Este es el equivalente al processCursorMappingCallback de rmr.c para FT.AGGREGATE
+  size_t targetShard = ctx->targetShard;
 
   // If the root command of this reply is a DEL command, we don't want to
   // propagate it up the chain to the client
