@@ -11,6 +11,7 @@
 #include "slots_tracker.h"
 #include "util/khash.h"
 #include "deps/rmutil/rm_assert.h"
+
 #ifdef __cplusplus
 #include <atomic>
 extern "C" {
@@ -102,7 +103,7 @@ static inline void ASM_StateMachine_CompleteTrim(const RedisModuleSlotRangeArray
 KHASH_MAP_INIT_INT(query_version_tracker, uint32_t);
 
 // Static hash map instance for tracking query versions
-static khash_t(query_version_tracker) *query_version_map = NULL;
+extern khash_t(query_version_tracker) *query_version_map;
 
 static inline void ASM_KeySpaceVersionTracker_Init() {
   if (query_version_map != NULL) {
@@ -133,11 +134,6 @@ static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_
 }
 
 static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_version) {
-  // If map doesn't exist, nothing to decrease
-  if (query_version_map == NULL) {
-    return;
-  }
-
   // Find the entry for this query version
   khiter_t k = kh_get(query_version_tracker, query_version_map, query_version);
   RS_LOG_ASSERT(k != kh_end(query_version_map), "Query version not found in tracker");

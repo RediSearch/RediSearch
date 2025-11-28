@@ -353,8 +353,7 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
   // 2. If counter is 0, enable trimming and stop enableTrimmingTimer.
   // 3. Otherwise, reschedule the timer after TRIMMING_STATE_CHECK_DELAY.
   RedisModule_Log(ctx, "notice", "Checking if we can start trimming migrated slots.");
-  uint32_t current_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
-  if (ASM_KeySpaceVersionTracker_GetQueryCount(current_version) == 0) {
+  if (ASM_CanStartTrimming()) {
     RedisModule_Log(ctx, "notice", "No queries using the old version, Enabling trimming.");
     RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);
     ASM_StateMachine_StartTrim(slots); // Make sure that the keypace version is updated, so new queries will already see the new version.
@@ -369,8 +368,7 @@ static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
   RedisModuleSlotRangeArray *slots = (RedisModuleSlotRangeArray *)privdata;
   // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
   RedisModule_Log(ctx, "notice", "Maximum delay reached. Enabling trimming.");
-  uint32_t current_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
-  if (ASM_KeySpaceVersionTracker_GetQueryCount(current_version) > 0) {
+  if (ASM_CanStartTrimming()) {
     RedisModule_Log(ctx, "notice", "Queries still using the old version, potential result inaccuracy.");
   }
   RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);

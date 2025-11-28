@@ -96,6 +96,8 @@ extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
 
+extern khash_t(query_version_tracker) *query_version_map = NULL;
+
 redisearch_thpool_t *depleterPool = NULL;
 
 static int DIST_THREADPOOL = -1;
