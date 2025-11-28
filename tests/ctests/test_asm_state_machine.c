@@ -224,33 +224,43 @@ int testKeySpaceVersionTracker() {
   ASM_KeySpaceVersionTracker_IncreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
+  ASSERT_FALSE(ASM_CanStartTrimming());
   // Another query starts using version 1
   ASM_KeySpaceVersionTracker_IncreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 2);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
+  ASSERT_FALSE(ASM_CanStartTrimming());
 
   // One query finishes using version 1
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
+  ASSERT_FALSE(ASM_CanStartTrimming());
 
   // Another query finishes using version 1
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 0);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
+  ASSERT_TRUE(ASM_CanStartTrimming());
 
   // Another query starts using version 1 and finish
   ASM_KeySpaceVersionTracker_IncreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
+  ASSERT_FALSE(ASM_CanStartTrimming());
+
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 0);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
+  ASSERT_TRUE(ASM_CanStartTrimming());
 
   // Another two queries start using version 1
   ASM_KeySpaceVersionTracker_IncreaseQueryCount(1);
   ASM_KeySpaceVersionTracker_IncreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 2);
+
+  // From now on we are going to change the version, does not make sense checking if we can start trimming.
+  // This does not follow a real migration/trimming flow
   atomic_store_explicit(&key_space_version, 2, memory_order_relaxed);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(1);
@@ -265,9 +275,11 @@ int testKeySpaceVersionTracker() {
   ASM_KeySpaceVersionTracker_IncreaseQueryCount(2);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(2), 1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
+  ASSERT_FALSE(ASM_CanStartTrimming());
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(2);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(2), 0);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
+  ASSERT_TRUE(ASM_CanStartTrimming());
 
   ASM_StateMachine_End();
 

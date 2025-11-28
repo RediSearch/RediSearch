@@ -18,6 +18,8 @@ extern "C" {
 #include <stdatomic.h>
 #endif
 
+#define INVALID_KEYSPACE_VERSION 0
+
 // Global version counter for the key space state.
 // Aligned with the definition in result_processor.c
 #ifdef __cplusplus
@@ -175,15 +177,39 @@ static inline uint32_t ASM_KeySpaceVersionTracker_GetTrackedVersionsCount() {
 // END KEY SPACE VERSION QUERY TRACKER IMPLEMENTATION
 
 /**
- * Resets the ASM state machine to its initial state. (Only used for testing)
+ * Resets the ASM state machine to its initial state.
  */
 static inline void ASM_StateMachine_Init() {
   ASM_KeySpaceVersionTracker_Init();
   slots_tracker_reset();
 }
 
+/*
+ * Frees all resources used by the ASM state machine.
+*/
 static inline void ASM_StateMachine_End() {
   ASM_KeySpaceVersionTracker_Destroy();
+}
+
+/*
+* This function aims to validate if the system is in a state where we can start trimming.
+* The logic here is as follows:
+* - If the KeySpaceVersionTracker for the current version is 0, it means there are no queries using the current version, and we can start trimming.
+* - Otherwise, we can't start trimming.
+*
+* @warning This has to be called from the main thread only. It assumes is called when the system understands
+* that all the shards have updated their topology, and therefore no more queries would arrive with the old slot ranges that
+* are about to be trimmed.
+*
+* @return true if we can start trimming, false otherwise.
+*/
+static bool ASM_CanStartTrimming(void) {
+#ifdef __cplusplus
+  uint32_t current_version = key_space_version.load(std::memory_order_relaxed);
+#else
+  uint32_t current_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
+#endif
+  return ASM_KeySpaceVersionTracker_GetQueryCount(current_version) == 0;
 }
 
 

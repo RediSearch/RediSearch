@@ -25,6 +25,7 @@
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
 #include "slots_tracker.h"
+#include "asm_state_machine.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -380,6 +381,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
     *papCtx->slotsVersion = version.version;
     *papCtx->querySlots = slot_array;
+    ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->slotsVersion);
   } else {
     return ARG_UNKNOWN;
   }
@@ -976,6 +978,7 @@ AREQ *AREQ_New(void) {
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
   req->has_timedout = false;
+  req->slotsVersion = INVALID_KEYSPACE_VERSION;
   return req;
 }
 
@@ -1345,12 +1348,16 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+
+// TODO ASM: Check if it is called from the main thread only.
 void AREQ_Free(AREQ *req) {
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
   bool rootiterNeedsFreeing = (req->rootiter != NULL && req->pipeline.qctx.rootProc == NULL);
-
+  if (req->slotsVersion > 0) {
+    ASM_KeySpaceVersionTracker_DecreaseQueryCount(req->slotsVersion);
+  }
   // First, free the pipeline
   Pipeline_Clean(&req->pipeline);
 
