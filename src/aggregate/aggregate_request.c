@@ -379,9 +379,9 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
       return REDISMODULE_ERR;
     }
-    *papCtx->slotsVersion = version.version;
+    *papCtx->keySpaceVersion = version.version;
     *papCtx->querySlots = slot_array;
-    ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->slotsVersion);
+    ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
   } else {
     return ARG_UNKNOWN;
   }
@@ -616,7 +616,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxSearchResults = &req->maxSearchResults,
         .maxAggregateResults = &req->maxAggregateResults,
         .querySlots = &req->querySlots,
-        .slotsVersion = &req->slotsVersion,
+        .keySpaceVersion = &req->keySpaceVersion,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -978,7 +978,7 @@ AREQ *AREQ_New(void) {
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
   req->has_timedout = false;
-  req->slotsVersion = INVALID_KEYSPACE_VERSION;
+  req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   return req;
 }
 
@@ -1068,7 +1068,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .maxSearchResults = &req->maxSearchResults,
     .maxAggregateResults = &req->maxAggregateResults,
     .querySlots = &req->querySlots,
-    .slotsVersion = &req->slotsVersion,
+    .keySpaceVersion = &req->keySpaceVersion,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
@@ -1355,8 +1355,8 @@ void AREQ_Free(AREQ *req) {
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
   bool rootiterNeedsFreeing = (req->rootiter != NULL && req->pipeline.qctx.rootProc == NULL);
-  if (req->slotsVersion > 0) {
-    ASM_KeySpaceVersionTracker_DecreaseQueryCount(req->slotsVersion);
+  if (req->keySpaceVersion > 0) {
+    ASM_KeySpaceVersionTracker_DecreaseQueryCount(req->keySpaceVersion);
   }
   // First, free the pipeline
   Pipeline_Clean(&req->pipeline);
@@ -1448,7 +1448,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .querySlots = req->querySlots,
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
-      .slotsVersion = req->slotsVersion,
+      .keySpaceVersion = req->keySpaceVersion,
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     req->querySlots = NULL; // Ownership of the slot ranges is now with the params.

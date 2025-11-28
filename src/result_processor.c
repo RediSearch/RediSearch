@@ -48,7 +48,7 @@ typedef struct {
   QueryIterator *iterator;
   RedisSearchCtx *sctx;
   uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
-  uint32_t slotsVersion;                        // version of the slot ranges used for filtering
+  uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
 } RPQueryIterator;
 
@@ -148,7 +148,7 @@ validate_current:
       }
     }
     // querySlots presence would indicate that is internal command, if querySlots is NULL, we don't need to filter.
-    bool should_filter_slots = self->querySlots && (atomic_load(&key_space_version) != self->slotsVersion);
+    bool should_filter_slots = self->querySlots && (atomic_load(&key_space_version) != self->keySpaceVersion);
     if (should_filter_slots) {
       RS_ASSERT(self->querySlots != NULL);
       int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
@@ -179,12 +179,12 @@ static void rpQueryItFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t keySpaceVersion, RedisSearchCtx *sctx) {
   RS_ASSERT(root != NULL);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
   ret->querySlots = querySlots;
-  ret->slotsVersion = slotsVersion;
+  ret->keySpaceVersion = keySpaceVersion;
   ret->base.Next = rpQueryItNext;
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;

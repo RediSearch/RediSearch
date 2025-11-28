@@ -578,7 +578,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Slot ranges info for distributed execution
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
-  uint32_t slotsVersion = INVALID_KEYSPACE_VERSION;
+  uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
 
   if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
@@ -606,7 +606,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
       .querySlots = &requestSlotRanges,
-      .slotsVersion = &slotsVersion,
+      .keySpaceVersion = &keySpaceVersion,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
@@ -616,11 +616,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Set slots info in both subqueries
   if (internal) {
     vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
-    vectorRequest->slotsVersion = slotsVersion;
-    ASM_KeySpaceVersionTracker_IncreaseQueryCount(slotsVersion);
+    vectorRequest->keySpaceVersion = keySpaceVersion;
+    ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
     searchRequest->querySlots = requestSlotRanges;
-    searchRequest->slotsVersion = slotsVersion;
-    ASM_KeySpaceVersionTracker_IncreaseQueryCount(slotsVersion);
+    searchRequest->keySpaceVersion = keySpaceVersion;
+    ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
     requestSlotRanges = NULL; // ownership transferred
   }
 

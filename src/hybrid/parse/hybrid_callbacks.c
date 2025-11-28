@@ -467,5 +467,5 @@ void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data) {
   }
 
   *ctx->querySlots = slot_array;
-  *ctx->slotsVersion = version.version;
+  *ctx->keySpaceVersion = version.version;
 }

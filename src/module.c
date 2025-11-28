@@ -97,7 +97,7 @@ extern RSConfig RSGlobalConfig;
 extern RedisModuleCtx *RSDummyContext;
 
 extern khash_t(query_key_space_version_tracker) *query_key_space_version_map = NULL;
-extern atomic_uint key_space_version = 0;
+extern atomic_uint key_space_version = INVALID_KEYSPACE_VERSION;
 
 redisearch_thpool_t *depleterPool = NULL;
 
