@@ -206,16 +206,16 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
         continue;
       } else if (!RSValue_IsAnyString(arg)) {
 
-        RSValue strval = RSValue_Undefined();
-        RSValue_ToString(&strval, arg);
+        RSValue *strval = RSValue_NewUndefined();
+        RSValue_ToString(strval, arg);
         size_t sz;
-        const char *str = RSValue_StringPtrLen(&strval, &sz);
+        const char *str = RSValue_StringPtrLen(strval, &sz);
         if (!str) {
           append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
         } else {
           append_to_string(&out, &out_tail, &out_cap, str, sz);
         }
-        RSValue_Free(&strval);
+        RSValue_DecrRef(strval);
       } else {
         size_t sz;
         const char *str = RSValue_StringPtrLen(arg, &sz);
