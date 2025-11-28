@@ -353,6 +353,9 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
   // 1. Check counter of queries with old version (to be sent with privdata)
   // 2. If counter is 0, enable trimming and stop enableTrimmingTimer.
   // 3. Otherwise, reschedule the timer after TRIMMING_STATE_CHECK_DELAY.
+  // TODO ASM: If counter is 0 and I enable trimming, should I already call the ASM_StateMachine_StartTrim? this would
+  // make sure that the next query will already see the new versions. From version p.o.v this should start
+  // already being the valid one.
 }
 
 static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
