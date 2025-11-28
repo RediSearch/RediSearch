@@ -147,27 +147,10 @@ static bool PipelineRequiresSorter(AggregationPipelineParams *params) {
   return result;
 }
 
-static size_t getSortLimit(AggregationPipelineParams *params, PLN_ArrangeStep *astp, size_t maxResults) {
-  // Default sort limit is the max results
-  size_t sort_limit = maxResults;
-
-  // For FT.AGGREGATE + WITHCOUNT + SORTBY, we need to update the sort limit
-  // to get accurate total_results
-  if (IsAggregate(&params->common) && HasWithCount(&params->common)) {
-    if (IsInternal(&params->common)) {
-      // deplete from shards
-      sort_limit = params->maxResultsLimit;
-    } else if (astp->isLimited) {
-      // limit at coordinator
-      sort_limit = maxResults;
-    } else if (!astp->isLimited) {
-      // Support SORTBY + MAX:
-      // Use the default limit in case of no LIMIT, but in case of SORTBY + MAX
-      // use the user provided MAX
-      sort_limit = astp->limit ? astp->limit : DEFAULT_LIMIT;
-    }
-  }
-  return sort_limit;
+static void Nafraf_Log(char *msg, CommonPipelineParams *common, const PLN_ArrangeStep *astp, ResultProcessor *rp) {
+  RedisModule_Log(RSDummyContext, "notice", "Nafraf: %s: Aggregate:%d, Optimized:%d, Depleter:%d, Internal:%d, Scorer:%d, Limited:%d, offset:%lu, limit:%lu, rp=%p",
+    msg, !!IsAggregate(common), !!IsOptimized(common), !!HasDepleter(common),
+    !!IsInternal(common), !!HasScorer(common), astp->isLimited, astp->offset, astp->limit, rp!= NULL);
 }
 
 static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
@@ -183,16 +166,11 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     astp = &astp_s;
   }
 
+  Nafraf_Log("getArrangeRP:0", &params->common, astp, rp);
+
   size_t maxResults = astp->offset + astp->limit;
   if (!maxResults) {
-    if (HasWithCount(&params->common)) {
-      // No LIMIT specified, consume up to maxResultsLimit
-      maxResults = params->maxResultsLimit;
-    } else {
-      // No LIMIT specified, consume DEFAULT_LIMIT
-      maxResults = DEFAULT_LIMIT;
-      astp->limit = DEFAULT_LIMIT;
-    }
+    maxResults = DEFAULT_LIMIT;
   }
 
   // TODO: unify if when req holds only maxResults according to the query type.
@@ -200,78 +178,104 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   maxResults = MIN(maxResults, params->maxResultsLimit);
 
   if (IsCount(&params->common) || !maxResults) {
+    Nafraf_Log("getArrangeRP:2 IsCount", &params->common, astp, rp);
+    RedisModule_Log(RSDummyContext, "notice", "getArrangeRP:2 maxResults=%lu", maxResults);
     rp = RPCounter_New();
     up = pushRP(&pipeline->qctx, rp, up);
     return up;
   }
 
-  if (!HasDepleter(&params->common)) {
-    if (PipelineRequiresSorter(params)) {
-      if (astp->sortKeys) {
-        size_t nkeys = array_len(astp->sortKeys);
-        astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
+  bool RPSyncDepleterAdded = false;
+  bool RPPagerAdded = false;
 
-        const RLookupKey **sortkeys = astp->sortkeysLK;
+  if (params->common.optimizer) {
+    RedisModule_Log(RSDummyContext, "notice", "Nafraf: getArrangeRP:1 optimizer->type=%s", QOptimizer_PrintType(params->common.optimizer));
+  }
+  if (PipelineRequiresSorter(params)) {
+    if (astp->sortKeys) {
+      Nafraf_Log("getArrangeRP:3.1.1 astp->sortKeys", &params->common, astp, rp);
+      size_t nkeys = array_len(astp->sortKeys);
+      astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
-        RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
+      const RLookupKey **sortkeys = astp->sortkeysLK;
 
-        for (size_t ii = 0; ii < nkeys; ++ii) {
-          const char *keystr = astp->sortKeys[ii];
-          RLookupKey *sortkey = RLookup_GetKey_Read(lk, keystr, RLOOKUP_F_NOFLAGS);
-          if (!sortkey) {
-            // if the key is not sortable, and also not loaded by another result processor,
-            // add it to the loadkeys list.
-            // We failed to get the key for reading, so we can't fail to get it for loading.
-            sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
-            // We currently allow implicit loading only for known fields from the schema.
-            // If the key we loaded is not in the schema, we fail.
-            if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
-              QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in schema", keystr);
-              goto end;
-            }
-            *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
+      RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
+
+      for (size_t ii = 0; ii < nkeys; ++ii) {
+        const char *keystr = astp->sortKeys[ii];
+        RLookupKey *sortkey = RLookup_GetKey_Read(lk, keystr, RLOOKUP_F_NOFLAGS);
+        if (!sortkey) {
+          // if the key is not sortable, and also not loaded by another result processor,
+          // add it to the loadkeys list.
+          // We failed to get the key for reading, so we can't fail to get it for loading.
+          sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
+          // We currently allow implicit loading only for known fields from the schema.
+          // If the key we loaded is not in the schema, we fail.
+          if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
+            QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in schema", keystr);
+            goto end;
           }
-          sortkeys[ii] = sortkey;
+          *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
         }
-        if (loadKeys) {
-          // If we have keys to load, add a loader step.
-          ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, lk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
-          up = pushRP(&pipeline->qctx, rpLoader, up);
-        }
-
-        size_t sort_limit = getSortLimit(params, astp, maxResults);
-        rp = RPSorter_NewByFields(sort_limit, sortkeys, nkeys, astp->sortAscMap);
-        up = pushRP(&pipeline->qctx, rp, up);
-
-      } else if (IsHybrid(&params->common) ||
-                (IsSearch(&params->common) && !IsOptimized(&params->common)) ||
-                HasScorer(&params->common)) {
-        // No sort? then it must be sort by score, which is the default.
-        // In optimize mode, add sorter for queries with a scorer.
-        rp = RPSorter_NewByScore(maxResults);
-        up = pushRP(&pipeline->qctx, rp, up);
+        sortkeys[ii] = sortkey;
       }
+      if (loadKeys) {
+        // If we have keys to load, add a loader step.
+        ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, lk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
+        up = pushRP(&pipeline->qctx, rpLoader, up);
+      }
+      rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
+      up = pushRP(&pipeline->qctx, rp, up);
+
+    } else if (IsHybrid(&params->common) ||
+              (IsSearch(&params->common) && !IsOptimized(&params->common)) ||
+              HasScorer(&params->common)) {
+      Nafraf_Log("getArrangeRP:3.1.2 !astp->sortKeys", &params->common, astp, rp);
+      // No sort? then it must be sort by score, which is the default.
+      // In optimize mode, add sorter for queries with a scorer.
+      rp = RPSorter_NewByScore(maxResults);
+      up = pushRP(&pipeline->qctx, rp, up);
+    }
+  }
+
+  if (astp->offset || (astp->limit && !rp)) {
+    Nafraf_Log("getArrangeRP:4.1", &params->common, astp, rp);
+
+    if (HasWithCount(&params->common)) {
+      rp = RPSyncDepleter_New();
+      up = pushRP(&pipeline->qctx, rp, up);
+      RPSyncDepleterAdded = true;
     }
 
-    if (astp->offset || (astp->limit && !rp)) {
-      rp = RPPager_New(astp->offset, astp->limit);
-      up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
-      rp = RPPager_New(0, maxResults);
-      up = pushRP(&pipeline->qctx, rp, up);
-    }
-
-  } else { // HasDepleter
-    rp = RPSyncDepleter_New();
+    rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);
+    RPPagerAdded = true;
+  } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
+    Nafraf_Log("getArrangeRP:4.2", &params->common, astp, rp);
+    rp = RPPager_New(0, maxResults);
+    up = pushRP(&pipeline->qctx, rp, up);
+    RPPagerAdded = true;
+  }
 
+  if (HasDepleter(&params->common)) { // We need to add a RPSyncDepleter
+    // Nafraf_Log("getArrangeRP:5", &params->common, astp, rp);
+
+    if (!RPSyncDepleterAdded) {
+      rp = RPSyncDepleter_New();
+      up = pushRP(&pipeline->qctx, rp, up);
+    }
+
+    Nafraf_Log("getArrangeRP:5.2", &params->common, astp, rp);
     // Add Limiter at the coordinator when a depleter is required:
     // 1. If there is no SORTBY, otherwise, the LIMIT is managed by the sorter.
     // 2. If there is a SORTBY, but with offset, the sorter can't handle the offset.
     if (((astp->isLimited && !IsInternal(&params->common)) &&
       ((!HasSortBy(&params->common) || HasSortBy(&params->common) && astp->offset )))) {
-      rp = RPPager_New(astp->offset, astp->limit);
-      up = pushRP(&pipeline->qctx, rp, up);
+      if (!RPPagerAdded) {
+        rp = RPPager_New(astp->offset, astp->limit);
+        up = pushRP(&pipeline->qctx, rp, up);
+        RPPagerAdded = true;
+      }
     }
   }
 
@@ -535,6 +539,7 @@ error:
 }
 
 int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags) {
+  RedisModule_Log(RSDummyContext, "notice", "Nafraf: Pipeline_BuildAggregationPart");
   AGGPlan *pln = &pipeline->ap;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
   RedisSearchCtx *sctx = params->common.sctx;
@@ -563,13 +568,15 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
       }
 
       case PLN_T_ARRANGE: {
+        RedisModule_Log(RSDummyContext, "notice", "Nafraf: Pipeline_BuildAggregationPart: PLN_T_ARRANGE -> getArrangeRP");
         rp = getArrangeRP(pipeline, params, stp, status, rpUpstream, forceLoad, outStateFlags);
-        if (!rp) {
-          goto error;
+        // if (!rp) {
+        //   goto error;
+        // }
+        if (rp) {
+          hasArrange = 1;
+          rpUpstream = rp;
         }
-        hasArrange = 1;
-        rpUpstream = rp;
-
         break;
       }
 
@@ -673,10 +680,12 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         (IsSearch(&params->common) || IsHybridSearchSubquery(&params->common) ||
         (IsAggregate(&params->common) && HasDepleter(&params->common)))) {
     rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
-    if (!rp) {
-      goto error;
+    // if (!rp) {
+    //   goto error;
+    // }
+    if (rp) {
+      rpUpstream = rp;
     }
-    rpUpstream = rp;
   }
 
   // If this is an FT.SEARCH command which requires returning of some of the

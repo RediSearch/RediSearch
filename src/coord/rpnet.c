@@ -145,6 +145,19 @@ int getNextReply(RPNet *nc) {
     rows = MRReply_ArrayElement(root, 0);
   }
 
+  // Debug log: print count after receiving data from shard
+  size_t rows_count = MRReply_Length(rows);
+  if (nc->cmd.protocol == 2 && rows_count > 0) {
+    // RESP2: first element is the count
+    long long total_count = MRReply_Integer(MRReply_ArrayElement(rows, 0));
+    RedisModule_Log(RSDummyContext, "debug", "Nafraf: Shard reply: %lld total results, %zu rows in batch",
+                    total_count, rows_count - 1);
+  } else if (nc->cmd.protocol == 3) {
+    long long total_count = MRReply_Integer(MRReply_MapElement(meta, "total_results"));
+    RedisModule_Log(RSDummyContext, "debug", "Nafraf: Shard reply: %lld total results, %zu rows in batch",
+                    total_count, rows_count);
+  }
+
   const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
   RS_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY);
   if (MRReply_Length(rows) <= empty_rows_len) {
@@ -336,7 +349,13 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   if (new_reply) {
     if (resp3) { // RESP3
       nc->curIdx = 0;
-      nc->base.parent->totalResults += MRReply_Length(rows);
+      if (HasWithCount(nc->areq)) {
+        // With WITHCOUNT, use total_results from metadata for accurate count
+        nc->base.parent->totalResults += MRReply_Integer(MRReply_MapElement(nc->current.meta, "total_results"));
+      } else {
+        // Without WITHCOUNT, count rows in batch for backward compatibility
+        nc->base.parent->totalResults += MRReply_Length(rows);
+      }
       processResultFormat(&nc->areq->reqflags, nc->current.meta);
     } else { // RESP2
       // Get the index from the first

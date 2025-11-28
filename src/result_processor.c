@@ -2327,6 +2327,7 @@ typedef struct {
   arrayof(SearchResult *) results; // Array of pointers to SearchResult
   size_t cur_idx;                  // Current index for yielding results
   RPStatus last_rc;                // Last return code from upstream
+  uint32_t depleted_results;       // Total number of results depleted
 } RPSyncDepleter;
 
 /**
@@ -2341,6 +2342,7 @@ static void RPSyncDepleter_Deplete(RPSyncDepleter *self) {
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
+    self->depleted_results++;
   }
 
   SearchResult_Destroy(r);
@@ -2354,6 +2356,9 @@ static void RPSyncDepleter_Deplete(RPSyncDepleter *self) {
  */
 static int RPSyncDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   RPSyncDepleter *self = (RPSyncDepleter *)base;
+
+  // ??
+  // base->parent->totalResults = self->depleted_results;
 
   // Check if we've yielded all results
   if (self->cur_idx >= array_len(self->results)) {
@@ -2406,5 +2411,6 @@ ResultProcessor *RPSyncDepleter_New() {
   ret->base.Next = RPSyncDepleter_Next;
   ret->base.Free = RPSyncDepleter_Free;
   ret->base.type = RP_SYNC_DEPLETER;
+  ret->depleted_results = 0;
   return &ret->base;
 }

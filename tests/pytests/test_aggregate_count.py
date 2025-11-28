@@ -44,21 +44,40 @@ def _get_cluster_RP_profile(env, res) -> list:
         coord = res['Profile']['Coordinator']['Result processors profile']
         shard_RP = [item['Type'] for item in shard]
         coord_RP = [item['Type'] for item in coord]
+
+        for i in range(3):
+            shard = res['Profile']['Shards'][i]['Result processors profile']
+            shard_RP_and_count = [(item['Type'], item['Results processed']) for item in shard]
+            print(f"shard[{i}]: {shard_RP_and_count}")
+        coord_RP_and_count = [(item['Type'], item['Results processed']) for item in coord]
+        print(f"coord: {coord_RP_and_count}")
         return [shard_RP, coord_RP]
     else:
         shard = res[1][1][0][13]
         coord = res[1][3][11]
         shard_RP = [item[1] for item in shard]
         coord_RP = [item[1] for item in coord]
+
+        for i in range(3):
+            shard = res[1][1][i][13]
+            shard_RP_and_count = [(item[1], item[5]) for item in shard]
+            print(f"shard[{i}]: {shard_RP_and_count}")
+        coord_RP_and_count = [(item[1], item[5]) for item in coord]
+
+        print(f"coord_RP_and_count: {coord_RP_and_count}")
         return [shard_RP, coord_RP]
 
 
 def _get_standalone_RP_profile(env, res) -> list:
     if isinstance(res, dict):
         profile = res['Profile']['Shards'][0]['Result processors profile']
+        RP_and_count = [(item['Type'], item['Results processed']) for item in profile]
+        print(f"RP_and_count: {RP_and_count}")
         return [item['Type'] for item in profile]
     else:
         profile = res[1][1][0][13]
+        RP_and_count = [(item[1], item[5]) for item in profile]
+        print(f"RP_and_count: {RP_and_count}")
         return [item[1] for item in profile]
 
 
@@ -375,8 +394,8 @@ def _test_profile(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 50],
          ['Index', 'Sync Depleter', 'Pager/Limiter'],
          ['Index', 'Sync Depleter', 'Pager/Limiter'],
-         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
-         [['Index', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+         [['Index', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
+         [['Index', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
 
         # WITHCOUNT + SORTBY 0
         # Sorter without keys, default limit
@@ -412,8 +431,8 @@ def _test_profile(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'LIMIT', 0, 50],
          ['Index', 'Loader', 'Sync Depleter', 'Pager/Limiter'],
          ['Index', 'Loader', 'Sync Depleter', 'Pager/Limiter'],
-         [['Index', 'Loader', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
-         [['Index', 'Loader', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+         [['Index', 'Loader', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
+         [['Index', 'Loader', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
 
         # WITHCOUNT + GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand'],
@@ -431,10 +450,10 @@ def _test_profile(protocol):
 
         # WITHCOUNT + GROUPBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 0, 50],
-         ['Index', 'Grouper', 'Pager/Limiter'],
-         ['Index', 'Grouper', 'Pager/Limiter'],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']],
-         [['Index', 'Grouper'], ['Network', 'Grouper', 'Pager/Limiter']]),
+         ['Index', 'Grouper', 'Sync Depleter', 'Pager/Limiter'],
+         ['Index', 'Grouper', 'Sync Depleter', 'Pager/Limiter'],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sync Depleter', 'Pager/Limiter']],
+         [['Index', 'Grouper'], ['Network', 'Grouper', 'Sync Depleter', 'Pager/Limiter']]),
 
         # WITHCOUNT + GROUPBY + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50],
@@ -461,8 +480,8 @@ def _test_profile(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50],
          ['Index', 'Scorer', 'Sync Depleter', 'Pager/Limiter'],
          ['Index', 'Scorer', 'Sync Depleter', 'Pager/Limiter'],
-         [['Index', 'Scorer', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
-         [['Index', 'Scorer', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+         [['Index', 'Scorer', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
+         [['Index', 'Scorer', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
 
         # WITHCOUNT + FILTER
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200'],
@@ -475,8 +494,8 @@ def _test_profile(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 0, 50],
          ['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter', 'Pager/Limiter'],
          ['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter', 'Pager/Limiter'],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
-         [['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
+         [['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']],
+         [['Index', 'Loader', 'Filter - Predicate <', 'Sync Depleter', 'Pager/Limiter'], ['Network', 'Sync Depleter', 'Pager/Limiter']]),
 
         # ----------------------------------------------------------------------
         # WITHOUTCOUNT
@@ -544,8 +563,8 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + GROUPBY + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand'],
-         ['Index', 'Grouper', 'Pager/Limiter'],
-         ['Index', 'Grouper', 'Pager/Limiter'],
+         ['Index', 'Grouper'],
+         ['Index', 'Grouper'],
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']],
          [['Index', 'Grouper'], ['Network', 'Grouper', 'Sorter']]),
 
@@ -572,8 +591,8 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + ADDSCORES + SORTBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'],
-         ['Index', 'Scorer', 'Pager/Limiter'],
-         ['Index', 'Scorer', 'Pager/Limiter'],
+         ['Index', 'Scorer'],
+         ['Index', 'Scorer'],
          [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']],
          [['Index', 'Scorer', 'Sorter', 'Loader'], ['Network', 'Sorter']]),
 
@@ -693,3 +712,102 @@ def test_pagers_resp2():
 
 def test_pagers_resp3():
     _test_pagers(3)
+
+def _test_max_aggregate_results(env):
+    env = Env()
+    docs = 1000
+    _setup_index_and_data(env, docs)
+    query = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title']
+    for dialect in [1, 2, 3, 4]:
+        config_cmd = ['CONFIG', 'SET', 'search-default-dialect', dialect]
+        verify_command_OK_on_all_shards(env, *config_cmd)
+        config_cmd = ['CONFIG', 'SET', 'search-max-aggregate-results', 10]
+        verify_command_OK_on_all_shards(env, *config_cmd)
+        res = env.cmd(*query)
+        print(res)
+        results = _get_results(res)
+        env.assertEqual(len(results), 1000)
+        env.assertEqual(_get_total_results(res), 1000)
+
+@skip()
+def test_max_aggregate_results_resp2():
+    _test_max_aggregate_results(2)
+
+@skip()
+def test_max_aggregate_results_resp3():
+    _test_max_aggregate_results(3)
+
+def _test_query(protocol):
+    env = Env(protocol=protocol)
+    docs = 15000
+    _setup_index_and_data(env, docs)
+
+    queries_and_results = [
+        # query, total_results, length of results
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT'], docs, docs),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 60], docs, 60),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 10, 65], docs, 65),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 0], docs, 0,),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 0], docs, DEFAULT_LIMIT),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'MAX', 3], docs, 3),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'MAX', 3, 'LIMIT', 0, 50], docs, 50),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 75], docs, 75),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'], docs, docs),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title', 'LIMIT', 0, 50], docs, 50),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand'], 25, 25),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'LIMIT', 0, 12], 25, 12),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 11], 25, 11),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES'], docs, docs),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'SORTBY', 1, '@title'], docs, DEFAULT_LIMIT),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES', 'LIMIT', 0, 50], docs, 50),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200'], 200, 200),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price', 'FILTER', '@price < 200', 'LIMIT', 0, 50], 200, 50),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'], 1, DEFAULT_LIMIT),
+        # (['FT.AGGREGATE', 'idx', '*', 'SORTBY', '0'], docs, DEFAULT_LIMIT),
+        (['FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@title'], 1, DEFAULT_LIMIT),
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'], 1, DEFAULT_LIMIT),
+        # (['FT.AGGREGATE', 'idx', '*', 'SORTBY', '0'], docs, DEFAULT_LIMIT),
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '0'], docs, DEFAULT_LIMIT),
+    ]
+
+    for query, expected_total_results, expected_results in queries_and_results:
+        cmd=' '.join(str(x) for x in query)
+        print("---------------------------------")
+        print(cmd)
+        for dialect in [2]:
+            # config_cmd = ['CONFIG', 'SET', 'search-max-aggregate-results', 500000]
+            # verify_command_OK_on_all_shards(env, *config_cmd)
+            config_cmd = ['CONFIG', 'SET', 'search-default-dialect', dialect]
+            verify_command_OK_on_all_shards(env, *config_cmd)
+            res = env.cmd(*query)
+            # print(res)
+            total_results = _get_total_results(res)
+            results = _get_results(res)
+            print(f"total_results: {total_results}, len(results): {len(results)}")
+
+            # Verify results
+            env.assertEqual(
+                total_results, expected_total_results,
+                message=f'{cmd}: total_results != expected. Dialect: {dialect}')
+            env.assertEqual(
+                len(results), expected_results,
+                message=f'{cmd}: len(results) != expected. Dialect: {dialect}')
+
+        # print profile
+        ftprofile = _translate_query_to_profile_query(query)
+        res = env.cmd(*ftprofile)
+        # print(res)
+
+        if env.isCluster():
+            cluster_RP_list = _get_cluster_RP_profile(env, res)
+            print(cluster_RP_list)
+        else:
+            standalone_RP_list = _get_standalone_RP_profile(env, res)
+            print(standalone_RP_list)
+
+def test_query_resp2():
+    _test_query(2)
+
+def test_query_resp3():
+    _test_query(3)
+
