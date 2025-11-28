@@ -3,8 +3,8 @@ set -e
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
-# retrieve nightly version from build.sh
-NIGHTLY_VERSION=$(grep "NIGHTLY_VERSION=" build.sh | cut -d'=' -f2 | tr -d '"' | head -n1)
+# retrieve nightly version
+NIGHTLY_VERSION=$(cat .rust-nightly)
 # --allow-downgrade:
 #   Allow `rustup` to install an older `nightly` if the latest one
 #   is missing one of the components we need.
