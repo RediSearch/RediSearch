@@ -22,6 +22,10 @@
 
 #define JSON_LEN 5 // length of string "json."
 
+#define MIN_TRIM_DELAY 2000000 // 2 seconds in microseconds (This is a proxy minimal delay that we expect to ensure that all shards have received Updated topology)
+#define MAX_TRIM_DELAY 5000000 // 5 seconds in microseconds (We do not want to delay Trimming too much. If queries did not finish before, maybe we have some risk of missing some data)
+#define TRIMMING_STATE_CHECK_DELAY 100000 // 0.1 seconds in microseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
+
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
@@ -340,6 +344,24 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   }
 }
 
+static RedisModuleTimerID checkTrimmingStateTimerId = 0;
+static RedisModuleTimerID enableTrimmingTimerId = 0;
+
+static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
+  REDISMODULE_NOT_USED(privdata);
+  // Logic here should be:
+  // 1. Check counter of queries with old version (to be sent with privdata)
+  // 2. If counter is 0, enable trimming and stop enableTrimmingTimer.
+  // 3. Otherwise, reschedule the timer after TRIMMING_STATE_CHECK_DELAY.
+}
+
+static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
+  REDISMODULE_NOT_USED(privdata);
+  // TODO ASM: Enable trimming with RedisModule API
+  // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
+  RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);
+}
+
 void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(eid);
   RedisModuleClusterSlotMigrationInfo *info = (RedisModuleClusterSlotMigrationInfo *)data;
@@ -370,6 +392,11 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED:
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED:
       ASM_StateMachine_CompleteMigration(slots);
+      // Start 2 timers. One for the minimal delay, and one for the maximal delay.
+      RedisModule_Log(ctx, "notice", "Got ASM migrate completed event.");
+      // TODO ASM: Disable trimming with RedisModule API
+      checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, MIN_TRIM_DELAY, checkTrimmingStateCallback, NULL);
+      enableTrimmingTimerId = RedisModule_CreateTimer(ctx, MAX_TRIM_DELAY, enableTrimmingCallback, NULL);
       if (!IsEnterprise()) {
         StopRedisTopologyUpdater(ctx);
         // eventloop will process this timer immediately and then get back to the REFRESH_PERIOD
