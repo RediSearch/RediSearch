@@ -242,11 +242,7 @@ def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
     task_id = import_middle_slot_range(shard1, shard2)
     wait_for_slot_import(shard1, task_id)
     wait_for_slot_import(shard2, task_id)
-
-    # TODO ASM: When Trimming delay is implemented in core, test with all shards
-    # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
-    # topology is outdated, and the slots that would arrive to each shard would lead to errors.
-    query_shards(env, query, [shard1, shard2], expected, query_type)
+    query_shards(env, query, shards, expected, query_type)
 
 def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
     n_docs = 2**14
@@ -276,7 +272,6 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
     env.debugPrint("Sanity check passed")
 
     # Test searching while importing slots from shard 2 to shard 1
-    # TODO ASM: These tests will be flaky, cannot guarantee
     with TimeLimit(60):
         task_id = import_middle_slot_range(shard1, shard2)
         while not is_migration_complete(shard1, task_id):
@@ -293,11 +288,8 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH'):
                     raise e
             time.sleep(0.1)
 
-    # TODO ASM: When Trimming delay is implemented in core, test with all shards
-    # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
-    # topology is outdated, and the slots that would arrive to each shard would lead to errors.
     env.debugPrint("Querying shards after migration")
-    query_shards(env, query, [shard1, shard2], expected, query_type)
+    query_shards(env, query, shards, expected, query_type)
     env.debugPrint("Query after migration passed")
 
 @skip(cluster=False, min_shards=2)
@@ -397,11 +389,8 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
 
     env.waitCluster()
-
-    # TODO ASM: When Trimming delay is implemented in core, test with all shards
-    # For now, only the shards involved in the migration process will have their topology updated. If the query hits another shard as coordinator would fail, as their
-    # topology is outdated, and the slots that would arrive to each shard would lead to errors.
-    query_shards(env, query, [shard1, new_shard], expected, query_type)
+    shards.append(new_shard)
+    query_shards(env, query, shards, expected, query_type)
 
 @skip(cluster=False)
 def test_add_shard_and_migrate():

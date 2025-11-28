@@ -1350,12 +1350,13 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
 
 // TODO ASM: Check if it is called from the main thread only.
+// Seems it is not: Cursor_FreeInternal seems to be called from the GC thread.
 void AREQ_Free(AREQ *req) {
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
   bool rootiterNeedsFreeing = (req->rootiter != NULL && req->pipeline.qctx.rootProc == NULL);
-  if (req->keySpaceVersion > 0) {
+  if (req->keySpaceVersion > INVALID_KEYSPACE_VERSION) {
     ASM_KeySpaceVersionTracker_DecreaseQueryCount(req->keySpaceVersion);
   }
   // First, free the pipeline
