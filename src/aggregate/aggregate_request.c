@@ -294,7 +294,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     const char *firstArg;
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
-    if (isSortby0 && ((*papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL))) {
+    if (isSortby0 && *papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) {
       AC_Advance(ac);  // Advance without adding SortBy step to the plan
       *papCtx->reqflags |= QEXEC_F_NO_SORT;
     } else {
@@ -315,7 +315,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
     if (((*papCtx->reqflags) & QEXEC_F_IS_AGGREGATE) && ((*papCtx->reqflags) & QEXEC_F_HAS_WITHCOUNT)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "WITHCURSOR is not supported when using FT.AGGREGATE and WITHCOUNT");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
       return ARG_ERROR;
     }
     if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
@@ -601,7 +601,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       if (IsAggregate(req)) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
         if (IsCursor(req) && !IsInternal(req)) {
-          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "WITHCURSOR is not supported when using FT.AGGREGATE and WITHCOUNT");
+          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
           return REDISMODULE_ERR;
         }
       }
