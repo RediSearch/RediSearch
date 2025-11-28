@@ -100,46 +100,46 @@ static inline void ASM_StateMachine_CompleteTrim(const RedisModuleSlotRangeArray
 // START KEY SPACE VERSION QUERY TRACKER IMPLEMENTATION
 
 // Define hash map type for tracking query versions -> query counts
-KHASH_MAP_INIT_INT(query_version_tracker, uint32_t);
+KHASH_MAP_INIT_INT(query_key_space_version_tracker, uint32_t);
 
 // Static hash map instance for tracking query versions
-extern khash_t(query_version_tracker) *query_version_map;
+extern khash_t(query_key_space_version_tracker) *query_key_space_version_map;
 
 static inline void ASM_KeySpaceVersionTracker_Init() {
-  if (query_version_map != NULL) {
-    kh_destroy(query_version_tracker, query_version_map);
+  if (query_key_space_version_map != NULL) {
+    kh_destroy(query_key_space_version_tracker, query_key_space_version_map);
   }
-  query_version_map = kh_init(query_version_tracker);
+  query_key_space_version_map = kh_init(query_key_space_version_tracker);
 }
 
 static inline void ASM_KeySpaceVersionTracker_Destroy() {
-  if (query_version_map != NULL) {
-    kh_destroy(query_version_tracker, query_version_map);
-    query_version_map = NULL;
+  if (query_key_space_version_map != NULL) {
+    kh_destroy(query_key_space_version_tracker, query_key_space_version_map);
+    query_key_space_version_map = NULL;
   }
 }
 
-static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_version) {
+static inline void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_key_space_version) {
   // If map doesn't exist, nothing to increase  // Find or create entry for this query version
   int ret;
-  khiter_t k = kh_put(query_version_tracker, query_version_map, query_version, &ret);
+  khiter_t k = kh_put(query_key_space_version_tracker, query_key_space_version_map, query_key_space_version, &ret);
 
   if (ret == 0) {
     // Key already exists, increment the count
-    kh_value(query_version_map, k)++;
+    kh_value(query_key_space_version_map, k)++;
   } else {
     // New key, set count to 1
-    kh_value(query_version_map, k) = 1;
+    kh_value(query_key_space_version_map, k) = 1;
   }
 }
 
-static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_version) {
+static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_key_space_version) {
   // Find the entry for this query version
-  khiter_t k = kh_get(query_version_tracker, query_version_map, query_version);
-  RS_LOG_ASSERT(k != kh_end(query_version_map), "Query version not found in tracker");
+  khiter_t k = kh_get(query_key_space_version_tracker, query_key_space_version_map, query_key_space_version);
+  RS_LOG_ASSERT(k != kh_end(query_key_space_version_map), "Query version not found in tracker");
 
   // Decrease the count
-  uint32_t *count = &kh_value(query_version_map, k);
+  uint32_t *count = &kh_value(query_key_space_version_map, k);
   if (*count > 0) {
     (*count)--;
   }
@@ -151,23 +151,23 @@ static inline void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_
 #else
     uint32_t current_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
 #endif
-    if (query_version < current_version) {
-      kh_del(query_version_tracker, query_version_map, k);
+    if (query_key_space_version < current_version) {
+      kh_del(query_key_space_version_tracker, query_key_space_version_map, k);
     }
   }
 }
 
 /* Get the number of queries that are using a specific version, this is intended to be used in tests only. */
 static inline uint32_t ASM_KeySpaceVersionTracker_GetQueryCount(uint32_t query_version) {
-  khiter_t k = kh_get(query_version_tracker, query_version_map, query_version);
-  if (k == kh_end(query_version_map)) {
+  khiter_t k = kh_get(query_key_space_version_tracker, query_key_space_version_map, query_version);
+  if (k == kh_end(query_key_space_version_map)) {
     return 0;
   }
-  return kh_value(query_version_map, k);
+  return kh_value(query_key_space_version_map, k);
 }
 
 static inline uint32_t ASM_KeySpaceVersionTracker_GetTrackedVersionsCount() {
-  return kh_size(query_version_map);
+  return kh_size(query_key_space_version_map);
 }
 
 // END KEY SPACE VERSION QUERY TRACKER IMPLEMENTATION

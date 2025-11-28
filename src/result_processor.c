@@ -30,6 +30,7 @@
 #include "debug_commands.h"
 #include "search_result.h"
 #include "redisearch.h"
+#include "asm_state_machine.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -88,9 +89,6 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   }
   return true;
 }
-
-extern atomic_uint key_space_version;
-atomic_uint key_space_version = 0;
 
 /* Next implementation */
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
