@@ -348,21 +348,26 @@ static RedisModuleTimerID checkTrimmingStateTimerId = 0;
 static RedisModuleTimerID enableTrimmingTimerId = 0;
 
 static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
-  REDISMODULE_NOT_USED(privdata);
-  // Logic here should be:
-  // 1. Check counter of queries with old version (to be sent with privdata)
+  RedisModuleSlotRangeArray *slots = (RedisModuleSlotRangeArray *)privdata;
+  // 1. Check counter of queries with old version
   // 2. If counter is 0, enable trimming and stop enableTrimmingTimer.
   // 3. Otherwise, reschedule the timer after TRIMMING_STATE_CHECK_DELAY.
-  // TODO ASM: If counter is 0 and I enable trimming, should I already call the ASM_StateMachine_StartTrim? this would
-  // make sure that the next query will already see the new versions. From version p.o.v this should start
-  // already being the valid one.
+  uint32_t current_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
+  if (ASM_KeySpaceVersionTracker_GetQueryCount(current_version) == 0) {
+    RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);
+    ASM_StateMachine_StartTrim(slots); // Make sure that the keypace version is updated, so new queries will already see the new version.
+    RedisModule_ReleaseClusterPolicy(ctx, REDISMODULE_CLUSTER_POLICY_NO_TRIM);
+  } else {
+    checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, NULL);
+  }
 }
 
 static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
-  REDISMODULE_NOT_USED(privdata);
-  // TODO ASM: Enable trimming with RedisModule API
+  RedisModuleSlotRangeArray *slots = (RedisModuleSlotRangeArray *)privdata;
   // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
   RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);
+  ASM_StateMachine_StartTrim(slots);  // Make sure that the keypace version is updated, so new queries will already see the new version.
+  RedisModule_ReleaseClusterPolicy(ctx, REDISMODULE_CLUSTER_POLICY_NO_TRIM);
 }
 
 void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
@@ -397,9 +402,9 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       ASM_StateMachine_CompleteMigration(slots);
       // Start 2 timers. One for the minimal delay, and one for the maximal delay.
       RedisModule_Log(ctx, "notice", "Got ASM migrate completed event.");
-      // TODO ASM: Disable trimming with RedisModule API
-      checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, MIN_TRIM_DELAY, checkTrimmingStateCallback, NULL);
-      enableTrimmingTimerId = RedisModule_CreateTimer(ctx, MAX_TRIM_DELAY, enableTrimmingCallback, NULL);
+      RedisModule_AcquireClusterPolicy(ctx, REDISMODULE_CLUSTER_POLICY_NO_TRIM);
+      checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, MIN_TRIM_DELAY, checkTrimmingStateCallback, slots);
+      enableTrimmingTimerId = RedisModule_CreateTimer(ctx, MAX_TRIM_DELAY, enableTrimmingCallback, slots);
       if (!IsEnterprise()) {
         StopRedisTopologyUpdater(ctx);
         // eventloop will process this timer immediately and then get back to the REFRESH_PERIOD

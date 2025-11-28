@@ -146,7 +146,7 @@ typedef struct {
 #define DOCUMENT_OPEN_KEY_INDEXING_FLAGS REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS
 // When loading the document we are after the iterators phase, where we already verified the expiration time of the field and document
 // We don't allow any lazy expiration to happen here
-#define DOCUMENT_OPEN_KEY_QUERY_FLAGS REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED
+#define DOCUMENT_OPEN_KEY_QUERY_FLAGS REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED | REDISMODULE_OPEN_KEY_ACCESS_TRIMMED
 
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
                        uint32_t typemask);
