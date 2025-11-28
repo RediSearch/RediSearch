@@ -38,7 +38,7 @@ protected:
     void TearDown() override {
         if (ctx) {
             RedisModule_FreeThreadSafeContext(ctx);
-            ASM_StateMachine_Init();
+            ASM_StateMachine_End();
         }
         if (local_slots) {
             rm_free(local_slots);

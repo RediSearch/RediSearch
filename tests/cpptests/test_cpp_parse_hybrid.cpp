@@ -98,7 +98,7 @@ class ParseHybridTest : public ::testing::Test {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = NULL;
     }
-    ASM_StateMachine_Init();
+    ASM_StateMachine_End();
     if (local_slots) {
       rm_free(local_slots);
     }

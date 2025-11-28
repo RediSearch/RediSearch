@@ -168,6 +168,10 @@ static inline uint32_t ASM_KeySpaceVersionTracker_GetQueryCount(uint32_t query_v
   return kh_value(query_version_map, k);
 }
 
+static inline uint32_t ASM_KeySpaceVersionTracker_GetTrackedVersionsCount() {
+  return kh_size(query_version_map);
+}
+
 // END KEY SPACE VERSION QUERY TRACKER IMPLEMENTATION
 
 /**
