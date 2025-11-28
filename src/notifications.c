@@ -22,9 +22,9 @@
 
 #define JSON_LEN 5 // length of string "json."
 
-#define MIN_TRIM_DELAY 2000000 // 2 seconds in microseconds (This is a proxy minimal delay that we expect to ensure that all shards have received Updated topology)
-#define MAX_TRIM_DELAY 5000000 // 5 seconds in microseconds (We do not want to delay Trimming too much. If queries did not finish before, maybe we have some risk of missing some data)
-#define TRIMMING_STATE_CHECK_DELAY 100000 // 0.1 seconds in microseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
+#define MIN_TRIM_DELAY 2000 // 2 seconds in milliseconds (This is a proxy minimal delay that we expect to ensure that all shards have received Updated topology)
+#define MAX_TRIM_DELAY 5000 // 5 seconds in milliseconds (We do not want to delay Trimming too much. If queries did not finish before, maybe we have some risk of missing some data)
+#define TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
 
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
@@ -352,12 +352,15 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
   // 1. Check counter of queries with old version
   // 2. If counter is 0, enable trimming and stop enableTrimmingTimer.
   // 3. Otherwise, reschedule the timer after TRIMMING_STATE_CHECK_DELAY.
+  RedisModule_Log(ctx, "notice", "Checking if we can start trimming migrated slots.");
   uint32_t current_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
   if (ASM_KeySpaceVersionTracker_GetQueryCount(current_version) == 0) {
+    RedisModule_Log(ctx, "notice", "No queries using the old version, Enabling trimming.");
     RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);
     ASM_StateMachine_StartTrim(slots); // Make sure that the keypace version is updated, so new queries will already see the new version.
     RedisModule_ReleaseClusterPolicy(ctx, REDISMODULE_CLUSTER_POLICY_NO_TRIM);
   } else {
+    RedisModule_Log(ctx, "notice", "Queries still using the old version, rescheduling check in %d milliseconds.", TRIMMING_STATE_CHECK_DELAY);
     checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, TRIMMING_STATE_CHECK_DELAY, checkTrimmingStateCallback, NULL);
   }
 }
@@ -365,6 +368,11 @@ static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
 static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
   RedisModuleSlotRangeArray *slots = (RedisModuleSlotRangeArray *)privdata;
   // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
+  RedisModule_Log(ctx, "notice", "Maximum delay reached. Enabling trimming.");
+  uint32_t current_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
+  if (ASM_KeySpaceVersionTracker_GetQueryCount(current_version) > 0) {
+    RedisModule_Log(ctx, "notice", "Queries still using the old version, potential result inaccuracy.");
+  }
   RedisModule_StopTimer(ctx, checkTrimmingStateTimerId, NULL);
   ASM_StateMachine_StartTrim(slots);  // Make sure that the keypace version is updated, so new queries will already see the new version.
   RedisModule_ReleaseClusterPolicy(ctx, REDISMODULE_CLUSTER_POLICY_NO_TRIM);
