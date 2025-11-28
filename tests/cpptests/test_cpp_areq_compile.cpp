@@ -29,7 +29,7 @@ protected:
 
     void SetUp() override {
         ctx = RedisModule_GetThreadSafeContext(NULL);
-        ASM_StateMachine_Reset();
+        ASM_StateMachine_Init();
         local_slots = createSlotRangeArray(0, 16383);
         ASM_StateMachine_SetLocalSlots(local_slots);
         // Just assume all slots are local for testing
@@ -38,7 +38,7 @@ protected:
     void TearDown() override {
         if (ctx) {
             RedisModule_FreeThreadSafeContext(ctx);
-            ASM_StateMachine_Reset();
+            ASM_StateMachine_Init();
         }
         if (local_slots) {
             rm_free(local_slots);

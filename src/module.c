@@ -73,6 +73,7 @@
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
+#include "asm_state_machine.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1584,6 +1585,7 @@ void RediSearch_CleanupModule(void) {
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(SchemaPrefixes_g);
+  ASM_StateMachine_End();
   // GeometryApi_Free();
 
   Dictionary_Free();

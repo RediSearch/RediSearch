@@ -51,7 +51,7 @@ static void freeSlotRangeArray(RedisModuleSlotRangeArray* array) {
 }
 
 int testInitialization() {
-  ASM_StateMachine_Reset();
+  ASM_StateMachine_Init();
   atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
   uint32_t initial_version = atomic_load_explicit(&key_space_version, memory_order_relaxed);
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(100, 199);
@@ -66,7 +66,7 @@ int testInitialization() {
 }
 
 int testImportWorkflow() {
-  ASM_StateMachine_Reset();
+  ASM_StateMachine_Init();
   atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
 
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(5, 20);
@@ -113,7 +113,7 @@ int testImportWorkflow() {
 }
 
 int testImportContinuousWorkflow() {
-  ASM_StateMachine_Reset();
+  ASM_StateMachine_Init();
   atomic_store_explicit(&key_space_version, 0, memory_order_relaxed);
 
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(5, 99);
@@ -158,7 +158,7 @@ int testImportContinuousWorkflow() {
 }
 
 int testMigrationTrimmingWorkflow() {
-  ASM_StateMachine_Reset();
+  ASM_StateMachine_Init();
   RedisModuleSlotRangeArray* init_slots = createSlotRangeArray(5, 199);
   RedisModuleSlotRangeArray* migration_slots = createSlotRangeArray(100, 199);
   RedisModuleSlotRangeArray* disjoint_slots = createSlotRangeArray(5, 99);
