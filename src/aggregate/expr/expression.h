@@ -106,7 +106,7 @@ typedef struct RSExpr {
   RSExprType t;
   union {
     RSExprOp op;
-    RSValue literal;
+    RSValue *literal;
     RSFunctionExpr func;
     RSPredicate pred;
     RSLookupExpr property;
