@@ -14,9 +14,7 @@
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
 #include "info/global_stats.h"
-extern "C" {
 #include "concurrent_ctx.h"
-}
 #include "common.h"
 #include <unistd.h>
 #include <atomic>

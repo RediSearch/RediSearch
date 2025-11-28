@@ -14,6 +14,10 @@
 #include "thpool/thpool.h"
 #include "util/references.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Concurrent Search Execution Context.
  */
 
@@ -57,5 +61,7 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           WeakRef spec_ref);
-
+#ifdef __cplusplus
+}
 #endif
+#endif // RS_CONCERRNT_CTX_
