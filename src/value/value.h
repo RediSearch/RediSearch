@@ -324,6 +324,13 @@ RSValue *RSValue_NewConstStringArray(char **strs, uint32_t szx);
  */
 RSValue *RSValue_NewTrio(RSValue *val, RSValue *otherval, RSValue *other2val);
 
+/**
+ * Creates a heap-allocated RSValue Reference pointing to another RSValue.
+ * @param src The source RSValue to reference (increases the refcount of src)
+ * @return A pointer to a heap-allocated RSValue of type RSValueType_Reference
+ */
+RSValue *RSValue_NewReference(RSValue *src);
+
 ///////////////////////////////////////////////////////////////
 // Getters and Setters (grouped by field)
 ///////////////////////////////////////////////////////////////
